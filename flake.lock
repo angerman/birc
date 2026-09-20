@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "bend-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789861503,
+        "narHash": "sha256-xiMdZ5cb6OkKEr5lPWyHIef5ELE5HAh558UUghLf4IM=",
+        "owner": "bendlang",
+        "repo": "bend",
+        "rev": "f38a7797a98e931ae99eb49881ff4bef127b34ca",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bendlang",
+        "repo": "bend",
+        "rev": "f38a7797a98e931ae99eb49881ff4bef127b34ca",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1789632929,
+        "narHash": "sha256-RjR8AyvGlWuw16XRj7C1YDEw4E27ciuyPeB2nDMzgTU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a32edd7654519351e48e80372a928df336394670",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "bend-src": "bend-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
