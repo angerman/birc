@@ -144,6 +144,60 @@ def send_pair(
         ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
         after_ui_send(ok, ui, st2, quit, evt, cmd, k)
 
+def with_keys_dn(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  quit: Bool,
+  enter: Bool,
+  bs: Bool,
+  +typed: String,
+  +tab: U32,
+  +click: U32,
+  +up: U32,
+  rest: U32 & U32,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match rest:
+    case (dn, _):
+      send_pair(ui, quit, evt, cmd, Sess.step_keys(st, typed, enter, bs, tab, click, up, dn), k)
+
+def with_keys_up(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  quit: Bool,
+  enter: Bool,
+  bs: Bool,
+  +typed: String,
+  +tab: U32,
+  +click: U32,
+  rest: U32 & U32 & U32,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match rest:
+    case (up, rest2):
+      with_keys_dn(ui, st, evt, cmd, quit, enter, bs, typed, tab, click, up, rest2, k)
+
+def with_keys_click(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  quit: Bool,
+  enter: Bool,
+  bs: Bool,
+  +typed: String,
+  +tab: U32,
+  rest: U32 & U32 & U32 & U32,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match rest:
+    case (click, rest2):
+      with_keys_up(ui, st, evt, cmd, quit, enter, bs, typed, tab, click, rest2, k)
+
 def with_keys_tab(
   ui: T.Ui,
   +st: Sess.Session,
@@ -153,12 +207,14 @@ def with_keys_tab(
   enter: Bool,
   bs: Bool,
   +typed: String,
-  rest: U32 & U32,
+  rest: U32 & U32 & U32 & U32 & U32 & U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
-    case (_, tab):
-      send_pair(ui, quit, evt, cmd, Sess.step_keys(st, typed, enter, bs, tab), k)
+    case (_, rest2):
+      match rest2:
+        case (tab, rest3):
+          with_keys_click(ui, st, evt, cmd, quit, enter, bs, typed, tab, rest3, k)
 
 def with_keys_typed(
   ui: T.Ui,
@@ -168,7 +224,7 @@ def with_keys_typed(
   quit: Bool,
   enter: Bool,
   bs: Bool,
-  rest: String & U32 & U32,
+  rest: String & U32 & U32 & U32 & U32 & U32 & U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
@@ -182,7 +238,7 @@ def with_keys_bs(
   +cmd: Chan(Sess.NetCmd),
   quit: Bool,
   enter: Bool,
-  rest: Bool & String & U32 & U32,
+  rest: Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
@@ -195,7 +251,7 @@ def with_keys_ent(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   quit: Bool,
-  rest: Bool & Bool & String & U32 & U32,
+  rest: Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
@@ -207,7 +263,7 @@ def with_keys(
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  keys: Bool & Bool & Bool & String & U32 & U32,
+  keys: Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
@@ -223,7 +279,7 @@ def with_tick(
 ) -> IO(Unit):
   do IO<Unit>:
     ui2 : T.Ui <- paint_session(ui, st)
-    keys : Bool & Bool & Bool & String & U32 & U32 <- T.Timui.keys()
+    keys : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- T.Timui.keys()
     with_keys(ui2, st, evt, cmd, keys, k)
 
 def chunk_sent(

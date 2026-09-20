@@ -33,6 +33,8 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_link", V.tokenize_has_link("see https://timui.dev x"))
     Unit <- E.must("tok_unclosed", V.unclosed_star_plain())
     Unit <- E.must("tok_no_italic", Bool.not(V.tokenize_has_italic("no marks")))
+    Unit <- E.must("page", Cl.scroll_page_ok())
+    Unit <- E.must("snap", Cl.snap_ok())
     Unit <- E.must("self_part", Cl.self_part_drops())
     # F8: roundtrip alone is satisfied by an identity tokenizer; require a Bold span.
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))

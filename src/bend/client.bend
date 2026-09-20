@@ -345,6 +345,69 @@ def set_active(+cl: Client, +i: Nat) -> Client:
     case Client{+nick, +server, +bufs, _}:
       Client{nick, server, bufs, i}
 
+def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
+  match ok:
+    case True{}:
+      set_active(cl, i)
+    case False{}:
+      cl
+
+def set_active_clamp(+cl: Client, +i: Nat) -> Client:
+  match cl:
+    case Client{_, _, +bufs, _}:
+      set_active_clamp.on(cl, i, Nat.is_lt(i, buf_count(bufs)))
+
+def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, _}:
+      Buffer{name, ch, topic, lines, nicks, sc}
+
+def snap_active.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, got: Maybe<&2, Buffer>) -> Client:
+  match got:
+    case None{}:
+      Client{nick, server, bufs, active}
+    case Some{b}:
+      Client{nick, server, set_nth_buf(bufs, active, set_buf_scroll(b, 0n)), active}
+
+def snap_active(+cl: Client) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active}:
+      snap_active.got(nick, server, bufs, active, nth_buf(bufs, active))
+
+def scroll_add_nat(+scroll: Nat, +up: Nat, +dn: Nat) -> Nat:
+  Nat.sub(Nat.add(scroll, up), dn)
+
+def apply_buf_scroll.on(+b: Buffer, +up: Nat, +dn: Nat) -> Buffer:
+  match b:
+    case Buffer{_, _, _, _, _, +scroll}:
+      set_buf_scroll(b, scroll_add_nat(scroll, up, dn))
+
+def apply_active_scroll.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +up: Nat, +dn: Nat, got: Maybe<&2, Buffer>) -> Client:
+  match got:
+    case None{}:
+      Client{nick, server, bufs, active}
+    case Some{b}:
+      Client{nick, server, set_nth_buf(bufs, active, apply_buf_scroll.on(b, up, dn)), active}
+
+def apply_active_scroll(+cl: Client, +up: Nat, +dn: Nat) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active}:
+      apply_active_scroll.got(nick, server, bufs, active, up, dn, nth_buf(bufs, active))
+
+def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
+  match got:
+    case None{}:
+      0n
+    case Some{b}:
+      match b:
+        case Buffer{_, _, _, _, _, +scroll}:
+          scroll
+
+def buf_scroll_of(+cl: Client, +i: Nat) -> Nat:
+  match cl:
+    case Client{_, _, +bufs, _}:
+      buf_scroll_of.on(nth_buf(bufs, i))
+
 def active_of(+cl: Client) -> Nat:
   match cl:
     case Client{_, _, _, +active}:
@@ -1142,6 +1205,17 @@ def buf_texts(+cl: Client, +i: Nat) -> String:
       buf_texts.on(nth_buf(bufs, i))
 
 # Self JOIN focuses #birc (index 1); next wraps to server (0), next again to 1.
+def scroll_page_ok() -> Bool:
+  +cl0 = set_active(feed(init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
+  +cl1 = apply_active_scroll(cl0, 3n, 0n)
+  Nat.is_eq(buf_scroll_of(cl1, 1n), 3n)
+
+def snap_ok() -> Bool:
+  +clq = set_active(feed(init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
+  +cl1 = apply_active_scroll(clq, 2n, 0n)
+  +cl2 = snap_active(cl1)
+  Nat.is_eq(buf_scroll_of(cl1, 1n), 2n) && Nat.is_eq(buf_scroll_of(cl2, 1n), 0n)
+
 def cycle_ok() -> Bool:
   +cl = feed(init("me", "s"), ":me!me@localhost JOIN #birc")
   +c1 = cycle_tab(cl, 1)

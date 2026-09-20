@@ -566,7 +566,11 @@ Term timui_keys_run(Env e, Term *f, IoWork *w) {
       io_tup(e, term_pak(birc_ui_backspace ? CID_TRUE : CID_FALSE, 0),
         io_tup(e, io_str(e, birc_ui_typed, birc_ui_typed_len),
           io_tup(e, (Term)(uint64_t)birc_ui_rows,
-            (Term)(uint64_t)birc_ui_tab)))));
+            io_tup(e, (Term)(uint64_t)birc_ui_tab,
+              io_tup(e, (Term)(uint64_t)birc_ui_click,
+                io_tup(e, (Term)(uint64_t)birc_ui_scroll_up,
+                  io_tup(e, (Term)(uint64_t)birc_ui_scroll_dn,
+                    (Term)(uint64_t)birc_ui_hist)))))))));
 }
 
 static void __attribute__((constructor)) timui_keys_use(void) {

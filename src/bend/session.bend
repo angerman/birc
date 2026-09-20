@@ -220,23 +220,45 @@ def session_online(+st: Session) -> Session:
     case Session{+cl, drop, +rem, +draft, joined, +chan, _}:
       Session{cl, drop, rem, draft, joined, chan, Online{}}
 
-def step_keys_got(
+def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
+  match z:
+    case True{}:
+      cl
+    case False{}:
+      Cl.set_active_clamp(cl, NatU.u32_to_nat(U32.sub(click, 1)))
+
+def apply_click(+cl: Cl.Client, +click: U32) -> Cl.Client:
+  apply_click.on(cl, click, U32.is_eq(click, 0))
+
+def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
+  match enter:
+    case True{}:
+      Cl.snap_active(cl)
+    case False{}:
+      cl
+
+def finish_keys(
   drop: Bool,
   +rem: String,
   joined: Bool,
   +chan: String,
-  +tab: U32,
   net: NetState,
+  enter: Bool,
+  +tab: U32,
+  +click: U32,
+  +up: U32,
+  +dn: U32,
   triple: Cl.Client & String & List<&2, String>
 ) -> Session & List<&2, String>:
   match triple:
     case (cl2, draft2, outs):
-      (Session{Cl.cycle_tab(cl2, tab), drop, rem, draft2, joined, chan, net}, outs)
+      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), NatU.u32_to_nat(up), NatU.u32_to_nat(dn)))
+      (Session{cl3, drop, rem, draft2, joined, chan, net}, outs)
 
-def step_keys(+st: Session, +typed: String, enter: Bool, bs: Bool, +tab: U32) -> Session & List<&2, String>:
+def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32) -> Session & List<&2, String>:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net}:
-      step_keys_got(drop, rem, joined, chan, tab, net, apply_keys(cl, draft, typed, enter, bs))
+      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, apply_keys(cl, draft, typed, enter, bs))
 
 def step_chunk_got(
   +draft: String,
