@@ -316,11 +316,11 @@ A/B/E/F can start in parallel (B rebases on A if both edit `view.bend`). C waits
 
 ### Milestone 8 exit
 
-- [ ] `make check` green.
-- [ ] `--demo` shows timestamps, kind colours, bold/italic/code, a live URL, nick table, rounded panels, tab bar.
-- [ ] Live: Shift+←/→, click tabs, PgUp/wheel, ↑/↓ history, `/quit` exits, `/connect` from composer if started in demo.
-- [ ] No `S:`/`Y:`/`M:` in the body. No `lines=scroll=h=`.
-- [ ] Laws for tokenize, cycle, scroll, hist cap, `/quit` halt, connect parse.
+- [x] `make check` green.
+- [x] `--demo` shows timestamps, kind colours, bold/italic/code, a live URL, nick table, rounded panels, tab bar.
+- [x] Live: Shift+←/→, click tabs, PgUp/wheel, ↑/↓ history, `/quit` exits, `/connect` from composer if started in demo.
+- [x] No `S:`/`Y:`/`M:` in the body. No `lines=scroll=h=`.
+- [x] Laws for tokenize, cycle, scroll, hist cap, `/quit` halt, connect parse.
 
 ---
 

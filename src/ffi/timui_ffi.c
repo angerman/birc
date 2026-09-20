@@ -430,16 +430,25 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       timui_label(fr, root.x, status_y,
                   (TimuiStr){status ? status : "", status ? (size_t)n4 : 0},
                   status_st);
-    if (input && input[0] && strcmp(birc_composer, input) != 0) {
+    if (input && strcmp(birc_composer, input) != 0) {
       size_t ilen = strlen(input);
       if (ilen >= sizeof birc_composer)
         ilen = sizeof birc_composer - 1;
       memcpy(birc_composer, input, ilen);
       birc_composer[ilen] = '\0';
       birc_composer_st.cursor = ilen;
+      birc_composer_st.scroll_x = 0;
     }
     if (draw_composer(fr, root.x, input_y, root.w, text))
       birc_ui_enter = 1;
+    else {
+      size_t n = strlen(birc_composer);
+      if (n >= sizeof birc_ui_typed)
+        n = sizeof birc_ui_typed - 1;
+      memcpy(birc_ui_typed, birc_composer, n);
+      birc_ui_typed[n] = '\0';
+      birc_ui_typed_len = n;
+    }
     if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
       birc_ui_tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))

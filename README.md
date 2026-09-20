@@ -19,6 +19,7 @@ make bootstrap   # once: lock Nix inputs
 make check       # proofs + Bend proto/feed/submit/frame/net + UI smoke
 make run-demo    # offline TimUI demo
 make run HOST=irc.example.net   # live plaintext IRC (hostname → IPv4 in shim)
+./build/birc --replay fixtures/demo.irc   # File.read → feed_all (fail closed)
 ```
 
 ## Layout

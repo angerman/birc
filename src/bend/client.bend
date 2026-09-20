@@ -161,7 +161,7 @@ def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer
       +lines2 = take_last(List.append(&2, Line, lines, Line{kind, ts, text} <> Nil{}), SCROLL_CAP())
       Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
 
-# Tests and feed pass ts="". Live may supply HH:MM:SS at the IO boundary.
+# Tests and feed pass ts="". Live/demo fill HH:MM:SS via stamp_client (clock arg).
 def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
   buf_log_ts(b, kind, "", text)
 
@@ -176,6 +176,105 @@ def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active}:
       client_log.on(nick, server, bufs, active, i, kind, text, nth_buf(bufs, i))
+
+def stamp_line.on(kind: LineKind, +old: String, +text: String, +ts: String, empty: Bool) -> Line:
+  match empty:
+    case True{}:
+      Line{kind, ts, text}
+    case False{}:
+      Line{kind, old, text}
+
+def stamp_line(+ln: Line, +ts: String) -> Line:
+  match ln:
+    case Line{kind, +old, +text}:
+      stamp_line.on(kind, old, text, ts, String.is_empty(old))
+
+type StampAcc is Data:
+  StampAcc{ts: String, acc: List<&2, Line>}
+
+def stamp_lines.step(st: StampAcc, ln: Line) -> StampAcc:
+  match st:
+    case StampAcc{+ts, acc}:
+      StampAcc{ts, stamp_line(ln, ts) <> acc}
+
+def stamp_lines.fin(st: StampAcc) -> List<&2, Line>:
+  match st:
+    case StampAcc{_, acc}:
+      List.reverse(&2, Line, acc)
+
+def stamp_lines(+xs: List<&2, Line>, +ts: String) -> List<&2, Line>:
+  stamp_lines.fin(List.foldl(~&2, ~Line, ~StampAcc, ~stamp_lines.step, xs, StampAcc{ts, Nil{}}))
+
+def stamp_buf(+b: Buffer, +ts: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{name, ch, topic, stamp_lines(lines, ts), nicks, scroll}
+
+type StampBufAcc is Data:
+  StampBufAcc{ts: String, acc: List<&2, Buffer>}
+
+def stamp_bufs.step(st: StampBufAcc, b: Buffer) -> StampBufAcc:
+  match st:
+    case StampBufAcc{+ts, acc}:
+      StampBufAcc{ts, stamp_buf(b, ts) <> acc}
+
+def stamp_bufs.fin(st: StampBufAcc) -> List<&2, Buffer>:
+  match st:
+    case StampBufAcc{_, acc}:
+      List.reverse(&2, Buffer, acc)
+
+def stamp_client(+cl: Client, +ts: String) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active}:
+      Client{nick, server, stamp_bufs.fin(List.foldl(~&2, ~Buffer, ~StampBufAcc, ~stamp_bufs.step, bufs, StampBufAcc{ts, Nil{}})), active}
+
+def stamp_ok.on(+got: String) -> Bool:
+  String.eq(got, "12:00:00")
+
+def stamp_ok.line(ln: Line) -> Bool:
+  match ln:
+    case Line{_, +ts, _}:
+      stamp_ok.on(ts)
+
+def stamp_ok.keep(ln: Line) -> Bool:
+  match ln:
+    case Line{_, +ts, _}:
+      String.eq(ts, "01:02:03")
+
+def stamp_ok() -> Bool:
+  stamp_ok.line(stamp_line(Line{Msg{}, "", "x"}, "12:00:00"))
+    && stamp_ok.keep(stamp_line(Line{Msg{}, "01:02:03", "y"}, "12:00:00"))
+
+def strip_cr.on(+s: String, cr: Bool) -> String:
+  match cr:
+    case True{}:
+      String.take(s, Nat.sub(String.length(s), 1n))
+    case False{}:
+      s
+
+def strip_cr.rev(+s: String, rev: String) -> String:
+  match rev:
+    case SNil{}:
+      s
+    case SCon{+h, _}:
+      strip_cr.on(s, Irc.code_is(h, 13))
+
+def strip_cr(+s: String) -> String:
+  strip_cr.rev(s, String.reverse(s))
+
+def replay_keep.cons(acc: List<&2, String>, +s: String, empty: Bool) -> List<&2, String>:
+  match empty:
+    case True{}:
+      acc
+    case False{}:
+      s <> acc
+
+def replay_step(acc: List<&2, String>, h: String) -> List<&2, String>:
+  +s = strip_cr(h)
+  replay_keep.cons(acc, s, String.is_empty(s))
+
+def replay_lines(+text: String) -> List<&2, String>:
+  List.reverse(&2, String, List.foldl(~&2, ~String, ~List<&2, String>, ~replay_step, String.lines(text), Nil{}))
 
 # ---- nicks --------------------------------------------------------------
 
@@ -461,6 +560,11 @@ def cycle_tab(+cl: Client, +dir: U32) -> Client:
 def set_nick(+cl: Client, +nick: String) -> Client:
   match cl:
     case Client{_, +server, +bufs, +active}:
+      Client{nick, server, bufs, active}
+
+def set_server(+cl: Client, +server: String) -> Client:
+  match cl:
+    case Client{+nick, _, +bufs, +active}:
       Client{nick, server, bufs, active}
 
 # ---- drop buffer (PART/KICK self) ---------------------------------------

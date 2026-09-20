@@ -131,6 +131,15 @@ def Laws.submit_halt():
 def Laws.connect_parse():
   {==}
 
+def Laws.connect_dial():
+  {==}
+
+def Laws.fmt_hms_ok():
+  {==}
+
+def Laws.stamp_ok():
+  {==}
+
 def Laws.overlong_text_drop():
   {==}
 

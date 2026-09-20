@@ -144,6 +144,8 @@ type NetEvt is Data:
   Chunk{text: String}
   Eof{}
   Tick{}
+  Up{}
+  Fail{msg: String}
 
 type NetCmd is Data:
   Cont{outs: List<&2, String>}
@@ -167,21 +169,6 @@ def draft_bs(+s: String, bs: Bool) -> String:
 def draft_typed(+s: String, +text: String) -> String:
   s ++ text
 
-def submit_enter(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & List<&2, String>:
-  match pair:
-    case (cl2, outs):
-      (cl2, "", outs)
-
-def submit_pair(+cl: Cl.Client, +draft: String, enter: Bool) -> Cl.Client & String & List<&2, String>:
-  match enter:
-    case False{}:
-      (cl, draft, Nil{})
-    case True{}:
-      submit_enter(Sub.submit(cl, draft))
-
-def apply_keys(+cl: Cl.Client, +draft: String, +typed: String, enter: Bool, bs: Bool) -> Cl.Client & String & List<&2, String>:
-  submit_pair(cl, draft_typed(draft_bs(draft, bs), typed), enter)
-
 type NetState is Data:
   Demo{}
   Connecting{}
@@ -201,6 +188,75 @@ def net_label(st: NetState) -> String:
 
 def net_demo_ok() -> Bool:
   String.eq(net_label(Demo{}), "demo") && String.eq(net_label(Online{}), "online")
+
+def is_online(st: NetState) -> Bool:
+  match st:
+    case Online{}:
+      True{}
+    case Demo{}:
+      False{}
+    case Connecting{}:
+      False{}
+    case Offline{}:
+      False{}
+
+def show_netcmd(c: NetCmd) -> String:
+  match c:
+    case Cont{_}:
+      "cont"
+    case Stop{}:
+      "stop"
+    case Dial{+host, port}:
+      "dial:" ++ host ++ ":" ++ U32.show(port)
+
+def wrap_outs(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
+  match pair:
+    case (cl2, outs):
+      (cl2, "", Cont{outs})
+
+def connect_apply.on(+cl: Cl.Client, +host: String, +port: U32, online: Bool) -> Cl.Client & String & NetCmd:
+  match online:
+    case True{}:
+      (Sub.echo_err_server(cl, "already connected"), "", Cont{Nil{}})
+    case False{}:
+      (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port})
+
+def connect_apply(+cl: Cl.Client, net: NetState, c: Sub.Conn) -> Cl.Client & String & NetCmd:
+  match c:
+    case Sub.ConnBad{}:
+      (Sub.echo_err(cl, "usage: /connect host [port]"), "", Cont{Nil{}})
+    case Sub.ConnOk{+host, port}:
+      connect_apply.on(cl, host, port, is_online(net))
+
+def submit_pair.enter(+cl: Cl.Client, net: NetState, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
+  match conn:
+    case True{}:
+      connect_apply(cl, net, Sub.connect_from_input(draft))
+    case False{}:
+      wrap_outs(Sub.submit(cl, draft))
+
+def submit_pair(+cl: Cl.Client, net: NetState, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
+  match enter:
+    case False{}:
+      (cl, draft, Cont{Nil{}})
+    case True{}:
+      submit_pair.enter(cl, net, draft, Sub.submit_is_connect(draft))
+
+def apply_keys(+cl: Cl.Client, net: NetState, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
+  submit_pair(cl, net, draft, enter)
+
+def cmd_connect.got(triple: Cl.Client & String & NetCmd) -> NetCmd:
+  match triple:
+    case (_, _, c):
+      c
+
+def cmd_connect(+net: NetState, +input: String) -> NetCmd:
+  cmd_connect.got(connect_apply(Cl.init("me", "s"), net, Sub.connect_from_input(input)))
+
+def cmd_connect_ok() -> Bool:
+  String.eq(show_netcmd(cmd_connect(Demo{}, "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
+    && String.eq(show_netcmd(cmd_connect(Online{}, "/connect irc.example.net")), "cont")
+    && String.eq(show_netcmd(cmd_connect(Demo{}, "/connect")), "cont")
 
 type Hist is Data:
   Hist{lines: List<&2, String>, pos: Nat}
@@ -333,10 +389,43 @@ type Session is Data:
 def session0(+nick: String, +host: String, +chan: String) -> Session:
   Session{Cl.init(nick, host), False{}, "", "", False{}, chan, Connecting{}, hist0()}
 
+def session_demo(+cl: Cl.Client, +chan: String) -> Session:
+  Session{cl, False{}, "", "", True{}, chan, Demo{}, hist0()}
+
 def session_online(+st: Session) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist}:
       Session{cl, drop, rem, draft, joined, chan, Online{}, hist}
+
+def session_offline(+st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist}:
+      Session{cl, drop, rem, draft, joined, chan, Offline{}, hist}
+
+def session_fail.got(+msg: String, +st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist}:
+      Session{Sub.echo_err_server(cl, msg), drop, rem, draft, joined, chan, Offline{}, hist}
+
+def session_fail(+st: Session, +msg: String) -> Session:
+  session_fail.got(msg, st)
+
+def stamp_session(+st: Session, +ts: String) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist}:
+      Session{Cl.stamp_client(cl, ts), drop, rem, draft, joined, chan, net, hist}
+
+def session_after.dial(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, +chan: String, +hist: Hist, +host: String) -> Session:
+  Session{Cl.set_server(cl, host), drop, rem, draft, False{}, chan, Connecting{}, hist}
+
+def session_after(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, cmd: NetCmd) -> Session:
+  match cmd:
+    case Dial{+host, _}:
+      session_after.dial(cl, drop, rem, draft, chan, hist, host)
+    case Cont{_}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist}
+    case Stop{}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist}
 
 def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
   match z:
@@ -369,13 +458,13 @@ def finish_hist(
   +chan: String,
   net: NetState,
   +cl3: Cl.Client,
-  +outs: List<&2, String>,
+  +cmd: NetCmd,
   halt: Bool,
   pair: Hist & String
-) -> Session & List<&2, String> & Bool:
+) -> Session & NetCmd & Bool:
   match pair:
     case (h2, draft3):
-      (Session{cl3, drop, rem, draft3, joined, chan, net, h2}, outs, halt)
+      (session_after(cl3, drop, rem, draft3, joined, chan, net, h2, cmd), cmd, halt)
 
 def finish_keys(
   drop: Bool,
@@ -391,19 +480,26 @@ def finish_keys(
   +hcmd: U32,
   +hist: Hist,
   +line: String,
-  triple: Cl.Client & String & List<&2, String>
-) -> Session & List<&2, String> & Bool:
+  triple: Cl.Client & String & NetCmd
+) -> Session & NetCmd & Bool:
   match triple:
-    case (cl2, draft2, outs):
+    case (cl2, draft2, cmd):
       +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), NatU.u32_to_nat(up), NatU.u32_to_nat(dn)))
       +h2 = hist_after_enter(hist, line, enter)
-      finish_hist(drop, rem, joined, chan, net, cl3, outs, halt_of(enter, line), hist_move(h2, draft2, hcmd))
+      finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, line), hist_move(h2, draft2, hcmd))
 
-def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & List<&2, String> & Bool:
+def live_line(+typed: String, bs: Bool) -> String:
+  match bs:
+    case True{}:
+      typed
+    case False{}:
+      typed
+
+def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist}:
-      +line = draft_typed(draft_bs(draft, bs), typed)
-      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, hcmd, hist, line, apply_keys(cl, line, "", enter, False{}))
+    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist}:
+      +line = live_line(typed, bs)
+      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, hcmd, hist, line, apply_keys(cl, net, line, enter))
 
 def step_chunk_got(
   +draft: String,

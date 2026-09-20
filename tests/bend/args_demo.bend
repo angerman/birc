@@ -22,12 +22,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "default",
       Args.show_parsed(Args.parse(Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc"
+      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay="
     )
     Unit <- E.must_eq(
       "connect",
       Args.show_parsed(Args.parse(xs_live())),
-      "good:demo=False frames=4 host=10.0.0.1 port=6667 nick=z chan=#x"
+      "good:demo=False frames=4 host=10.0.0.1 port=6667 nick=z chan=#x replay="
     )
     Unit <- E.must_eq(
       "missing_connect",
@@ -47,11 +47,21 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "help",
       Args.show_parsed(Args.parse(xs1("--help"))),
-      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c]"
+      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",
       Args.show_parsed(Args.parse("--connect" <> "10.0.0.1" <> "--demo" <> Nil{})),
-      "good:demo=True frames=0 host=10.0.0.1 port=6667 nick=birc chan=#birc"
+      "good:demo=True frames=0 host=10.0.0.1 port=6667 nick=birc chan=#birc replay="
+    )
+    Unit <- E.must_eq(
+      "replay",
+      Args.show_parsed(Args.parse(xs2("--replay", "fixtures/demo.irc"))),
+      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay=fixtures/demo.irc"
+    )
+    Unit <- E.must_eq(
+      "missing_replay",
+      Args.show_parsed(Args.parse(xs1("--replay"))),
+      "bad:birc: missing value"
     )
     IO.print("args_demo=ok")

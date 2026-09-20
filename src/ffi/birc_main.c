@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--help") == 0) {
       fprintf(stderr,
               "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] "
-              "[--channel #c]\n");
+              "[--channel #c] [--replay FILE] [--demo]\n");
       return 2;
     }
   }

@@ -84,6 +84,12 @@ def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, active_idx(cl), Cl.Error{}, msg)
 
+def echo_sys(+cl: Cl.Client, +msg: String) -> Cl.Client:
+  Cl.client_log(cl, 0n, Cl.System{}, msg)
+
+def echo_err_server(+cl: Cl.Client, +msg: String) -> Cl.Client:
+  Cl.client_log(cl, 0n, Cl.Error{}, msg)
+
 # ---- /join --------------------------------------------------------------
 
 def submit_join.got(pair: Cl.Client & Nat, +rest: String) -> Cl.Client & List<&2, String>:
@@ -237,6 +243,51 @@ def submit_quit(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 def submit_unknown(+cl: Cl.Client, +verb: String) -> Cl.Client & List<&2, String>:
   (echo_err(cl, "unknown command: /" ++ verb), empty_out())
 
+type Conn is Data:
+  ConnBad{}
+  ConnOk{host: String, port: U32}
+
+def connect_port.num(+host: String, n: Args.Num) -> Conn:
+  match n:
+    case Args.Num{ok, p}:
+      match ok:
+        case True{}:
+          ConnOk{host, p}
+        case False{}:
+          ConnBad{}
+
+def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
+  match empty:
+    case True{}:
+      ConnOk{host, 6667}
+    case False{}:
+      connect_port.num(host, Args.parse_u32(more))
+
+def connect_parse.host(+host: String, +more: String, empty: Bool) -> Conn:
+  match empty:
+    case True{}:
+      ConnBad{}
+    case False{}:
+      connect_port.on(host, more, String.is_empty(more))
+
+def connect_parse.words(pair: String & String) -> Conn:
+  match pair:
+    case (+host, +more):
+      connect_parse.host(host, more, String.is_empty(host))
+
+def connect_parse(+rest: String) -> Conn:
+  connect_parse.words(take_word(Irc.drop_spaces(rest)))
+
+def submit_connect.on(+cl: Cl.Client, c: Conn) -> Cl.Client & List<&2, String>:
+  match c:
+    case ConnBad{}:
+      (echo_err(cl, "usage: /connect host [port]"), empty_out())
+    case ConnOk{+host, port}:
+      (echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), empty_out())
+
+def submit_connect(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_connect.on(cl, connect_parse(rest))
+
 type Slash is Data:
   Join{}
   Part{}
@@ -244,21 +295,29 @@ type Slash is Data:
   Nick{}
   Me{}
   Quit{}
+  Connect{}
   Unknown{}
 
-def slash_quit(hit: Bool) -> Slash:
+def slash_connect(hit: Bool) -> Slash:
+  match hit:
+    case True{}:
+      Connect{}
+    case False{}:
+      Unknown{}
+
+def slash_quit(hit: Bool, +verb: String) -> Slash:
   match hit:
     case True{}:
       Quit{}
     case False{}:
-      Unknown{}
+      slash_connect(Irc.ieq(verb, "connect"))
 
 def slash_me(hit: Bool, +verb: String) -> Slash:
   match hit:
     case True{}:
       Me{}
     case False{}:
-      slash_quit(Irc.ieq(verb, "quit"))
+      slash_quit(Irc.ieq(verb, "quit"), verb)
 
 def slash_nick(hit: Bool, +verb: String) -> Slash:
   match hit:
@@ -305,6 +364,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_me(cl, rest)
     case Quit{}:
       submit_quit(cl, rest)
+    case Connect{}:
+      submit_connect(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 
@@ -413,40 +474,42 @@ def submit_is_quit(+input: String) -> Bool:
 def submit_halt_ok() -> Bool:
   submit_is_quit("/quit") && submit_is_quit("/quit bye") && Bool.not(submit_is_quit("hello")) && Bool.not(submit_is_quit("/join #x"))
 
-type Conn is Data:
-  ConnBad{}
-  ConnOk{host: String, port: U32}
-
-def connect_port.num(+host: String, n: Args.Num) -> Conn:
-  match n:
-    case Args.Num{ok, p}:
-      match ok:
-        case True{}:
-          ConnOk{host, p}
-        case False{}:
-          ConnBad{}
-
-def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
-  match empty:
+def connect_verb.on(hit: Bool) -> Bool:
+  match hit:
     case True{}:
-      ConnOk{host, 6667}
+      True{}
     case False{}:
-      connect_port.num(host, Args.parse_u32(more))
+      False{}
 
-def connect_parse.host(+host: String, +more: String, empty: Bool) -> Conn:
-  match empty:
-    case True{}:
-      ConnBad{}
-    case False{}:
-      connect_port.on(host, more, String.is_empty(more))
-
-def connect_parse.words(pair: String & String) -> Conn:
+def connect_verb(pair: String & String) -> Bool:
   match pair:
-    case (+host, +more):
-      connect_parse.host(host, more, String.is_empty(host))
+    case (+verb, _):
+      connect_verb.on(Irc.ieq(verb, "connect"))
 
-def connect_parse(+rest: String) -> Conn:
-  connect_parse.words(take_word(Irc.drop_spaces(rest)))
+def submit_is_connect.on(+input: String, slash: Bool) -> Bool:
+  match slash:
+    case True{}:
+      connect_verb(take_verb(skip_slash(input)))
+    case False{}:
+      False{}
+
+def submit_is_connect(+input: String) -> Bool:
+  submit_is_connect.on(input, submit.is_slash(input))
+
+def connect_from_input.on(pair: String & String) -> Conn:
+  match pair:
+    case (_, +rest):
+      connect_parse(Irc.drop_spaces(rest))
+
+def connect_from_input.slash(+input: String, slash: Bool) -> Conn:
+  match slash:
+    case True{}:
+      connect_from_input.on(take_verb(skip_slash(input)))
+    case False{}:
+      ConnBad{}
+
+def connect_from_input(+input: String) -> Conn:
+  connect_from_input.slash(input, submit.is_slash(input))
 
 def connect_parse_ok.on(c: Conn) -> Bool:
   match c:

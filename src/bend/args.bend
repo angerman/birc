@@ -2,7 +2,7 @@
 import Base
 
 type Cfg is Data:
-  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String}
+  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String}
 
 type Parsed is Data:
   Good{cfg: Cfg}
@@ -15,12 +15,13 @@ type ArgPh is Data:
   PhPort{}
   PhNick{}
   PhChan{}
+  PhReplay{}
 
 type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", 6667, "birc", "#birc"}
+  Cfg{True{}, 0, "", 6667, "birc", "#birc", ""}
 
 type NumPh is Data:
   NStr{}
@@ -73,33 +74,38 @@ def parse_u32(+s: String) -> Num:
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, _, +host, port, +nick, +chan}:
-      Cfg{demo, n, host, port, nick, chan}
+    case Cfg{demo, _, +host, port, +nick, +chan, +replay}:
+      Cfg{demo, n, host, port, nick, chan, replay}
 
 def set_host(+cfg: Cfg, +host: String) -> Cfg:
   match cfg:
-    case Cfg{_, frames, _, port, +nick, +chan}:
-      Cfg{False{}, frames, host, port, nick, chan}
+    case Cfg{_, frames, _, port, +nick, +chan, +replay}:
+      Cfg{False{}, frames, host, port, nick, chan, replay}
 
 def set_port(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, _, +nick, +chan}:
-      Cfg{demo, frames, host, n, nick, chan}
+    case Cfg{demo, frames, +host, _, +nick, +chan, +replay}:
+      Cfg{demo, frames, host, n, nick, chan, replay}
 
 def set_nick(+cfg: Cfg, +nick: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, _, +chan}:
-      Cfg{demo, frames, host, port, nick, chan}
+    case Cfg{demo, frames, +host, port, _, +chan, +replay}:
+      Cfg{demo, frames, host, port, nick, chan, replay}
 
 def set_chan(+cfg: Cfg, +chan: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, _}:
-      Cfg{demo, frames, host, port, nick, chan}
+    case Cfg{demo, frames, +host, port, +nick, _, +replay}:
+      Cfg{demo, frames, host, port, nick, chan, replay}
+
+def set_replay(+cfg: Cfg, +replay: String) -> Cfg:
+  match cfg:
+    case Cfg{demo, frames, +host, port, +nick, +chan, _}:
+      Cfg{demo, frames, host, port, nick, chan, replay}
 
 def set_demo(+cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{_, frames, +host, port, +nick, +chan}:
-      Cfg{True{}, frames, host, port, nick, chan}
+    case Cfg{_, frames, +host, port, +nick, +chan, +replay}:
+      Cfg{True{}, frames, host, port, nick, chan, replay}
 
 type Step is Data:
   Go{phase: ArgPh, xs: List<&2, String>, cfg: Cfg}
@@ -192,61 +198,85 @@ def args_chan_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
 def args_chan(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   args_chan_on(xs, cfg, args_need(xs))
 
+def args_replay_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  match xs:
+    case Nil{}:
+      Stop{Bad{"birc: missing value"}}
+    case Con{+h, t}:
+      Go{PhFlag{}, t, set_replay(cfg, h)}
+
+def args_replay_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
+  match need:
+    case True{}:
+      Stop{Bad{"birc: missing value"}}
+    case False{}:
+      args_replay_con(xs, cfg)
+
+def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  args_replay_on(xs, cfg, args_need(xs))
+
 def args_which7(+h: String, help: Bool) -> Step:
   match help:
     case True{}:
-      Stop{Bad{"usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c]"}}
+      Stop{Bad{"usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo]"}}
     case False{}:
       Stop{Bad{"birc: unknown option " ++ h}}
 
-def args_which6(+t: List<&2, String>, +cfg: Cfg, +h: String, chan: Bool, help: Bool) -> Step:
+def args_which6(+t: List<&2, String>, +cfg: Cfg, +h: String, replay: Bool, help: Bool) -> Step:
+  match replay:
+    case True{}:
+      args_replay(t, cfg)
+    case False{}:
+      args_which7(h, help)
+
+def args_which_chan(+t: List<&2, String>, +cfg: Cfg, +h: String, chan: Bool, replay: Bool, help: Bool) -> Step:
   match chan:
     case True{}:
       args_chan(t, cfg)
     case False{}:
-      args_which7(h, help)
+      args_which6(t, cfg, h, replay, help)
 
-def args_which5(+t: List<&2, String>, +cfg: Cfg, +h: String, nick: Bool, chan: Bool, help: Bool) -> Step:
+def args_which5(+t: List<&2, String>, +cfg: Cfg, +h: String, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
   match nick:
     case True{}:
       args_word(t, cfg, False{})
     case False{}:
-      args_which6(t, cfg, h, chan, help)
+      args_which_chan(t, cfg, h, chan, replay, help)
 
-def args_which4(+t: List<&2, String>, +cfg: Cfg, +h: String, port: Bool, nick: Bool, chan: Bool, help: Bool) -> Step:
+def args_which4(+t: List<&2, String>, +cfg: Cfg, +h: String, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
   match port:
     case True{}:
       args_take(t, cfg, False{})
     case False{}:
-      args_which5(t, cfg, h, nick, chan, help)
+      args_which5(t, cfg, h, nick, chan, replay, help)
 
-def args_which3(+t: List<&2, String>, +cfg: Cfg, +h: String, connect: Bool, port: Bool, nick: Bool, chan: Bool, help: Bool) -> Step:
+def args_which3(+t: List<&2, String>, +cfg: Cfg, +h: String, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
   match connect:
     case True{}:
       args_word(t, cfg, True{})
     case False{}:
-      args_which4(t, cfg, h, port, nick, chan, help)
+      args_which4(t, cfg, h, port, nick, chan, replay, help)
 
-def args_which2(+t: List<&2, String>, +cfg: Cfg, +h: String, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, help: Bool) -> Step:
+def args_which2(+t: List<&2, String>, +cfg: Cfg, +h: String, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
   match frames:
     case True{}:
       args_take(t, cfg, True{})
     case False{}:
-      args_which3(t, cfg, h, connect, port, nick, chan, help)
+      args_which3(t, cfg, h, connect, port, nick, chan, replay, help)
 
-def args_which(+t: List<&2, String>, +cfg: Cfg, +h: String, demo: Bool, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, help: Bool) -> Step:
+def args_which(+t: List<&2, String>, +cfg: Cfg, +h: String, demo: Bool, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
   match demo:
     case True{}:
       Go{PhFlag{}, t, set_demo(cfg)}
     case False{}:
-      args_which2(t, cfg, h, frames, connect, port, nick, chan, help)
+      args_which2(t, cfg, h, frames, connect, port, nick, chan, replay, help)
 
 def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
     case Nil{}:
       Stop{Good{cfg}}
     case Con{+h, t}:
-      args_which(t, cfg, h, String.eq(h, "--demo"), String.eq(h, "--frames"), String.eq(h, "--connect"), String.eq(h, "--port"), String.eq(h, "--nick"), String.eq(h, "--channel"), String.eq(h, "--help"))
+      args_which(t, cfg, h, String.eq(h, "--demo"), String.eq(h, "--frames"), String.eq(h, "--connect"), String.eq(h, "--port"), String.eq(h, "--nick"), String.eq(h, "--channel"), String.eq(h, "--replay"), String.eq(h, "--help"))
 
 def args_step(phase: ArgPh, +xs: List<&2, String>, +cfg: Cfg) -> Step:
   match phase:
@@ -262,6 +292,8 @@ def args_step(phase: ArgPh, +xs: List<&2, String>, +cfg: Cfg) -> Step:
       args_word(xs, cfg, False{})
     case PhChan{}:
       args_chan(xs, cfg)
+    case PhReplay{}:
+      args_replay(xs, cfg)
 
 def args_go(fuel: Nat, st: Step) -> Parsed:
   match fuel:
@@ -293,13 +325,14 @@ def parse_raw(raw: List<&1, String>) -> Parsed:
 
 def show_cfg(+cfg: Cfg) -> String:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan}:
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay}:
       "demo=" ++ Bool.show(demo)
         ++ " frames=" ++ U32.show(frames)
         ++ " host=" ++ host
         ++ " port=" ++ U32.show(port)
         ++ " nick=" ++ nick
         ++ " chan=" ++ chan
+        ++ " replay=" ++ replay
 
 def show_parsed(p: Parsed) -> String:
   match p:

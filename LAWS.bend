@@ -6,6 +6,7 @@ import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Net
+import ./src/bend/clock.bend as Clock
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -170,6 +171,18 @@ law submit_halt:
 # LAW: /connect host port parses.
 law connect_parse:
   {Sub.connect_parse_ok() == True{} : Bool}
+
+# LAW: /connect from demo yields Dial; online is a no-op Cont.
+law connect_dial:
+  {Net.cmd_connect_ok() == True{} : Bool}
+
+# LAW: HH:MM:SS pad is two digits.
+law fmt_hms_ok:
+  {Clock.fmt_hms_ok() == True{} : Bool}
+
+# LAW: stamp fills empty ts and keeps a set timestamp.
+law stamp_ok:
+  {Cl.stamp_ok() == True{} : Bool}
 
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:

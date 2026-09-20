@@ -11,6 +11,8 @@ import ./view.bend as V
 import ./timui.bend as T
 import ./session.bend as Sess
 import ./paint.bend as Paint
+import ./clock.bend as Clock
+import ./dns.bend as Dns
 
 def send_go_r(s: Socket, r: Result<&1, &1, (U32 & String), Unit>) -> IO(Socket & Bool):
   match r:
@@ -142,15 +144,15 @@ def send_pair(
   quit: Bool,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  pair: Sess.Session & List<&2, String> & Bool,
+  pair: Sess.Session & Sess.NetCmd & Bool,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
     case (+st2, rest):
       match rest:
-        case (+outs, halt):
+        case (+ncmd, halt):
           do IO<Unit>:
-            ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
+            ok : Bool <- Chan.send(Sess.NetCmd, cmd, ncmd)
             after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
 def with_keys_dn(
@@ -279,6 +281,28 @@ def with_keys(
     case (quit, rest):
       with_keys_ent(ui, st, evt, cmd, quit, rest, k)
 
+def with_tick.paint(
+  ui: T.Ui,
+  +st2: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    ui2 : T.Ui <- paint_session(ui, st2)
+    keys : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- T.Timui.keys()
+    with_keys(ui2, st2, evt, cmd, keys, k)
+
+def with_tick.stamp(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ts: String,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  with_tick.paint(ui, Sess.stamp_session(st, ts), evt, cmd, k)
+
 def with_tick(
   ui: T.Ui,
   +st: Sess.Session,
@@ -287,9 +311,8 @@ def with_tick(
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ui2 : T.Ui <- paint_session(ui, st)
-    keys : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- T.Timui.keys()
-    with_keys(ui2, st, evt, cmd, keys, k)
+    ts : String <- Clock.hhmmss()
+    with_tick.stamp(ui, st, evt, cmd, ts, k)
 
 def chunk_sent(
   ok: Bool,
@@ -343,6 +366,10 @@ def on_evt_some(
       with_tick(ui, st, evt, cmd, k)
     case Sess.Chunk{+text}:
       with_chunk(ui, st, evt, cmd, text, k)
+    case Sess.Up{}:
+      with_tick(ui, Sess.session_online(st), evt, cmd, k)
+    case Sess.Fail{+msg}:
+      with_tick(ui, Sess.session_fail(st, msg), evt, cmd, k)
 
 def on_evt(
   g: Maybe<&1, Sess.NetEvt>,
@@ -733,3 +760,227 @@ def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: Stri
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     boot0 : Chan(Boot) <- Chan.new(Boot, 1)
     run_live_on(frames, host, port, nick, chan, evt0, cmd0, boot0)
+
+def idle_die(+evt: Chan(Sess.NetEvt)) -> IO(Unit):
+  Chan.close(Sess.NetEvt, evt)
+
+def idle_again(
+  ok: Bool,
+  +evt: Chan(Sess.NetEvt),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match ok:
+    case False{}:
+      idle_die(evt)
+    case True{}:
+      k(Unit{})
+
+def idle_fail(
+  +evt: Chan(Sess.NetEvt),
+  +msg: String,
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Fail{msg})
+    idle_again(ok, evt, k)
+
+def idle_up(
+  ok: Bool,
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  match ok:
+    case False{}:
+      reader_die(sock, evt)
+    case True{}:
+      reader_start(frames, sock, evt, cmd)
+
+def idle_reg.fail(
+  sock: Socket,
+  +evt: Chan(Sess.NetEvt),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Socket.close(sock)
+    idle_fail(evt, "register send failed", k)
+
+def idle_reg.ok(
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  do IO<Unit>:
+    up : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Up{})
+    idle_up(up, sock, frames, evt, cmd)
+
+def idle_reg(
+  pair: Socket & Bool,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match pair:
+    case (s, ok):
+      match ok:
+        case False{}:
+          idle_reg.fail(s, evt, k)
+        case True{}:
+          idle_reg.ok(s, frames, evt, cmd)
+
+def idle_conn(
+  r: Result<&1, &1, (U32 & String), Socket>,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          idle_fail(evt, msg, k)
+    case Done{s}:
+      do IO<Unit>:
+        pair : Socket & Bool <- register(s, nick)
+        idle_reg(pair, frames, evt, cmd, k)
+
+def idle_dns(
+  r: Result<&1, &1, U32 & String, String>,
+  +port: U32,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          idle_fail(evt, msg, k)
+    case Done{+ip}:
+      do IO<Unit>:
+        cr : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(ip, port)
+        idle_conn(cr, nick, frames, evt, cmd, k)
+
+def idle_dial(
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
+    idle_dns(r, port, nick, frames, evt, cmd, k)
+
+def idle_on_cmd(
+  g: Maybe<&1, Sess.NetCmd>,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match g:
+    case None{}:
+      idle_die(evt)
+    case Some{c}:
+      match c:
+        case Sess.Stop{}:
+          idle_die(evt)
+        case Sess.Cont{_}:
+          k(Unit{})
+        case Sess.Dial{+host, port}:
+          idle_dial(host, port, nick, frames, evt, cmd, k)
+
+def idle_after_tick(
+  ok: Bool,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit)
+) -> IO(Unit):
+  match ok:
+    case False{}:
+      idle_die(evt)
+    case True{}:
+      do IO<Unit>:
+        next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+        idle_on_cmd(next, nick, frames, evt, cmd, k)
+
+def idle_go(
+  fuel: Nat,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  match fuel:
+    case 0n:
+      idle_die(evt)
+    case 1n+p:
+      do IO<Unit>:
+        ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
+        idle_after_tick(ok, nick, frames, evt, cmd, u => idle_go(p, nick, frames, evt, cmd))
+
+@unsafe
+def idle_idle(
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
+    idle_after_tick(ok, nick, frames, evt, cmd, u => idle_idle(nick, frames, evt, cmd))
+
+def idle_start.on(
+  zero: Bool,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  match zero:
+    case True{}:
+      idle_idle(nick, frames, evt, cmd)
+    case False{}:
+      idle_go(Sess.ticks_of(frames), nick, frames, evt, cmd)
+
+def idle_start(
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  idle_start.on(U32.is_eq(frames, 0), nick, frames, evt, cmd)
+
+def run_offline_on(
+  +frames: U32,
+  +cl: Cl.Client,
+  +nick: String,
+  +chan: String,
+  evt0: Chan(Sess.NetEvt),
+  cmd0: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  +evt = evt0
+  +cmd = cmd0
+  do IO<Unit>:
+    Unit <- IO.spawn(Unit, idle_start(nick, frames, evt, cmd))
+    ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
+    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_demo(cl, chan), False{}), evt, cmd)
+
+def run_offline(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String) -> IO(Unit):
+  do IO<Unit>:
+    evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
+    cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
+    run_offline_on(frames, cl, nick, chan, evt0, cmd0)

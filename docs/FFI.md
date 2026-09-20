@@ -115,3 +115,8 @@ App.budget     : IO(U32)   # from --frames / birc_max_frames
 `app.bend` / `net.bend` fuel-loop calling `Timui.frame`. Build:
 `bend src/bend/app.bend -o build/birc_bend.c`, rename `main`→`bend_main`,
 link with `birc_main.c` (`-Isrc/ui -Isrc/ffi -pthread`).
+
+`--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
+closed if missing). Demo/offline share the live `Timui.keys` loop via an idle
+actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `Clock.hhmmss`
+is a thin localtime FFI; Bend stamps empty `Line.ts` at paint (`stamp_client`).

@@ -2,51 +2,49 @@
 # LAW note (D4 / ui_loop_trust): App.budget / --frames supplies fuel; Escape quits.
 import Base
 import ./client.bend as Cl
-import ./view.bend as V
-import ./timui.bend as T
 import ./net.bend as Net
 import ./dns.bend as Dns
 import ./args.bend as Args
-import ./natutil.bend as NatU
-import ./paint.bend as Paint
 
-def DEMO_FRAMES() -> Nat:
-  3n
+def run_demo(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String) -> IO(Unit):
+  Net.run_offline(frames, cl, nick, chan)
 
-def fuel_of.on(+frames: U32, zero: Bool) -> Nat:
-  match zero:
-    case True{}:
-      DEMO_FRAMES()
-    case False{}:
-      NatU.u32_to_nat(frames)
+def replay_die(+path: String, +msg: String) -> IO(Cl.Client):
+  IO.die(Cl.Client, 1, "birc: cannot read replay " ++ path ++ ": " ++ msg)
 
-def fuel_of(+frames: U32) -> Nat:
-  fuel_of.on(frames, U32.is_eq(frames, 0))
+def replay_read.got(+path: String, +nick: String, +server: String, f: File, r: Result<&1, &1, U32 & String, String>) -> IO(Cl.Client):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          do IO<Cl.Client>:
+            Unit <- File.close(f)
+            replay_die(path, msg)
+    case Done{+text}:
+      do IO<Cl.Client>:
+        Unit <- File.close(f)
+        return Cl.feed_all(Cl.init(nick, server), Cl.replay_lines(text))
 
-# Fuel first; shrinks every self-call (Bend termination).
-def ui_loop(fuel: Nat, quit: Bool, ui: T.Ui, +cl: Cl.Client) -> IO(Unit):
-  match fuel:
-    case 0n:
-      do IO<Unit>:
-        Unit <- T.Timui.close(ui)
-        IO.print("birc=ok")
-    case 1n+p:
-      match quit:
-        case True{}:
-          do IO<Unit>:
-            Unit <- T.Timui.close(ui)
-            IO.print("birc=ok")
-        case False{}:
-          do IO<Unit>:
-            rows : U32 <- T.Timui.rows()
-            ui2 : T.Ui <- Paint.paint(ui, V.view(cl, NatU.body_h(rows)))
-            evs : List<&2, T.UiEvent> <- T.Timui.events()
-            ui_loop(p, T.has_quit(evs), ui2, cl)
+def replay_read(+path: String, +nick: String, +server: String, pair: File & Result<&1, &1, U32 & String, String>) -> IO(Cl.Client):
+  match pair:
+    case (f, r):
+      replay_read.got(path, nick, server, f, r)
 
-def run_demo(+frames: U32, +cl: Cl.Client) -> IO(Unit):
-  do IO<Unit>:
-    ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    ui_loop(fuel_of(frames), False{}, ui, cl)
+def replay_open(+path: String, +nick: String, +server: String, r: Result<&1, &1, U32 & String, File>) -> IO(Cl.Client):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          replay_die(path, msg)
+    case Done{f}:
+      do IO<Cl.Client>:
+        pair : File & Result<&1, &1, U32 & String, String> <- File.read(f, 1048576)
+        replay_read(path, nick, server, pair)
+
+def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
+  do IO<Cl.Client>:
+    r : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+    replay_open(path, nick, server, r)
 
 def dns_die(e: U32 & String) -> IO(Unit):
   match e:
@@ -71,17 +69,59 @@ def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: Str
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
     main_live_on(frames, port, nick, chan, r)
 
-def main_dispatch(+frames: U32, demo: Bool, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
+def main_offline(+frames: U32, +nick: String, +chan: String, +cl: Cl.Client) -> IO(Unit):
+  run_demo(frames, cl, nick, chan)
+
+def main_replay(+frames: U32, +nick: String, +chan: String, +path: String) -> IO(Unit):
+  do IO<Unit>:
+    cl : Cl.Client <- load_replay(path, nick, "replay")
+    main_offline(frames, nick, chan, cl)
+
+def main_dispatch.demo(
+  +frames: U32,
+  demo: Bool,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String
+) -> IO(Unit):
   match demo:
     case True{}:
-      run_demo(frames, Cl.feed_all(Cl.init("me", "irc.birc.dev"), Cl.demo_lines()))
+      main_offline(frames, "me", chan, Cl.feed_all(Cl.init("me", "irc.birc.dev"), Cl.demo_lines()))
     case False{}:
       main_live(frames, host, port, nick, chan)
 
+def main_dispatch.on(
+  +frames: U32,
+  demo: Bool,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String,
+  +replay: String,
+  has_replay: Bool
+) -> IO(Unit):
+  match has_replay:
+    case True{}:
+      main_replay(frames, nick, chan, replay)
+    case False{}:
+      main_dispatch.demo(frames, demo, host, port, nick, chan)
+
+def main_dispatch(
+  +frames: U32,
+  demo: Bool,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String,
+  +replay: String
+) -> IO(Unit):
+  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)))
+
 def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan}:
-      main_dispatch(frames, demo, host, port, nick, chan)
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay}:
+      main_dispatch(frames, demo, host, port, nick, chan, replay)
 
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:
