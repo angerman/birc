@@ -159,6 +159,10 @@ law scroll_page:
 law snap_scroll:
   {Cl.snap_ok() == True{} : Bool}
 
+# LAW: composer history caps at 64, oldest dropped first.
+law hist_cap:
+  {Net.hist_cap_ok() == True{} : Bool}
+
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
   {Fr.overlong_text_drop_ok() == True{} : Bool}

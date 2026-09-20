@@ -110,7 +110,7 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, net}:
+    case Sess.Session{+cl, _, _, +draft, _, _, net, _}:
       do IO<T.Ui>:
         rows : U32 <- T.Timui.rows()
         Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
@@ -160,8 +160,8 @@ def with_keys_dn(
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
-    case (dn, _):
-      send_pair(ui, quit, evt, cmd, Sess.step_keys(st, typed, enter, bs, tab, click, up, dn), k)
+    case (dn, hist):
+      send_pair(ui, quit, evt, cmd, Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), k)
 
 def with_keys_up(
   ui: T.Ui,

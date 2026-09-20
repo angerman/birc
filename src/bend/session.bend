@@ -201,6 +201,122 @@ def net_label(st: NetState) -> String:
 def net_demo_ok() -> Bool:
   String.eq(net_label(Demo{}), "demo") && String.eq(net_label(Online{}), "online")
 
+type Hist is Data:
+  Hist{lines: List<&2, String>, pos: Nat}
+
+def hist0() -> Hist:
+  Hist{Nil{}, 0n}
+
+def HIST_CAP() -> Nat:
+  64n
+
+def take_last_str.go(+xs: List<&2, String>, n: Nat, acc: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{+h, t}:
+      match n:
+        case 0n:
+          acc
+        case 1n+p:
+          take_last_str.go(t, p, h <> acc)
+
+def take_last_str(+xs: List<&2, String>, n: Nat) -> List<&2, String>:
+  take_last_str.go(List.reverse(&2, String, xs), n, Nil{})
+
+def hist_len(h: Hist) -> Nat:
+  match h:
+    case Hist{+lines, _}:
+      List.length(&2, String, lines)
+
+def hist_push.on(+line: String, empty: Bool, h: Hist) -> Hist:
+  match empty:
+    case True{}:
+      h
+    case False{}:
+      match h:
+        case Hist{+lines, _}:
+          +xs = take_last_str(List.append(&2, String, lines, line <> Nil{}), HIST_CAP())
+          Hist{xs, List.length(&2, String, xs)}
+
+def hist_push(+h: Hist, +line: String) -> Hist:
+  hist_push.on(line, String.is_empty(line), h)
+
+def str_get.on(got: Maybe<&2, String>) -> String:
+  match got:
+    case None{}:
+      ""
+    case Some{+s}:
+      s
+
+def str_get(+xs: List<&2, String>, +i: Nat) -> String:
+  str_get.on(List.get(&2, String, xs, i))
+
+def hist_prev.on(+lines: List<&2, String>, +pos: Nat, z: Bool) -> Hist & String:
+  match z:
+    case True{}:
+      (Hist{lines, pos}, str_get(lines, pos))
+    case False{}:
+      +p = Nat.sub(pos, 1n)
+      (Hist{lines, p}, str_get(lines, p))
+
+def hist_prev(h: Hist) -> Hist & String:
+  match h:
+    case Hist{+lines, +pos}:
+      hist_prev.on(lines, pos, Nat.is_eq(pos, 0n))
+
+def hist_next.at(+lines: List<&2, String>, +p: Nat, +n: Nat, last: Bool) -> Hist & String:
+  match last:
+    case True{}:
+      (Hist{lines, n}, "")
+    case False{}:
+      (Hist{lines, p}, str_get(lines, p))
+
+def hist_next.on(+lines: List<&2, String>, +pos: Nat, +n: Nat, last: Bool) -> Hist & String:
+  match last:
+    case True{}:
+      (Hist{lines, n}, "")
+    case False{}:
+      +p = Nat.add(pos, 1n)
+      hist_next.at(lines, p, n, Nat.is_eq(p, n))
+
+def hist_next(h: Hist) -> Hist & String:
+  match h:
+    case Hist{+lines, +pos}:
+      +n = List.length(&2, String, lines)
+      hist_next.on(lines, pos, n, Nat.is_ge(pos, n))
+
+def hist_move.on(h: Hist, +draft: String, prev: Bool, next: Bool) -> Hist & String:
+  match prev:
+    case True{}:
+      hist_prev(h)
+    case False{}:
+      match next:
+        case True{}:
+          hist_next(h)
+        case False{}:
+          (h, draft)
+
+def hist_move(+h: Hist, +draft: String, +cmd: U32) -> Hist & String:
+  hist_move.on(h, draft, U32.is_eq(cmd, 1), U32.is_eq(cmd, 2))
+
+def hist_after_enter(+h: Hist, +line: String, enter: Bool) -> Hist:
+  match enter:
+    case True{}:
+      hist_push(h, line)
+    case False{}:
+      h
+
+def hist_cap_ok.go(n: Nat, h: Hist) -> Hist:
+  match n:
+    case 0n:
+      h
+    case 1n+p:
+      hist_cap_ok.go(p, hist_push(h, "x"))
+
+def hist_cap_ok() -> Bool:
+  Nat.is_eq(hist_len(hist_cap_ok.go(70n, hist0())), 64n)
+
 type Session is Data:
   Session{
     cl: Cl.Client,
@@ -209,16 +325,17 @@ type Session is Data:
     draft: String,
     joined: Bool,
     chan: String,
-    net: NetState
+    net: NetState,
+    hist: Hist
   }
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
-  Session{Cl.init(nick, host), False{}, "", "", False{}, chan, Connecting{}}
+  Session{Cl.init(nick, host), False{}, "", "", False{}, chan, Connecting{}, hist0()}
 
 def session_online(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _}:
-      Session{cl, drop, rem, draft, joined, chan, Online{}}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist}:
+      Session{cl, drop, rem, draft, joined, chan, Online{}, hist}
 
 def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
   match z:
@@ -237,43 +354,63 @@ def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
     case False{}:
       cl
 
+def finish_hist(
+  drop: Bool,
+  +rem: String,
+  joined: Bool,
+  +chan: String,
+  net: NetState,
+  +cl3: Cl.Client,
+  +outs: List<&2, String>,
+  pair: Hist & String
+) -> Session & List<&2, String>:
+  match pair:
+    case (h2, draft3):
+      (Session{cl3, drop, rem, draft3, joined, chan, net, h2}, outs)
+
 def finish_keys(
   drop: Bool,
   +rem: String,
   joined: Bool,
   +chan: String,
   net: NetState,
-  enter: Bool,
+  +enter: Bool,
   +tab: U32,
   +click: U32,
   +up: U32,
   +dn: U32,
+  +hcmd: U32,
+  +hist: Hist,
+  +line: String,
   triple: Cl.Client & String & List<&2, String>
 ) -> Session & List<&2, String>:
   match triple:
     case (cl2, draft2, outs):
       +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), NatU.u32_to_nat(up), NatU.u32_to_nat(dn)))
-      (Session{cl3, drop, rem, draft2, joined, chan, net}, outs)
+      +h2 = hist_after_enter(hist, line, enter)
+      finish_hist(drop, rem, joined, chan, net, cl3, outs, hist_move(h2, draft2, hcmd))
 
-def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32) -> Session & List<&2, String>:
+def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net}:
-      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, apply_keys(cl, draft, typed, enter, bs))
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist}:
+      +line = draft_typed(draft_bs(draft, bs), typed)
+      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, hcmd, hist, line, apply_keys(cl, line, "", enter, False{}))
 
 def step_chunk_got(
   +draft: String,
   +chan: String,
   net: NetState,
+  +hist: Hist,
   got: Cl.Client & String & Bool & List<&2, String> & Bool
 ) -> Session & List<&2, String>:
   match got:
     case (cl2, rem2, drop2, outs, joined2):
-      (Session{cl2, drop2, rem2, draft, joined2, chan, net}, outs)
+      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist}, outs)
 
 def step_on_chunk(+st: Session, +chunk: String) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net}:
-      step_chunk_got(draft, chan, net, step_chunk(cl, drop, rem, chunk, joined, chan))
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist}:
+      step_chunk_got(draft, chan, net, hist, step_chunk(cl, drop, rem, chunk, joined, chan))
 
 def BACKOFF_START() -> U32:
   250
