@@ -552,15 +552,15 @@ def active_buf(+cl: Cl.Client) -> Cl.Buffer:
     case Cl.Client{_, _, +bufs, +active}:
       active_buf.on(Cl.nth_buf(bufs, active))
 
-def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer) -> String:
+def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -> String:
   match b:
     case Cl.Buffer{+name, _, +topic, _, _, _}:
-      nick ++ "@" ++ server ++ " " ++ name ++ " — " ++ topic
+      nick ++ "@" ++ server ++ " · " ++ name ++ " · " ++ net
 
 def header_of(+cl: Cl.Client) -> String:
   match cl:
     case Cl.Client{+nick, +server, _, _}:
-      header_of.buf(nick, server, active_buf(cl))
+      header_of.buf(nick, server, active_buf(cl), "demo")
 
 def pad_top(n: Nat, +s: String) -> String:
   match n:
@@ -646,10 +646,17 @@ def body_of.buf(+b: Cl.Buffer, +height: Nat) -> String:
 def body_of(+cl: Cl.Client, +height: Nat) -> String:
   body_of.buf(active_buf(cl), height)
 
+def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
+  match empty:
+    case True{}:
+      name
+    case False{}:
+      name ++ " — " ++ topic
+
 def nicks_of.buf(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, _, _, +nicks, _}:
-      show_nicks_col(nicks)
+    case Cl.Buffer{+name, _, +topic, _, +nicks, _}:
+      nicks_title.on(name, topic, String.is_empty(topic)) ++ "\n" ++ show_nicks_col(nicks)
 
 def nicks_of(+cl: Cl.Client) -> String:
   nicks_of.buf(active_buf(cl))
@@ -657,7 +664,7 @@ def nicks_of(+cl: Cl.Client) -> String:
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, _, _, +nicks, _}:
-      "/join /part /msg /nick /me  ·  Shift+Left/Right  ·  Esc  ·  "
+      "/connect /join /part /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
 
@@ -665,20 +672,35 @@ def status_of(+cl: Cl.Client) -> String:
   status_of.buf(active_buf(cl))
 
 def view_input(+draft: String) -> String:
-  "> " ++ draft
+  draft
 
-def view_draft(+cl: Cl.Client, +height: Nat, +draft: String) -> ViewModel:
-  # M1.8: bind the active buffer once, then three independent parallel packs.
+def join_unit(acc: String, +name: String) -> String:
+  +a = acc
+  pack_spans.cons(a, name, String.is_empty(a))
+
+def pack_tab_names.go(+bufs: List<&2, Cl.Buffer>, acc: String) -> String:
+  match bufs:
+    case Nil{}:
+      acc
+    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
+      pack_tab_names.go(t, join_unit(acc, name))
+
+def pack_tabs(+cl: Cl.Client) -> String:
+  match cl:
+    case Cl.Client{_, _, +bufs, +active}:
+      Nat.show(active) ++ "\t" ++ pack_tab_names.go(bufs, "")
+
+def view_draft(+cl: Cl.Client, +height: Nat, +draft: String, +net: String) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
-      h t = header_of.buf(nick, server, b) show_tabs(cl)
+      h t = header_of.buf(nick, server, b, net) pack_tabs(cl)
       bod ns = body_of.buf(b, height) nicks_of.buf(b)
       st inp = status_of.buf(b) view_input(draft)
       ViewModel{h, t, bod, ns, st, inp}
 
 def view(+cl: Cl.Client, +height: Nat) -> ViewModel:
-  view_draft(cl, height, "")
+  view_draft(cl, height, "", "demo")
 
 def show_vm(+vm: ViewModel) -> String:
   match vm:
