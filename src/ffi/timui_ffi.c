@@ -74,6 +74,175 @@ static void draw_lines(TimuiFrame *fr, int x, int y, int max_y, const char *text
   }
 }
 
+/* Packed BodyLine wire: k|ts|spans\n  spans: P/B/I/C text or L url GS text,
+ * units separated by US (0x1f). C does not tokenize. */
+static uint32_t birc_kind_fg(int k) {
+  switch (k) {
+  case 1:
+    return 0x59ee3fu;
+  case 2:
+    return 0xa0a0a0u;
+  case 3:
+    return 0xc792eau;
+  case 4:
+    return 0x82aaffu;
+  case 5:
+    return 0xf78c6cu;
+  default:
+    return 0xc8c8c8u;
+  }
+}
+
+static int birc_glyph_cols(const char *s, size_t n) {
+  size_t i = 0;
+  int w = 0;
+  while (i < n) {
+    uint32_t cp = 0;
+    int adv = timui_utf8_decode(s + i, n - i, &cp);
+    if (adv <= 0)
+      adv = 1;
+    w += timui_utf8_width(cp);
+    i += (size_t)adv;
+  }
+  return w;
+}
+
+static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
+                         size_t n, uint32_t fg, uint32_t attrs) {
+  int w;
+  TimuiStyle st;
+  if (!fr || n == 0 || x >= maxx)
+    return x;
+  w = birc_glyph_cols(p, n);
+  while (n > 0 && x + birc_glyph_cols(p, n) > maxx)
+    n--;
+  if (n == 0)
+    return x;
+  w = birc_glyph_cols(p, n);
+  st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, attrs);
+  timui_label(fr, x, y, (TimuiStr){p, n}, st);
+  return x + w;
+}
+
+static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url,
+                         size_t ulen, const char *text, size_t tlen,
+                         uint32_t fg) {
+  char uri[512];
+  int w;
+  TimuiStyle st;
+  if (!fr || tlen == 0 || x >= maxx)
+    return x;
+  if (ulen >= sizeof uri)
+    ulen = sizeof uri - 1;
+  memcpy(uri, url, ulen);
+  uri[ulen] = '\0';
+  w = birc_glyph_cols(text, tlen);
+  while (tlen > 0 && x + birc_glyph_cols(text, tlen) > maxx)
+    tlen--;
+  if (tlen == 0)
+    return x;
+  w = birc_glyph_cols(text, tlen);
+  st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, TIMUI_ATTR_UNDERLINE);
+  timui_label_hyperlink(fr, x, y, (TimuiStr){text, tlen}, uri, st);
+  return x + w;
+}
+
+static void draw_packed_line(TimuiFrame *fr, int x, int y, int maxx,
+                             const char *line, size_t len) {
+  const char *p = line;
+  const char *end = line + len;
+  const char *ts;
+  size_t tslen;
+  int kind = 0;
+  uint32_t fg;
+  TimuiStyle dim;
+  if (!fr || !line || len == 0)
+    return;
+  if (*p >= '0' && *p <= '5') {
+    kind = *p - '0';
+    p++;
+  }
+  if (p < end && *p == '|')
+    p++;
+  ts = p;
+  while (p < end && *p != '|')
+    p++;
+  tslen = (size_t)(p - ts);
+  if (p < end && *p == '|')
+    p++;
+  fg = birc_kind_fg(kind);
+  dim = timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0);
+  if (tslen > 0) {
+    timui_label(fr, x, y, (TimuiStr){ts, tslen}, dim);
+    x += birc_glyph_cols(ts, tslen) + 1;
+  }
+  while (p < end) {
+    const char *unit = p;
+    const char *sep;
+    char tag;
+    uint32_t attrs = 0;
+    while (p < end && (unsigned char)*p != 0x1fu)
+      p++;
+    sep = p;
+    if (p < end)
+      p++;
+    if (unit >= sep)
+      continue;
+    tag = *unit++;
+    if (tag == 'L') {
+      const char *gs = unit;
+      while (gs < sep && (unsigned char)*gs != 0x1du)
+        gs++;
+      if (gs < sep)
+        x = birc_put_link(fr, x, y, maxx, unit, (size_t)(gs - unit), gs + 1,
+                          (size_t)(sep - (gs + 1)), fg);
+      else
+        x = birc_put_span(fr, x, y, maxx, unit, (size_t)(sep - unit), fg, 0);
+    } else {
+      if (tag == 'B')
+        attrs = TIMUI_ATTR_BOLD;
+      else if (tag == 'I')
+        attrs = TIMUI_ATTR_ITALIC;
+      else if (tag == 'C')
+        attrs = 0;
+      else if (tag != 'P') {
+        unit--;
+      }
+      x = birc_put_span(fr, x, y, maxx, unit, (size_t)(sep - unit), fg, attrs);
+    }
+  }
+}
+
+static int packed_line_count(const char *s) {
+  int n = 0;
+  if (!s)
+    return 0;
+  for (; *s; s++)
+    if (*s == '\n')
+      n++;
+  return n;
+}
+
+static void draw_packed_body(TimuiFrame *fr, int x, int y, int max_y, int maxx,
+                             const char *text) {
+  const char *p = text ? text : "";
+  int n = packed_line_count(p);
+  int y0 = max_y - n;
+  if (y0 < y)
+    y0 = y;
+  while (*p && y0 < max_y) {
+    const char *start = p;
+    size_t nline = 0;
+    while (p[nline] && p[nline] != '\n')
+      nline++;
+    draw_packed_line(fr, x, y0, maxx, start, nline);
+    p += nline;
+    if (*p == '\n')
+      p++;
+    y0++;
+  }
+}
+
 /* Composer: TimUI input_field walks the per-frame edit stream (text,
  * Backspace, Delete, arrows) in order. Returns 1 if Enter submitted. */
 static int draw_composer(TimuiFrame *fr, int x, int y, int width,
@@ -176,7 +345,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
                 fg);
     timui_label(fr, root.x, root.y + 1,
                 (TimuiStr){tabs ? tabs : "", tabs ? (size_t)n1 : 0}, dim);
-    draw_lines(fr, root.x, root.y + 2, body_bottom, body, fg);
+    draw_packed_body(fr, root.x, root.y + 2, body_bottom, mid, body);
     draw_lines(fr, root.x + mid, root.y + 2, body_bottom, nicks, dim);
     if (root.h >= 2)
       timui_label(fr, root.x, status_y,

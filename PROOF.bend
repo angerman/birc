@@ -56,6 +56,18 @@ def Laws.tokenize_bold():
 def Laws.tokenize_has_bold():
   {==}
 
+def Laws.tokenize_has_italic():
+  {==}
+
+def Laws.tokenize_has_code():
+  {==}
+
+def Laws.tokenize_has_link():
+  {==}
+
+def Laws.tokenize_unclosed():
+  {==}
+
 def Laws.backoff_double():
   {==}
 

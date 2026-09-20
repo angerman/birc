@@ -71,6 +71,22 @@ law tokenize_bold:
 law tokenize_has_bold:
   {V.tokenize_has_bold("hello *bold* text") == True{} : Bool}
 
+# LAW: _em_ is an Italic span.
+law tokenize_has_italic:
+  {V.tokenize_has_italic("_em_") == True{} : Bool}
+
+# LAW: `code` is a Code span.
+law tokenize_has_code:
+  {V.tokenize_has_code("`code`") == True{} : Bool}
+
+# LAW: https URL becomes a Link span.
+law tokenize_has_link:
+  {V.tokenize_has_link("see https://timui.dev x") == True{} : Bool}
+
+# LAW: unclosed *foo stays plain (no Bold).
+law tokenize_unclosed:
+  {V.unclosed_star_plain() == True{} : Bool}
+
 # LAW: M4.9 backoff doubles then caps.
 law backoff_double:
   {U32.is_eq(Net.next_backoff(250), 500) == True{} : Bool}
