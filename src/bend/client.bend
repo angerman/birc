@@ -20,7 +20,7 @@ type LineKind is Data:
   Error{}
 
 type Line is Data:
-  Line{kind: LineKind, text: String}
+  Line{kind: LineKind, ts: String, text: String}
 
 type Buffer is Data:
   Buffer{
@@ -155,11 +155,15 @@ def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
 def buf_log.scroll(+scroll: Nat) -> Nat:
   buf_log.scroll.on(Nat.is_gt(scroll, 0n), scroll)
 
-def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
+def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, text} <> Nil{}), SCROLL_CAP())
+      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, ts, text} <> Nil{}), SCROLL_CAP())
       Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
+
+# Tests and feed pass ts="". Live may supply HH:MM:SS at the IO boundary.
+def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
+  buf_log_ts(b, kind, "", text)
 
 def client_log.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +i: Nat, kind: LineKind, +text: String, got: Maybe<&2, Buffer>) -> Client:
   match got:
@@ -1116,7 +1120,7 @@ def lines_pipe.go(fuel: Nat, +xs: List<&2, Line>, +acc: String) -> String:
       match xs:
         case Nil{}:
           acc
-        case Con{Line{_, +text}, t}:
+        case Con{Line{_, _, +text}, t}:
           lines_pipe.go(p, t, acc ++ text ++ "|")
 
 def lines_pipe(+xs: List<&2, Line>) -> String:

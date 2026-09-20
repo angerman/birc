@@ -89,6 +89,18 @@ def Laws.log_chrono():
 def Laws.cycle_tab():
   {==}
 
+def Laws.style_self_ne_msg():
+  {==}
+
+def Laws.kind_code_ok():
+  {==}
+
+def Laws.ts_width_ok():
+  {==}
+
+def Laws.vis_chrono():
+  {==}
+
 def Laws.overlong_text_drop():
   {==}
 
