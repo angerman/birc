@@ -147,6 +147,10 @@ law ts_width_ok:
 law vis_chrono:
   {V.vis_chrono_ok() == True{} : Bool}
 
+# LAW: demo/online net labels.
+law net_demo_ok:
+  {Net.net_demo_ok() == True{} : Bool}
+
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
   {Fr.overlong_text_drop_ok() == True{} : Bool}

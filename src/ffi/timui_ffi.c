@@ -24,6 +24,10 @@ static char birc_ui_typed[256];
 static size_t birc_ui_typed_len = 0;
 static uint32_t birc_ui_rows = 24;
 static uint32_t birc_ui_tab = 0; /* 0 none, 1 next, 2 prev */
+static uint32_t birc_ui_click = 0; /* 0 none, 1+i = TabSet i */
+static uint32_t birc_ui_scroll_up = 0;
+static uint32_t birc_ui_scroll_dn = 0;
+static uint32_t birc_ui_hist = 0; /* 0 none, 1 prev, 2 next */
 static char birc_composer[512];
 static TimuiInputState birc_composer_st = {birc_composer, sizeof birc_composer,
                                            0, 0};
@@ -39,7 +43,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   (void)w;
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT;
-  cfg.theme = TIMUI_THEME_DOS_BLUE;
+  cfg.theme = TIMUI_THEME_MODERN_DARK;
   if (timui_open(&cfg, &ui) != TIMUI_OK)
     return io_fail(e, 1u, "timui_open failed");
   /* Alt-screen (1049h) does not always wipe a nested tmux pane. Force a
@@ -276,6 +280,37 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width,
   return 0;
 }
 
+static int birc_parse_tabs(const char *tabs, char store[][64],
+                           const char **labs, int max, int *n_out) {
+  const char *p = tabs ? tabs : "";
+  int active = 0;
+  int n = 0;
+  while (*p && *p != '\t') {
+    if (*p >= '0' && *p <= '9')
+      active = active * 10 + (*p - '0');
+    p++;
+  }
+  if (*p == '\t')
+    p++;
+  while (*p && n < max) {
+    const char *start = p;
+    size_t len;
+    while (*p && (unsigned char)*p != 0x1fu)
+      p++;
+    len = (size_t)(p - start);
+    if (len >= 63)
+      len = 63;
+    memcpy(store[n], start, len);
+    store[n][len] = '\0';
+    labs[n] = store[n];
+    n++;
+    if ((unsigned char)*p == 0x1fu)
+      p++;
+  }
+  *n_out = n;
+  return active;
+}
+
 static void birc_free_frame_strs(char *header, char *tabs, char *body,
                                  char *nicks, char *status, char *input) {
   if (header)
@@ -312,6 +347,10 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   birc_ui_typed_len = 0;
   birc_ui_typed[0] = '\0';
   birc_ui_tab = 0;
+  birc_ui_click = 0;
+  birc_ui_scroll_up = 0;
+  birc_ui_scroll_dn = 0;
+  birc_ui_hist = 0;
 
   if (!ui) {
     birc_ui_quit = 1;
@@ -327,40 +366,106 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 
   {
     TimuiRect root = timui_root(fr);
-    TimuiStyle fg = timui_style_make(0x59ee3f, TIMUI_COLOR_DEFAULT, 0);
-    TimuiStyle dim = timui_style_make(0xa0a0a0, TIMUI_COLOR_DEFAULT, 0);
+    TimuiCellBuffer *buf = timui_frame_buffer(fr);
+    TimuiStyle panel = timui_theme_style(&ui->theme, TIMUI_SLOT_PANEL);
+    TimuiStyle text = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT);
+    TimuiStyle dim = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT_DIM);
+    TimuiStyle border = timui_theme_style(&ui->theme, TIMUI_SLOT_BORDER);
+    TimuiStyle status_st = timui_theme_style(&ui->theme, TIMUI_SLOT_STATUS);
     int mid = root.w > 24 ? root.w - 18 : root.w / 2;
-    int body_bottom = root.h >= 2 ? root.y + root.h - 2 : root.y + root.h;
     int status_y = root.h >= 2 ? root.y + root.h - 2 : root.y;
     int input_y = root.h >= 1 ? root.y + root.h - 1 : root.y;
-    TimuiStyle panel;
+    int body_y = root.y + 2;
+    int body_h = status_y - body_y;
+    TimuiRect body_r;
+    TimuiRect nick_r;
+    TimuiRect tab_r;
+    char tabstore[16][64];
+    const char *tablabs[16];
+    int ntabs = 0;
+    int sel;
+    int orig;
+    const char *nick_p;
     birc_ui_rows = root.h < 4 ? 4u : (uint32_t)root.h;
-    /* Paint every cell so the first frame (and resizes) cannot leave
-     * leftover terminal glyphs. Default-empty cells are skipped by the
-     * diff renderer. */
-    panel = timui_theme_style(&ui->theme, TIMUI_SLOT_PANEL);
-    timui_draw_fill(timui_frame_buffer(fr), root, panel);
+    timui_draw_fill(buf, root, panel);
     timui_label(fr, root.x, root.y,
                 (TimuiStr){header ? header : "", header ? (size_t)n0 : 0},
-                fg);
-    timui_label(fr, root.x, root.y + 1,
-                (TimuiStr){tabs ? tabs : "", tabs ? (size_t)n1 : 0}, dim);
-    draw_packed_body(fr, root.x, root.y + 2, body_bottom, mid, body);
-    draw_lines(fr, root.x + mid, root.y + 2, body_bottom, nicks, dim);
+                text);
+    tab_r.x = root.x;
+    tab_r.y = root.y + 1;
+    tab_r.w = root.w;
+    tab_r.h = 1;
+    orig = birc_parse_tabs(tabs, tabstore, tablabs, 16, &ntabs);
+    sel = orig;
+    if (ntabs > 0)
+      (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), tab_r, tablabs, ntabs, &sel);
+    if (sel != orig && sel >= 0)
+      birc_ui_click = (uint32_t)sel + 1u;
+    if (body_h < 1)
+      body_h = 1;
+    body_r.x = root.x;
+    body_r.y = body_y;
+    body_r.w = mid > 2 ? mid : root.w;
+    body_r.h = body_h;
+    nick_r.x = root.x + body_r.w;
+    nick_r.y = body_y;
+    nick_r.w = root.w - body_r.w;
+    nick_r.h = body_h;
+    timui_draw_box(buf, body_r, TIMUI_BORDER_ROUND, border);
+    if (nick_r.w > 2)
+      timui_draw_box(buf, nick_r, TIMUI_BORDER_ROUND, border);
+    draw_packed_body(fr, body_r.x + 1, body_r.y + 1, body_r.y + body_r.h - 1,
+                     body_r.x + body_r.w - 1, body);
+    nick_p = nicks ? nicks : "";
+    if (*nick_p) {
+      const char *nl = strchr(nick_p, '\n');
+      size_t tlen = nl ? (size_t)(nl - nick_p) : strlen(nick_p);
+      timui_label(fr, nick_r.x + 1, nick_r.y, (TimuiStr){nick_p, tlen}, dim);
+      if (nl)
+        draw_lines(fr, nick_r.x + 1, nick_r.y + 1, nick_r.y + nick_r.h - 1,
+                   nl + 1, dim);
+    }
     if (root.h >= 2)
       timui_label(fr, root.x, status_y,
                   (TimuiStr){status ? status : "", status ? (size_t)n4 : 0},
-                  dim);
-    if (draw_composer(fr, root.x, input_y, root.w, fg))
+                  status_st);
+    if (input && input[0] && strcmp(birc_composer, input) != 0) {
+      size_t ilen = strlen(input);
+      if (ilen >= sizeof birc_composer)
+        ilen = sizeof birc_composer - 1;
+      memcpy(birc_composer, input, ilen);
+      birc_composer[ilen] = '\0';
+      birc_composer_st.cursor = ilen;
+    }
+    if (draw_composer(fr, root.x, input_y, root.w, text))
       birc_ui_enter = 1;
     if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
       birc_ui_tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
       birc_ui_tab = 2;
-    if (timui_key_pressed(fr, TIMUI_KEY_ESCAPE)) {
+    if (timui_key_pressed(fr, TIMUI_KEY_PAGE_UP))
+      birc_ui_scroll_up = 1;
+    if (timui_key_pressed(fr, TIMUI_KEY_PAGE_DOWN))
+      birc_ui_scroll_dn = 1;
+    {
+      int wheel = timui_mouse_wheel(fr);
+      if (wheel > 0)
+        birc_ui_scroll_up += (uint32_t)wheel;
+      else if (wheel < 0)
+        birc_ui_scroll_dn += (uint32_t)(-wheel);
+    }
+    if (timui_key_pressed(fr, TIMUI_KEY_UP) &&
+        !timui_key_pressed_mods(fr, TIMUI_KEY_UP, TIMUI_MOD_SHIFT))
+      birc_ui_hist = 1;
+    if (timui_key_pressed(fr, TIMUI_KEY_DOWN) &&
+        !timui_key_pressed_mods(fr, TIMUI_KEY_DOWN, TIMUI_MOD_SHIFT))
+      birc_ui_hist = 2;
+    if (timui_key_pressed(fr, TIMUI_KEY_ESCAPE) ||
+        timui_key_pressed(fr, TIMUI_KEY_F10)) {
       timui_quit(ui);
       birc_ui_quit = 1;
     }
+    timui_set_focus(fr, TIMUI_ID("birc.composer"));
   }
   timui_end(fr);
   if (timui_should_quit(ui))

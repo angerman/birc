@@ -110,10 +110,10 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, net}:
       do IO<T.Ui>:
         rows : U32 <- T.Timui.rows()
-        Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft))
+        Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
 
 def after_ui_send(
   ok: Bool,
@@ -599,7 +599,7 @@ def start_ui(
   do IO<Unit>:
     ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{Nil{}})
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session0(nick, host, chan), False{}), evt, cmd)
+    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_online(Sess.session0(nick, host, chan)), False{}), evt, cmd)
 
 def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
   do IO<Unit>:

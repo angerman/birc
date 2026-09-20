@@ -181,6 +181,26 @@ def submit_pair(+cl: Cl.Client, +draft: String, enter: Bool) -> Cl.Client & Stri
 def apply_keys(+cl: Cl.Client, +draft: String, +typed: String, enter: Bool, bs: Bool) -> Cl.Client & String & List<&2, String>:
   submit_pair(cl, draft_typed(draft_bs(draft, bs), typed), enter)
 
+type NetState is Data:
+  Demo{}
+  Connecting{}
+  Online{}
+  Offline{}
+
+def net_label(st: NetState) -> String:
+  match st:
+    case Demo{}:
+      "demo"
+    case Connecting{}:
+      "connecting"
+    case Online{}:
+      "online"
+    case Offline{}:
+      "offline"
+
+def net_demo_ok() -> Bool:
+  String.eq(net_label(Demo{}), "demo") && String.eq(net_label(Online{}), "online")
+
 type Session is Data:
   Session{
     cl: Cl.Client,
@@ -188,11 +208,17 @@ type Session is Data:
     rem: String,
     draft: String,
     joined: Bool,
-    chan: String
+    chan: String,
+    net: NetState
   }
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
-  Session{Cl.init(nick, host), False{}, "", "", False{}, chan}
+  Session{Cl.init(nick, host), False{}, "", "", False{}, chan, Connecting{}}
+
+def session_online(+st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _}:
+      Session{cl, drop, rem, draft, joined, chan, Online{}}
 
 def step_keys_got(
   drop: Bool,
@@ -200,30 +226,32 @@ def step_keys_got(
   joined: Bool,
   +chan: String,
   +tab: U32,
+  net: NetState,
   triple: Cl.Client & String & List<&2, String>
 ) -> Session & List<&2, String>:
   match triple:
     case (cl2, draft2, outs):
-      (Session{Cl.cycle_tab(cl2, tab), drop, rem, draft2, joined, chan}, outs)
+      (Session{Cl.cycle_tab(cl2, tab), drop, rem, draft2, joined, chan, net}, outs)
 
 def step_keys(+st: Session, +typed: String, enter: Bool, bs: Bool, +tab: U32) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan}:
-      step_keys_got(drop, rem, joined, chan, tab, apply_keys(cl, draft, typed, enter, bs))
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net}:
+      step_keys_got(drop, rem, joined, chan, tab, net, apply_keys(cl, draft, typed, enter, bs))
 
 def step_chunk_got(
   +draft: String,
   +chan: String,
+  net: NetState,
   got: Cl.Client & String & Bool & List<&2, String> & Bool
 ) -> Session & List<&2, String>:
   match got:
     case (cl2, rem2, drop2, outs, joined2):
-      (Session{cl2, drop2, rem2, draft, joined2, chan}, outs)
+      (Session{cl2, drop2, rem2, draft, joined2, chan, net}, outs)
 
 def step_on_chunk(+st: Session, +chunk: String) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan}:
-      step_chunk_got(draft, chan, step_chunk(cl, drop, rem, chunk, joined, chan))
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net}:
+      step_chunk_got(draft, chan, net, step_chunk(cl, drop, rem, chunk, joined, chan))
 
 def BACKOFF_START() -> U32:
   250
