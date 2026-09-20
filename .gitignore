@@ -1,0 +1,6 @@
+build/
+.direnv/
+result
+result-*
+*.o
+.DS_Store

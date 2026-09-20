@@ -1,0 +1,6 @@
+# Overlong / adversarial corpus notes (M7.2).
+# Line below is intentionally huge when concatenated; harness uses Fr.overlong_drop_ok.
+# JOIN flood is exercised in client.flood_buffers_capped (24 JOINs past MAX_BUFFERS).
+:flood!f@h JOIN #c0
+:flood!f@h JOIN #c1
+:flood!f@h JOIN #c2

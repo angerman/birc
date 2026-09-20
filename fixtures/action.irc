@@ -1,0 +1,2 @@
+:alice!a@host PRIVMSG #birc :ACTION waves
+:bob!b@host PRIVMSG #birc :normal message

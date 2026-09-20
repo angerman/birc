@@ -1,0 +1,3 @@
+:irc.birc.dev 001 me :Welcome
+:alice!a@h PRIVMSG #birc :hello from fixture
+:bob!b@h PRIVMSG #birc :see *bold* text
