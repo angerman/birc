@@ -3,6 +3,7 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/client.bend as Cl
 import ../../src/bend/view.bend as V
+import ../../src/bend/clock.bend as Clock
 
 def main_on(+demo: Cl.Client) -> IO(Unit):
   do IO<Unit>:
@@ -40,6 +41,13 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
     Unit <- E.must("tok_bold", V.tokenize_has_bold("hello *bold* text"))
     Unit <- E.must("tok_plain", Bool.not(V.tokenize_has_bold("no stars here")))
+    Unit <- E.must("stamp", Cl.stamp_ok())
+    Unit <- E.must("hms", Clock.fmt_hms_ok())
+    Unit <- E.must_eq(
+      "replay_lines",
+      Nat.show(List.length(&2, String, Cl.replay_lines("a\r\n\nb\n"))),
+      "2"
+    )
     IO.print("feed_demo=ok")
 
 def main() -> IO(Unit):

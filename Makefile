@@ -68,7 +68,7 @@ build-proto: ## Build the Bend protocol self-test binary.
 
 # Bend emits one C TU for the whole program; rename main → bend_main and link argv shim.
 # build/birc_core.c is a build artefact (not source): Bend runtime + app, ~500KB.
-BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/birc_main.c
+BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c src/ffi/birc_main.c
 
 # Bend program object (slow). Shim is linked separately so argv/DNS edits stay cheap.
 $(BLDDIR)/birc_core.o: $(APP) $(filter-out src/ffi/birc_main.c,$(BEND_UI_SRCS))
@@ -136,11 +136,14 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
 	$(NIXRUN) ./$(BLDDIR)/birc --demo --frames 3
+	$(NIXRUN) ./$(BLDDIR)/birc --replay fixtures/demo.irc --frames 1
 
 test-cli: build-ui ## Binary argv errors (no TimUI).
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --frames xyz >/dev/null 2>&1; test $$? -eq 2'
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --connect >/dev/null 2>&1; test $$? -eq 2'
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --help >/dev/null 2>&1; test $$? -eq 2'
+	$(NIXRUN) sh -c './$(BLDDIR)/birc --replay >/dev/null 2>&1; test $$? -eq 2'
+	$(NIXRUN) sh -c './$(BLDDIR)/birc --replay /no/such/birc.replay >/dev/null 2>&1; test $$? -eq 1'
 
 test-live: build-ui ## Local mock: register + PONG + birc=ok, bounded timeout.
 	$(NIXRUN) python3 tests/live_mock.py ./$(BLDDIR)/birc

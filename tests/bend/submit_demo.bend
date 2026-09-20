@@ -3,6 +3,7 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/client.bend as Cl
 import ../../src/bend/submit.bend as Sub
+import ../../src/bend/session.bend as Sess
 
 def hash() -> String:
   SCon{Chr{35}, SNil{}}
@@ -93,6 +94,14 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("strip_ctl", inj_out(Sub.submit(cl1, inj_input())), "PRIVMSG #birc :helloQUIT :x")
     Unit <- E.must("halt", Sub.submit_halt_ok())
     Unit <- E.must("conn", Sub.connect_parse_ok())
+    Unit <- E.must("dial", Sess.cmd_connect_ok())
+    Unit <- E.must_eq(
+      "connect_out",
+      line_of(Sub.submit(cl0, "/connect irc.example.net 6668")),
+      " ok=True nbuf=1"
+    )
+    Unit <- E.must("connect_slash", Sub.submit_is_connect("/connect x"))
+    Unit <- E.must("connect_not", Bool.not(Sub.submit_is_connect("/join #x")))
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):
