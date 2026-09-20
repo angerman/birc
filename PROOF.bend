@@ -122,6 +122,9 @@ def Laws.scroll_page():
 def Laws.snap_scroll():
   {==}
 
+def Laws.hist_cap():
+  {==}
+
 def Laws.overlong_text_drop():
   {==}
 
