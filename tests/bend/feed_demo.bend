@@ -9,7 +9,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must_eq(
       "feed",
       Cl.show_client(demo),
-      "me@irc.birc.dev[1]:server{|1|};#birc#{birc — Bend 2 + timui.h IRC|3|me alice bob carol };"
+      "me@irc.birc.dev[1]:server{|1|};#birc#{birc — Bend 2 + timui.h IRC|4|me alice bob carol };"
     )
     Unit <- E.must_eq("nbuf", Nat.show(Cl.nbuf(demo)), "2")
     Unit <- E.must("notice*", Cl.notice_star_server())
@@ -28,6 +28,11 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("kcode", V.kind_code_ok())
     Unit <- E.must("tsw", V.ts_width_ok())
     Unit <- E.must("vchrono", V.vis_chrono_ok())
+    Unit <- E.must("tok_italic", V.tokenize_has_italic("_em_"))
+    Unit <- E.must("tok_code", V.tokenize_has_code("`code`"))
+    Unit <- E.must("tok_link", V.tokenize_has_link("see https://timui.dev x"))
+    Unit <- E.must("tok_unclosed", V.unclosed_star_plain())
+    Unit <- E.must("tok_no_italic", Bool.not(V.tokenize_has_italic("no marks")))
     Unit <- E.must("self_part", Cl.self_part_drops())
     # F8: roundtrip alone is satisfied by an identity tokenizer; require a Bold span.
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))

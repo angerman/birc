@@ -961,7 +961,8 @@ def demo_lines() -> List<&2, String>:
     <> ":irc.birc.dev 366 me #birc :End of /NAMES list."
     <> ":irc.birc.dev 332 me #birc :birc — Bend 2 + timui.h IRC"
     <> ":alice!a@host PRIVMSG #birc :hi everyone"
-    <> ":bob!b@host PRIVMSG #birc :morning"
+    <> ":bob!b@host PRIVMSG #birc :morning — *bold* _em_ and `code`"
+    <> ":carol!c@host PRIVMSG #birc :see https://timui.dev docs"
     <> Nil{}
 
 def feed_step(cl: Client, line: String) -> Client:
