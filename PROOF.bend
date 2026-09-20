@@ -116,6 +116,12 @@ def Laws.vis_chrono():
 def Laws.net_demo_ok():
   {==}
 
+def Laws.scroll_page():
+  {==}
+
+def Laws.snap_scroll():
+  {==}
+
 def Laws.overlong_text_drop():
   {==}
 

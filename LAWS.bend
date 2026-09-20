@@ -151,6 +151,14 @@ law vis_chrono:
 law net_demo_ok:
   {Net.net_demo_ok() == True{} : Bool}
 
+# LAW: page-up adds to buffer scroll.
+law scroll_page:
+  {Cl.scroll_page_ok() == True{} : Bool}
+
+# LAW: submit snaps scroll to newest.
+law snap_scroll:
+  {Cl.snap_ok() == True{} : Bool}
+
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
   {Fr.overlong_text_drop_ok() == True{} : Bool}

@@ -57,9 +57,9 @@ def Timui.backspace():
 # Latched keys from the last Timui.frame, packed in one IO.
 # Data constructor `Keys` would mangle to CID_TIMUI_KEYS and collide with
 # this law, so the product is a right-nested tuple (same as UDP.recv_from).
-# quit, enter, bs, typed, rows, tab (0 none / 1 next / 2 prev)
+# quit, enter, bs, typed, rows, tab, click, scroll_up, scroll_dn, hist
 law Timui.keys:
-  IO(Bool & Bool & Bool & String & U32 & U32)
+  IO(Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32)
 
 def Timui.keys():
   import "../ffi/timui_ffi.c"
@@ -76,7 +76,7 @@ def events_of(q: Bool) -> List<&2, UiEvent>:
     case False{}:
       Nil{}
 
-def quit_of(k: Bool & Bool & Bool & String & U32 & U32) -> Bool:
+def quit_of(k: Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32) -> Bool:
   match k:
     case (q, _):
       q
@@ -86,7 +86,7 @@ law Timui.events:
 
 def Timui.events():
   do IO<List<&2, UiEvent>>:
-    k : Bool & Bool & Bool & String & U32 & U32 <- Timui.keys()
+    k : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- Timui.keys()
     return events_of(quit_of(k))
 
 # Non-empty event list means Quit (only constructor today).
