@@ -24,6 +24,10 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("kick_self", Cl.kick_self_drops())
     Unit <- E.must("chrono", Cl.log_chrono_ok())
     Unit <- E.must("cycle", Cl.cycle_ok())
+    Unit <- E.must("style", V.style_self_ne_msg())
+    Unit <- E.must("kcode", V.kind_code_ok())
+    Unit <- E.must("tsw", V.ts_width_ok())
+    Unit <- E.must("vchrono", V.vis_chrono_ok())
     Unit <- E.must("self_part", Cl.self_part_drops())
     # F8: roundtrip alone is satisfied by an identity tokenizer; require a Bold span.
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))

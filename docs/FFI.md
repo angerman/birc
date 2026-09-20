@@ -71,6 +71,17 @@ Config   # nick, host, port, channel, demo, max_frames
 
 `ViewModel` is what `Timui.draw` consumes (tabs, scrollback rows, nicks, header, composer).
 
+## M8 packing (D6)
+
+Bend owns `BodyLine{kind, ts, spans}`, `TextSpan` (Plain/Bold/Italic/Code/Link),
+`Tab{name, on}`. Live paint still joins spans to a `String` shim until the
+FFI walks that Data. When it does:
+
+- `kind` is `kind_code : LineKind -> U32` (`0=Msg` … `5=Error`), not a C enum.
+- Body wire (one line per `BodyLine`): `k|ts|spans` with span units
+  `P`/`B`/`I`/`C` text or `L` `url` `\x1d` `text`, units separated by `\x1f`.
+- C interprets that packing inside one `Timui.frame`. C does not tokenize.
+
 ## Decisions
 
 | ID | Choice |

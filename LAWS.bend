@@ -115,6 +115,22 @@ law log_chrono:
 law cycle_tab:
   {Cl.cycle_ok() == True{} : Bool}
 
+# LAW: Self and Msg use different paint colours.
+law style_self_ne_msg:
+  {V.style_self_ne_msg() == True{} : Bool}
+
+# LAW: LineKind tags 0..5 are 1-1 for the FFI.
+law kind_code_ok:
+  {V.kind_code_ok() == True{} : Bool}
+
+# LAW: timestamp column is 8 cells (HH:MM:SS + space).
+law ts_width_ok:
+  {V.ts_width_ok() == True{} : Bool}
+
+# LAW: visible window is oldest-to-newest.
+law vis_chrono:
+  {V.vis_chrono_ok() == True{} : Bool}
+
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
   {Fr.overlong_text_drop_ok() == True{} : Bool}

@@ -55,10 +55,66 @@ def visible_lines(+lines: List<&2, Cl.Line>, +height: Nat, +scroll: Nat) -> List
     height
   )
 
-# M5.3 — minimal rich-text: Plain / Bold split on *…*
+# M8 Data the FFI interprets. Temporary live paint still joins spans to a String.
 type TextSpan is Data:
   Plain{text: String}
   Bold{text: String}
+  Italic{text: String}
+  Code{text: String}
+  Link{url: String, text: String}
+
+type BodyLine is Data:
+  BodyLine{kind: Cl.LineKind, ts: String, spans: List<&2, TextSpan>}
+
+type Tab is Data:
+  Tab{name: String, on: Bool}
+
+def TS_WIDTH() -> Nat:
+  8n
+
+def kind_code(k: Cl.LineKind) -> U32:
+  match k:
+    case Cl.Msg{}:
+      0
+    case Cl.Self{}:
+      1
+    case Cl.System{}:
+      2
+    case Cl.Action{}:
+      3
+    case Cl.Notice{}:
+      4
+    case Cl.Error{}:
+      5
+
+def style_of(k: Cl.LineKind) -> U32:
+  match k:
+    case Cl.Msg{}:
+      2388717
+    case Cl.Self{}:
+      5894207
+    case Cl.System{}:
+      10526880
+    case Cl.Action{}:
+      13079146
+    case Cl.Notice{}:
+      8563455
+    case Cl.Error{}:
+      16225420
+
+def style_self_ne_msg() -> Bool:
+  Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
+
+def kind_code_ok() -> Bool:
+  U32.is_eq(kind_code(Cl.Msg{}), 0)
+    && U32.is_eq(kind_code(Cl.Self{}), 1)
+    && U32.is_eq(kind_code(Cl.System{}), 2)
+    && U32.is_eq(kind_code(Cl.Action{}), 3)
+    && U32.is_eq(kind_code(Cl.Notice{}), 4)
+    && U32.is_eq(kind_code(Cl.Error{}), 5)
+
+def ts_width_ok() -> Bool:
+  Nat.is_eq(TS_WIDTH(), 8n)
 
 def STAR() -> Char:
   Chr{42}
@@ -143,6 +199,12 @@ def show_spans.one(sp: TextSpan, +acc: String) -> String:
       acc ++ tx
     case Bold{+tx}:
       acc ++ "*" ++ tx ++ "*"
+    case Italic{+tx}:
+      acc ++ "_" ++ tx ++ "_"
+    case Code{+tx}:
+      acc ++ "`" ++ tx ++ "`"
+    case Link{_, +text}:
+      acc ++ text
 
 def show_spans.go(fuel: Nat, +xs: List<&2, TextSpan>, +acc: String) -> String:
   match fuel:
@@ -171,6 +233,12 @@ def tokenize_has_bold.go(+xs: List<&2, TextSpan>) -> Bool:
           True{}
         case Plain{_}:
           tokenize_has_bold.go(t)
+        case Italic{_}:
+          tokenize_has_bold.go(t)
+        case Code{_}:
+          tokenize_has_bold.go(t)
+        case Link{_, _}:
+          tokenize_has_bold.go(t)
 
 def tokenize_has_bold(+s: String) -> Bool:
   tokenize_has_bold.go(tokenize(s))
@@ -179,7 +247,7 @@ def show_vis.go(+xs: List<&2, Cl.Line>, +acc: String) -> String:
   match xs:
     case Nil{}:
       acc
-    case Con{Cl.Line{_, +text}, t}:
+    case Con{Cl.Line{_, _, +text}, t}:
       show_vis.go(t, acc ++ show_spans(tokenize(text)) ++ "\n")
 
 def show_vis(+xs: List<&2, Cl.Line>) -> String:
@@ -203,6 +271,42 @@ def show_tabs(+cl: Cl.Client) -> String:
   match cl:
     case Cl.Client{_, _, +bufs, +active}:
       show_tabs.go(bufs, active, 0n, "")
+
+def tab_mark(+name: String, on: Bool) -> Tab:
+  Tab{name, on}
+
+def tabs_step(+active: Nat, acc: List<&2, Tab>, pair: Cl.Buffer & Nat) -> List<&2, Tab>:
+  match pair:
+    case (Cl.Buffer{+name, _, _, _, _, _}, i):
+      tab_mark(name, Nat.is_eq(i, active)) <> acc
+
+# Test helper: visible window is chronological (oldest first).
+def vis_chrono_ok.pair(+t0: String, rest: List<&2, Cl.Line>) -> Bool:
+  match rest:
+    case Nil{}:
+      False{}
+    case Con{Cl.Line{_, _, +t1}, _}:
+      String.eq(t0, "one") && String.eq(t1, "two")
+
+def vis_chrono_ok.vis(xs: List<&2, Cl.Line>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{Cl.Line{_, _, +t0}, rest}:
+      vis_chrono_ok.pair(t0, rest)
+
+def vis_chrono_ok.buf(b: Cl.Buffer) -> Bool:
+  match b:
+    case Cl.Buffer{_, _, _, +lines, _, _}:
+      vis_chrono_ok.vis(visible_lines(lines, 10n, 0n))
+
+def vis_chrono_ok() -> Bool:
+  vis_chrono_ok.buf(Cl.buf_log(Cl.buf_log(Cl.server_buf(), Cl.Msg{}, "one"), Cl.Msg{}, "two"))
+
+def to_body(+ln: Cl.Line) -> BodyLine:
+  match ln:
+    case Cl.Line{+k, +ts, +text}:
+      BodyLine{k, ts, tokenize(text)}
 
 def show_nicks_col.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
   match fuel:
