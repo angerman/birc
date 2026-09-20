@@ -50,7 +50,7 @@ silent flake/source pin updates. Routine Nix work uses
 
 - Fail closed: missing targets exit nonzero.
 - Keep IRC lines ≤ 512 bytes including CRLF.
-- Bend owns frame iteration (`Timui.frame` = one begin/draw/end); C has no outer frame while-loop.
+- Bend owns frame iteration (`Timui.frame` = one begin/draw/end); C has no outer frame while-loop. Live paint is packed `BodyLine`/`Span`/`Tab` Data; C interprets it and does not tokenize or classify IRC.
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live framing is `push_text`; `push` stays the octet framer for laws. The connecting fiber owns the fd (never `Chan(Socket)`). Boot is Data (`Ready`/`Down`/`Timeout`); UI recvs one then `Chan.close` so the loser send cannot wait on a full channel. `--frames N` is one fuel tick per event; `frames=0` live loops are `@unsafe`. Live DNS A is `getaddrinfo` (`src/ffi/dns_ffi.c`); `dns_wire.bend` stays the pure encode/parse for tests (UDP `String` cannot recover A octets `0x80`–`0xC1`).
 - Shutdown (P5): `Socket.close` then `Timui.close`.
 - Prove laws; do not weaken them to make a candidate pass.

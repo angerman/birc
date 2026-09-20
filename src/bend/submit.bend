@@ -2,6 +2,7 @@
 import Base
 import ./irc.bend as Irc
 import ./client.bend as Cl
+import ./args.bend as Args
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -386,3 +387,80 @@ def submit_ok.pair(pair: Cl.Client & List<&2, String>) -> Bool:
 
 def submit_ok(+cl: Cl.Client, +input: String) -> Bool:
   submit_ok.pair(submit(cl, input))
+
+def quit_verb.on(hit: Bool) -> Bool:
+  match hit:
+    case True{}:
+      True{}
+    case False{}:
+      False{}
+
+def quit_verb(pair: String & String) -> Bool:
+  match pair:
+    case (+verb, _):
+      quit_verb.on(Irc.ieq(verb, "quit"))
+
+def submit_is_quit.on(+input: String, slash: Bool) -> Bool:
+  match slash:
+    case True{}:
+      quit_verb(take_verb(skip_slash(input)))
+    case False{}:
+      False{}
+
+def submit_is_quit(+input: String) -> Bool:
+  submit_is_quit.on(input, submit.is_slash(input))
+
+def submit_halt_ok() -> Bool:
+  submit_is_quit("/quit") && submit_is_quit("/quit bye") && Bool.not(submit_is_quit("hello")) && Bool.not(submit_is_quit("/join #x"))
+
+type Conn is Data:
+  ConnBad{}
+  ConnOk{host: String, port: U32}
+
+def connect_port.num(+host: String, n: Args.Num) -> Conn:
+  match n:
+    case Args.Num{ok, p}:
+      match ok:
+        case True{}:
+          ConnOk{host, p}
+        case False{}:
+          ConnBad{}
+
+def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
+  match empty:
+    case True{}:
+      ConnOk{host, 6667}
+    case False{}:
+      connect_port.num(host, Args.parse_u32(more))
+
+def connect_parse.host(+host: String, +more: String, empty: Bool) -> Conn:
+  match empty:
+    case True{}:
+      ConnBad{}
+    case False{}:
+      connect_port.on(host, more, String.is_empty(more))
+
+def connect_parse.words(pair: String & String) -> Conn:
+  match pair:
+    case (+host, +more):
+      connect_parse.host(host, more, String.is_empty(host))
+
+def connect_parse(+rest: String) -> Conn:
+  connect_parse.words(take_word(Irc.drop_spaces(rest)))
+
+def connect_parse_ok.on(c: Conn) -> Bool:
+  match c:
+    case ConnOk{+host, port}:
+      String.eq(host, "irc.example.net") && U32.is_eq(port, 6668)
+    case ConnBad{}:
+      False{}
+
+def connect_default_ok.on(c: Conn) -> Bool:
+  match c:
+    case ConnOk{_, p}:
+      U32.is_eq(p, 6667)
+    case ConnBad{}:
+      False{}
+
+def connect_parse_ok() -> Bool:
+  connect_parse_ok.on(connect_parse("irc.example.net 6668")) && connect_default_ok.on(connect_parse("irc.example.net"))

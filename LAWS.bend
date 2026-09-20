@@ -163,6 +163,14 @@ law snap_scroll:
 law hist_cap:
   {Net.hist_cap_ok() == True{} : Bool}
 
+# LAW: /quit is a halt command; plain text is not.
+law submit_halt:
+  {Sub.submit_halt_ok() == True{} : Bool}
+
+# LAW: /connect host port parses.
+law connect_parse:
+  {Sub.connect_parse_ok() == True{} : Bool}
+
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
   {Fr.overlong_text_drop_ok() == True{} : Bool}

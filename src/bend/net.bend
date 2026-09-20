@@ -130,19 +130,28 @@ def after_ui_send(
     case True{}:
       k((ui, st2, quit))
 
+def or_halt(quit: Bool, halt: Bool) -> Bool:
+  match quit:
+    case True{}:
+      True{}
+    case False{}:
+      halt
+
 def send_pair(
   ui: T.Ui,
   quit: Bool,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  pair: Sess.Session & List<&2, String>,
+  pair: Sess.Session & List<&2, String> & Bool,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
-    case (+st2, +outs):
-      do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
-        after_ui_send(ok, ui, st2, quit, evt, cmd, k)
+    case (+st2, rest):
+      match rest:
+        case (+outs, halt):
+          do IO<Unit>:
+            ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
+            after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
 def with_keys_dn(
   ui: T.Ui,
@@ -494,6 +503,8 @@ def on_cmd(
       match c:
         case Sess.Stop{}:
           reader_die(sock, evt)
+        case Sess.Dial{_, _}:
+          k(sock)
         case Sess.Cont{+outs}:
           do IO<Unit>:
             sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, outs))), sock, outs)

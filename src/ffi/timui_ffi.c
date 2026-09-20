@@ -42,7 +42,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   (void)f;
   (void)w;
   cfg.title = "birc";
-  cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT;
+  cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
+              TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
   cfg.theme = TIMUI_THEME_MODERN_DARK;
   if (timui_open(&cfg, &ui) != TIMUI_OK)
     return io_fail(e, 1u, "timui_open failed");
