@@ -89,7 +89,8 @@ FFI walks that Data. When it does:
 | D1 | Coarse paint inside one `Timui.frame` (Bend owns iteration) |
 | D2 | `IO.spawn` net actor + `Chan` Data events; UI paints then `Chan.recv` |
 | D3 | Base `TCP.send` / `TCP.recv` strings; octet `Fr.push` remains for laws |
-| D4 | `--frames` fuel + `ui_loop_trust` |
+| D4 | `--frames` fuel; `frames=0` live `@unsafe` idle |
+| D6 | `BodyLine`/`Span`/`Tab` packing; C interprets, does not tokenize |
 | D5 | C demo deleted; Bend `build/birc` only |
 
 ## Spike (M0.5)
@@ -105,7 +106,8 @@ Thin FFI (Bend owns the loop):
 Timui.open     : IO(Result<&1,&1, U32 & String, Ui>)  # IO.try at call sites
 Timui.frame    : Ui -> String×6 -> IO(Ui)   # one begin/draw/end
 Timui.did_quit : IO(Bool)
-Timui.keys     : IO(Bool & Bool & Bool & String & U32)  # quit, enter, bs, typed, rows
+Timui.keys     : IO(Bool×3 & String & U32×6)
+  # quit, enter, bs, typed, rows, tab, click, scroll_up, scroll_dn, hist
 Timui.close    : Ui -> IO(Unit)
 App.budget     : IO(U32)   # from --frames / birc_max_frames
 ```

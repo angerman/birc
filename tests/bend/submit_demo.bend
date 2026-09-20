@@ -91,6 +91,8 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("bad", line_of(Sub.submit(cl1, "/nope")), " ok=True nbuf=2")
     Unit <- E.must_eq("part_idx", part_keeps_b(), "#b nbuf=3")
     Unit <- E.must_eq("strip_ctl", inj_out(Sub.submit(cl1, inj_input())), "PRIVMSG #birc :helloQUIT :x")
+    Unit <- E.must("halt", Sub.submit_halt_ok())
+    Unit <- E.must("conn", Sub.connect_parse_ok())
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

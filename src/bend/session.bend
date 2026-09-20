@@ -148,6 +148,7 @@ type NetEvt is Data:
 type NetCmd is Data:
   Cont{outs: List<&2, String>}
   Stop{}
+  Dial{host: String, port: U32}
 
 def draft_bs.len(+s: String, n: Nat) -> String:
   match n:
@@ -354,6 +355,13 @@ def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
     case False{}:
       cl
 
+def halt_of(enter: Bool, +line: String) -> Bool:
+  match enter:
+    case True{}:
+      Sub.submit_is_quit(line)
+    case False{}:
+      False{}
+
 def finish_hist(
   drop: Bool,
   +rem: String,
@@ -362,11 +370,12 @@ def finish_hist(
   net: NetState,
   +cl3: Cl.Client,
   +outs: List<&2, String>,
+  halt: Bool,
   pair: Hist & String
-) -> Session & List<&2, String>:
+) -> Session & List<&2, String> & Bool:
   match pair:
     case (h2, draft3):
-      (Session{cl3, drop, rem, draft3, joined, chan, net, h2}, outs)
+      (Session{cl3, drop, rem, draft3, joined, chan, net, h2}, outs, halt)
 
 def finish_keys(
   drop: Bool,
@@ -383,14 +392,14 @@ def finish_keys(
   +hist: Hist,
   +line: String,
   triple: Cl.Client & String & List<&2, String>
-) -> Session & List<&2, String>:
+) -> Session & List<&2, String> & Bool:
   match triple:
     case (cl2, draft2, outs):
       +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), NatU.u32_to_nat(up), NatU.u32_to_nat(dn)))
       +h2 = hist_after_enter(hist, line, enter)
-      finish_hist(drop, rem, joined, chan, net, cl3, outs, hist_move(h2, draft2, hcmd))
+      finish_hist(drop, rem, joined, chan, net, cl3, outs, halt_of(enter, line), hist_move(h2, draft2, hcmd))
 
-def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & List<&2, String>:
+def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & List<&2, String> & Bool:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist}:
       +line = draft_typed(draft_bs(draft, bs), typed)

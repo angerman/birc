@@ -125,6 +125,12 @@ def Laws.snap_scroll():
 def Laws.hist_cap():
   {==}
 
+def Laws.submit_halt():
+  {==}
+
+def Laws.connect_parse():
+  {==}
+
 def Laws.overlong_text_drop():
   {==}
 
