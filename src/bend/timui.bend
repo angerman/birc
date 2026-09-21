@@ -12,11 +12,13 @@ def Ui():
 
 # Named Data so C packs CID_UIKEYS (not a `Keys` ctor, which collides
 # with a `Timui.keys` law). Copyable; the Ui handle stays linear.
+# Flags are U32 0/1 so C can pack them as unboxed words (Bool True/False
+# is TAG_PAK; a 10-field Data ctor was not matching Enter).
 type UiKeys is Data:
   UiKeys{
-    quit: Bool,
-    enter: Bool,
-    bs: Bool,
+    quit: U32,
+    enter: U32,
+    bs: U32,
     typed: String,
     rows: U32,
     tab: U32,
@@ -30,12 +32,15 @@ def ROWS0() -> U32:
   24
 
 def keys0() -> UiKeys:
-  UiKeys{False{}, False{}, False{}, "", ROWS0(), 0, 0, 0, 0, 0}
+  UiKeys{0, 0, 0, "", ROWS0(), 0, 0, 0, 0, 0}
+
+def flag_on(+n: U32) -> Bool:
+  U32.is_eq(n, 1)
 
 def keys_quit(k: UiKeys) -> Bool:
   match k:
     case UiKeys{quit, _, _, _, _, _, _, _, _, _}:
-      quit
+      flag_on(quit)
 
 def keys_rows(k: UiKeys) -> U32:
   match k:
@@ -50,7 +55,7 @@ def Timui.open():
   import "../ffi/timui_ffi.c"
 
 # One begin/draw/end. Returns the Ui beside this frame's keys (no Result:
-# quit is UiKeys.quit, same as Window Close in the event list).
+# quit is UiKeys.quit != 0, same as Window Close in the event list).
 law Timui.frame:
   Ui -> String -> String -> String -> String -> String -> String -> IO(Ui & UiKeys)
 

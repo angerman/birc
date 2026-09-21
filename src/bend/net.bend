@@ -163,6 +163,25 @@ def step_rows(
         case (+cmd, halt):
           (Sess.session_set_rows(st, rows), cmd, halt)
 
+def with_keys.go(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +typed: String,
+  +rows: U32,
+  +tab: U32,
+  +click: U32,
+  +up: U32,
+  +dn: U32,
+  +hist: U32,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit),
+  quit: Bool,
+  enter: Bool,
+  bs: Bool
+) -> IO(Unit):
+  send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), rows), k)
+
 def with_keys(
   ui: T.Ui,
   +st: Sess.Session,
@@ -173,7 +192,7 @@ def with_keys(
 ) -> IO(Unit):
   match keys:
     case T.UiKeys{quit, enter, bs, +typed, rows, tab, click, up, dn, hist}:
-      send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), rows), k)
+      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, k, T.flag_on(quit), T.flag_on(enter), T.flag_on(bs))
 
 def with_tick.got(
   got: T.Ui & T.UiKeys,
