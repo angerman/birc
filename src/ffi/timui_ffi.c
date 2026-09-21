@@ -198,9 +198,7 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
     Term h = birc_cons_head(e, xs, &t);
     xs = t;
     s = io_cstr(e, h, &len);
-    nlen = birc_utf8_fit(s ? s : "", (size_t)len);
-    if (nlen >= 63)
-      nlen = 63;
+    nlen = birc_utf8_fit(s ? s : "", (size_t)len < 63 ? (size_t)len : (size_t)63);
     if (s && nlen > 0)
       memcpy(store[n], s, nlen);
     store[n][nlen] = '\0';
