@@ -119,12 +119,22 @@ def args_num_frames(+t: List<&2, String>, +cfg: Cfg, n: U32, over: Bool) -> Step
     case False{}:
       Go{ t, set_frames(cfg, n)}
 
+def PORT_MAX() -> U32:
+  65535
+
+def args_num_port(+t: List<&2, String>, +cfg: Cfg, n: U32, bad: Bool) -> Step:
+  match bad:
+    case True{}:
+      Stop{Bad{"birc: --port out of range"}}
+    case False{}:
+      Go{ t, set_port(cfg, n)}
+
 def args_num_which(+t: List<&2, String>, +cfg: Cfg, +n: U32, frames: Bool) -> Step:
   match frames:
     case True{}:
       args_num_frames(t, cfg, n, U32.is_gt(n, FRAMES_MAX()))
     case False{}:
-      Go{ t, set_port(cfg, n)}
+      args_num_port(t, cfg, n, U32.is_eq(n, 0) || U32.is_gt(n, PORT_MAX()))
 
 def args_num_ok(+t: List<&2, String>, +cfg: Cfg, n: U32, ok: Bool, frames: Bool) -> Step:
   match ok:

@@ -387,18 +387,25 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M8** Clamp the scroll offset on write (client#5, view#9).
       Clamp to `List.length(lines)`. `scroll_page_ok` / `snap_ok` expected the
       unbounded offset; they now expect the clamp.
-- [ ] **M9** `/part` in the server buffer → usage error (view#10).
-- [ ] **M10** `--port` range 1..65535 (view#11).
-- [ ] **M11** PageUp/PageDown move a page (view#14).
-- [ ] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
-- [ ] **M13** over-long URL → plain span (view#12).
+- [x] **M9** `/part` in the server buffer → usage error (view#10).
+- [x] **M10** `--port` range 1..65535 (view#11).
+- [x] **M11** PageUp/PageDown move a page (view#14). FFI sends `rows-6`.
+- [x] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
+- [x] **M13** over-long URL → plain span (view#12).
 - [ ] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
 - [ ] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
-- [ ] **M16** Decide and document who wraps long lines (view#15).
+- [x] **M16** Decide and document who wraps long lines (view#15).
+      C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
 - [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
 - [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
-- [ ] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
-- [ ] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
+      tried: no default-off frame timer in the tree
+      evidence: net#13 is a 16 ms poll/draw bound; changing it without a split is intuition
+      open question: add a default-off phase timer, then re-measure before touching the 16 ms path
+- [x] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
+      Empty JOIN does not open a buffer. pack_spans first-span is still `is_empty(acc)`.
+- [x] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
+      `timui_full_redraw`; dropped unused `w` store; deleted dead `_POSIX_C_SOURCE` and `localtime` fallback.
+      `tlen` vs `strlen(typed)` left (same value today).
 
 ### Phase I — idiomatic Bend
 - [ ] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).

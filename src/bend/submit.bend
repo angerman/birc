@@ -154,8 +154,22 @@ def submit_part.on(+cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.C
 def submit_part.with(+cl: Cl.Client, +chan: String) -> Cl.Client & List<&2, String>:
   submit_part.on(cl, chan, Cl.buf_find(cl, chan))
 
+def submit_part.empty.on(+cl: Cl.Client, +rest: String, server: Bool) -> Cl.Client & List<&2, String>:
+  match server:
+    case True{}:
+      (echo_err(cl, "usage: /part #chan"), empty_out())
+    case False{}:
+      submit_part.with(cl, active_name(cl))
+
+def submit_part.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      submit_part.empty.on(cl, rest, Nat.is_eq(active_idx(cl), 0n))
+    case False{}:
+      submit_part.with(cl, rest)
+
 def submit_part(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_part.with(cl, submit_part.chan(cl, rest, String.is_empty(rest)))
+  submit_part.empty(cl, rest, String.is_empty(rest))
 
 # ---- /msg ---------------------------------------------------------------
 
