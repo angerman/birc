@@ -20,7 +20,7 @@ endif
 
 BLDDIR := build
 APP := src/bend/app.bend
-PROTO := src/bend/main.bend
+PROTO := tests/bend/proto_demo.bend
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \

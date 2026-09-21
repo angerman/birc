@@ -1,22 +1,18 @@
 # Inspectors and law predicates for Client (I15a).
 import Base
-import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./client.bend as Feed
 
-def show_nicks.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+p:
-      match ns:
-        case Nil{}:
-          acc
-        case Con{+h, t}:
-          show_nicks.go(p, t, acc ++ h ++ " ")
+# Trailing space is part of the feed_demo golden (`me alice `).
+def show_nicks.chunks(+ns: List<&2, String>) -> List<&2, String>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      (h ++ " ") <> show_nicks.chunks(t)
 
 def show_nicks(+ns: List<&2, String>) -> String:
-  show_nicks.go(Nat.add(1n, List.length(&2, String, ns)), ns, "")
+  String.concat(show_nicks.chunks(ns))
 
 def show_buf.chan(+ch: Bool) -> String:
   match ch:
@@ -34,19 +30,15 @@ def show_buf(+b: Cl.Buffer) -> String:
         ++ Nat.show(List.length(&2, Cl.Line, lines)) ++ "|"
         ++ show_nicks(nicks) ++ "}"
 
-def show_bufs.go(fuel: Nat, +xs: List<&2, Cl.Buffer>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          acc
-        case Con{+h, t}:
-          show_bufs.go(p, t, acc ++ show_buf(h) ++ ";")
+def show_bufs.chunks(+xs: List<&2, Cl.Buffer>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      (show_buf(h) ++ ";") <> show_bufs.chunks(t)
 
 def show_bufs(+xs: List<&2, Cl.Buffer>) -> String:
-  show_bufs.go(Nat.add(1n, Cl.buf_count(xs)), xs, "")
+  String.concat(show_bufs.chunks(xs))
 
 def show_client(+cl: Cl.Client) -> String:
   match cl:
@@ -206,20 +198,9 @@ def server_nick_query() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi")
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "server") && Nat.is_eq(buf_nlines(cl, 0n), 0n)
 
-def ieq_rfc1459_ok() -> Bool:
-  Irc.ieq("foo[]", "foo{}") && Irc.ieq("A\\B", "a|b")
-
 def self_priv_query() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":me!me@h PRIVMSG alice :hi")
   has_buf(cl, "alice") && Bool.not(has_buf(cl, "me"))
-
-def scroll_clamp_ok() -> Bool:
-  +cl0 = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
-  +cl1 = Cl.apply_active_scroll(cl0, 50n, 0n)
-  Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), buf_nlines(cl1, 1n))
-
-def bare_join_ok() -> Bool:
-  Nat.is_eq(nbuf(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN")), 1n)
 
 def snap_ok() -> Bool:
   +clq = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
@@ -253,16 +234,6 @@ def names_1459_ok() -> Bool:
     ":me!me@localhost JOIN #birc" <> ":irc.birc.dev 353 me #birc :me alice" <> Nil{})
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "#birc") && Bool.not(has_buf(cl, "me alice")) && String.eq(buf_nicks(cl, "#birc"), "me alice ")
 
-def statusmsg_ok() -> Bool:
-  +cl = Feed.feed_all(
-    Cl.init("me", "s"),
-    ":me!me@localhost JOIN #birc" <> ":op!u@h PRIVMSG @#birc :ops" <> Nil{})
-  Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "#birc") && Bool.not(has_buf(cl, "@#birc")) && Nat.is_eq(buf_nlines(cl, 1n), 2n)
-
-def notice_auth_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc NOTICE AUTH :hi")
-  Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
-
 def kick_self_drops() -> Bool:
   +cl = Feed.feed_all(
     Cl.init("me", "s"),
@@ -275,24 +246,6 @@ def self_part_drops() -> Bool:
     ":me!me@localhost JOIN #birc" <> ":me!me@localhost PART #birc" <> Nil{})
   Nat.is_eq(nbuf(cl), 1n) && Bool.not(has_buf(cl, "#birc"))
 
-
-def numeric_last_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 403 me #nope :No such channel")
-  String.eq(buf_texts(cl, 0n), "[403] No such channel|")
-
-# After registration, 433 me newnick is a rejected /nick: stay me, only log.
-def nick433_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 me newnick :Nickname is already in use")
-  String.eq(Cl.nick_of(cl), "me") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
-
-# Registration: 433 * me and 433 me me mean our nick is taken; retry as me_.
-def nick433_star_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 * me :Nickname is already in use")
-  String.eq(Cl.nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
-
-def nick433_same_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 me me :Nickname is already in use")
-  String.eq(Cl.nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 def log_ts_ok.pair(+ts0: String, rest: List<&2, Cl.Line>) -> Bool:
   match rest:

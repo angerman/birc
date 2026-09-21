@@ -6,7 +6,9 @@ import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
 import ../../src/bend/clock.bend as Clock
-import ../../src/bend/irc.bend as Irc
+import ./client_preds.bend as Pred
+import ./view_preds.bend as VP
+import ./irc_show.bend as Tag
 
 def forge_msg() -> String:
   ":a!a@h PRIVMSG me :look "
@@ -41,10 +43,10 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("query", CL.privmsg_query_opens())
     Unit <- E.must("welcome", CL.welcome_server_line())
     Unit <- E.must("empty_id", CL.feed_id(Cl.init("me", "s"), ""))
-    Unit <- E.must("num_last", CL.numeric_last_ok())
-    Unit <- E.must("nick433", CL.nick433_ok())
-    Unit <- E.must("nick433_star", CL.nick433_star_ok())
-    Unit <- E.must("nick433_same", CL.nick433_same_ok())
+    Unit <- E.must("num_last", Pred.numeric_last_ok())
+    Unit <- E.must("nick433", Pred.nick433_ok())
+    Unit <- E.must("nick433_star", Pred.nick433_star_ok())
+    Unit <- E.must("nick433_same", Pred.nick433_same_ok())
     Unit <- E.must("flood", CL.flood_buffers_capped())
     Unit <- E.must("flood_server", CL.flood_server_clean())
     Unit <- E.must(
@@ -56,18 +58,18 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
       Nat.is_lt(Cl.active_of(Feed.feed_all(Cl.init("me", "s"), CL.flood_joins(24n))), 16n)
     )
     Unit <- E.must("names1459", CL.names_1459_ok())
-    Unit <- E.must("statusmsg", CL.statusmsg_ok())
-    Unit <- E.must("notice_auth", CL.notice_auth_ok())
+    Unit <- E.must("statusmsg", Pred.statusmsg_ok())
+    Unit <- E.must("notice_auth", Pred.notice_auth_ok())
     Unit <- E.must("kick_self", CL.kick_self_drops())
     Unit <- E.must("chrono", CL.log_chrono_ok())
     Unit <- E.must("cycle", CL.cycle_ok())
     Unit <- E.must("style", V.style_self_ne_msg())
-    Unit <- E.must("style_spec", V.style_spec_ok())
-    Unit <- E.must("draw_line", V.draw_line_ok())
-    Unit <- E.must("draw_link", V.draw_link_ok())
-    Unit <- E.must("draw_hostile", V.draw_hostile_ok())
-    Unit <- E.must("draw_tabs", V.draw_tabs_ok())
-    Unit <- E.must("draw_nicks", V.draw_nicks_ok())
+    Unit <- E.must("style_spec", VP.style_spec_ok())
+    Unit <- E.must("draw_line", VP.draw_line_ok())
+    Unit <- E.must("draw_link", VP.draw_link_ok())
+    Unit <- E.must("draw_hostile", VP.draw_hostile_ok())
+    Unit <- E.must("draw_tabs", VP.draw_tabs_ok())
+    Unit <- E.must("draw_nicks", VP.draw_nicks_ok())
     Unit <- E.must("body_ys", V.body_ys_ok())
     Unit <- E.must("tsw", V.ts_width_ok())
     Unit <- E.must("vchrono", V.vis_chrono_ok())
@@ -77,15 +79,15 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_unclosed", V.unclosed_star_plain())
     Unit <- E.must("tok_no_italic", Bool.not(V.tokenize_has_italic("no marks")))
     Unit <- E.must("page", CL.scroll_page_ok())
-    Unit <- E.must("scroll_clamp", CL.scroll_clamp_ok())
+    Unit <- E.must("scroll_clamp", Pred.scroll_clamp_ok())
     Unit <- E.must("nick_query", CL.nick_query_renames())
     Unit <- E.must("quit_query", CL.quit_query_logs())
     Unit <- E.must("mode_chan", CL.mode_channel_logs())
     Unit <- E.must("part_nonmember", CL.part_nonmember_silent())
     Unit <- E.must("server_nick", CL.server_nick_query())
-    Unit <- E.must("ieq1459", CL.ieq_rfc1459_ok())
+    Unit <- E.must("ieq1459", Pred.ieq_rfc1459_ok())
     Unit <- E.must("self_priv", CL.self_priv_query())
-    Unit <- E.must("bare_join", CL.bare_join_ok())
+    Unit <- E.must("bare_join", Pred.bare_join_ok())
     Unit <- E.must("tok_no_embed", V.tokenize_no_embed())
     Unit <- E.must("tok_trim_dot", V.tokenize_trim_dot())
     Unit <- E.must("tok_trim_semi", V.tokenize_trim_semi())
@@ -98,7 +100,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_bold", V.tokenize_has_bold("hello *bold* text"))
     Unit <- E.must("tok_plain", Bool.not(V.tokenize_has_bold("no stars here")))
     Unit <- E.must("log_ts", CL.log_ts_ok())
-    Unit <- E.must("sanitize", Irc.sanitize_in_ok())
+    Unit <- E.must("sanitize", Tag.sanitize_in_ok())
     Unit <- E.must("no_forge", no_forge_pack())
     Unit <- E.must("join_us", join_us_name())
     Unit <- E.must_eq(

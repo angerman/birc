@@ -1,11 +1,12 @@
 # Protocol self-test harness. Asserts golden tags (fail closed).
-# Native: `bend src/bend/main.bend -o build/birc-proto && ./build/birc-proto`
+# Native: `bend tests/bend/proto_demo.bend -o build/birc-proto && ./build/birc-proto`
 import Base
-import ./irc.bend as Irc
-import ../../tests/bend/expect.bend as E
+import ../../src/bend/irc.bend as Irc
+import ./expect.bend as E
+import ./irc_show.bend as Tag
 
 def check(+tag: String, +line: String, +want: String) -> IO(Unit):
-  E.must_eq(tag, Irc.show_parse(line), want)
+  E.must_eq(tag, Tag.show_parse(line), want)
 
 def check_pong(+tag: String, +line: String, +want: String) -> IO(Unit):
   E.must_eq(tag, Irc.pong_for(line), want)

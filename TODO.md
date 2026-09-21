@@ -445,10 +445,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
       as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
       used from tests. Acc folds are I7.
-- [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
-      tried: pack_body deleted; show_ops is still `acc ++ ";" ++ chunk`
-      evidence: `show_ops.cons` / `show_names.cons` / `header_of.buf` use `++`
-      open question: String.concat after I13; goldens of show_op must not move
+- [x] **I10** Remaining in-src `show_*` use `String.concat`/`join` (view idiom#2).
+      `show_nicks`/`show_bufs`/`show_spans` concat chunks (trailing space/`;` kept).
+      Moved `show_ops`/`show_names` use `String.join`. Tokenizer fuel is I6.
 - [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
       `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
       `SLPh` gone; `send_lines_go` matches the pair then the list.
@@ -468,11 +467,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I15** Split `client.bend` below ~1000 lines (client#25).
       I15a: inspectors/`*_ok` in `client_laws.bend`. I15b: types+container in
       `buffer.bend`. `wc -l`: client 636, buffer 597, client_laws 339.
-- [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
-      tried: `LAWS.bend` imports `Cl.flood_buffers_capped` / `Cl.cycle_ok` / …
-      evidence: feed_demo calls the same defs; uncited vs cited is a grep against
-      LAWS.bend + PROOF.bend, not against feed_demo
-      open question: move only names absent from LAWS/PROOF, keep feed_demo compiling
+- [x] **I16** Uncited `*_ok`/`show_*` moved to `tests/bend/` (net#21, client#24).
+      Cited law helpers stay (`show_client`/`show_spans`/`show_netcmd`, `submit_ok`,
+      framer/view/session/clock predicates). Production `*_ok` (DNS/net/args) stay.
 
 ### Phase R — remove C
 - [x] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
@@ -518,7 +515,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       LAWS/PROOF/net_demo import session as `Sess`. `tests/pty/live_minus.py`:
       refused (exit 1), 433 → `NICK probe_`, close mid-line keeps the UI,
       split line paints, Latin-1 `0xE9` paints.
-- [x] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
+- [x] **T8** proto harness uses `tests/bend/expect.bend` (`tests/bend/proto_demo.bend`).
 
 ### Phase D — docs
 - [x] **D1** Delete `docs/INVENTORY.md`.

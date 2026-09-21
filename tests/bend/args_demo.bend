@@ -19,86 +19,109 @@ def many_demo(n: Nat, acc: List<&2, String>) -> List<&2, String>:
     case 1n+p:
       many_demo(p, "--demo" <> acc)
 
+def show_cfg(+cfg: Args.Cfg) -> String:
+  match cfg:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay}:
+      "demo=" ++ Bool.show(demo)
+        ++ " frames=" ++ U32.show(frames)
+        ++ " host=" ++ host
+        ++ " port=" ++ U32.show(port)
+        ++ " nick=" ++ nick
+        ++ " chan=" ++ chan
+        ++ " replay=" ++ replay
+
+def show_parsed(p: Args.Parsed) -> String:
+  match p:
+    case Args.Good{cfg}:
+      "good:" ++ show_cfg(cfg)
+    case Args.Bad{+msg}:
+      "bad:" ++ msg
+
+def show_num(got: Args.Num) -> String:
+  match got:
+    case Args.Num{ok, n}:
+      Bool.show(ok) ++ ":" ++ U32.show(n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must_eq("num_ok", Args.show_num(Args.parse_u32("12")), "True:12")
-    Unit <- E.must_eq("num_u32_max", Args.show_num(Args.parse_u32("4294967295")), "True:4294967295")
-    Unit <- E.must_eq("num_u32_overflow", Args.show_num(Args.parse_u32("4294967296")), "False:0")
-    Unit <- E.must_eq("num_bad", Args.show_num(Args.parse_u32("abc")), "False:0")
-    Unit <- E.must_eq("num_empty", Args.show_num(Args.parse_u32("")), "False:0")
+    Unit <- E.must_eq("num_ok", show_num(Args.parse_u32("12")), "True:12")
+    Unit <- E.must_eq("num_u32_max", show_num(Args.parse_u32("4294967295")), "True:4294967295")
+    Unit <- E.must_eq("num_u32_overflow", show_num(Args.parse_u32("4294967296")), "False:0")
+    Unit <- E.must_eq("num_bad", show_num(Args.parse_u32("abc")), "False:0")
+    Unit <- E.must_eq("num_empty", show_num(Args.parse_u32("")), "False:0")
     Unit <- E.must_eq(
       "default",
-      Args.show_parsed(Args.parse(Nil{})),
+      show_parsed(Args.parse(Nil{})),
       "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay="
     )
     Unit <- E.must_eq(
       "connect",
-      Args.show_parsed(Args.parse(xs_live())),
+      show_parsed(Args.parse(xs_live())),
       "good:demo=False frames=4 host=10.0.0.1 port=6667 nick=z chan=#x replay="
     )
     Unit <- E.must_eq(
       "missing_connect",
-      Args.show_parsed(Args.parse(xs1("--connect"))),
+      show_parsed(Args.parse(xs1("--connect"))),
       "bad:birc: missing value"
     )
     Unit <- E.must_eq(
       "bad_frames",
-      Args.show_parsed(Args.parse(xs2("--frames", "xyz"))),
+      show_parsed(Args.parse(xs2("--frames", "xyz"))),
       "bad:birc: expected a number"
     )
     Unit <- E.must_eq(
       "unknown",
-      Args.show_parsed(Args.parse(xs1("--nope"))),
+      show_parsed(Args.parse(xs1("--nope"))),
       "bad:birc: unknown option --nope"
     )
     Unit <- E.must_eq(
       "help",
-      Args.show_parsed(Args.parse(xs1("--help-irc"))),
+      show_parsed(Args.parse(xs1("--help-irc"))),
       "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",
-      Args.show_parsed(Args.parse("--connect" <> "10.0.0.1" <> "--demo" <> Nil{})),
+      show_parsed(Args.parse("--connect" <> "10.0.0.1" <> "--demo" <> Nil{})),
       "good:demo=True frames=0 host=10.0.0.1 port=6667 nick=birc chan=#birc replay="
     )
     Unit <- E.must_eq(
       "replay",
-      Args.show_parsed(Args.parse(xs2("--replay", "fixtures/demo.irc"))),
+      show_parsed(Args.parse(xs2("--replay", "fixtures/demo.irc"))),
       "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay=fixtures/demo.irc"
     )
     Unit <- E.must_eq(
       "missing_replay",
-      Args.show_parsed(Args.parse(xs1("--replay"))),
+      show_parsed(Args.parse(xs1("--replay"))),
       "bad:birc: missing value"
     )
     Unit <- E.must_eq(
       "frames_cap",
-      Args.show_parsed(Args.parse(xs2("--frames", "65536"))),
+      show_parsed(Args.parse(xs2("--frames", "65536"))),
       "bad:birc: --frames too large"
     )
     Unit <- E.must_eq(
       "port0",
-      Args.show_parsed(Args.parse(xs2("--port", "0"))),
+      show_parsed(Args.parse(xs2("--port", "0"))),
       "bad:birc: --port out of range"
     )
     Unit <- E.must_eq(
       "port70000",
-      Args.show_parsed(Args.parse(xs2("--port", "70000"))),
+      show_parsed(Args.parse(xs2("--port", "70000"))),
       "bad:birc: --port out of range"
     )
     Unit <- E.must_eq(
       "copy_fin_extra",
-      Args.show_parsed(Args.copy_fin2("extra" <> Nil{}, Nil{})),
+      show_parsed(Args.copy_fin2("extra" <> Nil{}, Nil{})),
       "bad:birc: too many arguments"
     )
     Unit <- E.must_eq(
       "copy_fin_empty",
-      Args.show_parsed(Args.copy_fin2(Nil{}, Nil{})),
+      show_parsed(Args.copy_fin2(Nil{}, Nil{})),
       "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay="
     )
     Unit <- E.must_eq(
       "argv65",
-      Args.show_parsed(Args.parse(many_demo(65n, Nil{}))),
+      show_parsed(Args.parse(many_demo(65n, Nil{}))),
       "bad:birc: too many arguments"
     )
     IO.print("args_demo=ok")
