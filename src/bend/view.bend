@@ -636,15 +636,34 @@ def status_y.on(+rows: U32, ge: Bool) -> U32:
 def status_y(+rows: U32) -> U32:
   status_y.on(rows, U32.is_ge(rows, 2))
 
-def body_box_h.on(+sy: U32, gt: Bool) -> U32:
+# Body last occupied row is y+h-1. Keep y+h <= status_y so the box never
+# reaches the status (or composer) row. Prefer y=2 when there is room.
+def body_top.small(+end: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.sub(end, 1)
+    case False{}:
+      0
+
+def body_top.on(+end: U32, room: Bool) -> U32:
+  match room:
+    case True{}:
+      2
+    case False{}:
+      body_top.small(end, U32.is_ge(end, 1))
+
+def body_top(+end: U32) -> U32:
+  body_top.on(end, U32.is_gt(end, 2))
+
+def body_box_h.on(+end: U32, +top: U32, gt: Bool) -> U32:
   match gt:
     case True{}:
-      U32.sub(sy, 2)
+      U32.sub(end, top)
     case False{}:
       1
 
-def body_box_h(+sy: U32) -> U32:
-  body_box_h.on(sy, U32.is_gt(sy, 2))
+def body_box_h(+end: U32, +top: U32) -> U32:
+  body_box_h.on(end, top, U32.is_gt(end, top))
 
 def nick_w.on(+cols: U32, +mid: U32, ge: Bool) -> U32:
   match ge:
@@ -659,12 +678,13 @@ def nick_w(+cols: U32, +mid: U32) -> U32:
 def lay(+rows: U32, +cols: U32) -> Lay:
   +mid = mid_w(cols)
   +sy = status_y(rows)
-  +bh = body_box_h(sy)
+  +top = body_top(sy)
+  +bh = body_box_h(sy, top)
   Lay{
     Rect{0, 0, cols, 1},
     Rect{0, 1, cols, 1},
-    Rect{0, 2, mid, bh},
-    Rect{mid, 2, nick_w(cols, mid), bh},
+    Rect{0, top, mid, bh},
+    Rect{mid, top, nick_w(cols, mid), bh},
     Rect{0, sy, cols, 1}
   }
 
@@ -681,11 +701,25 @@ def inner_w.on(+w: U32, ge: Bool) -> U32:
 def inner_w(+w: U32) -> U32:
   inner_w.on(w, U32.is_ge(w, 2))
 
-def inner_last(+y: U32, +h: U32) -> U32:
-  U32.sub(U32.add(y, h), 2)
+def inner_last.on(+y: U32, +h: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.sub(U32.add(y, h), 2)
+    case False{}:
+      U32.sub(U32.add(y, h), 1)
 
-def inner_min(+y: U32) -> U32:
-  U32.add(y, 1)
+def inner_last(+y: U32, +h: U32) -> U32:
+  inner_last.on(y, h, U32.is_ge(h, 3))
+
+def inner_min.on(+y: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.add(y, 1)
+    case False{}:
+      y
+
+def inner_min(+y: U32, +h: U32) -> U32:
+  inner_min.on(y, U32.is_ge(h, 3))
 
 def box_max_y(+y: U32, +h: U32) -> U32:
   U32.sub(U32.add(y, h), 1)
@@ -699,7 +733,7 @@ def body_y0.pick(+cand: U32, +min_y: U32, ge: Bool) -> U32:
 
 def body_y0(+y: U32, +h: U32, +n: U32) -> U32:
   +last = inner_last(y, h)
-  +min_y = inner_min(y)
+  +min_y = inner_min(y, h)
   +cand = U32.sub(U32.add(last, 1), n)
   body_y0.pick(cand, min_y, U32.is_ge(cand, min_y))
 
@@ -1001,11 +1035,35 @@ def body_ys_case(+rows: U32, +nlines: Nat) -> Bool:
     && U32.is_eq(ys_last(ys), last_body_row(rows))
     && ys_inc(ys)
 
+def lay_body_ok(l: Lay, +want_y: U32, +want_h: U32, +want_sy: U32) -> Bool:
+  match l:
+    case Lay{_, _, Rect{_, +by, _, +bh}, _, Rect{_, +sy, _, _}}:
+      U32.is_eq(by, want_y) && U32.is_eq(bh, want_h) && U32.is_eq(sy, want_sy) && U32.is_le(U32.add(by, bh), sy)
+
+def ys_clear_chrome(+rows: U32) -> Bool:
+  +last = ys_last(body_ys(rows, 8n))
+  U32.is_lt(last, status_y(rows)) && U32.is_lt(last, U32.sub(rows, 1))
+
 def body_ys_ok() -> Bool:
   body_ys_case(24, 200n)
     && body_ys_case(90, 200n)
     && body_ys_case(200, 200n)
     && body_ys_case(24, 5n)
+    && body_ys_case(1, 8n)
+    && body_ys_case(2, 8n)
+    && body_ys_case(3, 8n)
+    && body_ys_case(4, 8n)
+    && body_ys_case(5, 8n)
+    && body_ys_case(6, 8n)
+    && body_ys_case(7, 8n)
+    && body_ys_case(8, 8n)
+    && lay_body_ok(lay(4, 80), 1, 1, 2)
+    && lay_body_ok(lay(24, 80), 2, 20, 22)
+    && ys_clear_chrome(4)
+    && ys_clear_chrome(5)
+    && ys_clear_chrome(6)
+    && ys_clear_chrome(7)
+    && ys_clear_chrome(8)
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)
