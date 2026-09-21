@@ -484,10 +484,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
       `local_secs` returns U32; Bend `fmt_sod`/`fmt_hms`. strftime gone.
 - [x] **R4** = C8.
-- [ ] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
-      tried: C still interprets k|ts|spans
-      evidence: handover default is List<DrawOp>, no per-widget effects
-      open question: DrawOp Data + one FFI list walker
+- [x] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
+      `Timui.frame` walks `List<DrawOp>`. Packed k|ts|spans interpreter is gone.
+      Test-only `pack_line`/`pack_spans` remain for goldens.
 - [ ] **R6** Draw ops carry rects; panel layout moves to Bend.
       tried: layout is still C inside Timui.frame
       evidence: depends on R5

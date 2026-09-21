@@ -43,6 +43,20 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_HHMMSS 10u
 #define CID_LOCAL_SECS 12u
 #define CID_RECV_OCTETS 11u
+#define CID_VIEW_OPHEADER 13u
+#define CID_VIEW_OPTABS 14u
+#define CID_VIEW_OPBODY 15u
+#define CID_VIEW_OPNICKS 16u
+#define CID_VIEW_OPSTATUS 17u
+#define CID_VIEW_BODYLN 18u
+#define CID_VIEW_SPN 19u
+#define CID_VIEW_LNK 20u
+#ifndef THR
+#define THR
+#endif
+u64 term_aux(Term t);
+Loc ctr_take(Env e, Term t, u32 n, Term *out);
+void spare_free(Env e, Cls cls, Loc loc);
 
 #define term_ctr(cid, loc) ((Term)(((u64)(cid) << 48) | (u64)(loc)))
 #define term_pak(cid, loc) ((Term)(((u64)(cid) << 48) | (u64)(loc)))

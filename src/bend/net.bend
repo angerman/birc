@@ -120,8 +120,8 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
 
 def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
-    case V.ViewModel{+h, +tabs, +b, +n, +s, +inp}:
-      T.Timui.frame(ui, h, tabs, b, n, s, inp, seed)
+    case V.ViewModel{+ops, +inp}:
+      T.Timui.frame(ui, ops, inp, seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
