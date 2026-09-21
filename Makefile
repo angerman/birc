@@ -66,23 +66,14 @@ build-proto: ## Build the Bend protocol self-test binary.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend $(PROTO) -o $(BLDDIR)/birc-proto
 
-# Bend emits one C TU for the whole program; rename main → bend_main and link argv shim.
-# build/birc_core.c is a build artefact (not source): Bend runtime + app, ~500KB.
-BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c src/ffi/birc_main.c
+# Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
+# birc usage is --help-irc (args.bend).
+BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c
 
-# Bend program object (slow). Shim is linked separately so argv/DNS edits stay cheap.
-$(BLDDIR)/birc_core.o: $(APP) $(filter-out src/ffi/birc_main.c,$(BEND_UI_SRCS))
+$(BLDDIR)/birc: $(APP) $(BEND_UI_SRCS)
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend $(APP) -o $(BLDDIR)/birc_bend.c
-	$(NIXRUN) sh -c 'sed "s/^int main(/int bend_main(/" $(BLDDIR)/birc_bend.c > $(BLDDIR)/birc_core.c'
-	$(NIXRUN) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi -c $(BLDDIR)/birc_core.c -o $(BLDDIR)/birc_core.o'
-
-$(BLDDIR)/birc_main.o: src/ffi/birc_main.c
-	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c '$$CC $(BEND_CFLAGS) -Isrc/ui -Isrc/ffi -c src/ffi/birc_main.c -o $(BLDDIR)/birc_main.o'
-
-$(BLDDIR)/birc: $(BLDDIR)/birc_core.o $(BLDDIR)/birc_main.o
-	$(NIXRUN) sh -c '$$CC $(BEND_CFLAGS) $(BLDDIR)/birc_core.o $(BLDDIR)/birc_main.o -o $(BLDDIR)/birc'
+	$(NIXRUN) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
 
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
@@ -141,7 +132,7 @@ test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
 test-cli: build-ui ## Binary argv errors (no TimUI).
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --frames xyz >/dev/null 2>&1; test $$? -eq 2'
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --connect >/dev/null 2>&1; test $$? -eq 2'
-	$(NIXRUN) sh -c './$(BLDDIR)/birc --help >/dev/null 2>&1; test $$? -eq 2'
+	$(NIXRUN) sh -c './$(BLDDIR)/birc --help-irc >/dev/null 2>&1; test $$? -eq 2'
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --replay >/dev/null 2>&1; test $$? -eq 2'
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --replay /no/such/birc.replay >/dev/null 2>&1; test $$? -eq 1'
 

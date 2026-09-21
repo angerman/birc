@@ -46,8 +46,8 @@ def main() -> IO(Unit):
     )
     Unit <- E.must_eq(
       "help",
-      Args.show_parsed(Args.parse(xs1("--help"))),
-      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo]"
+      Args.show_parsed(Args.parse(xs1("--help-irc"))),
+      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",
