@@ -95,19 +95,24 @@ def echo_err_server(+cl: Cl.Client, +msg: String) -> Cl.Client:
 def submit_join.got.on(+cl2: Cl.Client, +bi: Nat, +rest: String, +nick: String) -> Cl.Client & List<&2, String>:
   (Cl.set_active(Cl.nick_add_idx(cl2, bi, nick), bi), one_out(Irc.format_join(rest)))
 
-def submit_join.got(pair: Cl.Client & Nat, +rest: String) -> Cl.Client & List<&2, String>:
+def submit_join.got.cl(+cl2: Cl.Client, +bi: Nat, +rest: String) -> Cl.Client & List<&2, String>:
+  match cl2:
+    case Cl.Client{+nick, _, _, _, _}:
+      submit_join.got.on(cl2, bi, rest, nick)
+
+def submit_join.got(pair: Cl.Client & Maybe<&2, Nat>, +rest: String) -> Cl.Client & List<&2, String>:
   match pair:
-    case (cl2, +bi):
-      match cl2:
-        case Cl.Client{+nick, _, _, _, _}:
-          submit_join.got.on(cl2, bi, rest, nick)
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
+      submit_join.got.cl(cl2, bi, rest)
 
 def submit_join.on(+cl: Cl.Client, +rest: String, chan: Bool) -> Cl.Client & List<&2, String>:
   match chan:
     case False{}:
       (echo_err(cl, "usage: /join #chan"), empty_out())
     case True{}:
-      submit_join.got(Cl.buf_get(cl, rest, True{}), rest)
+      submit_join.got(Cl.buf_get(cl, rest, True{}, True{}), rest)
 
 def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_join.on(cl, rest, Irc.starts_channel(rest))
@@ -180,9 +185,11 @@ def take_word.go(fuel: Nat, phase: WordPhase, +s: String, +acc: String, +h: Char
 def take_word(+s: String) -> String & String:
   take_word.go(Nat.add(1n, Nat.mul(2n, String.length(s))), WdRead{}, s, "", Chr{0}, False{})
 
-def submit_msg.got(pair: Cl.Client & Nat, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match pair:
-    case (cl2, +bi):
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
       +cl3 = Cl.set_active(echo_self(cl2, bi, body), bi)
       (cl3, one_out(Irc.format_privmsg(who, body)))
 
@@ -191,7 +198,7 @@ def submit_msg.bad(+cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl
     case True{}:
       (echo_err(cl, "usage: /msg nick text"), empty_out())
     case False{}:
-      submit_msg.got(Cl.buf_get(cl, who, False{}), who, body)
+      submit_msg.got(Cl.buf_get(cl, who, False{}, True{}), who, body)
 
 def submit_msg.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
