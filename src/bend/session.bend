@@ -1,11 +1,10 @@
 # Pure IRC session: fold, JOIN-after-001, keys. No reconnect/backoff.
-# Fuel helpers live in natutil.bend. No IO. net.bend owns Socket / Chan / TimUI.
+# No IO. net.bend owns Socket / Chan / TimUI.
 import Base
 import ./irc.bend as Irc
 import ./client.bend as Cl
 import ./frame.bend as Fr
 import ./submit.bend as Sub
-import ./natutil.bend as NatU
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
@@ -81,13 +80,20 @@ def join_outs(+joined: Bool, +chan: String, +xs: List<&2, String>, +pongs: List<
       join_outs.on(chan, pongs, False{}, lines_have_001(xs))
 
 def live_fuel(+frames: U32) -> Nat:
-  NatU.live_fuel(frames)
+  U32.to_nat(frames)
 
 def ticks_of(+frames: U32) -> Nat:
-  NatU.ticks_of(frames)
+  live_fuel(frames)
+
+def body_h_on(+rows: U32, ge: Bool) -> Nat:
+  match ge:
+    case True{}:
+      U32.to_nat(U32.sub(rows, 6))
+    case False{}:
+      1n
 
 def body_h(+rows: U32) -> Nat:
-  NatU.body_h(rows)
+  body_h_on(rows, U32.is_ge(rows, 7))
 
 # Packed body lines must not exceed C's drawable rows (root.h-6).
 def body_h_ok() -> Bool:
