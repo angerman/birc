@@ -391,6 +391,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M10** `--port` range 1..65535 (view#11).
 - [x] **M11** PageUp/PageDown move a page (view#14). FFI sends `rows-6`.
 - [x] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
+      Trailing set includes `)` `.` `,` `"` `]` `;`. `]8;;` keeps `]8` (digit).
 - [x] **M13** over-long URL → plain span (view#12).
 - [x] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
 - [x] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).

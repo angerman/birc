@@ -173,6 +173,7 @@ def take_url.go(fuel: Nat, phase: UrlPh, +s: String, +acc: String, +h: Char, sto
 
 def url_trail(+c: U32) -> Bool:
   U32.is_eq(c, 41) || U32.is_eq(c, 46) || U32.is_eq(c, 44) || U32.is_eq(c, 34)
+    || U32.is_eq(c, 93) || U32.is_eq(c, 59)
 
 def trim_url.keep(+h: Char, t: String, rec: String, trail: Bool) -> String:
   match trail:
@@ -481,6 +482,18 @@ def tokenize_no_embed() -> Bool:
 
 def tokenize_trim_dot() -> Bool:
   String.eq(first_link.go(tokenize("see http://x.com.")), "http://x.com")
+
+def tokenize_trim_semi() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com;")), "http://x.com")
+
+def tokenize_trim_brack() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com]")), "http://x.com")
+
+# − https://evil2.exampleclick]8;; was one link including the OSC-8 closer.
+# Trailing ] and ; strip; a digit stops the trim, so ]8 remains.
+def tokenize_trim_osc() -> Bool:
+  String.eq(first_link.go(tokenize("see https://evil2.exampleclick];; x")), "https://evil2.exampleclick")
+    && String.eq(first_link.go(tokenize("see https://evil2.exampleclick]8;; x")), "https://evil2.exampleclick]8")
 
 def unclosed_star_plain() -> Bool:
   Bool.not(tokenize_has_bold("*foo"))
