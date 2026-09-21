@@ -398,13 +398,15 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M16** Decide and document who wraps long lines (view#15).
       C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
 - [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
-      tried: send_lines is one Cont list; carrying needs pending on reader_go
-      evidence: on_cmd sends the whole `outs` list in one tick
-      open question: thread a pending List through reader_go/idle without a second cmd
+      tried: `on_cmd` Cont arm is `send_lines(1n+2*len, sock, outs)` then `after_send_ok`
+      evidence: `src/bend/net.bend` reader_go/reader_idle take no pending list; a
+      second Cont send would break the 1 cmd per evt rule (C1)
+      open question: extra pending arg on reader_go and reader_idle together
 - [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
-      tried: no default-off frame timer in the tree
-      evidence: net#13 is a 16 ms poll/draw bound; changing it without a split is intuition
-      open question: add a default-off phase timer, then re-measure before touching the 16 ms path
+      tried: default-off timers would live in `timui_ffi.c`
+      evidence: `wc -l src/ffi/*.c` is 598 (clock 26, dns 63, timui 509). Frame
+      timers grow C after the note-8 cut. No split without a timer.
+      open question: measure in Bend (`local_secs` is 1 s) or accept the 16 ms poll
 - [x] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
       Empty JOIN does not open a buffer. pack_spans deleted with the packed wire.
 - [x] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
@@ -416,64 +418,74 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `body_h` / `live_fuel` live in `session.bend`. `ticks_of` still aliases `live_fuel` (law `live_fuel_alias`).
 - [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
       - [x] Data `Cur`/`Got` + `do Maybe` header/RR/ip4 (idiom §4#1); dead `skip_name`/`answers_go`/`parse_*_p` path deleted; test-only `octets` moved (dns#19).
-      - [ ] nested `_p` leftovers / `List.drop` / error Data / phase constructors / remaining `Dns.*` shims.
-      tried: cursor rewrite landed in C7
-      evidence: live parse is `parse_q` + `Cur`; leftover shims are naming only
-      open question: delete remaining `Dns.*` aliases in a no-behaviour pass
+      - [ ] Wire shims in `dns.bend:9-30` (`err`/`is_ipv4`/`encode`/`parse_*`).
+      tried: grep `^def Dns\.` is empty; remaining wrappers are `Wire.err` etc.
+      evidence: `dns.bend:9-30` are one-line `Wire.*` aliases used by net/app
+      open question: import `dns_wire` at those call sites without a behaviour change
 - [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
       `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
       pass a `Buffer -> Buffer`. `set_nth_buf` deleted.
 - [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
-      tried: chains are Bool-parameter match (legal Bend)
-      evidence: 14-deep cls_* and slash_* still sequential
-      open question: List.find table vs balanced parallel tree
+      tried: I3 `buf_modify` is the list-walker pattern; cls_* is still a Bool chain
+      evidence: goldens must not move; a List.find table is a no-behaviour pass
+      open question: one commit that only rewrites `feed_numeric` first
 - [x] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
       `parse_u32` is a `Num` wrapper over `U32.read` (identical on the 7 t18
       probes including overflow). `submit` no longer imports `args`.
 - [ ] **I6** Remove fuel from structural walkers and phase machines (idiom §5a §5b).
-      tried: UTF-8 decode needs fuel; termination checker rejects Utf8Acc.rest
-      evidence: `bend` "expected a decreasing self-call" on utf8_decode.go without fuel
-      open question: remaining walkers (drop_spaces, tokenize) in a dedicated pass
-- [ ] **I7** `client.bend`: replace `*Acc` folds; delete `strip_cr` copy; `cycle_tab` enum (client#12 #13 #18 #19).
+      tried: `body_ops.go` with y first failed `expected a decreasing self-call`
+      evidence: list must be the first arg; `U32.add(y,1)` is not a shrink
+      open question: tokenize.go still fuel-first; drop_spaces same pass
+- [ ] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
       - [x] `strip_cr` copy deleted; replay uses `Irc.strip_cr`.
-      - [ ] Acc folds (FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc); `cycle_tab` enum.
+      - [ ] Acc folds; `cycle_tab` still takes `dir: U32` (`client.bend:516`).
+      tried: `cycle_tab.pick` already matches two Bools; Acc records still compile
+      evidence: FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc remain (grep type *Acc)
+      open question: `List.contains` for nick_has in a no-behaviour pass
 - [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
-      tried: UiKeys is still a 9-field U32 product
-      evidence: session.step_keys unpacks U32 flags
-      open question: TabDir/HistDir/Maybe click at the FFI boundary
+      tried: pass `T.UiKeys` into `Sess.step_keys`; session does not import timui
+      evidence: `UiKeys` is 10 fields; `with_keys` matches it then explodes to
+      U32s (`net.bend:206-208`); `step_keys` still takes typed/enter/tab/click/up/dn/hist
+      open question: `+keys` copy in with_keys.go, then TabDir/HistDir in session
 - [x] **I9** Remaining Base reimplementations (idiom §1 table).
       `String.starts_with` (has_prefix gone), `Char.to_u32`, `List.drop` for
       take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
       as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
       used from tests. Acc folds are I7.
 - [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
-      tried: pack_body deleted with the packed wire
-      evidence: leftover ++ is in show_ops / header / status strings
-      open question: String.concat rewrite after I13 measurement
-- [ ] **I11** `net.bend`: delete `poll_pass`; `or_halt` → `Bool.or`; factor loops; `send_go` pure (net#15 #17 #18 #20).
-      - [x] `poll_pass` deleted (unused identity). `or_halt` is `Bool.or`.
-      - [ ] SLPh send_lines / loop factor / `send_go` pure.
+      tried: pack_body deleted; show_ops is still `acc ++ ";" ++ chunk`
+      evidence: `show_ops.cons` / `show_names.cons` / `header_of.buf` use `++`
+      open question: String.concat after I13; goldens of show_op must not move
+- [ ] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
+      - [x] `poll_pass` deleted. `or_halt` is `Bool.or`.
+      - [ ] SLPh `send_lines_go`; `send_go` is still IO (`net.bend:28-36`).
+      tried: send_go maps Result to Bool inside IO.pure
+      evidence: `send_line` does TCP.send then send_go(m); the map is pure
+      open question: `Socket & Result -> Socket & Bool` then one `IO.pure`
 - [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
-      tried: octet push still uses PushPhase + fuel
-      evidence: H7 added utf8_decode beside the existing phase machine
-      open question: merge decode into emit_line only, leave push.go for I12
-- [ ] **I13** Parallelism: rebalance `view_draft`; pack_body is gone (idiom §6).
-      tried: no default-off view_draft timer
-      evidence: pack_body deleted with the packed wire
-      open question: instrument view_draft then decide; do not claim speed
+      tried: H7 left `Fr.push` as PushPhase + fuel beside `utf8_decode`
+      evidence: two walkers share the remainder list; merging is a behaviour risk
+      open question: one fuel loop that both frames and decodes completed lines
+- [ ] **I13** Parallelism: rebalance `view_draft` (idiom §6).
+      tried: pack_body is gone; no default-off view_draft timer
+      evidence: same C-budget as M18 (`wc -l src/ffi/*.c` = 598). Parallel lets
+      in view_draft are unmeasured
+      open question: instrument in Bend only, then decide; do not claim speed
 - [x] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
       Deleted unused `is_online`/`is_busy`/`session_offline`/`session_rows` and the
       `header_of`/`body_of`/`nicks_of`/`status_of`/`active_buf`/`view`/`show_vm`/`pad_*`
       wrappers. `nick_of` is live. Session import is `Sess` (T7). Stale F*/D2 tags
       in comments now say what they mean.
 - [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
-      tried: file grew with M1–M8 tests
-      evidence: still one feed+buffer module
-      open question: buffer.bend vs client_laws.bend split
+      tried: after I3 `wc -l src/bend/client.bend` is 1558
+      evidence: law/show predicates start at `show_nicks.go` (~1222); container
+      layer is still in the same file. Finding 25 wants buffer.bend + client_laws.bend
+      open question: move `:1222-end` first (inspectors + *_ok), then buffer types
 - [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
-      tried: many *_ok stay in client.bend because LAWS imports them
-      evidence: feed_demo also calls in-src predicates
-      open question: move only uncited ones without breaking PROOF.bend
+      tried: `LAWS.bend` imports `Cl.flood_buffers_capped` / `Cl.cycle_ok` / …
+      evidence: feed_demo calls the same defs; uncited vs cited is a grep against
+      LAWS.bend + PROOF.bend, not against feed_demo
+      open question: move only names absent from LAWS/PROOF, keep feed_demo compiling
 
 ### Phase R — remove C
 - [x] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
@@ -532,7 +544,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **D5** `Makefile`: delete the dead `CFLAGS` block.
 - [x] **D6** `TODO.md`: no `Timui.events`; list `clock_ffi.c`; M9 ticked or annotated.
 
-C line count before: 662 (`src/ffi` + `tests/ffi`). Do not run `make clean` (repros live in `build/review/`).
+C line count before: 662 (`src/ffi` + `tests/ffi`). After R6/note 8: 598
+(`clock 26`, `dns 63`, `timui 509`). Do not run `make clean` (repros live in
+`build/review/`).
 
 ---
 
