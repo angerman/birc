@@ -392,8 +392,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M11** PageUp/PageDown move a page (view#14). FFI sends `rows-6`.
 - [x] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
 - [x] **M13** over-long URL → plain span (view#12).
-- [ ] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
-- [ ] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
+- [x] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
+- [x] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
 - [x] **M16** Decide and document who wraps long lines (view#15).
       C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
 - [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
