@@ -1,27 +1,25 @@
-/* Wall-clock HH:MM:SS for Line.ts. C formats; Bend stores it at buf_log_ts. */
+/* Local seconds-of-day as U32. Bend formats with Clock.fmt_hms. */
 #ifndef BIRC_CLOCK_FFI_C
 #define BIRC_CLOCK_FFI_C
 
-#include <string.h>
+#include <stdint.h>
 #include <time.h>
 
-#ifdef CID_HHMMSS
-Term hhmmss_run(Env e, Term *f, IoWork *w) {
+#ifdef CID_LOCAL_SECS
+Term local_secs_run(Env e, Term *f, IoWork *w) {
   time_t t = time(NULL);
   struct tm lt;
-  struct tm *got;
-  char buf[9];
+  (void)e;
   (void)f;
   (void)w;
-  buf[0] = '\0';
-  got = localtime_r(&t, &lt);
-  if (got)
-    strftime(buf, sizeof buf, "%H:%M:%S", got);
-  return io_str(e, buf, strlen(buf));
+  if (!localtime_r(&t, &lt))
+    return (Term)0;
+  return (Term)((uint32_t)lt.tm_hour * 3600u + (uint32_t)lt.tm_min * 60u
+                + (uint32_t)lt.tm_sec);
 }
 
-static void __attribute__((constructor)) hhmmss_use(void) {
-  io_eff(CID_HHMMSS, hhmmss_run, 0);
+static void __attribute__((constructor)) local_secs_use(void) {
+  io_eff(CID_LOCAL_SECS, local_secs_run, 0);
 }
 #endif
 
