@@ -477,10 +477,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       wrappers. `nick_of` is live. Session import is `Sess` (T7). Stale F*/D2 tags
       in comments now say what they mean.
 - [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
-      tried: after I3 `wc -l src/bend/client.bend` is 1558
-      evidence: law/show predicates start at `show_nicks.go` (~1222); container
-      layer is still in the same file. Finding 25 wants buffer.bend + client_laws.bend
-      open question: move `:1222-end` first (inspectors + *_ok), then buffer types
+      - [x] I15a: inspectors and `*_ok` live in `src/bend/client_laws.bend`.
+        `LAWS.bend` / `feed_demo` import it. `nick_of` stays on Client (session).
 - [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
       tried: `LAWS.bend` imports `Cl.flood_buffers_capped` / `Cl.cycle_ok` / …
       evidence: feed_demo calls the same defs; uncited vs cited is a grep against

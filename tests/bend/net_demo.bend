@@ -4,6 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/client.bend as Cl
+import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/net.bend as IoNet
 
@@ -56,8 +57,8 @@ def fold_ok.on(got: Cl.Client & List<&2, String>) -> Bool:
   match got:
     case (+cl, +pongs):
       String.eq(first_line(pongs), "PONG :abc")
-        && Nat.is_eq(Cl.nbuf(cl), 1n)
-        && Nat.is_eq(Cl.buf_nlines(cl, 0n), 1n)
+        && Nat.is_eq(CL.nbuf(cl), 1n)
+        && Nat.is_eq(CL.buf_nlines(cl, 0n), 1n)
 
 def fold_ok() -> Bool:
   fold_ok.on(Sess.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))

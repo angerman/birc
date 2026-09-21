@@ -2,6 +2,7 @@
 import Base
 import ./src/bend/irc.bend as Irc
 import ./src/bend/client.bend as Cl
+import ./src/bend/client_laws.bend as CL
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
@@ -51,11 +52,11 @@ law ieq_ping:
 
 # LAW: feed on empty line preserves buffer count.
 law feed_empty_id:
-  {Cl.feed_id(Cl.init("me", "irc.birc.dev"), "") == True{} : Bool}
+  {CL.feed_id(Cl.init("me", "irc.birc.dev"), "") == True{} : Bool}
 
 # LAW: PING does not change buffer count.
 law feed_ping_nbuf:
-  {Nat.is_eq(Cl.nbuf(Cl.init("me", "s")), Cl.nbuf(Cl.feed(Cl.init("me", "s"), "PING :x"))) == True{} : Bool}
+  {Nat.is_eq(CL.nbuf(Cl.init("me", "s")), CL.nbuf(Cl.feed(Cl.init("me", "s"), "PING :x"))) == True{} : Bool}
 
 # LAW: submit outbound lines satisfy line_ok.
 law submit_line_ok:
@@ -107,39 +108,39 @@ law overlong_drop:
 
 # LAW: M7.2 JOIN flood past MAX_BUFFERS stays capped.
 law flood_buffers:
-  {Cl.flood_buffers_capped() == True{} : Bool}
+  {CL.flood_buffers_capped() == True{} : Bool}
 
 # LAW: extra JOINs past the cap do not land on the server buffer.
 law flood_server_clean:
-  {Cl.flood_server_clean() == True{} : Bool}
+  {CL.flood_server_clean() == True{} : Bool}
 
 # LAW: NOTICE * is a server broadcast (no extra query buffer).
 law notice_star_server:
-  {Cl.notice_star_server() == True{} : Bool}
+  {CL.notice_star_server() == True{} : Bool}
 
 # LAW: PRIVMSG to our nick opens a query buffer.
 law privmsg_query_opens:
-  {Cl.privmsg_query_opens() == True{} : Bool}
+  {CL.privmsg_query_opens() == True{} : Bool}
 
 # LAW: 001 lands on the server buffer.
 law welcome_server_line:
-  {Cl.welcome_server_line() == True{} : Bool}
+  {CL.welcome_server_line() == True{} : Bool}
 
 # LAW: RFC 1459 353 puts nicks on the channel, not a bogus buffer.
 law names_1459:
-  {Cl.names_1459_ok() == True{} : Bool}
+  {CL.names_1459_ok() == True{} : Bool}
 
 # LAW: self KICK drops the channel buffer.
 law kick_self_drops:
-  {Cl.kick_self_drops() == True{} : Bool}
+  {CL.kick_self_drops() == True{} : Bool}
 
 # LAW: buffer log stays oldest-to-newest (take_last must not reverse).
 law log_chrono:
-  {Cl.log_chrono_ok() == True{} : Bool}
+  {CL.log_chrono_ok() == True{} : Bool}
 
 # LAW: Shift+Right wraps the active buffer.
 law cycle_tab:
-  {Cl.cycle_ok() == True{} : Bool}
+  {CL.cycle_ok() == True{} : Bool}
 
 # LAW: Self and Msg use different paint colours.
 law style_self_ne_msg:
@@ -163,11 +164,11 @@ law net_demo_ok:
 
 # LAW: page-up adds to buffer scroll.
 law scroll_page:
-  {Cl.scroll_page_ok() == True{} : Bool}
+  {CL.scroll_page_ok() == True{} : Bool}
 
 # LAW: submit snaps scroll to newest.
 law snap_scroll:
-  {Cl.snap_ok() == True{} : Bool}
+  {CL.snap_ok() == True{} : Bool}
 
 # LAW: composer history caps at 64, oldest dropped first.
 law hist_cap:
@@ -191,7 +192,7 @@ law fmt_hms_ok:
 
 # LAW: buf_log_ts stores ts at log time; later lines do not rewrite earlier ts.
 law log_ts_ok:
-  {Cl.log_ts_ok() == True{} : Bool}
+  {CL.log_ts_ok() == True{} : Bool}
 
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
