@@ -13,12 +13,12 @@
 #endif
 #include "timui.h"
 
-/* Composer state persists across frames (input_field). Keys are packed
- * into the Timui.frame return (Ui & UiKeys); they are not latched for a
- * second IO. */
+/* Composer state persists across frames. Keys are packed into the
+ * Timui.frame return (Ui & UiKeys); they are not latched for a second IO.
+ * Flags are U32 0/1 (unboxed), matching irc.c's textarea Enter-submits. */
 static char birc_composer[512];
-static TimuiInputState birc_composer_st = {birc_composer, sizeof birc_composer,
-                                           0, 0};
+static TimuiTextAreaState birc_composer_st = {birc_composer, sizeof birc_composer,
+                                              0, 0};
 
 #ifdef CID_UIKEYS
 static Term birc_uikeys(Env e, int quit, int enter, int bs, const char *typed,
@@ -26,12 +26,9 @@ static Term birc_uikeys(Env e, int quit, int enter, int bs, const char *typed,
                         uint32_t click, uint32_t up, uint32_t dn,
                         uint32_t hist) {
   Loc l = heap_alloc(e, cls_fit(10));
-  e.mem[l + 0] =
-      io_seal(e, term_pak(quit ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
-  e.mem[l + 1] =
-      io_seal(e, term_pak(enter ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
-  e.mem[l + 2] =
-      io_seal(e, term_pak(bs ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
+  e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(quit ? 1u : 0u), CID_UIKEYS);
+  e.mem[l + 1] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
+  e.mem[l + 2] = io_seal(e, (Term)(uint64_t)(bs ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 3] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
   e.mem[l + 4] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
   e.mem[l + 5] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
@@ -269,44 +266,42 @@ static void draw_packed_body(TimuiFrame *fr, int x, int y, int max_y, int maxx,
   }
 }
 
-/* Composer: TimUI input_field walks the per-frame edit stream (text,
- * Backspace, Delete, arrows) in order. Returns 1 if Enter submitted.
- * Copies the live field (or the submitted line) into typed. */
+/* Composer: same widget as timui.h/examples/irc.c — one-row textarea
+ * with ENTER_SUBMITS. Copies the live field (or the submitted line). */
 static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
                          char *typed, size_t tmax, size_t *tlen) {
   TimuiId id;
   TimuiRect r;
+  TimuiTextAreaResult res;
   int prompt_w = 2;
   size_t n;
+  (void)st;
   if (!fr || width < 1)
     return 0;
   timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
   if (width <= prompt_w)
     return 0;
   id = TIMUI_ID("birc.composer");
-  timui_set_focus(fr, id);
+  if (timui_focus(fr) != id)
+    timui_set_focus(fr, id);
   r.x = x + prompt_w;
   r.y = y;
   r.w = width - prompt_w;
   r.h = 1;
-  if (timui_input_field_styled(fr, id, r, &birc_composer_st, st)) {
-    n = strlen(birc_composer);
-    if (n >= tmax)
-      n = tmax - 1;
-    memcpy(typed, birc_composer, n);
-    typed[n] = '\0';
-    *tlen = n;
-    birc_composer[0] = '\0';
-    birc_composer_st.cursor = 0;
-    birc_composer_st.scroll_x = 0;
-    return 1;
-  }
+  res = timui_text_area_mut(fr, id, r, &birc_composer_st,
+                            TIMUI_TEXT_AREA_ENTER_SUBMITS);
   n = strlen(birc_composer);
   if (n >= tmax)
     n = tmax - 1;
   memcpy(typed, birc_composer, n);
   typed[n] = '\0';
   *tlen = n;
+  if (res.submitted) {
+    birc_composer[0] = '\0';
+    birc_composer_st.cursor = 0;
+    birc_composer_st.scroll_y = 0;
+    return 1;
+  }
   return 0;
 }
 
@@ -395,6 +390,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     birc_free_frame_strs(header, tabs, body, nicks, status, input);
     return birc_frame_out(e, ui, 1, 0, 0, "", 0, 24, 0, 0, 0, 0, 0);
   }
+  /* Before tabs: so Enter is not consumed as tab-bar activate. */
+  if (timui_focus(fr) != TIMUI_ID("birc.composer"))
+    timui_set_focus(fr, TIMUI_ID("birc.composer"));
 
   {
     TimuiRect root = timui_root(fr);
@@ -470,14 +468,10 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       memcpy(birc_composer, input, ilen);
       birc_composer[ilen] = '\0';
       birc_composer_st.cursor = ilen;
-      birc_composer_st.scroll_x = 0;
+      birc_composer_st.scroll_y = 0;
     }
     if (timui_focus(fr) != TIMUI_ID("birc.composer"))
       timui_set_focus(fr, TIMUI_ID("birc.composer"));
-    enter = draw_composer(fr, root.x, input_y, root.w, text, typed,
-                          sizeof typed, &tlen);
-    if (!enter && timui_key_pressed(fr, TIMUI_KEY_ENTER) && typed[0])
-      enter = 1;
     if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
       tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
@@ -504,7 +498,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       timui_quit(ui);
       quit = 1;
     }
-    timui_set_focus(fr, TIMUI_ID("birc.composer"));
+    enter = draw_composer(fr, root.x, input_y, root.w, text, typed,
+                          sizeof typed, &tlen);
   }
   timui_end(fr);
   if (timui_should_quit(ui))
