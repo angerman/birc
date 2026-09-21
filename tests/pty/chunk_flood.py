@@ -3,7 +3,7 @@
 
 Headless birc quits on the first frame, so loop tests need a pty.
 
-usage: chunk_flood.py ./build/birc [N=200] [FRAMES=0]
+usage: chunk_flood.py ./build/birc [N=400] [FRAMES=0]
 
 Fails (exit 1) on deadlock, hang, or missing birc=ok.
 On ac97be1 this deadlocks around 128–158 chunks (two Chan.send per Chunk).
@@ -38,7 +38,7 @@ def drain(fd: int, sink: bytearray) -> None:
 
 def main() -> int:
     birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    n = int(sys.argv[2]) if len(sys.argv) > 2 else 400
     frames = sys.argv[3] if len(sys.argv) > 3 else "0"
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

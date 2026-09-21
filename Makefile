@@ -21,18 +21,12 @@ endif
 BLDDIR := build
 APP := src/bend/app.bend
 PROTO := src/bend/main.bend
-CFLAGS ?= -std=c99 -Wall -Wextra -Wpedantic -O2 -pthread
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-  CFLAGS += -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700
-endif
-
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 \
-        lint-ffi proto-parity proof check run run-demo clean ffi-smoke
+        lint-ffi proto-parity proof check run run-demo clean
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -54,16 +48,8 @@ update: ## Deliberately update Nix inputs: make update CONFIRM=yes
 doctor: ## Report pinned Bend / clang identities.
 	@$(NIXRUN) sh -c 'printf "bend-rev=%s\n" "$${BIRC_BEND_REV:-unknown}"; bend version; printf "CC=%s\n" "$$CC"; "$$CC" --version | head -1'
 
-BEND_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -pthread
 # Bend's emitted C is huge and trips -Wall/-Wextra noisily; silence only that TU.
 BEND_CORE_CFLAGS ?= -std=c11 -O2 -pthread -w
-FFI_HELLO := tests/ffi/timui_hello.bend
-
-ffi-smoke: ## M0.5/M0.6: Bend TimUI.hello foreign effect (3 frames).
-	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend $(FFI_HELLO) -o $(BLDDIR)/timui_hello.c
-	$(NIXRUN) sh -c '$$CC $(BEND_CFLAGS) -Isrc/ui $(BLDDIR)/timui_hello.c -o $(BLDDIR)/timui_hello'
-	$(NIXRUN) ./$(BLDDIR)/timui_hello
 
 build-proto: ## Build the Bend protocol self-test binary.
 	@mkdir -p $(BLDDIR)
@@ -142,8 +128,8 @@ test-cli: build-ui ## Binary argv errors (no TimUI).
 test-live: build-ui ## Local mock: register + PONG + birc=ok, bounded timeout.
 	$(NIXRUN) python3 tests/live_mock.py ./$(BLDDIR)/birc
 
-test-pty-flood: build-ui ## Pty: many server chunks (C1 deadlock).
-	$(NIXRUN) python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc
+test-pty-flood: build-ui ## Pty: 400 server chunks (C1 deadlock).
+	$(NIXRUN) python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc 400
 
 test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
 	$(NIXRUN) python3 tests/pty/body_rows.py ./$(BLDDIR)/birc

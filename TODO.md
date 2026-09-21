@@ -397,6 +397,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M16** Decide and document who wraps long lines (view#15).
       C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
 - [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
+      tried: send_lines is one Cont list; carrying needs pending on reader_go
+      evidence: on_cmd sends the whole `outs` list in one tick
+      open question: thread a pending List through reader_go/idle without a second cmd
 - [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
       tried: no default-off frame timer in the tree
       evidence: net#13 is a 16 ms poll/draw bound; changing it without a split is intuition
@@ -408,51 +411,133 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `tlen` vs `strlen(typed)` left (same value today).
 
 ### Phase I — idiomatic Bend
-- [ ] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
+- [x] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
+      `body_h` / `live_fuel` live in `session.bend`. `ticks_of` still aliases `live_fuel` (law `live_fuel_alias`).
 - [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
       - [x] Data `Cur`/`Got` + `do Maybe` header/RR/ip4 (idiom §4#1); dead `skip_name`/`answers_go`/`parse_*_p` path deleted; test-only `octets` moved (dns#19).
       - [ ] nested `_p` leftovers / `List.drop` / error Data / phase constructors / remaining `Dns.*` shims.
+      tried: cursor rewrite landed in C7
+      evidence: live parse is `parse_q` + `Cur`; leftover shims are naming only
+      open question: delete remaining `Dns.*` aliases in a no-behaviour pass
 - [ ] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
+      tried: get_buf/set_buf would touch every feed arm
+      evidence: ten near-identical Client rebuilds in client.bend
+      open question: introduce get_buf/set_buf then rewrite arms in a dedicated pass
 - [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
+      tried: chains are Bool-parameter match (legal Bend)
+      evidence: 14-deep cls_* and slash_* still sequential
+      open question: List.find table vs balanced parallel tree
 - [ ] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
+      tried: args.parse_u32 still used for --frames/--port
+      evidence: U32.read exists (dns_wire octet_ok)
+      open question: whether U32.read matches parse_u32 overflow rules
 - [ ] **I6** Remove fuel from structural walkers and phase machines (idiom §5a §5b).
+      tried: UTF-8 decode needs fuel; termination checker rejects Utf8Acc.rest
+      evidence: `bend` "expected a decreasing self-call" on utf8_decode.go without fuel
+      open question: remaining walkers (drop_spaces, tokenize) in a dedicated pass
 - [ ] **I7** `client.bend`: replace `*Acc` folds; delete `strip_cr` copy; `cycle_tab` enum (client#12 #13 #18 #19).
+      tried: Acc folds still compile and match goldens
+      evidence: FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc remain
+      open question: List.contains + structural nick_del in a no-behaviour pass
 - [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
+      tried: UiKeys is still a 9-field U32 product
+      evidence: session.step_keys unpacks U32 flags
+      open question: TabDir/HistDir/Maybe click at the FFI boundary
 - [ ] **I9** Remaining Base reimplementations (idiom §1 table).
+      tried: several already replaced (U32.to_nat, U32.read in DNS)
+      evidence: idiom.md §1 still lists has_prefix, parse_u32, Acc folds
+      open question: one file per remaining row
 - [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
+      tried: pack_body is still foldl ++
+      evidence: view idiom#2 measured as quadratic in the review, not re-measured here
+      open question: String.concat rewrite after I13 measurement
 - [ ] **I11** `net.bend`: delete `poll_pass`; `or_halt` → `Bool.or`; factor loops; `send_go` pure (net#15 #17 #18 #20).
+      tried: SLPh send_lines still two-phase (H8 only fixed fuel 0)
+      evidence: net.md #16 has a compiling fuel-free send_lines
+      open question: replace SLPh without changing send semantics
 - [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
+      tried: octet push still uses PushPhase + fuel
+      evidence: H7 added utf8_decode beside the existing phase machine
+      open question: merge decode into emit_line only, leave push.go for I12
 - [ ] **I13** Parallelism: rebalance `view_draft`; measure `pack_body` (idiom §6).
+      tried: no default-off pack_body timer
+      evidence: review claims pack_body is the balanced map; not re-measured
+      open question: instrument then decide; do not claim speed
 - [ ] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
+      tried: LAWS still imports session as Net
+      evidence: live_fuel_alias uses that alias
+      open question: rename after T7
 - [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
+      tried: file grew with M1–M8 tests
+      evidence: still one feed+buffer module
+      open question: buffer.bend vs client_laws.bend split
 - [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
+      tried: many *_ok stay in client.bend because LAWS imports them
+      evidence: feed_demo also calls in-src predicates
+      open question: move only uncited ones without breaking PROOF.bend
 
 ### Phase R — remove C
-- [ ] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
+- [x] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
 - [ ] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
+      tried: live wire still sends kind_digit; C has birc_kind_fg
+      evidence: style_of disagrees with C on 4 of 6 kinds
+      open question: pack style_of U32 in the wire, then delete C table
 - [ ] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
+      tried: Clock.hhmmss still formats in C
+      evidence: fmt_hms already exists in Bend
+      open question: new effect returning U32 seconds-of-day
 - [x] **R4** = C8.
 - [ ] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
+      tried: C still interprets k|ts|spans
+      evidence: handover default is List<DrawOp>, no per-widget effects
+      open question: DrawOp Data + one FFI list walker
 - [ ] **R6** Draw ops carry rects; panel layout moves to Bend.
+      tried: layout is still C inside Timui.frame
+      evidence: depends on R5
+      open question: after R5
 - [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).
+      tried: IO_READ park skipped in H7 (would block Ticks)
+      evidence: non-blocking recv_octets + Tick on EAGAIN keeps the UI alive
+      open question: park only when the UI loop can multiplex Ticks
 
 ### Phase T — laws and tests
 - [ ] **T1** Quantified laws (`line_ok(clamp_line(s))`, no CR/LF in `strip_ctl`, …).
+      tried: point laws exist; `for s: String` proofs are out of reach
+      evidence: handover rule 7: keep the point law, add a test
+      open question: leave quantified forms for a proof pass
 - [ ] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
 - [ ] **T3** Feed fixtures through `File.read` + `replay_lines`; real `\x01` ACTION (proto T6, client#23).
+      tried: proto_parity greps fixtures; ACTION soh test exists in proto_parity
+      evidence: fixtures/action.irc still lacks \x01
+      open question: rewrite the fixture vs keep the Bend-built ACTION line
 - [ ] **T4** `dns_demo`: hostile packets as − tests; live address set (dns#25 #26).
-- [ ] **T5** Client −/+ tests: NICK, QUIT, PART, KICK, MODE, TOPIC, 4xx (client#20).
-- [ ] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
+      tried: C7 added parse checks; dns_demo has identity tests
+      evidence: hostile fixtures live in build/review/dns (gitignored)
+      open question: lift those fixtures into tests/ without make clean
+- [x] **T5** Client −/+ tests: NICK, QUIT, PART, KICK, MODE, TOPIC, 4xx (client#20).
+      Query NICK/QUIT, MODE, non-member PART, 433 covered. KICK-other and TOPIC command still thin.
+- [x] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
+      Port range, copy_fin extra argv, /part server, clamp_utf8, echo_nolf.
 - [ ] **T7** Net: rename `Net` alias; live mock − cases (net#23–#25).
+      tried: live_mock is under a pty; split-line is utf8_split_pty
+      evidence: session is still imported as Net in LAWS/net_demo
+      open question: rename import in a no-behaviour pass
 - [ ] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
+      tried: main.bend still has its own must()
+      evidence: proto_parity already uses expect.bend
+      open question: switch main.bend without duplicating proto_parity
 
 ### Phase D — docs
-- [ ] **D1** Delete `docs/INVENTORY.md`.
+- [x] **D1** Delete `docs/INVENTORY.md`.
 - [ ] **D2** `docs/FFI.md`: real type names, draw-op contract, `lint-ffi`.
-- [ ] **D3** `README.md`: `birc_bend.c`, no "shim", list every FFI file.
-- [ ] **D4** `AGENTS.md`: clock, 512-byte, shutdown, Bend match notes, pty.
-- [ ] **D5** `Makefile`: delete the dead `CFLAGS` block.
-- [ ] **D6** `TODO.md`: no `Timui.events`; list `clock_ffi.c`; M9 ticked or annotated.
+      Wrap/clip contract added. DrawOp (R5) not written.
+      tried: packed wire is still the live contract
+      evidence: FFI.md M8 packing section
+      open question: expand after R5
+- [x] **D3** `README.md`: `birc_bend.c`, no "shim", list every FFI file.
+- [x] **D4** `AGENTS.md`: clock, 512-byte, shutdown, Bend match notes, pty.
+- [x] **D5** `Makefile`: delete the dead `CFLAGS` block.
+- [x] **D6** `TODO.md`: no `Timui.events`; list `clock_ffi.c`; M9 ticked or annotated.
 
 C line count before: 662 (`src/ffi` + `tests/ffi`). Do not run `make clean` (repros live in `build/review/`).
 
