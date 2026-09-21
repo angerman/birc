@@ -146,6 +146,8 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must("connect_slash", Sub.submit_is_connect("/connect x"))
     Unit <- E.must("connect_not", Bool.not(Sub.submit_is_connect("/join #x")))
+    Unit <- E.must_eq("body_h24", Nat.show(Sess.body_h(24)), "18")
+    Unit <- E.must_eq("body_h16", Nat.show(Sess.body_h(16)), "10")
     Unit <- E.must_eq("empty_enter", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "")), "False")
     Unit <- E.must_eq("quit_halt", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "True")
     Unit <- E.must_eq("quit_cmd", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "cont:QUIT :birc")
