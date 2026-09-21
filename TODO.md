@@ -436,12 +436,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: `body_ops.go` with y first failed `expected a decreasing self-call`
       evidence: list must be the first arg; `U32.add(y,1)` is not a shrink
       open question: tokenize.go still fuel-first; drop_spaces same pass
-- [ ] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
-      - [x] `strip_cr` copy deleted; replay uses `Irc.strip_cr`.
-      - [ ] Acc folds; `cycle_tab` still takes `dir: U32` (`client.bend:516`).
-      tried: `cycle_tab.pick` already matches two Bools; Acc records still compile
-      evidence: FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc remain (grep type *Acc)
-      open question: `List.contains` for nick_has in a no-behaviour pass
+- [x] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
+      `strip_cr` copy deleted. `nick_has` is `List.contains` + `nick_eq`.
+      Find/Has/Del/Ren/Quit/Nick Acc gone. `cycle_tab` takes `TabDir`.
 - [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
       tried: pass `T.UiKeys` into `Sess.step_keys`; session does not import timui
       evidence: `UiKeys` is 10 fields; `with_keys` matches it then explodes to

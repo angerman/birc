@@ -69,46 +69,25 @@ def buf_count(+bufs: List<&2, Buffer>) -> Nat:
 
 # ---- buffer find/get ----------------------------------------------------
 
-type FindAcc is Data:
-  FindAcc{name: String, i: Nat, found: Maybe<&2, Nat>}
-
-def buf_find.hit.if(eq: Bool, +name: String, +i: Nat) -> FindAcc:
-  match eq:
-    case True{}:
-      FindAcc{name, 1n+i, Some{i}}
-    case False{}:
-      FindAcc{name, 1n+i, None{}}
-
-def buf_find.hit.skip(+name: String, +i: Nat, +n: String, skip: Bool) -> FindAcc:
-  match skip:
-    case True{}:
-      FindAcc{name, 1n+i, None{}}
-    case False{}:
-      buf_find.hit.if(Irc.ieq(n, name), name, i)
-
-def buf_find.hit(+name: String, +i: Nat, +n: String) -> FindAcc:
-  buf_find.hit.skip(name, i, n, Nat.is_eq(i, 0n))
-
-def buf_find.step(st: FindAcc, h: Buffer) -> FindAcc:
-  match st:
-    case FindAcc{+name, +i, found}:
-      match found:
-        case Some{j}:
-          FindAcc{name, i, Some{j}}
-        case None{}:
-          match h:
-            case Buffer{+n, _, _, _, _, _}:
-              buf_find.hit(name, i, n)
-
-def buf_find.fin(st: FindAcc) -> Maybe<&2, Nat>:
-  match st:
-    case FindAcc{_, _, found}:
-      found
+# Skip index 0 (the server buffer). First later match wins.
+def buf_find.go(xs: List<&2, Buffer>, +name: String, +i: Nat) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{h, +t}:
+      match h:
+        case Buffer{+n, _, _, _, _, _}:
+          Bool.pick(
+            Maybe<&2, Nat>,
+            Nat.is_eq(i, 0n),
+            buf_find.go(t, name, 1n+i),
+            Bool.pick(Maybe<&2, Nat>, Irc.ieq(n, name), Some{i}, buf_find.go(t, name, 1n+i))
+          )
 
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   match cl:
     case Client{_, _, +bufs, _, _}:
-      buf_find.fin(List.foldl(~&2, ~Buffer, ~FindAcc, ~buf_find.step, bufs, FindAcc{name, 0n, None{}}))
+      buf_find.go(bufs, name, 0n)
 
 def empty_buf(+name: String, is_channel: Bool) -> Buffer:
   Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, Nil{}, 0n}
@@ -248,37 +227,13 @@ def nick_strip.go(fuel: Nat, phase: StripPhase, s: String, h: Char, sig: Bool) -
 def nick_strip(+s: String) -> String:
   nick_strip.go(Nat.add(1n, Nat.mul(2n, String.length(s))), StRead{}, s, Chr{0}, False{})
 
-type HasAcc is Data:
-  HasAcc{nick: String, found: Bool}
-
-def nick_has.miss.if(eq: Bool, +nick: String) -> HasAcc:
-  match eq:
-    case True{}:
-      HasAcc{nick, True{}}
-    case False{}:
-      HasAcc{nick, False{}}
-
-def nick_has.miss(+nick: String, h: String) -> HasAcc:
-  nick_has.miss.if(Irc.ieq(h, nick), nick)
-
-def nick_has.step(st: HasAcc, h: String) -> HasAcc:
-  match st:
-    case HasAcc{+nick, found}:
-      match found:
-        case True{}:
-          HasAcc{nick, True{}}
-        case False{}:
-          nick_has.miss(nick, h)
-
-def nick_has.fin(st: HasAcc) -> Bool:
-  match st:
-    case HasAcc{_, found}:
-      found
+def nick_eq(a: String, b: String) -> Bool:
+  Irc.ieq(a, b)
 
 def nick_has(+b: Buffer, +nick: String) -> Bool:
   match b:
     case Buffer{_, _, _, _, +nicks, _}:
-      nick_has.fin(List.foldl(~&2, ~String, ~HasAcc, ~nick_has.step, nicks, HasAcc{nick, False{}}))
+      List.contains(~String, ~nick_eq, nicks, nick)
 
 def nick_add.keep(+b: Buffer, skip: Bool, +nick: String) -> Buffer:
   match b:
@@ -320,70 +275,29 @@ def nick_add_step(b: Buffer, h: String) -> Buffer:
 def nick_add_all(+b: Buffer, +ns: List<&2, String>) -> Buffer:
   List.foldl(~&2, ~String, ~Buffer, ~nick_add_step, ns, b)
 
-type DelAcc is Data:
-  DelAcc{nick: String, done: Bool, acc: List<&2, String>}
-
-def nick_del.keep.if(eq: Bool, +nick: String, h: String, acc: List<&2, String>) -> DelAcc:
-  match eq:
-    case True{}:
-      DelAcc{nick, True{}, acc}
-    case False{}:
-      DelAcc{nick, False{}, h <> acc}
-
-def nick_del.keep(+nick: String, +h: String, acc: List<&2, String>) -> DelAcc:
-  nick_del.keep.if(Irc.ieq(h, nick), nick, h, acc)
-
-def nick_del.step(st: DelAcc, h: String) -> DelAcc:
-  match st:
-    case DelAcc{+nick, done, acc}:
-      match done:
-        case True{}:
-          DelAcc{nick, True{}, h <> acc}
-        case False{}:
-          nick_del.keep(nick, h, acc)
-
-def nick_del.fin(st: DelAcc) -> List<&2, String>:
-  match st:
-    case DelAcc{_, _, acc}:
-      List.reverse(&2, String, acc)
+def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, Irc.ieq(h, nick), t, h <> nick_del.go(t, nick))
 
 def nick_del(+b: Buffer, +raw: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +nick = nick_strip(raw)
-      Buffer{name, ch, topic, lines, nick_del.fin(List.foldl(~&2, ~String, ~DelAcc, ~nick_del.step, nicks, DelAcc{nick, False{}, Nil{}})), scroll}
+      Buffer{name, ch, topic, lines, nick_del.go(nicks, nick_strip(raw)), scroll}
 
-type RenAcc is Data:
-  RenAcc{from: String, to: String, done: Bool, acc: List<&2, String>}
-
-def nick_rename.keep.if(eq: Bool, +from: String, +to: String, h: String, acc: List<&2, String>) -> RenAcc:
-  match eq:
-    case True{}:
-      RenAcc{from, to, True{}, to <> acc}
-    case False{}:
-      RenAcc{from, to, False{}, h <> acc}
-
-def nick_rename.keep(+from: String, +to: String, +h: String, acc: List<&2, String>) -> RenAcc:
-  nick_rename.keep.if(Irc.ieq(h, from), from, to, h, acc)
-
-def nick_rename.step(st: RenAcc, h: String) -> RenAcc:
-  match st:
-    case RenAcc{+from, +to, done, acc}:
-      match done:
-        case True{}:
-          RenAcc{from, to, True{}, h <> acc}
-        case False{}:
-          nick_rename.keep(from, to, h, acc)
-
-def nick_rename.fin(st: RenAcc) -> List<&2, String>:
-  match st:
-    case RenAcc{_, _, _, acc}:
-      List.reverse(&2, String, acc)
+def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, Irc.ieq(h, from), to <> t, h <> nick_rename.go(t, from, to))
 
 def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nick_rename.fin(List.foldl(~&2, ~String, ~RenAcc, ~nick_rename.step, nicks, RenAcc{nick_strip(from), nick_strip(to), False{}, Nil{}})), scroll}
+      Buffer{name, ch, topic, lines, nick_rename.go(nicks, nick_strip(from), nick_strip(to)), scroll}
 
 # ---- set topic / active / nick ------------------------------------------
 
@@ -509,20 +423,33 @@ def cycle_prev(+cl: Client) -> Client:
     case Client{_, _, +bufs, +active, _}:
       set_active(cl, cycle_prev.i(active, buf_count(bufs)))
 
-def cycle_tab.pick(+cl: Client, next: Bool, prev: Bool) -> Client:
+type TabDir is Data:
+  TabStay{}
+  TabNext{}
+  TabPrev{}
+
+def tab_dir.on(+n: U32, next: Bool, prev: Bool) -> TabDir:
   match next:
     case True{}:
-      cycle_next(cl)
+      TabNext{}
     case False{}:
       match prev:
         case True{}:
-          cycle_prev(cl)
+          TabPrev{}
         case False{}:
-          cl
+          TabStay{}
 
-# dir 1 = next, 2 = prev, else no-op.
-def cycle_tab(+cl: Client, +dir: U32) -> Client:
-  cycle_tab.pick(cl, U32.is_eq(dir, 1), U32.is_eq(dir, 2))
+def tab_dir(+n: U32) -> TabDir:
+  tab_dir.on(n, U32.is_eq(n, 1), U32.is_eq(n, 2))
+
+def cycle_tab(+cl: Client, dir: TabDir) -> Client:
+  match dir:
+    case TabStay{}:
+      cl
+    case TabNext{}:
+      cycle_next(cl)
+    case TabPrev{}:
+      cycle_prev(cl)
 
 def set_nick(+cl: Client, +nick: String) -> Client:
   match cl:

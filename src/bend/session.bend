@@ -558,7 +558,7 @@ def finish_keys(
 ) -> Session & NetCmd & Bool:
   match triple:
     case (cl2, draft2, cmd):
-      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), U32.to_nat(up), U32.to_nat(dn)))
+      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, Cl.tab_dir(tab)), click), U32.to_nat(up), U32.to_nat(dn)))
       +h2 = hist_after_enter(hist, line, enter)
       finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, line), size, seed_of(hcmd), hist_move(h2, draft2, hcmd))
 
