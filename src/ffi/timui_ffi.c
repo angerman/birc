@@ -105,25 +105,12 @@ static void __attribute__((constructor)) timui_open_use(void) {
 
 /* DrawOp walker. Bend owns layout, colours, spans, and y. */
 
-static int birc_glyph_cols(const char *s, size_t n) {
-  size_t i = 0;
-  int w = 0;
-  while (i < n) {
-    uint32_t cp = 0;
-    int adv = timui_utf8_decode(s + i, n - i, &cp);
-    if (adv <= 0)
-      adv = 1;
-    w += timui_utf8_width(cp);
-    i += (size_t)adv;
-  }
-  return w;
-}
-
-static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx) {
+/* One UTF-8 walk: clip to maxx columns and report display width. */
+static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
   int cx = x;
   if (!s)
-    return 0;
+    n = 0;
   while (i < n) {
     uint32_t cp = 0;
     int adv = timui_utf8_decode(s + i, n - i, &cp);
@@ -139,21 +126,25 @@ static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx) {
       cx += w;
     i += (size_t)adv;
   }
+  if (out_w)
+    *out_w = cx - x;
   return i;
 }
 
 static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
-                         size_t n, uint32_t fg, uint32_t attrs) {
-  int w;
+                         size_t n, uint32_t fg, uint32_t attrs, const char *uri) {
+  int w = 0;
   TimuiStyle st;
   if (!fr || n == 0 || x >= maxx)
     return x;
-  n = birc_clip_cols(p, n, x, maxx);
+  n = birc_clip_cols(p, n, x, maxx, &w);
   if (n == 0)
     return x;
-  w = birc_glyph_cols(p, n);
   st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, attrs);
-  timui_label(fr, x, y, (TimuiStr){p, n}, st);
+  if (uri)
+    timui_label_hyperlink(fr, x, y, (TimuiStr){p, n}, uri, st);
+  else
+    timui_label(fr, x, y, (TimuiStr){p, n}, st);
   return x + w;
 }
 
@@ -161,21 +152,13 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
   char uri[512];
-  int w;
-  TimuiStyle st;
   if (!fr || tlen == 0 || x >= maxx)
     return x;
   if (ulen >= sizeof uri)
-    return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0);
+    return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0, NULL);
   memcpy(uri, url, ulen);
   uri[ulen] = '\0';
-  tlen = birc_clip_cols(text, tlen, x, maxx);
-  if (tlen == 0)
-    return x;
-  w = birc_glyph_cols(text, tlen);
-  st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, TIMUI_ATTR_UNDERLINE);
-  timui_label_hyperlink(fr, x, y, (TimuiStr){text, tlen}, uri, st);
-  return x + w;
+  return birc_put_span(fr, x, y, maxx, text, tlen, fg, TIMUI_ATTR_UNDERLINE, uri);
 }
 
 #if defined(CID_CON)
@@ -238,7 +221,7 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
       u64 tlen = 0;
       char *text = birc_cstr(e, f[1], &tlen);
       x = birc_put_span(fr, x, y, maxx, text ? text : "", (size_t)tlen, fg,
-                        (uint32_t)f[0]);
+                        (uint32_t)f[0], NULL);
       free(text);
     }
     spare_free(e, cls_fit(2), loc);
@@ -265,9 +248,11 @@ static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
   u64 tslen = 0;
   char *ts = birc_cstr(e, ts_t, &tslen);
   if (fr && ts && tslen > 0) {
+    int tw = 0;
+    (void)birc_clip_cols(ts, (size_t)tslen, 0, 100000, &tw);
     timui_label(fr, x, y, (TimuiStr){ts, (size_t)tslen},
                 timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0));
-    x += birc_glyph_cols(ts, (size_t)tslen) + 1;
+    x += tw + 1;
   }
   free(ts);
   (void)birc_draw_spans(e, fr, x, y, maxx, fg, spans);
@@ -294,7 +279,7 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     u64 n = 0;
     char *s = birc_cstr(e, f[5], &n);
     (void)birc_put_span(fr, x, y, x + w, s ? s : "", (size_t)n, (uint32_t)f[3],
-                        (uint32_t)f[4]);
+                        (uint32_t)f[4], NULL);
     free(s);
     spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPTABS) {

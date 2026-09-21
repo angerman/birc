@@ -525,8 +525,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **D5** `Makefile`: delete the dead `CFLAGS` block.
 - [x] **D6** `TODO.md`: no `Timui.events`; list `clock_ffi.c`; M9 ticked or annotated.
 
-C line count before: 662 (`src/ffi` + `tests/ffi`). After R6/note 8: 598
-(`clock 26`, `dns 63`, `timui 509`). Do not run `make clean` (repros live in
+C line count before: 662 (`src/ffi` + `tests/ffi`). After C trim: 599
+(`clock 26`, `dns 63`, `timui 510`). Do not run `make clean` (repros live in
 `build/review/`).
 
 ---
