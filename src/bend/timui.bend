@@ -3,6 +3,7 @@
 # (Window.frame shape: handle & Data). C does not latch keys for a
 # second IO.
 import Base
+import ./view.bend as V
 
 # Opaque TimUI handle (same runtime shape as Base Window / Socket handles).
 law Ui: Type
@@ -37,13 +38,12 @@ law Timui.open:
 def Timui.open():
   import "../ffi/timui_ffi.c"
 
-# One begin/draw/end. Returns the Ui beside this frame's keys (no Result:
-# quit is UiKeys.quit != 0, same as Window Close in the event list).
-# seed != 0 reseeds the composer from input, including "".
+# One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
+# reseeds the composer from input, including "".
 law Timui.frame:
-  Ui -> String -> String -> String -> String -> String -> String -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, header, tabs, body, nicks, status, input, seed):
+def Timui.frame(ui, ops, input, seed):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:

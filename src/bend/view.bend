@@ -1,16 +1,25 @@
-# View model from Client (M5). Pure scroll math + string packing for draw FFI.
+# View model from Client. Pure scroll math + DrawOp list for the paint FFI.
 import Base
 import ./client.bend as Cl
 
+# Live paint ops. C walks the list inside one Timui.frame (no packed wire).
+# Attr bits match timui.h: bold=1, italic=4.
+type SpanOp is Data:
+  Spn{attrs: U32, text: String}
+  Lnk{url: String, text: String}
+
+type BodyLn is Data:
+  BodyLn{fg: U32, ts: String, spans: List<&2, SpanOp>}
+
+type DrawOp is Data:
+  OpHeader{text: String}
+  OpTabs{sel: U32, names: List<&2, String>}
+  OpBody{lines: List<&2, BodyLn>}
+  OpNicks{title: String, names: List<&2, String>}
+  OpStatus{text: String}
+
 type ViewModel is Data:
-  ViewModel{
-    header: String,
-    tabs: String,
-    body: String,
-    nicks: String,
-    status: String,
-    input: String
-  }
+  ViewModel{ops: List<&2, DrawOp>, input: String}
 
 def scroll_max.on(+count: Nat, +height: Nat, ge: Bool) -> Nat:
   match ge:
@@ -513,20 +522,6 @@ def vis_chrono_ok.buf(b: Cl.Buffer) -> Bool:
 def vis_chrono_ok() -> Bool:
   vis_chrono_ok.buf(Cl.buf_log(Cl.buf_log(Cl.server_buf(), Cl.Msg{}, "one"), Cl.Msg{}, "two"))
 
-def show_nicks_col.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+p:
-      match ns:
-        case Nil{}:
-          acc
-        case Con{+h, t}:
-          show_nicks_col.go(p, t, acc ++ h ++ "\n")
-
-def show_nicks_col(+ns: List<&2, String>) -> String:
-  show_nicks_col.go(Nat.add(1n, List.length(&2, String, ns)), ns, "")
-
 def active_buf.on(+got: Maybe<&2, Cl.Buffer>) -> Cl.Buffer:
   match got:
     case Some{b}:
@@ -610,10 +605,42 @@ def pack_body.step(acc: String, ln: Cl.Line) -> String:
 def pack_body(+xs: List<&2, Cl.Line>) -> String:
   List.foldl(~&2, ~Cl.Line, ~String, ~pack_body.step, xs, "")
 
-def body_of.buf(+b: Cl.Buffer, +height: Nat) -> String:
+def span_op(sp: TextSpan) -> SpanOp:
+  match sp:
+    case Plain{+tx}:
+      Spn{0, tx}
+    case Bold{+tx}:
+      Spn{1, tx}
+    case Italic{+tx}:
+      Spn{4, tx}
+    case Code{+tx}:
+      Spn{0, tx}
+    case Link{+url, +text}:
+      Lnk{url, text}
+
+def span_ops(xs: List<&2, TextSpan>) -> List<&2, SpanOp>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      span_op(h) <> span_ops(t)
+
+def line_op(+ln: Cl.Line) -> BodyLn:
+  match ln:
+    case Cl.Line{+k, +ts, +text}:
+      BodyLn{style_of(k), ts, span_ops(tokenize(text))}
+
+def body_lines.go(xs: List<&2, Cl.Line>) -> List<&2, BodyLn>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      line_op(h) <> body_lines.go(t)
+
+def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, BodyLn>:
   match b:
     case Cl.Buffer{_, _, _, +lines, _, +scroll}:
-      pack_body(visible_lines(lines, height, scroll))
+      body_lines.go(visible_lines(lines, height, scroll))
 
 def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
   match empty:
@@ -622,10 +649,15 @@ def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
     case False{}:
       name ++ " — " ++ topic
 
-def nicks_of.buf(+b: Cl.Buffer) -> String:
+def nicks_title_of(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, _, +topic, _, +nicks, _}:
-      nicks_title.on(name, topic, String.is_empty(topic)) ++ "\n" ++ show_nicks_col(nicks)
+    case Cl.Buffer{+name, _, +topic, _, _, _}:
+      nicks_title.on(name, topic, String.is_empty(topic))
+
+def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
+  match b:
+    case Cl.Buffer{_, _, _, _, +nicks, _}:
+      nicks
 
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
@@ -637,30 +669,36 @@ def status_of.buf(+b: Cl.Buffer) -> String:
 def view_input(+draft: String) -> String:
   draft
 
-def join_unit(acc: String, +name: String) -> String:
-  +a = acc
-  pack_spans.cons(a, name, String.is_empty(a))
-
-def pack_tab_names.go(+bufs: List<&2, Cl.Buffer>, acc: String) -> String:
+def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
   match bufs:
     case Nil{}:
-      acc
+      Nil{}
     case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
-      pack_tab_names.go(t, join_unit(acc, name))
+      name <> tab_names(t)
 
-def pack_tabs(+cl: Cl.Client) -> String:
-  match cl:
-    case Cl.Client{_, _, +bufs, +active, _}:
-      Nat.show(active) ++ "\t" ++ pack_tab_names.go(bufs, "")
+def view_ops(
+  +h: String,
+  +active: Nat,
+  +names: List<&2, String>,
+  +bod: List<&2, BodyLn>,
+  +title: String,
+  +nicks: List<&2, String>,
+  +st: String
+) -> List<&2, DrawOp>:
+  OpHeader{h}
+    <> OpTabs{U32.from_nat(active), names}
+    <> OpBody{bod}
+    <> OpNicks{title, nicks}
+    <> OpStatus{st}
+    <> Nil{}
 
 def view_draft(+cl: Cl.Client, +height: Nat, +draft: String, +net: String) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
-      h t = header_of.buf(nick, server, b, net) pack_tabs(cl)
-      bod ns = body_of.buf(b, height) nicks_of.buf(b)
-      st inp = status_of.buf(b) view_input(draft)
-      ViewModel{h, t, bod, ns, st, inp}
+      h bod = header_of.buf(nick, server, b, net) body_of.buf(b, height)
+      title ns = nicks_title_of(b) nicks_list_of(b)
+      ViewModel{view_ops(h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)
