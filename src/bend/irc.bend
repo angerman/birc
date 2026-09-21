@@ -360,7 +360,7 @@ def strip_cr.go(rev: String, +s: String) -> String:
 def strip_cr(+s: String) -> String:
   strip_cr.go(String.reverse(s), s)
 
-# F13 — drop CR/LF so outbound cannot inject extra IRC lines.
+# Drop CR/LF so outbound cannot inject extra IRC lines.
 type CtlPhase is Data:
   CtlRead{}
   CtlDecide{}

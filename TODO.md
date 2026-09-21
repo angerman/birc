@@ -463,10 +463,11 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: no default-off pack_body timer
       evidence: review claims pack_body is the balanced map; not re-measured
       open question: instrument then decide; do not claim speed
-- [ ] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
-      tried: LAWS still imports session as Net
-      evidence: live_fuel_alias uses that alias
-      open question: rename after T7
+- [x] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
+      Deleted unused `is_online`/`is_busy`/`session_offline`/`session_rows` and the
+      `header_of`/`body_of`/`nicks_of`/`status_of`/`active_buf`/`view`/`show_vm`/`pad_*`
+      wrappers. `nick_of` is live. Session import is `Sess` (T7). Stale F*/D2 tags
+      in comments now say what they mean.
 - [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
       tried: file grew with M1–M8 tests
       evidence: still one feed+buffer module

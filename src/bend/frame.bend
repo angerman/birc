@@ -386,7 +386,7 @@ def push.go(
 ) -> List<&2, String> & List<&2, U32> & Bool:
   match fuel:
     case 0n:
-      # F3 — keep the current drop phase; do not reset to False.
+      # Fuel exhaustion keeps the current drop phase; do not reset to False.
       match phase:
         case PDrop{}:
           push.go.halt(lines, rem, True{})
@@ -501,7 +501,7 @@ type EqPhase is Data:
 def octets_eq.go(fuel: Nat, phase: EqPhase, +a: List<&2, U32>, +b: List<&2, U32>, +ha: U32, +hb: U32, eq: Bool) -> Bool:
   match fuel:
     case 0n:
-      False{}  # F3 fail-closed
+      False{}  # fuel exhaustion fails closed
     case 1n+p:
       match phase:
         case EqBoth{}:
@@ -534,7 +534,7 @@ def str_eq(+a: String, +b: String) -> Bool:
 def strings_eq.go(fuel: Nat, phase: EqPhase, +a: List<&2, String>, +b: List<&2, String>, +ha: String, +hb: String, eq: Bool) -> Bool:
   match fuel:
     case 0n:
-      False{}  # F3 fail-closed
+      False{}  # fuel exhaustion fails closed
     case 1n+p:
       match phase:
         case EqBoth{}:
