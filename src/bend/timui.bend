@@ -21,6 +21,7 @@ type UiKeys is Data:
     enter: U32,
     typed: String,
     rows: U32,
+    cols: U32,
     tab: U32,
     click: U32,
     up: U32,

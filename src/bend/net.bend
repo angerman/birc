@@ -123,10 +123,22 @@ def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
     case V.ViewModel{+ops, +inp}:
       T.Timui.frame(ui, ops, inp, seed)
 
+def paint_session.size(
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size
+) -> IO(T.Ui & T.UiKeys):
+  match size:
+    case Sess.Size{rows, cols}:
+      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed)
+
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, net, _, rows, seed}:
-      paint_vm(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)), seed)
+    case Sess.Session{+cl, _, _, +draft, _, _, net, _, size, seed}:
+      paint_session.size(ui, cl, draft, net, seed, size)
 
 def after_ui_send(
   ok: Bool,
@@ -167,15 +179,16 @@ def send_pair(
             ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.hold_cmd(Sess.session_net(st2), Sess.merge_cmd(pending, ncmd)))
             after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
-def step_rows(
+def step_size(
   triple: Sess.Session & Sess.NetCmd & Bool,
-  +rows: U32
+  +rows: U32,
+  +cols: U32
 ) -> Sess.Session & Sess.NetCmd & Bool:
   match triple:
     case (+st, rest):
       match rest:
         case (+cmd, halt):
-          (Sess.session_set_rows(st, rows), cmd, halt)
+          (Sess.session_set_size(st, rows, cols), cmd, halt)
 
 def with_keys.go(
   ui: T.Ui,
@@ -184,6 +197,7 @@ def with_keys.go(
   +cmd: Chan(Sess.NetCmd),
   +typed: String,
   +rows: U32,
+  +cols: U32,
   +tab: U32,
   +click: U32,
   +up: U32,
@@ -196,7 +210,7 @@ def with_keys.go(
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows), pending, k)
+    send_pair(ui, quit, evt, cmd, step_size(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows, cols), pending, k)
 
 def with_keys(
   ui: T.Ui,
@@ -208,8 +222,8 @@ def with_keys(
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case T.UiKeys{quit, enter, +typed, rows, tab, click, up, dn, hist}:
-      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, pending, k, T.flag_on(quit), T.flag_on(enter))
+    case T.UiKeys{quit, enter, +typed, rows, cols, tab, click, up, dn, hist}:
+      with_keys.go(ui, st, evt, cmd, typed, rows, cols, tab, click, up, dn, hist, pending, k, T.flag_on(quit), T.flag_on(enter))
 
 def with_tick.got(
   got: T.Ui & T.UiKeys,

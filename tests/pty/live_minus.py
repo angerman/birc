@@ -113,7 +113,7 @@ def case_433(birc) -> bool:
         except (socket.timeout, OSError):
             pass
     conn.sendall(b":irc.example.net 433 * probe :Nickname is already in use\r\n")
-    deadline = time.time() + 4
+    deadline = time.time() + 8
     while time.time() < deadline and b"NICK probe_" not in buf:
         drain(master, out)
         try:

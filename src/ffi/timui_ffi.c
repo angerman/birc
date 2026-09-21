@@ -45,29 +45,30 @@ static void birc_ui_atexit(void) {
 
 #ifdef CID_UIKEYS
 static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
-                        size_t tlen, uint32_t rows, uint32_t tab,
+                        size_t tlen, uint32_t rows, uint32_t cols, uint32_t tab,
                         uint32_t click, uint32_t up, uint32_t dn,
                         uint32_t hist) {
-  Loc l = heap_alloc(e, cls_fit(9));
+  Loc l = heap_alloc(e, cls_fit(10));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(quit ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
   e.mem[l + 3] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
-  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
-  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
-  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
-  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
-  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
+  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)cols, CID_UIKEYS);
+  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
+  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
+  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
+  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
+  e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
   return term_ctr(CID_UIKEYS, l);
 }
 
 static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
                            const char *typed, size_t tlen, uint32_t rows,
-                           uint32_t tab, uint32_t click, uint32_t up,
-                           uint32_t dn, uint32_t hist) {
+                           uint32_t cols, uint32_t tab, uint32_t click,
+                           uint32_t up, uint32_t dn, uint32_t hist) {
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
-                birc_uikeys(e, quit, enter, typed, tlen, rows, tab, click, up,
-                            dn, hist));
+                birc_uikeys(e, quit, enter, typed, tlen, rows, cols, tab, click,
+                            up, dn, hist));
 }
 #endif
 
@@ -276,13 +277,18 @@ static void birc_draw_bodyln(Env e, TimuiFrame *fr, int x, int y, int maxx,
 }
 
 typedef struct {
+  TimuiCellBuffer *buf;
+  TimuiStyle border;
   TimuiRect root;
-  TimuiRect tab_r;
-  TimuiRect body_r;
-  TimuiRect nick_r;
-  int status_y;
   uint32_t *click;
 } BircLay;
+
+static void rect_from(Term *f, TimuiRect *r) {
+  r->x = (int)(uint32_t)f[0];
+  r->y = (int)(uint32_t)f[1];
+  r->w = (int)(uint32_t)f[2];
+  r->h = (int)(uint32_t)f[3];
+}
 
 static void birc_label(TimuiFrame *fr, int x, int y, Env e, Term t, TimuiStyle st) {
   u64 n = 0;
@@ -294,69 +300,91 @@ static void birc_label(TimuiFrame *fr, int x, int y, Env e, Term t, TimuiStyle s
 static void birc_draw_op(Env e, Timui *ui, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
   if (cid == CID_VIEW_OPHEADER) {
-    Term f[1];
-    Loc loc = ctr_take(e, op, 1, f);
-    birc_label(fr, ly->root.x, ly->root.y, e, f[0],
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect r;
+    rect_from(f, &r);
+    birc_label(fr, r.x, r.y, e, f[4],
                timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT));
-    spare_free(e, cls_fit(1), loc);
+    spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPTABS) {
-    Term f[2];
-    Loc loc = ctr_take(e, op, 2, f);
+    Term f[6];
+    Loc loc = ctr_take(e, op, 6, f);
+    TimuiRect r;
     char store[16][64];
     const char *labs[16];
-    int ntabs = birc_str_list(e, f[1], store, labs, 16);
-    int orig = (int)(uint32_t)f[0];
-    int sel = orig < 0 ? 0 : orig;
+    int ntabs, orig, sel;
+    rect_from(f, &r);
+    ntabs = birc_str_list(e, f[5], store, labs, 16);
+    orig = (int)(uint32_t)f[4];
+    sel = orig < 0 ? 0 : orig;
     if (ntabs > 0 && sel >= ntabs)
       sel = ntabs - 1;
     orig = sel;
     if (ntabs > 0)
-      (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), ly->tab_r, labs, ntabs, &sel);
+      (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
     if (sel != orig && sel >= 0 && sel < ntabs)
       *ly->click = (uint32_t)sel + 1u;
-    spare_free(e, cls_fit(2), loc);
+    spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPBODY) {
-    Term f[1];
-    Loc loc = ctr_take(e, op, 1, f);
-    Term xs = f[0];
-    Term lns[64];
-    int n = 0, i, max_y = ly->body_r.y + ly->body_r.h - 1;
-    int min_y = ly->body_r.y + 1, maxx = ly->body_r.x + ly->body_r.w - 1, y;
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect r;
+    Term xs, lns[64];
+    int n = 0, i, max_y, min_y, maxx, y;
+    rect_from(f, &r);
+    if (r.y + r.h > ly->root.y + ly->root.h)
+      r.h = ly->root.y + ly->root.h - r.y;
+    if (r.h < 1)
+      r.h = 1;
+    timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
+    xs = f[4];
     while (n < 64 && term_aux(xs) == CID_CON) {
       Term rest;
       lns[n++] = birc_cons_head(e, xs, &rest);
       xs = rest;
     }
+    max_y = r.y + r.h - 1;
+    min_y = r.y + 1;
+    maxx = r.x + r.w - 1;
     y = max_y - n;
     if (y < min_y)
       y = min_y;
     for (i = 0; i < n && y < max_y; i += 1, y += 1)
-      birc_draw_bodyln(e, fr, ly->body_r.x + 1, y, maxx, lns[i]);
-    spare_free(e, cls_fit(1), loc);
+      birc_draw_bodyln(e, fr, r.x + 1, y, maxx, lns[i]);
+    spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPNICKS) {
-    Term f[2];
-    Loc loc = ctr_take(e, op, 2, f);
+    Term f[6];
+    Loc loc = ctr_take(e, op, 6, f);
+    TimuiRect r;
     TimuiStyle dim = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT_DIM);
-    Term xs = f[1];
-    int y = ly->nick_r.y, max_y = ly->nick_r.y + ly->nick_r.h - 1;
-    if (ly->nick_r.w > 2) {
-      birc_label(fr, ly->nick_r.x + 1, y, e, f[0], dim);
+    Term xs;
+    int y, max_y;
+    rect_from(f, &r);
+    if (r.w > 2)
+      timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
+    xs = f[5];
+    y = r.y;
+    max_y = r.y + r.h - 1;
+    if (r.w > 2) {
+      birc_label(fr, r.x + 1, y, e, f[4], dim);
       y++;
       while (y < max_y && term_aux(xs) == CID_CON) {
         Term rest, h = birc_cons_head(e, xs, &rest);
         xs = rest;
-        birc_label(fr, ly->nick_r.x + 1, y, e, h, dim);
+        birc_label(fr, r.x + 1, y, e, h, dim);
         y++;
       }
     }
-    spare_free(e, cls_fit(2), loc);
+    spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPSTATUS) {
-    Term f[1];
-    Loc loc = ctr_take(e, op, 1, f);
-    if (ly->root.h >= 2)
-      birc_label(fr, ly->root.x, ly->status_y, e, f[0],
-                 timui_theme_style(&ui->theme, TIMUI_SLOT_STATUS));
-    spare_free(e, cls_fit(1), loc);
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect r;
+    rect_from(f, &r);
+    birc_label(fr, r.x, r.y, e, f[4],
+               timui_theme_style(&ui->theme, TIMUI_SLOT_STATUS));
+    spare_free(e, cls_fit(5), loc);
   }
 }
 
@@ -413,6 +441,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   int quit = 0;
   int enter = 0;
   uint32_t rows = 24;
+  uint32_t cols = 80;
   uint32_t tab = 0;
   uint32_t click = 0;
   uint32_t up = 0;
@@ -426,12 +455,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
   if (!ui) {
     free(input);
-    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
 
   if (!timui_begin(ui, &fr)) {
     free(input);
-    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
   if (timui_focus(fr) != TIMUI_ID("birc.composer"))
     timui_set_focus(fr, TIMUI_ID("birc.composer"));
@@ -442,34 +471,15 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     TimuiStyle panel = timui_theme_style(&ui->theme, TIMUI_SLOT_PANEL);
     TimuiStyle text = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT);
     TimuiStyle border = timui_theme_style(&ui->theme, TIMUI_SLOT_BORDER);
-    int mid = root.w > 24 ? root.w - 18 : root.w / 2;
-    int status_y = root.h >= 2 ? root.y + root.h - 2 : root.y;
     int input_y = root.h >= 1 ? root.y + root.h - 1 : root.y;
-    int body_y = root.y + 2;
-    int body_h = status_y - body_y;
     BircLay ly;
     rows = root.h < 4 ? 4u : (uint32_t)root.h;
-    if (body_h < 1)
-      body_h = 1;
+    cols = root.w < 1 ? 1u : (uint32_t)root.w;
+    ly.buf = buf;
+    ly.border = border;
     ly.root = root;
-    ly.tab_r.x = root.x;
-    ly.tab_r.y = root.y + 1;
-    ly.tab_r.w = root.w;
-    ly.tab_r.h = 1;
-    ly.body_r.x = root.x;
-    ly.body_r.y = body_y;
-    ly.body_r.w = mid > 2 ? mid : root.w;
-    ly.body_r.h = body_h;
-    ly.nick_r.x = root.x + ly.body_r.w;
-    ly.nick_r.y = body_y;
-    ly.nick_r.w = root.w - ly.body_r.w;
-    ly.nick_r.h = body_h;
-    ly.status_y = status_y;
     ly.click = &click;
     timui_draw_fill(buf, root, panel);
-    timui_draw_box(buf, ly.body_r, TIMUI_BORDER_ROUND, border);
-    if (ly.nick_r.w > 2)
-      timui_draw_box(buf, ly.nick_r, TIMUI_BORDER_ROUND, border);
 #ifdef CID_CON
     birc_draw_ops(e, ui, fr, ops, &ly);
 #else
@@ -523,8 +533,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   {
     const char *typed = bu ? bu->composer : "";
     Term out;
-    out = birc_frame_out(e, ui, quit, enter, typed, tlen, rows, tab, click, up,
-                         dn, hist);
+    out = birc_frame_out(e, ui, quit, enter, typed, tlen, rows, cols, tab, click,
+                         up, dn, hist);
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;

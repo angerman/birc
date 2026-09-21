@@ -487,10 +487,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
       `Timui.frame` walks `List<DrawOp>`. Packed k|ts|spans interpreter is gone.
       Test-only `pack_line`/`pack_spans` remain for goldens.
-- [ ] **R6** Draw ops carry rects; panel layout moves to Bend.
-      tried: layout is still C inside Timui.frame
-      evidence: depends on R5
-      open question: after R5
+- [x] **R6** Draw ops carry rects; panel layout moves to Bend.
+      DrawOp carries x,y,w,h. `view.lay` computes panels from session Size
+      (rows+cols from UiKeys). C clips to the live root and paints.
 - [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).
       tried: IO_READ park skipped in H7 (would block Ticks)
       evidence: non-blocking recv_octets + Tick on EAGAIN keeps the UI alive
