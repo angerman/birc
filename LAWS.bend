@@ -36,6 +36,15 @@ law empty_not_channel:
 law clamp_empty_ok:
   {Irc.line_ok(Irc.clamp_line("")) == True{} : Bool}
 
+# LAW: clamp samples (empty, short, 80, 600) are line_ok. Quantified
+# `for s: String` needs a proof term; `{==}` is not enough (T1).
+law clamp_samples:
+  {Irc.clamp_samples_ok() == True{} : Bool}
+
+# LAW: strip_ctl drops CR and LF on a mixed sample.
+law strip_ctl_nocr:
+  {Irc.strip_ctl_nocr_ok() == True{} : Bool}
+
 # LAW: ASCII case-insensitive equality agrees on PING/ping.
 law ieq_ping:
   {Irc.ieq("PING", "ping") == True{} : Bool}
