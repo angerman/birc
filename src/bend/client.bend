@@ -1001,13 +1001,17 @@ def feed_num.other(+cl: Client, +num: U32, +text: String, err: Bool) -> Client:
     case False{}:
       client_log(cl, 0n, System{}, fmt_num(num, text))
 
-def feed_num.433.on(+cl: Client, +m: Irc.Message, +num: U32, +nick: String) -> Client:
-  feed_num.other(set_nick(cl, nick ++ "_"), num, Irc.msg_last(m), True{})
+def feed_num.433.on(+cl: Client, +m: Irc.Message, +num: U32, +nick: String, retry: Bool) -> Client:
+  match retry:
+    case True{}:
+      feed_num.other(set_nick(cl, nick ++ "_"), num, Irc.msg_last(m), True{})
+    case False{}:
+      feed_num.other(cl, num, Irc.msg_last(m), True{})
 
 def feed_num.433.cl(+cl: Client, +m: Irc.Message, +num: U32) -> Client:
   match cl:
     case Client{+nick, _, _, _, _}:
-      feed_num.433.on(cl, m, num, nick)
+      feed_num.433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
 
 def feed_num.433(hit: Bool, +cl: Client, +m: Irc.Message, +num: U32) -> Client:
   match hit:
@@ -1383,8 +1387,18 @@ def numeric_last_ok() -> Bool:
   +cl = feed(init("me", "s"), ":irc.example.net 403 me #nope :No such channel")
   String.eq(buf_texts(cl, 0n), "[403] No such channel|")
 
+# After registration, 433 me newnick is a rejected /nick: stay me, only log.
 def nick433_ok() -> Bool:
   +cl = feed(init("me", "s"), ":irc.example.net 433 me newnick :Nickname is already in use")
+  String.eq(nick_of(cl), "me") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
+
+# Registration: 433 * me and 433 me me mean our nick is taken; retry as me_.
+def nick433_star_ok() -> Bool:
+  +cl = feed(init("me", "s"), ":irc.example.net 433 * me :Nickname is already in use")
+  String.eq(nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
+
+def nick433_same_ok() -> Bool:
+  +cl = feed(init("me", "s"), ":irc.example.net 433 me me :Nickname is already in use")
   String.eq(nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 def log_ts_ok.pair(+ts0: String, rest: List<&2, Line>) -> Bool:

@@ -61,6 +61,49 @@ def fold_ok.on(got: Cl.Client & List<&2, String>) -> Bool:
 def fold_ok() -> Bool:
   fold_ok.on(Net.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))
 
+def show_outs(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      h ++ "|" ++ show_outs(t)
+
+def nick433_fold_reject.on(got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      String.eq(Cl.nick_of(cl), "me") && String.eq(show_outs(outs), "")
+
+def nick433_fold_reject() -> Bool:
+  nick433_fold_reject.on(
+    Net.fold_lines(
+      Cl.init("me", "s"),
+      ":irc.example.net 433 me newnick :Nickname is already in use" <> Nil{}
+    )
+  )
+
+def nick433_fold_retry.on(+want: String, got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      String.eq(Cl.nick_of(cl), "me_") && String.eq(show_outs(outs), want)
+
+def nick433_fold_star() -> Bool:
+  nick433_fold_retry.on(
+    "NICK me_|",
+    Net.fold_lines(
+      Cl.init("me", "s"),
+      ":irc.example.net 433 * me :Nickname is already in use" <> Nil{}
+    )
+  )
+
+def nick433_fold_same() -> Bool:
+  nick433_fold_retry.on(
+    "NICK me_|",
+    Net.fold_lines(
+      Cl.init("me", "s"),
+      ":irc.example.net 433 me me :Nickname is already in use" <> Nil{}
+    )
+  )
+
 def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(client2)
@@ -70,6 +113,9 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must_eq("line", first_line(lines), "PING :loopback")
     Unit <- E.must("rt", Fr.str_eq(first_line(lines), "PING :loopback"))
     Unit <- E.must("fold", fold_ok())
+    Unit <- E.must("nick433_reject", nick433_fold_reject())
+    Unit <- E.must("nick433_star", nick433_fold_star())
+    Unit <- E.must("nick433_same", nick433_fold_same())
     Unit <- E.must("fuel_alias", Nat.is_eq(Net.live_fuel(3), Net.ticks_of(3)))
     Unit <- E.must("fuel3", Nat.is_eq(Net.live_fuel(3), 3n))
     IO.print("net_demo=ok")
