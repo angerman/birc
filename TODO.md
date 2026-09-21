@@ -427,10 +427,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: chains are Bool-parameter match (legal Bend)
       evidence: 14-deep cls_* and slash_* still sequential
       open question: List.find table vs balanced parallel tree
-- [ ] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
-      tried: args.parse_u32 still used for --frames/--port
-      evidence: U32.read exists (dns_wire octet_ok)
-      open question: whether U32.read matches parse_u32 overflow rules
+- [x] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
+      `parse_u32` is a `Num` wrapper over `U32.read` (identical on the 7 t18
+      probes including overflow). `submit` no longer imports `args`.
 - [ ] **I6** Remove fuel from structural walkers and phase machines (idiom §5a §5b).
       tried: UTF-8 decode needs fuel; termination checker rejects Utf8Acc.rest
       evidence: `bend` "expected a decreasing self-call" on utf8_decode.go without fuel

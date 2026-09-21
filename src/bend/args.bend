@@ -14,54 +14,15 @@ type Num is Data:
 def cfg0() -> Cfg:
   Cfg{True{}, 0, "", 6667, "birc", "#birc", ""}
 
-type NumPh is Data:
-  NStr{}
-  NChr{}
-  NGe{}
-  NLe{}
-
-def parse_u32.done(seen: Bool, acc: U32) -> Num:
-  match seen:
-    case False{}:
+def parse_u32.on(m: Maybe<&2, U32>) -> Num:
+  match m:
+    case None{}:
       Num{False{}, 0}
-    case True{}:
-      Num{True{}, acc}
-
-def parse_u32.go(fuel: Nat, phase: NumPh, +s: String, +acc: U32, seen: Bool, +h: Char, +code: U32, ge: Bool, le: Bool) -> Num:
-  match fuel:
-    case 0n:
-      Num{False{}, 0}
-    case 1n+p:
-      match phase:
-        case NStr{}:
-          match s:
-            case SNil{}:
-              parse_u32.done(seen, acc)
-            case SCon{+hd, t}:
-              parse_u32.go(p, NChr{}, t, acc, seen, hd, 0, False{}, False{})
-        case NChr{}:
-          match h:
-            case Chr{c}:
-              parse_u32.go(p, NGe{}, s, acc, seen, h, c, U32.is_ge(c, 48), False{})
-        case NGe{}:
-          match ge:
-            case False{}:
-              Num{False{}, 0}
-            case True{}:
-              parse_u32.go(p, NLe{}, s, acc, seen, h, code, U32.is_gt(acc, 429496729) || (U32.is_eq(acc, 429496729) && U32.is_gt(U32.sub(code, 48), 5)), U32.is_le(code, 57))
-        case NLe{}:
-          match ge:
-            case True{}:
-              Num{False{}, 0}
-            case False{}:
-              match le:
-                case False{}:
-                  Num{False{}, 0}
-                case True{}:
-                  parse_u32.go(p, NStr{}, s, U32.add(U32.mul(acc, 10), U32.sub(code, 48)), True{}, h, 0, False{}, False{})
+    case Some{n}:
+      Num{True{}, n}
 
 def parse_u32(+s: String) -> Num:
-  parse_u32.go(Nat.add(1n, Nat.mul(4n, String.length(s))), NStr{}, s, 0, False{}, Chr{0}, 0, False{}, False{})
+  parse_u32.on(U32.read(s))
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
