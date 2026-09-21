@@ -362,11 +362,11 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       UI respawns the idle actor on fresh channels. Actor never calls UI.
 - [x] **H4** `/connect` must not freeze the UI (net#3).
       Dial runs in a spawned job; the idle actor keeps Tick/cmd so the UI paints.
-      Base `TCP.connect` has no deadline; a black-hole SYN can hold the process
-      after `/quit` until the kernel gives up. No new C effect (C budget).
+      After `Timui.close`, `IO.die(Unit, 0, "")` halts so a parked `TCP.connect` cannot keep the process.
 - [x] **H5** `--demo --nick bob` registers as `bob` (net#9).
 - [x] **H6** `boot_clock` must not keep the process alive 8 s after quit (net#7).
       Sleep is 100 ms × 80; a send on a stop chan closed from `boot_ui` aborts.
+      Same halt as H4: `shutdown` ends with `IO.die` so leftover sleeps cannot outlive the UI.
 - [ ] **H7** Byte-safe TCP read; octet framer; delete `push_text` (proto#5, net#6, ffi B).
 - [ ] **H8** Fuel that returns a wrong value: `U32.to_nat`, `parse_params`, `copy_args`, `send_lines_go` (idiom §5c, proto#6 #7, view#16).
 
