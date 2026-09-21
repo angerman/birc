@@ -133,6 +133,8 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
     Unit <- E.must("nick433_same", nick433_fold_same())
+    Unit <- E.must("rem_cleared", Sess.rem_cleared_ok())
+    Unit <- E.must("drop_cleared", Sess.drop_cleared_ok())
     Unit <- E.must("fuel3", Nat.is_eq(Sess.live_fuel(3), 3n))
     Unit <- E.must("fuel70000", Nat.is_eq(Sess.live_fuel(70000), 70000n))
     IO.print("net_demo=ok")
