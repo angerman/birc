@@ -293,7 +293,7 @@ def on_evt_some(
 ) -> IO(Unit):
   match e:
     case Sess.Eof{}:
-      shutdown(ui, evt, cmd)
+      with_fail(ui, st, evt, cmd, "disconnected", k)
     case Sess.Tick{}:
       with_tick(ui, st, evt, cmd, k)
     case Sess.Chunk{+text}:

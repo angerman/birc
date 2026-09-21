@@ -359,6 +359,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **H1** Buffer cap: `buf_get` returns `Maybe`; create only on self-JOIN; error at cap (client#1 #2 #14, view#5).
 - [x] **H2** Numerics log last param; 433 → `NICK <nick>_` (client#4, net#11).
 - [ ] **H3** Disconnect: `Eof` → offline + idle loop; non-Online echo "not connected" (net#5 #4).
+      Tried: UI `Eof` → `session_fail "disconnected"`; Connecting/Offline submit echoes "not connected" (Demo still local).
+      Evidence: actor `reader → idle_start` is mutual recursion (`idle_start` → dial → `reader_start` → Eof → `idle_start`); Bend forbids it.
+      Open: one actor phase machine, or a single `@unsafe` loop, so Eof can re-enter idle without a forward/mutual call.
 - [ ] **H4** `/connect` must not freeze the UI (net#3).
 - [ ] **H5** `--demo --nick bob` registers as `bob` (net#9).
 - [ ] **H6** `boot_clock` must not keep the process alive 8 s after quit (net#7).

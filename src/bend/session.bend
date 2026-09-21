@@ -236,6 +236,31 @@ def wrap_outs(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd
     case (cl2, outs):
       (cl2, "", Cont{outs})
 
+def can_send(net: NetState) -> Bool:
+  match net:
+    case Online{}:
+      True{}
+    case Demo{}:
+      True{}
+    case Connecting{}:
+      False{}
+    case Offline{}:
+      False{}
+
+def submit_offline(+cl: Cl.Client, +draft: String, quit: Bool) -> Cl.Client & String & NetCmd:
+  match quit:
+    case True{}:
+      wrap_outs(Sub.submit(cl, draft))
+    case False{}:
+      (Sub.echo_err_server(cl, "not connected"), "", Cont{Nil{}})
+
+def submit_send(+cl: Cl.Client, net: NetState, +draft: String, ok: Bool) -> Cl.Client & String & NetCmd:
+  match ok:
+    case True{}:
+      wrap_outs(Sub.submit(cl, draft))
+    case False{}:
+      submit_offline(cl, draft, Sub.submit_is_quit(draft))
+
 def connect_apply.busy(+cl: Cl.Client, online: Bool) -> Cl.Client & String & NetCmd:
   match online:
     case True{}:
@@ -261,12 +286,12 @@ def connect_apply(+cl: Cl.Client, net: NetState, c: Sub.Conn) -> Cl.Client & Str
     case Sub.ConnOk{+host, port}:
       connect_apply.st(cl, host, port, net)
 
-def submit_pair.enter(+cl: Cl.Client, net: NetState, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
+def submit_pair.enter(+cl: Cl.Client, +net: NetState, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
   match conn:
     case True{}:
       connect_apply(cl, net, Sub.connect_from_input(draft))
     case False{}:
-      wrap_outs(Sub.submit(cl, draft))
+      submit_send(cl, net, draft, can_send(net))
 
 def submit_pair(+cl: Cl.Client, net: NetState, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
   match enter:

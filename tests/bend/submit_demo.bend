@@ -189,6 +189,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
       U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), "kept", False{}, 0, 0, 0, 0, 0)))),
       "0"
     )
+    Unit <- E.must_eq("offline_msg", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "hello")), "cont:")
     Unit <- E.must_eq("empty_enter", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "")), "False")
     Unit <- E.must_eq("quit_halt", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "True")
     Unit <- E.must_eq("quit_cmd", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "cont:QUIT :birc")
