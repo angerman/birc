@@ -104,6 +104,19 @@ def nick433_fold_same() -> Bool:
     )
   )
 
+def welcome_octets() -> List<&2, U32>:
+  Fr.string_to_octets(":irc.example.net 001 probe :Welcome\r\nPING :xyz\r\n")
+
+def chunk_join_pong.on(got: Net.Session & List<&2, String>) -> Bool:
+  match got:
+    case (_, outs):
+      String.eq(show_outs(outs), "PONG :xyz|JOIN #t|")
+
+def chunk_join_pong() -> Bool:
+  chunk_join_pong.on(
+    Net.step_on_chunk(Net.session_online(Net.session0("probe", "h", "#t")), welcome_octets())
+  )
+
 def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(client2)
@@ -113,6 +126,7 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must_eq("line", first_line(lines), "PING :loopback")
     Unit <- E.must("rt", Fr.str_eq(first_line(lines), "PING :loopback"))
     Unit <- E.must("fold", fold_ok())
+    Unit <- E.must("chunk_join_pong", chunk_join_pong())
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
     Unit <- E.must("nick433_same", nick433_fold_same())

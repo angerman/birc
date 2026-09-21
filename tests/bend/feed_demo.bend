@@ -21,6 +21,12 @@ def join_us_name() -> Bool:
   +cl = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #a" ++ SCon{Chr{31}, "b"})
   Cl.has_buf(cl, "#ab") && Bool.not(Cl.has_buf(cl, "#a" ++ SCon{Chr{31}, "b"}))
 
+def naive_body() -> String:
+  "na" ++ SCon{Chr{239}, "ve latin1"}
+
+def naive_pack() -> String:
+  V.pack_spans(V.tokenize("<a> " ++ naive_body()))
+
 def main_on(+demo: Cl.Client) -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq(
@@ -73,6 +79,15 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("sanitize", Irc.sanitize_in_ok())
     Unit <- E.must("no_forge", no_forge_pack())
     Unit <- E.must("join_us", join_us_name())
+    Unit <- E.must_eq(
+      "naive_feed",
+      Cl.buf_texts(
+        Cl.feed(Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #t"), ":a!a@h PRIVMSG #t :" ++ naive_body()),
+        1n
+      ),
+      "-> me joined #t|<a> " ++ naive_body() ++ "|"
+    )
+    Unit <- E.must_eq("naive_pack", naive_pack(), SCon{Chr{80}, "<a> " ++ naive_body()})
     Unit <- E.must("hms", Clock.fmt_hms_ok())
     Unit <- E.must_eq(
       "replay_lines",

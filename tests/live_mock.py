@@ -1,11 +1,35 @@
 #!/usr/bin/env python3
-"""Local mock IRC: assert NICK/USER/JOIN, PONG, and birc=ok without hanging."""
+"""Local mock IRC: assert NICK/USER/JOIN, PONG, and birc=ok without hanging.
+
+Headless birc quits on the first TimUI frame, so this must run under a pty
+or JOIN/PONG is a race against a Tick.
+"""
 from __future__ import annotations
 
+import fcntl
+import os
+import pty
+import select
 import socket
+import struct
 import subprocess
 import sys
+import termios
 import time
+
+
+def drain(fd, sink):
+    while True:
+        r, _, _ = select.select([fd], [], [], 0)
+        if not r:
+            return
+        try:
+            d = os.read(fd, 65536)
+        except OSError:
+            return
+        if not d:
+            return
+        sink += d
 
 
 def main() -> int:
@@ -19,6 +43,8 @@ def main() -> int:
     srv.listen(1)
     port = srv.getsockname()[1]
     srv.settimeout(20)
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     proc = subprocess.Popen(
         [
             birc,
@@ -31,11 +57,16 @@ def main() -> int:
             "--channel",
             "#t",
             "--frames",
-            "8",
+            "20000",
         ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        close_fds=True,
+        env={**os.environ, "TERM": "xterm-256color"},
     )
+    os.close(slave)
+    out = bytearray()
     try:
         conn, _ = srv.accept()
     except socket.timeout:
@@ -48,24 +79,44 @@ def main() -> int:
     conn.sendall(b":irc.example.net 001 probe :Welcome\r\n")
     conn.sendall(b"PING :xyz\r\n")
     while time.time() < deadline:
+        drain(master, out)
         try:
             chunk = conn.recv(4096)
-            if not chunk:
-                break
-            buf += chunk
+            if chunk:
+                buf += chunk
         except (socket.timeout, ConnectionResetError, BrokenPipeError):
             pass
+        if (
+            b"NICK probe" in buf
+            and b"USER probe" in buf
+            and b"JOIN #t" in buf
+            and b"PONG :xyz" in buf
+        ):
+            break
         if proc.poll() is not None:
             break
-    try:
-        out, _ = proc.communicate(timeout=8)
-    except subprocess.TimeoutExpired:
+    os.write(master, b"/quit\r")
+    t = time.time()
+    while proc.poll() is None and time.time() - t < 8:
+        drain(master, out)
+        try:
+            chunk = conn.recv(4096)
+            if chunk:
+                buf += chunk
+        except (socket.timeout, ConnectionResetError, BrokenPipeError, OSError):
+            pass
+        time.sleep(0.05)
+    if proc.poll() is None:
         proc.kill()
-        out, _ = proc.communicate()
+        proc.wait()
+        conn.close()
+        srv.close()
         print("live_mock: birc hung", file=sys.stderr)
         return 1
+    drain(master, out)
     conn.close()
     srv.close()
+    os.close(master)
     text = out.decode("utf-8", "replace")
     if proc.returncode != 0:
         print(f"live_mock: exit {proc.returncode}\n{text}", file=sys.stderr)
