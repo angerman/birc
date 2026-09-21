@@ -98,6 +98,29 @@ def nick433_fold_star() -> Bool:
     )
   )
 
+# A2: 433 retry keys on Client.nick. Demo used to init("me") while
+# registration used --nick, so 433 * bob never retried.
+def nick433_demo_mismatch() -> Bool:
+  nick433_fold_reject.on(
+    Sess.fold_lines(
+      Cl.init("me", "s"),
+      ":irc.example.net 433 * bob :Nickname is already in use" <> Nil{}
+    )
+  )
+
+def nick433_demo_nick.on(got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      String.eq(Cl.nick_of(cl), "bob_") && String.eq(show_outs(outs), "NICK bob_|")
+
+def nick433_demo_nick() -> Bool:
+  nick433_demo_nick.on(
+    Sess.fold_lines(
+      Cl.init("bob", "s"),
+      ":irc.example.net 433 * bob :Nickname is already in use" <> Nil{}
+    )
+  )
+
 def nick433_fold_same() -> Bool:
   nick433_fold_retry.on(
     "NICK me_|",
@@ -133,6 +156,8 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
     Unit <- E.must("nick433_same", nick433_fold_same())
+    Unit <- E.must("nick433_demo_mismatch", nick433_demo_mismatch())
+    Unit <- E.must("nick433_demo_nick", nick433_demo_nick())
     Unit <- E.must("rem_cleared", Sess.rem_cleared_ok())
     Unit <- E.must("drop_cleared", Sess.drop_cleared_ok())
     Unit <- E.must("fuel3", Nat.is_eq(Sess.live_fuel(3), 3n))

@@ -72,10 +72,10 @@ def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: Str
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
     main_live_on(frames, port, nick, chan, r)
 
-def demo_client() -> IO(Cl.Client):
+def demo_client(+nick: String) -> IO(Cl.Client):
   do IO<Cl.Client>:
     ts : String <- Clock.hhmmss()
-    return Feed.feed_all(Cl.set_now(Cl.init("me", "irc.birc.dev"), ts), Feed.demo_lines())
+    return Feed.feed_all(Cl.set_now(Cl.init(nick, "irc.birc.dev"), ts), Feed.demo_lines())
 
 def main_offline(+frames: U32, +nick: String, +chan: String, +cl: Cl.Client) -> IO(Unit):
   run_demo(frames, cl, nick, chan)
@@ -96,7 +96,7 @@ def main_dispatch.demo(
   match demo:
     case True{}:
       do IO<Unit>:
-        cl : Cl.Client <- demo_client()
+        cl : Cl.Client <- demo_client(nick)
         main_offline(frames, nick, chan, cl)
     case False{}:
       main_live(frames, host, port, nick, chan)
