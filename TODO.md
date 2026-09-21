@@ -416,12 +416,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 ### Phase I — idiomatic Bend
 - [x] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
       `body_h` / `live_fuel` live in `session.bend`. `ticks_of` still aliases `live_fuel` (law `live_fuel_alias`).
-- [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
-      - [x] Data `Cur`/`Got` + `do Maybe` header/RR/ip4 (idiom §4#1); dead `skip_name`/`answers_go`/`parse_*_p` path deleted; test-only `octets` moved (dns#19).
-      - [ ] Wire shims in `dns.bend:9-30` (`err`/`is_ipv4`/`encode`/`parse_*`).
-      tried: grep `^def Dns\.` is empty; remaining wrappers are `Wire.err` etc.
-      evidence: `dns.bend:9-30` are one-line `Wire.*` aliases used by net/app
-      open question: import `dns_wire` at those call sites without a behaviour change
+- [x] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
+      Data `Cur`/`Got` + `do Maybe`. Wire shims in `dns.bend` deleted; live
+      path and `dns_demo` call `Wire.*` directly.
 - [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
       `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
       pass a `Buffer -> Buffer`. `set_nth_buf` deleted.

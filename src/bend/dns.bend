@@ -6,30 +6,6 @@
 import Base
 import ./dns_wire.bend as Wire
 
-def err(+msg: String) -> Result<&1, &1, U32 & String, String>:
-  Wire.err(msg)
-
-def is_ipv4(+host: String) -> Bool:
-  Wire.is_ipv4(host)
-
-def is_ipv6(+host: String) -> Bool:
-  Wire.is_ipv6(host)
-
-def txid_of(+n: U32) -> U32:
-  Wire.txid_of(n)
-
-def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, String>:
-  Wire.encode_id(id, host)
-
-def encode(+host: String) -> Result<&1, &1, U32 & String, String>:
-  Wire.encode(host)
-
-def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  Wire.parse_id(want, xs)
-
-def parse_q(+want: U32, +host: String, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  Wire.parse_q(want, host, xs)
-
 def NS() -> String:
   Wire.NS_FALLBACK()
 
@@ -62,7 +38,7 @@ def recv_octets(sock, max):
 def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     Unit <- Socket.close(sock)
-    return err(msg)
+    return Wire.err(msg)
 
 def wait_sleep(
   sock: Socket,
@@ -245,7 +221,7 @@ def after_bind(
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
-      IO.pure(Result<&1, &1, U32 & String, String>, err("bind"))
+      IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("bind"))
     case Done{sock}:
       do IO<Result<&1, &1, U32 & String, String>>:
         sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
@@ -266,13 +242,13 @@ def lookup_q(
         after_bind(br, q, id, host, ns)
 
 def lookup_n(+host: String, +ns: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
-  +id = txid_of(n)
-  lookup_q(encode_id(id, host), id, host, ns)
+  +id = Wire.txid_of(n)
+  lookup_q(Wire.encode_id(id, host), id, host, ns)
 
 def lookup_rnd(+host: String, +ns: String, rnd: Result<&1, &1, U32 & String, U32>) -> IO(Result<&1, &1, U32 & String, String>):
   match rnd:
     case Fail{_}:
-      IO.pure(Result<&1, &1, U32 & String, String>, err("random"))
+      IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("random"))
     case Done{n}:
       lookup_n(host, ns, n)
 
@@ -315,7 +291,7 @@ def lookup_a(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
 def resolve_v6(+host: String, v6: Bool) -> IO(Result<&1, &1, U32 & String, String>):
   match v6:
     case True{}:
-      IO.pure(Result<&1, &1, U32 & String, String>, err("ipv6"))
+      IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("ipv6"))
     case False{}:
       lookup_a(host)
 
@@ -324,7 +300,7 @@ def resolve_pick(+host: String, ip: Bool) -> IO(Result<&1, &1, U32 & String, Str
     case True{}:
       IO.pure(Result<&1, &1, U32 & String, String>, Done{host})
     case False{}:
-      resolve_v6(host, is_ipv6(host))
+      resolve_v6(host, Wire.is_ipv6(host))
 
 def resolve(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
-  resolve_pick(host, is_ipv4(host))
+  resolve_pick(host, Wire.is_ipv4(host))
