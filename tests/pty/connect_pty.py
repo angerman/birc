@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""H4: /connect must not freeze the UI.
+"""H4 / H6: /connect must not freeze the UI, and /quit must exit the process.
 
 usage: connect_pty.py ./build/birc
 
-(-) idle_dial blocks in TCP.connect: keys typed in the first second never
-    appear, and /quit cannot run until the kernel SYN retry gives up.
-(+) Tick loop keeps running during dial: the UI paints 'connecting',
-    reacts to keys within 1 s, and /quit exits 0 with the terminal restored.
+Case A: black-hole /connect to 192.0.2.1 (TEST-NET-1, RFC 5737).
+  (-) idle_dial blocks in TCP.connect: keys never paint; /quit waits on SYN retry.
+  (+) UI paints 'connecting', reacts to keys, and after /quit the *process*
+      exits 0 within 2 s (CID_HALT; not just UI restore while TCP.connect parks).
 
-192.0.2.1 is TEST-NET-1 (RFC 5737); it should not route, so connect hangs.
+Case B: plain --demo /quit.
+  (+) process exits 0 in under 2 s wall (boot_clock used to add 8 s).
 """
 from __future__ import annotations
 
@@ -38,17 +39,40 @@ def drain(fd, sink):
         sink += d
 
 
-def main() -> int:
-    birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
+def spawn(birc, args):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
-    t0 = time.time()
     proc = subprocess.Popen(
-        [birc, "--demo", "--nick", "probe", "--channel", "#t", "--frames", "20000"],
+        [birc, *args],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
         env={**os.environ, "TERM": "xterm-256color"},
     )
     os.close(slave)
+    return master, proc
+
+
+def wait_quit(master, proc, out, secs=2.0):
+    t_quit = time.time()
+    if proc.poll() is None:
+        os.write(master, b"\x7f\x7f/quit\r")
+    end = t_quit + secs
+    while time.time() < end and proc.poll() is None:
+        drain(master, out)
+        time.sleep(0.05)
+    hung = proc.poll() is None
+    quit_wall = time.time() - t_quit
+    if hung:
+        proc.kill()
+        proc.wait()
+    drain(master, out)
+    return hung, quit_wall
+
+
+def case_blackhole(birc) -> bool:
+    t0 = time.time()
+    master, proc = spawn(
+        birc, ["--demo", "--nick", "probe", "--channel", "#t", "--frames", "20000"]
+    )
     out = bytearray()
     end = time.time() + 1.0
     while time.time() < end:
@@ -66,33 +90,71 @@ def main() -> int:
         drain(master, out)
         time.sleep(0.05)
     reacts = b"z" in bytes(out[mark:])
-    if proc.poll() is None:
-        os.write(master, b"\x7f\x7f/quit\r")
-    end = time.time() + 8
-    while time.time() < end and proc.poll() is None:
-        drain(master, out)
-        time.sleep(0.05)
-    hung = proc.poll() is None
-    if hung:
-        proc.kill()
-        proc.wait()
-    drain(master, out)
+    hung, quit_wall = wait_quit(master, proc, out, 2.0)
+    os.close(master)
     text = out.decode("utf-8", "replace")
     plain = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", " ", text)
     compact = re.sub(r"[^a-zA-Z]+", "", plain).lower()
     connecting = "connecting" in compact or "conncting" in compact
     restored = "[?1049l" in text
     birc_ok = "birc=ok" in text
-    print(f"connecting={connecting} ui_reacts_to_keys={reacts}")
-    print(f"restored={restored} birc_ok={birc_ok} "
-          f"exit={proc.returncode} hung_on_quit={hung} wall={time.time() - t0:.1f}s")
-    print("plain-tail:", " ".join(plain.split())[-400:])
-    # Base TCP.connect has no timeout; a black-hole dial can keep the process
-    # alive after the UI has quit. The freeze bug is UI-dead during dial.
-    ok = connecting and reacts and restored and birc_ok
+    print(
+        f"A blackhole: connecting={connecting} ui_reacts_to_keys={reacts} "
+        f"restored={restored} birc_ok={birc_ok} exit={proc.returncode} "
+        f"hung_on_quit={hung} quit_wall={quit_wall:.1f}s wall={time.time() - t0:.1f}s"
+    )
+    ok = (
+        connecting
+        and reacts
+        and restored
+        and birc_ok
+        and (not hung)
+        and (proc.returncode == 0)
+        and (quit_wall < 2.0)
+    )
+    if not ok:
+        print("connect_pty A: UI freeze or process linger after /quit", file=sys.stderr)
+    return ok
+
+
+def case_demo_quit(birc) -> bool:
+    t0 = time.time()
+    master, proc = spawn(birc, ["--demo", "--frames", "20000"])
+    out = bytearray()
+    end = time.time() + 0.8
+    while time.time() < end:
+        drain(master, out)
+        time.sleep(0.05)
+    hung, quit_wall = wait_quit(master, proc, out, 2.0)
+    os.close(master)
+    text = out.decode("utf-8", "replace")
+    restored = "[?1049l" in text
+    birc_ok = "birc=ok" in text
+    wall = time.time() - t0
+    print(
+        f"B demo-quit: restored={restored} birc_ok={birc_ok} exit={proc.returncode} "
+        f"hung_on_quit={hung} quit_wall={quit_wall:.1f}s wall={wall:.1f}s"
+    )
+    ok = (
+        (not hung)
+        and (proc.returncode == 0)
+        and restored
+        and birc_ok
+        and (quit_wall < 2.0)
+        and (wall < 2.0)
+    )
+    if not ok:
+        print("connect_pty B: --demo /quit lingered", file=sys.stderr)
+    return ok
+
+
+def main() -> int:
+    birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
+    a = case_blackhole(birc)
+    b = case_demo_quit(birc)
+    ok = a and b
     print("RESULT:", "PASS" if ok else "FAIL")
     if not ok:
-        print("connect_pty: UI froze during /connect", file=sys.stderr)
         return 1
     print("connect_pty=ok")
     return 0

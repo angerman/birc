@@ -106,12 +106,14 @@ def wait_dead_g(fuel: Nat, ui: T.Ui, +evt: Chan(Sess.NetEvt), g: Maybe<&1, Sess.
             wait_dead_g(p, ui, evt, g2)
 
 # P5: close cmd (actor Socket.close + Chan.close(evt)), drain evt to None, then Timui.close.
+# Halt so a parked TCP.connect / sleep cannot keep io_loop alive (H4, H6).
 def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Chan.close(Sess.NetCmd, cmd)
     g0 : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
     Unit <- wait_dead_g(256n, ui, evt, g0)
-    IO.print("birc=ok")
+    Unit <- IO.print("birc=ok")
+    IO.die(Unit, 0, "")
 
 def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
