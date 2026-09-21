@@ -79,17 +79,6 @@ def send_lines(fuel: Nat, sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bo
 def register(sock: Socket, +nick: String) -> IO(Socket & Bool):
   send_lines(8n, sock, Sess.register_lines(nick))
 
-def poll_pass_r(
-  s: Socket,
-  r: Result<&1, &1, (U32 & String), Maybe<&1, String>>
-) -> IO(Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>):
-  IO.pure(Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>, (s, r))
-
-def poll_pass(m: Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>) -> IO(Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>):
-  match m:
-    case (s, r):
-      poll_pass_r(s, r)
-
 def reader_die(sock: Socket, +evt: Chan(Sess.NetEvt)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(sock)
@@ -155,13 +144,6 @@ def after_ui_send(
     case True{}:
       k((ui, st2, evt, cmd, quit))
 
-def or_halt(quit: Bool, halt: Bool) -> Bool:
-  match quit:
-    case True{}:
-      True{}
-    case False{}:
-      halt
-
 def send_pair(
   ui: T.Ui,
   quit: Bool,
@@ -177,7 +159,7 @@ def send_pair(
         case (+ncmd, halt):
           do IO<Unit>:
             ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.hold_cmd(Sess.session_net(st2), Sess.merge_cmd(pending, ncmd)))
-            after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
+            after_ui_send(ok, ui, st2, Bool.or(quit, halt), evt, cmd, k)
 
 def step_size(
   triple: Sess.Session & Sess.NetCmd & Bool,
