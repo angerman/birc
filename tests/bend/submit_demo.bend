@@ -173,6 +173,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must("halt", Sub.submit_halt_ok())
     Unit <- E.must("conn", Sub.connect_parse_ok())
+    Unit <- E.must("conn_port", Sub.connect_port_range_ok())
     Unit <- E.must("dial", Sess.cmd_connect_ok())
     Unit <- E.must_eq(
       "connect_out",

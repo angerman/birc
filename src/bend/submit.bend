@@ -3,6 +3,7 @@ import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./client.bend as Feed
+import ./args.bend as Args
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -276,12 +277,19 @@ type Conn is Data:
   ConnBad{}
   ConnOk{host: String, port: U32}
 
+def connect_port.range(+host: String, +p: U32, bad: Bool) -> Conn:
+  match bad:
+    case True{}:
+      ConnBad{}
+    case False{}:
+      ConnOk{host, p}
+
 def connect_port.num(+host: String, got: Maybe<&2, U32>) -> Conn:
   match got:
     case None{}:
       ConnBad{}
-    case Some{p}:
-      ConnOk{host, p}
+    case Some{+p}:
+      connect_port.range(host, p, U32.is_eq(p, 0) || U32.is_gt(p, Args.PORT_MAX()))
 
 def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
   match empty:
@@ -532,5 +540,20 @@ def connect_default_ok.on(c: Conn) -> Bool:
     case ConnBad{}:
       False{}
 
+def connect_bad.on(c: Conn) -> Bool:
+  match c:
+    case ConnBad{}:
+      True{}
+    case ConnOk{_, _}:
+      False{}
+
+def connect_port_range_ok() -> Bool:
+  connect_bad.on(connect_parse("h 0"))
+    && connect_bad.on(connect_parse("h 99999"))
+    && connect_bad.on(connect_parse("h 4294967295"))
+    && connect_parse_ok.on(connect_parse("irc.example.net 6668"))
+
 def connect_parse_ok() -> Bool:
-  connect_parse_ok.on(connect_parse("irc.example.net 6668")) && connect_default_ok.on(connect_parse("irc.example.net"))
+  connect_parse_ok.on(connect_parse("irc.example.net 6668"))
+    && connect_default_ok.on(connect_parse("irc.example.net"))
+    && connect_port_range_ok()
