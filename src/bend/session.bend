@@ -317,19 +317,8 @@ def hist0() -> Hist:
 def HIST_CAP() -> Nat:
   64n
 
-def take_last_str.go(+xs: List<&2, String>, n: Nat, acc: List<&2, String>) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{+h, t}:
-      match n:
-        case 0n:
-          acc
-        case 1n+p:
-          take_last_str.go(t, p, h <> acc)
-
 def take_last_str(+xs: List<&2, String>, n: Nat) -> List<&2, String>:
-  take_last_str.go(List.reverse(&2, String, xs), n, Nil{})
+  List.drop(&2, String, xs, Nat.sub(List.length(&2, String, xs), n))
 
 def hist_len(h: Hist) -> Nat:
   match h:
@@ -349,15 +338,8 @@ def hist_push.on(+line: String, empty: Bool, h: Hist) -> Hist:
 def hist_push(+h: Hist, +line: String) -> Hist:
   hist_push.on(line, String.is_empty(line), h)
 
-def str_get.on(got: Maybe<&2, String>) -> String:
-  match got:
-    case None{}:
-      ""
-    case Some{+s}:
-      s
-
 def str_get(+xs: List<&2, String>, +i: Nat) -> String:
-  str_get.on(List.get(&2, String, xs, i))
+  Maybe.default(&2, String, List.get(&2, String, xs, i), "")
 
 def hist_prev.on(+lines: List<&2, String>, +pos: Nat, z: Bool) -> Hist & String:
   match z:

@@ -145,40 +145,6 @@ def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, Tex
     case SCon{_, _}:
       Plain{String.reverse(acc)} <> spans
 
-type PrefPh is Data:
-  PrefRead{}
-  PrefEq{}
-
-def has_prefix.go(fuel: Nat, phase: PrefPh, +p: String, +s: String, eq: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      match p:
-        case SNil{}:
-          True{}
-        case SCon{_, _}:
-          False{}
-    case 1n+n:
-      match phase:
-        case PrefRead{}:
-          match p:
-            case SNil{}:
-              True{}
-            case SCon{+ph, pt}:
-              match s:
-                case SNil{}:
-                  False{}
-                case SCon{+sh, st}:
-                  has_prefix.go(n, PrefEq{}, pt, st, Char.is_eq(ph, sh))
-        case PrefEq{}:
-          match eq:
-            case True{}:
-              has_prefix.go(n, PrefRead{}, p, s, False{})
-            case False{}:
-              False{}
-
-def has_prefix(+s: String, +p: String) -> Bool:
-  has_prefix.go(Nat.add(2n, Nat.mul(2n, String.length(p))), PrefRead{}, p, s, False{})
-
 def url_stop.on(+c: U32) -> Bool:
   U32.is_eq(c, 32) || U32.is_eq(c, 9) || U32.is_lt(c, 32)
 
@@ -308,14 +274,14 @@ def tokenize.out_https(+s: String, +t: String, +acc: String, +h: Char, spans: Li
     case True{}:
       tokenize.url_if(url_bound(acc), s, t, acc, h, spans)
     case False{}:
-      tokenize.out_http(s, t, acc, h, spans, has_prefix(s, HTTP()))
+      tokenize.out_http(s, t, acc, h, spans, String.starts_with(s, HTTP()))
 
 def tokenize.next_out(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
       Done{tokenize.emit_plain(acc, spans)}
     case SCon{+h, t}:
-      tokenize.out_https(s, t, acc, h, spans, has_prefix(s, HTTPS()))
+      tokenize.out_https(s, t, acc, h, spans, String.starts_with(s, HTTPS()))
 
 def tokenize.close_bold(+t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, star: Bool) -> TokJump:
   match star:

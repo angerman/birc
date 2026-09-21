@@ -34,9 +34,7 @@ type Message is Data:
 # ---- character helpers --------------------------------------------------
 
 def code_of(+c: Char) -> U32:
-  match c:
-    case Chr{code}:
-      code
+  Char.to_u32(c)
 
 def code_is(+c: Char, +k: U32) -> Bool:
   U32.is_eq(code_of(c), k)
@@ -50,8 +48,7 @@ def is_colon(+c: Char) -> Bool:
 def is_bang_or_at(+c: Char) -> Bool:
   code_is(c, 33) || code_is(c, 64)
 
-def is_digit(+c: Char) -> Bool:
-  Char.is_digit(c)
+
 
 # ---- string helpers -----------------------------------------------------
 
@@ -209,7 +206,7 @@ def chan_target(+s: String) -> String:
 def is_numeric3(+s: String) -> Bool:
   match s:
     case SCon{+a, SCon{+b, SCon{+c, SNil{}}}}:
-      is_digit(a) && is_digit(b) && is_digit(c)
+      Char.is_digit(a) && Char.is_digit(b) && Char.is_digit(c)
     case _:
       False{}
 
@@ -407,7 +404,7 @@ def skip_one_digit(+s: String) -> String:
     case SNil{}:
       SNil{}
     case SCon{+h, t}:
-      skip_one_digit_on(h, t, is_digit(h))
+      skip_one_digit_on(h, t, Char.is_digit(h))
 
 def skip_mirc_com(+h: Char, t: String, comma: Bool) -> String:
   match comma:

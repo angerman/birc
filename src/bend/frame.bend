@@ -289,9 +289,7 @@ def latin1_overlong_ok() -> Bool:
   String.eq(line_from_octets(192 <> 128 <> Nil{}), SCon{Chr{192}, SCon{Chr{128}, SNil{}}})
 
 def char_code(+c: Char) -> U32:
-  match c:
-    case Chr{code}:
-      code
+  Char.to_u32(c)
 
 def string_to_octets.go(fuel: Nat, +s: String, acc: List<&2, U32>) -> List<&2, U32>:
   match fuel:
