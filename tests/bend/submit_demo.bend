@@ -140,8 +140,8 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
   do IO<Unit>:
     Unit <- E.must("out_nil", Sub.out_all_ok(Nil{}))
     Unit <- E.must(
-      "out_fuel0",
-      Bool.not(Sub.out_all_ok.go(0n, "PRIVMSG #birc :x" <> Nil{}, True{}))
+      "out_over",
+      Bool.not(Sub.out_all_ok(Irc.stars.go(511n) <> Nil{}))
     )
     Unit <- E.must_eq("empty", line_of(Sub.submit(cl0, "")), " ok=True nbuf=1")
     Unit <- E.must_eq("join", join_line, "JOIN #birc| ok=True nbuf=2")

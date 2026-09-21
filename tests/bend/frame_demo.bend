@@ -108,12 +108,12 @@ def main() -> IO(Unit):
       "lines= rem= drop=False"
     )
     Unit <- E.must(
-      "octets_eq_fuel0",
-      Bool.not(Fr.octets_eq.go(0n, Fr.EqBoth{}, Nil{}, Nil{}, 0, 0, True{}))
+      "octets_eq_diff",
+      Bool.not(Fr.octets_eq(1 <> Nil{}, 2 <> Nil{}))
     )
     Unit <- E.must(
-      "strings_eq_fuel0",
-      Bool.not(Fr.strings_eq.go(0n, Fr.EqBoth{}, Nil{}, Nil{}, "", "", True{}))
+      "strings_eq_diff",
+      Bool.not(Fr.strings_eq("a" <> Nil{}, "b" <> Nil{}))
     )
     Unit <- E.must("str_eq_empty", Fr.str_eq("", ""))
     Unit <- E.must("str_eq_same", Fr.str_eq("a", "a"))

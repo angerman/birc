@@ -55,31 +55,15 @@ def octet_both(+s: String, v_ok: Bool) -> Bool:
 def octet_ok(+s: String) -> Bool:
   octet_both(s, octet_val(U32.read(s)))
 
-type IpS is Data:
-  IpL{}
-  IpC{}
-
-def ipv4_go(fuel: Nat, ph: IpS, xs: List<&2, String>, +n: U32, ok: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      False{}
-    case 1n+p:
-      match ph:
-        case IpL{}:
-          match xs:
-            case Nil{}:
-              U32.is_eq(n, 4)
-            case Con{+h, t}:
-              ipv4_go(p, IpC{}, t, n, octet_ok(h))
-        case IpC{}:
-          match ok:
-            case False{}:
-              False{}
-            case True{}:
-              ipv4_go(p, IpL{}, xs, U32.add(n, 1), True{})
+def ipv4_go(xs: List<&2, String>, +n: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      U32.is_eq(n, 4)
+    case Con{+h, t}:
+      Bool.pick(Bool, octet_ok(h), ipv4_go(t, U32.add(n, 1)), False{})
 
 def is_ipv4_xs(+xs: List<&2, String>) -> Bool:
-  ipv4_go(Nat.add(1n, Nat.mul(2n, List.length(&2, String, xs))), IpL{}, xs, 0, True{})
+  ipv4_go(xs, 0)
 
 def is_ipv4(+host: String) -> Bool:
   is_ipv4_xs(String.split(host, Chr{46}))
@@ -113,6 +97,7 @@ type NsW is Data:
   NsTail{}
   NsIp{}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed ns_words_go
 def ns_words_go(
   fuel: Nat,
   ph: NsW,
@@ -161,36 +146,24 @@ def ns_words(+xs: List<&2, String>) -> Maybe<&2, String>:
   ns_words_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), NsRead{}, xs, "", False{}, False{})
 
 # Drop CR; map TAB to space so split on SP sees indent and nameserver\tip.
-type Nrm is Data:
-  NrmRead{}
-  NrmCh{}
+def ns_norm.ch(+h: Char, r: String, cr: Bool, tab: Bool) -> String:
+  match cr:
+    case True{}:
+      r
+    case False{}:
+      match tab:
+        case True{}:
+          SCon{Chr{32}, r}
+        case False{}:
+          SCon{h, r}
 
-def ns_norm_go(fuel: Nat, ph: Nrm, s: String, +h: Char, cr: Bool, tab: Bool) -> String:
-  match fuel:
-    case 0n:
+def ns_norm(s: String) -> String:
+  match s:
+    case SNil{}:
       SNil{}
-    case 1n+p:
-      match ph:
-        case NrmRead{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+c, t}:
-              +n = Char.to_u32(c)
-              ns_norm_go(p, NrmCh{}, t, c, U32.is_eq(n, 13), U32.is_eq(n, 9))
-        case NrmCh{}:
-          match cr:
-            case True{}:
-              ns_norm_go(p, NrmRead{}, s, h, False{}, False{})
-            case False{}:
-              match tab:
-                case True{}:
-                  SCon{Chr{32}, ns_norm_go(p, NrmRead{}, s, h, False{}, False{})}
-                case False{}:
-                  SCon{h, ns_norm_go(p, NrmRead{}, s, h, False{}, False{})}
-
-def ns_norm(+s: String) -> String:
-  ns_norm_go(Nat.add(1n, Nat.mul(2n, String.length(s))), NrmRead{}, s, Chr{0}, False{}, False{})
+    case SCon{+h, t}:
+      +n = Char.to_u32(h)
+      ns_norm.ch(h, ns_norm(t), U32.is_eq(n, 13), U32.is_eq(n, 9))
 
 def nameserver_line(+line: String) -> Maybe<&2, String>:
   ns_words(String.split(line, Chr{32}))
@@ -215,16 +188,12 @@ def nameserver_of(+text: String) -> String:
 
 # ---- query encoder ------------------------------------------------------
 
-def ascii_go(fuel: Nat, s: String, ok: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      False{}
-    case 1n+p:
-      match s:
-        case SNil{}:
-          ok
-        case SCon{+h, t}:
-          ascii_go(p, t, ok && U32.is_lt(Char.to_u32(h), 128))
+def ascii_go(s: String, ok: Bool) -> Bool:
+  match s:
+    case SNil{}:
+      ok
+    case SCon{+h, t}:
+      ascii_go(t, ok && U32.is_lt(Char.to_u32(h), 128))
 
 def len_ok(+n: Nat) -> Bool:
   Nat.is_ge(n, 1n) && Nat.is_le(n, 63n)
@@ -234,7 +203,7 @@ def label_ok_len(+lab: String, ok: Bool) -> Bool:
     case False{}:
       False{}
     case True{}:
-      ascii_go(Nat.add(1n, String.length(lab)), lab, True{})
+      ascii_go(lab, True{})
 
 def label_ok(+lab: String) -> Bool:
   label_ok_len(lab, len_ok(String.length(lab)))
@@ -274,6 +243,7 @@ type Enc is Data:
   EOk{}
   ELen{}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed encode_go
 def encode_go(
   fuel: Nat,
   ph: Enc,
@@ -517,6 +487,7 @@ type RdN is Data:
   RdLabZ{}
   RdLabB{}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed read_name_go
 def read_name_go(
   fuel: Nat,
   ph: RdN,
@@ -638,6 +609,7 @@ type Aw is Data:
   AwCn{}
   AwSkip{}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed walk_an_go
 def walk_an_go(
   fuel: Nat,
   ph: Aw,

@@ -11,19 +11,12 @@ def LF() -> U32:
 def LINE_OCTET_MAX() -> Nat:
   Irc.LINE_MAX()
 
-def octets_to_string.go(fuel: Nat, +xs: List<&2, U32>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      String.reverse(acc)
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          String.reverse(acc)
-        case Con{+h, t}:
-          octets_to_string.go(p, t, SCon{Chr{h}, acc})
-
 def octets_to_string(+xs: List<&2, U32>) -> String:
-  octets_to_string.go(Nat.add(1n, List.length(&2, U32, xs)), xs, "")
+  match xs:
+    case Nil{}:
+      SNil{}
+    case Con{+h, t}:
+      SCon{Chr{h}, octets_to_string(t)}
 
 def is_cont(+b: U32) -> Bool:
   U32.is_ge(b, 128) && U32.is_le(b, 191)
@@ -237,10 +230,7 @@ def utf8_got(
         case Utf8Got{+cp, rest}:
           k(Utf8Acc{rest, SCon{Chr{cp}, acc}})
 
-# Walk the octet list. Fuel is 1+len: each step consumes ≥1 byte.
-# A self-call on Utf8Acc.rest is not a decreasing constructor argument
-# (the checker cannot see through the record), so fuel is required.
-# No phase enum: utf8_step.lead returns Maybe Utf8Got.
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed utf8_decode.go
 def utf8_decode.go(fuel: Nat, st: Utf8Acc) -> Maybe<&2, String>:
   match fuel:
     case 0n:
@@ -270,19 +260,12 @@ def line_from_octets(+xs: List<&2, U32>) -> String:
 def char_code(+c: Char) -> U32:
   Char.to_u32(c)
 
-def string_to_octets.go(fuel: Nat, +s: String, acc: List<&2, U32>) -> List<&2, U32>:
-  match fuel:
-    case 0n:
-      List.reverse(&2, U32, acc)
-    case 1n+p:
-      match s:
-        case SNil{}:
-          List.reverse(&2, U32, acc)
-        case SCon{+h, t}:
-          string_to_octets.go(p, t, char_code(h) <> acc)
-
 def string_to_octets(+s: String) -> List<&2, U32>:
-  string_to_octets.go(Nat.add(1n, String.length(s)), s, Nil{})
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{+h, t}:
+      char_code(h) <> string_to_octets(t)
 
 def crlf(+s: String) -> List<&2, U32>:
   List.append(&2, U32, string_to_octets(s), CR() <> LF() <> Nil{})
@@ -304,6 +287,7 @@ def payload_n(+rem: List<&2, U32>) -> Nat:
 def push.go.halt(+lines: List<&2, String>, +rem: List<&2, U32>, drop: Bool) -> List<&2, String> & List<&2, U32> & Bool:
   (List.reverse(&2, String, lines), List.reverse(&2, U32, rem), drop)
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed push.go
 def push.go(
   fuel: Nat,
   phase: PushPhase,
@@ -429,72 +413,38 @@ def join_lines(+xs: List<&2, String>) -> List<&2, U32>:
 def append_octets(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
   List.append(&2, U32, a, b)
 
-type EqPhase is Data:
-  EqBoth{}
-  EqHead{}
-
-def octets_eq.go(fuel: Nat, phase: EqPhase, +a: List<&2, U32>, +b: List<&2, U32>, +ha: U32, +hb: U32, eq: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      False{}  # fuel exhaustion fails closed
-    case 1n+p:
-      match phase:
-        case EqBoth{}:
-          match a:
-            case Nil{}:
-              match b:
-                case Nil{}:
-                  True{}
-                case Con{_, _}:
-                  False{}
-            case Con{+xa, ta}:
-              match b:
-                case Nil{}:
-                  False{}
-                case Con{+xb, tb}:
-                  octets_eq.go(p, EqHead{}, ta, tb, xa, xb, U32.is_eq(xa, xb))
-        case EqHead{}:
-          match eq:
-            case False{}:
-              False{}
-            case True{}:
-              octets_eq.go(p, EqBoth{}, a, b, 0, 0, True{})
-
 def octets_eq(+a: List<&2, U32>, +b: List<&2, U32>) -> Bool:
-  octets_eq.go(Nat.add(1n, Nat.mul(2n, Nat.add(List.length(&2, U32, a), List.length(&2, U32, b)))), EqBoth{}, a, b, 0, 0, True{})
+  match a:
+    case Nil{}:
+      match b:
+        case Nil{}:
+          True{}
+        case Con{_, _}:
+          False{}
+    case Con{+xa, ta}:
+      match b:
+        case Nil{}:
+          False{}
+        case Con{+xb, tb}:
+          Bool.pick(Bool, U32.is_eq(xa, xb), octets_eq(ta, tb), False{})
 
 def str_eq(+a: String, +b: String) -> Bool:
   String.eq(a, b)
 
-def strings_eq.go(fuel: Nat, phase: EqPhase, +a: List<&2, String>, +b: List<&2, String>, +ha: String, +hb: String, eq: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      False{}  # fuel exhaustion fails closed
-    case 1n+p:
-      match phase:
-        case EqBoth{}:
-          match a:
-            case Nil{}:
-              match b:
-                case Nil{}:
-                  True{}
-                case Con{_, _}:
-                  False{}
-            case Con{+xa, ta}:
-              match b:
-                case Nil{}:
-                  False{}
-                case Con{+xb, tb}:
-                  strings_eq.go(p, EqHead{}, ta, tb, xa, xb, str_eq(xa, xb))
-        case EqHead{}:
-          match eq:
-            case False{}:
-              False{}
-            case True{}:
-              strings_eq.go(p, EqBoth{}, a, b, "", "", True{})
-
 def strings_eq(+a: List<&2, String>, +b: List<&2, String>) -> Bool:
-  strings_eq.go(Nat.add(1n, Nat.mul(2n, Nat.add(List.length(&2, String, a), List.length(&2, String, b)))), EqBoth{}, a, b, "", "", True{})
+  match a:
+    case Nil{}:
+      match b:
+        case Nil{}:
+          True{}
+        case Con{_, _}:
+          False{}
+    case Con{+xa, ta}:
+      match b:
+        case Nil{}:
+          False{}
+        case Con{+xb, tb}:
+          Bool.pick(Bool, str_eq(xa, xb), strings_eq(ta, tb), False{})
 
 def roundtrip_ok.cmp(+gl: List<&2, String>, +lines: List<&2, String>, +gr: List<&2, U32>, +rem: List<&2, U32>) -> Bool:
   strings_eq(gl, lines) && octets_eq(gr, rem)
@@ -508,8 +458,8 @@ def roundtrip_ok(+lines: List<&2, String>, +rem: List<&2, U32>) -> Bool:
   roundtrip_ok.pair(push(Nil{}, append_octets(join_lines(lines), rem)), lines, rem)
 
 # M7.2 — overlong line (≥ LINE_OCTET_MAX octets before LF) is dropped.
-def repeat_octet.go(fuel: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
-  match fuel:
+def repeat_octet.go(n: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
+  match n:
     case 0n:
       acc
     case 1n+p:

@@ -35,43 +35,36 @@ def send_line(sock: Socket, +line: String) -> IO(Socket & Bool):
     m : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n")
     IO.pure(Socket & Bool, send_go(m))
 
-def send_lines_go(
-  fuel: Nat,
-  pair: Socket & Bool,
-  xs: List<&2, String>
-) -> IO(Socket & Bool):
-  match fuel:
-    case 0n:
+def send_lines_go(xs: List<&2, String>, pair: Socket & Bool) -> IO(Socket & Bool):
+  match xs:
+    case Nil{}:
       match pair:
-        case (sock, _):
-          IO.pure(Socket & Bool, (sock, False{}))
-    case 1n+p:
+        case (sock, ok):
+          IO.pure(Socket & Bool, (sock, ok))
+    case Con{+h, t}:
       match pair:
         case (sock, ok):
           match ok:
             case False{}:
               IO.pure(Socket & Bool, (sock, False{}))
             case True{}:
-              match xs:
-                case Nil{}:
-                  IO.pure(Socket & Bool, (sock, True{}))
-                case Con{+h, t}:
-                  do IO<Socket & Bool>:
-                    nxt : Socket & Bool <- send_line(sock, h)
-                    send_lines_go(p, nxt, t)
+              do IO<Socket & Bool>:
+                nxt : Socket & Bool <- send_line(sock, h)
+                send_lines_go(t, nxt)
 
-def send_lines(fuel: Nat, sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
-  send_lines_go(fuel, (sock, True{}), xs)
+def send_lines(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
+  send_lines_go(xs, (sock, True{}))
 
 # JOIN is sent after 001 (live_go), not here.
 def register(sock: Socket, +nick: String) -> IO(Socket & Bool):
-  send_lines(8n, sock, Sess.register_lines(nick))
+  send_lines(sock, Sess.register_lines(nick))
 
 def reader_die(sock: Socket, +evt: Chan(Sess.NetEvt)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(sock)
     Chan.close(Sess.NetEvt, evt)
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed wait_dead_g
 def wait_dead_g(fuel: Nat, ui: T.Ui, +evt: Chan(Sess.NetEvt), g: Maybe<&1, Sess.NetEvt>) -> IO(Unit):
   match fuel:
     case 0n:
@@ -419,7 +412,7 @@ def on_cont(
   match parts:
     case (+now, later):
       do IO<Unit>:
-        sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, now))), sock, now)
+        sent : Socket & Bool <- send_lines(sock, now)
         after_send_ok(sent, evt, cmd, s => k(s, later))
 
 def on_cmd(
@@ -446,7 +439,7 @@ def on_cmd(
         case Sess.Cont{+outs}:
           on_cont(split_at(List.append(&2, String, pending, outs), SEND_CAP()), sock, evt, cmd, k)
 
-# One fuel tick = one cmd/poll cycle.
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed reader_go
 def reader_go(
   fuel: Nat,
   sock: Socket,
@@ -799,6 +792,7 @@ def idle_after_tick(
         next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
         idle_on_cmd(next, nick, frames, evt, cmd, k)
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed idle_go
 def idle_go(
   fuel: Nat,
   +nick: String,
@@ -928,7 +922,7 @@ def live_step(
         got : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
         on_evt(got, ui, st, evt, cmd, frames, k)
 
-# One fuel tick = one net event (Tick/Chunk) plus paint/keys/send.
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed live_go
 def live_go(
   fuel: Nat,
   acc: T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool,

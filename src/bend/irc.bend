@@ -59,31 +59,24 @@ def drop_spaces(s: String) -> String:
     case SCon{+h, +t}:
       Bool.pick(String, is_space(h), drop_spaces(t), SCon{h, t})
 
-type TakePhase is Data:
-  TkRead{}
-  TkDecide{}
+def take_until_space.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
 
-def take_until_space.go(fuel: Nat, phase: TakePhase, s: String, acc: String, +h: Char, space: Bool) -> String & String:
-  match fuel:
-    case 0n:
-      (String.reverse(acc), s)
-    case 1n+p:
-      match phase:
-        case TkRead{}:
-          match s:
-            case SNil{}:
-              (String.reverse(acc), SNil{})
-            case SCon{+hd, t}:
-              take_until_space.go(p, TkDecide{}, t, acc, hd, is_space(hd))
-        case TkDecide{}:
-          match space:
-            case True{}:
-              (String.reverse(acc), SCon{h, s})
-            case False{}:
-              take_until_space.go(p, TkRead{}, s, SCon{h, acc}, h, False{})
+def take_until_space.fin(+h: Char, +t: String, r: String & String, space: Bool) -> String & String:
+  match space:
+    case True{}:
+      ("", SCon{h, t})
+    case False{}:
+      take_until_space.cons(h, r)
 
-def take_until_space(+s: String) -> String & String:
-  take_until_space.go(Nat.add(1n, Nat.mul(2n, String.length(s))), TkRead{}, s, SNil{}, Chr{0}, False{})
+def take_until_space(s: String) -> String & String:
+  match s:
+    case SNil{}:
+      ("", "")
+    case SCon{+h, +t}:
+      take_until_space.fin(h, t, take_until_space(t), is_space(h))
 
 # RFC 1459 casemap: ASCII upper, then []\~ ↔ {}|^.
 def rfc1459_code.tilde(+n: U32, hit: Bool) -> U32:
@@ -200,31 +193,19 @@ def parse_numeric3(+s: String) -> U32:
     case _:
       0
 
-type NickPhase is Data:
-  NkRead{}
-  NkDecide{}
+def nick_of_prefix.keep(+h: Char, r: String, cut: Bool) -> String:
+  match cut:
+    case True{}:
+      ""
+    case False{}:
+      SCon{h, r}
 
-def nick_of_prefix.go(fuel: Nat, phase: NickPhase, s: String, acc: String, +h: Char, cut: Bool) -> String:
-  match fuel:
-    case 0n:
-      String.reverse(acc)
-    case 1n+p:
-      match phase:
-        case NkRead{}:
-          match s:
-            case SNil{}:
-              String.reverse(acc)
-            case SCon{+hd, t}:
-              nick_of_prefix.go(p, NkDecide{}, t, acc, hd, is_bang_or_at(hd))
-        case NkDecide{}:
-          match cut:
-            case True{}:
-              String.reverse(acc)
-            case False{}:
-              nick_of_prefix.go(p, NkRead{}, s, SCon{h, acc}, h, False{})
-
-def nick_of_prefix(+pfx: String) -> String:
-  nick_of_prefix.go(Nat.add(1n, Nat.mul(2n, String.length(pfx))), NkRead{}, pfx, SNil{}, Chr{0}, False{})
+def nick_of_prefix(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{+h, t}:
+      nick_of_prefix.keep(h, nick_of_prefix(t), is_bang_or_at(h))
 
 # ---- parse --------------------------------------------------------------
 
@@ -240,6 +221,7 @@ type ParPhase is Data:
   ParColon{}
   ParMid{}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed parse_params.go
 def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>, +h: Char, t: String, +rest: String, colon: Bool, pair: String & String) -> List<&2, String>:
   match fuel:
     case 0n:
@@ -341,34 +323,22 @@ def strip_cr(+s: String) -> String:
   strip_cr.go(String.reverse(s), s)
 
 # Drop CR/LF so outbound cannot inject extra IRC lines.
-type CtlPhase is Data:
-  CtlRead{}
-  CtlDecide{}
-
 def is_crlf(+c: Char) -> Bool:
   code_is(c, 13) || code_is(c, 10)
 
-def strip_ctl.go(fuel: Nat, phase: CtlPhase, s: String, acc: String, +h: Char, drop: Bool) -> String:
-  match fuel:
-    case 0n:
-      String.reverse(acc)
-    case 1n+p:
-      match phase:
-        case CtlRead{}:
-          match s:
-            case SNil{}:
-              String.reverse(acc)
-            case SCon{+hd, t}:
-              strip_ctl.go(p, CtlDecide{}, t, acc, hd, is_crlf(hd))
-        case CtlDecide{}:
-          match drop:
-            case True{}:
-              strip_ctl.go(p, CtlRead{}, s, acc, h, False{})
-            case False{}:
-              strip_ctl.go(p, CtlRead{}, s, SCon{h, acc}, h, False{})
+def strip_ctl.keep(+h: Char, r: String, drop: Bool) -> String:
+  match drop:
+    case True{}:
+      r
+    case False{}:
+      SCon{h, r}
 
-def strip_ctl(+s: String) -> String:
-  strip_ctl.go(Nat.add(1n, Nat.mul(2n, String.length(s))), CtlRead{}, s, SNil{}, Chr{0}, False{})
+def strip_ctl(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      strip_ctl.keep(h, strip_ctl(t), is_crlf(h))
 
 # Inbound: drop C0 except SOH (CTCP), drop DEL, strip mIRC colour (0x03+digits).
 def is_c0_drop(+c: Char) -> Bool:
@@ -439,6 +409,7 @@ type SanPh is Data:
   SanStr{}
   SanHit{h: Char, color: Bool, drop: Bool}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
 def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
   match fuel:
     case 0n:
@@ -605,6 +576,7 @@ type ClPh is Data:
   ClStr{}
   ClFit{h: Char, w: Nat, too: Bool}
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed clamp_line.go
 def clamp_line.go(fuel: Nat, ph: ClPh, +n: Nat, s: String, acc: String) -> String:
   match fuel:
     case 0n:

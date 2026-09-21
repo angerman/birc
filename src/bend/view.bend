@@ -139,28 +139,24 @@ def url_stop(h: Char) -> Bool:
     case Chr{c}:
       url_stop.on(c)
 
-type UrlPh is Data:
-  UrlRead{}
-  UrlStop{}
+def take_url.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
 
-def take_url.go(fuel: Nat, phase: UrlPh, +s: String, +acc: String, +h: Char, stop: Bool) -> String & String:
-  match fuel:
-    case 0n:
-      (String.reverse(acc), s)
-    case 1n+p:
-      match phase:
-        case UrlRead{}:
-          match s:
-            case SNil{}:
-              (String.reverse(acc), SNil{})
-            case SCon{+hd, t}:
-              take_url.go(p, UrlStop{}, t, acc, hd, url_stop(hd))
-        case UrlStop{}:
-          match stop:
-            case True{}:
-              (String.reverse(acc), SCon{h, s})
-            case False{}:
-              take_url.go(p, UrlRead{}, s, SCon{h, acc}, h, False{})
+def take_url.fin(+h: Char, +t: String, r: String & String, stop: Bool) -> String & String:
+  match stop:
+    case True{}:
+      ("", SCon{h, t})
+    case False{}:
+      take_url.cons(h, r)
+
+def take_url.go(s: String) -> String & String:
+  match s:
+    case SNil{}:
+      ("", "")
+    case SCon{+h, +t}:
+      take_url.fin(h, t, take_url.go(t), url_stop(h))
 
 def url_trail(+c: U32) -> Bool:
   U32.is_eq(c, 41) || U32.is_eq(c, 46) || U32.is_eq(c, 44) || U32.is_eq(c, 34)
@@ -191,9 +187,7 @@ def take_url.trim(pair: String & String) -> String & String:
       (trim_url(url), rest)
 
 def take_url(+s: String) -> String & String:
-  take_url.trim(
-    take_url.go(Nat.add(2n, Nat.mul(2n, String.length(s))), UrlRead{}, s, "", Chr{0}, False{})
-  )
+  take_url.trim(take_url.go(s))
 
 def tokenize.emit_url(+acc: String, spans: List<&2, TextSpan>, pair: String & String) -> TokJump:
   match pair:
@@ -341,6 +335,7 @@ def tokenize.force_done(j: TokJump) -> List<&2, TextSpan>:
     case Jump{+mode, _, +acc, spans}:
       tokenize.force_mode(mode, acc, spans)
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed tokenize.go
 def tokenize.go(fuel: Nat, j: TokJump) -> List<&2, TextSpan>:
   match fuel:
     case 0n:
@@ -414,32 +409,15 @@ def span_hit(k: SpanKind, h: TextSpan) -> Bool:
         case _:
           False{}
 
-type HKPh is Data:
-  HKList{}
-  HKHit{hit: Bool, rest: List<&2, TextSpan>}
-
-def has_kind.go(fuel: Nat, ph: HKPh, +k: SpanKind, xs: List<&2, TextSpan>) -> Bool:
-  match fuel:
-    case 0n:
+def has_kind.go(+k: SpanKind, xs: List<&2, TextSpan>) -> Bool:
+  match xs:
+    case Nil{}:
       False{}
-    case 1n+p:
-      match ph:
-        case HKList{}:
-          match xs:
-            case Nil{}:
-              False{}
-            case Con{h, t}:
-              has_kind.go(p, HKHit{span_hit(k, h), t}, k, Nil{})
-        case HKHit{hit, rest}:
-          match hit:
-            case True{}:
-              True{}
-            case False{}:
-              has_kind.go(p, HKList{}, k, rest)
+    case Con{h, t}:
+      Bool.pick(Bool, span_hit(k, h), True{}, has_kind.go(k, t))
 
-def has_kind(k: SpanKind, +s: String) -> Bool:
-  +xs = tokenize(s)
-  has_kind.go(Nat.add(1n, Nat.mul(2n, List.length(&2, TextSpan, xs))), HKList{}, k, xs)
+def has_kind(+k: SpanKind, +s: String) -> Bool:
+  has_kind.go(k, tokenize(s))
 
 def tokenize_has_bold(+s: String) -> Bool:
   has_kind(WantBold{}, s)
