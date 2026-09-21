@@ -306,23 +306,17 @@ def feed_quit.apply.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: Strin
 def feed_quit.apply(+h: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
   feed_quit.apply.on(h, from, reason, ts, is_channel_buf(h))
 
-type QuitAcc is Data:
-  QuitAcc{from: String, reason: String, ts: String, acc: List<&2, Cl.Buffer>}
-
-def feed_quit.step(st: QuitAcc, h: Cl.Buffer) -> QuitAcc:
-  match st:
-    case QuitAcc{+from, +reason, +ts, acc}:
-      QuitAcc{from, reason, ts, feed_quit.apply(h, from, reason, ts) <> acc}
-
-def feed_quit.bufs(st: QuitAcc) -> List<&2, Cl.Buffer>:
-  match st:
-    case QuitAcc{_, _, _, acc}:
-      List.reverse(&2, Cl.Buffer, acc)
+def feed_quit.map(xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String) -> List<&2, Cl.Buffer>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      feed_quit.apply(h, from, reason, ts) <> feed_quit.map(t, from, reason, ts)
 
 def feed_quit.with(+cl: Cl.Client, +from: String, +reason: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now}:
-      Cl.Client{nick, server, feed_quit.bufs(List.foldl(~&2, ~Cl.Buffer, ~QuitAcc, ~feed_quit.step, bufs, QuitAcc{from, reason, now, Nil{}})), active, now}
+      Cl.Client{nick, server, feed_quit.map(bufs, from, reason, now), active, now}
 
 def feed_quit(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_quit.with(cl, msg_nick(m), Irc.msg_param(m, 0n))
@@ -365,18 +359,12 @@ def feed_nick.apply.on(+h: Cl.Buffer, +from: String, +to: String, +ts: String, c
 def feed_nick.apply(+h: Cl.Buffer, +from: String, +to: String, +ts: String) -> Cl.Buffer:
   feed_nick.apply.on(h, from, to, ts, is_channel_buf(h))
 
-type NickAcc is Data:
-  NickAcc{from: String, to: String, ts: String, acc: List<&2, Cl.Buffer>}
-
-def feed_nick.step(st: NickAcc, h: Cl.Buffer) -> NickAcc:
-  match st:
-    case NickAcc{+from, +to, +ts, acc}:
-      NickAcc{from, to, ts, feed_nick.apply(h, from, to, ts) <> acc}
-
-def feed_nick.bufs(st: NickAcc) -> List<&2, Cl.Buffer>:
-  match st:
-    case NickAcc{_, _, _, acc}:
-      List.reverse(&2, Cl.Buffer, acc)
+def feed_nick.map(xs: List<&2, Cl.Buffer>, +from: String, +to: String, +ts: String) -> List<&2, Cl.Buffer>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      feed_nick.apply(h, from, to, ts) <> feed_nick.map(t, from, to, ts)
 
 def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
   match self:
@@ -388,7 +376,7 @@ def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
 def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now}:
-      feed_nick.fin(Cl.Client{nick, server, feed_nick.bufs(List.foldl(~&2, ~Cl.Buffer, ~NickAcc, ~feed_nick.step, bufs, NickAcc{from, to, now, Nil{}})), active, now}, to, self)
+      feed_nick.fin(Cl.Client{nick, server, feed_nick.map(bufs, from, to, now), active, now}, to, self)
 
 def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)

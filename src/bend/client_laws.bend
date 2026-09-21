@@ -229,8 +229,8 @@ def snap_ok() -> Bool:
 
 def cycle_ok() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
-  +c1 = Cl.cycle_tab(cl, 1)
-  +c2 = Cl.cycle_tab(c1, 1)
+  +c1 = Cl.cycle_tab(cl, Cl.TabNext{})
+  +c2 = Cl.cycle_tab(c1, Cl.TabNext{})
   Nat.is_eq(Cl.active_of(cl), 1n) && Nat.is_eq(Cl.active_of(c1), 0n) && Nat.is_eq(Cl.active_of(c2), 1n)
 
 # Newest line is last. Two query messages stay chronological.
