@@ -150,7 +150,7 @@ test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
 test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
 	$(NIXRUN) python3 tests/pty/restore.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore ## Pty loop tests (rows join after C3).
+test-pty: test-pty-flood test-pty-restore test-pty-rows ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

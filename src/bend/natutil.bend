@@ -24,12 +24,14 @@ def live_fuel(+frames: U32) -> Nat:
 def ticks_of(+frames: U32) -> Nat:
   live_fuel(frames)
 
+# C body text rows are root.h-6 (header, tabs, status, composer, 2 box
+# borders). Pack no more than that or draw_packed_body drops the newest.
 def body_h_on(+rows: U32, ge: Bool) -> Nat:
   match ge:
     case True{}:
-      u32_to_nat(U32.sub(rows, 4))
+      u32_to_nat(U32.sub(rows, 6))
     case False{}:
-      4n
+      1n
 
 def body_h(+rows: U32) -> Nat:
-  body_h_on(rows, U32.is_ge(rows, 8))
+  body_h_on(rows, U32.is_ge(rows, 7))

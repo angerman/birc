@@ -64,6 +64,10 @@ law framer_roundtrip:
 law scroll_bounds:
   {V.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
+# LAW: packed body lines fit in C's drawable rows (rows-6).
+law body_h_fits:
+  {Net.body_h_ok() == True{} : Bool}
+
 # LAW: M5.3 tokenize roundtrips *bold* markup.
 law tokenize_bold:
   {V.tokenize_roundtrip("hello *bold* text") == True{} : Bool}
