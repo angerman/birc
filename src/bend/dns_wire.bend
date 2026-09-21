@@ -84,6 +84,68 @@ def is_ipv4_xs(+xs: List<&2, String>) -> Bool:
 def is_ipv4(+host: String) -> Bool:
   is_ipv4_xs(String.split(host, Chr{46}))
 
+# IPv4-only resolver. A colon means an IPv6 literal (or garbage); reject
+# it rather than sending a DNS query for the string.
+def is_ipv6(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+h, t}:
+      U32.is_eq(Char.to_u32(h), 58) || is_ipv6(t)
+
+# First IPv4 `nameserver` in resolv.conf text. Fallback is documented.
+def NS_FALLBACK() -> String:
+  "1.1.1.1"
+
+def ns_ip(+ip: String, good: Bool) -> Maybe<&2, String>:
+  match good:
+    case False{}:
+      None{}
+    case True{}:
+      Some{ip}
+
+def ns_tail(t: List<&2, String>) -> Maybe<&2, String>:
+  match t:
+    case Nil{}:
+      None{}
+    case Con{+ip, _}:
+      ns_ip(ip, is_ipv4(ip))
+
+def ns_kw(hit: Bool, t: List<&2, String>) -> Maybe<&2, String>:
+  match hit:
+    case False{}:
+      None{}
+    case True{}:
+      ns_tail(t)
+
+def ns_words(xs: List<&2, String>) -> Maybe<&2, String>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{+w, t}:
+      ns_kw(String.eq(w, "nameserver"), t)
+
+def nameserver_line(+line: String) -> Maybe<&2, String>:
+  ns_words(String.split(line, Chr{32}))
+
+def ns_go(xs: List<&2, String>, m: Maybe<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      match m:
+        case Some{ip}:
+          ip
+        case None{}:
+          NS_FALLBACK()
+    case Con{+h, t}:
+      match m:
+        case Some{ip}:
+          ip
+        case None{}:
+          ns_go(t, nameserver_line(h))
+
+def nameserver_of(+text: String) -> String:
+  ns_go(String.split(text, Chr{10}), None{})
+
 # ---- query encoder ------------------------------------------------------
 
 def ascii_go(fuel: Nat, s: String, ok: Bool) -> Bool:

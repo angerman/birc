@@ -1,5 +1,8 @@
 # DNS A lookup. Pure wire lives in dns_wire.bend.
 # Live path: UDP.bind + UDP.send_to + recv_octets (not UDP.recv String).
+# IPv4/A only: IPv6 literals fail with "ipv6". Resolver is the first IPv4
+# nameserver in /etc/resolv.conf, else 1.1.1.1. Transaction ids are 14-bit
+# (UDP.send_to is a String; bytes >= 128 become UTF-8).
 import Base
 import ./dns_wire.bend as Wire
 
@@ -8,6 +11,9 @@ def err(+msg: String) -> Result<&1, &1, U32 & String, String>:
 
 def is_ipv4(+host: String) -> Bool:
   Wire.is_ipv4(host)
+
+def is_ipv6(+host: String) -> Bool:
+  Wire.is_ipv6(host)
 
 def txid_of(+n: U32) -> U32:
   Wire.txid_of(n)
@@ -25,13 +31,26 @@ def parse_q(+want: U32, +host: String, xs: List<&2, U32>) -> Result<&1, &1, U32 
   Wire.parse_q(want, host, xs)
 
 def NS() -> String:
-  "1.1.1.1"
+  Wire.NS_FALLBACK()
 
 def DNS_PORT() -> U32:
   53
 
 def WAIT() -> Nat:
-  40n
+  80n
+
+def tick_ms_on(fast: Bool) -> U32:
+  match fast:
+    case True{}:
+      10
+    case False{}:
+      50
+
+def tick_ms(+n: Nat) -> U32:
+  tick_ms_on(Nat.is_lt(n, 8n))
+
+def need_resend(+n: Nat) -> Bool:
+  Nat.is_eq(n, 16n) || Nat.is_eq(n, 32n) || Nat.is_eq(n, 48n) || Nat.is_eq(n, 64n)
 
 # Octet recv. Peer is host & (port & octets). None is EAGAIN/EINTR.
 law recv_octets:
@@ -45,16 +64,55 @@ def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, St
     Unit <- Socket.close(sock)
     return err(msg)
 
+def wait_sleep(
+  sock: Socket,
+  +n: Nat,
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
+) -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    Unit <- IO.sleep(tick_ms(n))
+    k(sock)
+
+def wait_sent(
+  pair: Socket & Result<&1, &1, U32 & String, Unit>,
+  +n: Nat,
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match pair:
+    case (sock, r):
+      match r:
+        case Fail{_}:
+          fail_close(sock, "send")
+        case Done{_}:
+          wait_sleep(sock, n, k)
+
+def wait_idle(
+  resend: Bool,
+  sock: Socket,
+  +ns: String,
+  +q: String,
+  +n: Nat,
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match resend:
+    case False{}:
+      wait_sleep(sock, n, k)
+    case True{}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
+        wait_sent(sent, n, k)
+
 def wait_take(
   sock: Socket,
+  +ns: String,
+  +q: String,
+  +n: Nat,
   t: Wire.Take,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match t:
     case Wire.Miss{}:
-      do IO<Result<&1, &1, U32 & String, String>>:
-        Unit <- IO.sleep(50)
-        k(sock)
+      wait_idle(need_resend(n), sock, ns, q, n, k)
     case Wire.HitOk{+ip}:
       do IO<Result<&1, &1, U32 & String, String>>:
         Unit <- Socket.close(sock)
@@ -67,47 +125,53 @@ def wait_port(
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
+  +n: Nat,
   +phost: String,
   rest: U32 & List<&2, U32>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match rest:
     case (port, xs):
-      wait_take(sock, Wire.take_pkt(ns, id, qhost, phost, port, xs), k)
+      wait_take(sock, ns, q, n, Wire.take_pkt(ns, id, qhost, phost, port, xs), k)
 
 def wait_peer(
   sock: Socket,
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
+  +n: Nat,
   p: String & (U32 & List<&2, U32>),
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match p:
     case (+phost, rest):
-      wait_port(sock, id, qhost, ns, phost, rest, k)
+      wait_port(sock, id, qhost, ns, q, n, phost, rest, k)
 
 def wait_got(
   sock: Socket,
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
+  +n: Nat,
   got: Maybe<&1, String & (U32 & List<&2, U32>)>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match got:
     case None{}:
-      do IO<Result<&1, &1, U32 & String, String>>:
-        Unit <- IO.sleep(50)
-        k(sock)
+      wait_idle(need_resend(n), sock, ns, q, n, k)
     case Some{p}:
-      wait_peer(sock, id, qhost, ns, p, k)
+      wait_peer(sock, id, qhost, ns, q, n, p, k)
 
 def wait_r(
   sock: Socket,
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
+  +n: Nat,
   r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
@@ -115,50 +179,62 @@ def wait_r(
     case Fail{_}:
       fail_close(sock, "recv")
     case Done{got}:
-      wait_got(sock, id, qhost, ns, got, k)
+      wait_got(sock, id, qhost, ns, q, n, got, k)
 
 def wait_poll(
   pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
+  +n: Nat,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      wait_r(sock, id, qhost, ns, r, k)
+      wait_r(sock, id, qhost, ns, q, n, r, k)
 
-def wait_ans(fuel: Nat, sock: Socket, +id: U32, +qhost: String, +ns: String) -> IO(Result<&1, &1, U32 & String, String>):
+def wait_ans(
+  fuel: Nat,
+  sock: Socket,
+  +id: U32,
+  +qhost: String,
+  +ns: String,
+  +q: String,
+  +n: Nat
+) -> IO(Result<&1, &1, U32 & String, String>):
   match fuel:
     case 0n:
       fail_close(sock, "timeout")
     case 1n+p:
       do IO<Result<&1, &1, U32 & String, String>>:
         m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_octets(sock, 512)
-        wait_poll(m, id, qhost, ns, s2 => wait_ans(p, s2, id, qhost, ns))
+        wait_poll(m, id, qhost, ns, q, n, s2 => wait_ans(p, s2, id, qhost, ns, q, Nat.add(n, 1n)))
 
 def after_send_r(
   sock: Socket,
   +id: U32,
   +qhost: String,
   +ns: String,
+  +q: String,
   r: Result<&1, &1, U32 & String, Unit>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
       fail_close(sock, "send")
     case Done{_}:
-      wait_ans(WAIT(), sock, id, qhost, ns)
+      wait_ans(WAIT(), sock, id, qhost, ns, q, 0n)
 
 def after_send(
   pair: Socket & Result<&1, &1, U32 & String, Unit>,
   +id: U32,
   +qhost: String,
-  +ns: String
+  +ns: String,
+  +q: String
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      after_send_r(sock, id, qhost, ns, r)
+      after_send_r(sock, id, qhost, ns, q, r)
 
 def after_bind(
   r: Result<&1, &1, U32 & String, Socket>,
@@ -173,39 +249,82 @@ def after_bind(
     case Done{sock}:
       do IO<Result<&1, &1, U32 & String, String>>:
         sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
-        after_send(sent, id, host, ns)
+        after_send(sent, id, host, ns, q)
 
-def lookup_q(enc: Result<&1, &1, U32 & String, String>, +id: U32, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
+def lookup_q(
+  enc: Result<&1, &1, U32 & String, String>,
+  +id: U32,
+  +host: String,
+  +ns: String
+) -> IO(Result<&1, &1, U32 & String, String>):
   match enc:
     case Fail{e}:
       IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
     case Done{+q}:
       do IO<Result<&1, &1, U32 & String, String>>:
         br : Result<&1, &1, U32 & String, Socket> <- UDP.bind(0)
-        after_bind(br, q, id, host, NS())
+        after_bind(br, q, id, host, ns)
 
-def lookup_n(+host: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
+def lookup_n(+host: String, +ns: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
   +id = txid_of(n)
-  lookup_q(encode_id(id, host), id, host)
+  lookup_q(encode_id(id, host), id, host, ns)
 
-def lookup_rnd(+host: String, rnd: Result<&1, &1, U32 & String, U32>) -> IO(Result<&1, &1, U32 & String, String>):
+def lookup_rnd(+host: String, +ns: String, rnd: Result<&1, &1, U32 & String, U32>) -> IO(Result<&1, &1, U32 & String, String>):
   match rnd:
     case Fail{_}:
       IO.pure(Result<&1, &1, U32 & String, String>, err("random"))
     case Done{n}:
-      lookup_n(host, n)
+      lookup_n(host, ns, n)
+
+def load_ns_text(r: Result<&1, &1, U32 & String, String>, f: File) -> IO(String):
+  match r:
+    case Fail{_}:
+      do IO<String>:
+        Unit <- File.close(f)
+        return NS()
+    case Done{+text}:
+      do IO<String>:
+        Unit <- File.close(f)
+        return Wire.nameserver_of(text)
+
+def load_ns_read(pair: File & Result<&1, &1, U32 & String, String>) -> IO(String):
+  match pair:
+    case (f, r):
+      load_ns_text(r, f)
+
+def load_ns_open(r: Result<&1, &1, U32 & String, File>) -> IO(String):
+  match r:
+    case Fail{_}:
+      IO.pure(String, NS())
+    case Done{f}:
+      do IO<String>:
+        pair : File & Result<&1, &1, U32 & String, String> <- File.read(f, 4096)
+        load_ns_read(pair)
+
+def load_ns() -> IO(String):
+  do IO<String>:
+    r : Result<&1, &1, U32 & String, File> <- File.open("/etc/resolv.conf", "r")
+    load_ns_open(r)
 
 def lookup_a(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
+    ns : String <- load_ns()
     rnd : Result<&1, &1, U32 & String, U32> <- IO.random_u32()
-    lookup_rnd(host, rnd)
+    lookup_rnd(host, ns, rnd)
+
+def resolve_v6(+host: String, v6: Bool) -> IO(Result<&1, &1, U32 & String, String>):
+  match v6:
+    case True{}:
+      IO.pure(Result<&1, &1, U32 & String, String>, err("ipv6"))
+    case False{}:
+      lookup_a(host)
 
 def resolve_pick(+host: String, ip: Bool) -> IO(Result<&1, &1, U32 & String, String>):
   match ip:
     case True{}:
       IO.pure(Result<&1, &1, U32 & String, String>, Done{host})
     case False{}:
-      lookup_a(host)
+      resolve_v6(host, is_ipv6(host))
 
 def resolve(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
   resolve_pick(host, is_ipv4(host))
