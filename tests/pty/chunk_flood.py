@@ -102,6 +102,9 @@ def main() -> int:
         conn.close()
     except OSError:
         pass
+    # H3: Eof keeps the UI alive. Ask it to quit instead of waiting for shutdown.
+    if proc.poll() is None:
+        os.write(master, b"/quit\r")
     deadline = time.time() + 25
     while proc.poll() is None and time.time() < deadline:
         drain(master, out)

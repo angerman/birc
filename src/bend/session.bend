@@ -494,6 +494,11 @@ def session_net(+st: Session) -> NetState:
     case Session{_, _, _, _, _, _, net, _, _, _}:
       net
 
+def session_nick(+st: Session) -> String:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, _, _}:
+      Cl.nick_of(cl)
+
 def session_after.dial(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, +chan: String, +hist: Hist, +rows: U32, +seed: U32, +host: String) -> Session:
   Session{Cl.set_server(cl, host), drop, rem, draft, False{}, chan, Connecting{}, hist, rows, seed}
 
