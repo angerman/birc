@@ -155,8 +155,5 @@ def Laws.legal_509_line():
 def Laws.short_text_ok():
   {==}
 
-def Laws.live_fuel_alias():
-  {==}
-
 def Laws.live_fuel_small():
   {==}

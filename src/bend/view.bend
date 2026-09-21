@@ -100,14 +100,6 @@ def style_of(k: Cl.LineKind) -> U32:
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
 
-def kind_code_ok() -> Bool:
-  U32.is_eq(kind_code(Cl.Msg{}), 0)
-    && U32.is_eq(kind_code(Cl.Self{}), 1)
-    && U32.is_eq(kind_code(Cl.System{}), 2)
-    && U32.is_eq(kind_code(Cl.Action{}), 3)
-    && U32.is_eq(kind_code(Cl.Notice{}), 4)
-    && U32.is_eq(kind_code(Cl.Error{}), 5)
-
 def ts_width_ok() -> Bool:
   Nat.is_eq(TS_WIDTH(), 8n)
 
@@ -618,6 +610,14 @@ def kind_digit(k: Cl.LineKind) -> String:
       "4"
     case Cl.Error{}:
       "5"
+
+def kind_code_ok() -> Bool:
+  String.eq(kind_digit(Cl.Msg{}), "0")
+    && String.eq(kind_digit(Cl.Self{}), "1")
+    && String.eq(kind_digit(Cl.System{}), "2")
+    && String.eq(kind_digit(Cl.Action{}), "3")
+    && String.eq(kind_digit(Cl.Notice{}), "4")
+    && String.eq(kind_digit(Cl.Error{}), "5")
 
 def pack_span(sp: TextSpan) -> String:
   match sp:

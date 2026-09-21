@@ -505,7 +505,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: point laws exist; `for s: String` proofs are out of reach
       evidence: handover rule 7: keep the point law, add a test
       open question: leave quantified forms for a proof pass
-- [ ] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
+- [x] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
+      GOLDEN CHANGE: `kind_code_ok` pins `kind_digit`; `feed_id` compares `show_client`;
+      deleted tautology `live_fuel_alias`.
 - [ ] **T3** Feed fixtures through `File.read` + `replay_lines`; real `\x01` ACTION (proto T6, client#23).
       tried: proto_parity greps fixtures; ACTION soh test exists in proto_parity
       evidence: fixtures/action.irc still lacks \x01

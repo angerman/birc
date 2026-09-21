@@ -204,10 +204,6 @@ law legal_509_line:
 law short_text_ok:
   {Fr.short_text_ok() == True{} : Bool}
 
-# LAW: ticks_of is live_fuel (start_live runs this).
-law live_fuel_alias:
-  {Nat.is_eq(Net.live_fuel(3), Net.ticks_of(3)) == True{} : Bool}
-
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:
   {Nat.is_eq(Net.live_fuel(3), 3n) == True{} : Bool}
