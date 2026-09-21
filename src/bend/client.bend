@@ -54,8 +54,14 @@ def init(+nick: String, +server: String) -> Client:
 def nth_buf(+bufs: List<&2, Buffer>, +i: Nat) -> Maybe<&2, Buffer>:
   List.get(&2, Buffer, bufs, i)
 
-def set_nth_buf(+bufs: List<&2, Buffer>, +i: Nat, +b: Buffer) -> List<&2, Buffer>:
-  List.set(&2, Buffer, bufs, i, b)
+def buf_modify(xs: List<&2, Buffer>, n: Nat, f: Buffer -> Buffer) -> List<&2, Buffer>:
+  match xs n:
+    case Nil{} _:
+      Nil{}
+    case h <> t 0n:
+      f(h) <> t
+    case h <> t 1n+p:
+      h <> buf_modify(t, p, f)
 
 def buf_count(+bufs: List<&2, Buffer>) -> Nat:
   List.length(&2, Buffer, bufs)
@@ -111,12 +117,15 @@ def cap_note(+b: Buffer, +now: String) -> Buffer:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
       Buffer{name, ch, topic, List.append(&2, Line, lines, Line{Error{}, Irc.sanitize_in(now), "buffer limit reached"} <> Nil{}), nicks, scroll}
 
+def cap_at(+now: String, b: Buffer) -> Buffer:
+  cap_note(b, now)
+
 def buf_get.full(got: Maybe<&2, Buffer>, +nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String) -> Client & Maybe<&2, Nat>:
   match got:
     case None{}:
       (Client{nick, server, bufs, active, now}, None{})
-    case Some{b}:
-      (Client{nick, server, set_nth_buf(bufs, 0n, cap_note(b, now)), active, now}, None{})
+    case Some{_}:
+      (Client{nick, server, buf_modify(bufs, 0n, cap_at(now)), active, now}, None{})
 
 def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +name: String, is_channel: Bool, full: Bool) -> Client & Maybe<&2, Nat>:
   match full:
@@ -180,17 +189,13 @@ def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer
 def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
   buf_log_ts(b, kind, "", text)
 
-def client_log.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +i: Nat, kind: LineKind, +text: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, i, buf_log_ts(b, kind, now, text)), active, now}
+def buf_log_at(kind: LineKind, +ts: String, +text: String, b: Buffer) -> Buffer:
+  buf_log_ts(b, kind, ts, text)
 
 def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now}:
-      client_log.on(nick, server, bufs, active, now, i, kind, text, nth_buf(bufs, i))
+      Client{nick, server, buf_modify(bufs, i, buf_log_at(kind, now, text)), active, now}
 
 def set_now(+cl: Client, +ts: String) -> Client:
   match cl:
@@ -316,17 +321,13 @@ def nick_add(+b: Buffer, +raw: String) -> Buffer:
   +n = nick_strip(raw)
   nick_add.body(b, n, String.is_empty(n))
 
-def nick_add_idx.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +i: Nat, +who: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, i, nick_add(b, who)), active, now}
+def nick_add_who(+who: String, b: Buffer) -> Buffer:
+  nick_add(b, who)
 
 def nick_add_idx(+cl: Client, +i: Nat, +who: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now}:
-      nick_add_idx.on(nick, server, bufs, active, now, i, who, nth_buf(bufs, i))
+      Client{nick, server, buf_modify(bufs, i, nick_add_who(who)), active, now}
 
 type DelAcc is Data:
   DelAcc{nick: String, done: Bool, acc: List<&2, String>}
@@ -427,17 +428,13 @@ def set_buf_name(+b: Buffer, +name: String) -> Buffer:
     case Buffer{_, +ch, +topic, +lines, +nicks, +scroll}:
       Buffer{name, ch, topic, lines, nicks, scroll}
 
-def snap_active.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, active, set_buf_scroll(b, 0n)), active, now}
+def scroll_zero(b: Buffer) -> Buffer:
+  set_buf_scroll(b, 0n)
 
 def snap_active(+cl: Client) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now}:
-      snap_active.got(nick, server, bufs, active, now, nth_buf(bufs, active))
+      Client{nick, server, buf_modify(bufs, active, scroll_zero), active, now}
 
 def scroll_add_nat(+scroll: Nat, +up: Nat, +dn: Nat) -> Nat:
   Nat.sub(Nat.add(scroll, up), dn)
@@ -464,17 +461,13 @@ def apply_buf_scroll.on(+b: Buffer, +up: Nat, +dn: Nat) -> Buffer:
         clamp_nat(scroll_add_nat(scroll, up, dn), List.length(&2, Line, lines))
       }
 
-def apply_active_scroll.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +up: Nat, +dn: Nat, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, active, apply_buf_scroll.on(b, up, dn)), active, now}
+def scroll_delta(+up: Nat, +dn: Nat, b: Buffer) -> Buffer:
+  apply_buf_scroll.on(b, up, dn)
 
 def apply_active_scroll(+cl: Client, +up: Nat, +dn: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now}:
-      apply_active_scroll.got(nick, server, bufs, active, now, up, dn, nth_buf(bufs, active))
+      Client{nick, server, buf_modify(bufs, active, scroll_delta(up, dn)), active, now}
 
 def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
   match got:
@@ -773,19 +766,17 @@ def feed_join.self(+cl: Client, +bi: Nat, self: Bool) -> Client:
     case False{}:
       cl
 
-def feed_join.apply.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +chan: String, self: Bool, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      +b2 = nick_add(b, from)
-      +b3 = buf_log_ts(b2, System{}, now, fmt_join(from, chan))
-      feed_join.self(Client{nick, server, set_nth_buf(bufs, bi, b3), active, now}, bi, self)
+def join_upd(+from: String, +chan: String, +now: String, b: Buffer) -> Buffer:
+  buf_log_ts(nick_add(b, from), System{}, now, fmt_join(from, chan))
 
 def feed_join.from_cl(+cl2: Client, +bi: Nat, +from: String, +chan: String, self: Bool) -> Client:
   match cl2:
     case Client{+nick, +server, +bufs, +active, +now}:
-      feed_join.apply.on(nick, server, bufs, active, now, bi, from, chan, self, nth_buf(bufs, bi))
+      feed_join.self(
+        Client{nick, server, buf_modify(bufs, bi, join_upd(from, chan, now)), active, now},
+        bi,
+        self
+      )
 
 def feed_join.from_pair(pair: Client & Maybe<&2, Nat>, +from: String, +chan: String, self: Bool) -> Client:
   match pair:
@@ -807,35 +798,19 @@ def feed_join.with(+cl: Client, +from: String, +chan: String, +self: Bool) -> Cl
 def feed_join(+cl: Client, +m: Irc.Message, self: Bool) -> Client:
   feed_join.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
 
-def feed_part.member(
-  +nick: String,
-  +server: String,
-  +bufs: List<&2, Buffer>,
-  +active: Nat,
-  +now: String,
-  +bi: Nat,
-  +from: String,
-  +chan: String,
-  +b: Buffer,
-  has: Bool
-) -> Client:
+def part_upd.on(+from: String, +chan: String, +now: String, +b: Buffer, has: Bool) -> Buffer:
   match has:
     case False{}:
-      Client{nick, server, bufs, active, now}
+      b
     case True{}:
-      +b2 = nick_del(b, from)
-      +b3 = buf_log_ts(b2, System{}, now, fmt_part(from, chan))
-      Client{nick, server, set_nth_buf(bufs, bi, b3), active, now}
+      buf_log_ts(nick_del(b, from), System{}, now, fmt_part(from, chan))
 
-def feed_part.at.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +chan: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{+b}:
-      feed_part.member(nick, server, bufs, active, now, bi, from, chan, b, nick_has(b, from))
+def part_upd(+from: String, +chan: String, +now: String, b: Buffer) -> Buffer:
+  +bb = b
+  part_upd.on(from, chan, now, bb, nick_has(bb, from))
 
 def feed_part.at(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +chan: String) -> Client:
-  feed_part.at.got(nick, server, bufs, active, now, bi, from, chan, nth_buf(bufs, bi))
+  Client{nick, server, buf_modify(bufs, bi, part_upd(from, chan, now)), active, now}
 
 def feed_part.on(+cl: Client, +chan: String, +from: String, found: Maybe<&2, Nat>) -> Client:
   match cl:
@@ -862,17 +837,11 @@ def feed_part(+cl: Client, +m: Irc.Message, self: Bool) -> Client:
 def fmt_kick(+victim: String, +chan: String) -> String:
   "<- " ++ victim ++ " kicked from " ++ chan
 
-def feed_kick.at.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +victim: String, +chan: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      +b2 = nick_del(b, victim)
-      +b3 = buf_log_ts(b2, System{}, now, fmt_kick(victim, chan))
-      Client{nick, server, set_nth_buf(bufs, bi, b3), active, now}
+def kick_upd(+victim: String, +chan: String, +now: String, b: Buffer) -> Buffer:
+  buf_log_ts(nick_del(b, victim), System{}, now, fmt_kick(victim, chan))
 
 def feed_kick.at(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +victim: String, +chan: String) -> Client:
-  feed_kick.at.got(nick, server, bufs, active, now, bi, victim, chan, nth_buf(bufs, bi))
+  Client{nick, server, buf_modify(bufs, bi, kick_upd(victim, chan, now)), active, now}
 
 def feed_kick.other(+cl: Client, +chan: String, +victim: String, found: Maybe<&2, Nat>) -> Client:
   match cl:
@@ -1020,18 +989,13 @@ def feed_nick.with(+cl: Client, +from: String, +to: String, self: Bool) -> Clien
 def feed_nick(+cl: Client, +m: Irc.Message, self: Bool) -> Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
 
-def feed_topic.apply.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +topic: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      +b2 = buf_log_ts(set_topic(b, topic), System{}, now, fmt_topic_set(from, topic))
-      Client{nick, server, set_nth_buf(bufs, bi, b2), active, now}
+def topic_upd(+from: String, +topic: String, +now: String, b: Buffer) -> Buffer:
+  buf_log_ts(set_topic(b, topic), System{}, now, fmt_topic_set(from, topic))
 
 def feed_topic.from_cl(+cl2: Client, +bi: Nat, +from: String, +topic: String) -> Client:
   match cl2:
     case Client{+nick, +server, +bufs, +active, +now}:
-      feed_topic.apply.on(nick, server, bufs, active, now, bi, from, topic, nth_buf(bufs, bi))
+      Client{nick, server, buf_modify(bufs, bi, topic_upd(from, topic, now)), active, now}
 
 def feed_topic.from_pair(pair: Client & Maybe<&2, Nat>, +from: String, +topic: String) -> Client:
   match pair:
@@ -1061,17 +1025,13 @@ def nick_add_step(b: Buffer, h: String) -> Buffer:
 def nick_add_all(+b: Buffer, +ns: List<&2, String>) -> Buffer:
   List.foldl(~&2, ~String, ~Buffer, ~nick_add_step, ns, b)
 
-def feed_num.topic.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +topic: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, bi, set_topic(b, topic)), active, now}
+def topic_set(+topic: String, b: Buffer) -> Buffer:
+  set_topic(b, topic)
 
 def feed_num.topic.cl(+cl2: Client, +bi: Nat, +topic: String) -> Client:
   match cl2:
     case Client{+nick, +server, +bufs, +active, +now}:
-      feed_num.topic.on(nick, server, bufs, active, now, bi, topic, nth_buf(bufs, bi))
+      Client{nick, server, buf_modify(bufs, bi, topic_set(topic)), active, now}
 
 def feed_num.topic.pair(pair: Client & Maybe<&2, Nat>, +topic: String) -> Client:
   match pair:
@@ -1083,17 +1043,13 @@ def feed_num.topic.pair(pair: Client & Maybe<&2, Nat>, +topic: String) -> Client
 def feed_num.topic(+cl: Client, +chan: String, +topic: String) -> Client:
   feed_num.topic.pair(buf_get(cl, chan, True{}, False{}), topic)
 
-def feed_num.names.on(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +names: String, got: Maybe<&2, Buffer>) -> Client:
-  match got:
-    case None{}:
-      Client{nick, server, bufs, active, now}
-    case Some{b}:
-      Client{nick, server, set_nth_buf(bufs, bi, nick_add_all(b, split_names(names))), active, now}
+def names_upd(+names: String, b: Buffer) -> Buffer:
+  nick_add_all(b, split_names(names))
 
 def feed_num.names.cl(+cl2: Client, +bi: Nat, +names: String) -> Client:
   match cl2:
     case Client{+nick, +server, +bufs, +active, +now}:
-      feed_num.names.on(nick, server, bufs, active, now, bi, names, nth_buf(bufs, bi))
+      Client{nick, server, buf_modify(bufs, bi, names_upd(names)), active, now}
 
 def feed_num.names.pair(pair: Client & Maybe<&2, Nat>, +names: String) -> Client:
   match pair:

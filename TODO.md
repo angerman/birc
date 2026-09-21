@@ -420,10 +420,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: cursor rewrite landed in C7
       evidence: live parse is `parse_q` + `Cur`; leftover shims are naming only
       open question: delete remaining `Dns.*` aliases in a no-behaviour pass
-- [ ] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
-      tried: get_buf/set_buf would touch every feed arm
-      evidence: ten near-identical Client rebuilds in client.bend
-      open question: introduce get_buf/set_buf then rewrite arms in a dedicated pass
+- [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
+      `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
+      pass a `Buffer -> Buffer`. `set_nth_buf` deleted.
 - [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
       tried: chains are Bool-parameter match (legal Bend)
       evidence: 14-deep cls_* and slash_* still sequential
