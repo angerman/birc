@@ -93,6 +93,10 @@ def sample_noa() -> List<&2, U32>:
 def sample_fused() -> List<&2, U32>:
   0 <> 1 <> 65533 <> 65533 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 65533 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 128 <> 0 <> 1 <> Nil{}
 
+# Live octets (recv_octets): high-bit A rdata 194.128.0.1, real QR/RA flags.
+def sample_fused_raw() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 194 <> 128 <> 0 <> 1 <> Nil{}
+
 # ANCOUNT=1 CNAME, ARCOUNT=1 A 9.9.9.9.
 def sample_cname_ar() -> List<&2, U32>:
   0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
@@ -123,6 +127,66 @@ def sample_txt_ar_end(+mid: List<&2, U32>) -> List<&2, U32>:
 # ANCOUNT=1 TXT rdlen=800, ARCOUNT=1 A 8.8.8.8 (F10: skip must consume full rdlen).
 def sample_txt_ar() -> List<&2, U32>:
   sample_txt_ar_end(List.append(&2, U32, 0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 16 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 3 <> 32 <> Nil{}, txt_pad(800n, Nil{})))
+
+# − dns#1: the only A is in ADDITIONAL for owner "evil" (an=0).
+def pkt_ar_evil() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 0 <> 1 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 4 <> 101 <> 118 <> 105 <> 108 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 6 <> 6 <> 6 <> 6 <> Nil{}
+
+# − dns#1: the only A is in AUTHORITY for owner "evil" (an=0).
+def pkt_ns_evil() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 4 <> 101 <> 118 <> 105 <> 108 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 6 <> 6 <> 6 <> 7 <> Nil{}
+
+# − dns#2: AN A with CLASS=CHAOS (3).
+def pkt_class_ch() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 3 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 7 <> 7 <> 7 <> 7 <> Nil{}
+
+# − dns#6: TC bit set (flags byte 2 = 0x83).
+def pkt_tc() -> List<&2, U32>:
+  0 <> 1 <> 131 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 8 <> 8 <> 4 <> 4 <> Nil{}
+
+# − dns#5: QDCOUNT=0.
+def pkt_qd0() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 0 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 5 <> 5 <> 5 <> 5 <> Nil{}
+
+# − dns#5: echoed question is z / QTYPE=255.
+def pkt_wrong_q() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 122 <> 0 <> 0 <> 255 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 3 <> 3 <> 3 <> 3 <> Nil{}
+
+# − dns#1 owner: AN has A for "evil", then CNAME a→b, then A for b.
+def pkt_cname_owner() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 3 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 4 <> 101 <> 118 <> 105 <> 108 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 1 <> 2 <> 3 <> 4 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
+
+# + dns#1: CNAME a→b and A for b, both in ANSWER.
+def pkt_cname_an() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
+
+# + dns#1: TXT then A, both in ANSWER (rdlen skip).
+def pkt_txt_an() -> List<&2, U32>:
+  List.append(&2, U32, 0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 16 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 3 <> 32 <> Nil{}, List.append(&2, U32, txt_pad(800n, Nil{}), 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 8 <> 8 <> 8 <> 8 <> Nil{}))
+
+# lying counts; truncated rdata; short packets (already fail-closed).
+def pkt_liar() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 255 <> 255 <> 255 <> 255 <> 255 <> 255 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> Nil{}
+
+def pkt_trunc_rd() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> Nil{}
+
+def pkt_empty() -> List<&2, U32>:
+  Nil{}
+
+# dns#12: 5 × 63-char labels (QNAME 321 octets).
+def rep_lab(fuel: Nat, acc: String) -> String:
+  match fuel:
+    case 0n:
+      acc
+    case 1n+p:
+      rep_lab(p, SCon{Chr{97}, acc})
+
+def lab63() -> String:
+  rep_lab(63n, "")
+
+def long_name() -> String:
+  lab63() ++ "." ++ lab63() ++ "." ++ lab63() ++ "." ++ lab63() ++ "." ++ lab63()
 
 def live_fail_ok(+msg: String) -> Bool:
   String.eq(msg, "timeout") || String.eq(msg, "bind") || String.eq(msg, "send") || String.eq(msg, "recv") || String.eq(msg, "random") || String.eq(msg, "dns")
@@ -191,21 +255,34 @@ def main() -> IO(Unit):
     Unit <- check_enc_hi_r(Dns.encode_id(Dns.txid_of(65535), "example.com"))
     Unit <- E.must("pack_len", Nat.is_eq(String.length(pack(sample())), List.length(&2, U32, sample())))
     Unit <- E.must_eq("parse", show_res(Dns.parse_id(1, sample())), "ok:1.2.3.4")
-    Unit <- E.must_eq("parse_fffd", show_res(parse_pack(sample_fffd())), "ok:1.2.3.4")
+    Unit <- E.must_eq("parse_fffd", show_res(parse_pack(sample_fffd())), "fail:rcode")
     Unit <- E.must_eq("parse_id", show_res(Dns.parse_id(1, sample_bad_id())), "fail:bad id")
     Unit <- E.must_eq("parse_id2", show_res(Dns.parse_id(2, sample_bad_id())), "ok:1.2.3.4")
     Unit <- E.must_eq("parse_rcode", show_res(Dns.parse_id(1, sample_rcode())), "fail:rcode")
     Unit <- E.must_eq("parse_noa", show_res(Dns.parse_id(1, sample_noa())), "fail:no A")
     Unit <- E.must_eq("octets_u80", show_oct(Dns.octets(SCon{Chr{128}, ""})), "194,128,")
     Unit <- E.must_eq("octets_fused", show_oct(Dns.octets(SCon{Chr{128}, SCon{Chr{0}, SCon{Chr{1}, ""}}})), "194,128,0,1,")
-    Unit <- E.must_eq("parse_fused", show_res(parse_pack(sample_fused())), "ok:194.128.0.1")
+    Unit <- E.must_eq("parse_fused", show_res(Dns.parse_id(1, sample_fused_raw())), "ok:194.128.0.1")
     Unit <- E.must("txid_hi7", U32.is_lt(U32.shrn(Dns.txid_of(65535), 8n), 128))
     Unit <- E.must("txid_lo7", U32.is_lt(U32.and(Dns.txid_of(65535), 255), 128))
     Unit <- E.must("txid_nz", Bool.not(U32.is_zero(Dns.txid_of(0))))
     Unit <- E.must_eq("parse_three_a", show_res(Dns.parse_id(1, sample_three_a())), "ok:1.2.3.4")
-    Unit <- E.must_eq("parse_cname_ar", show_res(Dns.parse_id(1, sample_cname_ar())), "ok:9.9.9.9")
+    Unit <- E.must_eq("parse_cname_ar", show_res(Dns.parse_id(1, sample_cname_ar())), "fail:no A")
     Unit <- E.must_eq("parse_cname_only", show_res(Dns.parse_id(1, sample_cname_only())), "fail:no A")
-    Unit <- E.must_eq("parse_txt_ar", show_res(Dns.parse_id(1, sample_txt_ar())), "ok:8.8.8.8")
+    Unit <- E.must_eq("parse_txt_ar", show_res(Dns.parse_id(1, sample_txt_ar())), "fail:no A")
+    Unit <- E.must_eq("ar_evil", show_res(Dns.parse_id(1, pkt_ar_evil())), "fail:no A")
+    Unit <- E.must_eq("ns_evil", show_res(Dns.parse_id(1, pkt_ns_evil())), "fail:no A")
+    Unit <- E.must_eq("class_ch", show_res(Dns.parse_id(1, pkt_class_ch())), "fail:no A")
+    Unit <- E.must_eq("tc", show_res(Dns.parse_id(1, pkt_tc())), "fail:tc")
+    Unit <- E.must_eq("qd0", show_res(Dns.parse_id(1, pkt_qd0())), "fail:bad dns")
+    Unit <- E.must_eq("wrong_q", show_res(Dns.parse_id(1, pkt_wrong_q())), "fail:bad dns")
+    Unit <- E.must_eq("cname_owner", show_res(Dns.parse_id(1, pkt_cname_owner())), "ok:9.9.9.9")
+    Unit <- E.must_eq("cname_an", show_res(Dns.parse_id(1, pkt_cname_an())), "ok:9.9.9.9")
+    Unit <- E.must_eq("txt_an", show_res(Dns.parse_id(1, pkt_txt_an())), "ok:8.8.8.8")
+    Unit <- E.must_eq("liar", show_res(Dns.parse_id(1, pkt_liar())), "fail:bad dns")
+    Unit <- E.must_eq("trunc_rd", show_res(Dns.parse_id(1, pkt_trunc_rd())), "fail:bad dns")
+    Unit <- E.must_eq("empty", show_res(Dns.parse_id(1, pkt_empty())), "fail:short")
+    Unit <- E.must_eq("encode_long", show_res(Dns.encode(long_name())), "fail:bad name")
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve("one.one.one.one")
