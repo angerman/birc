@@ -306,9 +306,6 @@ def repeat_octet.go(fuel: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
 def a_line(+n: Nat) -> List<&2, U32>:
   List.append(&2, U32, repeat_octet.go(n, 65, Nil{}), CR() <> LF() <> Nil{})
 
-def a_line_text(+n: Nat) -> String:
-  octets_to_string(repeat_octet.go(n, 65, Nil{})) ++ "\r\n"
-
 def overlong_chunk() -> List<&2, U32>:
   a_line(511n)
 
@@ -350,146 +347,6 @@ def legal_509_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
 def legal_509_ok() -> Bool:
   legal_509_ok.fin(push(Nil{}, a_line(509n)))
 
-# String framer for Bend TCP.recv (codepoints). ASCII IRC is 1:1 with the wire.
-def is_lf(+c: Char) -> Bool:
-  match c:
-    case Chr{+k}:
-      U32.is_eq(k, 10)
-
-def is_cr(+c: Char) -> Bool:
-  match c:
-    case Chr{+k}:
-      U32.is_eq(k, 13)
-
-def finish_line.on(+h: Char, t: String, cr: Bool) -> String:
-  match cr:
-    case True{}:
-      Irc.sanitize_in(String.reverse(t))
-    case False{}:
-      Irc.sanitize_in(String.reverse(SCon{h, t}))
-
-def finish_line(+acc: String) -> String:
-  match acc:
-    case SNil{}:
-      ""
-    case SCon{+h, t}:
-      finish_line.on(h, t, is_cr(h))
-
-type TextPhase is Data:
-  TRead{}
-  TClass{}
-  TAct{}
-  TDrop{}
-  TDropLf{}
-
-def push_text.go.halt(+lines: List<&2, String>, +acc: String, drop: Bool) -> List<&2, String> & String & Bool:
-  (List.reverse(&2, String, lines), String.reverse(acc), drop)
-
-def push_text.go(
-  fuel: Nat,
-  phase: TextPhase,
-  +s: String,
-  +acc: String,
-  lines: List<&2, String>,
-  +n: Nat,
-  +h: Char,
-  lf: Bool,
-  cr: Bool,
-  over: Bool
-) -> List<&2, String> & String & Bool:
-  match fuel:
-    case 0n:
-      # F3 — keep the current drop phase; do not reset to False.
-      match phase:
-        case TDrop{}:
-          push_text.go.halt(lines, acc, True{})
-        case TDropLf{}:
-          push_text.go.halt(lines, acc, True{})
-        case _:
-          push_text.go.halt(lines, acc, False{})
-    case 1n+p:
-      match phase:
-        case TRead{}:
-          match s:
-            case SNil{}:
-              push_text.go.halt(lines, acc, False{})
-            case SCon{+hd, t}:
-              push_text.go(p, TClass{}, t, acc, lines, n, hd, False{}, False{}, False{})
-        case TClass{}:
-          push_text.go(p, TAct{}, s, acc, lines, n, h, is_lf(h), is_cr(h), Nat.is_ge(n, LINE_OCTET_MAX()))
-        case TAct{}:
-          match lf:
-            case True{}:
-              push_text.go(p, TRead{}, s, "", finish_line(acc) <> lines, 0n, h, False{}, False{}, False{})
-            case False{}:
-              match cr:
-                case True{}:
-                  push_text.go(p, TRead{}, s, acc, lines, n, h, False{}, False{}, False{})
-                case False{}:
-                  match over:
-                    case True{}:
-                      push_text.go(p, TDrop{}, s, "", lines, 0n, h, False{}, False{}, False{})
-                    case False{}:
-                      push_text.go(p, TRead{}, s, SCon{h, acc}, lines, 1n+n, h, False{}, False{}, False{})
-        case TDrop{}:
-          match s:
-            case SNil{}:
-              push_text.go.halt(lines, "", True{})
-            case SCon{+hd, t}:
-              push_text.go(p, TDropLf{}, t, "", lines, 0n, hd, is_lf(hd), False{}, False{})
-        case TDropLf{}:
-          match lf:
-            case True{}:
-              push_text.go(p, TRead{}, s, "", lines, 0n, h, False{}, False{}, False{})
-            case False{}:
-              push_text.go(p, TDrop{}, s, "", lines, 0n, h, False{}, False{}, False{})
-
-def push_text_ex.run(+all: String) -> List<&2, String> & String & Bool:
-  push_text.go(Nat.add(1n, Nat.mul(6n, String.length(all))), TRead{}, all, "", Nil{}, 0n, Chr{0}, False{}, False{}, False{})
-
-def push_text_ex.keep(+rem: String, +chunk: String) -> List<&2, String> & String & Bool:
-  push_text_ex.run(rem ++ chunk)
-
-def push_text_ex.drop(+chunk: String) -> List<&2, String> & String & Bool:
-  push_text.go(Nat.add(1n, Nat.mul(6n, String.length(chunk))), TDrop{}, chunk, "", Nil{}, 0n, Chr{0}, False{}, False{}, False{})
-
-def push_text_ex.on(drop: Bool, +rem: String, +chunk: String) -> List<&2, String> & String & Bool:
-  match drop:
-    case True{}:
-      push_text_ex.drop(chunk)
-    case False{}:
-      push_text_ex.keep(rem, chunk)
-
-def push_text_ex(+drop: Bool, +rem: String, +chunk: String) -> List<&2, String> & String & Bool:
-  push_text_ex.on(drop, rem, chunk)
-
-def push_text.pair(got: List<&2, String> & String & Bool) -> List<&2, String> & String:
-  match got:
-    case (ls, rem, _):
-      (ls, rem)
-
-def push_text(+rem: String, +chunk: String) -> List<&2, String> & String:
-  push_text.pair(push_text_ex(False{}, rem, chunk))
-
-def overlong_text() -> String:
-  a_line_text(511n)
-
-def overlong_text_drop_ok.fin(got: List<&2, String> & String) -> Bool:
-  match got:
-    case (lines, _):
-      Nat.is_eq(List.length(&2, String, lines), 0n)
-
-def overlong_text_drop_ok() -> Bool:
-  overlong_text_drop_ok.fin(push_text("", overlong_text()))
-
-def cr_flood_ok.fin(got: List<&2, String> & String & Bool) -> Bool:
-  match got:
-    case (lines, +rem, _):
-      Nat.is_eq(List.length(&2, String, lines), 0n) && Nat.is_le(String.length(rem), LINE_OCTET_MAX())
-
-def cr_flood_ok() -> Bool:
-  cr_flood_ok.fin(push_text_ex(False{}, "", octets_to_string(repeat_octet.go(1200n, 13, Nil{}))))
-
 def cr_flood_oct_ok.fin(got: List<&2, String> & List<&2, U32> & Bool) -> Bool:
   match got:
     case (lines, rem, _):
@@ -498,26 +355,38 @@ def cr_flood_oct_ok.fin(got: List<&2, String> & List<&2, U32> & Bool) -> Bool:
 def cr_flood_oct_ok() -> Bool:
   cr_flood_oct_ok.fin(push_ex(False{}, Nil{}, repeat_octet.go(1200n, 13, Nil{})))
 
-def short_text_ok.fin(got: List<&2, String> & String) -> Bool:
+def overlong_text_drop_ok() -> Bool:
+  overlong_drop_ok()
+
+def cr_flood_ok() -> Bool:
+  cr_flood_oct_ok()
+
+def short_text_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:
     case (lines, _):
       Nat.is_eq(List.length(&2, String, lines), 1n)
 
 def short_text_ok() -> Bool:
-  short_text_ok.fin(push_text("", "PING :x\r\n"))
+  short_text_ok.fin(push(Nil{}, string_to_octets("PING :x\r\n")))
 
-def legal_max_text_ok.fin(got: List<&2, String> & String) -> Bool:
+# Latin-1: byte 0xE9 split from CRLF still becomes one line, not U+FFFD.
+def split_high_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:
-    case (lines, _):
-      one_line_len(510n, lines)
+    case (ls, rem):
+      match ls:
+        case Con{+h, Nil{}}:
+          match rem:
+            case Nil{}:
+              String.eq(h, SCon{Chr{233}, SNil{}})
+            case Con{_, _}:
+              False{}
+        case _:
+          False{}
 
-def legal_max_text_ok() -> Bool:
-  legal_max_text_ok.fin(push_text("", a_line_text(510n)))
+def split_high_ok.go(st: List<&2, String> & List<&2, U32>) -> Bool:
+  match st:
+    case (_, rem):
+      split_high_ok.fin(push(rem, CR() <> LF() <> Nil{}))
 
-def legal_509_text_ok.fin(got: List<&2, String> & String) -> Bool:
-  match got:
-    case (lines, _):
-      one_line_len(509n, lines)
-
-def legal_509_text_ok() -> Bool:
-  legal_509_text_ok.fin(push_text("", a_line_text(509n)))
+def split_high_ok() -> Bool:
+  split_high_ok.go(push(Nil{}, 233 <> Nil{}))
