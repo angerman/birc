@@ -990,11 +990,28 @@ def actor_boot(
     r : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(host, port)
     actor_conn(r, nick, frames, evt, cmd, boot)
 
-def boot_clock(+boot: Chan(Boot)) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- IO.sleep(8000)
-    ok : Bool <- Chan.send(Boot, boot, Timeout{})
-    return Unit{}
+def boot_clock.step(n: Nat, ok: Bool, +boot: Chan(Boot), +stop: Chan(Unit)) -> IO(Unit):
+  match n:
+    case 0n:
+      match ok:
+        case False{}:
+          IO.pure(Unit, Unit{})
+        case True{}:
+          do IO<Unit>:
+            t : Bool <- Chan.send(Boot, boot, Timeout{})
+            return Unit{}
+    case 1n+p:
+      match ok:
+        case False{}:
+          IO.pure(Unit, Unit{})
+        case True{}:
+          do IO<Unit>:
+            Unit <- IO.sleep(100)
+            nxt : Bool <- Chan.send(Unit, stop, Unit{})
+            boot_clock.step(p, nxt, boot, stop)
+
+def boot_clock(+boot: Chan(Boot), +stop: Chan(Unit)) -> IO(Unit):
+  boot_clock.step(80n, True{}, boot, stop)
 
 def live_boot.acc(
   zero: Bool,
@@ -1056,6 +1073,7 @@ def boot_ui_on(
 def boot_ui(
   g: Maybe<&1, Boot>,
   +boot: Chan(Boot),
+  +stop: Chan(Unit),
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
@@ -1069,6 +1087,7 @@ def boot_ui(
     case Some{e}:
       do IO<Unit>:
         Unit <- Chan.close(Boot, boot)
+        Unit <- Chan.close(Unit, stop)
         boot_ui_on(e, frames, evt, cmd, nick, host, chan)
 
 def run_live_on(
@@ -1079,23 +1098,26 @@ def run_live_on(
   +chan: String,
   evt0: Chan(Sess.NetEvt),
   cmd0: Chan(Sess.NetCmd),
-  boot0: Chan(Boot)
+  boot0: Chan(Boot),
+  stop0: Chan(Unit)
 ) -> IO(Unit):
   +evt = evt0
   +cmd = cmd0
   +boot = boot0
+  +stop = stop0
   do IO<Unit>:
     Unit <- IO.spawn(Unit, actor_boot(host, port, nick, frames, evt, cmd, boot))
-    Unit <- IO.spawn(Unit, boot_clock(boot))
+    Unit <- IO.spawn(Unit, boot_clock(boot, stop))
     g : Maybe<&1, Boot> <- Chan.recv(Boot, boot)
-    boot_ui(g, boot, frames, evt, cmd, nick, host, chan)
+    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, chan)
 
 def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
   do IO<Unit>:
     evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     boot0 : Chan(Boot) <- Chan.new(Boot, 1)
-    run_live_on(frames, host, port, nick, chan, evt0, cmd0, boot0)
+    stop0 : Chan(Unit) <- Chan.new(Unit, 80)
+    run_live_on(frames, host, port, nick, chan, evt0, cmd0, boot0, stop0)
 
 def boot_demo(
   ui: T.Ui,
