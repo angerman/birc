@@ -335,6 +335,107 @@ A/B/E/F can start in parallel (B rebases on A if both edit `view.bend`). C waits
 
 ---
 
+## Milestone 9 — review 2026-09-21
+
+Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. Never push.
+
+### Phase S — setup
+- [x] **S1** Branch `review-fixes`.
+- [x] **S2** This M9 checklist (one box per ID).
+- [ ] **S3** Tracked pty test harness (`make test-pty` in `make test`). Fails on `ac97be1` (deadlock ~158 chunks; tokens `w`,`x` never painted).
+- [ ] **S4** `make lint-ffi` in `make check` (ffi A12).
+
+### Phase C — critical
+- [ ] **C1** Channel deadlock: one `NetCmd` per `NetEvt`; `Dial` arm emits an event (net#1 #10).
+- [ ] **C2** Restore the terminal on every exit path (net#2).
+- [ ] **C3** Body rows: one source of truth; packed lines ≤ drawable rows (view#2, ffi A2).
+- [ ] **C4** Inbound control bytes and wire injection (view#1 #6 #7, proto#4 #8, ffi A1 A13).
+- [ ] **C5** Framer CR flood: count every byte; remainder ≤ 510 (proto#1).
+- [ ] **C6** 512-byte cap in UTF-8 bytes; clamp in `send_line`; unify `LINE_MAX` (proto#2 #3, view#3 #8, net#8).
+- [ ] **C7** DNS hardening (dns#1–#14).
+- [ ] **C8** Composer: typed sized to field, explicit seed flag, state on `Ui` handle (ffi A3 A4 A11, view#4).
+
+### Phase H — high
+- [ ] **H1** Buffer cap: `buf_get` returns `Maybe`; create only on self-JOIN; error at cap (client#1 #2 #14, view#5).
+- [ ] **H2** Numerics log last param; 433 → `NICK <nick>_` (client#4, net#11).
+- [ ] **H3** Disconnect: `Eof` → offline + idle loop; non-Online echo "not connected" (net#5 #4).
+- [ ] **H4** `/connect` must not freeze the UI (net#3).
+- [ ] **H5** `--demo --nick bob` registers as `bob` (net#9).
+- [ ] **H6** `boot_clock` must not keep the process alive 8 s after quit (net#7).
+- [ ] **H7** Byte-safe TCP read; octet framer; delete `push_text` (proto#5, net#6, ffi B).
+- [ ] **H8** Fuel that returns a wrong value: `U32.to_nat`, `parse_params`, `copy_args`, `send_lines_go` (idiom §5c, proto#6 #7, view#16).
+
+### Phase M — medium
+- [ ] **M1** NICK renames a query buffer (client#3).
+- [ ] **M2** QUIT shows in a query (client#6).
+- [ ] **M3** MODE goes to the channel with all params (client#7).
+- [ ] **M4** PART only for members (client#8).
+- [ ] **M5** nick `server` must not merge into the server buffer (client#9).
+- [ ] **M6** RFC 1459 casemapping in `ieq` (client#10).
+- [ ] **M7** self-sourced PRIVMSG keys the buffer on the target (client#11).
+- [ ] **M8** Clamp the scroll offset on write (client#5, view#9).
+- [ ] **M9** `/part` in the server buffer → usage error (view#10).
+- [ ] **M10** `--port` range 1..65535 (view#11).
+- [ ] **M11** PageUp/PageDown move a page (view#14).
+- [ ] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
+- [ ] **M13** over-long URL → plain span (view#12).
+- [ ] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
+- [ ] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
+- [ ] **M16** Decide and document who wraps long lines (view#15).
+- [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
+- [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
+- [ ] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
+- [ ] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
+
+### Phase I — idiomatic Bend
+- [ ] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
+- [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
+- [ ] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
+- [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
+- [ ] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
+- [ ] **I6** Remove fuel from structural walkers and phase machines (idiom §5a §5b).
+- [ ] **I7** `client.bend`: replace `*Acc` folds; delete `strip_cr` copy; `cycle_tab` enum (client#12 #13 #18 #19).
+- [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
+- [ ] **I9** Remaining Base reimplementations (idiom §1 table).
+- [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
+- [ ] **I11** `net.bend`: delete `poll_pass`; `or_halt` → `Bool.or`; factor loops; `send_go` pure (net#15 #17 #18 #20).
+- [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
+- [ ] **I13** Parallelism: rebalance `view_draft`; measure `pack_body` (idiom §6).
+- [ ] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
+- [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
+- [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
+
+### Phase R — remove C
+- [ ] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
+- [ ] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
+- [ ] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
+- [ ] **R4** = C8.
+- [ ] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
+- [ ] **R6** Draw ops carry rects; panel layout moves to Bend.
+- [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).
+
+### Phase T — laws and tests
+- [ ] **T1** Quantified laws (`line_ok(clamp_line(s))`, no CR/LF in `strip_ctl`, …).
+- [ ] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
+- [ ] **T3** Feed fixtures through `File.read` + `replay_lines`; real `\x01` ACTION (proto T6, client#23).
+- [ ] **T4** `dns_demo`: hostile packets as − tests; live address set (dns#25 #26).
+- [ ] **T5** Client −/+ tests: NICK, QUIT, PART, KICK, MODE, TOPIC, 4xx (client#20).
+- [ ] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
+- [ ] **T7** Net: rename `Net` alias; live mock − cases (net#23–#25).
+- [ ] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
+
+### Phase D — docs
+- [ ] **D1** Delete `docs/INVENTORY.md`.
+- [ ] **D2** `docs/FFI.md`: real type names, draw-op contract, `lint-ffi`.
+- [ ] **D3** `README.md`: `birc_bend.c`, no "shim", list every FFI file.
+- [ ] **D4** `AGENTS.md`: clock, 512-byte, shutdown, Bend match notes, pty.
+- [ ] **D5** `Makefile`: delete the dead `CFLAGS` block.
+- [ ] **D6** `TODO.md`: no `Timui.events`; list `clock_ffi.c`; M9 ticked or annotated.
+
+C line count before: 662 (`src/ffi` + `tests/ffi`). Do not run `make clean` (repros live in `build/review/`).
+
+---
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
