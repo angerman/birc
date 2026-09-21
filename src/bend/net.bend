@@ -10,7 +10,7 @@
 # Actor code never calls UI code (no mutual recursion).
 import Base
 import ./irc.bend as Irc
-import ./client.bend as Cl
+import ./buffer.bend as Cl
 import ./view.bend as V
 import ./timui.bend as T
 import ./session.bend as Sess

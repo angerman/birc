@@ -1,7 +1,8 @@
 # birc main (M6). Bend owns the frame loop with Nat fuel; TimUI FFI is thin.
 # D4: `--frames` supplies fuel; Escape / `/quit` halt.
 import Base
-import ./client.bend as Cl
+import ./buffer.bend as Cl
+import ./client.bend as Feed
 import ./net.bend as Net
 import ./dns.bend as Dns
 import ./args.bend as Args
@@ -25,7 +26,7 @@ def replay_read.got(+path: String, +nick: String, +server: String, f: File, r: R
       do IO<Cl.Client>:
         Unit <- File.close(f)
         ts : String <- Clock.hhmmss()
-        return Cl.feed_all(Cl.set_now(Cl.init(nick, server), ts), Cl.replay_lines(text))
+        return Feed.feed_all(Cl.set_now(Cl.init(nick, server), ts), Cl.replay_lines(text))
 
 def replay_read(+path: String, +nick: String, +server: String, pair: File & Result<&1, &1, U32 & String, String>) -> IO(Cl.Client):
   match pair:
@@ -74,7 +75,7 @@ def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: Str
 def demo_client() -> IO(Cl.Client):
   do IO<Cl.Client>:
     ts : String <- Clock.hhmmss()
-    return Cl.feed_all(Cl.set_now(Cl.init("me", "irc.birc.dev"), ts), Cl.demo_lines())
+    return Feed.feed_all(Cl.set_now(Cl.init("me", "irc.birc.dev"), ts), Feed.demo_lines())
 
 def main_offline(+frames: U32, +nick: String, +chan: String, +cl: Cl.Client) -> IO(Unit):
   run_demo(frames, cl, nick, chan)

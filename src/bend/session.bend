@@ -2,7 +2,8 @@
 # No IO. net.bend owns Socket / Chan / TimUI.
 import Base
 import ./irc.bend as Irc
-import ./client.bend as Cl
+import ./buffer.bend as Cl
+import ./client.bend as Feed
 import ./frame.bend as Fr
 import ./submit.bend as Sub
 
@@ -17,7 +18,7 @@ def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +h: String, ping: Bo
     case True{}:
       FoldAcc{cl, Irc.pong_for(h) <> pongs}
     case False{}:
-      +cl2 = Cl.feed(cl, h)
+      +cl2 = Feed.feed(cl, h)
       FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs)}
 
 def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +h: String) -> FoldAcc:

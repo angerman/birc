@@ -1,7 +1,8 @@
 # Protocol proofs. Each law is discharged by a same-named def.
 import Base
 import ./src/bend/irc.bend as Irc
-import ./src/bend/client.bend as Cl
+import ./src/bend/buffer.bend as Cl
+import ./src/bend/client.bend as Feed
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V

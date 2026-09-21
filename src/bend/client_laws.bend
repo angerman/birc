@@ -1,7 +1,8 @@
 # Inspectors and law predicates for Client (I15a).
 import Base
 import ./irc.bend as Irc
-import ./client.bend as Cl
+import ./buffer.bend as Cl
+import ./client.bend as Feed
 
 def show_nicks.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
   match fuel:
@@ -111,7 +112,7 @@ def buf_nicks(+cl: Cl.Client, +name: String) -> String:
 # ---- law helpers (pure predicates) --------------------------------------
 
 def feed_id(+cl: Cl.Client, +line: String) -> Bool:
-  String.eq(show_client(cl), show_client(Cl.feed(cl, line)))
+  String.eq(show_client(cl), show_client(Feed.feed(cl, line)))
 
 # M7.2 — flood JOIN past MAX_BUFFERS; buffer count stays capped.
 def flood_join_line(+i: Nat) -> String:
@@ -129,20 +130,20 @@ def flood_joins(+n: Nat) -> List<&2, String>:
 
 # Extra self-JOINs past the cap log "buffer limit reached" on the server buffer.
 def flood_server_clean() -> Bool:
-  +one = Cl.feed(Cl.init("me", "s"), flood_join_line(0n))
-  +many = Cl.feed_all(Cl.init("me", "s"), flood_joins(24n))
+  +one = Feed.feed(Cl.init("me", "s"), flood_join_line(0n))
+  +many = Feed.feed_all(Cl.init("me", "s"), flood_joins(24n))
   Nat.is_gt(buf_nlines(many, 0n), buf_nlines(one, 0n))
 
 def flood_buffers_capped() -> Bool:
-  +many = Cl.feed_all(Cl.init("me", "s"), flood_joins(24n))
+  +many = Feed.feed_all(Cl.init("me", "s"), flood_joins(24n))
   Nat.is_le(nbuf(many), Cl.MAX_BUFFERS()) && flood_server_clean()
 
 def notice_star_server() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net NOTICE * :*** Looking up")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net NOTICE * :*** Looking up")
   Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
 
 def privmsg_query_opens() -> Bool:
-  Nat.is_eq(nbuf(Cl.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")), 2n)
+  Nat.is_eq(nbuf(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")), 2n)
 
 def lines_pipe.go(fuel: Nat, +xs: List<&2, Cl.Line>, +acc: String) -> String:
   match fuel:
@@ -174,60 +175,60 @@ def buf_texts(+cl: Cl.Client, +i: Nat) -> String:
 
 # Self JOIN focuses #birc (index 1); next wraps to server (0), next again to 1.
 def scroll_page_ok() -> Bool:
-  +cl0 = Cl.set_active(Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
+  +cl0 = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
   +cl1 = Cl.apply_active_scroll(cl0, 3n, 0n)
   Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), 1n)
 
 def nick_query_renames() -> Bool:
-  +cl0 = Cl.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
-  +cl = Cl.feed(cl0, ":alice!a@h NICK bob")
+  +cl0 = Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
+  +cl = Feed.feed(cl0, ":alice!a@h NICK bob")
   has_buf(cl, "bob")
     && Bool.not(has_buf(cl, "alice"))
     && Nat.is_eq(nbuf(cl), 2n)
 
 def quit_query_logs() -> Bool:
-  +cl0 = Cl.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
-  +cl = Cl.feed(cl0, ":alice!a@h QUIT :bye")
+  +cl0 = Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
+  +cl = Feed.feed(cl0, ":alice!a@h QUIT :bye")
   Nat.is_eq(buf_nlines(cl, 1n), 2n)
 
 def mode_channel_logs() -> Bool:
-  +cl0 = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
-  +cl = Cl.feed(cl0, ":op!u@h MODE #birc +o alice")
+  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl = Feed.feed(cl0, ":op!u@h MODE #birc +o alice")
   Nat.is_eq(buf_nlines(cl, 1n), 2n) && Nat.is_eq(buf_nlines(cl, 0n), 0n)
 
 def part_nonmember_silent() -> Bool:
-  +cl0 = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
-  +cl1 = Cl.feed(cl0, ":alice!a@h JOIN #birc")
-  +cl = Cl.feed(cl1, ":bob!b@h PART #birc")
+  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl1 = Feed.feed(cl0, ":alice!a@h JOIN #birc")
+  +cl = Feed.feed(cl1, ":bob!b@h PART #birc")
   Nat.is_eq(buf_nlines(cl, 1n), 2n)
 
 def server_nick_query() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi")
+  +cl = Feed.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi")
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "server") && Nat.is_eq(buf_nlines(cl, 0n), 0n)
 
 def ieq_rfc1459_ok() -> Bool:
   Irc.ieq("foo[]", "foo{}") && Irc.ieq("A\\B", "a|b")
 
 def self_priv_query() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":me!me@h PRIVMSG alice :hi")
+  +cl = Feed.feed(Cl.init("me", "s"), ":me!me@h PRIVMSG alice :hi")
   has_buf(cl, "alice") && Bool.not(has_buf(cl, "me"))
 
 def scroll_clamp_ok() -> Bool:
-  +cl0 = Cl.set_active(Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
+  +cl0 = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
   +cl1 = Cl.apply_active_scroll(cl0, 50n, 0n)
   Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), buf_nlines(cl1, 1n))
 
 def bare_join_ok() -> Bool:
-  Nat.is_eq(nbuf(Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN")), 1n)
+  Nat.is_eq(nbuf(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN")), 1n)
 
 def snap_ok() -> Bool:
-  +clq = Cl.set_active(Cl.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
+  +clq = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
   +cl1 = Cl.apply_active_scroll(clq, 2n, 0n)
   +cl2 = Cl.snap_active(cl1)
   Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), 1n) && Nat.is_eq(Cl.buf_scroll_of(cl2, 1n), 0n)
 
 def cycle_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
   +c1 = Cl.cycle_tab(cl, 1)
   +c2 = Cl.cycle_tab(c1, 1)
   Nat.is_eq(Cl.active_of(cl), 1n) && Nat.is_eq(Cl.active_of(c1), 0n) && Nat.is_eq(Cl.active_of(c2), 1n)
@@ -236,61 +237,61 @@ def cycle_ok() -> Bool:
 def log_chrono_ok() -> Bool:
   String.eq(
     buf_texts(
-      Cl.feed(Cl.feed(Cl.init("me", "s"), ":a!a@h PRIVMSG me :one"), ":a!a@h PRIVMSG me :two"),
+      Feed.feed(Feed.feed(Cl.init("me", "s"), ":a!a@h PRIVMSG me :one"), ":a!a@h PRIVMSG me :two"),
       1n
     ),
     "<a> one|<a> two|"
   )
 
 def welcome_server_line() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net 001 me :Welcome")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 001 me :Welcome")
   Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
 
 def names_1459_ok() -> Bool:
-  +cl = Cl.feed_all(
+  +cl = Feed.feed_all(
     Cl.init("me", "s"),
     ":me!me@localhost JOIN #birc" <> ":irc.birc.dev 353 me #birc :me alice" <> Nil{})
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "#birc") && Bool.not(has_buf(cl, "me alice")) && String.eq(buf_nicks(cl, "#birc"), "me alice ")
 
 def statusmsg_ok() -> Bool:
-  +cl = Cl.feed_all(
+  +cl = Feed.feed_all(
     Cl.init("me", "s"),
     ":me!me@localhost JOIN #birc" <> ":op!u@h PRIVMSG @#birc :ops" <> Nil{})
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "#birc") && Bool.not(has_buf(cl, "@#birc")) && Nat.is_eq(buf_nlines(cl, 1n), 2n)
 
 def notice_auth_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc NOTICE AUTH :hi")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc NOTICE AUTH :hi")
   Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
 
 def kick_self_drops() -> Bool:
-  +cl = Cl.feed_all(
+  +cl = Feed.feed_all(
     Cl.init("me", "s"),
     ":me!me@localhost JOIN #birc" <> ":op!u@h KICK #birc me :bye" <> Nil{})
   Nat.is_eq(nbuf(cl), 1n) && Bool.not(has_buf(cl, "#birc"))
 
 def self_part_drops() -> Bool:
-  +cl = Cl.feed_all(
+  +cl = Feed.feed_all(
     Cl.init("me", "s"),
     ":me!me@localhost JOIN #birc" <> ":me!me@localhost PART #birc" <> Nil{})
   Nat.is_eq(nbuf(cl), 1n) && Bool.not(has_buf(cl, "#birc"))
 
 
 def numeric_last_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net 403 me #nope :No such channel")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 403 me #nope :No such channel")
   String.eq(buf_texts(cl, 0n), "[403] No such channel|")
 
 # After registration, 433 me newnick is a rejected /nick: stay me, only log.
 def nick433_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net 433 me newnick :Nickname is already in use")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 me newnick :Nickname is already in use")
   String.eq(Cl.nick_of(cl), "me") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 # Registration: 433 * me and 433 me me mean our nick is taken; retry as me_.
 def nick433_star_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net 433 * me :Nickname is already in use")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 * me :Nickname is already in use")
   String.eq(Cl.nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 def nick433_same_ok() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":irc.example.net 433 me me :Nickname is already in use")
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 me me :Nickname is already in use")
   String.eq(Cl.nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 def log_ts_ok.pair(+ts0: String, rest: List<&2, Cl.Line>) -> Bool:
@@ -331,7 +332,7 @@ def log_ts_ok.feed.on(+cl: Cl.Client) -> Bool:
       log_ts_ok.feed.got(Cl.nth_buf(bufs, 0n))
 
 def log_ts_ok.feed() -> Bool:
-  log_ts_ok.feed.on(Cl.feed(Cl.set_now(Cl.init("me", "s"), "12:00:00"), ":irc.example.net NOTICE * :hi"))
+  log_ts_ok.feed.on(Feed.feed(Cl.set_now(Cl.init("me", "s"), "12:00:00"), ":irc.example.net NOTICE * :hi"))
 
 def log_ts_ok() -> Bool:
   +b1 = Cl.buf_log_ts(Cl.server_buf(), Cl.Msg{}, "01:02:03", "old")

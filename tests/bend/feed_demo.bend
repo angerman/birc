@@ -1,7 +1,8 @@
 # M1.6 — feed DEMO_LINES plus NOTICE*/001 regressions. Assert, do not print-and-pass.
 import Base
 import ./expect.bend as E
-import ../../src/bend/client.bend as Cl
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
 import ../../src/bend/clock.bend as Clock
@@ -14,12 +15,12 @@ def forge_msg() -> String:
 
 def no_forge_pack() -> Bool:
   String.eq(
-    CL.buf_texts(Cl.feed(Cl.init("me", "s"), forge_msg()), 1n),
+    CL.buf_texts(Feed.feed(Cl.init("me", "s"), forge_msg()), 1n),
     "<a> look Lhttps://evil.examplehttps://github.com/zw3rk/birc|"
   )
 
 def join_us_name() -> Bool:
-  +cl = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #a" ++ SCon{Chr{31}, "b"})
+  +cl = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #a" ++ SCon{Chr{31}, "b"})
   CL.has_buf(cl, "#ab") && Bool.not(CL.has_buf(cl, "#a" ++ SCon{Chr{31}, "b"}))
 
 def naive_body() -> String:
@@ -48,11 +49,11 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("flood_server", CL.flood_server_clean())
     Unit <- E.must(
       "foreign_join",
-      Nat.is_eq(CL.nbuf(Cl.feed(Cl.init("me", "s"), ":rando!r@h JOIN #never-joined")), 1n)
+      Nat.is_eq(CL.nbuf(Feed.feed(Cl.init("me", "s"), ":rando!r@h JOIN #never-joined")), 1n)
     )
     Unit <- E.must(
       "cap_active",
-      Nat.is_lt(Cl.active_of(Cl.feed_all(Cl.init("me", "s"), CL.flood_joins(24n))), 16n)
+      Nat.is_lt(Cl.active_of(Feed.feed_all(Cl.init("me", "s"), CL.flood_joins(24n))), 16n)
     )
     Unit <- E.must("names1459", CL.names_1459_ok())
     Unit <- E.must("statusmsg", CL.statusmsg_ok())
@@ -103,7 +104,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must_eq(
       "naive_feed",
       CL.buf_texts(
-        Cl.feed(Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #t"), ":a!a@h PRIVMSG #t :" ++ naive_body()),
+        Feed.feed(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #t"), ":a!a@h PRIVMSG #t :" ++ naive_body()),
         1n
       ),
       "-> me joined #t|<a> " ++ naive_body() ++ "|"
@@ -118,4 +119,4 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     IO.print("feed_demo=ok")
 
 def main() -> IO(Unit):
-  main_on(Cl.feed_all(Cl.init("me", "irc.birc.dev"), Cl.demo_lines()))
+  main_on(Feed.feed_all(Cl.init("me", "irc.birc.dev"), Feed.demo_lines()))
