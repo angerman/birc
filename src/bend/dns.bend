@@ -18,9 +18,6 @@ def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, String>:
 def encode(+host: String) -> Result<&1, &1, U32 & String, String>:
   Wire.encode(host)
 
-def octets(+s: String) -> List<&2, U32>:
-  Wire.octets(s)
-
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   Wire.parse_id(want, xs)
 
