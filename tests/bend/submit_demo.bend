@@ -186,17 +186,17 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("body_h16", Nat.show(Sess.body_h(16)), "10")
     Unit <- E.must_eq(
       "hist_seed",
-      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), "kept", False{}, 0, 0, 0, 0, 2)))),
+      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2))))),
       "1"
     )
     Unit <- E.must_eq(
       "hist_clear",
-      Sess.session_draft(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), "kept", False{}, 0, 0, 0, 0, 2))),
+      Sess.session_draft(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2)))),
       ""
     )
     Unit <- E.must_eq(
       "type_seed",
-      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), "kept", False{}, 0, 0, 0, 0, 0)))),
+      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 0))))),
       "0"
     )
     Unit <- E.must_eq("offline_msg", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "hello")), "cont:")

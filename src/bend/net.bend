@@ -177,35 +177,29 @@ def with_keys.go(
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  +typed: String,
+  keys: Sess.Keys,
   +rows: U32,
   +cols: U32,
-  +tab: U32,
-  +click: U32,
-  +up: U32,
-  +dn: U32,
-  +hist: U32,
   +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit),
-  quit: Bool,
-  enter: Bool
+  quit: Bool
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    send_pair(ui, quit, evt, cmd, step_size(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows, cols), pending, k)
+    send_pair(ui, quit, evt, cmd, step_size(Sess.step_keys(Sess.session_set_now(st, ts), keys), rows, cols), pending, k)
 
 def with_keys(
   ui: T.Ui,
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  keys: T.UiKeys,
+  +ukeys: T.UiKeys,
   +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  match keys:
+  match ukeys:
     case T.UiKeys{quit, enter, +typed, rows, cols, tab, click, up, dn, hist}:
-      with_keys.go(ui, st, evt, cmd, typed, rows, cols, tab, click, up, dn, hist, pending, k, T.flag_on(quit), T.flag_on(enter))
+      with_keys.go(ui, st, evt, cmd, Sess.keys_of(typed, T.flag_on(enter), tab, click, up, dn, hist), rows, cols, pending, k, T.flag_on(quit))
 
 def with_tick.got(
   got: T.Ui & T.UiKeys,
