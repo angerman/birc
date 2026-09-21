@@ -1403,8 +1403,7 @@ def buf_nicks(+cl: Client, +name: String) -> String:
 # ---- law helpers (pure predicates) --------------------------------------
 
 def feed_id(+cl: Client, +line: String) -> Bool:
-  # structural: nbuf unchanged after empty/whitespace (caller compares show)
-  Nat.is_eq(nbuf(cl), nbuf(feed(cl, line)))
+  String.eq(show_client(cl), show_client(feed(cl, line)))
 
 # M7.2 — flood JOIN past MAX_BUFFERS; buffer count stays capped.
 def flood_join_line(+i: Nat) -> String:
