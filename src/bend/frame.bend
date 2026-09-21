@@ -9,7 +9,7 @@ def LF() -> U32:
   10
 
 def LINE_OCTET_MAX() -> Nat:
-  510n
+  Irc.LINE_MAX()
 
 def octets_to_string.go(fuel: Nat, +xs: List<&2, U32>, +acc: String) -> String:
   match fuel:

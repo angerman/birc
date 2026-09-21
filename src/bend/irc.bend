@@ -566,28 +566,70 @@ def format_quit.empty(empty: Bool, +reason: String) -> String:
 def format_quit(+reason: String) -> String:
   format_quit.empty(String.is_empty(reason), reason)
 
-law clamp_line.go:
-  for n: Nat
-  for s: String
-  for acc: String
-  String
+def utf8_w4(+n: U32, hi: Bool) -> Nat:
+  match hi:
+    case True{}:
+      4n
+    case False{}:
+      3n
 
-def clamp_line.go(n, s, acc):
-  match n:
+def utf8_w2(+n: U32, two: Bool) -> Nat:
+  match two:
+    case True{}:
+      2n
+    case False{}:
+      utf8_w4(n, U32.is_ge(n, 65536))
+
+def utf8_w1(+n: U32, one: Bool) -> Nat:
+  match one:
+    case True{}:
+      1n
+    case False{}:
+      utf8_w2(n, U32.is_lt(n, 2048))
+
+def utf8_w(+c: Char) -> Nat:
+  +n = code_of(c)
+  utf8_w1(n, U32.is_lt(n, 128))
+
+def utf8_len.go(+s: String, acc: Nat) -> Nat:
+  match s:
+    case SNil{}:
+      acc
+    case SCon{+h, t}:
+      utf8_len.go(t, Nat.add(acc, utf8_w(h)))
+
+def utf8_len(+s: String) -> Nat:
+  utf8_len.go(s, 0n)
+
+type ClPh is Data:
+  ClStr{}
+  ClFit{h: Char, w: Nat, too: Bool}
+
+def clamp_line.go(fuel: Nat, ph: ClPh, +n: Nat, s: String, acc: String) -> String:
+  match fuel:
     case 0n:
       String.reverse(acc)
     case 1n+p:
-      match s:
-        case SNil{}:
-          String.reverse(acc)
-        case SCon{+h, t}:
-          clamp_line.go(p, t, SCon{h, acc})
+      match ph:
+        case ClStr{}:
+          match s:
+            case SNil{}:
+              String.reverse(acc)
+            case SCon{+h, t}:
+              +w = utf8_w(h)
+              clamp_line.go(p, ClFit{h, w, Nat.is_lt(n, w)}, n, t, acc)
+        case ClFit{h, w, too}:
+          match too:
+            case True{}:
+              String.reverse(acc)
+            case False{}:
+              clamp_line.go(p, ClStr{}, Nat.sub(n, w), s, SCon{h, acc})
 
-def clamp_line(s: String) -> String:
-  clamp_line.go(LINE_MAX(), s, SNil{})
+def clamp_line(+s: String) -> String:
+  clamp_line.go(Nat.add(1n, Nat.mul(2n, String.length(s))), ClStr{}, LINE_MAX(), s, SNil{})
 
 def line_ok(s: String) -> Bool:
-  Nat.is_le(String.length(s), LINE_MAX())
+  Nat.is_le(utf8_len(s), LINE_MAX())
 
 def is_ping_cmd(c: Cmd) -> Bool:
   match c:
