@@ -52,32 +52,12 @@ def is_bang_or_at(+c: Char) -> Bool:
 
 # ---- string helpers -----------------------------------------------------
 
-type SpacePhase is Data:
-  SpRead{}
-  SpDecide{}
-
-# Fuel-bounded space skip: each char costs Read+Decide ≤ 2 calls.
-def drop_spaces.go(fuel: Nat, phase: SpacePhase, s: String, +h: Char, space: Bool) -> String:
-  match fuel:
-    case 0n:
-      s
-    case 1n+p:
-      match phase:
-        case SpRead{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              drop_spaces.go(p, SpDecide{}, t, hd, is_space(hd))
-        case SpDecide{}:
-          match space:
-            case True{}:
-              drop_spaces.go(p, SpRead{}, s, h, False{})
-            case False{}:
-              SCon{h, s}
-
-def drop_spaces(+s: String) -> String:
-  drop_spaces.go(Nat.add(1n, Nat.mul(2n, String.length(s))), SpRead{}, s, Chr{0}, False{})
+def drop_spaces(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      Bool.pick(String, is_space(h), drop_spaces(t), SCon{h, t})
 
 type TakePhase is Data:
   TkRead{}
