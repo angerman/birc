@@ -451,10 +451,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
       `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
       `SLPh` gone; `send_lines_go` matches the pair then the list.
-- [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
-      tried: H7 left `Fr.push` as PushPhase + fuel beside `utf8_decode`
-      evidence: two walkers share the remainder list; merging is a behaviour risk
-      open question: one fuel loop that both frames and decodes completed lines
+- [x] **I12** One framer (H7). Unreachable CR strip in `emit_line`/`payload_n` gone
+      (CR is never stored). `push_param` and `join_lines` cons then reverse once.
 - [x] **I13** Parallelism: rebalance `view_draft` (idiom §6).
       Same measurement as M18 (`cpu_pty.py`, 15 s): idle 6.6–7.4% of one
       core, flood 10.9–17.7%. Parallel packing is not justified at these
