@@ -400,11 +400,14 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
       `SEND_CAP` is 8. `reader_go`/`reader_idle` carry leftover lines.
       Pty: `tests/pty/paste50.py` (50 PRIVMSGs).
-- [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
-      tried: default-off timers would live in `timui_ffi.c`
-      evidence: `wc -l src/ffi/*.c` is 598 (clock 26, dns 63, timui 509). Frame
-      timers grow C after the note-8 cut. No split without a timer.
-      open question: measure in Bend (`local_secs` is 1 s) or accept the 16 ms poll
+- [x] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
+      Measured with `build/review/lead/cpu_pty.py` (pty, mock server, 15 s,
+      CPU = `ru_utime+ru_stime` of the birc process):
+      idle 30x100 = 6.6% of one core; idle 82x159 = 7.4%;
+      flood ~70 lines/s 30x100 = 10.9%; flood 82x159 = 17.7%.
+      Decision: no change. The 16 ms tick keeps key latency low (keys are
+      read only when a frame runs). A lower idle cost would need a separate
+      input actor, which is out of scope. No `--timing` flag.
 - [x] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
       Empty JOIN does not open a buffer. pack_spans deleted with the packed wire.
 - [x] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
@@ -453,11 +456,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: H7 left `Fr.push` as PushPhase + fuel beside `utf8_decode`
       evidence: two walkers share the remainder list; merging is a behaviour risk
       open question: one fuel loop that both frames and decodes completed lines
-- [ ] **I13** Parallelism: rebalance `view_draft` (idiom §6).
-      tried: pack_body is gone; no default-off view_draft timer
-      evidence: same C-budget as M18 (`wc -l src/ffi/*.c` = 598). Parallel lets
-      in view_draft are unmeasured
-      open question: instrument in Bend only, then decide; do not claim speed
+- [x] **I13** Parallelism: rebalance `view_draft` (idiom §6).
+      Same measurement as M18 (`cpu_pty.py`, 15 s): idle 6.6–7.4% of one
+      core, flood 10.9–17.7%. Parallel packing is not justified at these
+      totals. Decision: no change.
 - [x] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
       Deleted unused `is_online`/`is_busy`/`session_offline`/`session_rows` and the
       `header_of`/`body_of`/`nicks_of`/`status_of`/`active_buf`/`view`/`show_vm`/`pad_*`
