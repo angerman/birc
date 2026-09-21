@@ -85,20 +85,30 @@ def kind_code(k: Cl.LineKind) -> U32:
 def style_of(k: Cl.LineKind) -> U32:
   match k:
     case Cl.Msg{}:
-      2388717
+      13158600
     case Cl.Self{}:
-      5894207
+      5893695
     case Cl.System{}:
       10526880
     case Cl.Action{}:
-      13079146
+      13079274
     case Cl.Notice{}:
       8563455
     case Cl.Error{}:
-      16225420
+      16223340
 
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
+
+# Spec / C table: Msg=0xC8C8C8 Self=0x59EE3F System=0xA0A0A0
+# Action=0xC792EA Notice=0x82AAFF Error=0xF78C6C
+def style_spec_ok() -> Bool:
+  U32.is_eq(style_of(Cl.Msg{}), 13158600)
+    && U32.is_eq(style_of(Cl.Self{}), 5893695)
+    && U32.is_eq(style_of(Cl.System{}), 10526880)
+    && U32.is_eq(style_of(Cl.Action{}), 13079274)
+    && U32.is_eq(style_of(Cl.Notice{}), 8563455)
+    && U32.is_eq(style_of(Cl.Error{}), 16223340)
 
 def ts_width_ok() -> Bool:
   Nat.is_eq(TS_WIDTH(), 8n)
@@ -649,7 +659,11 @@ def pack_spans(+xs: List<&2, TextSpan>) -> String:
 def pack_line(+ln: Cl.Line) -> String:
   match ln:
     case Cl.Line{+k, +ts, +text}:
-      kind_digit(k) ++ "|" ++ ts ++ "|" ++ pack_spans(tokenize(text)) ++ "\n"
+      U32.show(style_of(k)) ++ "|" ++ ts ++ "|" ++ pack_spans(tokenize(text)) ++ "\n"
+
+def pack_fg_ok() -> Bool:
+  String.starts_with(pack_line(Cl.Line{Cl.Msg{}, "", "hi"}), "13158600|")
+    && String.starts_with(pack_line(Cl.Line{Cl.Action{}, "", "x"}), "13079274|")
 
 def pack_body.step(acc: String, ln: Cl.Line) -> String:
   acc ++ pack_line(ln)
