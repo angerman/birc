@@ -376,19 +376,60 @@ def hist_next(h: Hist) -> Hist & String:
       +n = List.length(&2, String, lines)
       hist_next.on(lines, pos, n, Nat.is_ge(pos, n))
 
-def hist_move.on(h: Hist, +draft: String, prev: Bool, next: Bool) -> Hist & String:
+type HistDir is Data:
+  HistStay{}
+  HistPrev{}
+  HistNext{}
+
+def hist_dir.on(+n: U32, prev: Bool, next: Bool) -> HistDir:
   match prev:
     case True{}:
-      hist_prev(h)
+      HistPrev{}
     case False{}:
       match next:
         case True{}:
-          hist_next(h)
+          HistNext{}
         case False{}:
-          (h, draft)
+          HistStay{}
 
-def hist_move(+h: Hist, +draft: String, +cmd: U32) -> Hist & String:
-  hist_move.on(h, draft, U32.is_eq(cmd, 1), U32.is_eq(cmd, 2))
+def hist_dir(+n: U32) -> HistDir:
+  hist_dir.on(n, U32.is_eq(n, 1), U32.is_eq(n, 2))
+
+def hist_move(+h: Hist, +draft: String, dir: HistDir) -> Hist & String:
+  match dir:
+    case HistStay{}:
+      (h, draft)
+    case HistPrev{}:
+      hist_prev(h)
+    case HistNext{}:
+      hist_next(h)
+
+def click_of.on(+n: U32, z: Bool) -> Maybe<&2, Nat>:
+  match z:
+    case True{}:
+      None{}
+    case False{}:
+      Some{U32.to_nat(U32.sub(n, 1))}
+
+def click_of(+n: U32) -> Maybe<&2, Nat>:
+  click_of.on(n, U32.is_eq(n, 0))
+
+type Keys is Data:
+  Keys{
+    typed: String,
+    enter: Bool,
+    tab: Cl.TabDir,
+    click: Maybe<&2, Nat>,
+    up: Nat,
+    dn: Nat,
+    hist: HistDir
+  }
+
+def keys_enter(+line: String) -> Keys:
+  Keys{line, True{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}}
+
+def keys_of(+typed: String, enter: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32) -> Keys:
+  Keys{typed, enter, Cl.tab_dir(tab), click_of(click), U32.to_nat(up), U32.to_nat(dn), hist_dir(hist)}
 
 def hist_after_enter(+h: Hist, +line: String, enter: Bool) -> Hist:
   match enter:
@@ -478,15 +519,12 @@ def session_after(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String
     case Cont{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed}
 
-def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
-  match z:
-    case True{}:
+def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
+  match c:
+    case None{}:
       cl
-    case False{}:
-      Cl.set_active_clamp(cl, U32.to_nat(U32.sub(click, 1)))
-
-def apply_click(+cl: Cl.Client, +click: U32) -> Cl.Client:
-  apply_click.on(cl, click, U32.is_eq(click, 0))
+    case Some{i}:
+      Cl.set_active_clamp(cl, i)
 
 def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
   match enter:
@@ -509,8 +547,14 @@ def seed_bit(z: Bool) -> U32:
     case False{}:
       1
 
-def seed_of(+hcmd: U32) -> U32:
-  seed_bit(U32.is_zero(hcmd))
+def seed_of(dir: HistDir) -> U32:
+  match dir:
+    case HistStay{}:
+      0
+    case HistPrev{}:
+      1
+    case HistNext{}:
+      1
 
 def session_seed(+st: Session) -> U32:
   match st:
@@ -545,31 +589,28 @@ def finish_keys(
   joined: Bool,
   +chan: String,
   net: NetState,
-  +enter: Bool,
-  +tab: U32,
-  +click: U32,
-  +up: U32,
-  +dn: U32,
-  +hcmd: U32,
+  keys: Keys,
   +hist: Hist,
-  +line: String,
   +size: Size,
   triple: Cl.Client & String & NetCmd
 ) -> Session & NetCmd & Bool:
-  match triple:
-    case (cl2, draft2, cmd):
-      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, Cl.tab_dir(tab)), click), U32.to_nat(up), U32.to_nat(dn)))
-      +h2 = hist_after_enter(hist, line, enter)
-      finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, line), size, seed_of(hcmd), hist_move(h2, draft2, hcmd))
+  match keys:
+    case Keys{+typed, +enter, tab, click, +up, +dn, +hdir}:
+      match triple:
+        case (cl2, draft2, cmd):
+          +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), up, dn))
+          +h2 = hist_after_enter(hist, typed, enter)
+          finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, typed), size, seed_of(hdir), hist_move(h2, draft2, hdir))
 
-def step_keys(+st: Session, +typed: String, +enter: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & NetCmd & Bool:
+def step_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match st:
     case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _}:
-      +line = typed
-      finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, hcmd, hist, line, size, apply_keys(cl, net, line, enter))
+      match keys:
+        case Keys{+typed, enter, _, _, _, _, _}:
+          finish_keys(drop, rem, joined, chan, net, keys, hist, size, apply_keys(cl, net, typed, enter))
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
-  step_keys(st, line, True{}, 0, 0, 0, 0, 0)
+  step_keys(st, keys_enter(line))
 
 def step_chunk_got(
   +draft: String,

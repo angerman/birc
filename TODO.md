@@ -439,11 +439,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
       `strip_cr` copy deleted. `nick_has` is `List.contains` + `nick_eq`.
       Find/Has/Del/Ren/Quit/Nick Acc gone. `cycle_tab` takes `TabDir`.
-- [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
-      tried: pass `T.UiKeys` into `Sess.step_keys`; session does not import timui
-      evidence: `UiKeys` is 10 fields; `with_keys` matches it then explodes to
-      U32s (`net.bend:206-208`); `step_keys` still takes typed/enter/tab/click/up/dn/hist
-      open question: `+keys` copy in with_keys.go, then TabDir/HistDir in session
+- [x] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
+      `with_keys` builds `Sess.Keys` (`TabDir`, `HistDir`, `Maybe` click).
+      `step_keys` takes that record. C `UiKeys` packing unchanged.
 - [x] **I9** Remaining Base reimplementations (idiom §1 table).
       `String.starts_with` (has_prefix gone), `Char.to_u32`, `List.drop` for
       take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
