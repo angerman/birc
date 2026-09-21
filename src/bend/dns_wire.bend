@@ -104,26 +104,93 @@ def ns_ip(+ip: String, good: Bool) -> Maybe<&2, String>:
     case True{}:
       Some{ip}
 
-def ns_tail(t: List<&2, String>) -> Maybe<&2, String>:
-  match t:
-    case Nil{}:
-      None{}
-    case Con{+ip, _}:
-      ns_ip(ip, is_ipv4(ip))
+# TAB/space runs become empty String.split tokens; skip them. First
+# non-empty word must be nameserver, then the next non-empty IPv4.
+type NsW is Data:
+  NsRead{}
+  NsGot{}
+  NsKw{}
+  NsTail{}
+  NsIp{}
 
-def ns_kw(hit: Bool, t: List<&2, String>) -> Maybe<&2, String>:
-  match hit:
-    case False{}:
+def ns_words_go(
+  fuel: Nat,
+  ph: NsW,
+  xs: List<&2, String>,
+  +w: String,
+  empty: Bool,
+  hit: Bool
+) -> Maybe<&2, String>:
+  match fuel:
+    case 0n:
       None{}
-    case True{}:
-      ns_tail(t)
+    case 1n+p:
+      match ph:
+        case NsRead{}:
+          match xs:
+            case Nil{}:
+              None{}
+            case Con{+h, t}:
+              ns_words_go(p, NsGot{}, t, h, String.is_empty(h), False{})
+        case NsGot{}:
+          match empty:
+            case True{}:
+              ns_words_go(p, NsRead{}, xs, w, False{}, False{})
+            case False{}:
+              ns_words_go(p, NsKw{}, xs, w, False{}, String.eq(w, "nameserver"))
+        case NsKw{}:
+          match hit:
+            case False{}:
+              None{}
+            case True{}:
+              ns_words_go(p, NsTail{}, xs, w, False{}, False{})
+        case NsTail{}:
+          match xs:
+            case Nil{}:
+              None{}
+            case Con{+h, t}:
+              ns_words_go(p, NsIp{}, t, h, String.is_empty(h), False{})
+        case NsIp{}:
+          match empty:
+            case True{}:
+              ns_words_go(p, NsTail{}, xs, w, False{}, False{})
+            case False{}:
+              ns_ip(w, is_ipv4(w))
 
-def ns_words(xs: List<&2, String>) -> Maybe<&2, String>:
-  match xs:
-    case Nil{}:
-      None{}
-    case Con{+w, t}:
-      ns_kw(String.eq(w, "nameserver"), t)
+def ns_words(+xs: List<&2, String>) -> Maybe<&2, String>:
+  ns_words_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), NsRead{}, xs, "", False{}, False{})
+
+# Drop CR; map TAB to space so split on SP sees indent and nameserver\tip.
+type Nrm is Data:
+  NrmRead{}
+  NrmCh{}
+
+def ns_norm_go(fuel: Nat, ph: Nrm, s: String, +h: Char, cr: Bool, tab: Bool) -> String:
+  match fuel:
+    case 0n:
+      SNil{}
+    case 1n+p:
+      match ph:
+        case NrmRead{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+c, t}:
+              +n = Char.to_u32(c)
+              ns_norm_go(p, NrmCh{}, t, c, U32.is_eq(n, 13), U32.is_eq(n, 9))
+        case NrmCh{}:
+          match cr:
+            case True{}:
+              ns_norm_go(p, NrmRead{}, s, h, False{}, False{})
+            case False{}:
+              match tab:
+                case True{}:
+                  SCon{Chr{32}, ns_norm_go(p, NrmRead{}, s, h, False{}, False{})}
+                case False{}:
+                  SCon{h, ns_norm_go(p, NrmRead{}, s, h, False{}, False{})}
+
+def ns_norm(+s: String) -> String:
+  ns_norm_go(Nat.add(1n, Nat.mul(2n, String.length(s))), NrmRead{}, s, Chr{0}, False{}, False{})
 
 def nameserver_line(+line: String) -> Maybe<&2, String>:
   ns_words(String.split(line, Chr{32}))
@@ -144,7 +211,7 @@ def ns_go(xs: List<&2, String>, m: Maybe<&2, String>) -> String:
           ns_go(t, nameserver_line(h))
 
 def nameserver_of(+text: String) -> String:
-  ns_go(String.split(text, Chr{10}), None{})
+  ns_go(String.split(ns_norm(text), Chr{10}), None{})
 
 # ---- query encoder ------------------------------------------------------
 
