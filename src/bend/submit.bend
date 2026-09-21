@@ -2,7 +2,6 @@
 import Base
 import ./irc.bend as Irc
 import ./client.bend as Cl
-import ./args.bend as Args
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -276,21 +275,19 @@ type Conn is Data:
   ConnBad{}
   ConnOk{host: String, port: U32}
 
-def connect_port.num(+host: String, n: Args.Num) -> Conn:
-  match n:
-    case Args.Num{ok, p}:
-      match ok:
-        case True{}:
-          ConnOk{host, p}
-        case False{}:
-          ConnBad{}
+def connect_port.num(+host: String, got: Maybe<&2, U32>) -> Conn:
+  match got:
+    case None{}:
+      ConnBad{}
+    case Some{p}:
+      ConnOk{host, p}
 
 def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
   match empty:
     case True{}:
       ConnOk{host, 6667}
     case False{}:
-      connect_port.num(host, Args.parse_u32(more))
+      connect_port.num(host, U32.read(more))
 
 def connect_parse.host(+host: String, +more: String, empty: Bool) -> Conn:
   match empty:
