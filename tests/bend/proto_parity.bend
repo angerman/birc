@@ -15,6 +15,25 @@ def action_line() -> String:
 def check_line(+name: String, +line: String, +want: String) -> IO(Unit):
   E.must_eq(name, Irc.show_parse(line), want)
 
+def pad_x(n: Nat, acc: String) -> String:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      pad_x(p, acc ++ " x")
+
+def nparams.on(m: Maybe<&2, Irc.Message>) -> Nat:
+  match m:
+    case None{}:
+      0n
+    case Some{msg}:
+      match msg:
+        case Irc.Message{_, _, _, ps}:
+          List.length(&2, String, ps)
+
+def params_n_ok(+n: Nat) -> Bool:
+  Nat.is_eq(nparams.on(Irc.parse("MODE" ++ pad_x(n, ""))), n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- check_line("demo0", ":irc.birc.dev 001 me :Welcome", "NUM1:irc.birc.dev!001#1|me|Welcome")
@@ -34,4 +53,6 @@ def main() -> IO(Unit):
     Unit <- E.must("flood_cap", Cl.flood_buffers_capped())
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
     Unit <- E.must("tok_plain", V.tokenize_roundtrip("no stars here"))
+    Unit <- E.must("params16", params_n_ok(16n))
+    Unit <- E.must("params20", params_n_ok(20n))
     IO.print("proto_parity=ok")

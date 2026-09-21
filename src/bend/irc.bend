@@ -237,8 +237,18 @@ def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>,
           (tok, more) = pair
           parse_params.go(p, ParFuel{}, more, push_param(ps, tok), h, t, rest, False{}, ("", ""))
 
-def parse_params(s: String) -> List<&2, String>:
-  parse_params.go(64n, ParFuel{}, s, Nil{}, Chr{0}, "", "", False{}, ("", ""))
+def parse_params(+s: String) -> List<&2, String>:
+  parse_params.go(
+    Nat.add(1n, Nat.mul(4n, String.length(s))),
+    ParFuel{},
+    s,
+    Nil{},
+    Chr{0},
+    "",
+    "",
+    False{},
+    ("", "")
+  )
 
 def parse_after_prefix.empty(empty: Bool, +cmd: String, +more: String, +nick: String) -> Maybe<&2, Message>:
   match empty:

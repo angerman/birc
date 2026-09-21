@@ -12,6 +12,13 @@ def xs2(+a: String, +b: String) -> List<&2, String>:
 def xs_live() -> List<&2, String>:
   "--connect" <> "10.0.0.1" <> "--port" <> "6667" <> "--nick" <> "z" <> "--channel" <> "#x" <> "--frames" <> "4" <> Nil{}
 
+def many_demo(n: Nat, acc: List<&2, String>) -> List<&2, String>:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      many_demo(p, "--demo" <> acc)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("num_ok", Args.show_num(Args.parse_u32("12")), "True:12")
@@ -68,5 +75,20 @@ def main() -> IO(Unit):
       "frames_cap",
       Args.show_parsed(Args.parse(xs2("--frames", "65536"))),
       "bad:birc: --frames too large"
+    )
+    Unit <- E.must_eq(
+      "copy_fin_extra",
+      Args.show_parsed(Args.copy_fin2("extra" <> Nil{}, Nil{})),
+      "bad:birc: too many arguments"
+    )
+    Unit <- E.must_eq(
+      "copy_fin_empty",
+      Args.show_parsed(Args.copy_fin2(Nil{}, Nil{})),
+      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay="
+    )
+    Unit <- E.must_eq(
+      "argv65",
+      Args.show_parsed(Args.parse(many_demo(65n, Nil{}))),
+      "bad:birc: too many arguments"
     )
     IO.print("args_demo=ok")

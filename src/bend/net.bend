@@ -48,7 +48,9 @@ def send_lines_go(
 ) -> IO(Socket & Bool):
   match fuel:
     case 0n:
-      IO.pure(Socket & Bool, pair)
+      match pair:
+        case (sock, _):
+          IO.pure(Socket & Bool, (sock, False{}))
     case 1n+p:
       match phase:
         case SLList{}:
