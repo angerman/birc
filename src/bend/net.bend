@@ -1,8 +1,8 @@
 # IRC networking IO (M4). Pure fold/fuel live in session.bend.
-# D2: IO.spawn net actor owns Socket; UI ↔ actor via Chan(Sess.NetEvt)/Chan(Sess.NetCmd).
+# IO.spawn net actor owns Socket; UI ↔ actor via Chan(Sess.NetEvt)/Chan(Sess.NetCmd).
 # D3: TCP.send String; inbound octets via recv_octets, framed by Fr.push.
 # Empty octet list is EOF. Completed lines are UTF-8, Latin-1 if invalid.
-# P5: actor Socket.close then Timui.close (drain evt after Chan.close(cmd)).
+# Shutdown: actor Socket.close then Timui.close (drain evt after Chan.close(cmd)).
 # Dial: actor owns the fd (never Chan(Socket)). Demo/Connecting Cont is
 # held (empty outs) so queued JOIN/PRIVMSG cannot flush after Dial.
 # frames=0 uses @unsafe idle; --frames N is fuel.
@@ -108,7 +108,7 @@ def wait_dead_g(fuel: Nat, ui: T.Ui, +evt: Chan(Sess.NetEvt), g: Maybe<&1, Sess.
             g2 : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
             wait_dead_g(p, ui, evt, g2)
 
-# P5: close cmd (actor Socket.close + Chan.close(evt)), drain evt to None, then Timui.close.
+# Close cmd (actor Socket.close + Chan.close(evt)), drain evt to None, then Timui.close.
 # Halt so a parked TCP.connect / sleep cannot keep io_loop alive (H4, H6).
 def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   do IO<Unit>:

@@ -568,37 +568,10 @@ def active_buf.on(+got: Maybe<&2, Cl.Buffer>) -> Cl.Buffer:
     case None{}:
       Cl.server_buf()
 
-def active_buf(+cl: Cl.Client) -> Cl.Buffer:
-  match cl:
-    case Cl.Client{_, _, +bufs, +active, _}:
-      active_buf.on(Cl.nth_buf(bufs, active))
-
 def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -> String:
   match b:
     case Cl.Buffer{+name, _, +topic, _, _, _}:
       nick ++ "@" ++ server ++ " · " ++ name ++ " · " ++ net
-
-def header_of(+cl: Cl.Client) -> String:
-  match cl:
-    case Cl.Client{+nick, +server, _, _, _}:
-      header_of.buf(nick, server, active_buf(cl), "demo")
-
-def pad_top(n: Nat, +s: String) -> String:
-  match n:
-    case 0n:
-      s
-    case 1n+p:
-      pad_top(p, SCon{Chr{10}, s})
-
-def pad_n.on(ge: Bool, +height: Nat, +k: Nat) -> Nat:
-  match ge:
-    case True{}:
-      Nat.sub(height, k)
-    case False{}:
-      0n
-
-def pad_n(+height: Nat, +k: Nat) -> Nat:
-  pad_n.on(Nat.is_ge(height, k), height, k)
 
 def UNIT() -> Char:
   Chr{31}
@@ -676,9 +649,6 @@ def body_of.buf(+b: Cl.Buffer, +height: Nat) -> String:
     case Cl.Buffer{_, _, _, +lines, _, +scroll}:
       pack_body(visible_lines(lines, height, scroll))
 
-def body_of(+cl: Cl.Client, +height: Nat) -> String:
-  body_of.buf(active_buf(cl), height)
-
 def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
   match empty:
     case True{}:
@@ -691,18 +661,12 @@ def nicks_of.buf(+b: Cl.Buffer) -> String:
     case Cl.Buffer{+name, _, +topic, _, +nicks, _}:
       nicks_title.on(name, topic, String.is_empty(topic)) ++ "\n" ++ show_nicks_col(nicks)
 
-def nicks_of(+cl: Cl.Client) -> String:
-  nicks_of.buf(active_buf(cl))
-
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, _, _, +nicks, _}:
       "/connect /join /part /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
-
-def status_of(+cl: Cl.Client) -> String:
-  status_of.buf(active_buf(cl))
 
 def view_input(+draft: String) -> String:
   draft
@@ -731,14 +695,6 @@ def view_draft(+cl: Cl.Client, +height: Nat, +draft: String, +net: String) -> Vi
       bod ns = body_of.buf(b, height) nicks_of.buf(b)
       st inp = status_of.buf(b) view_input(draft)
       ViewModel{h, t, bod, ns, st, inp}
-
-def view(+cl: Cl.Client, +height: Nat) -> ViewModel:
-  view_draft(cl, height, "", "demo")
-
-def show_vm(+vm: ViewModel) -> String:
-  match vm:
-    case ViewModel{+h, +t, +b, +n, +s, +inp}:
-      "H:" ++ h ++ "|T:" ++ t ++ "|B:" ++ b ++ "|N:" ++ n ++ "|S:" ++ s ++ "|I:" ++ inp
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)

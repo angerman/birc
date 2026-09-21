@@ -183,28 +183,6 @@ def net_label(st: NetState) -> String:
 def net_demo_ok() -> Bool:
   String.eq(net_label(Demo{}), "demo") && String.eq(net_label(Online{}), "online")
 
-def is_online(st: NetState) -> Bool:
-  match st:
-    case Online{}:
-      True{}
-    case Demo{}:
-      False{}
-    case Connecting{}:
-      False{}
-    case Offline{}:
-      False{}
-
-def is_busy(st: NetState) -> Bool:
-  match st:
-    case Online{}:
-      True{}
-    case Connecting{}:
-      True{}
-    case Demo{}:
-      False{}
-    case Offline{}:
-      False{}
-
 def show_netcmd(c: NetCmd) -> String:
   match c:
     case Cont{_}:
@@ -474,11 +452,6 @@ def session_online(+st: Session) -> Session:
     case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, rows, seed}:
       Session{cl, drop, rem, draft, joined, chan, Online{}, hist, rows, seed}
 
-def session_offline(+st: Session) -> Session:
-  match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, rows, seed}:
-      Session{cl, drop, rem, draft, joined, chan, Offline{}, hist, rows, seed}
-
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, rows, seed}:
@@ -496,11 +469,6 @@ def session_set_rows(+st: Session, +rows: U32) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, rows, seed}
-
-def session_rows(+st: Session) -> U32:
-  match st:
-    case Session{_, _, _, _, _, _, _, _, rows, _}:
-      rows
 
 def session_net(+st: Session) -> NetState:
   match st:

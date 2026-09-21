@@ -428,7 +428,7 @@ def submit.empty(+cl: Cl.Client, empty: Bool, +input: String) -> Cl.Client & Lis
 def submit(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit.empty(cl, String.is_empty(input), input)
 
-# F3 — fuel 0 fail-closed. Nil is True only after a fuel tick (out_all_ok).
+# Fuel 0 fails closed. Nil is True only after a fuel tick (out_all_ok).
 def out_all_ok.go(fuel: Nat, +xs: List<&2, String>, ok: Bool) -> Bool:
   match fuel:
     case 0n:

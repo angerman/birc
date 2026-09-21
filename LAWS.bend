@@ -192,7 +192,7 @@ law overlong_text_drop:
 law cr_flood_cap:
   {Fr.cr_flood_ok() == True{} : Bool}
 
-# LAW: 510 payload + CRLF is a legal IRC line (F1).
+# LAW: 510 payload + CRLF is a legal IRC line.
 law legal_max_line:
   {Fr.legal_max_ok() == True{} : Bool}
 
