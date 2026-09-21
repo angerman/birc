@@ -264,7 +264,7 @@ static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
                            uint32_t fg, Term ts_t, Term spans) {
   u64 tslen = 0;
   char *ts = birc_cstr(e, ts_t, &tslen);
-  if (ts && tslen > 0) {
+  if (fr && ts && tslen > 0) {
     timui_label(fr, x, y, (TimuiStr){ts, (size_t)tslen},
                 timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0));
     x += birc_glyph_cols(ts, (size_t)tslen) + 1;
@@ -280,9 +280,9 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     Loc loc = ctr_take(e, op, 4, f);
     TimuiRect r;
     rect_from(f, &r);
-    if (r.y + r.h > ly->root.y + ly->root.h)
+    if (ly && r.y + r.h > ly->root.y + ly->root.h)
       r.h = ly->root.y + ly->root.h - r.y;
-    if (r.h > 0 && r.w > 2)
+    if (fr && ly && r.h > 0 && r.w > 2)
       timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
     spare_free(e, cls_fit(4), loc);
   } else if (cid == CID_VIEW_OPTEXT) {
@@ -314,9 +314,9 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     if (ntabs > 0 && sel >= ntabs)
       sel = ntabs - 1;
     orig = sel;
-    if (ntabs > 0)
+    if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
-    if (sel != orig && sel >= 0 && sel < ntabs)
+    if (ly && sel != orig && sel >= 0 && sel < ntabs)
       *ly->click = (uint32_t)sel + 1u;
     spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPLINE) {
@@ -337,6 +337,11 @@ static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
     xs = rest;
     birc_draw_op(e, fr, op, ly);
   }
+}
+
+/* Consume the DrawOp list without painting (early frame returns). */
+static void birc_drop_ops(Env e, Term xs) {
+  birc_draw_ops(e, NULL, xs, NULL);
 }
 #endif /* CID_CON */
 
@@ -395,11 +400,17 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
   if (!ui) {
     free(input);
+#ifdef CID_CON
+    birc_drop_ops(e, ops);
+#endif
     return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
 
   if (!timui_begin(ui, &fr)) {
     free(input);
+#ifdef CID_CON
+    birc_drop_ops(e, ops);
+#endif
     return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
   if (timui_focus(fr) != TIMUI_ID("birc.composer"))
