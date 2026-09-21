@@ -333,6 +333,77 @@ def strip_ctl.go(fuel: Nat, phase: CtlPhase, s: String, acc: String, +h: Char, d
 def strip_ctl(+s: String) -> String:
   strip_ctl.go(Nat.add(1n, Nat.mul(2n, String.length(s))), CtlRead{}, s, SNil{}, Chr{0}, False{})
 
+# Inbound: drop C0 except SOH (CTCP), drop DEL, strip mIRC colour (0x03+digits).
+def is_c0_drop(+c: Char) -> Bool:
+  +n = code_of(c)
+  (U32.is_lt(n, 32) && Bool.not(U32.is_eq(n, 1))) || U32.is_eq(n, 127)
+
+def skip_one_digit_on(+h: Char, t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      t
+    case False{}:
+      SCon{h, t}
+
+def skip_one_digit(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_one_digit_on(h, t, is_digit(h))
+
+def skip_mirc_com(+h: Char, t: String, comma: Bool) -> String:
+  match comma:
+    case True{}:
+      skip_one_digit(skip_one_digit(t))
+    case False{}:
+      SCon{h, t}
+
+def skip_mirc_comma(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_mirc_com(h, t, code_is(h, 44))
+
+def skip_mirc(+s: String) -> String:
+  skip_mirc_comma(skip_one_digit(skip_one_digit(s)))
+
+type SanPh is Data:
+  SanStr{}
+  SanHit{h: Char, color: Bool, drop: Bool}
+
+def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
+  match fuel:
+    case 0n:
+      SNil{}
+    case 1n+p:
+      match ph:
+        case SanStr{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+hd, t}:
+              sanitize_in_go(p, SanHit{hd, code_is(hd, 3), is_c0_drop(hd)}, t)
+        case SanHit{h, color, drop}:
+          match color:
+            case True{}:
+              sanitize_in_go(p, SanStr{}, skip_mirc(s))
+            case False{}:
+              match drop:
+                case True{}:
+                  sanitize_in_go(p, SanStr{}, s)
+                case False{}:
+                  SCon{h, sanitize_in_go(p, SanStr{}, s)}
+
+def sanitize_in(+s: String) -> String:
+  sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
+
+def sanitize_in_ok() -> Bool:
+  String.eq(sanitize_in("ab" ++ SCon{Chr{31}, "cd"}), "abcd")
+    && String.eq(sanitize_in("x" ++ SCon{Chr{3}, "04y"}), "xy")
+    && String.eq(sanitize_in(SCon{Chr{1}, "ACTION"}), SCon{Chr{1}, "ACTION"})
+
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
 

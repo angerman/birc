@@ -97,7 +97,7 @@ def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
       buf_find.fin(List.foldl(~&2, ~Buffer, ~FindAcc, ~buf_find.step, bufs, FindAcc{name, 0n, None{}}))
 
 def empty_buf(+name: String, is_channel: Bool) -> Buffer:
-  Buffer{name, is_channel, "", Nil{}, Nil{}, 0n}
+  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, Nil{}, 0n}
 
 def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +name: String, is_channel: Bool, full: Bool) -> Client & Nat:
   match full:
@@ -159,7 +159,7 @@ def buf_log.scroll(+scroll: Nat) -> Nat:
 def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, ts, text} <> Nil{}), SCROLL_CAP())
+      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text)} <> Nil{}), SCROLL_CAP())
       Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
 
 # Tests pass ts="" (init.now is empty). Live/demo set Client.now at the IO

@@ -99,6 +99,11 @@ def main() -> IO(Unit):
       drop_across_text(),
       "d1=True lines=PING :x| rem= drop=False"
     )
+    Unit <- E.must_eq(
+      "c0_us",
+      report_text_ex(Fr.push_text_ex(False{}, "", "ab" ++ SCon{Chr{31}, "cd\r\n"})),
+      "lines=abcd| rem= drop=False"
+    )
     Unit <- E.must("overlong_octets_again", Fr.overlong_drop_ok())
     Unit <- E.must("legal_max_again", Fr.legal_max_ok())
     Unit <- E.must_eq(

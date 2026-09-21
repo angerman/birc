@@ -4,6 +4,22 @@ import ./expect.bend as E
 import ../../src/bend/client.bend as Cl
 import ../../src/bend/view.bend as V
 import ../../src/bend/clock.bend as Clock
+import ../../src/bend/irc.bend as Irc
+
+def forge_msg() -> String:
+  ":a!a@h PRIVMSG me :look "
+    ++ SCon{Chr{31}, "Lhttps://evil.example"}
+    ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
+
+def no_forge_pack() -> Bool:
+  String.eq(
+    Cl.buf_texts(Cl.feed(Cl.init("me", "s"), forge_msg()), 1n),
+    "<a> look Lhttps://evil.examplehttps://github.com/zw3rk/birc|"
+  )
+
+def join_us_name() -> Bool:
+  +cl = Cl.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #a" ++ SCon{Chr{31}, "b"})
+  Cl.has_buf(cl, "#ab") && Bool.not(Cl.has_buf(cl, "#a" ++ SCon{Chr{31}, "b"}))
 
 def main_on(+demo: Cl.Client) -> IO(Unit):
   do IO<Unit>:
@@ -42,6 +58,9 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_bold", V.tokenize_has_bold("hello *bold* text"))
     Unit <- E.must("tok_plain", Bool.not(V.tokenize_has_bold("no stars here")))
     Unit <- E.must("log_ts", Cl.log_ts_ok())
+    Unit <- E.must("sanitize", Irc.sanitize_in_ok())
+    Unit <- E.must("no_forge", no_forge_pack())
+    Unit <- E.must("join_us", join_us_name())
     Unit <- E.must("hms", Clock.fmt_hms_ok())
     Unit <- E.must_eq(
       "replay_lines",
