@@ -141,8 +141,8 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must("dial", Sess.cmd_connect_ok())
     Unit <- E.must_eq(
       "connect_out",
-      line_of(Sub.submit(cl0, "/connect irc.example.net 6668")),
-      " ok=True nbuf=1"
+      trip_nbuf(Sess.step_enter(Sess.session_demo(cl0, "#birc"), "/connect irc.example.net 6668")),
+      "1"
     )
     Unit <- E.must("connect_slash", Sub.submit_is_connect("/connect x"))
     Unit <- E.must("connect_not", Bool.not(Sub.submit_is_connect("/join #x")))

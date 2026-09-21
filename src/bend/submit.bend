@@ -248,6 +248,9 @@ def submit_quit(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 def submit_unknown(+cl: Cl.Client, +verb: String) -> Cl.Client & List<&2, String>:
   (echo_err(cl, "unknown command: /" ++ verb), empty_out())
 
+# /connect is not a submit arm. Session intercepts via submit_is_connect
+# and connect_apply (Dial). connect_parse stays for that path.
+
 type Conn is Data:
   ConnBad{}
   ConnOk{host: String, port: U32}
@@ -283,16 +286,6 @@ def connect_parse.words(pair: String & String) -> Conn:
 def connect_parse(+rest: String) -> Conn:
   connect_parse.words(take_word(Irc.drop_spaces(rest)))
 
-def submit_connect.on(+cl: Cl.Client, c: Conn) -> Cl.Client & List<&2, String>:
-  match c:
-    case ConnBad{}:
-      (echo_err(cl, "usage: /connect host [port]"), empty_out())
-    case ConnOk{+host, port}:
-      (echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), empty_out())
-
-def submit_connect(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_connect.on(cl, connect_parse(rest))
-
 type Slash is Data:
   Join{}
   Part{}
@@ -300,29 +293,21 @@ type Slash is Data:
   Nick{}
   Me{}
   Quit{}
-  Connect{}
   Unknown{}
 
-def slash_connect(hit: Bool) -> Slash:
-  match hit:
-    case True{}:
-      Connect{}
-    case False{}:
-      Unknown{}
-
-def slash_quit(hit: Bool, +verb: String) -> Slash:
+def slash_quit(hit: Bool) -> Slash:
   match hit:
     case True{}:
       Quit{}
     case False{}:
-      slash_connect(Irc.ieq(verb, "connect"))
+      Unknown{}
 
 def slash_me(hit: Bool, +verb: String) -> Slash:
   match hit:
     case True{}:
       Me{}
     case False{}:
-      slash_quit(Irc.ieq(verb, "quit"), verb)
+      slash_quit(Irc.ieq(verb, "quit"))
 
 def slash_nick(hit: Bool, +verb: String) -> Slash:
   match hit:
@@ -369,8 +354,6 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_me(cl, rest)
     case Quit{}:
       submit_quit(cl, rest)
-    case Connect{}:
-      submit_connect(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 
