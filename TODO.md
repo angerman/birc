@@ -450,12 +450,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: pack_body deleted; show_ops is still `acc ++ ";" ++ chunk`
       evidence: `show_ops.cons` / `show_names.cons` / `header_of.buf` use `++`
       open question: String.concat after I13; goldens of show_op must not move
-- [ ] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
-      - [x] `poll_pass` deleted. `or_halt` is `Bool.or`.
-      - [ ] SLPh `send_lines_go`; `send_go` is still IO (`net.bend:28-36`).
-      tried: send_go maps Result to Bool inside IO.pure
-      evidence: `send_line` does TCP.send then send_go(m); the map is pure
-      open question: `Socket & Result -> Socket & Bool` then one `IO.pure`
+- [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
+      `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
+      `SLPh` gone; `send_lines_go` matches the pair then the list.
 - [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
       tried: H7 left `Fr.push` as PushPhase + fuel beside `utf8_decode`
       evidence: two walkers share the remainder list; merging is a behaviour risk

@@ -18,14 +18,14 @@ import ./session.bend as Sess
 import ./clock.bend as Clock
 import ./dns.bend as Dns
 
-def send_go_r(s: Socket, r: Result<&1, &1, (U32 & String), Unit>) -> IO(Socket & Bool):
+def send_go_r(s: Socket, r: Result<&1, &1, (U32 & String), Unit>) -> Socket & Bool:
   match r:
     case Done{_}:
-      IO.pure(Socket & Bool, (s, True{}))
+      (s, True{})
     case Fail{_}:
-      IO.pure(Socket & Bool, (s, False{}))
+      (s, False{})
 
-def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket & Bool):
+def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> Socket & Bool:
   match m:
     case (s, r):
       send_go_r(s, r)
@@ -33,18 +33,12 @@ def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket & Boo
 def send_line(sock: Socket, +line: String) -> IO(Socket & Bool):
   do IO<Socket & Bool>:
     m : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n")
-    send_go(m)
-
-type SLPh is Data:
-  SLList{}
-  SLOk{}
+    IO.pure(Socket & Bool, send_go(m))
 
 def send_lines_go(
   fuel: Nat,
-  phase: SLPh,
-  +xs: List<&2, String>,
   pair: Socket & Bool,
-  +t: List<&2, String>
+  xs: List<&2, String>
 ) -> IO(Socket & Bool):
   match fuel:
     case 0n:
@@ -52,28 +46,22 @@ def send_lines_go(
         case (sock, _):
           IO.pure(Socket & Bool, (sock, False{}))
     case 1n+p:
-      match phase:
-        case SLList{}:
-          match xs:
-            case Nil{}:
-              IO.pure(Socket & Bool, pair)
-            case Con{+h, tl}:
-              match pair:
-                case (sock, _):
+      match pair:
+        case (sock, ok):
+          match ok:
+            case False{}:
+              IO.pure(Socket & Bool, (sock, False{}))
+            case True{}:
+              match xs:
+                case Nil{}:
+                  IO.pure(Socket & Bool, (sock, True{}))
+                case Con{+h, t}:
                   do IO<Socket & Bool>:
                     nxt : Socket & Bool <- send_line(sock, h)
-                    send_lines_go(p, SLOk{}, tl, nxt, tl)
-        case SLOk{}:
-          match pair:
-            case (sock, ok0):
-              match ok0:
-                case False{}:
-                  IO.pure(Socket & Bool, (sock, False{}))
-                case True{}:
-                  send_lines_go(p, SLList{}, t, (sock, True{}), t)
+                    send_lines_go(p, nxt, t)
 
 def send_lines(fuel: Nat, sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
-  send_lines_go(fuel, SLList{}, xs, (sock, True{}), Nil{})
+  send_lines_go(fuel, (sock, True{}), xs)
 
 # JOIN is sent after 001 (live_go), not here.
 def register(sock: Socket, +nick: String) -> IO(Socket & Bool):
