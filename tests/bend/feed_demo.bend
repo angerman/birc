@@ -86,6 +86,9 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("bare_join", Cl.bare_join_ok())
     Unit <- E.must("tok_no_embed", V.tokenize_no_embed())
     Unit <- E.must("tok_trim_dot", V.tokenize_trim_dot())
+    Unit <- E.must("tok_trim_semi", V.tokenize_trim_semi())
+    Unit <- E.must("tok_trim_brack", V.tokenize_trim_brack())
+    Unit <- E.must("tok_trim_osc", V.tokenize_trim_osc())
     Unit <- E.must("snap", Cl.snap_ok())
     Unit <- E.must("self_part", Cl.self_part_drops())
     # F8: roundtrip alone is satisfied by an identity tokenizer; require a Bold span.
