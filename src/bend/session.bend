@@ -155,6 +155,7 @@ type NetEvt is Data:
 type NetCmd is Data:
   Cont{outs: List<&2, String>}
   Dial{host: String, port: U32}
+  Handoff{take: Bool}
 
 type NetState is Data:
   Demo{}
@@ -204,6 +205,8 @@ def show_netcmd(c: NetCmd) -> String:
       "cont"
     case Dial{+host, port}:
       "dial:" ++ host ++ ":" ++ U32.show(port)
+    case Handoff{take}:
+      "handoff:" ++ Bool.show(take)
 
 def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
   match net:
@@ -220,6 +223,8 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
   match cmd:
     case Dial{+host, port}:
       Dial{host, port}
+    case Handoff{take}:
+      Handoff{take}
     case Cont{outs}:
       hold_cmd.outs(net, outs)
 
@@ -228,6 +233,8 @@ def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
   match cmd:
     case Dial{+host, port}:
       Dial{host, port}
+    case Handoff{take}:
+      Handoff{take}
     case Cont{outs}:
       Cont{List.append(&2, String, pending, outs)}
 
@@ -506,6 +513,8 @@ def session_after(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, join
   match cmd:
     case Dial{+host, _}:
       session_after.dial(cl, drop, rem, draft, chan, hist, rows, seed, host)
+    case Handoff{_}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, rows, seed}
     case Cont{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, rows, seed}
 

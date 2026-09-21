@@ -89,6 +89,8 @@ def cmd_head(c: Sess.NetCmd) -> String:
       "cont:" ++ first_out(xs)
     case Sess.Dial{+host, port}:
       "dial:" ++ host ++ ":" ++ U32.show(port)
+    case Sess.Handoff{take}:
+      "handoff:" ++ Bool.show(take)
 
 def trip_st(t: Sess.Session & Sess.NetCmd & Bool) -> Sess.Session:
   match t:

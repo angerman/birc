@@ -393,6 +393,10 @@ def on_cmd(
           do IO<Unit>:
             ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
             after_offer(sock, evt, cmd, ok, k)
+        case Sess.Handoff{_}:
+          do IO<Unit>:
+            ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
+            after_offer(sock, evt, cmd, ok, k)
         case Sess.Cont{+outs}:
           do IO<Unit>:
             sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, outs))), sock, outs)
@@ -465,18 +469,73 @@ def idle_fail(
     ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Fail{msg})
     idle_again(ok, evt, k)
 
-def idle_up(
-  ok: Bool,
+def handoff_wait(ok: Bool, ack: Chan(Unit)) -> IO(Unit):
+  match ok:
+    case False{}:
+      IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        g : Maybe<&1, Unit> <- Chan.recv(Unit, ack)
+        return Unit{}
+
+def handoff_done(+cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), take: Bool) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Handoff{take})
+    handoff_wait(ok, ack)
+
+def idle_up.go(
+  g: Maybe<&1, Unit>,
   sock: Socket,
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd)
 ) -> IO(Unit):
+  match g:
+    case None{}:
+      reader_die(sock, evt)
+    case Some{_}:
+      reader_start(frames, sock, evt, cmd)
+
+def idle_up.ack(
+  ok: Bool,
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Unit):
   match ok:
     case False{}:
       reader_die(sock, evt)
     case True{}:
-      reader_start(frames, sock, evt, cmd)
+      do IO<Unit>:
+        g : Maybe<&1, Unit> <- Chan.recv(Unit, ack)
+        idle_up.go(g, sock, frames, evt, cmd)
+
+def idle_up.take(
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Handoff{True{}})
+    idle_up.ack(ok, sock, frames, evt, cmd, ack)
+
+def idle_up(
+  ok: Bool,
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Unit):
+  match ok:
+    case False{}:
+      reader_die(sock, evt)
+    case True{}:
+      idle_up.take(sock, frames, evt, cmd, ack)
 
 def idle_reg.fail(
   sock: Socket,
@@ -491,17 +550,19 @@ def idle_reg.ok(
   sock: Socket,
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     up : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Up{})
-    idle_up(up, sock, frames, evt, cmd)
+    idle_up(up, sock, frames, evt, cmd, ack)
 
 def idle_reg(
   pair: Socket & Bool,
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
   k: Unit -> IO(Unit)
 ) -> IO(Unit):
   match pair:
@@ -510,7 +571,7 @@ def idle_reg(
         case False{}:
           idle_reg.fail(s, evt, k)
         case True{}:
-          idle_reg.ok(s, frames, evt, cmd)
+          idle_reg.ok(s, frames, evt, cmd, ack)
 
 def idle_conn(
   r: Result<&1, &1, (U32 & String), Socket>,
@@ -518,6 +579,7 @@ def idle_conn(
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
   k: Unit -> IO(Unit)
 ) -> IO(Unit):
   match r:
@@ -528,7 +590,7 @@ def idle_conn(
     case Done{s}:
       do IO<Unit>:
         pair : Socket & Bool <- register(s, nick)
-        idle_reg(pair, frames, evt, cmd, k)
+        idle_reg(pair, frames, evt, cmd, ack, k)
 
 def idle_dns(
   r: Result<&1, &1, U32 & String, String>,
@@ -537,6 +599,7 @@ def idle_dns(
   +frames: U32,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
   k: Unit -> IO(Unit)
 ) -> IO(Unit):
   match r:
@@ -547,7 +610,100 @@ def idle_dns(
     case Done{+ip}:
       do IO<Unit>:
         cr : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(ip, port)
-        idle_conn(cr, nick, frames, evt, cmd, k)
+        idle_conn(cr, nick, frames, evt, cmd, ack, k)
+
+def idle_wait_take(take: Bool, +ack: Chan(Unit)) -> IO(Bool):
+  do IO<Bool>:
+    ok : Bool <- Chan.send(Unit, ack, Unit{})
+    return take
+
+def idle_wait_cmd(
+  g: Maybe<&1, Sess.NetCmd>,
+  +evt: Chan(Sess.NetEvt),
+  +ack: Chan(Unit),
+  k_wait: Unit -> IO(Bool)
+) -> IO(Bool):
+  match g:
+    case None{}:
+      do IO<Bool>:
+        Unit <- Chan.close(Unit, ack)
+        Unit <- idle_die(evt)
+        return True{}
+    case Some{c}:
+      match c:
+        case Sess.Handoff{take}:
+          idle_wait_take(take, ack)
+        case Sess.Cont{_}:
+          k_wait(Unit{})
+        case Sess.Dial{_, _}:
+          k_wait(Unit{})
+
+def idle_wait_after(
+  ok: Bool,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  k_wait: Unit -> IO(Bool)
+) -> IO(Bool):
+  match ok:
+    case False{}:
+      do IO<Bool>:
+        Unit <- Chan.close(Unit, ack)
+        Unit <- idle_die(evt)
+        return True{}
+    case True{}:
+      do IO<Bool>:
+        next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+        idle_wait_cmd(next, evt, ack, k_wait)
+
+@unsafe
+def idle_wait(
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Bool):
+  do IO<Bool>:
+    Unit <- IO.sleep(16)
+    ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
+    idle_wait_after(ok, evt, cmd, ack, u => idle_wait(nick, frames, evt, cmd, ack))
+
+def dial_job(
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
+    idle_dns(r, port, nick, frames, evt, cmd, ack, u => handoff_done(cmd, ack, False{}))
+
+def idle_dial.done(take: Bool, k: Unit -> IO(Unit)) -> IO(Unit):
+  match take:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      k(Unit{})
+
+def idle_dial.go(
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Unit -> IO(Unit),
+  ack0: Chan(Unit)
+) -> IO(Unit):
+  +ack = ack0
+  do IO<Unit>:
+    Unit <- IO.spawn(Unit, dial_job(host, port, nick, frames, evt, cmd, ack))
+    take : Bool <- idle_wait(nick, frames, evt, cmd, ack)
+    idle_dial.done(take, k)
 
 def idle_dial(
   +host: String,
@@ -559,8 +715,8 @@ def idle_dial(
   k: Unit -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    idle_dns(r, port, nick, frames, evt, cmd, k)
+    ack0 : Chan(Unit) <- Chan.new(Unit, 1)
+    idle_dial.go(host, port, nick, frames, evt, cmd, k, ack0)
 
 def idle_on_cmd(
   g: Maybe<&1, Sess.NetCmd>,
@@ -576,6 +732,8 @@ def idle_on_cmd(
     case Some{c}:
       match c:
         case Sess.Cont{_}:
+          k(Unit{})
+        case Sess.Handoff{_}:
           k(Unit{})
         case Sess.Dial{+host, port}:
           idle_dial(host, port, nick, frames, evt, cmd, k)
