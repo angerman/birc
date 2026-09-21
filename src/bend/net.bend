@@ -110,12 +110,10 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
     Unit <- wait_dead_g(256n, ui, evt, g0)
     IO.print("birc=ok")
 
-def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui):
+def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, net, _}:
-      do IO<T.Ui>:
-        rows : U32 <- T.Timui.rows()
-        Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
+    case Sess.Session{+cl, _, _, +draft, _, _, net, _, rows}:
+      Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
 
 def after_ui_send(
   ok: Bool,
@@ -155,131 +153,38 @@ def send_pair(
             ok : Bool <- Chan.send(Sess.NetCmd, cmd, ncmd)
             after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
-def with_keys_dn(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  bs: Bool,
-  +typed: String,
-  +tab: U32,
-  +click: U32,
-  +up: U32,
-  rest: U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (dn, hist):
-      send_pair(ui, quit, evt, cmd, Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), k)
-
-def with_keys_up(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  bs: Bool,
-  +typed: String,
-  +tab: U32,
-  +click: U32,
-  rest: U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (up, rest2):
-      with_keys_dn(ui, st, evt, cmd, quit, enter, bs, typed, tab, click, up, rest2, k)
-
-def with_keys_click(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  bs: Bool,
-  +typed: String,
-  +tab: U32,
-  rest: U32 & U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (click, rest2):
-      with_keys_up(ui, st, evt, cmd, quit, enter, bs, typed, tab, click, rest2, k)
-
-def with_keys_tab(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  bs: Bool,
-  +typed: String,
-  rest: U32 & U32 & U32 & U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (_, rest2):
-      match rest2:
-        case (tab, rest3):
-          with_keys_click(ui, st, evt, cmd, quit, enter, bs, typed, tab, rest3, k)
-
-def with_keys_typed(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  bs: Bool,
-  rest: String & U32 & U32 & U32 & U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (+typed, rest2):
-      with_keys_tab(ui, st, evt, cmd, quit, enter, bs, typed, rest2, k)
-
-def with_keys_bs(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  enter: Bool,
-  rest: Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (bs, rest2):
-      with_keys_typed(ui, st, evt, cmd, quit, enter, bs, rest2, k)
-
-def with_keys_ent(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  quit: Bool,
-  rest: Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (enter, rest2):
-      with_keys_bs(ui, st, evt, cmd, quit, enter, rest2, k)
+def step_rows(
+  triple: Sess.Session & Sess.NetCmd & Bool,
+  +rows: U32
+) -> Sess.Session & Sess.NetCmd & Bool:
+  match triple:
+    case (+st, rest):
+      match rest:
+        case (+cmd, halt):
+          (Sess.session_set_rows(st, rows), cmd, halt)
 
 def with_keys(
   ui: T.Ui,
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  keys: Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32,
+  keys: T.UiKeys,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case (quit, rest):
-      with_keys_ent(ui, st, evt, cmd, quit, rest, k)
+    case T.UiKeys{quit, enter, bs, +typed, rows, tab, click, up, dn, hist}:
+      send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), rows), k)
+
+def with_tick.got(
+  got: T.Ui & T.UiKeys,
+  +st2: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match got:
+    case (ui2, keys):
+      with_keys(ui2, st2, evt, cmd, keys, k)
 
 def with_tick.paint(
   ui: T.Ui,
@@ -289,9 +194,8 @@ def with_tick.paint(
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ui2 : T.Ui <- paint_session(ui, st2)
-    keys : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- T.Timui.keys()
-    with_keys(ui2, st2, evt, cmd, keys, k)
+    got : T.Ui & T.UiKeys <- paint_session(ui, st2)
+    with_tick.got(got, st2, evt, cmd, k)
 
 def with_tick.stamp(
   ui: T.Ui,

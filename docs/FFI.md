@@ -51,15 +51,16 @@ Coarse draw first (D1). Types below are Bend-side; TimUI structs stay in C.
 
 ```text
 law Ui: Type
-law Frame: Type
 
-Timui.open  : Config -> IO(Result<&1,&1, U32 & String, Ui>)
-Timui.begin : Ui -> IO(Result<&1,&1, U32 & String, Frame & List<&2, UiEvent>>)
-Timui.draw  : Frame -> ViewModel -> IO(Frame)
-Timui.end   : Frame -> IO(Ui)
+Timui.open  : IO(Result<&1,&1, U32 & String, Ui>)
+Timui.frame : Ui -> String×6 -> IO(Ui & UiKeys)   # one begin/draw/end
 Timui.close : Ui -> IO(Unit)
-Timui.post  : Ui -> NetEvent -> IO(Unit)   # net → UI (model B)
 ```
+
+`UiKeys` is Data (quit/enter/bs/typed/rows/tab/click/up/dn/hist). Unpack like
+`Window.frame`: bind the product, destructure in a helper. Do not put `Ui`
+inside a `Result`. Split `begin`/`draw`/`end` is not required while D1 is
+coarse paint.
 
 ### Pure domain types (M0.3 — no TimUI leakage)
 
@@ -104,12 +105,8 @@ Thin FFI (Bend owns the loop):
 
 ```text
 Timui.open     : IO(Result<&1,&1, U32 & String, Ui>)  # IO.try at call sites
-Timui.frame    : Ui -> String×6 -> IO(Ui)   # one begin/draw/end
-Timui.did_quit : IO(Bool)
-Timui.keys     : IO(Bool×3 & String & U32×6)
-  # quit, enter, bs, typed, rows, tab, click, scroll_up, scroll_dn, hist
+Timui.frame    : Ui -> String×6 -> IO(Ui & UiKeys)    # one begin/draw/end
 Timui.close    : Ui -> IO(Unit)
-App.budget     : IO(U32)   # from --frames / birc_max_frames
 ```
 
 `app.bend` / `net.bend` fuel-loop calling `Timui.frame`. Build:
@@ -117,6 +114,6 @@ App.budget     : IO(U32)   # from --frames / birc_max_frames
 link with `birc_main.c` (`-Isrc/ui -Isrc/ffi -pthread`).
 
 `--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
-closed if missing). Demo/offline share the live `Timui.keys` loop via an idle
+closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
 actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `Clock.hhmmss`
 is a thin localtime FFI; Bend stamps empty `Line.ts` at paint (`stamp_client`).

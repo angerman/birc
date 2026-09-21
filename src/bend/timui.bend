@@ -1,4 +1,7 @@
 # Bend TimUI FFI — thin open / frame / close; Bend owns the iteration.
+# Timui.frame is one begin/draw/end and returns Ui beside UiKeys
+# (Window.frame shape: handle & Data). C does not latch keys for a
+# second IO.
 import Base
 
 # Opaque TimUI handle (same runtime shape as Base Window / Socket handles).
@@ -7,6 +10,38 @@ law Ui: Type
 def Ui():
   Window
 
+# Named Data so C packs CID_UIKEYS (not a `Keys` ctor, which collides
+# with a `Timui.keys` law). Copyable; the Ui handle stays linear.
+type UiKeys is Data:
+  UiKeys{
+    quit: Bool,
+    enter: Bool,
+    bs: Bool,
+    typed: String,
+    rows: U32,
+    tab: U32,
+    click: U32,
+    up: U32,
+    dn: U32,
+    hist: U32
+  }
+
+def ROWS0() -> U32:
+  24
+
+def keys0() -> UiKeys:
+  UiKeys{False{}, False{}, False{}, "", ROWS0(), 0, 0, 0, 0, 0}
+
+def keys_quit(k: UiKeys) -> Bool:
+  match k:
+    case UiKeys{quit, _, _, _, _, _, _, _, _, _}:
+      quit
+
+def keys_rows(k: UiKeys) -> U32:
+  match k:
+    case UiKeys{_, _, _, _, rows, _, _, _, _, _}:
+      rows
+
 # Fail closed like Window.open / TCP.connect. Callers bind with IO.try.
 law Timui.open:
   IO(Result<&1, &1, U32 & String, Ui>)
@@ -14,88 +49,13 @@ law Timui.open:
 def Timui.open():
   import "../ffi/timui_ffi.c"
 
-# One begin/draw/end; returns Ui. Quit latched for Timui.did_quit / Timui.events.
-# Strings: header, tabs, body, nicks, status, input (composer on its own row).
+# One begin/draw/end. Returns the Ui beside this frame's keys (no Result:
+# quit is UiKeys.quit, same as Window Close in the event list).
 law Timui.frame:
-  Ui -> String -> String -> String -> String -> String -> String -> IO(Ui)
+  Ui -> String -> String -> String -> String -> String -> String -> IO(Ui & UiKeys)
 
 def Timui.frame(ui, header, tabs, body, nicks, status, input):
   import "../ffi/timui_ffi.c"
-
-law Timui.did_quit:
-  IO(Bool)
-
-def Timui.did_quit():
-  import "../ffi/timui_ffi.c"
-
-# Latched from the last Timui.frame (timui_root.h, min 4). Default 24.
-law Timui.rows:
-  IO(U32)
-
-def Timui.rows():
-  import "../ffi/timui_ffi.c"
-
-# Latched during the last Timui.frame (text / Enter / Backspace).
-law Timui.typed:
-  IO(String)
-
-def Timui.typed():
-  import "../ffi/timui_ffi.c"
-
-law Timui.enter:
-  IO(Bool)
-
-def Timui.enter():
-  import "../ffi/timui_ffi.c"
-
-law Timui.backspace:
-  IO(Bool)
-
-def Timui.backspace():
-  import "../ffi/timui_ffi.c"
-
-# Latched keys from the last Timui.frame, packed in one IO.
-# Data constructor `Keys` would mangle to CID_TIMUI_KEYS and collide with
-# this law, so the product is a right-nested tuple (same as UDP.recv_from).
-# quit, enter, bs, typed, rows, tab, click, scroll_up, scroll_dn, hist
-law Timui.keys:
-  IO(Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32)
-
-def Timui.keys():
-  import "../ffi/timui_ffi.c"
-
-# M5.5 — minimal Quit event list (full Key/UiEvent fold deferred; IO handle bind).
-type UiEvent is Data:
-  Quit{}
-
-# Built in Bend from the keys product (avoids packing List in C FFI).
-def events_of(q: Bool) -> List<&2, UiEvent>:
-  match q:
-    case True{}:
-      Quit{} <> Nil{}
-    case False{}:
-      Nil{}
-
-def quit_of(k: Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32) -> Bool:
-  match k:
-    case (q, _):
-      q
-
-law Timui.events:
-  IO(List<&2, UiEvent>)
-
-def Timui.events():
-  do IO<List<&2, UiEvent>>:
-    k : Bool & Bool & Bool & String & U32 & U32 & U32 & U32 & U32 & U32 <- Timui.keys()
-    return events_of(quit_of(k))
-
-# Non-empty event list means Quit (only constructor today).
-def has_quit(+xs: List<&2, UiEvent>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{_, _}:
-      True{}
 
 law Timui.close:
   Ui -> IO(Unit)

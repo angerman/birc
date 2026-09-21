@@ -13,24 +13,44 @@
 #endif
 #include "timui.h"
 
-/* Latched by Timui.frame; read via Timui.keys. Default rows 24 until the
- * first successful frame. The composer is a TimUI input_field so typed
- * chars and Backspace apply in event order (not last-key-wins / one BS
- * per frame). On Enter, typed is the submitted line and the field clears. */
-static int birc_ui_quit = 0;
-static int birc_ui_enter = 0;
-static int birc_ui_backspace = 0;
-static char birc_ui_typed[256];
-static size_t birc_ui_typed_len = 0;
-static uint32_t birc_ui_rows = 24;
-static uint32_t birc_ui_tab = 0; /* 0 none, 1 next, 2 prev */
-static uint32_t birc_ui_click = 0; /* 0 none, 1+i = TabSet i */
-static uint32_t birc_ui_scroll_up = 0;
-static uint32_t birc_ui_scroll_dn = 0;
-static uint32_t birc_ui_hist = 0; /* 0 none, 1 prev, 2 next */
+/* Composer state persists across frames (input_field). Keys are packed
+ * into the Timui.frame return (Ui & UiKeys); they are not latched for a
+ * second IO. */
 static char birc_composer[512];
 static TimuiInputState birc_composer_st = {birc_composer, sizeof birc_composer,
                                            0, 0};
+
+#ifdef CID_UIKEYS
+static Term birc_uikeys(Env e, int quit, int enter, int bs, const char *typed,
+                        size_t tlen, uint32_t rows, uint32_t tab,
+                        uint32_t click, uint32_t up, uint32_t dn,
+                        uint32_t hist) {
+  Loc l = heap_alloc(e, cls_fit(10));
+  e.mem[l + 0] =
+      io_seal(e, term_pak(quit ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
+  e.mem[l + 1] =
+      io_seal(e, term_pak(enter ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
+  e.mem[l + 2] =
+      io_seal(e, term_pak(bs ? CID_TRUE : CID_FALSE, 0), CID_UIKEYS);
+  e.mem[l + 3] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
+  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
+  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
+  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
+  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
+  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
+  e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
+  return term_ctr(CID_UIKEYS, l);
+}
+
+static Term birc_frame_out(Env e, Timui *ui, int quit, int enter, int bs,
+                           const char *typed, size_t tlen, uint32_t rows,
+                           uint32_t tab, uint32_t click, uint32_t up,
+                           uint32_t dn, uint32_t hist) {
+  return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
+                birc_uikeys(e, quit, enter, bs, typed, tlen, rows, tab, click,
+                            up, dn, hist));
+}
+#endif
 
 /* ---- Timui.open : IO(Result<&1,&1,U32 & String, Ui>) ------------------- *
  * Same packing as Window.open / TCP.connect: io_fail on error, io_done
@@ -58,8 +78,9 @@ static void __attribute__((constructor)) timui_open_use(void) {
   io_eff(CID_TIMUI_OPEN, timui_open_run, 0);
 }
 
-/* ---- Timui.frame : Ui -> String×6 -> IO(Ui) --------------------------- *
- * ONE begin/draw/end. Layout: header, tabs, body|nicks, status, input. */
+/* ---- Timui.frame : Ui -> String×6 -> IO(Ui & UiKeys) ------------------ *
+ * ONE begin/draw/end. Layout: header, tabs, body|nicks, status, input.
+ * Keys are returned beside the handle (Window.frame shape). */
 
 static void draw_lines(TimuiFrame *fr, int x, int y, int max_y, const char *text,
                        TimuiStyle st) {
@@ -249,12 +270,14 @@ static void draw_packed_body(TimuiFrame *fr, int x, int y, int max_y, int maxx,
 }
 
 /* Composer: TimUI input_field walks the per-frame edit stream (text,
- * Backspace, Delete, arrows) in order. Returns 1 if Enter submitted. */
-static int draw_composer(TimuiFrame *fr, int x, int y, int width,
-                         TimuiStyle st) {
+ * Backspace, Delete, arrows) in order. Returns 1 if Enter submitted.
+ * Copies the live field (or the submitted line) into typed. */
+static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
+                         char *typed, size_t tmax, size_t *tlen) {
   TimuiId id;
   TimuiRect r;
   int prompt_w = 2;
+  size_t n;
   if (!fr || width < 1)
     return 0;
   timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
@@ -267,17 +290,23 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width,
   r.w = width - prompt_w;
   r.h = 1;
   if (timui_input_field_styled(fr, id, r, &birc_composer_st, st)) {
-    size_t n = strlen(birc_composer);
-    if (n >= sizeof birc_ui_typed)
-      n = sizeof birc_ui_typed - 1;
-    memcpy(birc_ui_typed, birc_composer, n);
-    birc_ui_typed[n] = '\0';
-    birc_ui_typed_len = n;
+    n = strlen(birc_composer);
+    if (n >= tmax)
+      n = tmax - 1;
+    memcpy(typed, birc_composer, n);
+    typed[n] = '\0';
+    *tlen = n;
     birc_composer[0] = '\0';
     birc_composer_st.cursor = 0;
     birc_composer_st.scroll_x = 0;
     return 1;
   }
+  n = strlen(birc_composer);
+  if (n >= tmax)
+    n = tmax - 1;
+  memcpy(typed, birc_composer, n);
+  typed[n] = '\0';
+  *tlen = n;
   return 0;
 }
 
@@ -338,31 +367,33 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   char *status = io_cstr(e, f[5], &n4);
   char *input = io_cstr(e, f[6], &n5);
   TimuiFrame *fr = NULL;
+  int quit = 0;
+  int enter = 0;
+  uint32_t rows = 24;
+  uint32_t tab = 0;
+  uint32_t click = 0;
+  uint32_t up = 0;
+  uint32_t dn = 0;
+  uint32_t hist = 0;
+  char typed[256];
+  size_t tlen = 0;
   (void)w;
   (void)n2;
   (void)n3;
   (void)n5;
-  birc_ui_quit = 0;
-  birc_ui_enter = 0;
-  birc_ui_backspace = 0;
-  birc_ui_typed_len = 0;
-  birc_ui_typed[0] = '\0';
-  birc_ui_tab = 0;
-  birc_ui_click = 0;
-  birc_ui_scroll_up = 0;
-  birc_ui_scroll_dn = 0;
-  birc_ui_hist = 0;
+  typed[0] = '\0';
 
+#ifndef CID_UIKEYS
+#error "Timui.frame returns Ui & UiKeys; CID_UIKEYS is required"
+#endif
   if (!ui) {
-    birc_ui_quit = 1;
     birc_free_frame_strs(header, tabs, body, nicks, status, input);
-    return io_hand(0);
+    return birc_frame_out(e, NULL, 1, 0, 0, "", 0, 24, 0, 0, 0, 0, 0);
   }
 
   if (!timui_begin(ui, &fr)) {
-    birc_ui_quit = 1;
     birc_free_frame_strs(header, tabs, body, nicks, status, input);
-    return io_hand((uint64_t)(uintptr_t)ui);
+    return birc_frame_out(e, ui, 1, 0, 0, "", 0, 24, 0, 0, 0, 0, 0);
   }
 
   {
@@ -387,7 +418,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     int sel;
     int orig;
     const char *nick_p;
-    birc_ui_rows = root.h < 4 ? 4u : (uint32_t)root.h;
+    rows = root.h < 4 ? 4u : (uint32_t)root.h;
     timui_draw_fill(buf, root, panel);
     timui_label(fr, root.x, root.y,
                 (TimuiStr){header ? header : "", header ? (size_t)n0 : 0},
@@ -401,7 +432,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     if (ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), tab_r, tablabs, ntabs, &sel);
     if (sel != orig && sel >= 0)
-      birc_ui_click = (uint32_t)sel + 1u;
+      click = (uint32_t)sel + 1u;
     if (body_h < 1)
       body_h = 1;
     body_r.x = root.x;
@@ -439,154 +470,47 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       birc_composer_st.cursor = ilen;
       birc_composer_st.scroll_x = 0;
     }
-    if (draw_composer(fr, root.x, input_y, root.w, text))
-      birc_ui_enter = 1;
-    else {
-      size_t n = strlen(birc_composer);
-      if (n >= sizeof birc_ui_typed)
-        n = sizeof birc_ui_typed - 1;
-      memcpy(birc_ui_typed, birc_composer, n);
-      birc_ui_typed[n] = '\0';
-      birc_ui_typed_len = n;
-    }
+    enter = draw_composer(fr, root.x, input_y, root.w, text, typed,
+                          sizeof typed, &tlen);
     if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
-      birc_ui_tab = 1;
+      tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
-      birc_ui_tab = 2;
+      tab = 2;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_UP))
-      birc_ui_scroll_up = 1;
+      up = 1;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_DOWN))
-      birc_ui_scroll_dn = 1;
+      dn = 1;
     {
       int wheel = timui_mouse_wheel(fr);
       if (wheel > 0)
-        birc_ui_scroll_up += (uint32_t)wheel;
+        up += (uint32_t)wheel;
       else if (wheel < 0)
-        birc_ui_scroll_dn += (uint32_t)(-wheel);
+        dn += (uint32_t)(-wheel);
     }
     if (timui_key_pressed(fr, TIMUI_KEY_UP) &&
         !timui_key_pressed_mods(fr, TIMUI_KEY_UP, TIMUI_MOD_SHIFT))
-      birc_ui_hist = 1;
+      hist = 1;
     if (timui_key_pressed(fr, TIMUI_KEY_DOWN) &&
         !timui_key_pressed_mods(fr, TIMUI_KEY_DOWN, TIMUI_MOD_SHIFT))
-      birc_ui_hist = 2;
+      hist = 2;
     if (timui_key_pressed(fr, TIMUI_KEY_ESCAPE) ||
         timui_key_pressed(fr, TIMUI_KEY_F10)) {
       timui_quit(ui);
-      birc_ui_quit = 1;
+      quit = 1;
     }
     timui_set_focus(fr, TIMUI_ID("birc.composer"));
   }
   timui_end(fr);
   if (timui_should_quit(ui))
-    birc_ui_quit = 1;
-  if (header)
-    free(header);
-  if (tabs)
-    free(tabs);
-  if (body)
-    free(body);
-  if (nicks)
-    free(nicks);
-  if (status)
-    free(status);
-  if (input)
-    free(input);
-  return io_hand((uint64_t)(uintptr_t)ui);
+    quit = 1;
+  birc_free_frame_strs(header, tabs, body, nicks, status, input);
+  return birc_frame_out(e, ui, quit, enter, 0, typed, tlen, rows, tab, click, up,
+                        dn, hist);
 }
 
 static void __attribute__((constructor)) timui_frame_use(void) {
   io_eff(CID_TIMUI_FRAME, timui_frame_run, 0);
 }
-
-#ifdef CID_TIMUI_DID_QUIT
-Term timui_did_quit_run(Env e, Term *f, IoWork *w) {
-  (void)e;
-  (void)f;
-  (void)w;
-  return term_pak(birc_ui_quit ? CID_TRUE : CID_FALSE, 0);
-}
-
-static void __attribute__((constructor)) timui_did_quit_use(void) {
-  io_eff(CID_TIMUI_DID_QUIT, timui_did_quit_run, 0);
-}
-#endif
-
-Term timui_rows_run(Env e, Term *f, IoWork *w) {
-  (void)e;
-  (void)f;
-  (void)w;
-  return (Term)(uint64_t)birc_ui_rows;
-}
-
-static void __attribute__((constructor)) timui_rows_use(void) {
-  io_eff(CID_TIMUI_ROWS, timui_rows_run, 0);
-}
-
-#ifdef CID_TIMUI_TYPED
-Term timui_typed_run(Env e, Term *f, IoWork *w) {
-  (void)f;
-  (void)w;
-  return io_str(e, birc_ui_typed, birc_ui_typed_len);
-}
-
-static void __attribute__((constructor)) timui_typed_use(void) {
-  io_eff(CID_TIMUI_TYPED, timui_typed_run, 0);
-}
-#endif
-
-#ifdef CID_TIMUI_ENTER
-Term timui_enter_run(Env e, Term *f, IoWork *w) {
-  (void)e;
-  (void)f;
-  (void)w;
-  return term_pak(birc_ui_enter ? CID_TRUE : CID_FALSE, 0);
-}
-
-static void __attribute__((constructor)) timui_enter_use(void) {
-  io_eff(CID_TIMUI_ENTER, timui_enter_run, 0);
-}
-#endif
-
-#ifdef CID_TIMUI_BACKSPACE
-Term timui_backspace_run(Env e, Term *f, IoWork *w) {
-  (void)e;
-  (void)f;
-  (void)w;
-  return term_pak(birc_ui_backspace ? CID_TRUE : CID_FALSE, 0);
-}
-
-static void __attribute__((constructor)) timui_backspace_use(void) {
-  io_eff(CID_TIMUI_BACKSPACE, timui_backspace_run, 0);
-}
-#endif
-
-/* ---- Timui.keys : IO(Bool & Bool & Bool & String & U32) --------------- *
- * Right-nested tuples: quit, enter, bs, typed, rows. Data constructor
- * Keys mangles to CID_TIMUI_KEYS and collides with this law. Guarded:
- * unused Timui.keys does not define the CID, but this file is still
- * inlined via Timui.open. */
-
-#ifdef CID_TIMUI_KEYS
-Term timui_keys_run(Env e, Term *f, IoWork *w) {
-  (void)f;
-  (void)w;
-  return io_tup(e, term_pak(birc_ui_quit ? CID_TRUE : CID_FALSE, 0),
-    io_tup(e, term_pak(birc_ui_enter ? CID_TRUE : CID_FALSE, 0),
-      io_tup(e, term_pak(birc_ui_backspace ? CID_TRUE : CID_FALSE, 0),
-        io_tup(e, io_str(e, birc_ui_typed, birc_ui_typed_len),
-          io_tup(e, (Term)(uint64_t)birc_ui_rows,
-            io_tup(e, (Term)(uint64_t)birc_ui_tab,
-              io_tup(e, (Term)(uint64_t)birc_ui_click,
-                io_tup(e, (Term)(uint64_t)birc_ui_scroll_up,
-                  io_tup(e, (Term)(uint64_t)birc_ui_scroll_dn,
-                    (Term)(uint64_t)birc_ui_hist)))))))));
-}
-
-static void __attribute__((constructor)) timui_keys_use(void) {
-  io_eff(CID_TIMUI_KEYS, timui_keys_run, 0);
-}
-#endif
 
 /* ---- Timui.close : Ui -> IO(Unit) ------------------------------------- */
 
