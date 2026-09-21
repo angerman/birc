@@ -149,6 +149,7 @@ def send_pair(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   pair: Sess.Session & Sess.NetCmd & Bool,
+  +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
@@ -156,7 +157,7 @@ def send_pair(
       match rest:
         case (+ncmd, halt):
           do IO<Unit>:
-            ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.hold_cmd(Sess.session_net(st2), ncmd))
+            ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.hold_cmd(Sess.session_net(st2), Sess.merge_cmd(pending, ncmd)))
             after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
 def step_rows(
@@ -181,13 +182,14 @@ def with_keys.go(
   +up: U32,
   +dn: U32,
   +hist: U32,
+  +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit),
   quit: Bool,
   enter: Bool
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows), k)
+    send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows), pending, k)
 
 def with_keys(
   ui: T.Ui,
@@ -195,22 +197,36 @@ def with_keys(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   keys: T.UiKeys,
+  +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
     case T.UiKeys{quit, enter, +typed, rows, tab, click, up, dn, hist}:
-      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, k, T.flag_on(quit), T.flag_on(enter))
+      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, pending, k, T.flag_on(quit), T.flag_on(enter))
 
 def with_tick.got(
   got: T.Ui & T.UiKeys,
   +st2: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
+  +pending: List<&2, String>,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match got:
     case (ui2, keys):
-      with_keys(ui2, st2, evt, cmd, keys, k)
+      with_keys(ui2, st2, evt, cmd, keys, pending, k)
+
+def with_tick_pend(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +pending: List<&2, String>,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    got : T.Ui & T.UiKeys <- paint_session(ui, st)
+    with_tick.got(got, st, evt, cmd, pending, k)
 
 def with_tick(
   ui: T.Ui,
@@ -219,23 +235,7 @@ def with_tick(
   +cmd: Chan(Sess.NetCmd),
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    with_tick.got(got, st, evt, cmd, k)
-
-def chunk_sent(
-  ok: Bool,
-  ui: T.Ui,
-  +st2: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match ok:
-    case False{}:
-      shutdown(ui, evt, cmd)
-    case True{}:
-      with_tick(ui, st2, evt, cmd, k)
+  with_tick_pend(ui, st, evt, cmd, Nil{}, k)
 
 def with_chunk_pair(
   ui: T.Ui,
@@ -246,9 +246,7 @@ def with_chunk_pair(
 ) -> IO(Unit):
   match pair:
     case (+st2, +outs):
-      do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
-        chunk_sent(ok, ui, st2, evt, cmd, k)
+      with_tick_pend(ui, st2, evt, cmd, outs, k)
 
 def with_chunk.ts(
   ui: T.Ui,
@@ -463,7 +461,9 @@ def on_cmd(
     case Some{c}:
       match c:
         case Sess.Dial{_, _}:
-          k(sock)
+          do IO<Unit>:
+            ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
+            after_offer(sock, evt, cmd, ok, k)
         case Sess.Cont{+outs}:
           do IO<Unit>:
             sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, outs))), sock, outs)
