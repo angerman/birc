@@ -1,7 +1,7 @@
 # IRC networking IO (M4). Pure fold/fuel live in session.bend.
 # D2: IO.spawn net actor owns Socket; UI ↔ actor via Chan(Sess.NetEvt)/Chan(Sess.NetCmd).
 # D3: TCP.send String; inbound octets via recv_octets, framed by Fr.push.
-# Empty octet list is EOF. Latin-1: each byte is one Char (Chr{b}).
+# Empty octet list is EOF. Completed lines are UTF-8, Latin-1 if invalid.
 # P5: actor Socket.close then Timui.close (drain evt after Chan.close(cmd)).
 # Dial: actor owns the fd (never Chan(Socket)). Demo/Connecting Cont is
 # held (empty outs) so queued JOIN/PRIVMSG cannot flush after Dial.

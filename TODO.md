@@ -25,7 +25,7 @@ Current split (approx):
 - [x] **P3** Fail closed: Makefile targets that are not ready exit nonzero (`BLOCKED:`), never pretend.
 - [x] **P4** Handles stay opaque: TimUI / sockets are Bend handles or foreign handles — never stuff pointers into `U32`/`Nat`.
 - [x] **P5** Shutdown order: UI `Chan.close(evt)` → `Timui.close`; net actor `Socket.close` (live path).
-- [x] **P6** Live path uses Base `TCP.send` (String) and `recv_octets` + `Fr.push`. Lines are Latin-1 (`Chr{byte}`).
+- [x] **P6** Live path uses Base `TCP.send` (String) and `recv_octets` + `Fr.push`. Lines are UTF-8, Latin-1 if invalid.
 - [x] **P7** Fuel for open loops: UI/net loops take `Nat` fuel (`--frames`; `frames=0` live is `@unsafe` idle).
 
 ---
@@ -369,8 +369,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       Same halt as H4: `shutdown` ends with `IO.die` so leftover sleeps cannot outlive the UI.
 - [x] **H7** Byte-safe TCP read; octet framer; delete `push_text` (proto#5, net#6, ffi B).
       Live read is `recv_octets` (non-blocking so idle still Ticks). Remainder is
-      `List U32`. Lines decode Latin-1 (`Chr{byte}`). `push_text` deleted.
-      IO_READ park skipped: it would block Ticks until socket data.
+      `List U32`. Completed lines decode as UTF-8; invalid lines fall back to
+      Latin-1. `push_text` deleted. IO_READ park skipped: it would block Ticks.
 - [ ] **H8** Fuel that returns a wrong value: `U32.to_nat`, `parse_params`, `copy_args`, `send_lines_go` (idiom §5c, proto#6 #7, view#16).
 
 ### Phase M — medium

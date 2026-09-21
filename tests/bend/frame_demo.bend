@@ -67,6 +67,12 @@ def main() -> IO(Unit):
     Unit <- E.must("cr_flood_oct", Fr.cr_flood_oct_ok())
     Unit <- E.must("legal_max", Fr.legal_max_ok())
     Unit <- E.must("legal_509", Fr.legal_509_ok())
+    Unit <- E.must("utf8_cafe", Fr.utf8_cafe_ok())
+    Unit <- E.must("utf8_han", Fr.utf8_han_ok())
+    Unit <- E.must("utf8_emoji", Fr.utf8_emoji_ok())
+    Unit <- E.must("latin1_e9", Fr.latin1_e9_ok())
+    Unit <- E.must("latin1_overlong", Fr.latin1_overlong_ok())
+    Unit <- E.must("latin1_naive", Fr.latin1_naive_ok())
     Unit <- E.must("split_high", Fr.split_high_ok())
     Unit <- E.must_eq(
       "drop_across_oct",

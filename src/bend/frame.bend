@@ -25,6 +25,269 @@ def octets_to_string.go(fuel: Nat, +xs: List<&2, U32>, +acc: String) -> String:
 def octets_to_string(+xs: List<&2, U32>) -> String:
   octets_to_string.go(Nat.add(1n, List.length(&2, U32, xs)), xs, "")
 
+def is_cont(+b: U32) -> Bool:
+  U32.is_ge(b, 128) && U32.is_le(b, 191)
+
+def utf8_cp2(+b0: U32, +b1: U32) -> U32:
+  U32.or(U32.shln(U32.and(b0, 31), 6n), U32.and(b1, 63))
+
+def utf8_cp3(+b0: U32, +b1: U32, +b2: U32) -> U32:
+  U32.or(
+    U32.shln(U32.and(b0, 15), 12n),
+    U32.or(U32.shln(U32.and(b1, 63), 6n), U32.and(b2, 63))
+  )
+
+def utf8_cp4(+b0: U32, +b1: U32, +b2: U32, +b3: U32) -> U32:
+  U32.or(
+    U32.shln(U32.and(b0, 7), 18n),
+    U32.or(
+      U32.shln(U32.and(b1, 63), 12n),
+      U32.or(U32.shln(U32.and(b2, 63), 6n), U32.and(b3, 63))
+    )
+  )
+
+def utf8_3_b1.ed(ed: Bool, +b1: U32) -> Bool:
+  match ed:
+    case True{}:
+      U32.is_ge(b1, 128) && U32.is_le(b1, 159)
+    case False{}:
+      is_cont(b1)
+
+def utf8_3_b1.e0(e0: Bool, +b0: U32, +b1: U32) -> Bool:
+  match e0:
+    case True{}:
+      U32.is_ge(b1, 160) && U32.is_le(b1, 191)
+    case False{}:
+      utf8_3_b1.ed(U32.is_eq(b0, 237), b1)
+
+def utf8_3_b1(+b0: U32, +b1: U32) -> Bool:
+  utf8_3_b1.e0(U32.is_eq(b0, 224), b0, b1)
+
+def utf8_4_b1.f4(f4: Bool, +b1: U32) -> Bool:
+  match f4:
+    case True{}:
+      U32.is_ge(b1, 128) && U32.is_le(b1, 143)
+    case False{}:
+      is_cont(b1)
+
+def utf8_4_b1.f0(f0: Bool, +b0: U32, +b1: U32) -> Bool:
+  match f0:
+    case True{}:
+      U32.is_ge(b1, 144) && U32.is_le(b1, 191)
+    case False{}:
+      utf8_4_b1.f4(U32.is_eq(b0, 244), b1)
+
+def utf8_4_b1(+b0: U32, +b1: U32) -> Bool:
+  utf8_4_b1.f0(U32.is_eq(b0, 240), b0, b1)
+
+type Utf8Got is Data:
+  Utf8Got{cp: U32, rest: List<&2, U32>}
+
+def utf8_hit(+cp: U32, rest: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  Some{Utf8Got{cp, rest}}
+
+def utf8_step.two_cont(ok: Bool, +b0: U32, +b1: U32, rest: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      utf8_hit(utf8_cp2(b0, b1), rest)
+
+def utf8_step.two_take(+b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match t:
+    case Nil{}:
+      None{}
+    case Con{+b1, rest}:
+      utf8_step.two_cont(is_cont(b1), b0, b1, rest)
+
+def utf8_step.three_cont(
+  ok: Bool,
+  +b0: U32,
+  +b1: U32,
+  +b2: U32,
+  rest: List<&2, U32>
+) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      utf8_hit(utf8_cp3(b0, b1, b2), rest)
+
+def utf8_step.three_b2(
+  ok: Bool,
+  +b0: U32,
+  +b1: U32,
+  t2: List<&2, U32>
+) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      match t2:
+        case Nil{}:
+          None{}
+        case Con{+b2, rest}:
+          utf8_step.three_cont(is_cont(b2), b0, b1, b2, rest)
+
+def utf8_step.three_take(+b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match t:
+    case Nil{}:
+      None{}
+    case Con{+b1, t2}:
+      utf8_step.three_b2(utf8_3_b1(b0, b1), b0, b1, t2)
+
+def utf8_step.four_cont(
+  ok: Bool,
+  +b0: U32,
+  +b1: U32,
+  +b2: U32,
+  +b3: U32,
+  rest: List<&2, U32>
+) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      utf8_hit(utf8_cp4(b0, b1, b2, b3), rest)
+
+def utf8_step.four_b3(
+  ok: Bool,
+  +b0: U32,
+  +b1: U32,
+  +b2: U32,
+  t3: List<&2, U32>
+) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      match t3:
+        case Nil{}:
+          None{}
+        case Con{+b3, rest}:
+          utf8_step.four_cont(is_cont(b3), b0, b1, b2, b3, rest)
+
+def utf8_step.four_b2(
+  ok: Bool,
+  +b0: U32,
+  +b1: U32,
+  t2: List<&2, U32>
+) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      match t2:
+        case Nil{}:
+          None{}
+        case Con{+b2, t3}:
+          utf8_step.four_b3(is_cont(b2), b0, b1, b2, t3)
+
+def utf8_step.four_take(+b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match t:
+    case Nil{}:
+      None{}
+    case Con{+b1, t2}:
+      utf8_step.four_b2(utf8_4_b1(b0, b1), b0, b1, t2)
+
+def utf8_step.four(ok: Bool, +b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case True{}:
+      utf8_step.four_take(b0, t)
+    case False{}:
+      None{}
+
+def utf8_step.three(ok: Bool, +b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case True{}:
+      utf8_step.three_take(b0, t)
+    case False{}:
+      utf8_step.four(U32.is_ge(b0, 240) && U32.is_le(b0, 244), b0, t)
+
+def utf8_step.two(ok: Bool, +b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case True{}:
+      utf8_step.two_take(b0, t)
+    case False{}:
+      utf8_step.three(U32.is_ge(b0, 224) && U32.is_le(b0, 239), b0, t)
+
+def utf8_step.ascii(ok: Bool, +b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  match ok:
+    case True{}:
+      utf8_hit(b0, t)
+    case False{}:
+      utf8_step.two(U32.is_ge(b0, 194) && U32.is_le(b0, 223), b0, t)
+
+def utf8_step.lead(+b0: U32, t: List<&2, U32>) -> Maybe<&2, Utf8Got>:
+  utf8_step.ascii(U32.is_lt(b0, 128), b0, t)
+
+type Utf8Acc is Data:
+  Utf8Acc{rest: List<&2, U32>, acc: String}
+
+def utf8_got(
+  m: Maybe<&2, Utf8Got>,
+  acc: String,
+  k: Utf8Acc -> Maybe<&2, String>
+) -> Maybe<&2, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{got}:
+      match got:
+        case Utf8Got{+cp, rest}:
+          k(Utf8Acc{rest, SCon{Chr{cp}, acc}})
+
+# Walk the octet list. Fuel is 1+len: each step consumes ≥1 byte.
+# A self-call on Utf8Acc.rest is not a decreasing constructor argument
+# (the checker cannot see through the record), so fuel is required.
+# No phase enum: utf8_step.lead returns Maybe Utf8Got.
+def utf8_decode.go(fuel: Nat, st: Utf8Acc) -> Maybe<&2, String>:
+  match fuel:
+    case 0n:
+      None{}
+    case 1n+p:
+      match st:
+        case Utf8Acc{xs, acc}:
+          match xs:
+            case Nil{}:
+              Some{String.reverse(acc)}
+            case Con{+b0, t}:
+              utf8_got(utf8_step.lead(b0, t), acc, nxt => utf8_decode.go(p, nxt))
+
+def utf8_decode(+xs: List<&2, U32>) -> Maybe<&2, String>:
+  utf8_decode.go(Nat.add(1n, List.length(&2, U32, xs)), Utf8Acc{xs, SNil{}})
+
+def line_from_octets.on(m: Maybe<&2, String>, +xs: List<&2, U32>) -> String:
+  match m:
+    case Some{+s}:
+      s
+    case None{}:
+      octets_to_string(xs)
+
+def line_from_octets(+xs: List<&2, U32>) -> String:
+  line_from_octets.on(utf8_decode(xs), xs)
+
+def cafe_oct() -> List<&2, U32>:
+  99 <> 97 <> 102 <> 195 <> 169 <> Nil{}
+
+def cafe_str() -> String:
+  "caf" ++ SCon{Chr{233}, SNil{}}
+
+def utf8_cafe_ok() -> Bool:
+  String.eq(line_from_octets(cafe_oct()), cafe_str())
+
+def utf8_han_ok() -> Bool:
+  String.eq(line_from_octets(230 <> 188 <> 162 <> Nil{}), SCon{Chr{28450}, SNil{}})
+
+def utf8_emoji_ok() -> Bool:
+  String.eq(line_from_octets(240 <> 159 <> 152 <> 128 <> Nil{}), SCon{Chr{128512}, SNil{}})
+
+def latin1_e9_ok() -> Bool:
+  String.eq(line_from_octets(233 <> Nil{}), SCon{Chr{233}, SNil{}})
+
+def latin1_overlong_ok() -> Bool:
+  String.eq(line_from_octets(192 <> 128 <> Nil{}), SCon{Chr{192}, SCon{Chr{128}, SNil{}}})
+
 def char_code(+c: Char) -> U32:
   match c:
     case Chr{code}:
@@ -44,15 +307,29 @@ def string_to_octets.go(fuel: Nat, +s: String, acc: List<&2, U32>) -> List<&2, U
 def string_to_octets(+s: String) -> List<&2, U32>:
   string_to_octets.go(Nat.add(1n, String.length(s)), s, Nil{})
 
+def naive_priv_oct() -> List<&2, U32>:
+  List.append(
+    &2,
+    U32,
+    string_to_octets(":a!a@h PRIVMSG #t :na"),
+    239 <> string_to_octets("ve latin1")
+  )
+
+def naive_priv_str() -> String:
+  ":a!a@h PRIVMSG #t :na" ++ SCon{Chr{239}, "ve latin1"}
+
+def latin1_naive_ok() -> Bool:
+  String.eq(line_from_octets(naive_priv_oct()), naive_priv_str())
+
 def crlf(+s: String) -> List<&2, U32>:
   List.append(&2, U32, string_to_octets(s), CR() <> LF() <> Nil{})
 
 def emit_line.cr(+h: U32, +t: List<&2, U32>, lines: List<&2, String>, was_cr: Bool) -> List<&2, String>:
   match was_cr:
     case True{}:
-      Irc.sanitize_in(octets_to_string(List.reverse(&2, U32, t))) <> lines
+      Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, t))) <> lines
     case False{}:
-      Irc.sanitize_in(octets_to_string(List.reverse(&2, U32, h <> t))) <> lines
+      Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, h <> t))) <> lines
 
 def emit_line(+rem_rev: List<&2, U32>, lines: List<&2, String>) -> List<&2, String>:
   match rem_rev:
@@ -369,7 +646,7 @@ def short_text_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
 def short_text_ok() -> Bool:
   short_text_ok.fin(push(Nil{}, string_to_octets("PING :x\r\n")))
 
-# Latin-1: byte 0xE9 split from CRLF still becomes one line, not U+FFFD.
+# First chunk ends 0xC3, second starts 0xA9 → one UTF-8 line "café".
 def split_high_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:
     case (ls, rem):
@@ -377,7 +654,7 @@ def split_high_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
         case Con{+h, Nil{}}:
           match rem:
             case Nil{}:
-              String.eq(h, SCon{Chr{233}, SNil{}})
+              String.eq(h, cafe_str())
             case Con{_, _}:
               False{}
         case _:
@@ -386,7 +663,7 @@ def split_high_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
 def split_high_ok.go(st: List<&2, String> & List<&2, U32>) -> Bool:
   match st:
     case (_, rem):
-      split_high_ok.fin(push(rem, CR() <> LF() <> Nil{}))
+      split_high_ok.fin(push(rem, 169 <> CR() <> LF() <> Nil{}))
 
 def split_high_ok() -> Bool:
-  split_high_ok.go(push(Nil{}, 233 <> Nil{}))
+  split_high_ok.go(push(Nil{}, 99 <> 97 <> 102 <> 195 <> Nil{}))
