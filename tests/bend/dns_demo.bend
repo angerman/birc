@@ -2,6 +2,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/dns.bend as Dns
+import ../../src/bend/dns_wire.bend as Wire
 
 def show_fail(e: U32 & String) -> String:
   match e:
@@ -14,6 +15,15 @@ def show_res(r: Result<&1, &1, U32 & String, String>) -> String:
       "ok:" ++ ip
     case Fail{e}:
       show_fail(e)
+
+def show_take(t: Wire.Take) -> String:
+  match t:
+    case Wire.Miss{}:
+      "miss"
+    case Wire.HitOk{+ip}:
+      "ok:" ++ ip
+    case Wire.HitErr{+msg}:
+      "fail:" ++ msg
 
 def drop_s(fuel: Nat, z: Bool, +n: Nat, s: String) -> String:
   match fuel:
@@ -283,6 +293,13 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("trunc_rd", show_res(Dns.parse_id(1, pkt_trunc_rd())), "fail:bad dns")
     Unit <- E.must_eq("empty", show_res(Dns.parse_id(1, pkt_empty())), "fail:short")
     Unit <- E.must_eq("encode_long", show_res(Dns.encode(long_name())), "fail:bad name")
+    Unit <- E.must("peer_ok", Wire.peer_ok("1.1.1.1", "1.1.1.1", 53))
+    Unit <- E.must("peer_ip", Bool.not(Wire.peer_ok("1.1.1.1", "8.8.8.8", 53)))
+    Unit <- E.must("peer_port", Bool.not(Wire.peer_ok("1.1.1.1", "1.1.1.1", 54)))
+    Unit <- E.must_eq("take_hit", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, sample())), "ok:1.2.3.4")
+    Unit <- E.must_eq("take_peer", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "8.8.8.8", 53, sample())), "miss")
+    Unit <- E.must_eq("take_id", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, sample_bad_id())), "miss")
+    Unit <- E.must_eq("take_tc", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc())), "fail:tc")
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve("one.one.one.one")
