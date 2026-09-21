@@ -3,7 +3,8 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
-import ../../src/bend/client.bend as Cl
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/net.bend as IoNet

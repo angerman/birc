@@ -476,9 +476,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `header_of`/`body_of`/`nicks_of`/`status_of`/`active_buf`/`view`/`show_vm`/`pad_*`
       wrappers. `nick_of` is live. Session import is `Sess` (T7). Stale F*/D2 tags
       in comments now say what they mean.
-- [ ] **I15** Split `client.bend` below ~1000 lines (client#25).
-      - [x] I15a: inspectors and `*_ok` live in `src/bend/client_laws.bend`.
-        `LAWS.bend` / `feed_demo` import it. `nick_of` stays on Client (session).
+- [x] **I15** Split `client.bend` below ~1000 lines (client#25).
+      I15a: inspectors/`*_ok` in `client_laws.bend`. I15b: types+container in
+      `buffer.bend`. `wc -l`: client 636, buffer 597, client_laws 339.
 - [ ] **I16** Move in-src test predicates that no law cites into `tests/` (net#21, client#24).
       tried: `LAWS.bend` imports `Cl.flood_buffers_capped` / `Cl.cycle_ok` / …
       evidence: feed_demo calls the same defs; uncited vs cited is a grep against

@@ -1,7 +1,8 @@
 # Composer submit (M2). Pure: Client -> input -> (Client & List<&2, String>) outbound.
 import Base
 import ./irc.bend as Irc
-import ./client.bend as Cl
+import ./buffer.bend as Cl
+import ./client.bend as Feed
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -73,12 +74,12 @@ def active_name(+cl: Cl.Client) -> String:
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _}:
-      Cl.client_log(cl, bi, Cl.Self{}, Cl.fmt_msg(nick, body))
+      Cl.client_log(cl, bi, Cl.Self{}, Feed.fmt_msg(nick, body))
 
 def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _}:
-      Cl.client_log(cl, bi, Cl.Action{}, Cl.fmt_action(nick, body))
+      Cl.client_log(cl, bi, Cl.Action{}, Feed.fmt_action(nick, body))
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, active_idx(cl), Cl.Error{}, msg)

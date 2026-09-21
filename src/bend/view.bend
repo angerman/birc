@@ -1,6 +1,6 @@
 # View model from Client. Pure scroll math + DrawOp list for the paint FFI.
 import Base
-import ./client.bend as Cl
+import ./buffer.bend as Cl
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.

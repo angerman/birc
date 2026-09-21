@@ -1,7 +1,8 @@
 # M2.6 submit goldens — outbound lines must match, not merely print.
 import Base
 import ./expect.bend as E
-import ../../src/bend/client.bend as Cl
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/session.bend as Sess
@@ -68,7 +69,7 @@ def part_idx_tag(pair: Cl.Client & List<&2, String>) -> String:
       Sub.active_name(cl2) ++ " nbuf=" ++ Nat.show(CL.nbuf(cl2))
 
 def part_keeps_b() -> String:
-  +cl = Cl.feed_all(Cl.init("me", "irc.birc.dev"), join_abc())
+  +cl = Feed.feed_all(Cl.init("me", "irc.birc.dev"), join_abc())
   +clb = Cl.set_active(cl, 2n)
   part_idx_tag(Sub.submit(clb, "/part #a"))
 

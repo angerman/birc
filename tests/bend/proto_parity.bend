@@ -3,7 +3,8 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
-import ../../src/bend/client.bend as Cl
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
 
@@ -49,7 +50,7 @@ def has_tag(+want: String, +xs: List<&2, String>) -> Bool:
       Bool.or(String.eq(Irc.show_parse(h), want), has_tag(want, t))
 
 def action_feed_ok() -> Bool:
-  +cl = Cl.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #birc" <> action_line() <> Nil{})
+  +cl = Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #birc" <> action_line() <> Nil{})
   String.eq(CL.buf_texts(cl, 1n), "-> me joined #birc|* alice waves|")
 
 def read_die(+path: String, +msg: String) -> IO(String):

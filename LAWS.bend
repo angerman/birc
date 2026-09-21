@@ -1,7 +1,8 @@
 # Protocol + client laws. The human states them; PROOF.bend must prove them.
 import Base
 import ./src/bend/irc.bend as Irc
-import ./src/bend/client.bend as Cl
+import ./src/bend/buffer.bend as Cl
+import ./src/bend/client.bend as Feed
 import ./src/bend/client_laws.bend as CL
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
@@ -56,7 +57,7 @@ law feed_empty_id:
 
 # LAW: PING does not change buffer count.
 law feed_ping_nbuf:
-  {Nat.is_eq(CL.nbuf(Cl.init("me", "s")), CL.nbuf(Cl.feed(Cl.init("me", "s"), "PING :x"))) == True{} : Bool}
+  {Nat.is_eq(CL.nbuf(Cl.init("me", "s")), CL.nbuf(Feed.feed(Cl.init("me", "s"), "PING :x"))) == True{} : Bool}
 
 # LAW: submit outbound lines satisfy line_ok.
 law submit_line_ok:
