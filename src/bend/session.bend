@@ -523,7 +523,7 @@ def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
     case True{}:
       cl
     case False{}:
-      Cl.set_active_clamp(cl, NatU.u32_to_nat(U32.sub(click, 1)))
+      Cl.set_active_clamp(cl, U32.to_nat(U32.sub(click, 1)))
 
 def apply_click(+cl: Cl.Client, +click: U32) -> Cl.Client:
   apply_click.on(cl, click, U32.is_eq(click, 0))
@@ -598,7 +598,7 @@ def finish_keys(
 ) -> Session & NetCmd & Bool:
   match triple:
     case (cl2, draft2, cmd):
-      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), NatU.u32_to_nat(up), NatU.u32_to_nat(dn)))
+      +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), U32.to_nat(up), U32.to_nat(dn)))
       +h2 = hist_after_enter(hist, line, enter)
       finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, line), rows, seed_of(hcmd), hist_move(h2, draft2, hcmd))
 

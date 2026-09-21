@@ -371,7 +371,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       Live read is `recv_octets` (non-blocking so idle still Ticks). Remainder is
       `List U32`. Completed lines decode as UTF-8; invalid lines fall back to
       Latin-1. `push_text` deleted. IO_READ park skipped: it would block Ticks.
-- [ ] **H8** Fuel that returns a wrong value: `U32.to_nat`, `parse_params`, `copy_args`, `send_lines_go` (idiom §5c, proto#6 #7, view#16).
+- [x] **H8** Fuel that returns a wrong value: `U32.to_nat`, `parse_params`, `copy_args`, `send_lines_go` (idiom §5c, proto#6 #7, view#16).
+      `u32_to_nat` deleted (Base `U32.to_nat`). `parse_params` fuel is `1+4*len`.
+      `copy_args` fuel 0 with leftover argv is `Bad{"birc: too many arguments"}`.
+      `send_lines_go` fuel 0 returns `(sock, False{})`.
 
 ### Phase M — medium
 - [ ] **M1** NICK renames a query buffer (client#3).

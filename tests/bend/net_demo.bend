@@ -5,6 +5,7 @@ import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/client.bend as Cl
 import ../../src/bend/session.bend as Net
+import ../../src/bend/net.bend as IoNet
 
 def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket):
   match m:
@@ -132,6 +133,7 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("nick433_same", nick433_fold_same())
     Unit <- E.must("fuel_alias", Nat.is_eq(Net.live_fuel(3), Net.ticks_of(3)))
     Unit <- E.must("fuel3", Nat.is_eq(Net.live_fuel(3), 3n))
+    Unit <- E.must("fuel70000", Nat.is_eq(Net.live_fuel(70000), 70000n))
     IO.print("net_demo=ok")
 
 def finish_push(got: List<&2, String> & List<&2, U32>, client2: Socket, server2: Socket) -> IO(Unit):
@@ -139,10 +141,23 @@ def finish_push(got: List<&2, String> & List<&2, U32>, client2: Socket, server2:
     case (+lines, _):
       finish_report(lines, client2, server2)
 
+def finish_drop(
+  pair: Socket & Bool,
+  +chunk: String,
+  server2: Socket
+) -> IO(Unit):
+  match pair:
+    case (client3, ok):
+      do IO<Unit>:
+        Unit <- E.must("send_fuel0", Bool.not(ok))
+        finish_push(Fr.push(Nil{}, Fr.string_to_octets(chunk)), client3, server2)
+
 def finish_recv(sl: Socket & String, client2: Socket) -> IO(Unit):
   match sl:
     case (server2, chunk):
-      finish_push(Fr.push(Nil{}, Fr.string_to_octets(chunk)), client2, server2)
+      do IO<Unit>:
+        dropped : Socket & Bool <- IoNet.send_lines(0n, client2, "PING :drop" <> Nil{})
+        finish_drop(dropped, chunk, server2)
 
 def after_accept(
   listener2: Listener,

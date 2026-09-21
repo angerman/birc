@@ -296,19 +296,46 @@ def args_go(fuel: Nat, st: Step) -> Parsed:
 def parse(+xs: List<&2, String>) -> Parsed:
   args_go(64n, Go{ xs, cfg0()})
 
-def copy_args(fuel: Nat, src: List<&1, String>, +acc: List<&2, String>) -> List<&2, String>:
+type Copy is Data:
+  CopyOk{xs: List<&2, String>}
+  CopyMany{}
+
+def copy_fin(rest: List<&1, String>, acc: List<&2, String>) -> Copy:
+  match rest:
+    case Nil{}:
+      CopyOk{List.reverse(&2, String, acc)}
+    case Con{_, _}:
+      CopyMany{}
+
+def copy_args(fuel: Nat, src: List<&1, String>, +acc: List<&2, String>) -> Copy:
   match fuel:
     case 0n:
-      List.reverse(&2, String, acc)
+      copy_fin(src, acc)
     case 1n+p:
       match src:
         case Nil{}:
-          List.reverse(&2, String, acc)
+          CopyOk{List.reverse(&2, String, acc)}
         case Con{+h, t}:
           copy_args(p, t, h <> acc)
 
+def copy_parse(c: Copy) -> Parsed:
+  match c:
+    case CopyMany{}:
+      Bad{"birc: too many arguments"}
+    case CopyOk{xs}:
+      parse(xs)
+
 def parse_raw(raw: List<&1, String>) -> Parsed:
-  parse(copy_args(64n, raw, Nil{}))
+  copy_parse(copy_args(64n, raw, Nil{}))
+
+# Same fail-closed rule as copy_args fuel 0, on a List<&2> so tests can
+# construct the remainder without IO.args.
+def copy_fin2(rest: List<&2, String>, acc: List<&2, String>) -> Parsed:
+  match rest:
+    case Nil{}:
+      parse(List.reverse(&2, String, acc))
+    case Con{_, _}:
+      Bad{"birc: too many arguments"}
 
 def show_cfg(+cfg: Cfg) -> String:
   match cfg:
