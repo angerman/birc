@@ -229,7 +229,10 @@ def nick_of_prefix(+pfx: String) -> String:
 # ---- parse --------------------------------------------------------------
 
 def push_param(ps: List<&2, String>, p: String) -> List<&2, String>:
-  List.append(&2, String, ps, p <> Nil{})
+  p <> ps
+
+def params_done(ps: List<&2, String>) -> List<&2, String>:
+  List.reverse(&2, String, ps)
 
 type ParPhase is Data:
   ParFuel{}
@@ -240,7 +243,7 @@ type ParPhase is Data:
 def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>, +h: Char, t: String, +rest: String, colon: Bool, pair: String & String) -> List<&2, String>:
   match fuel:
     case 0n:
-      ps
+      params_done(ps)
     case 1n+p:
       match phase:
         case ParFuel{}:
@@ -248,13 +251,13 @@ def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>,
         case ParRest{}:
           match s:
             case SNil{}:
-              ps
+              params_done(ps)
             case SCon{+hd, +tl}:
               parse_params.go(p, ParColon{}, "", ps, hd, tl, SCon{hd, tl}, is_colon(hd), pair)
         case ParColon{}:
           match colon:
             case True{}:
-              push_param(ps, t)
+              params_done(push_param(ps, t))
             case False{}:
               parse_params.go(p, ParMid{}, s, ps, h, t, rest, False{}, take_until_space(rest))
         case ParMid{}:

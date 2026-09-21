@@ -287,19 +287,8 @@ def string_to_octets(+s: String) -> List<&2, U32>:
 def crlf(+s: String) -> List<&2, U32>:
   List.append(&2, U32, string_to_octets(s), CR() <> LF() <> Nil{})
 
-def emit_line.cr(+h: U32, +t: List<&2, U32>, lines: List<&2, String>, was_cr: Bool) -> List<&2, String>:
-  match was_cr:
-    case True{}:
-      Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, t))) <> lines
-    case False{}:
-      Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, h <> t))) <> lines
-
 def emit_line(+rem_rev: List<&2, U32>, lines: List<&2, String>) -> List<&2, String>:
-  match rem_rev:
-    case Nil{}:
-      "" <> lines
-    case Con{+h, t}:
-      emit_line.cr(h, t, lines, U32.is_eq(h, CR()))
+  Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, rem_rev))) <> lines
 
 type PushPhase is Data:
   PRead{}
@@ -308,29 +297,9 @@ type PushPhase is Data:
   PDrop{}
   PDropLf{}
 
-def payload_n.dec(len: Nat) -> Nat:
-  match len:
-    case 0n:
-      0n
-    case 1n+p:
-      p
-
-def payload_n.adj(trail_cr: Bool, +len: Nat) -> Nat:
-  match trail_cr:
-    case True{}:
-      payload_n.dec(len)
-    case False{}:
-      len
-
-def payload_n.rev(+rev: List<&2, U32>, +len: Nat) -> Nat:
-  match rev:
-    case Nil{}:
-      0n
-    case Con{+h, _}:
-      payload_n.adj(U32.is_eq(h, CR()), len)
-
+# CR is skipped, never stored; rem length is the payload length.
 def payload_n(+rem: List<&2, U32>) -> Nat:
-  payload_n.rev(List.reverse(&2, U32, rem), List.length(&2, U32, rem))
+  List.length(&2, U32, rem)
 
 def push.go.halt(+lines: List<&2, String>, +rem: List<&2, U32>, drop: Bool) -> List<&2, String> & List<&2, U32> & Bool:
   (List.reverse(&2, String, lines), List.reverse(&2, U32, rem), drop)
@@ -440,19 +409,22 @@ def push.pair(got: List<&2, String> & List<&2, U32> & Bool) -> List<&2, String> 
 def push(+rem: List<&2, U32>, +chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32>:
   push.pair(push_ex(False{}, rem, chunk))
 
-def join_lines.go(fuel: Nat, +xs: List<&2, String>, acc: List<&2, U32>) -> List<&2, U32>:
-  match fuel:
-    case 0n:
+def octets_rev_onto(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
       acc
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          acc
-        case Con{+h, t}:
-          join_lines.go(p, t, List.append(&2, U32, acc, crlf(h)))
+    case Con{+h, t}:
+      octets_rev_onto(t, h <> acc)
+
+def join_lines.go(+xs: List<&2, String>, acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      List.reverse(&2, U32, acc)
+    case Con{+h, t}:
+      join_lines.go(t, octets_rev_onto(crlf(h), acc))
 
 def join_lines(+xs: List<&2, String>) -> List<&2, U32>:
-  join_lines.go(Nat.add(1n, List.length(&2, String, xs)), xs, Nil{})
+  join_lines.go(xs, Nil{})
 
 def append_octets(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
   List.append(&2, U32, a, b)
