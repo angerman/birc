@@ -347,20 +347,24 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   TimuiId id;
   TimuiRect r;
   TimuiTextAreaResult res;
-  int prompt_w = 2;
+  int prompt_w;
   size_t n;
   (void)st;
-  if (!fr || !stt || width < 1)
+  if (!fr || !stt)
     return 0;
-  timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
-  if (width <= prompt_w)
-    return 0;
+  /* Always register the text area. Skipping it on a narrow frame drops the
+   * widget (and its focus); resize-back then cannot type or /quit. */
+  prompt_w = width > 2 ? 2 : 0;
+  if (prompt_w > 0)
+    timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
   id = TIMUI_ID("birc.composer");
   if (timui_focus(fr) != id)
     timui_set_focus(fr, id);
   r.x = x + prompt_w;
   r.y = y;
   r.w = width - prompt_w;
+  if (r.w < 1)
+    r.w = 1;
   r.h = 1;
   res = timui_text_area_mut(fr, id, r, &stt->st, TIMUI_TEXT_AREA_ENTER_SUBMITS);
   n = strlen(stt->composer);

@@ -26,7 +26,7 @@ PROTO := src/bend/main.bend
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
-        test-pty-tall test-pty-redial test-pty-rst \
+        test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit \
         lint-ffi proto-parity proof check run run-demo clean
 
 help: ## Show the public targets (default).
@@ -170,7 +170,10 @@ test-pty-redial: build-ui ## Pty: partial line then Eof; /connect 001 sends JOIN
 test-pty-rst: build-ui ## Pty: TCP RST keeps the UI alive (A3).
 	$(NIXRUN) python3 tests/pty/rst.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst ## Pty loop tests.
+test-pty-tinyquit: build-ui ## Pty: /quit at 1-2 cols and after resize-back (A6).
+	$(NIXRUN) python3 tests/pty/tinyquit.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
