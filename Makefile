@@ -26,7 +26,7 @@ PROTO := src/bend/main.bend
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
-        test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut \
+        test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean
 
 help: ## Show the public targets (default).
@@ -176,7 +176,10 @@ test-pty-tinyquit: build-ui ## Pty: /quit at 1-2 cols and after resize-back (A6)
 test-pty-tabcut: build-ui ## Pty: long UTF-8 tab label cut on a code point (A7).
 	$(NIXRUN) python3 tests/pty/tab_cut.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut ## Pty loop tests.
+test-pty-paste50: build-ui ## Pty: 50-line paste all reach the server (M17).
+	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
