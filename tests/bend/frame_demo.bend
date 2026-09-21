@@ -84,6 +84,8 @@ def main() -> IO(Unit):
     Unit <- E.must("rt", Fr.roundtrip_ok("a" <> "b" <> Nil{}, Fr.string_to_octets("tail")))
     Unit <- E.must("overlong_octets", Fr.overlong_drop_ok())
     Unit <- E.must("overlong_text", Fr.overlong_text_drop_ok())
+    Unit <- E.must("cr_flood", Fr.cr_flood_ok())
+    Unit <- E.must("cr_flood_oct", Fr.cr_flood_oct_ok())
     Unit <- E.must("short_text", Fr.short_text_ok())
     Unit <- E.must("legal_max", Fr.legal_max_ok())
     Unit <- E.must("legal_509", Fr.legal_509_ok())

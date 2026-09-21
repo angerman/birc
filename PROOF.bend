@@ -143,6 +143,9 @@ def Laws.log_ts_ok():
 def Laws.overlong_text_drop():
   {==}
 
+def Laws.cr_flood_cap():
+  {==}
+
 def Laws.legal_max_line():
   {==}
 
