@@ -520,10 +520,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: live_mock is under a pty; split-line is utf8_split_pty
       evidence: session is still imported as Net in LAWS/net_demo
       open question: rename import in a no-behaviour pass
-- [ ] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
-      tried: main.bend still has its own must()
-      evidence: proto_parity already uses expect.bend
-      open question: switch main.bend without duplicating proto_parity
+- [x] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
 
 ### Phase D — docs
 - [x] **D1** Delete `docs/INVENTORY.md`.
