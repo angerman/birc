@@ -54,7 +54,7 @@ def skip_slash(+s: String) -> String:
 
 def active_idx(+cl: Cl.Client) -> Nat:
   match cl:
-    case Cl.Client{_, _, _, +active}:
+    case Cl.Client{_, _, _, +active, _}:
       active
 
 def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
@@ -68,17 +68,17 @@ def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
 
 def active_name(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, +active}:
+    case Cl.Client{_, _, +bufs, +active, _}:
       active_name.on(Cl.nth_buf(bufs, active))
 
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _}:
       Cl.client_log(cl, bi, Cl.Self{}, Cl.fmt_msg(nick, body))
 
 def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _}:
       Cl.client_log(cl, bi, Cl.Action{}, Cl.fmt_action(nick, body))
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
@@ -92,10 +92,15 @@ def echo_err_server(+cl: Cl.Client, +msg: String) -> Cl.Client:
 
 # ---- /join --------------------------------------------------------------
 
+def submit_join.got.on(+cl2: Cl.Client, +bi: Nat, +rest: String, +nick: String) -> Cl.Client & List<&2, String>:
+  (Cl.set_active(Cl.nick_add_idx(cl2, bi, nick), bi), one_out(Irc.format_join(rest)))
+
 def submit_join.got(pair: Cl.Client & Nat, +rest: String) -> Cl.Client & List<&2, String>:
   match pair:
     case (cl2, +bi):
-      (Cl.set_active(cl2, bi), one_out(Irc.format_join(rest)))
+      match cl2:
+        case Cl.Client{+nick, _, _, _, _}:
+          submit_join.got.on(cl2, bi, rest, nick)
 
 def submit_join.on(+cl: Cl.Client, +rest: String, chan: Bool) -> Cl.Client & List<&2, String>:
   match chan:
@@ -116,20 +121,20 @@ def submit_part.chan(+cl: Cl.Client, +rest: String, empty: Bool) -> String:
     case False{}:
       rest
 
-def submit_part.drop.fin(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
-  (Cl.drop_buf(Cl.Client{nick, server, bufs, active}, bi), one_out(Irc.format_part(chan)))
+def submit_part.drop.fin(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
+  (Cl.drop_buf(Cl.Client{nick, server, bufs, active, now}, bi), one_out(Irc.format_part(chan)))
 
-def submit_part.drop.pick(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+def submit_part.drop.pick(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
   match is_server:
     case True{}:
-      (Cl.Client{nick, server, bufs, active}, one_out(Irc.format_part(chan)))
+      (Cl.Client{nick, server, bufs, active, now}, one_out(Irc.format_part(chan)))
     case False{}:
-      submit_part.drop.fin(nick, server, bufs, active, chan, bi)
+      submit_part.drop.fin(nick, server, bufs, active, now, chan, bi)
 
 def submit_part.drop.body(+cl: Cl.Client, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active}:
-      submit_part.drop.pick(nick, server, bufs, active, chan, bi, is_server)
+    case Cl.Client{+nick, +server, +bufs, +active, +now}:
+      submit_part.drop.pick(nick, server, bufs, active, now, chan, bi, is_server)
 
 def submit_part.drop(+cl: Cl.Client, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
   submit_part.drop.body(cl, chan, bi, Nat.is_eq(bi, 0n))

@@ -8,15 +8,6 @@ type Parsed is Data:
   Good{cfg: Cfg}
   Bad{msg: String}
 
-type ArgPh is Data:
-  PhFlag{}
-  PhFrames{}
-  PhHost{}
-  PhPort{}
-  PhNick{}
-  PhChan{}
-  PhReplay{}
-
 type Num is Data:
   Num{ok: Bool, n: U32}
 
@@ -108,7 +99,7 @@ def set_demo(+cfg: Cfg) -> Cfg:
       Cfg{True{}, frames, host, port, nick, chan, replay}
 
 type Step is Data:
-  Go{phase: ArgPh, xs: List<&2, String>, cfg: Cfg}
+  Go{xs: List<&2, String>, cfg: Cfg}
   Stop{got: Parsed}
 
 def args_need(+xs: List<&2, String>) -> Bool:
@@ -118,12 +109,22 @@ def args_need(+xs: List<&2, String>) -> Bool:
     case Con{_, _}:
       False{}
 
-def args_num_which(+t: List<&2, String>, +cfg: Cfg, n: U32, frames: Bool) -> Step:
+def FRAMES_MAX() -> U32:
+  65535
+
+def args_num_frames(+t: List<&2, String>, +cfg: Cfg, n: U32, over: Bool) -> Step:
+  match over:
+    case True{}:
+      Stop{Bad{"birc: --frames too large"}}
+    case False{}:
+      Go{ t, set_frames(cfg, n)}
+
+def args_num_which(+t: List<&2, String>, +cfg: Cfg, +n: U32, frames: Bool) -> Step:
   match frames:
     case True{}:
-      Go{PhFlag{}, t, set_frames(cfg, n)}
+      args_num_frames(t, cfg, n, U32.is_gt(n, FRAMES_MAX()))
     case False{}:
-      Go{PhFlag{}, t, set_port(cfg, n)}
+      Go{ t, set_port(cfg, n)}
 
 def args_num_ok(+t: List<&2, String>, +cfg: Cfg, n: U32, ok: Bool, frames: Bool) -> Step:
   match ok:
@@ -160,9 +161,9 @@ def args_take(+xs: List<&2, String>, +cfg: Cfg, frames: Bool) -> Step:
 def args_word_set(+t: List<&2, String>, +cfg: Cfg, +h: String, host: Bool) -> Step:
   match host:
     case True{}:
-      Go{PhFlag{}, t, set_host(cfg, h)}
+      Go{ t, set_host(cfg, h)}
     case False{}:
-      Go{PhFlag{}, t, set_nick(cfg, h)}
+      Go{ t, set_nick(cfg, h)}
 
 def args_word_con(+xs: List<&2, String>, +cfg: Cfg, host: Bool) -> Step:
   match xs:
@@ -186,7 +187,7 @@ def args_chan_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Nil{}:
       Stop{Bad{"birc: missing value"}}
     case Con{+h, t}:
-      Go{PhFlag{}, t, set_chan(cfg, h)}
+      Go{ t, set_chan(cfg, h)}
 
 def args_chan_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
   match need:
@@ -203,7 +204,7 @@ def args_replay_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Nil{}:
       Stop{Bad{"birc: missing value"}}
     case Con{+h, t}:
-      Go{PhFlag{}, t, set_replay(cfg, h)}
+      Go{ t, set_replay(cfg, h)}
 
 def args_replay_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
   match need:
@@ -215,85 +216,71 @@ def args_replay_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
 def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   args_replay_on(xs, cfg, args_need(xs))
 
-def args_which7(+h: String, help: Bool) -> Step:
-  match help:
+def USAGE() -> String:
+  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"
+
+def args_opt.help(+h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
-      Stop{Bad{"usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"}}
+      Stop{Bad{USAGE()}}
     case False{}:
       Stop{Bad{"birc: unknown option " ++ h}}
 
-def args_which6(+t: List<&2, String>, +cfg: Cfg, +h: String, replay: Bool, help: Bool) -> Step:
-  match replay:
+def args_opt.replay(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_replay(t, cfg)
     case False{}:
-      args_which7(h, help)
+      args_opt.help(h, String.eq(h, "--help-irc"))
 
-def args_which_chan(+t: List<&2, String>, +cfg: Cfg, +h: String, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match chan:
+def args_opt.chan(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_chan(t, cfg)
     case False{}:
-      args_which6(t, cfg, h, replay, help)
+      args_opt.replay(t, cfg, h, String.eq(h, "--replay"))
 
-def args_which5(+t: List<&2, String>, +cfg: Cfg, +h: String, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match nick:
+def args_opt.nick(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_word(t, cfg, False{})
     case False{}:
-      args_which_chan(t, cfg, h, chan, replay, help)
+      args_opt.chan(t, cfg, h, String.eq(h, "--channel"))
 
-def args_which4(+t: List<&2, String>, +cfg: Cfg, +h: String, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match port:
+def args_opt.port(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_take(t, cfg, False{})
     case False{}:
-      args_which5(t, cfg, h, nick, chan, replay, help)
+      args_opt.nick(t, cfg, h, String.eq(h, "--nick"))
 
-def args_which3(+t: List<&2, String>, +cfg: Cfg, +h: String, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match connect:
+def args_opt.connect(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_word(t, cfg, True{})
     case False{}:
-      args_which4(t, cfg, h, port, nick, chan, replay, help)
+      args_opt.port(t, cfg, h, String.eq(h, "--port"))
 
-def args_which2(+t: List<&2, String>, +cfg: Cfg, +h: String, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match frames:
+def args_opt.frames(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
       args_take(t, cfg, True{})
     case False{}:
-      args_which3(t, cfg, h, connect, port, nick, chan, replay, help)
+      args_opt.connect(t, cfg, h, String.eq(h, "--connect"))
 
-def args_which(+t: List<&2, String>, +cfg: Cfg, +h: String, demo: Bool, frames: Bool, connect: Bool, port: Bool, nick: Bool, chan: Bool, replay: Bool, help: Bool) -> Step:
-  match demo:
+def args_opt.demo(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
+  match hit:
     case True{}:
-      Go{PhFlag{}, t, set_demo(cfg)}
+      Go{ t, set_demo(cfg)}
     case False{}:
-      args_which2(t, cfg, h, frames, connect, port, nick, chan, replay, help)
+      args_opt.frames(t, cfg, h, String.eq(h, "--frames"))
 
 def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
     case Nil{}:
       Stop{Good{cfg}}
     case Con{+h, t}:
-      args_which(t, cfg, h, String.eq(h, "--demo"), String.eq(h, "--frames"), String.eq(h, "--connect"), String.eq(h, "--port"), String.eq(h, "--nick"), String.eq(h, "--channel"), String.eq(h, "--replay"), String.eq(h, "--help-irc"))
-
-def args_step(phase: ArgPh, +xs: List<&2, String>, +cfg: Cfg) -> Step:
-  match phase:
-    case PhFlag{}:
-      args_flag(xs, cfg)
-    case PhFrames{}:
-      args_take(xs, cfg, True{})
-    case PhHost{}:
-      args_word(xs, cfg, True{})
-    case PhPort{}:
-      args_take(xs, cfg, False{})
-    case PhNick{}:
-      args_word(xs, cfg, False{})
-    case PhChan{}:
-      args_chan(xs, cfg)
-    case PhReplay{}:
-      args_replay(xs, cfg)
+      args_opt.demo(t, cfg, h, String.eq(h, "--demo"))
 
 def args_go(fuel: Nat, st: Step) -> Parsed:
   match fuel:
@@ -303,11 +290,11 @@ def args_go(fuel: Nat, st: Step) -> Parsed:
       match st:
         case Stop{got}:
           got
-        case Go{phase, +xs, +cfg}:
-          args_go(p, args_step(phase, xs, cfg))
+        case Go{+xs, +cfg}:
+          args_go(p, args_flag(xs, cfg))
 
 def parse(+xs: List<&2, String>) -> Parsed:
-  args_go(64n, Go{PhFlag{}, xs, cfg0()})
+  args_go(64n, Go{ xs, cfg0()})
 
 def copy_args(fuel: Nat, src: List<&1, String>, +acc: List<&2, String>) -> List<&2, String>:
   match fuel:

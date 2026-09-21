@@ -26,7 +26,7 @@ Current split (approx):
 - [x] **P4** Handles stay opaque: TimUI / sockets are Bend handles or foreign handles — never stuff pointers into `U32`/`Nat`.
 - [x] **P5** Shutdown order: UI `Chan.close(evt)` → `Timui.close`; net actor `Socket.close` (live path).
 - [x] **P6** Live path uses Base `TCP.send` / `TCP.recv` (`String`). ASCII IRC, including SOH, is one byte per codepoint. `recv` parks until data. `frame.push` stays the octet framer for laws; live framing is `push_text`.
-- [x] **P7** Fuel for open loops: UI/net loops take `Nat` fuel (`ui_loop_trust`; `--frames` / `App.budget`).
+- [x] **P7** Fuel for open loops: UI/net loops take `Nat` fuel (`--frames`; `frames=0` live is `@unsafe` idle).
 
 ---
 
@@ -74,7 +74,7 @@ Current split (approx):
 - [x] **M4.6** `IO.spawn` net actor + `Chan(NetEvt)` / `Chan(NetCmd)` event loop with `Timui.frame`
 - [x] **M4.7** `make test-net` loopback goldens
 - [x] **M4.8** `make run HOST=…` connects (plaintext)
-- [x] **M4.9** Reconnect / backoff: `next_backoff` (double+cap) + fuel-bounded `dial` retries with `IO.sleep`
+- [x] **M4.9** Reconnect / backoff: dropped (no reconnect loop; unused `next_backoff` / `backoff_double` law removed)
 
 **Exit:** `make test-net` + live connect path.
 
@@ -85,7 +85,7 @@ Current split (approx):
 - [x] **M5.1**–**M5.2** `view.bend` ViewModel + scroll math / bounds law
 - [x] **M5.3** Rich-text tokenization: `TextSpan` Plain/Bold on `*…*` (`tokenize` / `show_spans`)
 - [x] **M5.4** Coarse draw: whole layout painted inside one `Timui.frame` (D1)
-- [x] **M5.5** Minimal Quit event path: `Timui.events` → `List UiEvent` (`Quit{}`); `ui_loop` folds via `has_quit`
+- [x] **M5.5** Quit path: `UiKeys.quit` / `/quit` halt via `step_keys` (no separate `Timui.events` IO)
 - [x] **M5.6** Frame keys as Data: `Timui.frame` returns `Ui & UiKeys` (same shape as `Window.frame`: handle beside Data). Bend unpacks in a helper (`with_tick.got`). Quit is `UiKeys.quit`, not a second latch IO. Fine-grained `begin`/`draw`/`end` is optional later (D1 still one begin/draw/end in C). The old note that Bend cannot unpack a handle & product was wrong — Base already does `Window & Image & List<Event>`. Do **not** wrap the pair in `Result` (handle stays beside `Result`, never inside).
 - [x] **M5.7**–**M5.9** `--demo` in Bend; `make test-ui` uses Bend binary; C feed/submit deleted
 
@@ -136,7 +136,7 @@ Order: **pure view/client first**, then FFI draw, then keys that only latch what
 
 ### M8.0 — Contracts (do first, one PR)
 
-- [x] **M8.0.1** Freeze `BodyLine` / `Span` / `Tab{name, active}` in `view.bend`. `show_vis` becomes a test-only debug dump, not the live paint path.
+- [x] **M8.0.1** Freeze `BodyLine` / `Span` / `Tab{name, active}` in `view.bend`. Live paint is the packed wire (one representation).
 - [x] **M8.0.2** Law: `visible_lines` on `List BodyLine` is oldest→newest, bottom-aligned when `count < height` (already true for `Line`; keep it).
 - [x] **M8.0.3** FFI sketch (no behaviour yet): `Timui.frame` takes structured fields **or** a packed `List` of draw ops. Decide one packing (nested tuples / parallel `List`s). Document in `docs/FFI.md`. **Do not** send IRC kinds as C enums — send Bend `LineKind` as a `U32` tag the FFI already knows (`0=Msg … 5=Error`), with a law that the tag table is 1-1 with `LineKind`.
 - [x] **M8.0.4** Keep `kind_tag` **out** of the user body (already dropped). Chrome is colour + timestamp, never `S:`/`Y:`.
@@ -279,7 +279,7 @@ This milestone is a **Bend** client, not a C clone with Bend glue.
 - **Copyable Data on Chans** (`NetEvt` / `NetCmd` / `UiCmd` / `Dial{host,port}`). Never `Chan(Socket)`. Actor owns the fd.
 - **Parallel packs** (`a b = f g`) where two independent pures run. `+T` for reused Data.
 - **C is an interpreter** of Bend Data inside one `Timui.frame`. C does not tokenize, classify IRC, or own composer history.
-- Prefer **less code**. A `List BodyLine` that C walks beats a second stringly layout language.
+- Prefer **less code**. Live paint is one packed wire (`k|ts|spans`); C interprets it. `TextSpan` stays the tokenize law type.
 
 ### Parallelism (local workstreams, ff-only merge)
 

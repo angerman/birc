@@ -18,7 +18,6 @@ type UiKeys is Data:
   UiKeys{
     quit: U32,
     enter: U32,
-    bs: U32,
     typed: String,
     rows: U32,
     tab: U32,
@@ -28,24 +27,8 @@ type UiKeys is Data:
     hist: U32
   }
 
-def ROWS0() -> U32:
-  24
-
-def keys0() -> UiKeys:
-  UiKeys{0, 0, 0, "", ROWS0(), 0, 0, 0, 0, 0}
-
 def flag_on(+n: U32) -> Bool:
   U32.is_eq(n, 1)
-
-def keys_quit(k: UiKeys) -> Bool:
-  match k:
-    case UiKeys{quit, _, _, _, _, _, _, _, _, _}:
-      flag_on(quit)
-
-def keys_rows(k: UiKeys) -> U32:
-  match k:
-    case UiKeys{_, _, _, _, rows, _, _, _, _, _}:
-      rows
 
 # Fail closed like Window.open / TCP.connect. Callers bind with IO.try.
 law Timui.open:

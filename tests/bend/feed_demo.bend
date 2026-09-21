@@ -41,7 +41,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
     Unit <- E.must("tok_bold", V.tokenize_has_bold("hello *bold* text"))
     Unit <- E.must("tok_plain", Bool.not(V.tokenize_has_bold("no stars here")))
-    Unit <- E.must("stamp", Cl.stamp_ok())
+    Unit <- E.must("log_ts", Cl.log_ts_ok())
     Unit <- E.must("hms", Clock.fmt_hms_ok())
     Unit <- E.must_eq(
       "replay_lines",

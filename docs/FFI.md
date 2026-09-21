@@ -57,10 +57,8 @@ Timui.frame : Ui -> String×6 -> IO(Ui & UiKeys)   # one begin/draw/end
 Timui.close : Ui -> IO(Unit)
 ```
 
-`UiKeys` is Data (quit/enter/bs/typed/rows/tab/click/up/dn/hist). Unpack like
-`Window.frame`: bind the product, destructure in a helper. Do not put `Ui`
-inside a `Result`. Split `begin`/`draw`/`end` is not required while D1 is
-coarse paint.
+`UiKeys` is Data (quit/enter/typed/rows/tab/click/up/dn/hist as U32 flags).
+Unpack like `Window.frame`. Do not put `Ui` inside a `Result`.
 
 ### Pure domain types (M0.3 — no TimUI leakage)
 
@@ -74,14 +72,13 @@ Config   # nick, host, port, channel, demo, max_frames
 
 ## M8 packing (D6)
 
-Bend owns `BodyLine{kind, ts, spans}`, `TextSpan` (Plain/Bold/Italic/Code/Link),
-`Tab{name, on}`. Live paint still joins spans to a `String` shim until the
-FFI walks that Data. When it does:
+Live paint API is the packed wire (not a second `BodyLine`/`Tab` Data walk):
 
 - `kind` is `kind_code : LineKind -> U32` (`0=Msg` … `5=Error`), not a C enum.
-- Body wire (one line per `BodyLine`): `k|ts|spans` with span units
+- Body wire (one line): `k|ts|spans` with span units
   `P`/`B`/`I`/`C` text or `L` `url` `\x1d` `text`, units separated by `\x1f`.
 - C interprets that packing inside one `Timui.frame`. C does not tokenize.
+- `TextSpan` remains the tokenize law type.
 
 ## Decisions
 
@@ -91,7 +88,7 @@ FFI walks that Data. When it does:
 | D2 | `IO.spawn` net actor + `Chan` Data events; UI paints then `Chan.recv` |
 | D3 | Base `TCP.send` / `TCP.recv` strings; octet `Fr.push` remains for laws |
 | D4 | `--frames` fuel; `frames=0` live `@unsafe` idle |
-| D6 | `BodyLine`/`Span`/`Tab` packing; C interprets, does not tokenize |
+| D6 | Packed `k|ts|spans` wire; C interprets, does not tokenize |
 | D5 | C demo deleted; Bend `build/birc` only |
 
 ## Spike (M0.5)
@@ -116,4 +113,5 @@ Timui.close    : Ui -> IO(Unit)
 `--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
 closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
 actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `Clock.hhmmss`
-is a thin localtime FFI; Bend stamps empty `Line.ts` at paint (`stamp_client`).
+is a thin localtime FFI; Bend sets `Client.now` at the IO edge so `buf_log_ts`
+stores `Line.ts` at log time (not a full-tree stamp each Tick).

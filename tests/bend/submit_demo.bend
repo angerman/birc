@@ -72,6 +72,50 @@ def inj_out(pair: Cl.Client & List<&2, String>) -> String:
     case (_, outs):
       first_out(outs)
 
+def cmd_head(c: Sess.NetCmd) -> String:
+  match c:
+    case Sess.Cont{xs}:
+      "cont:" ++ first_out(xs)
+    case Sess.Dial{+host, port}:
+      "dial:" ++ host ++ ":" ++ U32.show(port)
+
+def trip_halt(t: Sess.Session & Sess.NetCmd & Bool) -> String:
+  match t:
+    case (_, rest):
+      match rest:
+        case (_, halt):
+          Bool.show(halt)
+
+def trip_cmd(t: Sess.Session & Sess.NetCmd & Bool) -> String:
+  match t:
+    case (_, rest):
+      match rest:
+        case (c, _):
+          cmd_head(c)
+
+def trip_nbuf(t: Sess.Session & Sess.NetCmd & Bool) -> String:
+  match t:
+    case (st, _):
+      match st:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _}:
+          Nat.show(Cl.nbuf(cl))
+
+def trip_has_me.on(+cl: Cl.Client, +who: String, got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}:
+      "none"
+    case Some{b}:
+      Bool.show(Cl.nick_has(b, who))
+
+def trip_has_me(t: Sess.Session & Sess.NetCmd & Bool) -> String:
+  match t:
+    case (st, _):
+      match st:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _}:
+          match cl:
+            case Cl.Client{+nick, _, +bufs, +active, _}:
+              trip_has_me.on(cl, nick, Cl.nth_buf(bufs, active))
+
 def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("out_nil", Sub.out_all_ok(Nil{}))
@@ -102,6 +146,17 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must("connect_slash", Sub.submit_is_connect("/connect x"))
     Unit <- E.must("connect_not", Bool.not(Sub.submit_is_connect("/join #x")))
+    Unit <- E.must_eq("empty_enter", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "")), "False")
+    Unit <- E.must_eq("quit_halt", trip_halt(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "True")
+    Unit <- E.must_eq("quit_cmd", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/quit")), "cont:QUIT :birc")
+    Unit <- E.must_eq("join_cmd", trip_cmd(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "cont:JOIN #birc")
+    Unit <- E.must_eq("join_nbuf", trip_nbuf(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "2")
+    Unit <- E.must_eq("join_self", trip_has_me(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "True")
+    Unit <- E.must_eq("dial_demo", trip_cmd(Sess.step_enter(Sess.session_demo(cl0, "#birc"), "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
+    Unit <- E.must_eq("nodial_online", trip_cmd(Sess.step_enter(Sess.session_online(Sess.session0("me", "s", "#birc")), "/connect irc.example.net")), "cont:")
+    Unit <- E.must_eq("nodial_connecting", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/connect irc.example.net")), "cont:")
+    Unit <- E.must_eq("hold_demo", cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:")
+    Unit <- E.must_eq("hold_on", cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:JOIN #x")
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

@@ -64,4 +64,9 @@ def main() -> IO(Unit):
       Args.show_parsed(Args.parse(xs1("--replay"))),
       "bad:birc: missing value"
     )
+    Unit <- E.must_eq(
+      "frames_cap",
+      Args.show_parsed(Args.parse(xs2("--frames", "65536"))),
+      "bad:birc: --frames too large"
+    )
     IO.print("args_demo=ok")

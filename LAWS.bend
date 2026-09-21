@@ -88,10 +88,6 @@ law tokenize_has_link:
 law tokenize_unclosed:
   {V.unclosed_star_plain() == True{} : Bool}
 
-# LAW: M4.9 backoff doubles then caps.
-law backoff_double:
-  {U32.is_eq(Net.next_backoff(250), 500) == True{} : Bool}
-
 # LAW: M7.2 overlong framer input yields no lines.
 law overlong_drop:
   {Fr.overlong_drop_ok() == True{} : Bool}
@@ -180,9 +176,9 @@ law connect_dial:
 law fmt_hms_ok:
   {Clock.fmt_hms_ok() == True{} : Bool}
 
-# LAW: stamp fills empty ts and keeps a set timestamp.
-law stamp_ok:
-  {Cl.stamp_ok() == True{} : Bool}
+# LAW: buf_log_ts stores ts at log time; later lines do not rewrite earlier ts.
+law log_ts_ok:
+  {Cl.log_ts_ok() == True{} : Bool}
 
 # LAW: live string framer drops overlong lines (same cap as octet push).
 law overlong_text_drop:
