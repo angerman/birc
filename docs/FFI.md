@@ -1,4 +1,4 @@
-# Bend ↔ TimUI / native FFI (M0.2–M0.4)
+# Bend ↔ TimUI / native FFI
 
 Pinned Bend: see `flake.lock` (`bend-src`). Foreign effects follow bendano
 TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
@@ -6,17 +6,17 @@ TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
 ## Shape
 
 ```bend
-law Timui.hello:
-  U32 -> IO(Unit)
+law Timui.frame:
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 
-def Timui.hello(max_frames):
-  import "./timui_hello.c"
+def Timui.frame(ui, ops, input, seed):
+  import "../ffi/timui_ffi.c"
 ```
 
-- Body is **only** `import "….c"` (optional `.js` twin if JS backend needed).
+- Body is **only** `import "….c"`.
 - Must return base `IO(...)`.
 - C registers with `io_eff(CID_<NAME>, run, flags)` from a constructor.
-- `Timui.hello` → `CID_TIMUI_HELLO` (`name_clean` then uppercased).
+- `Timui.frame` → `CID_TIMUI_FRAME` (`name_clean` then uppercased).
 
 ## Terms
 
@@ -25,63 +25,87 @@ def Timui.hello(max_frames):
 | `U32` / `Nat` (≤ 2^48−1) | low bits of raw `Term` word |
 | `Unit` | `term_pak(CID_UNIT, 0)` |
 | `String` | `io_cstr` / `io_str` (UTF-8) |
-| `List<&2, U32>` octets | walk `CID_CON` / build with `io_node` (see bendano `bytes_roundtrip.c`) |
+| `List<&2, U32>` octets | walk `CID_CON` / build with `io_node` |
 | Handle (`Ui`, `Socket`, …) | `io_hand(ptr)` / `io_hand_v(term)` — **never** store pointers in `U32`/`Nat` |
 | `Result` | `io_done` / `io_fail` |
 | Pair | `io_tup` |
 
+## Effects
+
+| Effect | C file | Notes |
+|---|---|---|
+| `Timui.open` / `Timui.frame` / `Timui.close` | `src/ffi/timui_ffi.c` | `TIMUI_IMPLEMENTATION` once |
+| `recv_octets` | `src/ffi/dns_ffi.c` | UDP/TCP octets + peer; not `UDP.recv` String |
+| `local_secs` | `src/ffi/clock_ffi.c` | local seconds-of-day as `U32`; Bend formats HH:MM:SS |
+
+Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets` +
+`Fr.push`, not `TCP.recv`. `recv_octets` is non-blocking (`io_eff` flags `0`);
+`None` is EAGAIN/EINTR so the actor can still Tick. It is **not** registered
+with `IO_READ` (that park would freeze Ticks). Peer is `host & (port & octets)`
+beside the payload (C7).
+
 ## Build
 
-`bend x.bend -o bin` compiles from a **temp** `.c` with
-`clang -std=c11 -O3 … -lpthread -lm` and **no** `-I`.
+`bend src/bend/app.bend -o build/birc_bend.c`, then
+`$CC -std=c11 -O2 -pthread -w -Isrc/ui -Isrc/ffi build/birc_bend.c -o build/birc`.
 
-For TimUI includes, emit C then link ourselves:
+The real build uses `-w` because Bend's emitted C trips `-Wall`. Warning lint
+of the project FFI is `make lint-ffi`: stub header `tests/lint-ffi/ffi_stub.h`,
+`-Wall -Wextra -pedantic -Wshadow -Wconversion -fsyntax-only -isystem src/ui`.
 
-```sh
-bend tests/ffi/timui_hello.bend -o build/timui_hello.c
-$CC -std=c11 -O2 -pthread -Isrc/ui build/timui_hello.c -o build/timui_hello
-```
-
-`TIMUI_IMPLEMENTATION` is defined in exactly one FFI translation unit
-(inlined into the emitted program).
-
-## Target TimUI API (M0.4 — locked)
-
-Coarse draw first (D1). Types below are Bend-side; TimUI structs stay in C.
+## App UI
 
 ```text
 law Ui: Type
 
 Timui.open  : IO(Result<&1,&1, U32 & String, Ui>)
-Timui.frame : Ui -> String×6 -> IO(Ui & UiKeys)   # one begin/draw/end
+Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 Timui.close : Ui -> IO(Unit)
 ```
 
-`UiKeys` is Data (quit/enter/typed/rows/tab/click/up/dn/hist as U32 flags).
-Unpack like `Window.frame`. Do not put `Ui` inside a `Result`.
+`UiKeys` is Data. `typed` is a `String` (the composer field). `rows` and `cols`
+are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
+`tab`, `click`, `up`, `dn`, `hist`). Unpack like `Window.frame`. Do not put
+`Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
+including `""`.
 
-### Pure domain types (M0.3 — no TimUI leakage)
+### Pure domain types
 
 ```text
 Client, Buffer, Line, LineKind
-NetEvent, UiEvent, Outbound, ViewModel
+NetEvt, NetCmd, ViewModel, DrawOp, SpanOp
 Config   # nick, host, port, channel, demo, max_frames
 ```
 
-`ViewModel` is what `Timui.draw` consumes (tabs, scrollback rows, nicks, header, composer).
+## DrawOp contract
 
-## M8 packing (D6)
+C walks `List<DrawOp>` inside one `Timui.frame` (one begin/draw/end). Bend owns
+layout, colours, spans, and the y of every body line. Nested `Rect` Data does
+not unpack as four U32s in C, so coordinates are flat fields on each op.
 
-Live paint API is the packed wire (not a second `BodyLine`/`Tab` Data walk):
+```text
+type SpanOp is Data:
+  Spn{attrs: U32, text: String}     # bold=1, italic=4
+  Lnk{url: String, text: String}
 
-- `kind` is `kind_code : LineKind -> U32` (`0=Msg` … `5=Error`), not a C enum.
-- Body wire (one line): `k|ts|spans` with span units
-  `P`/`B`/`I`/`C` text or `L` `url` `\x1d` `text`, units separated by `\x1f`.
-- C interprets that packing inside one `Timui.frame`. C does not tokenize.
-- `TextSpan` remains the tokenize law type.
-- Wrapping: Bend packs each IRC line as one paint line. C clips a span
-  that would run past `maxx` (no continuation row). Long lines are cut,
-  not wrapped. A URL longer than 511 bytes is drawn as a plain span.
+type DrawOp is Data:
+  OpBox{x, y, w, h: U32}
+  OpText{x, y, w, fg, attrs: U32, text: String}
+  OpTabs{x, y, w, sel: U32, names: List String}
+  OpLine{x, y, w, fg: U32, ts: String, spans: List SpanOp}
+```
+
+- `OpBox` — rounded border; C clips `h` to the live root.
+- `OpText` — label at `(x,y)`, clipped to `x+w`.
+- `OpTabs` — `timui_tabs`; click reports only when the widget changes `sel`.
+- `OpLine` — timestamp (dim) then spans at the Bend-assigned `y`. No C buffer,
+  no 64-line cap, no bottom-align arithmetic.
+- C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
+  `SpanOp`.
+- Wrapping: each IRC line is one paint line. C clips a span that would run
+  past `maxx` (no continuation row). A URL longer than 511 bytes is drawn as
+  a plain span.
+- Composer stays a C textarea widget (`timui_text_area_mut`).
 
 ## Decisions
 
@@ -89,32 +113,13 @@ Live paint API is the packed wire (not a second `BodyLine`/`Tab` Data walk):
 |---|---|
 | D1 | Coarse paint inside one `Timui.frame` (Bend owns iteration) |
 | D2 | `IO.spawn` net actor + `Chan` Data events; UI paints then `Chan.recv` |
-| D3 | Base `TCP.send` / `TCP.recv` strings; octet `Fr.push` remains for laws |
+| D3 | Base `TCP.send` strings; live inbound `recv_octets` + octet `Fr.push` |
 | D4 | `--frames` fuel; `frames=0` live `@unsafe` idle |
-| D6 | Packed `k|ts|spans` wire; C interprets, does not tokenize |
 | D5 | C demo deleted; Bend `build/birc` only |
-
-## Spike (M0.5)
-
-`Timui.hello(max_frames)` opens TimUI, draws one label each frame, quits on
-Escape or after `max_frames` (>0). Used by `make ffi-smoke`.
-
-## App UI (M5/M6)
-
-Thin FFI (Bend owns the loop):
-
-```text
-Timui.open     : IO(Result<&1,&1, U32 & String, Ui>)  # IO.try at call sites
-Timui.frame    : Ui -> String×6 -> IO(Ui & UiKeys)    # one begin/draw/end
-Timui.close    : Ui -> IO(Unit)
-```
-
-`app.bend` / `net.bend` fuel-loop calling `Timui.frame`. Build:
-`bend src/bend/app.bend -o build/birc_bend.c`, then `$CC -Isrc/ui -Isrc/ffi`
-(Bend's `main` is kept; `--help` is the runtime CLI, `--help-irc` is birc).
+| D6 | `List<DrawOp>`; C interprets, does not tokenize |
 
 `--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
 closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
-actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `Clock.hhmmss`
+actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `local_secs`
 is a thin localtime FFI; Bend sets `Client.now` at the IO edge so `buf_log_ts`
-stores `Line.ts` at log time (not a full-tree stamp each Tick).
+stores `Line.ts` at log time.
