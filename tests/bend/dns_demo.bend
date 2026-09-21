@@ -271,6 +271,15 @@ def check_host(+host: String) -> IO(Unit):
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
     check_id_r(host, r)
 
+def check_v6_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+  match r:
+    case Done{_}:
+      IO.die(Unit, 1, "ipv6 literal was accepted")
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          E.must_eq("resolve_v6", msg, "ipv6")
+
 def check_enc_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
   match r:
     case Fail{_}:
@@ -306,6 +315,10 @@ def main() -> IO(Unit):
     Unit <- E.must("lead zero", Bool.not(Dns.is_ipv4("01.2.3.4")))
     Unit <- E.must("short", Bool.not(Dns.is_ipv4("1.2.3")))
     Unit <- E.must("name", Bool.not(Dns.is_ipv4("one.one.one.one")))
+    Unit <- E.must("ipv6 lit", Wire.is_ipv6("::1"))
+    Unit <- E.must("ipv6 full", Wire.is_ipv6("2001:db8::1"))
+    Unit <- E.must("ipv6 not v4", Bool.not(Wire.is_ipv6("1.2.3.4")))
+    Unit <- E.must("ipv6 not name", Bool.not(Wire.is_ipv6("example.com")))
     Unit <- check_enc_r(Dns.encode("example.com"))
     Unit <- check_enc_hi_r(Dns.encode_id(Dns.txid_of(65535), "example.com"))
     Unit <- E.must("pack_len", Nat.is_eq(String.length(pack(sample())), List.length(&2, U32, sample())))
@@ -321,6 +334,16 @@ def main() -> IO(Unit):
     Unit <- E.must("txid_hi7", U32.is_lt(U32.shrn(Dns.txid_of(65535), 8n), 128))
     Unit <- E.must("txid_lo7", U32.is_lt(U32.and(Dns.txid_of(65535), 255), 128))
     Unit <- E.must("txid_nz", Bool.not(U32.is_zero(Dns.txid_of(0))))
+    Unit <- E.must("txid_14", U32.is_eq(Dns.txid_of(1), Dns.txid_of(16385)))
+    Unit <- E.must_eq("ns first", Wire.nameserver_of("nameserver 8.8.8.8\n"), "8.8.8.8")
+    Unit <- E.must_eq("ns skip", Wire.nameserver_of("search lan\nnameserver 1.0.0.1\n"), "1.0.0.1")
+    Unit <- E.must_eq("ns empty", Wire.nameserver_of(""), "1.1.1.1")
+    Unit <- E.must_eq("ns v6", Wire.nameserver_of("nameserver 2001:db8::1\n"), "1.1.1.1")
+    Unit <- E.must_eq("ns hash", Wire.nameserver_of("# nameserver 9.9.9.9\nnameserver 8.8.4.4\n"), "8.8.4.4")
+    Unit <- E.must("tick_fast", U32.is_eq(Dns.tick_ms(0n), 10))
+    Unit <- E.must("tick_slow", U32.is_eq(Dns.tick_ms(8n), 50))
+    Unit <- E.must("resend0", Bool.not(Dns.need_resend(0n)))
+    Unit <- E.must("resend16", Dns.need_resend(16n))
     Unit <- E.must_eq("parse_three_a", show_res(Dns.parse_id(1, sample_three_a())), "ok:1.2.3.4")
     Unit <- E.must_eq("parse_cname_ar", show_res(Dns.parse_id(1, sample_cname_ar())), "fail:no A")
     Unit <- E.must_eq("parse_cname_only", show_res(Dns.parse_id(1, sample_cname_only())), "fail:no A")
@@ -347,6 +370,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("take_tc", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc())), "fail:tc")
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
+    v6 : Result<&1, &1, U32 & String, String> <- Dns.resolve("::1")
+    Unit <- check_v6_r(v6)
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve("one.one.one.one")
     Unit <- check_live(r)
     IO.print("dns_demo=ok")
