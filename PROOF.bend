@@ -36,6 +36,35 @@ def Laws.clamp_samples():
 def Laws.strip_ctl_nocr():
   {==}
 
+def strip_ctl_clean.keep_false(
+  +h: Char,
+  r: String,
+  deq: {Irc.is_crlf(h) == False{} : Bool},
+  e: {Irc.has_crlf(r) == False{} : Bool}
+) -> {Irc.has_crlf(SCon{h, r}) == False{} : Bool}:
+  %Equal.sym(Bool, Irc.is_crlf(h), False{}, deq) : {Bool.or(_, Irc.has_crlf(r)) == False{} : Bool}
+  e
+
+def strip_ctl_clean.step(
+  +h: Char,
+  r: String,
+  drop: Bool,
+  deq: {Irc.is_crlf(h) == drop : Bool},
+  e: {Irc.has_crlf(r) == False{} : Bool}
+) -> {Irc.has_crlf(Irc.strip_ctl.keep(h, r, drop)) == False{} : Bool}:
+  match drop:
+    case True{}:
+      e
+    case False{}:
+      strip_ctl_clean.keep_false(h, r, deq, e)
+
+def Laws.strip_ctl_clean(s):
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      strip_ctl_clean.step(h, Irc.strip_ctl(t), Irc.is_crlf(h), {==}, Laws.strip_ctl_clean(t))
+
 def Laws.ieq_ping():
   {==}
 

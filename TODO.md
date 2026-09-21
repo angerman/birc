@@ -490,10 +490,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `IO_READ` park would freeze Ticks (H7). Peer is host+port beside octets.
 
 ### Phase T — laws and tests
-- [x] **T1** Quantified laws. Checker rejects `{==}` on `for s: String`.
-      tried: `law clamp_line_all: for s: String {Irc.line_ok(Irc.clamp_line(s)) == True{} : Bool}`
-      evidence: `bend PROOF.bend` → `expected : @s:String -> {Cmp.is_le(Nat.cmp(…utf8_len.go(clamp_line.go(…))…)) == True{} : Bool}` / `observed : non-inferrable term '{==}'` at `LAWS.clamp_line_all`.
-      Kept point laws. Added `clamp_samples_ok` (empty/hi/80/600) and `strip_ctl_nocr_ok`.
+- [x] **T1** Quantified `strip_ctl_clean`: `for s: String`, `has_crlf(strip_ctl(s))`
+      is False. Proved by induction on `s`; the step case-splits `is_crlf(h)` and
+      rewrites with `%e : P`. Point laws `clamp_samples` / `strip_ctl_nocr` stay.
 - [x] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
       GOLDEN CHANGE: `kind_code_ok` pins `kind_digit`; `feed_id` compares `show_client`;
       deleted tautology `live_fuel_alias`.

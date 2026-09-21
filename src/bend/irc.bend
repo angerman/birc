@@ -326,6 +326,13 @@ def strip_cr(+s: String) -> String:
 def is_crlf(+c: Char) -> Bool:
   code_is(c, 13) || code_is(c, 10)
 
+def has_crlf(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+h, t}:
+      Bool.or(is_crlf(h), has_crlf(t))
+
 def strip_ctl.keep(+h: Char, r: String, drop: Bool) -> String:
   match drop:
     case True{}:
