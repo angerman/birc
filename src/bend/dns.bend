@@ -170,6 +170,7 @@ def wait_poll(
     case (sock, r):
       wait_r(sock, id, qhost, ns, q, n, r, k)
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed wait_ans
 def wait_ans(
   fuel: Nat,
   sock: Socket,

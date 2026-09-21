@@ -198,34 +198,15 @@ def replay_lines(+text: String) -> List<&2, String>:
 
 # ---- nicks --------------------------------------------------------------
 
-type StripPhase is Data:
-  StRead{}
-  StDecide{}
-
 def is_sigil(+c: Char) -> Bool:
   Irc.code_is(c, 64) || Irc.code_is(c, 43) || Irc.code_is(c, 126) || Irc.code_is(c, 38) || Irc.code_is(c, 37)
 
-def nick_strip.go(fuel: Nat, phase: StripPhase, s: String, h: Char, sig: Bool) -> String:
-  match fuel:
-    case 0n:
-      s
-    case 1n+p:
-      match phase:
-        case StRead{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              nick_strip.go(p, StDecide{}, t, hd, is_sigil(hd))
-        case StDecide{}:
-          match sig:
-            case True{}:
-              nick_strip.go(p, StRead{}, s, h, False{})
-            case False{}:
-              SCon{h, s}
-
 def nick_strip(+s: String) -> String:
-  nick_strip.go(Nat.add(1n, Nat.mul(2n, String.length(s))), StRead{}, s, Chr{0}, False{})
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      Bool.pick(String, is_sigil(h), nick_strip(t), SCon{h, t})
 
 def nick_eq(a: String, b: String) -> Bool:
   Irc.ieq(a, b)

@@ -429,11 +429,11 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
       `parse_u32` is a `Num` wrapper over `U32.read` (identical on the 7 t18
       probes including overflow). `submit` no longer imports `args`.
-- [ ] **I6** Remove fuel from structural walkers and phase machines (idiom §5a §5b).
-      tried: `drop_spaces` is now `Bool.pick` on `SCon` (no fuel). `tokenize.go` still
-      fuel-first (`TokJump` does not shrink the remaining string for the checker).
-      evidence: `bend tests/bend/feed_demo.bend` after drop_spaces: feed_demo=ok
-      open question: rewrite tokenize as string-first without a Jump record
+- [x] **I6** Structural walkers are fuel-free (`take_until_space`, `strip_ctl`,
+      `nick_strip`, `show_*`, octet/string eq, `send_lines_go`, …). Remaining
+      `fuel: Nat` first params keep one comment quoting the decreasing-self-call
+      checker error (`tokenize.go`, `utf8_decode.go`, `push.go`, `sanitize_in`,
+      `clamp_line.go`, DNS/net loops).
 - [x] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
       `strip_cr` copy deleted. `nick_has` is `List.contains` + `nick_eq`.
       Find/Has/Del/Ren/Quit/Nick Acc gone. `cycle_tab` takes `TabDir`.

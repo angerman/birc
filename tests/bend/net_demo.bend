@@ -178,14 +178,14 @@ def finish_drop(
   match pair:
     case (client3, ok):
       do IO<Unit>:
-        Unit <- E.must("send_fuel0", Bool.not(ok))
+        Unit <- E.must("send_nil", ok)
         finish_push(Fr.push(Nil{}, Fr.string_to_octets(chunk)), client3, server2)
 
 def finish_recv(sl: Socket & String, client2: Socket) -> IO(Unit):
   match sl:
     case (server2, chunk):
       do IO<Unit>:
-        dropped : Socket & Bool <- IoNet.send_lines(0n, client2, "PING :drop" <> Nil{})
+        dropped : Socket & Bool <- IoNet.send_lines(client2, Nil{})
         finish_drop(dropped, chunk, server2)
 
 def after_accept(

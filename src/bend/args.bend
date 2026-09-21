@@ -244,6 +244,7 @@ def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       args_opt.do(t, cfg, h, flag_of(flag_rows(), h))
 
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed args_go
 def args_go(fuel: Nat, st: Step) -> Parsed:
   match fuel:
     case 0n:
@@ -262,23 +263,12 @@ type Copy is Data:
   CopyOk{xs: List<&2, String>}
   CopyMany{}
 
-def copy_fin(rest: List<&1, String>, acc: List<&2, String>) -> Copy:
-  match rest:
+def copy_args(src: List<&1, String>, acc: List<&2, String>) -> Copy:
+  match src:
     case Nil{}:
       CopyOk{List.reverse(&2, String, acc)}
-    case Con{_, _}:
-      CopyMany{}
-
-def copy_args(fuel: Nat, src: List<&1, String>, +acc: List<&2, String>) -> Copy:
-  match fuel:
-    case 0n:
-      copy_fin(src, acc)
-    case 1n+p:
-      match src:
-        case Nil{}:
-          CopyOk{List.reverse(&2, String, acc)}
-        case Con{+h, t}:
-          copy_args(p, t, h <> acc)
+    case Con{+h, t}:
+      copy_args(t, h <> acc)
 
 def copy_parse(c: Copy) -> Parsed:
   match c:
@@ -288,7 +278,7 @@ def copy_parse(c: Copy) -> Parsed:
       parse(xs)
 
 def parse_raw(raw: List<&1, String>) -> Parsed:
-  copy_parse(copy_args(64n, raw, Nil{}))
+  copy_parse(copy_args(raw, Nil{}))
 
 # Same fail-closed rule as copy_args fuel 0, on a List<&2> so tests can
 # construct the remainder without IO.args.

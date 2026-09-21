@@ -110,8 +110,8 @@ def feed_id(+cl: Cl.Client, +line: String) -> Bool:
 def flood_join_line(+i: Nat) -> String:
   ":me!me@localhost JOIN #c" ++ Nat.show(i)
 
-def flood_joins.go(fuel: Nat, +i: Nat, acc: List<&2, String>) -> List<&2, String>:
-  match fuel:
+def flood_joins.go(n: Nat, +i: Nat, acc: List<&2, String>) -> List<&2, String>:
+  match n:
     case 0n:
       List.reverse(&2, String, acc)
     case 1n+p:
@@ -137,19 +137,15 @@ def notice_star_server() -> Bool:
 def privmsg_query_opens() -> Bool:
   Nat.is_eq(nbuf(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")), 2n)
 
-def lines_pipe.go(fuel: Nat, +xs: List<&2, Cl.Line>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          acc
-        case Con{Cl.Line{_, _, +text}, t}:
-          lines_pipe.go(p, t, acc ++ text ++ "|")
+def lines_pipe.chunks(+xs: List<&2, Cl.Line>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{Cl.Line{_, _, +text}, t}:
+      (text ++ "|") <> lines_pipe.chunks(t)
 
 def lines_pipe(+xs: List<&2, Cl.Line>) -> String:
-  lines_pipe.go(Nat.add(1n, List.length(&2, Cl.Line, xs)), xs, "")
+  String.concat(lines_pipe.chunks(xs))
 
 def buf_texts.on(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:

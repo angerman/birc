@@ -11,33 +11,26 @@ def empty_out() -> List<&2, String>:
 def one_out(+s: String) -> List<&2, String>:
   Irc.clamp_line(Irc.strip_ctl(s)) <> Nil{}
 
-# ---- take_verb / take_word (phase+fuel; no match on computed) -----------
+# ---- take_verb / take_word (structural; helper never calls back) --------
 
-type VerbPhase is Data:
-  VbRead{}
-  VbDecide{}
+def take_verb.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
 
-def take_verb.go(fuel: Nat, phase: VerbPhase, +s: String, +acc: String, +h: Char, space: Bool) -> String & String:
-  match fuel:
-    case 0n:
-      (String.reverse(acc), s)
-    case 1n+p:
-      match phase:
-        case VbRead{}:
-          match s:
-            case SNil{}:
-              (String.reverse(acc), SNil{})
-            case SCon{+hd, t}:
-              take_verb.go(p, VbDecide{}, t, acc, hd, Irc.is_space(hd))
-        case VbDecide{}:
-          match space:
-            case True{}:
-              (String.reverse(acc), s)
-            case False{}:
-              take_verb.go(p, VbRead{}, s, SCon{h, acc}, h, False{})
+def take_verb.fin(+h: Char, +t: String, r: String & String, space: Bool) -> String & String:
+  match space:
+    case True{}:
+      ("", t)
+    case False{}:
+      take_verb.cons(h, r)
 
-def take_verb(+s: String) -> String & String:
-  take_verb.go(Nat.add(1n, Nat.mul(2n, String.length(s))), VbRead{}, s, "", Chr{0}, False{})
+def take_verb(s: String) -> String & String:
+  match s:
+    case SNil{}:
+      ("", "")
+    case SCon{+h, +t}:
+      take_verb.fin(h, t, take_verb(t), Irc.is_space(h))
 
 def skip_slash.on(+h: Char, +t: String, slash: Bool) -> String:
   match slash:
@@ -174,31 +167,24 @@ def submit_part(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 
 # ---- /msg ---------------------------------------------------------------
 
-type WordPhase is Data:
-  WdRead{}
-  WdDecide{}
+def take_word.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
 
-def take_word.go(fuel: Nat, phase: WordPhase, +s: String, +acc: String, +h: Char, space: Bool) -> String & String:
-  match fuel:
-    case 0n:
-      (String.reverse(acc), s)
-    case 1n+p:
-      match phase:
-        case WdRead{}:
-          match s:
-            case SNil{}:
-              (String.reverse(acc), SNil{})
-            case SCon{+hd, t}:
-              take_word.go(p, WdDecide{}, t, acc, hd, Irc.is_space(hd))
-        case WdDecide{}:
-          match space:
-            case True{}:
-              (String.reverse(acc), Irc.drop_spaces(s))
-            case False{}:
-              take_word.go(p, WdRead{}, s, SCon{h, acc}, h, False{})
+def take_word.fin(+h: Char, +t: String, r: String & String, space: Bool) -> String & String:
+  match space:
+    case True{}:
+      ("", Irc.drop_spaces(t))
+    case False{}:
+      take_word.cons(h, r)
 
-def take_word(+s: String) -> String & String:
-  take_word.go(Nat.add(1n, Nat.mul(2n, String.length(s))), WdRead{}, s, "", Chr{0}, False{})
+def take_word(s: String) -> String & String:
+  match s:
+    case SNil{}:
+      ("", "")
+    case SCon{+h, +t}:
+      take_word.fin(h, t, take_word(t), Irc.is_space(h))
 
 def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -407,24 +393,19 @@ def submit.empty(+cl: Cl.Client, empty: Bool, +input: String) -> Cl.Client & Lis
 def submit(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit.empty(cl, String.is_empty(input), input)
 
-# Fuel 0 fails closed. Nil is True only after a fuel tick (out_all_ok).
-def out_all_ok.go(fuel: Nat, +xs: List<&2, String>, ok: Bool) -> Bool:
-  match fuel:
-    case 0n:
-      False{}
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          ok
-        case Con{+h, t}:
-          match ok:
-            case False{}:
-              False{}
-            case True{}:
-              out_all_ok.go(p, t, Irc.line_ok(h))
+def out_all_ok.go(+xs: List<&2, String>, ok: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      ok
+    case Con{+h, t}:
+      match ok:
+        case False{}:
+          False{}
+        case True{}:
+          out_all_ok.go(t, Irc.line_ok(h))
 
 def out_all_ok(+xs: List<&2, String>) -> Bool:
-  out_all_ok.go(Nat.add(1n, List.length(&2, String, xs)), xs, True{})
+  out_all_ok.go(xs, True{})
 
 def submit_ok.fin(outs: List<&2, String>) -> Bool:
   out_all_ok(outs)
