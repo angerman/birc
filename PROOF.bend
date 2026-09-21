@@ -5,7 +5,7 @@ import ./src/bend/client.bend as Cl
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
-import ./src/bend/session.bend as Net
+import ./src/bend/session.bend as Sess
 import ./LAWS.bend as Laws
 
 def Laws.ping_classified():

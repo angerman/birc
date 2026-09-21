@@ -4,7 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/client.bend as Cl
-import ../../src/bend/session.bend as Net
+import ../../src/bend/session.bend as Sess
 import ../../src/bend/net.bend as IoNet
 
 def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket):
@@ -60,7 +60,7 @@ def fold_ok.on(got: Cl.Client & List<&2, String>) -> Bool:
         && Nat.is_eq(Cl.buf_nlines(cl, 0n), 1n)
 
 def fold_ok() -> Bool:
-  fold_ok.on(Net.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))
+  fold_ok.on(Sess.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))
 
 def show_outs(+xs: List<&2, String>) -> String:
   match xs:
@@ -76,7 +76,7 @@ def nick433_fold_reject.on(got: Cl.Client & List<&2, String>) -> Bool:
 
 def nick433_fold_reject() -> Bool:
   nick433_fold_reject.on(
-    Net.fold_lines(
+    Sess.fold_lines(
       Cl.init("me", "s"),
       ":irc.example.net 433 me newnick :Nickname is already in use" <> Nil{}
     )
@@ -90,7 +90,7 @@ def nick433_fold_retry.on(+want: String, got: Cl.Client & List<&2, String>) -> B
 def nick433_fold_star() -> Bool:
   nick433_fold_retry.on(
     "NICK me_|",
-    Net.fold_lines(
+    Sess.fold_lines(
       Cl.init("me", "s"),
       ":irc.example.net 433 * me :Nickname is already in use" <> Nil{}
     )
@@ -99,7 +99,7 @@ def nick433_fold_star() -> Bool:
 def nick433_fold_same() -> Bool:
   nick433_fold_retry.on(
     "NICK me_|",
-    Net.fold_lines(
+    Sess.fold_lines(
       Cl.init("me", "s"),
       ":irc.example.net 433 me me :Nickname is already in use" <> Nil{}
     )
@@ -108,21 +108,21 @@ def nick433_fold_same() -> Bool:
 def welcome_octets() -> List<&2, U32>:
   Fr.string_to_octets(":irc.example.net 001 probe :Welcome\r\nPING :xyz\r\n")
 
-def chunk_join_pong.on(got: Net.Session & List<&2, String>) -> Bool:
+def chunk_join_pong.on(got: Sess.Session & List<&2, String>) -> Bool:
   match got:
     case (_, outs):
       String.eq(show_outs(outs), "PONG :xyz|JOIN #t|")
 
 def chunk_join_pong() -> Bool:
   chunk_join_pong.on(
-    Net.step_on_chunk(Net.session_online(Net.session0("probe", "h", "#t")), welcome_octets())
+    Sess.step_on_chunk(Sess.session_online(Sess.session0("probe", "h", "#t")), welcome_octets())
   )
 
 def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(client2)
     Unit <- Socket.close(server2)
-    Unit <- E.must_eq("reg", show_reg_pair(Net.register_lines("bob")), "NICK bob|USER bob 0 * :bob")
+    Unit <- E.must_eq("reg", show_reg_pair(Sess.register_lines("bob")), "NICK bob|USER bob 0 * :bob")
     Unit <- E.must_eq("pong", Irc.pong_for("PING :x"), "PONG :x")
     Unit <- E.must_eq("line", first_line(lines), "PING :loopback")
     Unit <- E.must("rt", Fr.str_eq(first_line(lines), "PING :loopback"))
@@ -131,8 +131,8 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
     Unit <- E.must("nick433_same", nick433_fold_same())
-    Unit <- E.must("fuel3", Nat.is_eq(Net.live_fuel(3), 3n))
-    Unit <- E.must("fuel70000", Nat.is_eq(Net.live_fuel(70000), 70000n))
+    Unit <- E.must("fuel3", Nat.is_eq(Sess.live_fuel(3), 3n))
+    Unit <- E.must("fuel70000", Nat.is_eq(Sess.live_fuel(70000), 70000n))
     IO.print("net_demo=ok")
 
 def finish_push(got: List<&2, String> & List<&2, U32>, client2: Socket, server2: Socket) -> IO(Unit):

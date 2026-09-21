@@ -5,7 +5,7 @@ import ./src/bend/client.bend as Cl
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
-import ./src/bend/session.bend as Net
+import ./src/bend/session.bend as Sess
 import ./src/bend/clock.bend as Clock
 
 # LAW: a concrete PING line is classified as Ping.
@@ -66,7 +66,7 @@ law scroll_bounds:
 
 # LAW: packed body lines fit in C's drawable rows (rows-6).
 law body_h_fits:
-  {Net.body_h_ok() == True{} : Bool}
+  {Sess.body_h_ok() == True{} : Bool}
 
 # LAW: M5.3 tokenize roundtrips *bold* markup.
 law tokenize_bold:
@@ -150,7 +150,7 @@ law vis_chrono:
 
 # LAW: demo/online net labels.
 law net_demo_ok:
-  {Net.net_demo_ok() == True{} : Bool}
+  {Sess.net_demo_ok() == True{} : Bool}
 
 # LAW: page-up adds to buffer scroll.
 law scroll_page:
@@ -162,7 +162,7 @@ law snap_scroll:
 
 # LAW: composer history caps at 64, oldest dropped first.
 law hist_cap:
-  {Net.hist_cap_ok() == True{} : Bool}
+  {Sess.hist_cap_ok() == True{} : Bool}
 
 # LAW: /quit is a halt command; plain text is not.
 law submit_halt:
@@ -174,7 +174,7 @@ law connect_parse:
 
 # LAW: /connect from demo yields Dial; online is a no-op Cont.
 law connect_dial:
-  {Net.cmd_connect_ok() == True{} : Bool}
+  {Sess.cmd_connect_ok() == True{} : Bool}
 
 # LAW: HH:MM:SS pad is two digits.
 law fmt_hms_ok:
@@ -206,4 +206,4 @@ law short_text_ok:
 
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:
-  {Nat.is_eq(Net.live_fuel(3), 3n) == True{} : Bool}
+  {Nat.is_eq(Sess.live_fuel(3), 3n) == True{} : Bool}
