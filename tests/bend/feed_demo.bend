@@ -35,6 +35,14 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("empty_id", Cl.feed_id(Cl.init("me", "s"), ""))
     Unit <- E.must("flood", Cl.flood_buffers_capped())
     Unit <- E.must("flood_server", Cl.flood_server_clean())
+    Unit <- E.must(
+      "foreign_join",
+      Nat.is_eq(Cl.nbuf(Cl.feed(Cl.init("me", "s"), ":rando!r@h JOIN #never-joined")), 1n)
+    )
+    Unit <- E.must(
+      "cap_active",
+      Nat.is_lt(Cl.active_of(Cl.feed_all(Cl.init("me", "s"), Cl.flood_joins(24n))), 16n)
+    )
     Unit <- E.must("names1459", Cl.names_1459_ok())
     Unit <- E.must("statusmsg", Cl.statusmsg_ok())
     Unit <- E.must("notice_auth", Cl.notice_auth_ok())
