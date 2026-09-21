@@ -35,7 +35,7 @@ make run HOST=irc.example.net   # live plaintext IRC (hostname → IPv4 in shim)
 | `src/bend/timui.bend` | `Timui.open` / `frame` / `close` |
 | `src/bend/app.bend` | Bend `main` (demo + live dispatch) |
 | `src/ffi/timui_ffi.c` | Thin TimUI FFI (`TIMUI_IMPLEMENTATION`) |
-| `src/ffi/birc_main.c` | Argv shim (`--demo` / `--frames` / `--connect`) |
+| `src/ffi/dns_ffi.c` | UDP recv as octets (`recv_octets`) |
 | `build/birc_core.c` | **Build artefact** — Bend emits the whole program as one C TU (~0.5MB); not hand-written |
 | `src/ui/timui.h` | Vendored [timui.h](https://timui.dev) |
 | `LAWS.bend` / `PROOF.bend` | Protocol / feed / submit / framer / scroll laws |

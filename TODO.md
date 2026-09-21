@@ -11,7 +11,7 @@ Current split (approx):
 |---|---|
 | `src/bend/**/*.bend` | Protocol, client, submit, framer, net, view, `main` |
 | `src/ffi/timui_ffi.c` | Thin `Timui.open` / `frame` / `close` / `events` (+ TimUI impl) |
-| `src/ffi/birc_main.c` | `main` → `bend_main` (argv is Bend `IO.args`) |
+| `src/ffi/dns_ffi.c` | UDP `recv_octets` (A rdata is not a String) |
 | `src/ui/timui.h` | Vendored header only |
 | ~~`birc.c` / `irc_proto.h`~~ | **Deleted** |
 

@@ -218,7 +218,7 @@ def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
 def args_which7(+h: String, help: Bool) -> Step:
   match help:
     case True{}:
-      Stop{Bad{"usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo]"}}
+      Stop{Bad{"usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"}}
     case False{}:
       Stop{Bad{"birc: unknown option " ++ h}}
 
@@ -276,7 +276,7 @@ def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Nil{}:
       Stop{Good{cfg}}
     case Con{+h, t}:
-      args_which(t, cfg, h, String.eq(h, "--demo"), String.eq(h, "--frames"), String.eq(h, "--connect"), String.eq(h, "--port"), String.eq(h, "--nick"), String.eq(h, "--channel"), String.eq(h, "--replay"), String.eq(h, "--help"))
+      args_which(t, cfg, h, String.eq(h, "--demo"), String.eq(h, "--frames"), String.eq(h, "--connect"), String.eq(h, "--port"), String.eq(h, "--nick"), String.eq(h, "--channel"), String.eq(h, "--replay"), String.eq(h, "--help-irc"))
 
 def args_step(phase: ArgPh, +xs: List<&2, String>, +cfg: Cfg) -> Step:
   match phase:

@@ -1,9 +1,9 @@
 # Pure DNS A wire encode/parse. No IO. dns.bend owns UDP.
 # Query bytes are all < 128 so String send stays one octet per Char.
-# Responses are WHATWG io_str: ASCII stays one octet, U+FFFD stays 65533
-# (name-skip treats >=192 as a pointer; rcode_ok treats >255 as rcode 0),
-# other codepoints expand as UTF-8 (U+0080 = C2 80) so fused A rdata is
-# recovered.
+# Live recv is recv_octets (List U32 0..255). Tests still pack WHATWG
+# io_str: ASCII one octet, U+FFFD stays 65533 (name-skip treats >=192 as
+# a pointer; rcode_ok treats >255 as rcode 0), other codepoints expand as
+# UTF-8 so fused A rdata is recovered.
 import Base
 
 def byte(+n: U32) -> String:

@@ -110,8 +110,8 @@ Timui.close    : Ui -> IO(Unit)
 ```
 
 `app.bend` / `net.bend` fuel-loop calling `Timui.frame`. Build:
-`bend src/bend/app.bend -o build/birc_bend.c`, rename `main`→`bend_main`,
-link with `birc_main.c` (`-Isrc/ui -Isrc/ffi -pthread`).
+`bend src/bend/app.bend -o build/birc_bend.c`, then `$CC -Isrc/ui -Isrc/ffi`
+(Bend's `main` is kept; `--help` is the runtime CLI, `--help-irc` is birc).
 
 `--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
 closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
