@@ -5,6 +5,8 @@
 # Dial: actor owns the fd (never Chan(Socket)). Demo/Connecting Cont is
 # held (empty outs) so queued JOIN/PRIVMSG cannot flush after Dial.
 # frames=0 uses @unsafe idle; --frames N is fuel.
+# Eof: UI spawns a fresh idle actor on new channels and keeps painting.
+# Actor code never calls UI code (no mutual recursion).
 import Base
 import ./irc.bend as Irc
 import ./client.bend as Cl
@@ -128,13 +130,13 @@ def after_ui_send(
   quit: Bool,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match ok:
     case False{}:
       shutdown(ui, evt, cmd)
     case True{}:
-      k((ui, st2, quit))
+      k((ui, st2, evt, cmd, quit))
 
 def or_halt(quit: Bool, halt: Bool) -> Bool:
   match quit:
@@ -150,7 +152,7 @@ def send_pair(
   +cmd: Chan(Sess.NetCmd),
   pair: Sess.Session & Sess.NetCmd & Bool,
   +pending: List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
     case (+st2, rest):
@@ -183,7 +185,7 @@ def with_keys.go(
   +dn: U32,
   +hist: U32,
   +pending: List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit),
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit),
   quit: Bool,
   enter: Bool
 ) -> IO(Unit):
@@ -198,7 +200,7 @@ def with_keys(
   +cmd: Chan(Sess.NetCmd),
   keys: T.UiKeys,
   +pending: List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
     case T.UiKeys{quit, enter, +typed, rows, tab, click, up, dn, hist}:
@@ -210,7 +212,7 @@ def with_tick.got(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +pending: List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match got:
     case (ui2, keys):
@@ -222,7 +224,7 @@ def with_tick_pend(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +pending: List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
@@ -233,7 +235,7 @@ def with_tick(
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   with_tick_pend(ui, st, evt, cmd, Nil{}, k)
 
@@ -242,7 +244,7 @@ def with_chunk_pair(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   pair: Sess.Session & List<&2, String>,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
     case (+st2, +outs):
@@ -255,7 +257,7 @@ def with_chunk.ts(
   +ts: String,
   +st: Sess.Session,
   +text: String,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   with_chunk_pair(ui, evt, cmd, Sess.step_on_chunk(Sess.session_set_now(st, ts), text), k)
 
@@ -265,7 +267,7 @@ def with_chunk(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +text: String,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
@@ -277,84 +279,11 @@ def with_fail(
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +msg: String,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
     with_tick(ui, Sess.session_fail(Sess.session_set_now(st, ts), msg), evt, cmd, k)
-
-def on_evt_some(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  e: Sess.NetEvt,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match e:
-    case Sess.Eof{}:
-      with_fail(ui, st, evt, cmd, "disconnected", k)
-    case Sess.Tick{}:
-      with_tick(ui, st, evt, cmd, k)
-    case Sess.Chunk{+text}:
-      with_chunk(ui, st, evt, cmd, text, k)
-    case Sess.Up{}:
-      with_tick(ui, Sess.session_online(st), evt, cmd, k)
-    case Sess.Fail{+msg}:
-      with_fail(ui, st, evt, cmd, msg, k)
-
-def on_evt(
-  g: Maybe<&1, Sess.NetEvt>,
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match g:
-    case None{}:
-      shutdown(ui, evt, cmd)
-    case Some{e}:
-      on_evt_some(ui, st, evt, cmd, e, k)
-
-# One fuel tick = one net event (Tick/Chunk) plus paint/keys/send.
-def live_go(
-  fuel: Nat,
-  trip: T.Ui & Sess.Session & Bool,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
-) -> IO(Unit):
-  match fuel:
-    case 0n:
-      match trip:
-        case (ui, _, _):
-          shutdown(ui, evt, cmd)
-    case 1n+p:
-      match trip:
-        case (ui, +st, quit):
-          match quit:
-            case True{}:
-              shutdown(ui, evt, cmd)
-            case False{}:
-              do IO<Unit>:
-                got : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
-                on_evt(got, ui, st, evt, cmd, nxt => live_go(p, nxt, evt, cmd))
-
-@unsafe
-def live_idle(
-  trip: T.Ui & Sess.Session & Bool,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
-) -> IO(Unit):
-  match trip:
-    case (ui, +st, quit):
-      match quit:
-        case True{}:
-          shutdown(ui, evt, cmd)
-        case False{}:
-          do IO<Unit>:
-            got : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
-            on_evt(got, ui, st, evt, cmd, nxt => live_idle(nxt, evt, cmd))
 
 def after_offer(
   sock: Socket,
@@ -513,186 +442,6 @@ def reader_start(
 
 # Boot is Data (never a Socket). UI recvs one result then closes the Chan
 # so the loser send returns False instead of waiting on a full channel.
-type Boot is Data:
-  Ready{}
-  Down{msg: String}
-  Timeout{}
-
-def boot_fail(+boot: Chan(Boot), +msg: String) -> IO(Unit):
-  do IO<Unit>:
-    ok : Bool <- Chan.send(Boot, boot, Down{msg})
-    return Unit{}
-
-def actor_ready_ok(
-  ok: Bool,
-  sock: Socket,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
-) -> IO(Unit):
-  match ok:
-    case False{}:
-      Socket.close(sock)
-    case True{}:
-      reader_start(frames, sock, evt, cmd)
-
-def actor_ready(
-  sock: Socket,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
-) -> IO(Unit):
-  do IO<Unit>:
-    ok : Bool <- Chan.send(Boot, boot, Ready{})
-    actor_ready_ok(ok, sock, frames, evt, cmd)
-
-def actor_reg(
-  pair: Socket & Bool,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
-) -> IO(Unit):
-  match pair:
-    case (s, ok):
-      match ok:
-        case False{}:
-          do IO<Unit>:
-            Unit <- Socket.close(s)
-            boot_fail(boot, "register send failed")
-        case True{}:
-          actor_ready(s, frames, evt, cmd, boot)
-
-def actor_conn(
-  r: Result<&1, &1, (U32 & String), Socket>,
-  +nick: String,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
-) -> IO(Unit):
-  match r:
-    case Fail{e}:
-      match e:
-        case (_, +msg):
-          boot_fail(boot, msg)
-    case Done{s}:
-      do IO<Unit>:
-        pair : Socket & Bool <- register(s, nick)
-        actor_reg(pair, frames, evt, cmd, boot)
-
-def actor_boot(
-  +host: String,
-  +port: U32,
-  +nick: String,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
-) -> IO(Unit):
-  do IO<Unit>:
-    r : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(host, port)
-    actor_conn(r, nick, frames, evt, cmd, boot)
-
-def boot_clock(+boot: Chan(Boot)) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- IO.sleep(8000)
-    ok : Bool <- Chan.send(Boot, boot, Timeout{})
-    return Unit{}
-
-def live_boot.on(
-  zero: Bool,
-  +frames: U32,
-  trip: T.Ui & Sess.Session & Bool,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
-) -> IO(Unit):
-  match zero:
-    case True{}:
-      live_idle(trip, evt, cmd)
-    case False{}:
-      live_go(Sess.ticks_of(frames), trip, evt, cmd)
-
-def start_ui(
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +nick: String,
-  +host: String,
-  +chan: String
-) -> IO(Unit):
-  do IO<Unit>:
-    ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{Nil{}})
-    ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_online(Sess.session0(nick, host, chan)), False{}), evt, cmd)
-
-def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- Chan.close(Sess.NetCmd, cmd)
-    IO.die(Unit, 1, msg)
-
-def boot_ui_on(
-  e: Boot,
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +nick: String,
-  +host: String,
-  +chan: String
-) -> IO(Unit):
-  match e:
-    case Timeout{}:
-      boot_die(cmd, "connect timeout")
-    case Down{+msg}:
-      boot_die(cmd, msg)
-    case Ready{}:
-      start_ui(frames, evt, cmd, nick, host, chan)
-
-def boot_ui(
-  g: Maybe<&1, Boot>,
-  +boot: Chan(Boot),
-  +frames: U32,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +nick: String,
-  +host: String,
-  +chan: String
-) -> IO(Unit):
-  match g:
-    case None{}:
-      boot_die(cmd, "connect failed")
-    case Some{e}:
-      do IO<Unit>:
-        Unit <- Chan.close(Boot, boot)
-        boot_ui_on(e, frames, evt, cmd, nick, host, chan)
-
-def run_live_on(
-  +frames: U32,
-  +host: String,
-  +port: U32,
-  +nick: String,
-  +chan: String,
-  evt0: Chan(Sess.NetEvt),
-  cmd0: Chan(Sess.NetCmd),
-  boot0: Chan(Boot)
-) -> IO(Unit):
-  +evt = evt0
-  +cmd = cmd0
-  +boot = boot0
-  do IO<Unit>:
-    Unit <- IO.spawn(Unit, actor_boot(host, port, nick, frames, evt, cmd, boot))
-    Unit <- IO.spawn(Unit, boot_clock(boot))
-    g : Maybe<&1, Boot> <- Chan.recv(Boot, boot)
-    boot_ui(g, boot, frames, evt, cmd, nick, host, chan)
-
-def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
-  do IO<Unit>:
-    evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
-    cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
-    boot0 : Chan(Boot) <- Chan.new(Boot, 1)
-    run_live_on(frames, host, port, nick, chan, evt0, cmd0, boot0)
-
 def idle_die(+evt: Chan(Sess.NetEvt)) -> IO(Unit):
   Chan.close(Sess.NetEvt, evt)
 
@@ -893,6 +642,302 @@ def idle_start(
   +cmd: Chan(Sess.NetCmd)
 ) -> IO(Unit):
   idle_start.on(U32.is_eq(frames, 0), nick, frames, evt, cmd)
+
+def with_eof.go(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +cmd: Chan(Sess.NetCmd),
+  +frames: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit),
+  evt0: Chan(Sess.NetEvt),
+  cmd0: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  +evt2 = evt0
+  +cmd2 = cmd0
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    Unit <- IO.spawn(Unit, idle_start(Sess.session_nick(st), frames, evt2, cmd2))
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    with_tick(ui, Sess.session_fail(Sess.session_set_now(st, ts), "disconnected"), evt2, cmd2, k)
+
+def with_eof(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +cmd: Chan(Sess.NetCmd),
+  +frames: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
+    cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
+    with_eof.go(ui, st, cmd, frames, k, evt0, cmd0)
+
+def on_evt_some(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  e: Sess.NetEvt,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match e:
+    case Sess.Eof{}:
+      with_eof(ui, st, cmd, frames, k)
+    case Sess.Tick{}:
+      with_tick(ui, st, evt, cmd, k)
+    case Sess.Chunk{+text}:
+      with_chunk(ui, st, evt, cmd, text, k)
+    case Sess.Up{}:
+      with_tick(ui, Sess.session_online(st), evt, cmd, k)
+    case Sess.Fail{+msg}:
+      with_fail(ui, st, evt, cmd, msg, k)
+
+def on_evt(
+  g: Maybe<&1, Sess.NetEvt>,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +frames: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match g:
+    case None{}:
+      shutdown(ui, evt, cmd)
+    case Some{e}:
+      on_evt_some(ui, st, evt, cmd, e, frames, k)
+
+def live_step(
+  quit: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +frames: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match quit:
+    case True{}:
+      shutdown(ui, evt, cmd)
+    case False{}:
+      do IO<Unit>:
+        got : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
+        on_evt(got, ui, st, evt, cmd, frames, k)
+
+# One fuel tick = one net event (Tick/Chunk) plus paint/keys/send.
+def live_go(
+  fuel: Nat,
+  acc: T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool,
+  +frames: U32
+) -> IO(Unit):
+  match fuel:
+    case 0n:
+      match acc:
+        case (ui, _, evt, cmd, _):
+          shutdown(ui, evt, cmd)
+    case 1n+p:
+      match acc:
+        case (ui, +st, evt, cmd, quit):
+          live_step(quit, ui, st, evt, cmd, frames, nxt => live_go(p, nxt, frames))
+
+@unsafe
+def live_idle(
+  acc: T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool,
+  +frames: U32
+) -> IO(Unit):
+  match acc:
+    case (ui, +st, evt, cmd, quit):
+      live_step(quit, ui, st, evt, cmd, frames, nxt => live_idle(nxt, frames))
+
+type Boot is Data:
+  Ready{}
+  Down{msg: String}
+  Timeout{}
+
+def boot_fail(+boot: Chan(Boot), +msg: String) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Boot, boot, Down{msg})
+    return Unit{}
+
+def actor_ready_ok(
+  ok: Bool,
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  match ok:
+    case False{}:
+      Socket.close(sock)
+    case True{}:
+      reader_start(frames, sock, evt, cmd)
+
+def actor_ready(
+  sock: Socket,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +boot: Chan(Boot)
+) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Boot, boot, Ready{})
+    actor_ready_ok(ok, sock, frames, evt, cmd)
+
+def actor_reg(
+  pair: Socket & Bool,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +boot: Chan(Boot)
+) -> IO(Unit):
+  match pair:
+    case (s, ok):
+      match ok:
+        case False{}:
+          do IO<Unit>:
+            Unit <- Socket.close(s)
+            boot_fail(boot, "register send failed")
+        case True{}:
+          actor_ready(s, frames, evt, cmd, boot)
+
+def actor_conn(
+  r: Result<&1, &1, (U32 & String), Socket>,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +boot: Chan(Boot)
+) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          boot_fail(boot, msg)
+    case Done{s}:
+      do IO<Unit>:
+        pair : Socket & Bool <- register(s, nick)
+        actor_reg(pair, frames, evt, cmd, boot)
+
+def actor_boot(
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +boot: Chan(Boot)
+) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(host, port)
+    actor_conn(r, nick, frames, evt, cmd, boot)
+
+def boot_clock(+boot: Chan(Boot)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.sleep(8000)
+    ok : Bool <- Chan.send(Boot, boot, Timeout{})
+    return Unit{}
+
+def live_boot.acc(
+  zero: Bool,
+  +frames: U32,
+  acc: T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool
+) -> IO(Unit):
+  match zero:
+    case True{}:
+      live_idle(acc, frames)
+    case False{}:
+      live_go(Sess.ticks_of(frames), acc, frames)
+
+def live_boot.on(
+  zero: Bool,
+  +frames: U32,
+  trip: T.Ui & Sess.Session & Bool,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  match trip:
+    case (ui, +st, quit):
+      live_boot.acc(zero, frames, (ui, st, evt, cmd, quit))
+
+def start_ui(
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +nick: String,
+  +host: String,
+  +chan: String
+) -> IO(Unit):
+  do IO<Unit>:
+    ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{Nil{}})
+    ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
+    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_online(Sess.session0(nick, host, chan)), False{}), evt, cmd)
+
+def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    IO.die(Unit, 1, msg)
+
+def boot_ui_on(
+  e: Boot,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +nick: String,
+  +host: String,
+  +chan: String
+) -> IO(Unit):
+  match e:
+    case Timeout{}:
+      boot_die(cmd, "connect timeout")
+    case Down{+msg}:
+      boot_die(cmd, msg)
+    case Ready{}:
+      start_ui(frames, evt, cmd, nick, host, chan)
+
+def boot_ui(
+  g: Maybe<&1, Boot>,
+  +boot: Chan(Boot),
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +nick: String,
+  +host: String,
+  +chan: String
+) -> IO(Unit):
+  match g:
+    case None{}:
+      boot_die(cmd, "connect failed")
+    case Some{e}:
+      do IO<Unit>:
+        Unit <- Chan.close(Boot, boot)
+        boot_ui_on(e, frames, evt, cmd, nick, host, chan)
+
+def run_live_on(
+  +frames: U32,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String,
+  evt0: Chan(Sess.NetEvt),
+  cmd0: Chan(Sess.NetCmd),
+  boot0: Chan(Boot)
+) -> IO(Unit):
+  +evt = evt0
+  +cmd = cmd0
+  +boot = boot0
+  do IO<Unit>:
+    Unit <- IO.spawn(Unit, actor_boot(host, port, nick, frames, evt, cmd, boot))
+    Unit <- IO.spawn(Unit, boot_clock(boot))
+    g : Maybe<&1, Boot> <- Chan.recv(Boot, boot)
+    boot_ui(g, boot, frames, evt, cmd, nick, host, chan)
+
+def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
+  do IO<Unit>:
+    evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
+    cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
+    boot0 : Chan(Boot) <- Chan.new(Boot, 1)
+    run_live_on(frames, host, port, nick, chan, evt0, cmd0, boot0)
 
 def boot_demo(
   ui: T.Ui,

@@ -94,6 +94,8 @@ def main() -> int:
         conn.close()
     except OSError:
         pass
+    if proc.poll() is None:
+        os.write(master, b"/quit\r")
     deadline = time.time() + 20
     while proc.poll() is None and time.time() < deadline:
         drain(master, out)
