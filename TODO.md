@@ -343,7 +343,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **S1** Branch `review-fixes`.
 - [x] **S2** This M9 checklist (one box per ID).
 - [x] **S3** Tracked pty test harness (`make test-pty`; joins `make test` at C1). Confirmed red on `ac97be1`: `deadlock=True birc_ok=False` at 200 chunks.
-- [ ] **S4** `make lint-ffi` in `make check` (ffi A12).
+- [x] **S4** `make lint-ffi` in `make check` (ffi A12).
 
 ### Phase C — critical
 - [ ] **C1** Channel deadlock: one `NetCmd` per `NetEvt`; `Dial` arm emits an event (net#1 #10).
