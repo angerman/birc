@@ -35,6 +35,8 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("empty_id", Cl.feed_id(Cl.init("me", "s"), ""))
     Unit <- E.must("num_last", Cl.numeric_last_ok())
     Unit <- E.must("nick433", Cl.nick433_ok())
+    Unit <- E.must("nick433_star", Cl.nick433_star_ok())
+    Unit <- E.must("nick433_same", Cl.nick433_same_ok())
     Unit <- E.must("flood", Cl.flood_buffers_capped())
     Unit <- E.must("flood_server", Cl.flood_server_clean())
     Unit <- E.must(

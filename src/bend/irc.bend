@@ -706,15 +706,25 @@ def is_433_on(m: Maybe<&2, Message>) -> Bool:
 def is_433_line(line: String) -> Bool:
   is_433_on(parse(line))
 
+def nick433_retry(+m: Message, +nick: String) -> Bool:
+  is_433_msg(m) && ieq(msg_param(m, 1n), nick)
+
 def nick433_for.hit(+nick: String, hit: Bool) -> List<&2, String>:
   match hit:
     case False{}:
       Nil{}
     case True{}:
-      format_nick(nick) <> Nil{}
+      format_nick(nick ++ "_") <> Nil{}
+
+def nick433_for.got(m: Maybe<&2, Message>, +nick: String) -> List<&2, String>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{+msg}:
+      nick433_for.hit(nick, nick433_retry(msg, nick))
 
 def nick433_for(+line: String, +nick: String) -> List<&2, String>:
-  nick433_for.hit(nick, is_433_line(line))
+  nick433_for.got(parse(line), nick)
 
 # Tag a Maybe<Message> for the harness.
 def show_cmd(c: Cmd) -> String:
