@@ -425,10 +425,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
       `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
       pass a `Buffer -> Buffer`. `set_nth_buf` deleted.
-- [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
-      tried: I3 `buf_modify` is the list-walker pattern; cls_* is still a Bool chain
-      evidence: goldens must not move; a List.find table is a no-behaviour pass
-      open question: one commit that only rewrites `feed_numeric` first
+- [x] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
+      `cls_rows` / `slash_rows` / `num_rows` / `flag_rows` + Bool.pick lookup.
+      Goldens unchanged.
 - [x] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).
       `parse_u32` is a `Num` wrapper over `U32.read` (identical on the 7 t18
       probes including overflow). `submit` no longer imports `args`.

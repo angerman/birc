@@ -190,68 +190,59 @@ def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
 def USAGE() -> String:
   "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"
 
-def args_opt.help(+h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      Stop{Bad{USAGE()}}
-    case False{}:
-      Stop{Bad{"birc: unknown option " ++ h}}
+type Flag is Data:
+  FDemo{}
+  FFrames{}
+  FConnect{}
+  FPort{}
+  FNick{}
+  FChan{}
+  FReplay{}
+  FHelp{}
+  FUnknown{}
 
-def args_opt.replay(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_replay(t, cfg)
-    case False{}:
-      args_opt.help(h, String.eq(h, "--help-irc"))
+type FlagRow is Data:
+  FlagRow{name: String, f: Flag}
 
-def args_opt.chan(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_chan(t, cfg)
-    case False{}:
-      args_opt.replay(t, cfg, h, String.eq(h, "--replay"))
+def flag_rows() -> List<&2, FlagRow>:
+  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--help-irc", FHelp{}} <> Nil{}
 
-def args_opt.nick(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_word(t, cfg, False{})
-    case False{}:
-      args_opt.chan(t, cfg, h, String.eq(h, "--channel"))
+def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
+  match xs:
+    case Nil{}:
+      FUnknown{}
+    case Con{row, t}:
+      match row:
+        case FlagRow{+name, +f}:
+          Bool.pick(Flag, String.eq(name, h), f, flag_of(t, h))
 
-def args_opt.port(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_take(t, cfg, False{})
-    case False{}:
-      args_opt.nick(t, cfg, h, String.eq(h, "--nick"))
-
-def args_opt.connect(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_word(t, cfg, True{})
-    case False{}:
-      args_opt.port(t, cfg, h, String.eq(h, "--port"))
-
-def args_opt.frames(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
-      args_take(t, cfg, True{})
-    case False{}:
-      args_opt.connect(t, cfg, h, String.eq(h, "--connect"))
-
-def args_opt.demo(+t: List<&2, String>, +cfg: Cfg, +h: String, hit: Bool) -> Step:
-  match hit:
-    case True{}:
+def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
+  match f:
+    case FDemo{}:
       Go{ t, set_demo(cfg)}
-    case False{}:
-      args_opt.frames(t, cfg, h, String.eq(h, "--frames"))
+    case FFrames{}:
+      args_take(t, cfg, True{})
+    case FConnect{}:
+      args_word(t, cfg, True{})
+    case FPort{}:
+      args_take(t, cfg, False{})
+    case FNick{}:
+      args_word(t, cfg, False{})
+    case FChan{}:
+      args_chan(t, cfg)
+    case FReplay{}:
+      args_replay(t, cfg)
+    case FHelp{}:
+      Stop{Bad{USAGE()}}
+    case FUnknown{}:
+      Stop{Bad{"birc: unknown option " ++ h}}
 
 def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
     case Nil{}:
       Stop{Good{cfg}}
     case Con{+h, t}:
-      args_opt.demo(t, cfg, h, String.eq(h, "--demo"))
+      args_opt.do(t, cfg, h, flag_of(flag_rows(), h))
 
 def args_go(fuel: Nat, st: Step) -> Parsed:
   match fuel:
