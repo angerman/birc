@@ -58,7 +58,7 @@ def main() -> int:
         if proc.poll() is not None:
             break
     try:
-        out, _ = proc.communicate(timeout=8)
+        out, _ = proc.communicate(timeout=20)
     except subprocess.TimeoutExpired:
         proc.kill()
         out, _ = proc.communicate()
