@@ -157,6 +157,16 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("nodial_connecting", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/connect irc.example.net")), "cont:")
     Unit <- E.must_eq("hold_demo", cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:")
     Unit <- E.must_eq("hold_on", cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:JOIN #x")
+    Unit <- E.must_eq(
+      "merge_cont",
+      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Cont{"JOIN #t" <> Nil{}})),
+      "cont:PONG :x"
+    )
+    Unit <- E.must_eq(
+      "merge_dial",
+      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667})),
+      "dial:h:6667"
+    )
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

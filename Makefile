@@ -148,7 +148,7 @@ test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
 
 test-pty: test-pty-flood ## Pty loop tests (rows join after C3).
 
-test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live ## Protocol + pure + net + DNS + args + fixtures + UI + live mock.
+test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend

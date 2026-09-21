@@ -218,6 +218,14 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
     case Cont{outs}:
       hold_cmd.outs(net, outs)
 
+# One NetCmd per NetEvt: chunk PONG/JOIN outs ride with the UI cmd.
+def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
+  match cmd:
+    case Dial{+host, port}:
+      Dial{host, port}
+    case Cont{outs}:
+      Cont{List.append(&2, String, pending, outs)}
+
 def wrap_outs(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
   match pair:
     case (cl2, outs):
