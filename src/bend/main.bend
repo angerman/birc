@@ -2,28 +2,19 @@
 # Native: `bend src/bend/main.bend -o build/birc-proto && ./build/birc-proto`
 import Base
 import ./irc.bend as Irc
-
-def must.on(+tag: String, +got: String, +want: String, same: Bool) -> IO(Unit):
-  match same:
-    case True{}:
-      IO.print(tag ++ "=" ++ got)
-    case False{}:
-      IO.die(Unit, 1, tag ++ " got=[" ++ got ++ "] want=[" ++ want ++ "]")
-
-def must(+tag: String, +got: String, +want: String) -> IO(Unit):
-  must.on(tag, got, want, String.eq(got, want))
+import ../../tests/bend/expect.bend as E
 
 def check(+tag: String, +line: String, +want: String) -> IO(Unit):
-  must(tag, Irc.show_parse(line), want)
+  E.must_eq(tag, Irc.show_parse(line), want)
 
 def check_pong(+tag: String, +line: String, +want: String) -> IO(Unit):
-  must(tag, Irc.pong_for(line), want)
+  E.must_eq(tag, Irc.pong_for(line), want)
 
 def check_chan(+tag: String, +name: String, +want: String) -> IO(Unit):
-  must(tag, Bool.show(Irc.starts_channel(name)), want)
+  E.must_eq(tag, Bool.show(Irc.starts_channel(name)), want)
 
 def check_clamp(+tag: String, +s: String, +want: String) -> IO(Unit):
-  must(tag, Bool.show(Irc.line_ok(Irc.clamp_line(s))), want)
+  E.must_eq(tag, Bool.show(Irc.line_ok(Irc.clamp_line(s))), want)
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -39,7 +30,7 @@ def main() -> IO(Unit):
     Unit <- check_chan("chan_hash", "#birc", "True")
     Unit <- check_chan("chan_nick", "alice", "False")
     Unit <- check_clamp("clamp", Irc.format_privmsg("#birc", "hi"), "True")
-    Unit <- must("ieq", Bool.show(Irc.ieq("PiNg", "ping")), "True")
-    Unit <- must("nick", Irc.format_nick("birc"), "NICK birc")
-    Unit <- must("user", Irc.format_user("birc"), "USER birc 0 * :birc")
-    must("join_fmt", Irc.format_join("#birc"), "JOIN #birc")
+    Unit <- E.must_eq("ieq", Bool.show(Irc.ieq("PiNg", "ping")), "True")
+    Unit <- E.must_eq("nick", Irc.format_nick("birc"), "NICK birc")
+    Unit <- E.must_eq("user", Irc.format_user("birc"), "USER birc 0 * :birc")
+    E.must_eq("join_fmt", Irc.format_join("#birc"), "JOIN #birc")
