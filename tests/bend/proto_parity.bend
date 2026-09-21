@@ -138,6 +138,8 @@ def main() -> IO(Unit):
     Unit <- check_line("num353_1459", ":irc.birc.dev 353 me #birc :me alice", "NUM353:irc.birc.dev!353#353|me|#birc|me alice")
     Unit <- E.must("action_feed", action_feed_ok())
     Unit <- E.must("overlong", Fr.overlong_drop_ok())
+    Unit <- E.must("clamp_samples", Irc.clamp_samples_ok())
+    Unit <- E.must("strip_nocr", Irc.strip_ctl_nocr_ok())
     Unit <- E.must("flood_cap", Cl.flood_buffers_capped())
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
     Unit <- E.must("tok_plain", V.tokenize_roundtrip("no stars here"))

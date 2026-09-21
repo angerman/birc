@@ -701,6 +701,22 @@ def clamp_line(+s: String) -> String:
 def line_ok(s: String) -> Bool:
   Nat.is_le(utf8_len(s), LINE_MAX())
 
+def stars.go(n: Nat) -> String:
+  match n:
+    case 0n:
+      ""
+    case 1n+p:
+      "x" ++ stars.go(p)
+
+def clamp_samples_ok() -> Bool:
+  line_ok(clamp_line(""))
+    && line_ok(clamp_line("hi"))
+    && line_ok(clamp_line(stars.go(80n)))
+    && line_ok(clamp_line(stars.go(600n)))
+
+def strip_ctl_nocr_ok() -> Bool:
+  String.eq(strip_ctl("a" ++ SCon{Chr{13}, "b" ++ SCon{Chr{10}, "c"}}), "abc")
+
 def is_ping_cmd(c: Cmd) -> Bool:
   match c:
     case Ping{}:

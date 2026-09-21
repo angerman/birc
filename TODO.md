@@ -496,10 +496,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `IO_READ` park would freeze Ticks (H7). Peer is host+port beside octets.
 
 ### Phase T — laws and tests
-- [ ] **T1** Quantified laws (`line_ok(clamp_line(s))`, no CR/LF in `strip_ctl`, …).
-      tried: point laws exist; `for s: String` proofs are out of reach
-      evidence: handover rule 7: keep the point law, add a test
-      open question: leave quantified forms for a proof pass
+- [x] **T1** Quantified laws. Checker rejects `{==}` on `for s: String`.
+      tried: `law clamp_line_all: for s: String {Irc.line_ok(Irc.clamp_line(s)) == True{} : Bool}`
+      evidence: `bend PROOF.bend` → `expected : @s:String -> {Cmp.is_le(Nat.cmp(…utf8_len.go(clamp_line.go(…))…)) == True{} : Bool}` / `observed : non-inferrable term '{==}'` at `LAWS.clamp_line_all`.
+      Kept point laws. Added `clamp_samples_ok` (empty/hi/80/600) and `strip_ctl_nocr_ok`.
 - [x] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
       GOLDEN CHANGE: `kind_code_ok` pins `kind_digit`; `feed_id` compares `show_client`;
       deleted tautology `live_fuel_alias`.

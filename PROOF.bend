@@ -29,6 +29,12 @@ def Laws.empty_not_channel():
 def Laws.clamp_empty_ok():
   {==}
 
+def Laws.clamp_samples():
+  {==}
+
+def Laws.strip_ctl_nocr():
+  {==}
+
 def Laws.ieq_ping():
   {==}
 
