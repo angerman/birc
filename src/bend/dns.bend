@@ -36,9 +36,9 @@ def DNS_PORT() -> U32:
 def WAIT() -> Nat:
   40n
 
-# Octet recv. Base UDP.recv_from is a String; A rdata 0x80–0xC1 is FFFD.
+# Octet recv. Peer is host & (port & octets). None is EAGAIN/EINTR.
 law recv_octets:
-  Socket -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>>)
+  Socket -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>)
 
 def recv_octets(sock, max):
   import "../ffi/dns_ffi.c"
@@ -48,21 +48,54 @@ def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, St
     Unit <- Socket.close(sock)
     return err(msg)
 
-def wait_some(
+def wait_take(
+  sock: Socket,
+  t: Wire.Take,
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match t:
+    case Wire.Miss{}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        Unit <- IO.sleep(50)
+        k(sock)
+    case Wire.HitOk{+ip}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        Unit <- Socket.close(sock)
+        return Done{ip}
+    case Wire.HitErr{+msg}:
+      fail_close(sock, msg)
+
+def wait_port(
   sock: Socket,
   +id: U32,
-  +host: String,
-  xs: List<&2, U32>
+  +qhost: String,
+  +ns: String,
+  +phost: String,
+  rest: U32 & List<&2, U32>,
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
-  do IO<Result<&1, &1, U32 & String, String>>:
-    Unit <- Socket.close(sock)
-    return parse_q(id, host, xs)
+  match rest:
+    case (port, xs):
+      wait_take(sock, Wire.take_pkt(ns, id, qhost, phost, port, xs), k)
+
+def wait_peer(
+  sock: Socket,
+  +id: U32,
+  +qhost: String,
+  +ns: String,
+  p: String & (U32 & List<&2, U32>),
+  k: Socket -> IO(Result<&1, &1, U32 & String, String>)
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match p:
+    case (+phost, rest):
+      wait_port(sock, id, qhost, ns, phost, rest, k)
 
 def wait_got(
   sock: Socket,
   +id: U32,
-  +host: String,
-  got: Maybe<&1, List<&2, U32>>,
+  +qhost: String,
+  +ns: String,
+  got: Maybe<&1, String & (U32 & List<&2, U32>)>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match got:
@@ -70,75 +103,80 @@ def wait_got(
       do IO<Result<&1, &1, U32 & String, String>>:
         Unit <- IO.sleep(50)
         k(sock)
-    case Some{xs}:
-      wait_some(sock, id, host, xs)
+    case Some{p}:
+      wait_peer(sock, id, qhost, ns, p, k)
 
 def wait_r(
   sock: Socket,
   +id: U32,
-  +host: String,
-  r: Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>>,
+  +qhost: String,
+  +ns: String,
+  r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
       fail_close(sock, "recv")
     case Done{got}:
-      wait_got(sock, id, host, got, k)
+      wait_got(sock, id, qhost, ns, got, k)
 
 def wait_poll(
-  pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>>,
+  pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   +id: U32,
-  +host: String,
+  +qhost: String,
+  +ns: String,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      wait_r(sock, id, host, r, k)
+      wait_r(sock, id, qhost, ns, r, k)
 
-def wait_ans(fuel: Nat, sock: Socket, +id: U32, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
+def wait_ans(fuel: Nat, sock: Socket, +id: U32, +qhost: String, +ns: String) -> IO(Result<&1, &1, U32 & String, String>):
   match fuel:
     case 0n:
       fail_close(sock, "timeout")
     case 1n+p:
       do IO<Result<&1, &1, U32 & String, String>>:
-        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>> <- recv_octets(sock, 512)
-        wait_poll(m, id, host, s2 => wait_ans(p, s2, id, host))
+        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_octets(sock, 512)
+        wait_poll(m, id, qhost, ns, s2 => wait_ans(p, s2, id, qhost, ns))
 
 def after_send_r(
   sock: Socket,
   +id: U32,
-  +host: String,
+  +qhost: String,
+  +ns: String,
   r: Result<&1, &1, U32 & String, Unit>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
       fail_close(sock, "send")
     case Done{_}:
-      wait_ans(WAIT(), sock, id, host)
+      wait_ans(WAIT(), sock, id, qhost, ns)
 
 def after_send(
   pair: Socket & Result<&1, &1, U32 & String, Unit>,
   +id: U32,
-  +host: String
+  +qhost: String,
+  +ns: String
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      after_send_r(sock, id, host, r)
+      after_send_r(sock, id, qhost, ns, r)
 
 def after_bind(
   r: Result<&1, &1, U32 & String, Socket>,
   +q: String,
   +id: U32,
-  +host: String
+  +host: String,
+  +ns: String
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
       IO.pure(Result<&1, &1, U32 & String, String>, err("bind"))
     case Done{sock}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, NS(), DNS_PORT(), q)
-        after_send(sent, id, host)
+        sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
+        after_send(sent, id, host, ns)
 
 def lookup_q(enc: Result<&1, &1, U32 & String, String>, +id: U32, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
   match enc:
@@ -147,7 +185,7 @@ def lookup_q(enc: Result<&1, &1, U32 & String, String>, +id: U32, +host: String)
     case Done{+q}:
       do IO<Result<&1, &1, U32 & String, String>>:
         br : Result<&1, &1, U32 & String, Socket> <- UDP.bind(0)
-        after_bind(br, q, id, host)
+        after_bind(br, q, id, host, NS())
 
 def lookup_n(+host: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
   +id = txid_of(n)

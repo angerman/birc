@@ -1212,3 +1212,48 @@ def parse_q(+want: U32, +host: String, +xs: List<&2, U32>) -> Result<&1, &1, U32
 # Tests use QNAME "a". Live lookup calls parse_q with the asked host.
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   parse_q(want, "a", xs)
+
+# Source-address check + wrong-id keep-listening (dns#3 #7).
+type Take is Data:
+  Miss{}
+  HitOk{ip: String}
+  HitErr{msg: String}
+
+def peer_ok(+ns: String, +host: String, +port: U32) -> Bool:
+  String.eq(ns, host) && U32.is_eq(port, 53)
+
+def take_id(+msg: String, bad: Bool) -> Take:
+  match bad:
+    case True{}:
+      Miss{}
+    case False{}:
+      HitErr{msg}
+
+def take_parse(r: Result<&1, &1, U32 & String, String>) -> Take:
+  match r:
+    case Fail{(_, +msg)}:
+      take_id(msg, String.eq(msg, "bad id"))
+    case Done{+ip}:
+      HitOk{ip}
+
+def take_on(
+  ok: Bool,
+  +id: U32,
+  +qhost: String,
+  xs: List<&2, U32>
+) -> Take:
+  match ok:
+    case False{}:
+      Miss{}
+    case True{}:
+      take_parse(parse_q(id, qhost, xs))
+
+def take_pkt(
+  +ns: String,
+  +id: U32,
+  +qhost: String,
+  +phost: String,
+  +port: U32,
+  xs: List<&2, U32>
+) -> Take:
+  take_on(peer_ok(ns, phost, port), id, qhost, xs)
