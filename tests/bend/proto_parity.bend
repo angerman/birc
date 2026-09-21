@@ -4,6 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/client.bend as Cl
+import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
 
 def soh() -> String:
@@ -49,7 +50,7 @@ def has_tag(+want: String, +xs: List<&2, String>) -> Bool:
 
 def action_feed_ok() -> Bool:
   +cl = Cl.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #birc" <> action_line() <> Nil{})
-  String.eq(Cl.buf_texts(cl, 1n), "-> me joined #birc|* alice waves|")
+  String.eq(CL.buf_texts(cl, 1n), "-> me joined #birc|* alice waves|")
 
 def read_die(+path: String, +msg: String) -> IO(String):
   IO.die(String, 1, "fixture " ++ path ++ ": " ++ msg)
@@ -140,7 +141,7 @@ def main() -> IO(Unit):
     Unit <- E.must("overlong", Fr.overlong_drop_ok())
     Unit <- E.must("clamp_samples", Irc.clamp_samples_ok())
     Unit <- E.must("strip_nocr", Irc.strip_ctl_nocr_ok())
-    Unit <- E.must("flood_cap", Cl.flood_buffers_capped())
+    Unit <- E.must("flood_cap", CL.flood_buffers_capped())
     Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
     Unit <- E.must("tok_plain", V.tokenize_roundtrip("no stars here"))
     Unit <- E.must("params16", params_n_ok(16n))

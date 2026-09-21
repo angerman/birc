@@ -2,6 +2,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/client.bend as Cl
+import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/irc.bend as Irc
@@ -27,7 +28,7 @@ def show_outs(+xs: List<&2, String>) -> String:
   show_outs.go(Nat.add(1n, List.length(&2, String, xs)), xs, "")
 
 def tag_line(+cl2: Cl.Client, +outs: List<&2, String>) -> String:
-  show_outs(outs) ++ " ok=" ++ Bool.show(Sub.out_all_ok(outs)) ++ " nbuf=" ++ Nat.show(Cl.nbuf(cl2))
+  show_outs(outs) ++ " ok=" ++ Bool.show(Sub.out_all_ok(outs)) ++ " nbuf=" ++ Nat.show(CL.nbuf(cl2))
 
 def line_of(pair: Cl.Client & List<&2, String>) -> String:
   match pair:
@@ -64,7 +65,7 @@ def join_abc() -> List<&2, String>:
 def part_idx_tag(pair: Cl.Client & List<&2, String>) -> String:
   match pair:
     case (+cl2, _):
-      Sub.active_name(cl2) ++ " nbuf=" ++ Nat.show(Cl.nbuf(cl2))
+      Sub.active_name(cl2) ++ " nbuf=" ++ Nat.show(CL.nbuf(cl2))
 
 def part_keeps_b() -> String:
   +cl = Cl.feed_all(Cl.init("me", "irc.birc.dev"), join_abc())
@@ -116,7 +117,7 @@ def trip_nbuf(t: Sess.Session & Sess.NetCmd & Bool) -> String:
     case (st, _):
       match st:
         case Sess.Session{+cl, _, _, _, _, _, _, _, _, _}:
-          Nat.show(Cl.nbuf(cl))
+          Nat.show(CL.nbuf(cl))
 
 def trip_has_me.on(+cl: Cl.Client, +who: String, got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
@@ -163,7 +164,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("echo_nolf", Irc.sanitize_in("hi" ++ SCon{Chr{10}, "x"}), "hix")
     Unit <- E.must_eq(
       "echo_nolf_log",
-      Cl.buf_texts(
+      CL.buf_texts(
         take_cl(Sub.submit(take_cl(Sub.submit(Cl.init("me", "irc.birc.dev"), join_cmd())), "hi" ++ SCon{Chr{10}, "x"})),
         1n
       ),
