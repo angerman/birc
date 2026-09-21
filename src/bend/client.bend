@@ -155,21 +155,9 @@ def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Clien
 
 # ---- scrollback ---------------------------------------------------------
 
-# Keep the last n lines in original order (oldest → newest). Reverse + cons
-# already restores order; a second reverse was flipping the log on every append.
-def take_last.go(+xs: List<&2, Line>, n: Nat, acc: List<&2, Line>) -> List<&2, Line>:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{+h, t}:
-      match n:
-        case 0n:
-          acc
-        case 1n+p:
-          take_last.go(t, p, h <> acc)
-
+# Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
-  take_last.go(List.reverse(&2, Line, xs), n, Nil{})
+  List.drop(&2, Line, xs, Nat.sub(List.length(&2, Line, xs), n))
 
 def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
   match gt:
@@ -271,9 +259,6 @@ def nick_strip.go(fuel: Nat, phase: StripPhase, s: String, h: Char, sig: Bool) -
 def nick_strip(+s: String) -> String:
   nick_strip.go(Nat.add(1n, Nat.mul(2n, String.length(s))), StRead{}, s, Chr{0}, False{})
 
-def nick_len(+ns: List<&2, String>) -> Nat:
-  List.length(&2, String, ns)
-
 type HasAcc is Data:
   HasAcc{nick: String, found: Bool}
 
@@ -324,7 +309,7 @@ def nick_add.body(+b: Buffer, +nick: String, empty: Bool) -> Buffer:
         case False{}:
           nick_add.keep(
             Buffer{name, ch, topic, lines, nicks, scroll},
-            nick_has(Buffer{name, ch, topic, lines, nicks, scroll}, nick) || Nat.is_ge(nick_len(nicks), MAX_NICKS()),
+            nick_has(Buffer{name, ch, topic, lines, nicks, scroll}, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
             nick)
 
 def nick_add(+b: Buffer, +raw: String) -> Buffer:
@@ -1307,7 +1292,7 @@ def show_nicks.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
           show_nicks.go(p, t, acc ++ h ++ " ")
 
 def show_nicks(+ns: List<&2, String>) -> String:
-  show_nicks.go(Nat.add(1n, nick_len(ns)), ns, "")
+  show_nicks.go(Nat.add(1n, List.length(&2, String, ns)), ns, "")
 
 def show_buf.chan(+ch: Bool) -> String:
   match ch:

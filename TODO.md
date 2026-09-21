@@ -442,10 +442,11 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: UiKeys is still a 9-field U32 product
       evidence: session.step_keys unpacks U32 flags
       open question: TabDir/HistDir/Maybe click at the FFI boundary
-- [ ] **I9** Remaining Base reimplementations (idiom §1 table).
-      tried: several already replaced (U32.to_nat, U32.read in DNS)
-      evidence: idiom.md §1 still lists has_prefix, parse_u32, Acc folds
-      open question: one file per remaining row
+- [x] **I9** Remaining Base reimplementations (idiom §1 table).
+      `String.starts_with` (has_prefix gone), `Char.to_u32`, `List.drop` for
+      take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
+      as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
+      used from tests. Acc folds are I7.
 - [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
       tried: pack_body is still foldl ++
       evidence: view idiom#2 measured as quadratic in the review, not re-measured here
