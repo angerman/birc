@@ -405,7 +405,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       evidence: net#13 is a 16 ms poll/draw bound; changing it without a split is intuition
       open question: add a default-off phase timer, then re-measure before touching the 16 ms path
 - [x] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
-      Empty JOIN does not open a buffer. pack_spans first-span is still `is_empty(acc)`.
+      Empty JOIN does not open a buffer. pack_spans deleted with the packed wire.
 - [x] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).
       `timui_full_redraw`; dropped unused `w` store; deleted dead `_POSIX_C_SOURCE` and `localtime` fallback.
       `tlen` vs `strlen(typed)` left (same value today).
@@ -448,8 +448,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
       used from tests. Acc folds are I7.
 - [ ] **I10** `view.bend`: `String.concat`/`join`; saturating `Nat.sub`; tokenizer helpers (view idiom#2 #3 #6 #8).
-      tried: pack_body is still foldl ++
-      evidence: view idiom#2 measured as quadratic in the review, not re-measured here
+      tried: pack_body deleted with the packed wire
+      evidence: leftover ++ is in show_ops / header / status strings
       open question: String.concat rewrite after I13 measurement
 - [ ] **I11** `net.bend`: delete `poll_pass`; `or_halt` → `Bool.or`; factor loops; `send_go` pure (net#15 #17 #18 #20).
       tried: SLPh send_lines still two-phase (H8 only fixed fuel 0)
@@ -459,10 +459,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       tried: octet push still uses PushPhase + fuel
       evidence: H7 added utf8_decode beside the existing phase machine
       open question: merge decode into emit_line only, leave push.go for I12
-- [ ] **I13** Parallelism: rebalance `view_draft`; measure `pack_body` (idiom §6).
-      tried: no default-off pack_body timer
-      evidence: review claims pack_body is the balanced map; not re-measured
-      open question: instrument then decide; do not claim speed
+- [ ] **I13** Parallelism: rebalance `view_draft`; pack_body is gone (idiom §6).
+      tried: no default-off view_draft timer
+      evidence: pack_body deleted with the packed wire
+      open question: instrument view_draft then decide; do not claim speed
 - [x] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
       Deleted unused `is_online`/`is_busy`/`session_offline`/`session_rows` and the
       `header_of`/`body_of`/`nicks_of`/`status_of`/`active_buf`/`view`/`show_vm`/`pad_*`
@@ -486,7 +486,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **R4** = C8.
 - [x] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
       `Timui.frame` walks `List<DrawOp>`. Packed k|ts|spans interpreter is gone.
-      Test-only `pack_line`/`pack_spans` remain for goldens.
+      Test-only packers deleted under T6 (DrawOp goldens replace them).
 - [x] **R6** Draw ops carry rects; panel layout moves to Bend.
       DrawOp is OpBox/OpText/OpTabs/OpLine. Bend assigns each body line its y
       (bottom-aligned). C paints as it walks — no lns[64], no count, no
@@ -516,6 +516,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       Query NICK/QUIT, MODE, non-member PART, 433 covered. KICK-other and TOPIC command still thin.
 - [x] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
       Port range, copy_fin extra argv, /part server, clamp_utf8, echo_nolf.
+      DrawOp goldens: draw_line/link/hostile/tabs/nicks. Packers gone.
 - [x] **T7** Net: rename `Net` alias; live mock − cases (net#23–#25).
       LAWS/PROOF/net_demo import session as `Sess`. `tests/pty/live_minus.py`:
       refused (exit 1), 433 → `NICK probe_`, close mid-line keeps the UI,

@@ -77,21 +77,6 @@ type TextSpan is Data:
 def TS_WIDTH() -> Nat:
   8n
 
-def kind_code(k: Cl.LineKind) -> U32:
-  match k:
-    case Cl.Msg{}:
-      0
-    case Cl.Self{}:
-      1
-    case Cl.System{}:
-      2
-    case Cl.Action{}:
-      3
-    case Cl.Notice{}:
-      4
-    case Cl.Error{}:
-      5
-
 def style_of(k: Cl.LineKind) -> U32:
   match k:
     case Cl.Msg{}:
@@ -534,77 +519,6 @@ def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -
   match b:
     case Cl.Buffer{+name, _, +topic, _, _, _}:
       nick ++ "@" ++ server ++ " · " ++ name ++ " · " ++ net
-
-def UNIT() -> Char:
-  Chr{31}
-
-def GS() -> Char:
-  Chr{29}
-
-def kind_digit(k: Cl.LineKind) -> String:
-  match k:
-    case Cl.Msg{}:
-      "0"
-    case Cl.Self{}:
-      "1"
-    case Cl.System{}:
-      "2"
-    case Cl.Action{}:
-      "3"
-    case Cl.Notice{}:
-      "4"
-    case Cl.Error{}:
-      "5"
-
-def kind_code_ok() -> Bool:
-  String.eq(kind_digit(Cl.Msg{}), "0")
-    && String.eq(kind_digit(Cl.Self{}), "1")
-    && String.eq(kind_digit(Cl.System{}), "2")
-    && String.eq(kind_digit(Cl.Action{}), "3")
-    && String.eq(kind_digit(Cl.Notice{}), "4")
-    && String.eq(kind_digit(Cl.Error{}), "5")
-
-def pack_span(sp: TextSpan) -> String:
-  match sp:
-    case Plain{+tx}:
-      SCon{Chr{80}, tx}
-    case Bold{+tx}:
-      SCon{Chr{66}, tx}
-    case Italic{+tx}:
-      SCon{Chr{73}, tx}
-    case Code{+tx}:
-      SCon{Chr{67}, tx}
-    case Link{+url, +text}:
-      SCon{Chr{76}, url ++ SCon{GS(), text}}
-
-def pack_spans.cons(+acc: String, +chunk: String, empty: Bool) -> String:
-  match empty:
-    case True{}:
-      chunk
-    case False{}:
-      acc ++ SCon{UNIT(), chunk}
-
-def pack_spans.step(acc: String, sp: TextSpan) -> String:
-  +a = acc
-  pack_spans.cons(a, pack_span(sp), String.is_empty(a))
-
-def pack_spans(+xs: List<&2, TextSpan>) -> String:
-  List.foldl(~&2, ~TextSpan, ~String, ~pack_spans.step, xs, "")
-
-def pack_line(+ln: Cl.Line) -> String:
-  match ln:
-    case Cl.Line{+k, +ts, +text}:
-      U32.show(style_of(k)) ++ "|" ++ ts ++ "|" ++ pack_spans(tokenize(text)) ++ "\n"
-
-def pack_fg_ok() -> Bool:
-  String.starts_with(pack_line(Cl.Line{Cl.Msg{}, "", "hi"}), "13158600|")
-    && String.starts_with(pack_line(Cl.Line{Cl.Action{}, "", "x"}), "13079274|")
-
-def pack_body.step(acc: String, ln: Cl.Line) -> String:
-  acc ++ pack_line(ln)
-
-def pack_body(+xs: List<&2, Cl.Line>) -> String:
-  List.foldl(~&2, ~Cl.Line, ~String, ~pack_body.step, xs, "")
 
 def span_op(sp: TextSpan) -> SpanOp:
   match sp:

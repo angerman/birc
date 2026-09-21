@@ -104,9 +104,6 @@ def Laws.cycle_tab():
 def Laws.style_self_ne_msg():
   {==}
 
-def Laws.kind_code_ok():
-  {==}
-
 def Laws.ts_width_ok():
   {==}
 
