@@ -390,6 +390,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 ### Phase I — idiomatic Bend
 - [ ] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
 - [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
+      - [x] Data `Cur`/`Got` + `do Maybe` header/RR/ip4 (idiom §4#1); dead `skip_name`/`answers_go`/`parse_*_p` path deleted; test-only `octets` moved (dns#19).
+      - [ ] nested `_p` leftovers / `List.drop` / error Data / phase constructors / remaining `Dns.*` shims.
 - [ ] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
 - [ ] **I4** Table-driven dispatch: `cls_*`, `args_opt.*`, `slash_*`, `feed_numeric` (idiom §4#2–#5).
 - [ ] **I5** Base `U32.read` replaces `parse_u32` (idiom top10#5).

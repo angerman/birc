@@ -68,6 +68,51 @@ def from_octets(fuel: Nat, xs: List<&2, U32>, acc: String) -> String:
 def pack(+xs: List<&2, U32>) -> String:
   from_octets(Nat.add(1n, List.length(&2, U32, xs)), xs, "")
 
+# Test-only WHATWG io_str → octets (live path uses recv_octets).
+def utf8_4(+code: U32) -> List<&2, U32>:
+  U32.or(240, U32.shrn(code, 18n)) <> U32.or(128, U32.and(U32.shrn(code, 12n), 63)) <> U32.or(128, U32.and(U32.shrn(code, 6n), 63)) <> U32.or(128, U32.and(code, 63)) <> Nil{}
+
+def utf8_3(+code: U32, three: Bool) -> List<&2, U32>:
+  match three:
+    case True{}:
+      U32.or(224, U32.shrn(code, 12n)) <> U32.or(128, U32.and(U32.shrn(code, 6n), 63)) <> U32.or(128, U32.and(code, 63)) <> Nil{}
+    case False{}:
+      utf8_4(code)
+
+def utf8_2(+code: U32, two: Bool) -> List<&2, U32>:
+  match two:
+    case True{}:
+      U32.or(192, U32.shrn(code, 6n)) <> U32.or(128, U32.and(code, 63)) <> Nil{}
+    case False{}:
+      utf8_3(code, U32.is_le(code, 65535))
+
+def utf8_keep(+code: U32, keep: Bool) -> List<&2, U32>:
+  match keep:
+    case True{}:
+      code <> Nil{}
+    case False{}:
+      utf8_2(code, U32.is_le(code, 2047))
+
+def utf8_bytes(+code: U32) -> List<&2, U32>:
+  utf8_keep(code, U32.is_le(code, 127) || U32.is_eq(code, 65533))
+
+def octets_put(bs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  List.append(&2, U32, List.reverse(&2, U32, bs), acc)
+
+def octets_go(fuel: Nat, s: String, acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel:
+    case 0n:
+      List.reverse(&2, U32, acc)
+    case 1n+p:
+      match s:
+        case SNil{}:
+          List.reverse(&2, U32, acc)
+        case SCon{+h, t}:
+          octets_go(p, t, octets_put(utf8_bytes(Char.to_u32(h)), acc))
+
+def octets(+s: String) -> List<&2, U32>:
+  octets_go(Nat.add(1n, String.length(s)), s, Nil{})
+
 def show_oct.go(fuel: Nat, +xs: List<&2, U32>, +acc: String) -> String:
   match fuel:
     case 0n:
@@ -121,7 +166,7 @@ def sample_cname_only() -> List<&2, U32>:
 
 # WHATWG roundtrip: String pack then octets (F9: parse_id is the only parse API).
 def parse_pack(+xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  Dns.parse_id(1, Dns.octets(pack(xs)))
+  Dns.parse_id(1, octets(pack(xs)))
 
 # 800 zero octets — larger than the old drop_go fuel of 700.
 def txt_pad(fuel: Nat, acc: List<&2, U32>) -> List<&2, U32>:
@@ -270,8 +315,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("parse_id2", show_res(Dns.parse_id(2, sample_bad_id())), "ok:1.2.3.4")
     Unit <- E.must_eq("parse_rcode", show_res(Dns.parse_id(1, sample_rcode())), "fail:rcode")
     Unit <- E.must_eq("parse_noa", show_res(Dns.parse_id(1, sample_noa())), "fail:no A")
-    Unit <- E.must_eq("octets_u80", show_oct(Dns.octets(SCon{Chr{128}, ""})), "194,128,")
-    Unit <- E.must_eq("octets_fused", show_oct(Dns.octets(SCon{Chr{128}, SCon{Chr{0}, SCon{Chr{1}, ""}}})), "194,128,0,1,")
+    Unit <- E.must_eq("octets_u80", show_oct(octets(SCon{Chr{128}, ""})), "194,128,")
+    Unit <- E.must_eq("octets_fused", show_oct(octets(SCon{Chr{128}, SCon{Chr{0}, SCon{Chr{1}, ""}}})), "194,128,0,1,")
     Unit <- E.must_eq("parse_fused", show_res(Dns.parse_id(1, sample_fused_raw())), "ok:194.128.0.1")
     Unit <- E.must("txid_hi7", U32.is_lt(U32.shrn(Dns.txid_of(65535), 8n), 128))
     Unit <- E.must("txid_lo7", U32.is_lt(U32.and(Dns.txid_of(65535), 255), 128))
