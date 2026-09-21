@@ -353,7 +353,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **C5** Framer CR flood: count every byte; remainder ≤ 510 (proto#1).
 - [x] **C6** 512-byte cap in UTF-8 bytes; clamp in `send_line`; unify `LINE_MAX` (proto#2 #3, view#3 #8, net#8).
 - [x] **C7** DNS hardening (dns#1–#14). Answer-only + CLASS + QD + TC + QNAME + 255-octet name; peer/EINTR/clamp; wrong-id keep-listening; resolv.conf; re-send; IPv6 reject; 14-bit txid documented (no send_octets: would exceed the 25-line C budget).
-- [ ] **C8** Composer: typed sized to field, explicit seed flag, state on `Ui` handle (ffi A3 A4 A11, view#4).
+- [x] **C8** Composer: typed sized to field, explicit seed flag, state on `Ui` handle (ffi A3 A4 A11, view#4).
 
 ### Phase H — high
 - [ ] **H1** Buffer cap: `buf_get` returns `Maybe`; create only on self-JOIN; error at cap (client#1 #2 #14, view#5).
@@ -411,7 +411,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [ ] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
 - [ ] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
 - [ ] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
-- [ ] **R4** = C8.
+- [x] **R4** = C8.
 - [ ] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
 - [ ] **R6** Draw ops carry rects; panel layout moves to Bend.
 - [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).

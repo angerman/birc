@@ -39,10 +39,11 @@ def Timui.open():
 
 # One begin/draw/end. Returns the Ui beside this frame's keys (no Result:
 # quit is UiKeys.quit != 0, same as Window Close in the event list).
+# seed != 0 reseeds the composer from input, including "".
 law Timui.frame:
-  Ui -> String -> String -> String -> String -> String -> String -> IO(Ui & UiKeys)
+  Ui -> String -> String -> String -> String -> String -> String -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, header, tabs, body, nicks, status, input):
+def Timui.frame(ui, header, tabs, body, nicks, status, input, seed):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:
