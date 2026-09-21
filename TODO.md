@@ -86,7 +86,7 @@ Current split (approx):
 - [x] **M5.3** Rich-text tokenization: `TextSpan` Plain/Bold on `*…*` (`tokenize` / `show_spans`)
 - [x] **M5.4** Coarse draw: whole layout painted inside one `Timui.frame` (D1)
 - [x] **M5.5** Minimal Quit event path: `Timui.events` → `List UiEvent` (`Quit{}`); `ui_loop` folds via `has_quit`
-- [ ] **M5.6** Full begin-event Key list / fine-grained fold — **deferred**: returning `Frame & List<UiEvent>` from `Timui.begin` needs multi-handle IO binds Bend cannot unpack cleanly today; Quit latch covers Escape/should_quit.
+- [x] **M5.6** Frame keys as Data: `Timui.frame` returns `Ui & UiKeys` (same shape as `Window.frame`: handle beside Data). Bend unpacks in a helper (`with_tick.got`). Quit is `UiKeys.quit`, not a second latch IO. Fine-grained `begin`/`draw`/`end` is optional later (D1 still one begin/draw/end in C). The old note that Bend cannot unpack a handle & product was wrong — Base already does `Window & Image & List<Event>`. Do **not** wrap the pair in `Result` (handle stays beside `Result`, never inside).
 - [x] **M5.7**–**M5.9** `--demo` in Bend; `make test-ui` uses Bend binary; C feed/submit deleted
 
 ---
@@ -196,7 +196,7 @@ C: `timui_split_v` header/tabs/body/composer; `split_h` scrollback|nicks; rounde
 
 C: click tabs; Shift+←/→; PgUp/PgDn; mouse wheel; snap scroll to 0 on send.
 
-- [x] **M8.4.1 `UiCmd` Data:** `Noop{}` / `TabNext{}` / `TabPrev{}` / `TabSet{i}` / `ScrollBy{n}` / `HistPrev{}` / `HistNext{}` / `Submit{}` / `Quit{}`. FFI latches **one product per frame** (already `Timui.keys`); extend it or return `UiCmd` list. Prefer a small product of counters (`tab: U32`, `scroll_delta: I32` or two `U32`s, `hist: U32`) over a C-side state machine.
+- [x] **M8.4.1 `UiCmd` Data:** `Noop{}` / `TabNext{}` / `TabPrev{}` / `TabSet{i}` / `ScrollBy{n}` / `HistPrev{}` / `HistNext{}` / `Submit{}` / `Quit{}`. FFI returns **one `UiKeys` product per `Timui.frame`**. Prefer a small product of counters (`tab: U32`, two scroll `U32`s, `hist: U32`) over a C-side state machine.
 - [x] **M8.4.2 Tabs:** Shift+Left/Right already cycles (`cycle_tab`, law `cycle_tab`). Wire **click** from `timui_tabs` selected index → `TabSet`. Law: `cycle_tab` wrap already exists; add `set_active` clamp `i < nbuf`.
 - [x] **M8.4.3 Scroll:** `Buffer.scroll` already exists. Latch `TIMUI_KEY_PAGE_UP/DOWN` and `timui_mouse_wheel` as `scroll_delta`. Bend: `clamp_scroll`. Enable `TIMUI_FLAG_MOUSE` on open. Goldens: `scroll_bounds_ok` stays; add `scroll_page_ok(height)` = delta `height-1`.
 - [x] **M8.4.4 Snap to newest on submit.** After successful `submit` (non-empty outs or echo), `scroll = 0` on the active buffer. Test: scrolled buffer + enter → `scroll==0`.
