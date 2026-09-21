@@ -347,7 +347,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 
 ### Phase C — critical
 - [x] **C1** Channel deadlock: one `NetCmd` per `NetEvt`; `Dial` arm emits an event (net#1 #10).
-- [ ] **C2** Restore the terminal on every exit path (net#2).
+- [x] **C2** Restore the terminal on every exit path (net#2).
 - [ ] **C3** Body rows: one source of truth; packed lines ≤ drawable rows (view#2, ffi A2).
 - [ ] **C4** Inbound control bytes and wire injection (view#1 #6 #7, proto#4 #8, ffi A1 A13).
 - [ ] **C5** Framer CR flood: count every byte; remainder ≤ 510 (proto#1).

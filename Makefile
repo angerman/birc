@@ -30,6 +30,7 @@ endif
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
+        test-pty-restore \
         lint-ffi proto-parity proof check run run-demo clean ffi-smoke
 
 help: ## Show the public targets (default).
@@ -146,7 +147,10 @@ test-pty-flood: build-ui ## Pty: many server chunks (C1 deadlock).
 test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
 	$(NIXRUN) python3 tests/pty/body_rows.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood ## Pty loop tests (rows join after C3).
+test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
+	$(NIXRUN) python3 tests/pty/restore.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore ## Pty loop tests (rows join after C3).
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

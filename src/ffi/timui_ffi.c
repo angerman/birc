@@ -20,6 +20,17 @@ static char birc_composer[512];
 static TimuiTextAreaState birc_composer_st = {birc_composer, sizeof birc_composer,
                                               0, 0};
 
+/* Live handle for atexit restore. Timui.close clears it first so the hook
+ * is idempotent with the normal P5 path. err_fail/_exit skip atexit. */
+static Timui *birc_ui_live;
+
+static void birc_ui_atexit(void) {
+  Timui *ui = birc_ui_live;
+  birc_ui_live = NULL;
+  if (ui)
+    timui_restore_terminal(ui);
+}
+
 #ifdef CID_UIKEYS
 static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t tab,
@@ -67,6 +78,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
      full erase so the first paint cannot sit on leftover glyphs. */
   if (ui->transport.write)
     (void)ui->transport.write(&ui->transport, "\x1b[2J\x1b[H", 7);
+  birc_ui_live = ui;
+  atexit(birc_ui_atexit);
   return io_done(e, io_hand((uint64_t)(uintptr_t)ui));
 }
 
@@ -518,6 +531,8 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   (void)e;
   (void)w;
+  if (ui == birc_ui_live)
+    birc_ui_live = NULL;
   if (ui)
     timui_close(ui);
   return term_pak(CID_UNIT, 0);
