@@ -47,6 +47,11 @@ law clamp_samples:
 law strip_ctl_nocr:
   {Irc.strip_ctl_nocr_ok() == True{} : Bool}
 
+# LAW: strip_ctl never leaves CR or LF, for every string.
+law strip_ctl_clean:
+  for s: String
+  {Irc.has_crlf(Irc.strip_ctl(s)) == False{} : Bool}
+
 # LAW: ASCII case-insensitive equality agrees on PING/ping.
 law ieq_ping:
   {Irc.ieq("PING", "ping") == True{} : Bool}
