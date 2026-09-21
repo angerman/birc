@@ -148,6 +148,10 @@ law ts_width_ok:
 law vis_chrono:
   {V.vis_chrono_ok() == True{} : Bool}
 
+# LAW: body-line y values increase, end on the last inner row, count = vis_h.
+law body_ys_ok:
+  {V.body_ys_ok() == True{} : Bool}
+
 # LAW: demo/online net labels.
 law net_demo_ok:
   {Sess.net_demo_ok() == True{} : Bool}

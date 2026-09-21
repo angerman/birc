@@ -3,23 +3,19 @@ import Base
 import ./client.bend as Cl
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
-# Attr bits match timui.h: bold=1, italic=4.
+# Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
 type SpanOp is Data:
   Spn{attrs: U32, text: String}
   Lnk{url: String, text: String}
-
-type BodyLn is Data:
-  BodyLn{fg: U32, ts: String, spans: List<&2, SpanOp>}
 
 type Rect is Data:
   Rect{x: U32, y: U32, w: U32, h: U32}
 
 type DrawOp is Data:
-  OpHeader{x: U32, y: U32, w: U32, h: U32, text: String}
-  OpTabs{x: U32, y: U32, w: U32, h: U32, sel: U32, names: List<&2, String>}
-  OpBody{x: U32, y: U32, w: U32, h: U32, lines: List<&2, BodyLn>}
-  OpNicks{x: U32, y: U32, w: U32, h: U32, title: String, names: List<&2, String>}
-  OpStatus{x: U32, y: U32, w: U32, h: U32, text: String}
+  OpBox{x: U32, y: U32, w: U32, h: U32}
+  OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
+  OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>}
+  OpLine{x: U32, y: U32, w: U32, fg: U32, ts: String, spans: List<&2, SpanOp>}
 
 type Lay is Data:
   Lay{header: Rect, tabs: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -70,8 +66,7 @@ def visible_lines(+lines: List<&2, Cl.Line>, +height: Nat, +scroll: Nat) -> List
     height
   )
 
-# Packed paint wire is the live API (C interprets k|ts|spans). TextSpan is
-# the tokenize law type.
+# TextSpan is the tokenize law type. Live paint uses SpanOp / DrawOp.
 type TextSpan is Data:
   Plain{text: String}
   Bold{text: String}
@@ -631,22 +626,24 @@ def span_ops(xs: List<&2, TextSpan>) -> List<&2, SpanOp>:
     case Con{+h, t}:
       span_op(h) <> span_ops(t)
 
-def line_op(+ln: Cl.Line) -> BodyLn:
+def FG_TEXT() -> U32:
+  13158600
+
+def FG_DIM() -> U32:
+  10526880
+
+def line_op.at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> DrawOp:
   match ln:
     case Cl.Line{+k, +ts, +text}:
-      BodyLn{style_of(k), ts, span_ops(tokenize(text))}
+      OpLine{x, y, w, style_of(k), ts, span_ops(tokenize(text))}
 
-def body_lines.go(xs: List<&2, Cl.Line>) -> List<&2, BodyLn>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      line_op(h) <> body_lines.go(t)
+def line_op(+ln: Cl.Line) -> DrawOp:
+  line_op.at(0, 0, 40, ln)
 
-def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, BodyLn>:
+def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, Cl.Line>:
   match b:
     case Cl.Buffer{_, _, _, +lines, _, +scroll}:
-      body_lines.go(visible_lines(lines, height, scroll))
+      visible_lines(lines, height, scroll)
 
 def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
   match empty:
@@ -744,49 +741,144 @@ def lay(+rows: U32, +cols: U32) -> Lay:
     Rect{0, sy, cols, 1}
   }
 
-def op_header(r: Rect, +text: String) -> DrawOp:
+def inner_x(+x: U32) -> U32:
+  U32.add(x, 1)
+
+def inner_w.on(+w: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.sub(w, 2)
+    case False{}:
+      w
+
+def inner_w(+w: U32) -> U32:
+  inner_w.on(w, U32.is_ge(w, 2))
+
+def inner_last(+y: U32, +h: U32) -> U32:
+  U32.sub(U32.add(y, h), 2)
+
+def inner_min(+y: U32) -> U32:
+  U32.add(y, 1)
+
+def box_max_y(+y: U32, +h: U32) -> U32:
+  U32.sub(U32.add(y, h), 1)
+
+def body_y0.pick(+cand: U32, +min_y: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      cand
+    case False{}:
+      min_y
+
+def body_y0(+y: U32, +h: U32, +n: U32) -> U32:
+  +last = inner_last(y, h)
+  +min_y = inner_min(y)
+  +cand = U32.sub(U32.add(last, 1), n)
+  body_y0.pick(cand, min_y, U32.is_ge(cand, min_y))
+
+def last_body_row.box(r: Rect) -> U32:
+  match r:
+    case Rect{_, y, _, h}:
+      inner_last(y, h)
+
+def last_body_row.of(lay0: Lay) -> U32:
+  match lay0:
+    case Lay{_, _, br, _, _}:
+      last_body_row.box(br)
+
+def last_body_row(+rows: U32) -> U32:
+  last_body_row.of(lay(rows, 80))
+
+def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
+  match ge:
+    case True{}:
+      cap
+    case False{}:
+      have
+
+def vis_n(+have: Nat, +cap: Nat) -> Nat:
+  vis_n.on(have, cap, Nat.is_ge(have, cap))
+
+def op_box(r: Rect) -> DrawOp:
   match r:
     case Rect{x, y, w, h}:
-      OpHeader{x, y, w, h, text}
+      OpBox{x, y, w, h}
+
+def op_text(r: Rect, +fg: U32, +text: String) -> DrawOp:
+  match r:
+    case Rect{x, y, w, _}:
+      OpText{x, y, w, fg, 0, text}
 
 def op_tabs(r: Rect, +sel: U32, +names: List<&2, String>) -> DrawOp:
   match r:
-    case Rect{x, y, w, h}:
-      OpTabs{x, y, w, h, sel, names}
+    case Rect{x, y, w, _}:
+      OpTabs{x, y, w, sel, names}
 
-def op_body(r: Rect, +lines: List<&2, BodyLn>) -> DrawOp:
+def body_ops.go(xs: List<&2, Cl.Line>, +x: U32, +y: U32, +w: U32) -> List<&2, DrawOp>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      line_op.at(x, y, w, h) <> body_ops.go(t, x, U32.add(y, 1), w)
+
+def body_ops(r: Rect, +xs: List<&2, Cl.Line>) -> List<&2, DrawOp>:
   match r:
     case Rect{x, y, w, h}:
-      OpBody{x, y, w, h, lines}
+      +n = U32.from_nat(List.length(&2, Cl.Line, xs))
+      body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w))
 
-def op_nicks(r: Rect, +title: String, +names: List<&2, String>) -> DrawOp:
-  match r:
-    case Rect{x, y, w, h}:
-      OpNicks{x, y, w, h, title, names}
+def nick_ops.go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32) -> List<&2, DrawOp>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      match ok:
+        case False{}:
+          Nil{}
+        case True{}:
+          OpText{x, y, w, fg, 0, h}
+            <> nick_ops.go(t, U32.is_lt(U32.add(y, 1), max_y), x, U32.add(y, 1), w, fg, max_y)
 
-def op_status(r: Rect, +text: String) -> DrawOp:
+def nick_ops.wide(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: List<&2, String>, wide: Bool) -> List<&2, DrawOp>:
+  match wide:
+    case False{}:
+      Nil{}
+    case True{}:
+      +ix = inner_x(x)
+      +iw = inner_w(w)
+      +fg = FG_DIM()
+      +y1 = U32.add(y, 1)
+      +max_y = box_max_y(y, h)
+      OpBox{x, y, w, h}
+        <> OpText{ix, y, iw, fg, 0, title}
+        <> nick_ops.go(names, U32.is_lt(y1, max_y), ix, y1, iw, fg, max_y)
+
+def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, DrawOp>:
   match r:
-    case Rect{x, y, w, h}:
-      OpStatus{x, y, w, h, text}
+    case Rect{x, y, +w, h}:
+      nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
+
+def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
+  List.append(&2, DrawOp, body_ops(br, bod),
+    List.append(&2, DrawOp, nick_ops(nr, title, nicks),
+      op_text(sr, FG_DIM(), st) <> Nil{}))
 
 def view_ops(
   lay0: Lay,
   +h: String,
   +active: Nat,
   +names: List<&2, String>,
-  +bod: List<&2, BodyLn>,
+  +bod: List<&2, Cl.Line>,
   +title: String,
   +nicks: List<&2, String>,
   +st: String
 ) -> List<&2, DrawOp>:
   match lay0:
-    case Lay{hr, tr, br, nr, sr}:
-      op_header(hr, h)
+    case Lay{hr, tr, +br, nr, sr}:
+      op_text(hr, FG_TEXT(), h)
         <> op_tabs(tr, U32.from_nat(active), names)
-        <> op_body(br, bod)
-        <> op_nicks(nr, title, nicks)
-        <> op_status(sr, st)
-        <> Nil{}
+        <> op_box(br)
+        <> view_ops.rest(br, bod, nr, title, nicks, sr, st)
 
 def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
@@ -795,6 +887,198 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
       h bod = header_of.buf(nick, server, b, net) body_of.buf(b, vis_h(rows))
       title ns = nicks_title_of(b) nicks_list_of(b)
       ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
+
+def show_spanop.ital(+tx: String, ital: Bool) -> String:
+  match ital:
+    case True{}:
+      "_" ++ tx ++ "_"
+    case False{}:
+      tx
+
+def show_spanop.bold(+tx: String, bold: Bool, ital: Bool) -> String:
+  match bold:
+    case True{}:
+      "*" ++ tx ++ "*"
+    case False{}:
+      show_spanop.ital(tx, ital)
+
+def show_spanop.spn(+attrs: U32, +tx: String) -> String:
+  show_spanop.bold(tx, U32.is_eq(attrs, 1), U32.is_eq(attrs, 4))
+
+def show_spanop(sp: SpanOp) -> String:
+  match sp:
+    case Spn{attrs, +tx}:
+      show_spanop.spn(attrs, tx)
+    case Lnk{+url, +text}:
+      "[" ++ url ++ "]" ++ text
+
+def show_spanops.go(+xs: List<&2, SpanOp>, +acc: String) -> String:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{+h, t}:
+      show_spanops.go(t, acc ++ show_spanop(h))
+
+def show_spanops(+xs: List<&2, SpanOp>) -> String:
+  show_spanops.go(xs, "")
+
+def show_names.cons(+acc: String, +h: String, empty: Bool) -> String:
+  match empty:
+    case True{}:
+      h
+    case False{}:
+      acc ++ "," ++ h
+
+def show_names.go(+xs: List<&2, String>, +acc: String) -> String:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{+h, t}:
+      show_names.go(t, show_names.cons(acc, h, String.is_empty(acc)))
+
+def show_names(+xs: List<&2, String>) -> String:
+  show_names.go(xs, "")
+
+def show_op(op: DrawOp) -> String:
+  match op:
+    case OpBox{x, y, w, h}:
+      "X:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h)
+    case OpText{_, y, _, _, _, +text}:
+      "t:" ++ U32.show(y) ++ "|" ++ text
+    case OpTabs{_, _, _, sel, names}:
+      "T:" ++ U32.show(sel) ++ "|" ++ show_names(names)
+    case OpLine{_, y, _, fg, +ts, spans}:
+      "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ ts ++ "|" ++ show_spanops(spans)
+
+def show_ops.cons(+acc: String, +chunk: String, empty: Bool) -> String:
+  match empty:
+    case True{}:
+      chunk
+    case False{}:
+      acc ++ ";" ++ chunk
+
+def show_ops.step(acc: String, op: DrawOp) -> String:
+  +a = acc
+  show_ops.cons(a, show_op(op), String.is_empty(a))
+
+def show_ops(+xs: List<&2, DrawOp>) -> String:
+  List.foldl(~&2, ~DrawOp, ~String, ~show_ops.step, xs, "")
+
+def show_vm_ops(+vm: ViewModel) -> String:
+  match vm:
+    case ViewModel{+ops, _}:
+      show_ops(ops)
+
+def draw_line_ok() -> Bool:
+  String.eq(
+    show_op(line_op(Cl.Line{Cl.Msg{}, "12:00:00", "hello"})),
+    "L:0|13158600|12:00:00|hello"
+  )
+
+def draw_link_ok() -> Bool:
+  String.eq(
+    show_op(line_op(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x"})),
+    "L:0|13158600||see [https://timui.dev]https://timui.dev x"
+  )
+
+def hostile_body() -> String:
+  "look "
+    ++ SCon{Chr{31}, "Lhttps://evil.example"}
+    ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
+    ++ SCon{Chr{27}, "x"}
+
+def draw_hostile_ok() -> Bool:
+  String.eq(
+    show_op(line_op(Cl.Line{Cl.Msg{}, "", hostile_body()})),
+    "L:0|13158600||look "
+      ++ SCon{Chr{31}, "Lhttps://evil.example"}
+      ++ SCon{Chr{29}, "[https://github.com/zw3rk/birc]https://github.com/zw3rk/birc"}
+      ++ SCon{Chr{27}, "x"}
+  )
+
+def draw_tabs_ok() -> Bool:
+  String.eq(
+    show_op(OpTabs{0, 1, 10, 1, "server" <> "#birc" <> Nil{}}),
+    "T:1|server,#birc"
+  )
+
+def draw_nicks_ok() -> Bool:
+  String.eq(
+    show_ops(nick_ops(Rect{0, 2, 8, 10}, "#birc", "me" <> "alice" <> Nil{})),
+    "X:0,2,8,10;t:2|#birc;t:3|me;t:4|alice"
+  )
+
+def dummy_line(+i: Nat) -> Cl.Line:
+  Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i)}
+
+def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      dummy_line(i) <> dummy_lines.go(p, 1n+i)
+
+def dummy_cl(+n: Nat) -> Cl.Client:
+  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, ""}
+
+def body_line_ys.go(ops: List<&2, DrawOp>) -> List<&2, U32>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case Con{OpLine{_, y, _, _, _, _}, t}:
+      y <> body_line_ys.go(t)
+    case Con{_, t}:
+      body_line_ys.go(t)
+
+def body_ys.of(vm: ViewModel) -> List<&2, U32>:
+  match vm:
+    case ViewModel{ops, _}:
+      body_line_ys.go(ops)
+
+def body_ys(+rows: U32, +nlines: Nat) -> List<&2, U32>:
+  body_ys.of(view_draft(dummy_cl(nlines), rows, 80, "", "demo"))
+
+def ys_inc.go(xs: List<&2, U32>, +prev: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+y, t}:
+      U32.is_lt(prev, y) && ys_inc.go(t, y)
+
+def ys_inc(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{y, t}:
+      ys_inc.go(t, y)
+
+def ys_last.go(xs: List<&2, U32>, +y: U32) -> U32:
+  match xs:
+    case Nil{}:
+      y
+    case Con{h, t}:
+      ys_last.go(t, h)
+
+def ys_last(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      0
+    case Con{h, t}:
+      ys_last.go(t, h)
+
+# Body-line y values are strictly increasing, end on the last inner body
+# row, and the count is min(lines, vis_h) = Sess.body_h(rows).
+def body_ys_case(+rows: U32, +nlines: Nat) -> Bool:
+  +ys = body_ys(rows, nlines)
+  Nat.is_eq(List.length(&2, U32, ys), vis_n(nlines, vis_h(rows)))
+    && U32.is_eq(ys_last(ys), last_body_row(rows))
+    && ys_inc(ys)
+
+def body_ys_ok() -> Bool:
+  body_ys_case(24, 200n)
+    && body_ys_case(90, 200n)
+    && body_ys_case(200, 200n)
+    && body_ys_case(24, 5n)
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)

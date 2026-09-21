@@ -488,8 +488,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `Timui.frame` walks `List<DrawOp>`. Packed k|ts|spans interpreter is gone.
       Test-only `pack_line`/`pack_spans` remain for goldens.
 - [x] **R6** Draw ops carry rects; panel layout moves to Bend.
-      DrawOp carries x,y,w,h. `view.lay` computes panels from session Size
-      (rows+cols from UiKeys). C clips to the live root and paints.
+      DrawOp is OpBox/OpText/OpTabs/OpLine. Bend assigns each body line its y
+      (bottom-aligned). C paints as it walks — no lns[64], no count, no
+      bottom-align. Pty: `tests/pty/tall_rows.py` at 40 and 90 rows.
+      Law: `body_ys_ok` for rows 24, 90, 200.
 - [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).
       tried: IO_READ park skipped in H7 (would block Ticks)
       evidence: non-blocking recv_octets + Tick on EAGAIN keeps the UI alive
