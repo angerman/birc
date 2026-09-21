@@ -1,6 +1,7 @@
 # IRC networking IO (M4). Pure fold/fuel live in session.bend.
 # D2: IO.spawn net actor owns Socket; UI ↔ actor via Chan(Sess.NetEvt)/Chan(Sess.NetCmd).
-# D3: Base TCP.send / TCP.poll (String). Empty recv chunk = EOF.
+# D3: TCP.send String; inbound octets via recv_octets, framed by Fr.push.
+# Empty octet list is EOF. Latin-1: each byte is one Char (Chr{b}).
 # P5: actor Socket.close then Timui.close (drain evt after Chan.close(cmd)).
 # Dial: actor owns the fd (never Chan(Socket)). Demo/Connecting Cont is
 # held (empty outs) so queued JOIN/PRIVMSG cannot flush after Dial.
@@ -258,22 +259,22 @@ def with_chunk.ts(
   +cmd: Chan(Sess.NetCmd),
   +ts: String,
   +st: Sess.Session,
-  +text: String,
+  xs: List<&2, U32>,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  with_chunk_pair(ui, evt, cmd, Sess.step_on_chunk(Sess.session_set_now(st, ts), text), k)
+  with_chunk_pair(ui, evt, cmd, Sess.step_on_chunk(Sess.session_set_now(st, ts), xs), k)
 
 def with_chunk(
   ui: T.Ui,
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  +text: String,
+  xs: List<&2, U32>,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    with_chunk.ts(ui, evt, cmd, ts, st, text, k)
+    with_chunk.ts(ui, evt, cmd, ts, st, xs, k)
 
 def with_fail(
   ui: T.Ui,
@@ -300,9 +301,16 @@ def after_offer(
     case True{}:
       k(sock)
 
+def xs_nil(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{_, _}:
+      False{}
+
 def after_hit(
   sock: Socket,
-  +chunk: String,
+  xs: List<&2, U32>,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   empty: Bool,
@@ -315,52 +323,76 @@ def after_hit(
         reader_die(sock, evt)
     case False{}:
       do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Chunk{chunk})
+        ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Chunk{xs})
         after_offer(sock, evt, cmd, ok, k)
 
+def after_hit.xs(
+  sock: Socket,
+  +xs: List<&2, U32>,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Socket -> IO(Unit)
+) -> IO(Unit):
+  after_hit(sock, xs, evt, cmd, xs_nil(xs), k)
+
 def after_poll(
-  trip: Socket & String & Bool,
+  trip: Socket & List<&2, U32> & Bool,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   k: Socket -> IO(Unit)
 ) -> IO(Unit):
   match trip:
-    case (sock, +chunk, hit):
+    case (sock, xs, hit):
       match hit:
         case False{}:
           do IO<Unit>:
             ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
             after_offer(sock, evt, cmd, ok, k)
         case True{}:
-          after_hit(sock, chunk, evt, cmd, String.is_empty(chunk), k)
+          after_hit.xs(sock, xs, evt, cmd, k)
 
-def take_polled_m(sock: Socket, got: Maybe<&1, String>, k: (Socket & String & Bool) -> IO(Unit)) -> IO(Unit):
+def take_oct.peer(
+  sock: Socket,
+  peer: String & (U32 & List<&2, U32>),
+  k: (Socket & List<&2, U32> & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match peer:
+    case (_, rest):
+      match rest:
+        case (_, xs):
+          k((sock, xs, True{}))
+
+def take_oct.m(
+  sock: Socket,
+  got: Maybe<&1, String & (U32 & List<&2, U32>)>,
+  k: (Socket & List<&2, U32> & Bool) -> IO(Unit)
+) -> IO(Unit):
   match got:
     case None{}:
-      k((sock, "", False{}))
-    case Some{+text}:
-      k((sock, text, True{}))
+      k((sock, Nil{}, False{}))
+    case Some{peer}:
+      take_oct.peer(sock, peer, k)
 
-def take_polled_r(
+def take_oct.r(
   sock: Socket,
-  r: Result<&1, &1, (U32 & String), Maybe<&1, String>>,
+  r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   +evt: Chan(Sess.NetEvt),
-  k: (Socket & String & Bool) -> IO(Unit)
+  k: (Socket & List<&2, U32> & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match r:
     case Fail{_}:
       reader_die(sock, evt)
     case Done{got}:
-      take_polled_m(sock, got, k)
+      take_oct.m(sock, got, k)
 
-def take_polled(
-  pair: Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>,
+def take_oct(
+  pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   +evt: Chan(Sess.NetEvt),
-  k: (Socket & String & Bool) -> IO(Unit)
+  k: (Socket & List<&2, U32> & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
     case (sock, r):
-      take_polled_r(sock, r, evt, k)
+      take_oct.r(sock, r, evt, k)
 
 def after_send_ok(
   pair: Socket & Bool,
@@ -375,9 +407,8 @@ def after_send_ok(
           reader_die(sock, evt)
         case True{}:
           do IO<Unit>:
-            m : Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>> <- TCP.poll(sock, 4096, 16)
-            pair2 : Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>> <- poll_pass(m)
-            take_polled(pair2, evt, trip => after_poll(trip, evt, cmd, k))
+            m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- Dns.recv_octets(sock, 4096)
+            take_oct(m, evt, trip => after_poll(trip, evt, cmd, k))
 
 def on_cmd(
   g: Maybe<&1, Sess.NetCmd>,
@@ -846,8 +877,8 @@ def on_evt_some(
       with_eof(ui, st, cmd, frames, k)
     case Sess.Tick{}:
       with_tick(ui, st, evt, cmd, k)
-    case Sess.Chunk{+text}:
-      with_chunk(ui, st, evt, cmd, text, k)
+    case Sess.Chunk{xs}:
+      with_chunk(ui, st, evt, cmd, xs, k)
     case Sess.Up{}:
       with_tick(ui, Sess.session_online(st), evt, cmd, k)
     case Sess.Fail{+msg}:

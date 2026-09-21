@@ -120,7 +120,7 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("fuel3", Nat.is_eq(Net.live_fuel(3), 3n))
     IO.print("net_demo=ok")
 
-def finish_push(got: List<&2, String> & String, client2: Socket, server2: Socket) -> IO(Unit):
+def finish_push(got: List<&2, String> & List<&2, U32>, client2: Socket, server2: Socket) -> IO(Unit):
   match got:
     case (+lines, _):
       finish_report(lines, client2, server2)
@@ -128,7 +128,7 @@ def finish_push(got: List<&2, String> & String, client2: Socket, server2: Socket
 def finish_recv(sl: Socket & String, client2: Socket) -> IO(Unit):
   match sl:
     case (server2, chunk):
-      finish_push(Fr.push_text("", chunk), client2, server2)
+      finish_push(Fr.push(Nil{}, Fr.string_to_octets(chunk)), client2, server2)
 
 def after_accept(
   listener2: Listener,

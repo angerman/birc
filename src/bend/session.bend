@@ -95,32 +95,32 @@ def body_h_ok() -> Bool:
 
 def push_pure_join2(
   +cl2: Cl.Client,
-  +rem2: String,
+  rem2: List<&2, U32>,
   drop2: Bool,
   pair: List<&2, String> & Bool
-) -> Cl.Client & String & Bool & List<&2, String> & Bool:
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   match pair:
     case (outs, joined2):
       (cl2, rem2, drop2, outs, joined2)
 
 def push_pure_join(
   cl_pongs: Cl.Client & List<&2, String>,
-  +rem2: String,
+  rem2: List<&2, U32>,
   drop2: Bool,
   +joined: Bool,
   +chan: String,
   +xs: List<&2, String>
-) -> Cl.Client & String & Bool & List<&2, String> & Bool:
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   match cl_pongs:
     case (cl2, pongs):
       push_pure_join2(cl2, rem2, drop2, join_outs(joined, chan, xs, pongs))
 
 def push_pure_pair(
   +cl: Cl.Client,
-  got: List<&2, String> & String & Bool,
+  got: List<&2, String> & List<&2, U32> & Bool,
   +joined: Bool,
   +chan: String
-) -> Cl.Client & String & Bool & List<&2, String> & Bool:
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   match got:
     case (+lines, rem2, drop2):
       push_pure_join(fold_lines(cl, lines), rem2, drop2, joined, chan, lines)
@@ -128,25 +128,25 @@ def push_pure_pair(
 def push_pure(
   +cl: Cl.Client,
   drop: Bool,
-  +rem: String,
-  +chunk: String,
+  rem: List<&2, U32>,
+  chunk: List<&2, U32>,
   +joined: Bool,
   +chan: String
-) -> Cl.Client & String & Bool & List<&2, String> & Bool:
-  push_pure_pair(cl, Fr.push_text_ex(drop, rem, chunk), joined, chan)
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
+  push_pure_pair(cl, Fr.push_ex(drop, rem, chunk), joined, chan)
 
 def step_chunk(
   +cl: Cl.Client,
   drop: Bool,
-  +rem: String,
-  +chunk: String,
+  rem: List<&2, U32>,
+  chunk: List<&2, U32>,
   +joined: Bool,
   +chan: String
-) -> Cl.Client & String & Bool & List<&2, String> & Bool:
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   push_pure(cl, drop, rem, chunk, joined, chan)
 
 type NetEvt is Data:
-  Chunk{text: String}
+  Chunk{xs: List<&2, U32>}
   Eof{}
   Tick{}
   Up{}
@@ -444,7 +444,7 @@ type Session is Data:
   Session{
     cl: Cl.Client,
     drop: Bool,
-    rem: String,
+    rem: List<&2, U32>,
     draft: String,
     joined: Bool,
     chan: String,
@@ -458,10 +458,10 @@ def ROWS0() -> U32:
   24
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
-  Session{Cl.init(nick, host), False{}, "", "", False{}, chan, Connecting{}, hist0(), ROWS0(), 0}
+  Session{Cl.init(nick, host), False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), ROWS0(), 0}
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
-  Session{cl, False{}, "", "", True{}, chan, Demo{}, hist0(), ROWS0(), 0}
+  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), ROWS0(), 0}
 
 def session_online(+st: Session) -> Session:
   match st:
@@ -506,10 +506,10 @@ def session_nick(+st: Session) -> String:
     case Session{+cl, _, _, _, _, _, _, _, _, _}:
       Cl.nick_of(cl)
 
-def session_after.dial(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, +chan: String, +hist: Hist, +rows: U32, +seed: U32, +host: String) -> Session:
+def session_after.dial(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, +chan: String, +hist: Hist, +rows: U32, +seed: U32, +host: String) -> Session:
   Session{Cl.set_server(cl, host), drop, rem, draft, False{}, chan, Connecting{}, hist, rows, seed}
 
-def session_after(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, +rows: U32, +seed: U32, cmd: NetCmd) -> Session:
+def session_after(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, +rows: U32, +seed: U32, cmd: NetCmd) -> Session:
   match cmd:
     case Dial{+host, _}:
       session_after.dial(cl, drop, rem, draft, chan, hist, rows, seed, host)
@@ -564,7 +564,7 @@ def session_draft(+st: Session) -> String:
 
 def finish_hist(
   drop: Bool,
-  +rem: String,
+  rem: List<&2, U32>,
   joined: Bool,
   +chan: String,
   net: NetState,
@@ -581,7 +581,7 @@ def finish_hist(
 
 def finish_keys(
   drop: Bool,
-  +rem: String,
+  rem: List<&2, U32>,
   joined: Bool,
   +chan: String,
   net: NetState,
@@ -618,15 +618,15 @@ def step_chunk_got(
   +hist: Hist,
   +rows: U32,
   +seed: U32,
-  got: Cl.Client & String & Bool & List<&2, String> & Bool
+  got: Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool
 ) -> Session & List<&2, String>:
   match got:
     case (cl2, rem2, drop2, outs, joined2):
       (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, rows, seed}, outs)
 
-def step_on_chunk(+st: Session, +chunk: String) -> Session & List<&2, String>:
+def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, rows, seed}:
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, rows, seed}:
       step_chunk_got(draft, chan, net, hist, rows, seed, step_chunk(cl, drop, rem, chunk, joined, chan))
 
 
