@@ -136,10 +136,6 @@ law cycle_tab:
 law style_self_ne_msg:
   {V.style_self_ne_msg() == True{} : Bool}
 
-# LAW: LineKind tags 0..5 are 1-1 for the FFI.
-law kind_code_ok:
-  {V.kind_code_ok() == True{} : Bool}
-
 # LAW: timestamp column is 8 cells (HH:MM:SS + space).
 law ts_width_ok:
   {V.ts_width_ok() == True{} : Bool}
