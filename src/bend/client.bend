@@ -1001,12 +1001,27 @@ def feed_num.other(+cl: Client, +num: U32, +text: String, err: Bool) -> Client:
     case False{}:
       client_log(cl, 0n, System{}, fmt_num(num, text))
 
+def feed_num.433.on(+cl: Client, +m: Irc.Message, +num: U32, +nick: String) -> Client:
+  feed_num.other(set_nick(cl, nick ++ "_"), num, Irc.msg_last(m), True{})
+
+def feed_num.433.cl(+cl: Client, +m: Irc.Message, +num: U32) -> Client:
+  match cl:
+    case Client{+nick, _, _, _, _}:
+      feed_num.433.on(cl, m, num, nick)
+
+def feed_num.433(hit: Bool, +cl: Client, +m: Irc.Message, +num: U32) -> Client:
+  match hit:
+    case True{}:
+      feed_num.433.cl(cl, m, num)
+    case False{}:
+      feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
+
 def feed_num.tail(+cl: Client, +m: Irc.Message, +num: U32, is366: Bool) -> Client:
   match is366:
     case True{}:
       cl
     case False{}:
-      feed_num.other(cl, num, Irc.msg_param(m, 1n), U32.is_ge(num, 400))
+      feed_num.433(U32.is_eq(num, 433), cl, m, num)
 
 def is_353_sym(+s: String) -> Bool:
   String.eq(s, "=") || String.eq(s, "*") || String.eq(s, "@")
@@ -1363,6 +1378,14 @@ def nick_of(+cl: Client) -> String:
   match cl:
     case Client{+nick, _, _, _, _}:
       nick
+
+def numeric_last_ok() -> Bool:
+  +cl = feed(init("me", "s"), ":irc.example.net 403 me #nope :No such channel")
+  String.eq(buf_texts(cl, 0n), "[403] No such channel|")
+
+def nick433_ok() -> Bool:
+  +cl = feed(init("me", "s"), ":irc.example.net 433 me newnick :Nickname is already in use")
+  String.eq(nick_of(cl), "me_") && String.eq(buf_texts(cl, 0n), "[433] Nickname is already in use|")
 
 def log_ts_ok.pair(+ts0: String, rest: List<&2, Line>) -> Bool:
   match rest:
