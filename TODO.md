@@ -480,10 +480,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
 - [x] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
       Wire is `fg|ts|spans` with `style_of` RGB. C no longer maps LineKind.
-- [ ] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
-      tried: Clock.hhmmss still formats in C
-      evidence: fmt_hms already exists in Bend
-      open question: new effect returning U32 seconds-of-day
+- [x] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
+      `local_secs` returns U32; Bend `fmt_sod`/`fmt_hms`. strftime gone.
 - [x] **R4** = C8.
 - [ ] **R5** One effect taking `List<DrawOp>`; delete the packed-wire interpreter.
       tried: C still interprets k|ts|spans

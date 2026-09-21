@@ -41,6 +41,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_TIMUI_FRAME 8u
 #define CID_TIMUI_CLOSE 9u
 #define CID_HHMMSS 10u
+#define CID_LOCAL_SECS 12u
 #define CID_RECV_OCTETS 11u
 
 #define term_ctr(cid, loc) ((Term)(((u64)(cid) << 48) | (u64)(loc)))
