@@ -451,8 +451,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     nick_p = nicks ? nicks : "";
     if (*nick_p) {
       const char *nl = strchr(nick_p, '\n');
-      size_t tlen = nl ? (size_t)(nl - nick_p) : strlen(nick_p);
-      timui_label(fr, nick_r.x + 1, nick_r.y, (TimuiStr){nick_p, tlen}, dim);
+      size_t nlen = nl ? (size_t)(nl - nick_p) : strlen(nick_p);
+      timui_label(fr, nick_r.x + 1, nick_r.y, (TimuiStr){nick_p, nlen}, dim);
       if (nl)
         draw_lines(fr, nick_r.x + 1, nick_r.y + 1, nick_r.y + nick_r.h - 1,
                    nl + 1, dim);
@@ -461,7 +461,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       timui_label(fr, root.x, status_y,
                   (TimuiStr){status ? status : "", status ? (size_t)n4 : 0},
                   status_st);
-    if (input && strcmp(birc_composer, input) != 0) {
+    /* C owns the live field. Reseed only a non-empty Bend draft (hist
+     * recall). Empty input must not wipe typed text or Enter submits "". */
+    if (input && input[0] && strcmp(birc_composer, input) != 0) {
       size_t ilen = strlen(input);
       if (ilen >= sizeof birc_composer)
         ilen = sizeof birc_composer - 1;
@@ -470,8 +472,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       birc_composer_st.cursor = ilen;
       birc_composer_st.scroll_x = 0;
     }
+    if (timui_focus(fr) != TIMUI_ID("birc.composer"))
+      timui_set_focus(fr, TIMUI_ID("birc.composer"));
     enter = draw_composer(fr, root.x, input_y, root.w, text, typed,
                           sizeof typed, &tlen);
+    if (!enter && timui_key_pressed(fr, TIMUI_KEY_ENTER) && typed[0])
+      enter = 1;
     if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
       tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
@@ -504,8 +510,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (timui_should_quit(ui))
     quit = 1;
   birc_free_frame_strs(header, tabs, body, nicks, status, input);
-  return birc_frame_out(e, ui, quit, enter, 0, typed, tlen, rows, tab, click, up,
-                        dn, hist);
+  return birc_frame_out(e, ui, quit, enter, 0, typed, strlen(typed), rows, tab,
+                        click, up, dn, hist);
 }
 
 static void __attribute__((constructor)) timui_frame_use(void) {
