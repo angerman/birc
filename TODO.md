@@ -342,7 +342,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 ### Phase S — setup
 - [x] **S1** Branch `review-fixes`.
 - [x] **S2** This M9 checklist (one box per ID).
-- [ ] **S3** Tracked pty test harness (`make test-pty` in `make test`). Fails on `ac97be1` (deadlock ~158 chunks; tokens `w`,`x` never painted).
+- [x] **S3** Tracked pty test harness (`make test-pty`; joins `make test` at C1). Confirmed red on `ac97be1`: `deadlock=True birc_ok=False` at 200 chunks.
 - [ ] **S4** `make lint-ffi` in `make check` (ffi A12).
 
 ### Phase C — critical
