@@ -28,7 +28,7 @@ def u16_of(+hi: U32, +lo: U32) -> U32:
 # replacement chars as "high byte, rcode 0". Real rcode 1–15 without the high
 # bit stay in 0–15 and still fail.
 def rcode_ok(+b: U32) -> Bool:
-  U32.is_eq(U32.and(b, 15), 0) || U32.is_gt(b, 255)
+  U32.is_eq(U32.and(b, 15), 0)
 
 # ---- dotted IPv4 (no leading zeros; inet_pton rejects those) -----------
 
@@ -154,14 +154,16 @@ def push_lab(+acc: String, +lab: String) -> String:
 type Enc is Data:
   ELab{}
   EOk{}
+  ELen{}
 
 def encode_go(
   fuel: Nat,
   ph: Enc,
   xs: List<&2, String>,
   acc: String,
-  lab: String,
-  ok: Bool
+  +lab: String,
+  ok: Bool,
+  +nlen: U32
 ) -> Result<&1, &1, U32 & String, String>:
   match fuel:
     case 0n:
@@ -173,16 +175,23 @@ def encode_go(
             case Nil{}:
               Done{acc ++ byte(0) ++ byte(0) ++ byte(1) ++ byte(0) ++ byte(1)}
             case Con{+h, t}:
-              encode_go(p, EOk{}, t, acc, h, label_ok(h))
+              encode_go(p, EOk{}, t, acc, h, label_ok(h), nlen)
         case EOk{}:
           match ok:
             case False{}:
               err("bad name")
             case True{}:
-              encode_go(p, ELab{}, xs, push_lab(acc, lab), "", True{})
+              +n2 = U32.add(nlen, U32.add(1, U32.from_nat(String.length(lab))))
+              encode_go(p, ELen{}, xs, acc, lab, U32.is_gt(n2, 255), n2)
+        case ELen{}:
+          match ok:
+            case True{}:
+              err("bad name")
+            case False{}:
+              encode_go(p, ELab{}, xs, push_lab(acc, lab), "", True{}, nlen)
 
 def encode_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & String, String>:
-  encode_go(Nat.add(1n, Nat.mul(2n, List.length(&2, String, xs))), ELab{}, xs, header(id), "", True{})
+  encode_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), ELab{}, xs, header(id), "", True{}, 1)
 
 def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, String>:
   encode_xs(id, String.split(host, Chr{46}))
@@ -702,26 +711,504 @@ def parse_fb(m: Maybe<&1, U32 & List<&2, U32>>) -> Result<&1, &1, U32 & String, 
     case Some{p}:
       parse_fb_p(p)
 
-def parse_id_ok(rest: List<&2, U32>, same: Bool) -> Result<&1, &1, U32 & String, String>:
+# Offset cursor over the original packet. Compression pointers jump here.
+def at_xs(xs: List<&2, U32>) -> Maybe<&1, U32>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{+h, _}:
+      Some{h}
+
+def at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&1, U32>:
+  at_xs(List.drop(&2, U32, pkt, U32.to_nat(off)))
+
+def u16_at_lo(+hi: U32, m: Maybe<&1, U32>) -> Maybe<&1, U32>:
+  match m:
+    case None{}:
+      None{}
+    case Some{lo}:
+      Some{u16_of(hi, lo)}
+
+def u16_at_hi(+pkt: List<&2, U32>, +off: U32, m: Maybe<&1, U32>) -> Maybe<&1, U32>:
+  match m:
+    case None{}:
+      None{}
+    case Some{hi}:
+      u16_at_lo(hi, at(pkt, U32.add(off, 1)))
+
+def u16_at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&1, U32>:
+  u16_at_hi(pkt, off, at(pkt, off))
+
+def lo_byte_on(+b: U32, up: Bool) -> U32:
+  match up:
+    case True{}:
+      U32.add(b, 32)
+    case False{}:
+      b
+
+def lo_byte(+b: U32) -> U32:
+  lo_byte_on(b, U32.is_ge(b, 65) && U32.is_le(b, 90))
+
+def name_lo.go(fuel: Nat, s: String, acc: String) -> String:
+  match fuel:
+    case 0n:
+      String.reverse(acc)
+    case 1n+p:
+      match s:
+        case SNil{}:
+          String.reverse(acc)
+        case SCon{+h, t}:
+          name_lo.go(p, t, SCon{Chr{lo_byte(code_of(h))}, acc})
+
+def name_lo(+s: String) -> String:
+  name_lo.go(Nat.add(1n, String.length(s)), s, "")
+
+def name_join_e(+acc: String, +lab: String, empty: Bool) -> String:
+  match empty:
+    case True{}:
+      lab
+    case False{}:
+      acc ++ "." ++ lab
+
+def name_join(+acc: String, +lab: String) -> String:
+  name_join_e(acc, lab, String.is_empty(acc))
+
+type End is Data:
+  EndOpen{}
+  EndGot{off: U32}
+
+def end_of(+pos: U32, ret: End) -> U32:
+  match ret:
+    case EndOpen{}:
+      U32.add(pos, 1)
+    case EndGot{off}:
+      off
+
+def freeze_got(+e: U32) -> End:
+  EndGot{e}
+
+def freeze_end(+pos: U32, ret: End) -> End:
+  match ret:
+    case EndOpen{}:
+      freeze_got(U32.add(pos, 2))
+    case EndGot{off}:
+      EndGot{off}
+
+type RdN is Data:
+  RdGet{}
+  RdGot{}
+  RdKind{}
+  RdRes{}
+  RdZero{}
+  RdPtr{}
+  RdHop{}
+  RdLab{}
+  RdLabZ{}
+  RdLabB{}
+
+def read_name_go(
+  fuel: Nat,
+  ph: RdN,
+  +pkt: List<&2, U32>,
+  +pos: U32,
+  ret: End,
+  +hops: U32,
+  +acc: String,
+  lab: String,
+  +n: U32,
+  +b: U32,
+  got: Maybe<&1, U32>,
+  flag: Bool
+) -> Maybe<&1, String & U32>:
+  match fuel:
+    case 0n:
+      None{}
+    case 1n+p:
+      match ph:
+        case RdGet{}:
+          read_name_go(p, RdGot{}, pkt, pos, ret, hops, acc, lab, n, b, at(pkt, pos), False{})
+        case RdGot{}:
+          match got:
+            case None{}:
+              None{}
+            case Some{+x}:
+              read_name_go(p, RdKind{}, pkt, pos, ret, hops, acc, lab, n, x, None{}, U32.is_ge(x, 192))
+        case RdKind{}:
+          match flag:
+            case True{}:
+              read_name_go(p, RdPtr{}, pkt, pos, ret, hops, acc, lab, n, b, at(pkt, U32.add(pos, 1)), False{})
+            case False{}:
+              read_name_go(p, RdRes{}, pkt, pos, ret, hops, acc, lab, n, b, None{}, U32.is_ge(b, 64))
+        case RdRes{}:
+          match flag:
+            case True{}:
+              None{}
+            case False{}:
+              read_name_go(p, RdZero{}, pkt, pos, ret, hops, acc, lab, n, b, None{}, U32.is_zero(b))
+        case RdZero{}:
+          match flag:
+            case True{}:
+              Some{(acc, end_of(pos, ret))}
+            case False{}:
+              read_name_go(p, RdLab{}, pkt, U32.add(pos, 1), ret, hops, acc, "", b, 0, None{}, False{})
+        case RdPtr{}:
+          match got:
+            case None{}:
+              None{}
+            case Some{lo}:
+              read_name_go(p, RdHop{}, pkt, u16_of(U32.and(b, 63), lo), freeze_end(pos, ret), U32.add(hops, 1), acc, lab, n, 0, None{}, U32.is_ge(hops, 10))
+        case RdHop{}:
+          match flag:
+            case True{}:
+              None{}
+            case False{}:
+              read_name_go(p, RdGet{}, pkt, pos, ret, hops, acc, lab, n, b, None{}, False{})
+        case RdLab{}:
+          read_name_go(p, RdLabZ{}, pkt, pos, ret, hops, acc, lab, n, b, None{}, U32.is_zero(n))
+        case RdLabZ{}:
+          match flag:
+            case True{}:
+              read_name_go(p, RdGet{}, pkt, pos, ret, hops, name_join(acc, lab), "", 0, 0, None{}, False{})
+            case False{}:
+              read_name_go(p, RdLabB{}, pkt, pos, ret, hops, acc, lab, n, b, at(pkt, pos), False{})
+        case RdLabB{}:
+          match got:
+            case None{}:
+              None{}
+            case Some{c}:
+              read_name_go(p, RdLab{}, pkt, U32.add(pos, 1), ret, hops, acc, lab ++ byte(lo_byte(c)), U32.sub(n, 1), b, None{}, False{})
+
+def read_name(+pkt: List<&2, U32>, +off: U32) -> Maybe<&1, String & U32>:
+  read_name_go(
+    Nat.add(4n, Nat.mul(8n, List.length(&2, U32, pkt))),
+    RdGet{},
+    pkt,
+    off,
+    EndOpen{},
+    0,
+    "",
+    "",
+    0,
+    0,
+    None{},
+    False{}
+  )
+
+def ip4_d(+a: U32, +b: U32, +c: U32, m: Maybe<&1, U32>) -> Maybe<&1, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{d}:
+      Some{U32.show(a) ++ "." ++ U32.show(b) ++ "." ++ U32.show(c) ++ "." ++ U32.show(d)}
+
+def ip4_c(+a: U32, +b: U32, +pkt: List<&2, U32>, +off: U32, m: Maybe<&1, U32>) -> Maybe<&1, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{c}:
+      ip4_d(a, b, c, at(pkt, U32.add(off, 3)))
+
+def ip4_b(+a: U32, +pkt: List<&2, U32>, +off: U32, m: Maybe<&1, U32>) -> Maybe<&1, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{b}:
+      ip4_c(a, b, pkt, off, at(pkt, U32.add(off, 2)))
+
+def ip4_a(+pkt: List<&2, U32>, +off: U32, m: Maybe<&1, U32>) -> Maybe<&1, String>:
+  match m:
+    case None{}:
+      None{}
+    case Some{a}:
+      ip4_b(a, pkt, off, at(pkt, U32.add(off, 1)))
+
+def ip4_at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&1, String>:
+  ip4_a(pkt, off, at(pkt, off))
+
+type Aw is Data:
+  AwLeft{}
+  AwName{}
+  AwTy{}
+  AwCls{}
+  AwTtl{}
+  AwRd{}
+  AwIn{}
+  AwTyA{}
+  AwOwnA{}
+  AwTyCn{}
+  AwOwnCn{}
+  AwA{}
+  AwCn{}
+  AwSkip{}
+
+def walk_an_go(
+  fuel: Nat,
+  ph: Aw,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +left: U32,
+  +sought: String,
+  +owner: String,
+  +ty: U32,
+  +cls: U32,
+  +rdlen: U32,
+  nm: Maybe<&1, String & U32>,
+  u: Maybe<&1, U32>,
+  ip: Maybe<&1, String>,
+  flag: Bool
+) -> Result<&1, &1, U32 & String, String>:
+  match fuel:
+    case 0n:
+      err("bad dns")
+    case 1n+p:
+      match ph:
+        case AwLeft{}:
+          match flag:
+            case True{}:
+              err("no A")
+            case False{}:
+              walk_an_go(p, AwName{}, pkt, off, left, sought, owner, ty, cls, rdlen, read_name(pkt, off), None{}, None{}, False{})
+        case AwName{}:
+          match nm:
+            case None{}:
+              err("bad dns")
+            case Some{(+own, +o2)}:
+              walk_an_go(p, AwTy{}, pkt, o2, left, sought, own, ty, cls, rdlen, None{}, u16_at(pkt, o2), None{}, False{})
+        case AwTy{}:
+          match u:
+            case None{}:
+              err("bad dns")
+            case Some{t}:
+              walk_an_go(p, AwCls{}, pkt, U32.add(off, 2), left, sought, owner, t, cls, rdlen, None{}, u16_at(pkt, U32.add(off, 2)), None{}, False{})
+        case AwCls{}:
+          match u:
+            case None{}:
+              err("bad dns")
+            case Some{c}:
+              walk_an_go(p, AwTtl{}, pkt, U32.add(off, 2), left, sought, owner, ty, c, rdlen, None{}, None{}, None{}, False{})
+        case AwTtl{}:
+          walk_an_go(p, AwRd{}, pkt, U32.add(off, 4), left, sought, owner, ty, cls, rdlen, None{}, u16_at(pkt, U32.add(off, 4)), None{}, False{})
+        case AwRd{}:
+          match u:
+            case None{}:
+              err("bad dns")
+            case Some{n}:
+              walk_an_go(p, AwIn{}, pkt, U32.add(off, 2), left, sought, owner, ty, cls, n, None{}, None{}, None{}, U32.is_eq(cls, 1))
+        case AwIn{}:
+          match flag:
+            case False{}:
+              walk_an_go(p, AwSkip{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, False{})
+            case True{}:
+              walk_an_go(p, AwTyA{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, U32.is_eq(ty, 1) && U32.is_eq(rdlen, 4))
+        case AwTyA{}:
+          match flag:
+            case True{}:
+              walk_an_go(p, AwOwnA{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, String.eq(owner, sought))
+            case False{}:
+              walk_an_go(p, AwTyCn{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, U32.is_eq(ty, 5))
+        case AwOwnA{}:
+          match flag:
+            case True{}:
+              walk_an_go(p, AwA{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, ip4_at(pkt, off), False{})
+            case False{}:
+              walk_an_go(p, AwSkip{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, False{})
+        case AwTyCn{}:
+          match flag:
+            case True{}:
+              walk_an_go(p, AwOwnCn{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, String.eq(owner, sought))
+            case False{}:
+              walk_an_go(p, AwSkip{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, False{})
+        case AwOwnCn{}:
+          match flag:
+            case True{}:
+              walk_an_go(p, AwCn{}, pkt, off, left, sought, owner, ty, cls, rdlen, read_name(pkt, off), None{}, None{}, False{})
+            case False{}:
+              walk_an_go(p, AwSkip{}, pkt, off, left, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, False{})
+        case AwA{}:
+          match ip:
+            case None{}:
+              err("bad dns")
+            case Some{+addr}:
+              ok(addr)
+        case AwCn{}:
+          match nm:
+            case None{}:
+              err("bad dns")
+            case Some{(+tgt, _)}:
+              +left2 = U32.sub(left, 1)
+              walk_an_go(p, AwLeft{}, pkt, U32.add(off, rdlen), left2, tgt, owner, ty, cls, rdlen, None{}, None{}, None{}, U32.is_zero(left2))
+        case AwSkip{}:
+          +left2 = U32.sub(left, 1)
+          walk_an_go(p, AwLeft{}, pkt, U32.add(off, rdlen), left2, sought, owner, ty, cls, rdlen, None{}, None{}, None{}, U32.is_zero(left2))
+
+def walk_an(+pkt: List<&2, U32>, +off: U32, +an: U32, +sought: String) -> Result<&1, &1, U32 & String, String>:
+  walk_an_go(
+    Nat.add(32n, Nat.mul(32n, List.length(&2, U32, pkt))),
+    AwLeft{},
+    pkt,
+    off,
+    an,
+    sought,
+    "",
+    0,
+    0,
+    0,
+    None{},
+    None{},
+    None{},
+    U32.is_zero(an)
+  )
+
+def parse_q_an(+pkt: List<&2, U32>, +off: U32, +host: String, m: Maybe<&1, U32>) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{an}:
+      walk_an(pkt, off, an, host)
+
+def parse_q_nm(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +qname: String,
+  same: Bool
+) -> Result<&1, &1, U32 & String, String>:
+  match same:
+    case False{}:
+      err("bad dns")
+    case True{}:
+      parse_q_an(pkt, off, host, u16_at(pkt, 6))
+
+def parse_q_cls_ok(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +qname: String,
+  okc: Bool
+) -> Result<&1, &1, U32 & String, String>:
+  match okc:
+    case False{}:
+      err("bad dns")
+    case True{}:
+      parse_q_nm(host, pkt, U32.add(off, 2), qname, String.eq(qname, host))
+
+def parse_q_cls(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +qname: String,
+  m: Maybe<&1, U32>
+) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{c}:
+      parse_q_cls_ok(host, pkt, off, qname, U32.is_eq(c, 1))
+
+def parse_q_ty_ok(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +qname: String,
+  okt: Bool
+) -> Result<&1, &1, U32 & String, String>:
+  match okt:
+    case False{}:
+      err("bad dns")
+    case True{}:
+      parse_q_cls(host, pkt, U32.add(off, 2), qname, u16_at(pkt, U32.add(off, 2)))
+
+def parse_q_ty(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  +qname: String,
+  m: Maybe<&1, U32>
+) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{t}:
+      parse_q_ty_ok(host, pkt, off, qname, U32.is_eq(t, 1))
+
+def parse_q_go(
+  +host: String,
+  +pkt: List<&2, U32>,
+  +off: U32,
+  nm: Maybe<&1, String & U32>
+) -> Result<&1, &1, U32 & String, String>:
+  match nm:
+    case None{}:
+      err("bad dns")
+    case Some{(+qname, +o2)}:
+      parse_q_ty(host, pkt, o2, qname, u16_at(pkt, o2))
+
+def parse_q_qd_ok(+host: String, +pkt: List<&2, U32>, one: Bool) -> Result<&1, &1, U32 & String, String>:
+  match one:
+    case False{}:
+      err("bad dns")
+    case True{}:
+      parse_q_go(host, pkt, 12, read_name(pkt, 12))
+
+def parse_q_qd(+host: String, +pkt: List<&2, U32>, m: Maybe<&1, U32>) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{qd}:
+      parse_q_qd_ok(host, pkt, U32.is_eq(qd, 1))
+
+def parse_q_rcode(+host: String, +pkt: List<&2, U32>, okb: Bool) -> Result<&1, &1, U32 & String, String>:
+  match okb:
+    case False{}:
+      err("rcode")
+    case True{}:
+      parse_q_qd(host, pkt, u16_at(pkt, 4))
+
+def parse_q_sb(+host: String, +pkt: List<&2, U32>, m: Maybe<&1, U32>) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{b}:
+      parse_q_rcode(host, pkt, rcode_ok(b))
+
+def parse_q_tc(+host: String, +pkt: List<&2, U32>, +fb: U32, clear: Bool) -> Result<&1, &1, U32 & String, String>:
+  match clear:
+    case False{}:
+      err("tc")
+    case True{}:
+      parse_q_sb(host, pkt, at(pkt, 3))
+
+def parse_q_qr(+host: String, +pkt: List<&2, U32>, +fb: U32, qr: Bool) -> Result<&1, &1, U32 & String, String>:
+  match qr:
+    case False{}:
+      err("bad dns")
+    case True{}:
+      parse_q_tc(host, pkt, fb, U32.is_zero(U32.and(fb, 2)))
+
+def parse_q_fb(+host: String, +pkt: List<&2, U32>, m: Maybe<&1, U32>) -> Result<&1, &1, U32 & String, String>:
+  match m:
+    case None{}:
+      err("short")
+    case Some{+b}:
+      parse_q_qr(host, pkt, b, U32.is_ge(b, 128))
+
+def parse_q_eq(+host: String, +pkt: List<&2, U32>, same: Bool) -> Result<&1, &1, U32 & String, String>:
   match same:
     case False{}:
       err("bad id")
     case True{}:
-      parse_fb(take1(rest))
+      parse_q_fb(host, pkt, at(pkt, 2))
 
-def parse_id_p(+want: U32, p: U32 & List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  match p:
-    case (id, rest):
-      parse_id_ok(rest, U32.is_eq(id, want))
-
-def parse_id_m(+want: U32, m: Maybe<&1, U32 & List<&2, U32>>) -> Result<&1, &1, U32 & String, String>:
+def parse_q_id(+want: U32, +host: String, +pkt: List<&2, U32>, m: Maybe<&1, U32>) -> Result<&1, &1, U32 & String, String>:
   match m:
     case None{}:
       err("short")
-    case Some{p}:
-      parse_id_p(want, p)
+    case Some{id}:
+      parse_q_eq(host, pkt, U32.is_eq(id, want))
 
-# Only parse API. Callers pass octets (WHATWG: octets(pack(wire)) for fused
-# bytes). There is no parse(String) alias — that always used txid 1.
+def parse_q(+want: U32, +host: String, +xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
+  parse_q_id(want, name_lo(host), xs, u16_at(xs, 0))
+
+# Tests use QNAME "a". Live lookup calls parse_q with the asked host.
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  parse_id_m(want, take_u16(xs))
+  parse_q(want, "a", xs)

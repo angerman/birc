@@ -24,6 +24,9 @@ def octets(+s: String) -> List<&2, U32>:
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   Wire.parse_id(want, xs)
 
+def parse_q(+want: U32, +host: String, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
+  Wire.parse_q(want, host, xs)
+
 def NS() -> String:
   "1.1.1.1"
 
@@ -48,15 +51,17 @@ def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, St
 def wait_some(
   sock: Socket,
   +id: U32,
+  +host: String,
   xs: List<&2, U32>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     Unit <- Socket.close(sock)
-    return parse_id(id, xs)
+    return parse_q(id, host, xs)
 
 def wait_got(
   sock: Socket,
   +id: U32,
+  +host: String,
   got: Maybe<&1, List<&2, U32>>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
@@ -66,11 +71,12 @@ def wait_got(
         Unit <- IO.sleep(50)
         k(sock)
     case Some{xs}:
-      wait_some(sock, id, xs)
+      wait_some(sock, id, host, xs)
 
 def wait_r(
   sock: Socket,
   +id: U32,
+  +host: String,
   r: Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
@@ -78,49 +84,53 @@ def wait_r(
     case Fail{_}:
       fail_close(sock, "recv")
     case Done{got}:
-      wait_got(sock, id, got, k)
+      wait_got(sock, id, host, got, k)
 
 def wait_poll(
   pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>>,
   +id: U32,
+  +host: String,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      wait_r(sock, id, r, k)
+      wait_r(sock, id, host, r, k)
 
-def wait_ans(fuel: Nat, sock: Socket, +id: U32) -> IO(Result<&1, &1, U32 & String, String>):
+def wait_ans(fuel: Nat, sock: Socket, +id: U32, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
   match fuel:
     case 0n:
       fail_close(sock, "timeout")
     case 1n+p:
       do IO<Result<&1, &1, U32 & String, String>>:
         m : Socket & Result<&1, &1, U32 & String, Maybe<&1, List<&2, U32>>> <- recv_octets(sock, 512)
-        wait_poll(m, id, s2 => wait_ans(p, s2, id))
+        wait_poll(m, id, host, s2 => wait_ans(p, s2, id, host))
 
 def after_send_r(
   sock: Socket,
   +id: U32,
+  +host: String,
   r: Result<&1, &1, U32 & String, Unit>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
       fail_close(sock, "send")
     case Done{_}:
-      wait_ans(WAIT(), sock, id)
+      wait_ans(WAIT(), sock, id, host)
 
 def after_send(
   pair: Socket & Result<&1, &1, U32 & String, Unit>,
-  +id: U32
+  +id: U32,
+  +host: String
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
-      after_send_r(sock, id, r)
+      after_send_r(sock, id, host, r)
 
 def after_bind(
   r: Result<&1, &1, U32 & String, Socket>,
   +q: String,
-  +id: U32
+  +id: U32,
+  +host: String
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
@@ -128,20 +138,20 @@ def after_bind(
     case Done{sock}:
       do IO<Result<&1, &1, U32 & String, String>>:
         sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, NS(), DNS_PORT(), q)
-        after_send(sent, id)
+        after_send(sent, id, host)
 
-def lookup_q(enc: Result<&1, &1, U32 & String, String>, +id: U32) -> IO(Result<&1, &1, U32 & String, String>):
+def lookup_q(enc: Result<&1, &1, U32 & String, String>, +id: U32, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
   match enc:
     case Fail{e}:
       IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
     case Done{+q}:
       do IO<Result<&1, &1, U32 & String, String>>:
         br : Result<&1, &1, U32 & String, Socket> <- UDP.bind(0)
-        after_bind(br, q, id)
+        after_bind(br, q, id, host)
 
 def lookup_n(+host: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
   +id = txid_of(n)
-  lookup_q(encode_id(id, host), id)
+  lookup_q(encode_id(id, host), id, host)
 
 def lookup_rnd(+host: String, rnd: Result<&1, &1, U32 & String, U32>) -> IO(Result<&1, &1, U32 & String, String>):
   match rnd:
