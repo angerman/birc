@@ -4,6 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/client.bend as Cl
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/session.bend as Sess
+import ../../src/bend/irc.bend as Irc
 
 def hash() -> String:
   SCon{Chr{35}, SNil{}}
@@ -136,6 +137,15 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("bad", line_of(Sub.submit(cl1, "/nope")), " ok=True nbuf=2")
     Unit <- E.must_eq("part_idx", part_keeps_b(), "#b nbuf=3")
     Unit <- E.must_eq("strip_ctl", inj_out(Sub.submit(cl1, inj_input())), "PRIVMSG #birc :helloQUIT :x")
+    Unit <- E.must_eq("echo_nolf", Irc.sanitize_in("hi" ++ SCon{Chr{10}, "x"}), "hix")
+    Unit <- E.must_eq(
+      "echo_nolf_log",
+      Cl.buf_texts(
+        take_cl(Sub.submit(take_cl(Sub.submit(Cl.init("me", "irc.birc.dev"), join_cmd())), "hi" ++ SCon{Chr{10}, "x"})),
+        1n
+      ),
+      "<me> hix|"
+    )
     Unit <- E.must("halt", Sub.submit_halt_ok())
     Unit <- E.must("conn", Sub.connect_parse_ok())
     Unit <- E.must("dial", Sess.cmd_connect_ok())

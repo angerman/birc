@@ -1,5 +1,6 @@
 # CRLF framer (M4.1). Octets List<&2,U32> -> lines & remainder.
 import Base
+import ./irc.bend as Irc
 
 def CR() -> U32:
   13
@@ -49,9 +50,9 @@ def crlf(+s: String) -> List<&2, U32>:
 def emit_line.cr(+h: U32, +t: List<&2, U32>, lines: List<&2, String>, was_cr: Bool) -> List<&2, String>:
   match was_cr:
     case True{}:
-      octets_to_string(List.reverse(&2, U32, t)) <> lines
+      Irc.sanitize_in(octets_to_string(List.reverse(&2, U32, t))) <> lines
     case False{}:
-      octets_to_string(List.reverse(&2, U32, h <> t)) <> lines
+      Irc.sanitize_in(octets_to_string(List.reverse(&2, U32, h <> t))) <> lines
 
 def emit_line(+rem_rev: List<&2, U32>, lines: List<&2, String>) -> List<&2, String>:
   match rem_rev:
@@ -363,9 +364,9 @@ def is_cr(+c: Char) -> Bool:
 def finish_line.on(+h: Char, t: String, cr: Bool) -> String:
   match cr:
     case True{}:
-      String.reverse(t)
+      Irc.sanitize_in(String.reverse(t))
     case False{}:
-      String.reverse(SCon{h, t})
+      Irc.sanitize_in(String.reverse(SCon{h, t}))
 
 def finish_line(+acc: String) -> String:
   match acc:

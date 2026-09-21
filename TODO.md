@@ -349,7 +349,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **C1** Channel deadlock: one `NetCmd` per `NetEvt`; `Dial` arm emits an event (net#1 #10).
 - [x] **C2** Restore the terminal on every exit path (net#2).
 - [x] **C3** Body rows: one source of truth; packed lines ≤ drawable rows (view#2, ffi A2).
-- [ ] **C4** Inbound control bytes and wire injection (view#1 #6 #7, proto#4 #8, ffi A1 A13).
+- [x] **C4** Inbound control bytes and wire injection (view#1 #6 #7, proto#4 #8, ffi A1 A13).
 - [ ] **C5** Framer CR flood: count every byte; remainder ≤ 510 (proto#1).
 - [ ] **C6** 512-byte cap in UTF-8 bytes; clamp in `send_line`; unify `LINE_MAX` (proto#2 #3, view#3 #8, net#8).
 - [ ] **C7** DNS hardening (dns#1–#14).
