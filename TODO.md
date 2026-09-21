@@ -435,9 +435,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       evidence: `bend` "expected a decreasing self-call" on utf8_decode.go without fuel
       open question: remaining walkers (drop_spaces, tokenize) in a dedicated pass
 - [ ] **I7** `client.bend`: replace `*Acc` folds; delete `strip_cr` copy; `cycle_tab` enum (client#12 #13 #18 #19).
-      tried: Acc folds still compile and match goldens
-      evidence: FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc remain
-      open question: List.contains + structural nick_del in a no-behaviour pass
+      - [x] `strip_cr` copy deleted; replay uses `Irc.strip_cr`.
+      - [ ] Acc folds (FindAcc/HasAcc/DelAcc/RenAcc/QuitAcc/NickAcc); `cycle_tab` enum.
 - [ ] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
       tried: UiKeys is still a 9-field U32 product
       evidence: session.step_keys unpacks U32 flags
@@ -452,9 +451,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       evidence: leftover ++ is in show_ops / header / status strings
       open question: String.concat rewrite after I13 measurement
 - [ ] **I11** `net.bend`: delete `poll_pass`; `or_halt` → `Bool.or`; factor loops; `send_go` pure (net#15 #17 #18 #20).
-      tried: SLPh send_lines still two-phase (H8 only fixed fuel 0)
-      evidence: net.md #16 has a compiling fuel-free send_lines
-      open question: replace SLPh without changing send semantics
+      - [x] `poll_pass` deleted (unused identity). `or_halt` is `Bool.or`.
+      - [ ] SLPh send_lines / loop factor / `send_go` pure.
 - [ ] **I12** `frame.bend`: one state machine (after H7); no `List.append` inside loops (proto idiom#5 #6 #7).
       tried: octet push still uses PushPhase + fuel
       evidence: H7 added utf8_decode beside the existing phase machine

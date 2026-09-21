@@ -202,23 +202,6 @@ def set_now(+cl: Client, +ts: String) -> Client:
     case Client{+nick, +server, +bufs, +active, _}:
       Client{nick, server, bufs, active, ts}
 
-def strip_cr.on(+s: String, cr: Bool) -> String:
-  match cr:
-    case True{}:
-      String.take(s, Nat.sub(String.length(s), 1n))
-    case False{}:
-      s
-
-def strip_cr.rev(+s: String, rev: String) -> String:
-  match rev:
-    case SNil{}:
-      s
-    case SCon{+h, _}:
-      strip_cr.on(s, Irc.code_is(h, 13))
-
-def strip_cr(+s: String) -> String:
-  strip_cr.rev(s, String.reverse(s))
-
 def replay_keep.cons(acc: List<&2, String>, +s: String, empty: Bool) -> List<&2, String>:
   match empty:
     case True{}:
@@ -227,7 +210,7 @@ def replay_keep.cons(acc: List<&2, String>, +s: String, empty: Bool) -> List<&2,
       s <> acc
 
 def replay_step(acc: List<&2, String>, h: String) -> List<&2, String>:
-  +s = strip_cr(h)
+  +s = Irc.strip_cr(h)
   replay_keep.cons(acc, s, String.is_empty(s))
 
 def replay_lines(+text: String) -> List<&2, String>:
