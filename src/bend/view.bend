@@ -178,7 +178,7 @@ def has_prefix(+s: String, +p: String) -> Bool:
   has_prefix.go(Nat.add(2n, Nat.mul(2n, String.length(p))), PrefRead{}, p, s, False{})
 
 def url_stop.on(+c: U32) -> Bool:
-  U32.is_eq(c, 32) || U32.is_eq(c, 9)
+  U32.is_eq(c, 32) || U32.is_eq(c, 9) || U32.is_lt(c, 32)
 
 def url_stop(h: Char) -> Bool:
   match h:
@@ -208,8 +208,37 @@ def take_url.go(fuel: Nat, phase: UrlPh, +s: String, +acc: String, +h: Char, sto
             case False{}:
               take_url.go(p, UrlRead{}, s, SCon{h, acc}, h, False{})
 
+def url_trail(+c: U32) -> Bool:
+  U32.is_eq(c, 41) || U32.is_eq(c, 46) || U32.is_eq(c, 44) || U32.is_eq(c, 34)
+
+def trim_url.keep(+h: Char, t: String, rec: String, trail: Bool) -> String:
+  match trail:
+    case True{}:
+      rec
+    case False{}:
+      String.reverse(SCon{h, t})
+
+def trim_url.go(+rev: String) -> String:
+  match rev:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      match h:
+        case Chr{n}:
+          trim_url.keep(h, t, trim_url.go(t), url_trail(n))
+
+def trim_url(+url: String) -> String:
+  trim_url.go(String.reverse(url))
+
+def take_url.trim(pair: String & String) -> String & String:
+  match pair:
+    case (+url, rest):
+      (trim_url(url), rest)
+
 def take_url(+s: String) -> String & String:
-  take_url.go(Nat.add(2n, Nat.mul(2n, String.length(s))), UrlRead{}, s, "", Chr{0}, False{})
+  take_url.trim(
+    take_url.go(Nat.add(2n, Nat.mul(2n, String.length(s))), UrlRead{}, s, "", Chr{0}, False{})
+  )
 
 def tokenize.emit_url(+acc: String, spans: List<&2, TextSpan>, pair: String & String) -> TokJump:
   match pair:
@@ -237,17 +266,45 @@ def tokenize.out_star(+s: String, +t: String, +acc: String, +h: Char, spans: Lis
     case False{}:
       tokenize.out_us(s, t, acc, h, spans, Char.is_eq(h, USCORE()))
 
+def is_alnum(+c: Char) -> Bool:
+  match c:
+    case Chr{n}:
+      (U32.is_ge(n, 48) && U32.is_le(n, 57))
+        || (U32.is_ge(n, 65) && U32.is_le(n, 90))
+        || (U32.is_ge(n, 97) && U32.is_le(n, 122))
+
+def url_bound(+acc: String) -> Bool:
+  match acc:
+    case SNil{}:
+      True{}
+    case SCon{+h, _}:
+      Bool.not(is_alnum(h))
+
+def tokenize.url_if(
+  ok: Bool,
+  +s: String,
+  +t: String,
+  +acc: String,
+  +h: Char,
+  spans: List<&2, TextSpan>
+) -> TokJump:
+  match ok:
+    case True{}:
+      tokenize.emit_url(acc, spans, take_url(s))
+    case False{}:
+      tokenize.out_star(s, t, acc, h, spans, Char.is_eq(h, STAR()))
+
 def tokenize.out_http(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, http: Bool) -> TokJump:
   match http:
     case True{}:
-      tokenize.emit_url(acc, spans, take_url(s))
+      tokenize.url_if(url_bound(acc), s, t, acc, h, spans)
     case False{}:
       tokenize.out_star(s, t, acc, h, spans, Char.is_eq(h, STAR()))
 
 def tokenize.out_https(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, https: Bool) -> TokJump:
   match https:
     case True{}:
-      tokenize.emit_url(acc, spans, take_url(s))
+      tokenize.url_if(url_bound(acc), s, t, acc, h, spans)
     case False{}:
       tokenize.out_http(s, t, acc, h, spans, has_prefix(s, HTTP()))
 
@@ -444,6 +501,23 @@ def tokenize_has_code(+s: String) -> Bool:
 
 def tokenize_has_link(+s: String) -> Bool:
   has_kind(WantLink{}, s)
+
+def first_link.go(+xs: List<&2, TextSpan>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{h, t}:
+      match h:
+        case Link{+url, _}:
+          url
+        case _:
+          first_link.go(t)
+
+def tokenize_no_embed() -> Bool:
+  Bool.not(tokenize_has_link("notahttp://x"))
+
+def tokenize_trim_dot() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com.")), "http://x.com")
 
 def unclosed_star_plain() -> Bool:
   Bool.not(tokenize_has_bold("*foo"))

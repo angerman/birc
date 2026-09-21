@@ -809,8 +809,15 @@ def feed_join.from_pair(pair: Client & Maybe<&2, Nat>, +from: String, +chan: Str
     case (cl2, Some{+bi}):
       feed_join.from_cl(cl2, bi, from, chan, self)
 
+def feed_join.with.on(+cl: Client, +from: String, +chan: String, +self: Bool, empty: Bool) -> Client:
+  match empty:
+    case True{}:
+      cl
+    case False{}:
+      feed_join.from_pair(buf_get(cl, chan, True{}, self), from, chan, self)
+
 def feed_join.with(+cl: Client, +from: String, +chan: String, +self: Bool) -> Client:
-  feed_join.from_pair(buf_get(cl, chan, True{}, self), from, chan, self)
+  feed_join.with.on(cl, from, chan, self, String.is_empty(chan))
 
 def feed_join(+cl: Client, +m: Irc.Message, self: Bool) -> Client:
   feed_join.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
@@ -1502,6 +1509,9 @@ def scroll_clamp_ok() -> Bool:
   +cl0 = set_active(feed(init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
   +cl1 = apply_active_scroll(cl0, 50n, 0n)
   Nat.is_eq(buf_scroll_of(cl1, 1n), buf_nlines(cl1, 1n))
+
+def bare_join_ok() -> Bool:
+  Nat.is_eq(nbuf(feed(init("me", "s"), ":me!me@localhost JOIN")), 1n)
 
 def snap_ok() -> Bool:
   +clq = set_active(feed(init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)

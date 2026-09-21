@@ -5,10 +5,6 @@
 #ifndef BIRC_DNS_FFI_C
 #define BIRC_DNS_FFI_C
 
-#ifndef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 200112L
-#endif
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>

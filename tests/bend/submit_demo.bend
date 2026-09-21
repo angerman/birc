@@ -153,6 +153,11 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("quit", line_of(Sub.submit(cl1, "/quit bye")), "QUIT :bye| ok=True nbuf=2")
     Unit <- E.must_eq("bad", line_of(Sub.submit(cl1, "/nope")), " ok=True nbuf=2")
     Unit <- E.must_eq("part_idx", part_keeps_b(), "#b nbuf=3")
+    Unit <- E.must_eq(
+      "part_server",
+      line_of(Sub.submit(cl0, "/part")),
+      " ok=True nbuf=1"
+    )
     Unit <- E.must_eq("strip_ctl", inj_out(Sub.submit(cl1, inj_input())), "PRIVMSG #birc :helloQUIT :x")
     Unit <- E.must("clamp_utf8", Irc.line_ok(Irc.clamp_line(Irc.format_privmsg("#birc", han600()))))
     Unit <- E.must_eq("echo_nolf", Irc.sanitize_in("hi" ++ SCon{Chr{10}, "x"}), "hix")

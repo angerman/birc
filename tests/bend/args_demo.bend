@@ -77,6 +77,16 @@ def main() -> IO(Unit):
       "bad:birc: --frames too large"
     )
     Unit <- E.must_eq(
+      "port0",
+      Args.show_parsed(Args.parse(xs2("--port", "0"))),
+      "bad:birc: --port out of range"
+    )
+    Unit <- E.must_eq(
+      "port70000",
+      Args.show_parsed(Args.parse(xs2("--port", "70000"))),
+      "bad:birc: --port out of range"
+    )
+    Unit <- E.must_eq(
       "copy_fin_extra",
       Args.show_parsed(Args.copy_fin2("extra" <> Nil{}, Nil{})),
       "bad:birc: too many arguments"

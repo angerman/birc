@@ -14,15 +14,7 @@ Term hhmmss_run(Env e, Term *f, IoWork *w) {
   (void)f;
   (void)w;
   buf[0] = '\0';
-#if defined(_POSIX_THREAD_SAFE_FUNCTIONS) || defined(_POSIX_C_SOURCE)
   got = localtime_r(&t, &lt);
-#else
-  got = localtime(&t);
-  if (got) {
-    lt = *got;
-    got = &lt;
-  }
-#endif
   if (got)
     strftime(buf, sizeof buf, "%H:%M:%S", got);
   return io_str(e, buf, strlen(buf));

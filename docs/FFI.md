@@ -79,6 +79,9 @@ Live paint API is the packed wire (not a second `BodyLine`/`Tab` Data walk):
   `P`/`B`/`I`/`C` text or `L` `url` `\x1d` `text`, units separated by `\x1f`.
 - C interprets that packing inside one `Timui.frame`. C does not tokenize.
 - `TextSpan` remains the tokenize law type.
+- Wrapping: Bend packs each IRC line as one paint line. C clips a span
+  that would run past `maxx` (no continuation row). Long lines are cut,
+  not wrapped. A URL longer than 511 bytes is drawn as a plain span.
 
 ## Decisions
 

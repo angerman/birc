@@ -97,8 +97,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   }
   /* Alt-screen (1049h) does not always wipe a nested tmux pane. Force a
      full erase so the first paint cannot sit on leftover glyphs. */
-  if (ui->transport.write)
-    (void)ui->transport.write(&ui->transport, "\x1b[2J\x1b[H", 7);
+  timui_full_redraw(ui);
   birc_ui_live = ui;
   atexit(birc_ui_atexit);
   return io_done(e, io_hand((uint64_t)(uintptr_t)ui));
@@ -170,7 +169,6 @@ static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
   TimuiStyle st;
   if (!fr || n == 0 || x >= maxx)
     return x;
-  w = birc_glyph_cols(p, n);
   while (n > 0 && x + birc_glyph_cols(p, n) > maxx)
     n--;
   if (n == 0)
@@ -190,7 +188,7 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
   if (!fr || tlen == 0 || x >= maxx)
     return x;
   if (ulen >= sizeof uri)
-    ulen = sizeof uri - 1;
+    return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0);
   memcpy(uri, url, ulen);
   uri[ulen] = '\0';
   w = birc_glyph_cols(text, tlen);
@@ -500,9 +498,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
       tab = 2;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_UP))
-      up = 1;
+      up = rows >= 7u ? rows - 6u : 1u;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_DOWN))
-      dn = 1;
+      dn = rows >= 7u ? rows - 6u : 1u;
     {
       int wheel = timui_mouse_wheel(fr);
       if (wheel > 0)
