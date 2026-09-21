@@ -516,10 +516,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       Query NICK/QUIT, MODE, non-member PART, 433 covered. KICK-other and TOPIC command still thin.
 - [x] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
       Port range, copy_fin extra argv, /part server, clamp_utf8, echo_nolf.
-- [ ] **T7** Net: rename `Net` alias; live mock − cases (net#23–#25).
-      tried: live_mock is under a pty; split-line is utf8_split_pty
-      evidence: session is still imported as Net in LAWS/net_demo
-      open question: rename import in a no-behaviour pass
+- [x] **T7** Net: rename `Net` alias; live mock − cases (net#23–#25).
+      LAWS/PROOF/net_demo import session as `Sess`. `tests/pty/live_minus.py`:
+      refused (exit 1), 433 → `NICK probe_`, close mid-line keeps the UI,
+      split line paints, Latin-1 `0xE9` paints.
 - [x] **T8** `main.bend` uses `tests/bend/expect.bend` (proto T8).
 
 ### Phase D — docs
