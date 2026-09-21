@@ -29,7 +29,7 @@ def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket & Boo
 
 def send_line(sock: Socket, +line: String) -> IO(Socket & Bool):
   do IO<Socket & Bool>:
-    m : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(sock, Irc.strip_ctl(line) ++ "\r\n")
+    m : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n")
     send_go(m)
 
 type SLPh is Data:
