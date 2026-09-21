@@ -26,6 +26,7 @@ PROTO := src/bend/main.bend
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
+        test-pty-tall \
         lint-ffi proto-parity proof check run run-demo clean
 
 help: ## Show the public targets (default).
@@ -135,6 +136,10 @@ test-pty-flood: build-ui ## Pty: 400 server chunks (C1 deadlock).
 test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
 	$(NIXRUN) python3 tests/pty/body_rows.py ./$(BLDDIR)/birc
 
+test-pty-tall: build-ui ## Pty: newest line on 40- and 90-row terminals (R6).
+	$(NIXRUN) python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 40 80
+	$(NIXRUN) python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 90 120
+
 test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
 	$(NIXRUN) python3 tests/pty/restore.py ./$(BLDDIR)/birc
 
@@ -159,7 +164,7 @@ test-pty-utf8: build-ui ## Pty: UTF-8 split + Latin-1 fallback + CJK (H7).
 test-pty-minus: build-ui ## Pty: connect refused, 433 retry, close mid-line (T7).
 	$(NIXRUN) python3 tests/pty/live_minus.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

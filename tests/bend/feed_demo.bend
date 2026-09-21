@@ -25,7 +25,7 @@ def naive_body() -> String:
   "na" ++ SCon{Chr{239}, "ve latin1"}
 
 def naive_pack() -> String:
-  V.pack_spans(V.tokenize("<a> " ++ naive_body()))
+  V.show_spans(V.tokenize("<a> " ++ naive_body()))
 
 def main_on(+demo: Cl.Client) -> IO(Unit):
   do IO<Unit>:
@@ -63,6 +63,12 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("style_spec", V.style_spec_ok())
     Unit <- E.must("pack_fg", V.pack_fg_ok())
     Unit <- E.must("kcode", V.kind_code_ok())
+    Unit <- E.must("draw_line", V.draw_line_ok())
+    Unit <- E.must("draw_link", V.draw_link_ok())
+    Unit <- E.must("draw_hostile", V.draw_hostile_ok())
+    Unit <- E.must("draw_tabs", V.draw_tabs_ok())
+    Unit <- E.must("draw_nicks", V.draw_nicks_ok())
+    Unit <- E.must("body_ys", V.body_ys_ok())
     Unit <- E.must("tsw", V.ts_width_ok())
     Unit <- E.must("vchrono", V.vis_chrono_ok())
     Unit <- E.must("tok_italic", V.tokenize_has_italic("_em_"))
@@ -100,7 +106,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
       ),
       "-> me joined #t|<a> " ++ naive_body() ++ "|"
     )
-    Unit <- E.must_eq("naive_pack", naive_pack(), SCon{Chr{80}, "<a> " ++ naive_body()})
+    Unit <- E.must_eq("naive_pack", naive_pack(), "<a> " ++ naive_body())
     Unit <- E.must("hms", Clock.fmt_hms_ok())
     Unit <- E.must_eq(
       "replay_lines",

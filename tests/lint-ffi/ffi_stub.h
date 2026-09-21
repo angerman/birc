@@ -43,15 +43,12 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_HHMMSS 10u
 #define CID_LOCAL_SECS 12u
 #define CID_RECV_OCTETS 11u
-#define CID_VIEW_OPHEADER 13u
-#define CID_VIEW_OPTABS 14u
-#define CID_VIEW_OPBODY 15u
-#define CID_VIEW_OPNICKS 16u
-#define CID_VIEW_OPSTATUS 17u
-#define CID_VIEW_BODYLN 18u
+#define CID_VIEW_OPBOX 13u
+#define CID_VIEW_OPTEXT 14u
+#define CID_VIEW_OPTABS 15u
+#define CID_VIEW_OPLINE 16u
 #define CID_VIEW_SPN 19u
 #define CID_VIEW_LNK 20u
-#define CID_VIEW_RECT 21u
 #ifndef THR
 #define THR
 #endif

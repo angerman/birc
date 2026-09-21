@@ -4,7 +4,6 @@
 #define BIRC_TIMUI_FFI_C
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,10 +71,6 @@ static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
 }
 #endif
 
-/* ---- Timui.open : IO(Result<&1,&1,U32 & String, Ui>) ------------------- *
- * Same packing as Window.open / TCP.connect: io_fail on error, io_done
- * with the handle on success. Callers use IO.try. */
-
 Term timui_open_run(Env e, Term *f, IoWork *w) {
   TimuiConfig cfg = TIMUI_CONFIG_INIT;
   Timui *ui = NULL;
@@ -108,10 +103,7 @@ static void __attribute__((constructor)) timui_open_use(void) {
   io_eff(CID_TIMUI_OPEN, timui_open_run, 0);
 }
 
-/* ---- Timui.frame : Ui -> List<DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
- * ONE begin/draw/end. C walks ops; layout chrome stays here until R6. */
-
-/* DrawOp list walker. Bend owns colours, spans, and tab names. */
+/* DrawOp walker. Bend owns layout, colours, spans, and y. */
 
 static int birc_glyph_cols(const char *s, size_t n) {
   size_t i = 0;
@@ -256,26 +248,6 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
   return x;
 }
 
-static void birc_draw_bodyln(Env e, TimuiFrame *fr, int x, int y, int maxx,
-                             Term ln) {
-  Term f[3];
-  Loc loc;
-  u64 tslen = 0;
-  char *ts;
-  if (term_aux(ln) != CID_VIEW_BODYLN)
-    return;
-  loc = ctr_take(e, ln, 3, f);
-  ts = birc_cstr(e, f[1], &tslen);
-  if (ts && tslen > 0) {
-    TimuiStyle dim = timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0);
-    timui_label(fr, x, y, (TimuiStr){ts, (size_t)tslen}, dim);
-    x += birc_glyph_cols(ts, (size_t)tslen) + 1;
-  }
-  free(ts);
-  (void)birc_draw_spans(e, fr, x, y, maxx, (uint32_t)f[0], f[2]);
-  spare_free(e, cls_fit(3), loc);
-}
-
 typedef struct {
   TimuiCellBuffer *buf;
   TimuiStyle border;
@@ -290,33 +262,56 @@ static void rect_from(Term *f, TimuiRect *r) {
   r->h = (int)(uint32_t)f[3];
 }
 
-static void birc_label(TimuiFrame *fr, int x, int y, Env e, Term t, TimuiStyle st) {
-  u64 n = 0;
-  char *s = birc_cstr(e, t, &n);
-  timui_label(fr, x, y, (TimuiStr){s ? s : "", s ? (size_t)n : 0}, st);
-  free(s);
+static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
+                           uint32_t fg, Term ts_t, Term spans) {
+  u64 tslen = 0;
+  char *ts = birc_cstr(e, ts_t, &tslen);
+  if (ts && tslen > 0) {
+    timui_label(fr, x, y, (TimuiStr){ts, (size_t)tslen},
+                timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0));
+    x += birc_glyph_cols(ts, (size_t)tslen) + 1;
+  }
+  free(ts);
+  (void)birc_draw_spans(e, fr, x, y, maxx, fg, spans);
 }
 
-static void birc_draw_op(Env e, Timui *ui, TimuiFrame *fr, Term op, BircLay *ly) {
+static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
-  if (cid == CID_VIEW_OPHEADER) {
-    Term f[5];
-    Loc loc = ctr_take(e, op, 5, f);
+  if (cid == CID_VIEW_OPBOX) {
+    Term f[4];
+    Loc loc = ctr_take(e, op, 4, f);
     TimuiRect r;
     rect_from(f, &r);
-    birc_label(fr, r.x, r.y, e, f[4],
-               timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT));
-    spare_free(e, cls_fit(5), loc);
-  } else if (cid == CID_VIEW_OPTABS) {
+    if (r.y + r.h > ly->root.y + ly->root.h)
+      r.h = ly->root.y + ly->root.h - r.y;
+    if (r.h > 0 && r.w > 2)
+      timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
+    spare_free(e, cls_fit(4), loc);
+  } else if (cid == CID_VIEW_OPTEXT) {
     Term f[6];
     Loc loc = ctr_take(e, op, 6, f);
+    int x = (int)(uint32_t)f[0];
+    int y = (int)(uint32_t)f[1];
+    int w = (int)(uint32_t)f[2];
+    u64 n = 0;
+    char *s = birc_cstr(e, f[5], &n);
+    (void)birc_put_span(fr, x, y, x + w, s ? s : "", (size_t)n, (uint32_t)f[3],
+                        (uint32_t)f[4]);
+    free(s);
+    spare_free(e, cls_fit(6), loc);
+  } else if (cid == CID_VIEW_OPTABS) {
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
     TimuiRect r;
     char store[16][64];
     const char *labs[16];
     int ntabs, orig, sel;
-    rect_from(f, &r);
-    ntabs = birc_str_list(e, f[5], store, labs, 16);
-    orig = (int)(uint32_t)f[4];
+    r.x = (int)(uint32_t)f[0];
+    r.y = (int)(uint32_t)f[1];
+    r.w = (int)(uint32_t)f[2];
+    r.h = 1;
+    ntabs = birc_str_list(e, f[4], store, labs, 16);
+    orig = (int)(uint32_t)f[3];
     sel = orig < 0 ? 0 : orig;
     if (ntabs > 0 && sel >= ntabs)
       sel = ntabs - 1;
@@ -325,81 +320,28 @@ static void birc_draw_op(Env e, Timui *ui, TimuiFrame *fr, Term op, BircLay *ly)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
     if (sel != orig && sel >= 0 && sel < ntabs)
       *ly->click = (uint32_t)sel + 1u;
-    spare_free(e, cls_fit(6), loc);
-  } else if (cid == CID_VIEW_OPBODY) {
-    Term f[5];
-    Loc loc = ctr_take(e, op, 5, f);
-    TimuiRect r;
-    Term xs, lns[64];
-    int n = 0, i, max_y, min_y, maxx, y;
-    rect_from(f, &r);
-    if (r.y + r.h > ly->root.y + ly->root.h)
-      r.h = ly->root.y + ly->root.h - r.y;
-    if (r.h < 1)
-      r.h = 1;
-    timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
-    xs = f[4];
-    while (n < 64 && term_aux(xs) == CID_CON) {
-      Term rest;
-      lns[n++] = birc_cons_head(e, xs, &rest);
-      xs = rest;
-    }
-    max_y = r.y + r.h - 1;
-    min_y = r.y + 1;
-    maxx = r.x + r.w - 1;
-    y = max_y - n;
-    if (y < min_y)
-      y = min_y;
-    for (i = 0; i < n && y < max_y; i += 1, y += 1)
-      birc_draw_bodyln(e, fr, r.x + 1, y, maxx, lns[i]);
     spare_free(e, cls_fit(5), loc);
-  } else if (cid == CID_VIEW_OPNICKS) {
+  } else if (cid == CID_VIEW_OPLINE) {
     Term f[6];
     Loc loc = ctr_take(e, op, 6, f);
-    TimuiRect r;
-    TimuiStyle dim = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT_DIM);
-    Term xs;
-    int y, max_y;
-    rect_from(f, &r);
-    if (r.w > 2)
-      timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
-    xs = f[5];
-    y = r.y;
-    max_y = r.y + r.h - 1;
-    if (r.w > 2) {
-      birc_label(fr, r.x + 1, y, e, f[4], dim);
-      y++;
-      while (y < max_y && term_aux(xs) == CID_CON) {
-        Term rest, h = birc_cons_head(e, xs, &rest);
-        xs = rest;
-        birc_label(fr, r.x + 1, y, e, h, dim);
-        y++;
-      }
-    }
+    int x = (int)(uint32_t)f[0];
+    int y = (int)(uint32_t)f[1];
+    int w = (int)(uint32_t)f[2];
+    birc_draw_line(e, fr, x, y, x + w, (uint32_t)f[3], f[4], f[5]);
     spare_free(e, cls_fit(6), loc);
-  } else if (cid == CID_VIEW_OPSTATUS) {
-    Term f[5];
-    Loc loc = ctr_take(e, op, 5, f);
-    TimuiRect r;
-    rect_from(f, &r);
-    birc_label(fr, r.x, r.y, e, f[4],
-               timui_theme_style(&ui->theme, TIMUI_SLOT_STATUS));
-    spare_free(e, cls_fit(5), loc);
   }
 }
 
-static void birc_draw_ops(Env e, Timui *ui, TimuiFrame *fr, Term xs, BircLay *ly) {
+static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
   while (term_aux(xs) == CID_CON) {
     Term rest;
     Term op = birc_cons_head(e, xs, &rest);
     xs = rest;
-    birc_draw_op(e, ui, fr, op, ly);
+    birc_draw_op(e, fr, op, ly);
   }
 }
 #endif /* CID_CON */
 
-/* Composer: same widget as timui.h/examples/irc.c — one-row textarea
- * with ENTER_SUBMITS. Copies the live field (or the submitted line). */
 static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
                          BircUi *stt, size_t *tlen) {
   TimuiId id;
@@ -425,10 +367,6 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   *tlen = birc_utf8_fit(stt->composer, n);
   return res.submitted ? 1 : 0;
 }
-
-
-
-/* ---- Timui.frame : Ui -> List<DrawOp> -> String -> U32 -> IO(Ui & UiKeys) */
 
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
@@ -481,7 +419,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     ly.click = &click;
     timui_draw_fill(buf, root, panel);
 #ifdef CID_CON
-    birc_draw_ops(e, ui, fr, ops, &ly);
+    birc_draw_ops(e, fr, ops, &ly);
 #else
     (void)ops;
 #endif

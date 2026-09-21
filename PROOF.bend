@@ -113,6 +113,9 @@ def Laws.ts_width_ok():
 def Laws.vis_chrono():
   {==}
 
+def Laws.body_ys_ok():
+  {==}
+
 def Laws.net_demo_ok():
   {==}
 
