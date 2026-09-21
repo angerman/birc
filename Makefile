@@ -30,7 +30,7 @@ endif
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
-        proto-parity proof check run run-demo clean ffi-smoke
+        lint-ffi proto-parity proof check run run-demo clean ffi-smoke
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -153,7 +153,13 @@ test: test-proto test-feed test-submit test-frame test-net test-dns test-args pr
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
 
-check: proof test ## Proofs + protocol tests + UI smoke.
+LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wno-unused-command-line-argument -fsyntax-only
+lint-ffi: ## Syntax-only warning lint of src/ffi (real build stays -w).
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
+
+check: proof test lint-ffi ## Proofs + protocol tests + UI smoke + FFI lint.
 
 run-demo: build-ui ## Offline TimUI demo with canned IRC transcript.
 	$(NIXRUN) ./$(BLDDIR)/birc --demo
