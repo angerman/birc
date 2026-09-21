@@ -3,6 +3,7 @@
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -163,14 +164,36 @@ static int birc_glyph_cols(const char *s, size_t n) {
   return w;
 }
 
+static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx) {
+  size_t i = 0;
+  int cx = x;
+  if (!s)
+    return 0;
+  while (i < n) {
+    uint32_t cp = 0;
+    int adv = timui_utf8_decode(s + i, n - i, &cp);
+    int w;
+    if (adv <= 0) {
+      cp = 0xFFFDu;
+      adv = 1;
+    }
+    w = timui_utf8_width(cp);
+    if (w > 0 && cx > maxx - w)
+      break;
+    if (w > 0)
+      cx += w;
+    i += (size_t)adv;
+  }
+  return i;
+}
+
 static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
                          size_t n, uint32_t fg, uint32_t attrs) {
   int w;
   TimuiStyle st;
   if (!fr || n == 0 || x >= maxx)
     return x;
-  while (n > 0 && x + birc_glyph_cols(p, n) > maxx)
-    n--;
+  n = birc_clip_cols(p, n, x, maxx);
   if (n == 0)
     return x;
   w = birc_glyph_cols(p, n);
@@ -191,9 +214,7 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
     return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0);
   memcpy(uri, url, ulen);
   uri[ulen] = '\0';
-  w = birc_glyph_cols(text, tlen);
-  while (tlen > 0 && x + birc_glyph_cols(text, tlen) > maxx)
-    tlen--;
+  tlen = birc_clip_cols(text, tlen, x, maxx);
   if (tlen == 0)
     return x;
   w = birc_glyph_cols(text, tlen);
@@ -329,13 +350,23 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
 static int birc_parse_tabs(const char *tabs, char store[][64],
                            const char **labs, int max, int *n_out) {
   const char *p = tabs ? tabs : "";
+  unsigned long active_ul = 0;
   int active = 0;
   int n = 0;
   while (*p && *p != '\t') {
-    if (*p >= '0' && *p <= '9')
-      active = active * 10 + (*p - '0');
+    if (*p >= '0' && *p <= '9') {
+      unsigned d = (unsigned)(*p - '0');
+      if (active_ul > (ULONG_MAX - d) / 10ul)
+        active_ul = ULONG_MAX;
+      else
+        active_ul = active_ul * 10ul + d;
+    }
     p++;
   }
+  if (active_ul > 2147483647ul)
+    active = 2147483647;
+  else
+    active = (int)active_ul;
   if (*p == '\t')
     p++;
   while (*p && n < max) {
@@ -346,6 +377,7 @@ static int birc_parse_tabs(const char *tabs, char store[][64],
     len = (size_t)(p - start);
     if (len >= 63)
       len = 63;
+    len = birc_utf8_fit(start, len);
     memcpy(store[n], start, len);
     store[n][len] = '\0';
     labs[n] = store[n];
@@ -446,10 +478,14 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     tab_r.w = root.w;
     tab_r.h = 1;
     orig = birc_parse_tabs(tabs, tabstore, tablabs, 16, &ntabs);
+    if (orig < 0)
+      orig = 0;
+    if (ntabs > 0 && orig >= ntabs)
+      orig = ntabs - 1;
     sel = orig;
     if (ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), tab_r, tablabs, ntabs, &sel);
-    if (sel != orig && sel >= 0)
+    if (sel != orig && sel >= 0 && sel < ntabs)
       click = (uint32_t)sel + 1u;
     if (body_h < 1)
       body_h = 1;
