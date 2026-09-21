@@ -420,8 +420,37 @@ def skip_mirc_comma(+s: String) -> String:
     case SCon{+h, t}:
       skip_mirc_com(h, t, code_is(h, 44))
 
+def skip_mirc_d2.on(+h: Char, t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      skip_mirc_comma(t)
+    case False{}:
+      skip_mirc_com(h, t, code_is(h, 44))
+
+def skip_mirc_d2(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_mirc_d2.on(h, t, Char.is_digit(h))
+
+def skip_mirc_d1.on(+h: Char, t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      skip_mirc_d2(t)
+    case False{}:
+      SCon{h, t}
+
+def skip_mirc_d1(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_mirc_d1.on(h, t, Char.is_digit(h))
+
+# 0x03 then optional 1–2 fg digits, then comma+bg only if a digit was eaten.
 def skip_mirc(+s: String) -> String:
-  skip_mirc_comma(skip_one_digit(skip_one_digit(s)))
+  skip_mirc_d1(s)
 
 type SanPh is Data:
   SanStr{}
@@ -457,6 +486,9 @@ def sanitize_in_ok() -> Bool:
   String.eq(sanitize_in("ab" ++ SCon{Chr{31}, "cd"}), "abcd")
     && String.eq(sanitize_in("x" ++ SCon{Chr{3}, "04y"}), "xy")
     && String.eq(sanitize_in(SCon{Chr{1}, "ACTION"}), SCon{Chr{1}, "ACTION"})
+    && String.eq(sanitize_in(SCon{Chr{3}, ",hello"}), ",hello")
+    && String.eq(sanitize_in(SCon{Chr{3}, "4,hello"}), "hello")
+    && String.eq(sanitize_in(SCon{Chr{3}, "04,02hello"}), "hello")
 
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
