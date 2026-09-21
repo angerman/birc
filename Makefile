@@ -31,6 +31,7 @@ endif
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
+        test-pty-demo-nick \
         lint-ffi proto-parity proof check run run-demo clean ffi-smoke
 
 help: ## Show the public targets (default).
@@ -159,7 +160,10 @@ test-pty-eof: build-ui ## Pty: server close keeps the UI alive (H3).
 test-pty-connect: build-ui ## Pty: /connect does not freeze the UI (H4).
 	$(NIXRUN) python3 tests/pty/connect_pty.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-composer test-pty-eof test-pty-connect ## Pty loop tests.
+test-pty-demo-nick: build-ui ## Pty: --demo --nick bob registers as bob (H5).
+	$(NIXRUN) python3 tests/pty/demo_nick.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

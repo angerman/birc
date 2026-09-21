@@ -96,7 +96,7 @@ def main_dispatch.demo(
     case True{}:
       do IO<Unit>:
         cl : Cl.Client <- demo_client()
-        main_offline(frames, "me", chan, cl)
+        main_offline(frames, nick, chan, cl)
     case False{}:
       main_live(frames, host, port, nick, chan)
 
