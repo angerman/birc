@@ -376,6 +376,23 @@ def take_oct(
     case (sock, r):
       take_oct.r(sock, r, evt, k)
 
+def SEND_CAP() -> Nat:
+  8n
+
+def split_at.go(n: Nat, xs: List<&2, String>, acc: List<&2, String>) -> List<&2, String> & List<&2, String>:
+  match n:
+    case 0n:
+      (List.reverse(&2, String, acc), xs)
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          (List.reverse(&2, String, acc), Nil{})
+        case Con{+h, t}:
+          split_at.go(p, t, h <> acc)
+
+def split_at(+xs: List<&2, String>, +n: Nat) -> List<&2, String> & List<&2, String>:
+  split_at.go(n, xs, Nil{})
+
 def after_send_ok(
   pair: Socket & Bool,
   +evt: Chan(Sess.NetEvt),
@@ -392,12 +409,26 @@ def after_send_ok(
             m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- Dns.recv_octets(sock, 4096)
             take_oct(m, evt, trip => after_poll(trip, evt, cmd, k))
 
+def on_cont(
+  parts: List<&2, String> & List<&2, String>,
+  sock: Socket,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  k: Socket -> List<&2, String> -> IO(Unit)
+) -> IO(Unit):
+  match parts:
+    case (+now, later):
+      do IO<Unit>:
+        sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, now))), sock, now)
+        after_send_ok(sent, evt, cmd, s => k(s, later))
+
 def on_cmd(
   g: Maybe<&1, Sess.NetCmd>,
   sock: Socket,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  k: Socket -> IO(Unit)
+  pending: List<&2, String>,
+  k: Socket -> List<&2, String> -> IO(Unit)
 ) -> IO(Unit):
   match g:
     case None{}:
@@ -407,22 +438,21 @@ def on_cmd(
         case Sess.Dial{_, _}:
           do IO<Unit>:
             ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
-            after_offer(sock, evt, cmd, ok, k)
+            after_offer(sock, evt, cmd, ok, s => k(s, pending))
         case Sess.Handoff{_}:
           do IO<Unit>:
             ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Tick{})
-            after_offer(sock, evt, cmd, ok, k)
+            after_offer(sock, evt, cmd, ok, s => k(s, pending))
         case Sess.Cont{+outs}:
-          do IO<Unit>:
-            sent : Socket & Bool <- send_lines(Nat.add(1n, Nat.mul(2n, List.length(&2, String, outs))), sock, outs)
-            after_send_ok(sent, evt, cmd, k)
+          on_cont(split_at(List.append(&2, String, pending, outs), SEND_CAP()), sock, evt, cmd, k)
 
 # One fuel tick = one cmd/poll cycle.
 def reader_go(
   fuel: Nat,
   sock: Socket,
   +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd)
+  +cmd: Chan(Sess.NetCmd),
+  pending: List<&2, String>
 ) -> IO(Unit):
   match fuel:
     case 0n:
@@ -430,13 +460,13 @@ def reader_go(
     case 1n+p:
       do IO<Unit>:
         next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        on_cmd(next, sock, evt, cmd, s2 => reader_go(p, s2, evt, cmd))
+        on_cmd(next, sock, evt, cmd, pending, s2 => rest => reader_go(p, s2, evt, cmd, rest))
 
 @unsafe
-def reader_idle(sock: Socket, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+def reader_idle(sock: Socket, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd), pending: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
     next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-    on_cmd(next, sock, evt, cmd, s2 => reader_idle(s2, evt, cmd))
+    on_cmd(next, sock, evt, cmd, pending, s2 => rest => reader_idle(s2, evt, cmd, rest))
 
 def reader_start.on(
   zero: Bool,
@@ -447,9 +477,9 @@ def reader_start.on(
 ) -> IO(Unit):
   match zero:
     case True{}:
-      reader_idle(sock, evt, cmd)
+      reader_idle(sock, evt, cmd, Nil{})
     case False{}:
-      reader_go(Sess.ticks_of(frames), sock, evt, cmd)
+      reader_go(Sess.ticks_of(frames), sock, evt, cmd, Nil{})
 
 def reader_start(
   +frames: U32,

@@ -397,11 +397,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
 - [x] **M16** Decide and document who wraps long lines (view#15).
       C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
-- [ ] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
-      tried: `on_cmd` Cont arm is `send_lines(1n+2*len, sock, outs)` then `after_send_ok`
-      evidence: `src/bend/net.bend` reader_go/reader_idle take no pending list; a
-      second Cont send would break the 1 cmd per evt rule (C1)
-      open question: extra pending arg on reader_go and reader_idle together
+- [x] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
+      `SEND_CAP` is 8. `reader_go`/`reader_idle` carry leftover lines.
+      Pty: `tests/pty/paste50.py` (50 PRIVMSGs).
 - [ ] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
       tried: default-off timers would live in `timui_ffi.c`
       evidence: `wc -l src/ffi/*.c` is 598 (clock 26, dns 63, timui 509). Frame
