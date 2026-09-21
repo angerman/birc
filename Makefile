@@ -29,7 +29,8 @@ endif
 
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
-        test-args test-cli test-live proto-parity proof check run run-demo clean ffi-smoke
+        test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
+        proto-parity proof check run run-demo clean ffi-smoke
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -138,6 +139,14 @@ test-cli: build-ui ## Binary argv errors (no TimUI).
 
 test-live: build-ui ## Local mock: register + PONG + birc=ok, bounded timeout.
 	$(NIXRUN) python3 tests/live_mock.py ./$(BLDDIR)/birc
+
+test-pty-flood: build-ui ## Pty: many server chunks (C1 deadlock).
+	$(NIXRUN) python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc
+
+test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
+	$(NIXRUN) python3 tests/pty/body_rows.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood ## Pty loop tests (rows join after C3).
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live ## Protocol + pure + net + DNS + args + fixtures + UI + live mock.
 
