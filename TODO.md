@@ -360,7 +360,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **H2** Numerics log last param; 433 retries `NICK <nick>_` only when param 1 `ieq` Client.nick (client#4, net#11).
 - [x] **H3** Disconnect: `Eof` → offline + idle loop; non-Online echo "not connected" (net#5 #4).
       UI respawns the idle actor on fresh channels. Actor never calls UI.
-- [ ] **H4** `/connect` must not freeze the UI (net#3).
+- [x] **H4** `/connect` must not freeze the UI (net#3).
+      Dial runs in a spawned job; the idle actor keeps Tick/cmd so the UI paints.
+      Base `TCP.connect` has no deadline; a black-hole SYN can hold the process
+      after `/quit` until the kernel gives up. No new C effect (C budget).
 - [ ] **H5** `--demo --nick bob` registers as `bob` (net#9).
 - [ ] **H6** `boot_clock` must not keep the process alive 8 s after quit (net#7).
 - [ ] **H7** Byte-safe TCP read; octet framer; delete `push_text` (proto#5, net#6, ffi B).
