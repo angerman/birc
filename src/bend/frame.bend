@@ -134,7 +134,7 @@ def push.go(
             case False{}:
               match is_cr:
                 case True{}:
-                  push.go(p, PRead{}, inp, b <> rem, lines, n, 0, False{}, False{}, False{})
+                  push.go(p, PRead{}, inp, rem, lines, n, 0, False{}, False{}, False{})
                 case False{}:
                   match over:
                     case True{}:
@@ -424,7 +424,7 @@ def push_text.go(
             case False{}:
               match cr:
                 case True{}:
-                  push_text.go(p, TRead{}, s, SCon{h, acc}, lines, n, h, False{}, False{}, False{})
+                  push_text.go(p, TRead{}, s, acc, lines, n, h, False{}, False{}, False{})
                 case False{}:
                   match over:
                     case True{}:
@@ -481,6 +481,22 @@ def overlong_text_drop_ok.fin(got: List<&2, String> & String) -> Bool:
 
 def overlong_text_drop_ok() -> Bool:
   overlong_text_drop_ok.fin(push_text("", overlong_text()))
+
+def cr_flood_ok.fin(got: List<&2, String> & String & Bool) -> Bool:
+  match got:
+    case (lines, +rem, _):
+      Nat.is_eq(List.length(&2, String, lines), 0n) && Nat.is_le(String.length(rem), LINE_OCTET_MAX())
+
+def cr_flood_ok() -> Bool:
+  cr_flood_ok.fin(push_text_ex(False{}, "", octets_to_string(repeat_octet.go(1200n, 13, Nil{}))))
+
+def cr_flood_oct_ok.fin(got: List<&2, String> & List<&2, U32> & Bool) -> Bool:
+  match got:
+    case (lines, rem, _):
+      Nat.is_eq(List.length(&2, String, lines), 0n) && Nat.is_le(List.length(&2, U32, rem), LINE_OCTET_MAX())
+
+def cr_flood_oct_ok() -> Bool:
+  cr_flood_oct_ok.fin(push_ex(False{}, Nil{}, repeat_octet.go(1200n, 13, Nil{})))
 
 def short_text_ok.fin(got: List<&2, String> & String) -> Bool:
   match got:
