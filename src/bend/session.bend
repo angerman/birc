@@ -440,8 +440,8 @@ def session_online(+st: Session) -> Session:
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed}:
-      Session{Sub.echo_err_server(cl, msg), drop, rem, draft, joined, chan, Offline{}, hist, size, seed}
+    case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed}:
+      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, joined, chan, Offline{}, hist, size, seed}
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
@@ -466,13 +466,13 @@ def session_nick(+st: Session) -> String:
     case Session{+cl, _, _, _, _, _, _, _, _, _}:
       Cl.nick_of(cl)
 
-def session_after.dial(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, +chan: String, +hist: Hist, +size: Size, +seed: U32, +host: String) -> Session:
-  Session{Cl.set_server(cl, host), drop, rem, draft, False{}, chan, Connecting{}, hist, size, seed}
+def session_after.dial(+cl: Cl.Client, +draft: String, +chan: String, +hist: Hist, +size: Size, +seed: U32, +host: String) -> Session:
+  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed}
 
 def session_after(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, +size: Size, +seed: U32, cmd: NetCmd) -> Session:
   match cmd:
     case Dial{+host, _}:
-      session_after.dial(cl, drop, rem, draft, chan, hist, size, seed, host)
+      session_after.dial(cl, draft, chan, hist, size, seed, host)
     case Handoff{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed}
     case Cont{_}:
@@ -588,5 +588,54 @@ def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, Stri
   match st:
     case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed}:
       step_chunk_got(draft, chan, net, hist, size, seed, step_chunk(cl, drop, rem, chunk, joined, chan))
+
+def sess_drop(+st: Session) -> Bool:
+  match st:
+    case Session{_, drop, _, _, _, _, _, _, _, _}:
+      drop
+
+def sess_rem_nil.of(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case _:
+      False{}
+
+def sess_rem_nil(+st: Session) -> Bool:
+  match st:
+    case Session{_, _, rem, _, _, _, _, _, _, _}:
+      sess_rem_nil.of(rem)
+
+def st_of_chunk(p: Session & List<&2, String>) -> Session:
+  match p:
+    case (+st, _):
+      st
+
+def st_of_keys(t: Session & NetCmd & Bool) -> Session:
+  match t:
+    case (+st, rest):
+      match rest:
+        case (_, _):
+          st
+
+# A1: a partial line then Eof/dial must not keep rem or drop.
+def rem_cleared_ok() -> Bool:
+  +st1 = st_of_chunk(
+    step_on_chunk(
+      session_online(session0("me", "h", "#t")),
+      Fr.string_to_octets(":a!a@h PRIVMSG #t :partial")
+    )
+  )
+  +st2 = session_fail(st1, "disconnected")
+  +st3 = st_of_keys(step_enter(st2, "/connect 127.0.0.1"))
+  Bool.not(sess_rem_nil(st1)) && sess_rem_nil(st2) && sess_rem_nil(st3)
+
+def drop_cleared_ok() -> Bool:
+  +st1 = st_of_chunk(
+    step_on_chunk(session_online(session0("me", "h", "#t")), Fr.repeat_octet.go(600n, 65, Nil{}))
+  )
+  +st2 = session_fail(st1, "d")
+  +st3 = session_online(st_of_keys(step_enter(st2, "/connect 127.0.0.1")))
+  sess_drop(st1) && Bool.not(sess_drop(st2)) && Bool.not(sess_drop(st3))
 
 
