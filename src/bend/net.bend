@@ -379,7 +379,9 @@ def take_oct.r(
 ) -> IO(Unit):
   match r:
     case Fail{_}:
-      reader_die(sock, evt)
+      do IO<Unit>:
+        ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
+        reader_die(sock, evt)
     case Done{got}:
       take_oct.m(sock, got, k)
 
