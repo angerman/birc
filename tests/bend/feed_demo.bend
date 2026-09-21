@@ -60,6 +60,8 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("chrono", Cl.log_chrono_ok())
     Unit <- E.must("cycle", Cl.cycle_ok())
     Unit <- E.must("style", V.style_self_ne_msg())
+    Unit <- E.must("style_spec", V.style_spec_ok())
+    Unit <- E.must("pack_fg", V.pack_fg_ok())
     Unit <- E.must("kcode", V.kind_code_ok())
     Unit <- E.must("tsw", V.ts_width_ok())
     Unit <- E.must("vchrono", V.vis_chrono_ok())

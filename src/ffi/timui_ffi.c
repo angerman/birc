@@ -131,24 +131,9 @@ static void draw_lines(TimuiFrame *fr, int x, int y, int max_y, const char *text
   }
 }
 
-/* Packed body wire: k|ts|spans\n  spans: P/B/I/C text or L url GS text,
- * units separated by US (0x1f). C does not tokenize. */
-static uint32_t birc_kind_fg(int k) {
-  switch (k) {
-  case 1:
-    return 0x59ee3fu;
-  case 2:
-    return 0xa0a0a0u;
-  case 3:
-    return 0xc792eau;
-  case 4:
-    return 0x82aaffu;
-  case 5:
-    return 0xf78c6cu;
-  default:
-    return 0xc8c8c8u;
-  }
-}
+/* Packed body wire: fg|ts|spans\n  fg is a decimal RGB from Bend style_of.
+ * spans: P/B/I/C text or L url GS text, units separated by US (0x1f).
+ * C does not tokenize or map LineKind to colour. */
 
 static int birc_glyph_cols(const char *s, size_t n) {
   size_t i = 0;
@@ -229,13 +214,12 @@ static void draw_packed_line(TimuiFrame *fr, int x, int y, int maxx,
   const char *end = line + len;
   const char *ts;
   size_t tslen;
-  int kind = 0;
-  uint32_t fg;
+  uint32_t fg = 0;
   TimuiStyle dim;
   if (!fr || !line || len == 0)
     return;
-  if (*p >= '0' && *p <= '5') {
-    kind = *p - '0';
+  while (p < end && *p >= '0' && *p <= '9') {
+    fg = fg * 10u + (uint32_t)(*p - '0');
     p++;
   }
   if (p < end && *p == '|')
@@ -246,7 +230,6 @@ static void draw_packed_line(TimuiFrame *fr, int x, int y, int maxx,
   tslen = (size_t)(p - ts);
   if (p < end && *p == '|')
     p++;
-  fg = birc_kind_fg(kind);
   dim = timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0);
   if (tslen > 0) {
     timui_label(fr, x, y, (TimuiStr){ts, tslen}, dim);

@@ -478,10 +478,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 
 ### Phase R — remove C
 - [x] **R1** Delete `tests/ffi/` and the `ffi-smoke` target.
-- [ ] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
-      tried: live wire still sends kind_digit; C has birc_kind_fg
-      evidence: style_of disagrees with C on 4 of 6 kinds
-      open question: pack style_of U32 in the wire, then delete C table
+- [x] **R2** Fix Bend colour constants; pack colour from Bend; delete `birc_kind_fg` (ffi A5).
+      Wire is `fg|ts|spans` with `style_of` RGB. C no longer maps LineKind.
 - [ ] **R3** `Clock.hhmmss` → local seconds-of-day as `U32`; Bend formats (ffi B).
       tried: Clock.hhmmss still formats in C
       evidence: fmt_hms already exists in Bend
