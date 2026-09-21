@@ -11,12 +11,18 @@ type SpanOp is Data:
 type BodyLn is Data:
   BodyLn{fg: U32, ts: String, spans: List<&2, SpanOp>}
 
+type Rect is Data:
+  Rect{x: U32, y: U32, w: U32, h: U32}
+
 type DrawOp is Data:
-  OpHeader{text: String}
-  OpTabs{sel: U32, names: List<&2, String>}
-  OpBody{lines: List<&2, BodyLn>}
-  OpNicks{title: String, names: List<&2, String>}
-  OpStatus{text: String}
+  OpHeader{x: U32, y: U32, w: U32, h: U32, text: String}
+  OpTabs{x: U32, y: U32, w: U32, h: U32, sel: U32, names: List<&2, String>}
+  OpBody{x: U32, y: U32, w: U32, h: U32, lines: List<&2, BodyLn>}
+  OpNicks{x: U32, y: U32, w: U32, h: U32, title: String, names: List<&2, String>}
+  OpStatus{x: U32, y: U32, w: U32, h: U32, text: String}
+
+type Lay is Data:
+  Lay{header: Rect, tabs: Rect, body: Rect, nicks: Rect, status: Rect}
 
 type ViewModel is Data:
   ViewModel{ops: List<&2, DrawOp>, input: String}
@@ -676,7 +682,95 @@ def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
     case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
       name <> tab_names(t)
 
+def vis_h.on(+rows: U32, ge: Bool) -> Nat:
+  match ge:
+    case True{}:
+      U32.to_nat(U32.sub(rows, 6))
+    case False{}:
+      1n
+
+def vis_h(+rows: U32) -> Nat:
+  vis_h.on(rows, U32.is_ge(rows, 7))
+
+def mid_w.on(+cols: U32, wide: Bool) -> U32:
+  match wide:
+    case True{}:
+      U32.sub(cols, 18)
+    case False{}:
+      U32.div(cols, 2)
+
+def mid_w(+cols: U32) -> U32:
+  mid_w.on(cols, U32.is_gt(cols, 24))
+
+def status_y.on(+rows: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.sub(rows, 2)
+    case False{}:
+      0
+
+def status_y(+rows: U32) -> U32:
+  status_y.on(rows, U32.is_ge(rows, 2))
+
+def body_box_h.on(+sy: U32, gt: Bool) -> U32:
+  match gt:
+    case True{}:
+      U32.sub(sy, 2)
+    case False{}:
+      1
+
+def body_box_h(+sy: U32) -> U32:
+  body_box_h.on(sy, U32.is_gt(sy, 2))
+
+def nick_w.on(+cols: U32, +mid: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      U32.sub(cols, mid)
+    case False{}:
+      0
+
+def nick_w(+cols: U32, +mid: U32) -> U32:
+  nick_w.on(cols, mid, U32.is_ge(cols, mid))
+
+def lay(+rows: U32, +cols: U32) -> Lay:
+  +mid = mid_w(cols)
+  +sy = status_y(rows)
+  +bh = body_box_h(sy)
+  Lay{
+    Rect{0, 0, cols, 1},
+    Rect{0, 1, cols, 1},
+    Rect{0, 2, mid, bh},
+    Rect{mid, 2, nick_w(cols, mid), bh},
+    Rect{0, sy, cols, 1}
+  }
+
+def op_header(r: Rect, +text: String) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}:
+      OpHeader{x, y, w, h, text}
+
+def op_tabs(r: Rect, +sel: U32, +names: List<&2, String>) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}:
+      OpTabs{x, y, w, h, sel, names}
+
+def op_body(r: Rect, +lines: List<&2, BodyLn>) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}:
+      OpBody{x, y, w, h, lines}
+
+def op_nicks(r: Rect, +title: String, +names: List<&2, String>) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}:
+      OpNicks{x, y, w, h, title, names}
+
+def op_status(r: Rect, +text: String) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}:
+      OpStatus{x, y, w, h, text}
+
 def view_ops(
+  lay0: Lay,
   +h: String,
   +active: Nat,
   +names: List<&2, String>,
@@ -685,20 +779,22 @@ def view_ops(
   +nicks: List<&2, String>,
   +st: String
 ) -> List<&2, DrawOp>:
-  OpHeader{h}
-    <> OpTabs{U32.from_nat(active), names}
-    <> OpBody{bod}
-    <> OpNicks{title, nicks}
-    <> OpStatus{st}
-    <> Nil{}
+  match lay0:
+    case Lay{hr, tr, br, nr, sr}:
+      op_header(hr, h)
+        <> op_tabs(tr, U32.from_nat(active), names)
+        <> op_body(br, bod)
+        <> op_nicks(nr, title, nicks)
+        <> op_status(sr, st)
+        <> Nil{}
 
-def view_draft(+cl: Cl.Client, +height: Nat, +draft: String, +net: String) -> ViewModel:
+def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
-      h bod = header_of.buf(nick, server, b, net) body_of.buf(b, height)
+      h bod = header_of.buf(nick, server, b, net) body_of.buf(b, vis_h(rows))
       title ns = nicks_title_of(b) nicks_list_of(b)
-      ViewModel{view_ops(h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)

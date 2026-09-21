@@ -51,6 +51,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_VIEW_BODYLN 18u
 #define CID_VIEW_SPN 19u
 #define CID_VIEW_LNK 20u
+#define CID_VIEW_RECT 21u
 #ifndef THR
 #define THR
 #endif
