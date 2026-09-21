@@ -322,50 +322,23 @@ type Slash is Data:
   Quit{}
   Unknown{}
 
-def slash_quit(hit: Bool) -> Slash:
-  match hit:
-    case True{}:
-      Quit{}
-    case False{}:
+type SlashRow is Data:
+  SlashRow{name: String, cmd: Slash}
+
+def slash_rows() -> List<&2, SlashRow>:
+  SlashRow{"join", Join{}} <> SlashRow{"part", Part{}} <> SlashRow{"msg", Msg{}} <> SlashRow{"nick", Nick{}} <> SlashRow{"me", Me{}} <> SlashRow{"quit", Quit{}} <> Nil{}
+
+def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
+  match xs:
+    case Nil{}:
       Unknown{}
-
-def slash_me(hit: Bool, +verb: String) -> Slash:
-  match hit:
-    case True{}:
-      Me{}
-    case False{}:
-      slash_quit(Irc.ieq(verb, "quit"))
-
-def slash_nick(hit: Bool, +verb: String) -> Slash:
-  match hit:
-    case True{}:
-      Nick{}
-    case False{}:
-      slash_me(Irc.ieq(verb, "me"), verb)
-
-def slash_msg(hit: Bool, +verb: String) -> Slash:
-  match hit:
-    case True{}:
-      Msg{}
-    case False{}:
-      slash_nick(Irc.ieq(verb, "nick"), verb)
-
-def slash_part(hit: Bool, +verb: String) -> Slash:
-  match hit:
-    case True{}:
-      Part{}
-    case False{}:
-      slash_msg(Irc.ieq(verb, "msg"), verb)
-
-def slash_join(hit: Bool, +verb: String) -> Slash:
-  match hit:
-    case True{}:
-      Join{}
-    case False{}:
-      slash_part(Irc.ieq(verb, "part"), verb)
+    case Con{row, t}:
+      match row:
+        case SlashRow{+name, +c}:
+          Bool.pick(Slash, Irc.ieq(name, verb), c, slash_lookup(t, verb))
 
 def slash_of(+verb: String) -> Slash:
-  slash_join(Irc.ieq(verb, "join"), verb)
+  slash_lookup(slash_rows(), verb)
 
 def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:

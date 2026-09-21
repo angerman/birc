@@ -465,20 +465,6 @@ def feed_num.433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
     case Cl.Client{+nick, _, _, _, _}:
       feed_num.433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
 
-def feed_num.433(hit: Bool, +cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
-  match hit:
-    case True{}:
-      feed_num.433.cl(cl, m, num)
-    case False{}:
-      feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
-
-def feed_num.tail(+cl: Cl.Client, +m: Irc.Message, +num: U32, is366: Bool) -> Cl.Client:
-  match is366:
-    case True{}:
-      cl
-    case False{}:
-      feed_num.433(U32.is_eq(num, 433), cl, m, num)
-
 def is_353_sym(+s: String) -> Bool:
   String.eq(s, "=") || String.eq(s, "*") || String.eq(s, "@")
 
@@ -489,31 +475,48 @@ def feed_num.353.body(+cl: Cl.Client, +m: Irc.Message, rfc2812: Bool) -> Cl.Clie
     case False{}:
       feed_num.names(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
 
-def feed_num.353(+cl: Cl.Client, +m: Irc.Message, +num: U32, is353: Bool) -> Cl.Client:
-  match is353:
-    case True{}:
-      feed_num.353.body(cl, m, is_353_sym(Irc.msg_param(m, 1n)))
-    case False{}:
-      feed_num.tail(cl, m, num, U32.is_eq(num, 366))
+type NumK is Data:
+  N001{}
+  N332{}
+  N353{}
+  N366{}
+  N433{}
+  NOther{}
 
-def feed_num.332(+cl: Cl.Client, +m: Irc.Message, +num: U32, is332: Bool) -> Cl.Client:
-  match is332:
-    case True{}:
-      feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
-    case False{}:
-      feed_num.353(cl, m, num, U32.is_eq(num, 353))
+type NumRow is Data:
+  NumRow{code: U32, k: NumK}
 
-def feed_num.001(+cl: Cl.Client, +m: Irc.Message, +num: U32, is001: Bool) -> Cl.Client:
-  match is001:
-    case True{}:
+def num_rows() -> List<&2, NumRow>:
+  NumRow{1, N001{}} <> NumRow{332, N332{}} <> NumRow{353, N353{}} <> NumRow{366, N366{}} <> NumRow{433, N433{}} <> Nil{}
+
+def num_kind(xs: List<&2, NumRow>, +n: U32) -> NumK:
+  match xs:
+    case Nil{}:
+      NOther{}
+    case Con{row, t}:
+      match row:
+        case NumRow{+code, +k}:
+          Bool.pick(NumK, U32.is_eq(code, n), k, num_kind(t, n))
+
+def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
+  match k:
+    case N001{}:
       Cl.client_log(Cl.set_nick(cl, Irc.msg_param(m, 0n)), 0n, Cl.System{}, Irc.msg_param(m, 1n))
-    case False{}:
-      feed_num.332(cl, m, num, U32.is_eq(num, 332))
+    case N332{}:
+      feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
+    case N353{}:
+      feed_num.353.body(cl, m, is_353_sym(Irc.msg_param(m, 1n)))
+    case N366{}:
+      cl
+    case N433{}:
+      feed_num.433.cl(cl, m, num)
+    case NOther{}:
+      feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
 
 def feed_numeric(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
     case Irc.Message{_, _, +num, _}:
-      feed_num.001(cl, m, num, U32.is_eq(num, 1))
+      feed_num.by(cl, m, num, num_kind(num_rows(), num))
 
 def feed_self.empty(empty: Bool, +cl: Cl.Client, +from: String) -> Bool:
   match empty:

@@ -495,104 +495,27 @@ def parse(line: String) -> Maybe<&2, Message>:
 
 # ---- classify -----------------------------------------------------------
 
-# Nested ieq helpers: match only on Bool parameters (first binder).
-def cls_err(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Error{}
-    case False{}:
+type ClsRow is Data:
+  ClsRow{name: String, cmd: Cmd}
+
+def cls_rows() -> List<&2, ClsRow>:
+  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> Nil{}
+
+def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
+  match xs:
+    case Nil{}:
       Unknown{}
-
-def cls_names(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Names{}
-    case False{}:
-      cls_err(ieq(cmd, "ERROR"), cmd)
-
-def cls_mode(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Mode{}
-    case False{}:
-      cls_names(ieq(cmd, "NAMES"), cmd)
-
-def cls_topic(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Topic{}
-    case False{}:
-      cls_mode(ieq(cmd, "MODE"), cmd)
-
-def cls_nick(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Nick{}
-    case False{}:
-      cls_topic(ieq(cmd, "TOPIC"), cmd)
-
-def cls_notice(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Notice{}
-    case False{}:
-      cls_nick(ieq(cmd, "NICK"), cmd)
-
-def cls_privmsg(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Privmsg{}
-    case False{}:
-      cls_notice(ieq(cmd, "NOTICE"), cmd)
-
-def cls_quit(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Quit{}
-    case False{}:
-      cls_privmsg(ieq(cmd, "PRIVMSG"), cmd)
-
-def cls_kick(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Kick{}
-    case False{}:
-      cls_quit(ieq(cmd, "QUIT"), cmd)
-
-def cls_part(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Part{}
-    case False{}:
-      cls_kick(ieq(cmd, "KICK"), cmd)
-
-def cls_join(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Join{}
-    case False{}:
-      cls_part(ieq(cmd, "PART"), cmd)
-
-def cls_pong(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Pong{}
-    case False{}:
-      cls_join(ieq(cmd, "JOIN"), cmd)
-
-def cls_ping(hit: Bool, +cmd: String) -> Cmd:
-  match hit:
-    case True{}:
-      Ping{}
-    case False{}:
-      cls_pong(ieq(cmd, "PONG"), cmd)
+    case Con{row, t}:
+      match row:
+        case ClsRow{+name, +c}:
+          Bool.pick(Cmd, ieq(name, cmd), c, cls_lookup(t, cmd))
 
 def cls_verb(num: Bool, +cmd: String, +code: U32) -> Cmd:
   match num:
     case True{}:
       Numeric{code}
     case False{}:
-      cls_ping(ieq(cmd, "PING"), cmd)
+      cls_lookup(cls_rows(), cmd)
 
 def classify(+m: Message) -> Cmd:
   match m:
