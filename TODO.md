@@ -493,10 +493,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       (bottom-aligned). C paints as it walks — no lns[64], no count, no
       bottom-align. Pty: `tests/pty/tall_rows.py` at 40 and 90 rows.
       Law: `body_ys_ok` for rows 24, 90, 200.
-- [ ] **R7** `recv_octets`: `IO_READ` parking and peer address (with C7).
-      tried: IO_READ park skipped in H7 (would block Ticks)
-      evidence: non-blocking recv_octets + Tick on EAGAIN keeps the UI alive
-      open question: park only when the UI loop can multiplex Ticks
+- [x] **R7** `recv_octets`: `IO_READ` parking skipped; peer already returned (C7).
+      `io_eff(CID_RECV_OCTETS, recv_octets_run, 0)` is non-blocking. `None` is
+      EAGAIN/EINTR; the actor Ticks (`net.bend` `after_poll` hit=False).
+      `IO_READ` park would freeze Ticks (H7). Peer is host+port beside octets.
 
 ### Phase T — laws and tests
 - [ ] **T1** Quantified laws (`line_ok(clamp_line(s))`, no CR/LF in `strip_ctl`, …).
@@ -526,11 +526,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 
 ### Phase D — docs
 - [x] **D1** Delete `docs/INVENTORY.md`.
-- [ ] **D2** `docs/FFI.md`: real type names, draw-op contract, `lint-ffi`.
-      Wrap/clip contract added. DrawOp (R5) not written.
-      tried: packed wire is still the live contract
-      evidence: FFI.md M8 packing section
-      open question: expand after R5
+- [x] **D2** `docs/FFI.md`: real type names, draw-op contract, `lint-ffi`.
+      `UiKeys.typed` is a String; `Timui.frame` takes `List<DrawOp>`.
+      `recv_octets` (not `TCP.recv`); `-w` build vs `make lint-ffi`.
+      Packed-wire section replaced by the OpBox/OpText/OpTabs/OpLine contract.
 - [x] **D3** `README.md`: `birc_bend.c`, no "shim", list every FFI file.
 - [x] **D4** `AGENTS.md`: clock, 512-byte, shutdown, Bend match notes, pty.
 - [x] **D5** `Makefile`: delete the dead `CFLAGS` block.
