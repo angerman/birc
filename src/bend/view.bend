@@ -96,16 +96,6 @@ def style_of(k: Cl.LineKind) -> U32:
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
 
-# Spec / C table: Msg=0xC8C8C8 Self=0x59EE3F System=0xA0A0A0
-# Action=0xC792EA Notice=0x82AAFF Error=0xF78C6C
-def style_spec_ok() -> Bool:
-  U32.is_eq(style_of(Cl.Msg{}), 13158600)
-    && U32.is_eq(style_of(Cl.Self{}), 5893695)
-    && U32.is_eq(style_of(Cl.System{}), 10526880)
-    && U32.is_eq(style_of(Cl.Action{}), 13079274)
-    && U32.is_eq(style_of(Cl.Notice{}), 8563455)
-    && U32.is_eq(style_of(Cl.Error{}), 16223340)
-
 def ts_width_ok() -> Bool:
   Nat.is_eq(TS_WIDTH(), 8n)
 
@@ -365,32 +355,28 @@ def tokenize.go(fuel: Nat, j: TokJump) -> List<&2, TextSpan>:
 def tokenize(+s: String) -> List<&2, TextSpan>:
   tokenize.go(Nat.add(1n, Nat.mul(4n, String.length(s))), Jump{MdOut{}, s, SNil{}, Nil{}})
 
-def show_spans.one(sp: TextSpan, +acc: String) -> String:
+def show_spans.chunk(sp: TextSpan) -> String:
   match sp:
     case Plain{+tx}:
-      acc ++ tx
+      tx
     case Bold{+tx}:
-      acc ++ "*" ++ tx ++ "*"
+      "*" ++ tx ++ "*"
     case Italic{+tx}:
-      acc ++ "_" ++ tx ++ "_"
+      "_" ++ tx ++ "_"
     case Code{+tx}:
-      acc ++ "`" ++ tx ++ "`"
+      "`" ++ tx ++ "`"
     case Link{_, +text}:
-      acc ++ text
+      text
 
-def show_spans.go(fuel: Nat, +xs: List<&2, TextSpan>, +acc: String) -> String:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          acc
-        case Con{+h, t}:
-          show_spans.go(p, t, show_spans.one(h, acc))
+def show_spans.chunks(+xs: List<&2, TextSpan>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      show_spans.chunk(h) <> show_spans.chunks(t)
 
 def show_spans(+xs: List<&2, TextSpan>) -> String:
-  show_spans.go(Nat.add(1n, List.length(&2, TextSpan, xs)), xs, "")
+  String.concat(show_spans.chunks(xs))
 
 def tokenize_roundtrip(+s: String) -> Bool:
   String.eq(show_spans(tokenize(s)), s)
@@ -842,126 +828,6 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
       h bod = header_of.buf(nick, server, b, net) body_of.buf(b, vis_h(rows))
       title ns = nicks_title_of(b) nicks_list_of(b)
       ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
-
-def show_spanop.ital(+tx: String, ital: Bool) -> String:
-  match ital:
-    case True{}:
-      "_" ++ tx ++ "_"
-    case False{}:
-      tx
-
-def show_spanop.bold(+tx: String, bold: Bool, ital: Bool) -> String:
-  match bold:
-    case True{}:
-      "*" ++ tx ++ "*"
-    case False{}:
-      show_spanop.ital(tx, ital)
-
-def show_spanop.spn(+attrs: U32, +tx: String) -> String:
-  show_spanop.bold(tx, U32.is_eq(attrs, 1), U32.is_eq(attrs, 4))
-
-def show_spanop(sp: SpanOp) -> String:
-  match sp:
-    case Spn{attrs, +tx}:
-      show_spanop.spn(attrs, tx)
-    case Lnk{+url, +text}:
-      "[" ++ url ++ "]" ++ text
-
-def show_spanops.go(+xs: List<&2, SpanOp>, +acc: String) -> String:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{+h, t}:
-      show_spanops.go(t, acc ++ show_spanop(h))
-
-def show_spanops(+xs: List<&2, SpanOp>) -> String:
-  show_spanops.go(xs, "")
-
-def show_names.cons(+acc: String, +h: String, empty: Bool) -> String:
-  match empty:
-    case True{}:
-      h
-    case False{}:
-      acc ++ "," ++ h
-
-def show_names.go(+xs: List<&2, String>, +acc: String) -> String:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{+h, t}:
-      show_names.go(t, show_names.cons(acc, h, String.is_empty(acc)))
-
-def show_names(+xs: List<&2, String>) -> String:
-  show_names.go(xs, "")
-
-def show_op(op: DrawOp) -> String:
-  match op:
-    case OpBox{x, y, w, h}:
-      "X:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h)
-    case OpText{_, y, _, _, _, +text}:
-      "t:" ++ U32.show(y) ++ "|" ++ text
-    case OpTabs{_, _, _, sel, names}:
-      "T:" ++ U32.show(sel) ++ "|" ++ show_names(names)
-    case OpLine{_, y, _, fg, +ts, spans}:
-      "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ ts ++ "|" ++ show_spanops(spans)
-
-def show_ops.cons(+acc: String, +chunk: String, empty: Bool) -> String:
-  match empty:
-    case True{}:
-      chunk
-    case False{}:
-      acc ++ ";" ++ chunk
-
-def show_ops.step(acc: String, op: DrawOp) -> String:
-  +a = acc
-  show_ops.cons(a, show_op(op), String.is_empty(a))
-
-def show_ops(+xs: List<&2, DrawOp>) -> String:
-  List.foldl(~&2, ~DrawOp, ~String, ~show_ops.step, xs, "")
-
-def show_vm_ops(+vm: ViewModel) -> String:
-  match vm:
-    case ViewModel{+ops, _}:
-      show_ops(ops)
-
-def draw_line_ok() -> Bool:
-  String.eq(
-    show_op(line_op(Cl.Line{Cl.Msg{}, "12:00:00", "hello"})),
-    "L:0|13158600|12:00:00|hello"
-  )
-
-def draw_link_ok() -> Bool:
-  String.eq(
-    show_op(line_op(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x"})),
-    "L:0|13158600||see [https://timui.dev]https://timui.dev x"
-  )
-
-def hostile_body() -> String:
-  "look "
-    ++ SCon{Chr{31}, "Lhttps://evil.example"}
-    ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
-    ++ SCon{Chr{27}, "x"}
-
-def draw_hostile_ok() -> Bool:
-  String.eq(
-    show_op(line_op(Cl.Line{Cl.Msg{}, "", hostile_body()})),
-    "L:0|13158600||look "
-      ++ SCon{Chr{31}, "Lhttps://evil.example"}
-      ++ SCon{Chr{29}, "[https://github.com/zw3rk/birc]https://github.com/zw3rk/birc"}
-      ++ SCon{Chr{27}, "x"}
-  )
-
-def draw_tabs_ok() -> Bool:
-  String.eq(
-    show_op(OpTabs{0, 1, 10, 1, "server" <> "#birc" <> Nil{}}),
-    "T:1|server,#birc"
-  )
-
-def draw_nicks_ok() -> Bool:
-  String.eq(
-    show_ops(nick_ops(Rect{0, 2, 8, 10}, "#birc", "me" <> "alice" <> Nil{})),
-    "X:0,2,8,10;t:2|#birc;t:3|me;t:4|alice"
-  )
 
 def dummy_line(+i: Nat) -> Cl.Line:
   Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i)}

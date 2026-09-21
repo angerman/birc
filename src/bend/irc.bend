@@ -462,14 +462,6 @@ def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
 def sanitize_in(+s: String) -> String:
   sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
 
-def sanitize_in_ok() -> Bool:
-  String.eq(sanitize_in("ab" ++ SCon{Chr{31}, "cd"}), "abcd")
-    && String.eq(sanitize_in("x" ++ SCon{Chr{3}, "04y"}), "xy")
-    && String.eq(sanitize_in(SCon{Chr{1}, "ACTION"}), SCon{Chr{1}, "ACTION"})
-    && String.eq(sanitize_in(SCon{Chr{3}, ",hello"}), ",hello")
-    && String.eq(sanitize_in(SCon{Chr{3}, "4,hello"}), "hello")
-    && String.eq(sanitize_in(SCon{Chr{3}, "04,02hello"}), "hello")
-
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
 
@@ -730,59 +722,3 @@ def nick433_for.got(m: Maybe<&2, Message>, +nick: String) -> List<&2, String>:
 
 def nick433_for(+line: String, +nick: String) -> List<&2, String>:
   nick433_for.got(parse(line), nick)
-
-# Tag a Maybe<Message> for the harness.
-def show_cmd(c: Cmd) -> String:
-  match c:
-    case Unknown{}:
-      "UNK"
-    case Ping{}:
-      "PING"
-    case Pong{}:
-      "PONG"
-    case Join{}:
-      "JOIN"
-    case Part{}:
-      "PART"
-    case Kick{}:
-      "KICK"
-    case Quit{}:
-      "QUIT"
-    case Privmsg{}:
-      "PRIVMSG"
-    case Notice{}:
-      "NOTICE"
-    case Nick{}:
-      "NICK"
-    case Topic{}:
-      "TOPIC"
-    case Mode{}:
-      "MODE"
-    case Names{}:
-      "NAMES"
-    case Error{}:
-      "ERROR"
-    case Numeric{+code}:
-      "NUM" ++ U32.show(code)
-
-def show_params.go(+ps: List<&2, String>) -> String:
-  match ps:
-    case Nil{}:
-      ""
-    case Con{+h, +t}:
-      "|" ++ h ++ show_params.go(t)
-
-def show_msg(+m: Message) -> String:
-  match m:
-    case Message{+nick, +cmd, +num, +ps}:
-      nick ++ "!" ++ cmd ++ "#" ++ U32.show(num) ++ show_params.go(ps)
-
-def show_parse.on(m: Maybe<&2, Message>) -> String:
-  match m:
-    case None{}:
-      "NONE"
-    case Some{+msg}:
-      show_cmd(classify(msg)) ++ ":" ++ show_msg(msg)
-
-def show_parse(line: String) -> String:
-  show_parse.on(parse(line))

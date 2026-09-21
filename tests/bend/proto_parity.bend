@@ -2,6 +2,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
+import ./irc_show.bend as Tag
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
@@ -15,7 +16,7 @@ def action_line() -> String:
   ":alice!a@host PRIVMSG #birc :" ++ soh() ++ "ACTION waves" ++ soh()
 
 def check_line(+name: String, +line: String, +want: String) -> IO(Unit):
-  E.must_eq(name, Irc.show_parse(line), want)
+  E.must_eq(name, Tag.show_parse(line), want)
 
 def nth_line(+xs: List<&2, String>, +i: Nat) -> String:
   Maybe.default(&2, String, List.get(&2, String, xs, i), "")
@@ -47,7 +48,7 @@ def has_tag(+want: String, +xs: List<&2, String>) -> Bool:
     case Nil{}:
       False{}
     case Con{+h, t}:
-      Bool.or(String.eq(Irc.show_parse(h), want), has_tag(want, t))
+      Bool.or(String.eq(Tag.show_parse(h), want), has_tag(want, t))
 
 def action_feed_ok() -> Bool:
   +cl = Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #birc" <> action_line() <> Nil{})

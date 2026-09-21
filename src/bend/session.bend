@@ -659,24 +659,4 @@ def st_of_keys(t: Session & NetCmd & Bool) -> Session:
         case (_, _):
           st
 
-# A1: a partial line then Eof/dial must not keep rem or drop.
-def rem_cleared_ok() -> Bool:
-  +st1 = st_of_chunk(
-    step_on_chunk(
-      session_online(session0("me", "h", "#t")),
-      Fr.string_to_octets(":a!a@h PRIVMSG #t :partial")
-    )
-  )
-  +st2 = session_fail(st1, "disconnected")
-  +st3 = st_of_keys(step_enter(st2, "/connect 127.0.0.1"))
-  Bool.not(sess_rem_nil(st1)) && sess_rem_nil(st2) && sess_rem_nil(st3)
-
-def drop_cleared_ok() -> Bool:
-  +st1 = st_of_chunk(
-    step_on_chunk(session_online(session0("me", "h", "#t")), Fr.repeat_octet.go(600n, 65, Nil{}))
-  )
-  +st2 = session_fail(st1, "d")
-  +st3 = session_online(st_of_keys(step_enter(st2, "/connect 127.0.0.1")))
-  sess_drop(st1) && Bool.not(sess_drop(st2)) && Bool.not(sess_drop(st3))
-
 

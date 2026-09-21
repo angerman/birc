@@ -298,26 +298,3 @@ def copy_fin2(rest: List<&2, String>, acc: List<&2, String>) -> Parsed:
       parse(List.reverse(&2, String, acc))
     case Con{_, _}:
       Bad{"birc: too many arguments"}
-
-def show_cfg(+cfg: Cfg) -> String:
-  match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay}:
-      "demo=" ++ Bool.show(demo)
-        ++ " frames=" ++ U32.show(frames)
-        ++ " host=" ++ host
-        ++ " port=" ++ U32.show(port)
-        ++ " nick=" ++ nick
-        ++ " chan=" ++ chan
-        ++ " replay=" ++ replay
-
-def show_parsed(p: Parsed) -> String:
-  match p:
-    case Good{cfg}:
-      "good:" ++ show_cfg(cfg)
-    case Bad{+msg}:
-      "bad:" ++ msg
-
-def show_num(got: Num) -> String:
-  match got:
-    case Num{ok, n}:
-      Bool.show(ok) ++ ":" ++ U32.show(n)
