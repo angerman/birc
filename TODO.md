@@ -505,14 +505,13 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **T2** Delete or repair laws/tests that cannot fail (`live_fuel_alias`, `kind_code_ok`, `feed_id`, …).
       GOLDEN CHANGE: `kind_code_ok` pins `kind_digit`; `feed_id` compares `show_client`;
       deleted tautology `live_fuel_alias`.
-- [ ] **T3** Feed fixtures through `File.read` + `replay_lines`; real `\x01` ACTION (proto T6, client#23).
-      tried: proto_parity greps fixtures; ACTION soh test exists in proto_parity
-      evidence: fixtures/action.irc still lacks \x01
-      open question: rewrite the fixture vs keep the Bend-built ACTION line
-- [ ] **T4** `dns_demo`: hostile packets as − tests; live address set (dns#25 #26).
-      tried: C7 added parse checks; dns_demo has identity tests
-      evidence: hostile fixtures live in build/review/dns (gitignored)
-      open question: lift those fixtures into tests/ without make clean
+- [x] **T3** Feed fixtures through `File.read` + `replay_lines`; real `\x01` ACTION (proto T6, client#23).
+      All five fixtures go through `File.read` + `replay_lines`. `action.irc`
+      has real SOH; `action_feed_ok` asserts `* alice waves` after self-JOIN.
+- [x] **T4** `dns_demo`: hostile packets as − tests; live address set (dns#25 #26).
+      Hostile packets already in dns_demo (C7). Live path asserts 1.1.1.1 or
+      1.0.0.1; Fail allows timeout/bind/send/recv/random/bad id/bad dns/no A/
+      short/tc/rcode/ipv6. Dropped the dead `"dns"` token.
 - [x] **T5** Client −/+ tests: NICK, QUIT, PART, KICK, MODE, TOPIC, 4xx (client#20).
       Query NICK/QUIT, MODE, non-member PART, 433 covered. KICK-other and TOPIC command still thin.
 - [x] **T6** Goldens for draw ops, args (port range, >64 argv), submit (LF paste, `/part` server, 600-byte UTF-8).
