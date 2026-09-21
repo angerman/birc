@@ -26,8 +26,8 @@ PROTO := src/bend/main.bend
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
-        test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit \
-        lint-ffi proto-parity proof check run run-demo clean
+        test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut \
+        lint-ffi test-utf8-fit proto-parity proof check run run-demo clean
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -173,7 +173,10 @@ test-pty-rst: build-ui ## Pty: TCP RST keeps the UI alive (A3).
 test-pty-tinyquit: build-ui ## Pty: /quit at 1-2 cols and after resize-back (A6).
 	$(NIXRUN) python3 tests/pty/tinyquit.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit ## Pty loop tests.
+test-pty-tabcut: build-ui ## Pty: long UTF-8 tab label cut on a code point (A7).
+	$(NIXRUN) python3 tests/pty/tab_cut.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -181,10 +184,15 @@ proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
 
 LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wno-unused-command-line-argument -fsyntax-only
-lint-ffi: ## Syntax-only warning lint of src/ffi (real build stays -w).
+lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
+
+test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c && ./$(BLDDIR)/utf8_fit_cap'
+	@grep -F 'birc_utf8_fit(s ? s : "", (size_t)len < 63 ? (size_t)len : (size_t)63)' src/ffi/timui_ffi.c >/dev/null
 
 check: proof test lint-ffi ## Proofs + protocol tests + UI smoke + FFI lint.
 
