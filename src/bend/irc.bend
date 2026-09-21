@@ -108,8 +108,55 @@ def take_until_space.go(fuel: Nat, phase: TakePhase, s: String, acc: String, +h:
 def take_until_space(+s: String) -> String & String:
   take_until_space.go(Nat.add(1n, Nat.mul(2n, String.length(s))), TkRead{}, s, SNil{}, Chr{0}, False{})
 
+# RFC 1459 casemap: ASCII upper, then []\~ ↔ {}|^.
+def rfc1459_code.tilde(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}:
+      94
+    case False{}:
+      n
+
+def rfc1459_code.rb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}:
+      125
+    case False{}:
+      rfc1459_code.tilde(n, U32.is_eq(n, 126))
+
+def rfc1459_code.bs(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}:
+      124
+    case False{}:
+      rfc1459_code.rb(n, U32.is_eq(n, 93))
+
+def rfc1459_code.lb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}:
+      123
+    case False{}:
+      rfc1459_code.bs(n, U32.is_eq(n, 92))
+
+def rfc1459_code(+n: U32) -> U32:
+  rfc1459_code.lb(n, U32.is_eq(n, 91))
+
+def rfc1459_char(+c: Char) -> Char:
+  match c:
+    case Chr{n}:
+      Chr{rfc1459_code(n)}
+
+def rfc1459.go(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      SCon{rfc1459_char(h), rfc1459.go(t)}
+
+def rfc1459(+s: String) -> String:
+  rfc1459.go(String.to_upper(s))
+
 def ieq(+a: String, +b: String) -> Bool:
-  String.eq(String.to_upper(a), String.to_upper(b))
+  String.eq(rfc1459(a), rfc1459(b))
 
 def is_chan_type(+c: Char) -> Bool:
   code_is(c, 35) || code_is(c, 38) || code_is(c, 43) || code_is(c, 33)  # # & + !

@@ -377,14 +377,16 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       `send_lines_go` fuel 0 returns `(sock, False{})`.
 
 ### Phase M — medium
-- [ ] **M1** NICK renames a query buffer (client#3).
-- [ ] **M2** QUIT shows in a query (client#6).
-- [ ] **M3** MODE goes to the channel with all params (client#7).
-- [ ] **M4** PART only for members (client#8).
-- [ ] **M5** nick `server` must not merge into the server buffer (client#9).
-- [ ] **M6** RFC 1459 casemapping in `ieq` (client#10).
-- [ ] **M7** self-sourced PRIVMSG keys the buffer on the target (client#11).
-- [ ] **M8** Clamp the scroll offset on write (client#5, view#9).
+- [x] **M1** NICK renames a query buffer (client#3).
+- [x] **M2** QUIT shows in a query (client#6).
+- [x] **M3** MODE goes to the channel with all params (client#7).
+- [x] **M4** PART only for members (client#8).
+- [x] **M5** nick `server` must not merge into the server buffer (client#9).
+- [x] **M6** RFC 1459 casemapping in `ieq` (client#10).
+- [x] **M7** self-sourced PRIVMSG keys the buffer on the target (client#11).
+- [x] **M8** Clamp the scroll offset on write (client#5, view#9).
+      Clamp to `List.length(lines)`. `scroll_page_ok` / `snap_ok` expected the
+      unbounded offset; they now expect the clamp.
 - [ ] **M9** `/part` in the server buffer → usage error (view#10).
 - [ ] **M10** `--port` range 1..65535 (view#11).
 - [ ] **M11** PageUp/PageDown move a page (view#14).

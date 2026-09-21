@@ -72,8 +72,15 @@ def buf_find.hit.if(eq: Bool, +name: String, +i: Nat) -> FindAcc:
     case False{}:
       FindAcc{name, 1n+i, None{}}
 
+def buf_find.hit.skip(+name: String, +i: Nat, +n: String, skip: Bool) -> FindAcc:
+  match skip:
+    case True{}:
+      FindAcc{name, 1n+i, None{}}
+    case False{}:
+      buf_find.hit.if(Irc.ieq(n, name), name, i)
+
 def buf_find.hit(+name: String, +i: Nat, +n: String) -> FindAcc:
-  buf_find.hit.if(Irc.ieq(n, name), name, i)
+  buf_find.hit.skip(name, i, n, Nat.is_eq(i, 0n))
 
 def buf_find.step(st: FindAcc, h: Buffer) -> FindAcc:
   match st:
@@ -430,6 +437,11 @@ def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
     case Buffer{+name, +ch, +topic, +lines, +nicks, _}:
       Buffer{name, ch, topic, lines, nicks, sc}
 
+def set_buf_name(+b: Buffer, +name: String) -> Buffer:
+  match b:
+    case Buffer{_, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{name, ch, topic, lines, nicks, scroll}
+
 def snap_active.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, got: Maybe<&2, Buffer>) -> Client:
   match got:
     case None{}:
@@ -445,10 +457,27 @@ def snap_active(+cl: Client) -> Client:
 def scroll_add_nat(+scroll: Nat, +up: Nat, +dn: Nat) -> Nat:
   Nat.sub(Nat.add(scroll, up), dn)
 
+def clamp_nat.on(+n: Nat, +maxs: Nat, ge: Bool) -> Nat:
+  match ge:
+    case True{}:
+      maxs
+    case False{}:
+      n
+
+def clamp_nat(+n: Nat, +maxs: Nat) -> Nat:
+  clamp_nat.on(n, maxs, Nat.is_ge(n, maxs))
+
 def apply_buf_scroll.on(+b: Buffer, +up: Nat, +dn: Nat) -> Buffer:
   match b:
-    case Buffer{_, _, _, _, _, +scroll}:
-      set_buf_scroll(b, scroll_add_nat(scroll, up, dn))
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{
+        name,
+        ch,
+        topic,
+        lines,
+        nicks,
+        clamp_nat(scroll_add_nat(scroll, up, dn), List.length(&2, Line, lines))
+      }
 
 def apply_active_scroll.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +up: Nat, +dn: Nat, got: Maybe<&2, Buffer>) -> Client:
   match got:
@@ -636,6 +665,23 @@ def fmt_err(+text: String) -> String:
 def fmt_unk(+cmd: String, +p0: String) -> String:
   cmd ++ " " ++ p0
 
+def join_sp.go(+ps: List<&2, String>, +acc: String) -> String:
+  match ps:
+    case Nil{}:
+      acc
+    case Con{+h, t}:
+      join_sp.go(t, acc ++ " " ++ h)
+
+def join_sp(+ps: List<&2, String>) -> String:
+  match ps:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      h ++ join_sp.go(t, "")
+
+def fmt_mode(+from: String, +ps: List<&2, String>) -> String:
+  from ++ " MODE " ++ join_sp(ps)
+
 # CTCP ACTION: \x01ACTION text\x01  (SOH = 1)
 def is_action(+body: String) -> Bool:
   String.starts_with(body, SCon{Chr{1}, "ACTION "})
@@ -687,12 +733,31 @@ def feed_priv.write_got(pair: Client & Maybe<&2, Nat>, +from: String, notice: Bo
     case (cl2, None{}):
       cl2
 
-def feed_priv.nonchan(+cl: Client, +from: String, notice: Bool, +body: String, empty: Bool) -> Client:
+def feed_priv.key.on(+from: String, +target: String, self: Bool) -> String:
+  match self:
+    case True{}:
+      target
+    case False{}:
+      from
+
+def feed_priv.key(+cl: Client, +from: String, +target: String) -> String:
+  match cl:
+    case Client{+nick, _, _, _, _}:
+      feed_priv.key.on(from, target, Irc.ieq(from, nick))
+
+def feed_priv.nonchan(
+  +cl: Client,
+  +from: String,
+  notice: Bool,
+  +body: String,
+  empty: Bool,
+  +target: String
+) -> Client:
   match empty:
     case True{}:
       feed_priv.write(cl, 0n, from, notice, body)
     case False{}:
-      feed_priv.write_got(buf_get(cl, from, False{}, True{}), from, notice, body)
+      feed_priv.write_got(buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body)
 
 def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
   match empty:
@@ -710,7 +775,7 @@ def feed_priv.route.on(+cl: Client, +target: String, +from: String, notice: Bool
     case True{}:
       feed_priv.write_got(buf_get(cl, target, True{}, False{}), from, notice, body)
     case False{}:
-      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target))
+      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target), target)
 
 def feed_priv.route(+cl: Client, +target: String, +from: String, notice: Bool, +body: String) -> Client:
   +tgt = Irc.chan_target(target)
@@ -750,14 +815,32 @@ def feed_join.with(+cl: Client, +from: String, +chan: String, +self: Bool) -> Cl
 def feed_join(+cl: Client, +m: Irc.Message, self: Bool) -> Client:
   feed_join.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
 
+def feed_part.member(
+  +nick: String,
+  +server: String,
+  +bufs: List<&2, Buffer>,
+  +active: Nat,
+  +now: String,
+  +bi: Nat,
+  +from: String,
+  +chan: String,
+  +b: Buffer,
+  has: Bool
+) -> Client:
+  match has:
+    case False{}:
+      Client{nick, server, bufs, active, now}
+    case True{}:
+      +b2 = nick_del(b, from)
+      +b3 = buf_log_ts(b2, System{}, now, fmt_part(from, chan))
+      Client{nick, server, set_nth_buf(bufs, bi, b3), active, now}
+
 def feed_part.at.got(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +chan: String, got: Maybe<&2, Buffer>) -> Client:
   match got:
     case None{}:
       Client{nick, server, bufs, active, now}
-    case Some{b}:
-      +b2 = nick_del(b, from)
-      +b3 = buf_log_ts(b2, System{}, now, fmt_part(from, chan))
-      Client{nick, server, set_nth_buf(bufs, bi, b3), active, now}
+    case Some{+b}:
+      feed_part.member(nick, server, bufs, active, now, bi, from, chan, b, nick_has(b, from))
 
 def feed_part.at(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +bi: Nat, +from: String, +chan: String) -> Client:
   feed_part.at.got(nick, server, bufs, active, now, bi, from, chan, nth_buf(bufs, bi))
@@ -830,12 +913,30 @@ def feed_quit.one.on(+b: Buffer, +from: String, +reason: String, +ts: String, ha
 def feed_quit.one(+b: Buffer, +from: String, +reason: String, +ts: String) -> Buffer:
   feed_quit.one.on(b, from, reason, ts, nick_has(b, from))
 
+def feed_quit.query.on(+h: Buffer, +from: String, +reason: String, +ts: String, hit: Bool) -> Buffer:
+  match hit:
+    case True{}:
+      buf_log_ts(h, System{}, ts, fmt_quit(from, reason))
+    case False{}:
+      h
+
+def feed_quit.query(+h: Buffer, +from: String, +reason: String, +ts: String) -> Buffer:
+  match h:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      feed_quit.query.on(
+        Buffer{name, ch, topic, lines, nicks, scroll},
+        from,
+        reason,
+        ts,
+        Irc.ieq(name, from)
+      )
+
 def feed_quit.apply.on(+h: Buffer, +from: String, +reason: String, +ts: String, ch: Bool) -> Buffer:
   match ch:
     case True{}:
       feed_quit.one(h, from, reason, ts)
     case False{}:
-      h
+      feed_quit.query(h, from, reason, ts)
 
 def feed_quit.apply(+h: Buffer, +from: String, +reason: String, +ts: String) -> Buffer:
   feed_quit.apply.on(h, from, reason, ts, is_channel_buf(h))
@@ -871,12 +972,30 @@ def feed_nick.one.on(+b: Buffer, +from: String, +to: String, +ts: String, has: B
 def feed_nick.one(+b: Buffer, +from: String, +to: String, +ts: String) -> Buffer:
   feed_nick.one.on(b, from, to, ts, nick_has(b, from))
 
+def feed_nick.query.on(+h: Buffer, +from: String, +to: String, +ts: String, hit: Bool) -> Buffer:
+  match hit:
+    case True{}:
+      buf_log_ts(set_buf_name(h, to), System{}, ts, fmt_nick_chg(from, to))
+    case False{}:
+      h
+
+def feed_nick.query(+h: Buffer, +from: String, +to: String, +ts: String) -> Buffer:
+  match h:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      feed_nick.query.on(
+        Buffer{name, ch, topic, lines, nicks, scroll},
+        from,
+        to,
+        ts,
+        Irc.ieq(name, from)
+      )
+
 def feed_nick.apply.on(+h: Buffer, +from: String, +to: String, +ts: String, ch: Bool) -> Buffer:
   match ch:
     case True{}:
       feed_nick.one(h, from, to, ts)
     case False{}:
-      h
+      feed_nick.query(h, from, to, ts)
 
 def feed_nick.apply(+h: Buffer, +from: String, +to: String, +ts: String) -> Buffer:
   feed_nick.apply.on(h, from, to, ts, is_channel_buf(h))
@@ -1081,6 +1200,25 @@ def feed_kick.with(+cl: Client, +chan: String, +victim: String) -> Client:
 def feed_kick(+cl: Client, +m: Irc.Message) -> Client:
   feed_kick.with(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
 
+def feed_mode.got(+cl: Client, +from: String, +ps: List<&2, String>, found: Maybe<&2, Nat>) -> Client:
+  match found:
+    case None{}:
+      cl
+    case Some{+bi}:
+      client_log(cl, bi, System{}, fmt_mode(from, ps))
+
+def first_param(+ps: List<&2, String>) -> String:
+  match ps:
+    case Nil{}:
+      ""
+    case Con{+h, _}:
+      h
+
+def feed_mode(+cl: Client, +m: Irc.Message) -> Client:
+  match m:
+    case Irc.Message{+nick, _, _, +ps}:
+      feed_mode.got(cl, nick, ps, buf_find(cl, first_param(ps)))
+
 def feed_unk(+cl: Client, +m: Irc.Message) -> Client:
   match m:
     case Irc.Message{_, +cmd, _, _}:
@@ -1106,6 +1244,8 @@ def feed_msg.cmd(+cl: Client, +m: Irc.Message, +from: String, self: Bool, c: Irc
       feed_nick(cl, m, self)
     case Irc.Topic{}:
       feed_topic(cl, m)
+    case Irc.Mode{}:
+      feed_mode(cl, m)
     case Irc.Numeric{_}:
       feed_numeric(cl, m)
     case Irc.Error{}:
@@ -1322,13 +1462,52 @@ def buf_texts(+cl: Client, +i: Nat) -> String:
 def scroll_page_ok() -> Bool:
   +cl0 = set_active(feed(init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
   +cl1 = apply_active_scroll(cl0, 3n, 0n)
-  Nat.is_eq(buf_scroll_of(cl1, 1n), 3n)
+  Nat.is_eq(buf_scroll_of(cl1, 1n), 1n)
+
+def nick_query_renames() -> Bool:
+  +cl0 = feed(init("me", "s"), ":alice!a@h PRIVMSG me :hi")
+  +cl = feed(cl0, ":alice!a@h NICK bob")
+  has_buf(cl, "bob")
+    && Bool.not(has_buf(cl, "alice"))
+    && Nat.is_eq(nbuf(cl), 2n)
+
+def quit_query_logs() -> Bool:
+  +cl0 = feed(init("me", "s"), ":alice!a@h PRIVMSG me :hi")
+  +cl = feed(cl0, ":alice!a@h QUIT :bye")
+  Nat.is_eq(buf_nlines(cl, 1n), 2n)
+
+def mode_channel_logs() -> Bool:
+  +cl0 = feed(init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl = feed(cl0, ":op!u@h MODE #birc +o alice")
+  Nat.is_eq(buf_nlines(cl, 1n), 2n) && Nat.is_eq(buf_nlines(cl, 0n), 0n)
+
+def part_nonmember_silent() -> Bool:
+  +cl0 = feed(init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl1 = feed(cl0, ":alice!a@h JOIN #birc")
+  +cl = feed(cl1, ":bob!b@h PART #birc")
+  Nat.is_eq(buf_nlines(cl, 1n), 2n)
+
+def server_nick_query() -> Bool:
+  +cl = feed(init("me", "s"), ":server!s@h PRIVMSG me :hi")
+  Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "server") && Nat.is_eq(buf_nlines(cl, 0n), 0n)
+
+def ieq_rfc1459_ok() -> Bool:
+  Irc.ieq("foo[]", "foo{}") && Irc.ieq("A\\B", "a|b")
+
+def self_priv_query() -> Bool:
+  +cl = feed(init("me", "s"), ":me!me@h PRIVMSG alice :hi")
+  has_buf(cl, "alice") && Bool.not(has_buf(cl, "me"))
+
+def scroll_clamp_ok() -> Bool:
+  +cl0 = set_active(feed(init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
+  +cl1 = apply_active_scroll(cl0, 50n, 0n)
+  Nat.is_eq(buf_scroll_of(cl1, 1n), buf_nlines(cl1, 1n))
 
 def snap_ok() -> Bool:
   +clq = set_active(feed(init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
   +cl1 = apply_active_scroll(clq, 2n, 0n)
   +cl2 = snap_active(cl1)
-  Nat.is_eq(buf_scroll_of(cl1, 1n), 2n) && Nat.is_eq(buf_scroll_of(cl2, 1n), 0n)
+  Nat.is_eq(buf_scroll_of(cl1, 1n), 1n) && Nat.is_eq(buf_scroll_of(cl2, 1n), 0n)
 
 def cycle_ok() -> Bool:
   +cl = feed(init("me", "s"), ":me!me@localhost JOIN #birc")
