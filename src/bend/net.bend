@@ -107,10 +107,10 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
     Unit <- IO.print("birc=ok")
     IO.die(Unit, 0, "")
 
-def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
+def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32, +page: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
     case V.ViewModel{+ops, +inp}:
-      T.Timui.frame(ui, ops, inp, seed)
+      T.Timui.frame(ui, ops, inp, seed, page)
 
 def paint_session.size(
   ui: T.Ui,
@@ -121,8 +121,8 @@ def paint_session.size(
   size: Sess.Size
 ) -> IO(T.Ui & T.UiKeys):
   match size:
-    case Sess.Size{rows, cols}:
-      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed)
+    case Sess.Size{+rows, cols}:
+      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed, U32.from_nat(Sess.body_h(rows)))
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:

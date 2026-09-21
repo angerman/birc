@@ -1,6 +1,7 @@
 # View model from Client. Pure scroll math + DrawOp list for the paint FFI.
 import Base
 import ./buffer.bend as Cl
+import ./session.bend as Sess
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -606,15 +607,8 @@ def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
     case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
       name <> tab_names(t)
 
-def vis_h.on(+rows: U32, ge: Bool) -> Nat:
-  match ge:
-    case True{}:
-      U32.to_nat(U32.sub(rows, 6))
-    case False{}:
-      1n
-
 def vis_h(+rows: U32) -> Nat:
-  vis_h.on(rows, U32.is_ge(rows, 7))
+  Sess.body_h(rows)
 
 def mid_w.on(+cols: U32, wide: Bool) -> U32:
   match wide:
@@ -1064,6 +1058,9 @@ def body_ys_ok() -> Bool:
     && ys_clear_chrome(6)
     && ys_clear_chrome(7)
     && ys_clear_chrome(8)
+    && Nat.is_eq(vis_h(24), Sess.body_h(24))
+    && Nat.is_eq(vis_h(6), Sess.body_h(6))
+    && Nat.is_eq(vis_h(7), Sess.body_h(7))
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)

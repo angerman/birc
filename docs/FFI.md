@@ -7,9 +7,9 @@ TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
 
 ```bend
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed):
+def Timui.frame(ui, ops, input, seed, page):
   import "../ffi/timui_ffi.c"
 ```
 
@@ -59,7 +59,7 @@ of the project FFI is `make lint-ffi`: stub header `tests/lint-ffi/ffi_stub.h`,
 law Ui: Type
 
 Timui.open  : IO(Result<&1,&1, U32 & String, Ui>)
-Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
+Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 Timui.close : Ui -> IO(Unit)
 ```
 
@@ -67,7 +67,7 @@ Timui.close : Ui -> IO(Unit)
 are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
 `tab`, `click`, `up`, `dn`, `hist`). Unpack like `Window.frame`. Do not put
 `Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
-including `""`.
+including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
 
 ### Pure domain types
 

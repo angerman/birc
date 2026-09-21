@@ -96,9 +96,9 @@ def body_h_on(+rows: U32, ge: Bool) -> Nat:
 def body_h(+rows: U32) -> Nat:
   body_h_on(rows, U32.is_ge(rows, 7))
 
-# Packed body lines must not exceed C's drawable rows (root.h-6).
+# Body lines and PageUp/PageDown share this height (passed into Timui.frame).
 def body_h_ok() -> Bool:
-  Nat.is_eq(body_h(24), 18n) && Nat.is_eq(body_h(16), 10n) && Nat.is_eq(body_h(6), 1n)
+  Nat.is_eq(body_h(24), 18n) && Nat.is_eq(body_h(16), 10n) && Nat.is_eq(body_h(6), 1n) && Nat.is_eq(body_h(7), 1n)
 
 def push_pure_join2(
   +cl2: Cl.Client,
