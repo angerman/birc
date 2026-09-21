@@ -381,6 +381,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint64_t n_in = 0;
   char *input = io_cstr(e, f[2], &n_in);
   u32 seed = (u32)f[3];
+  u32 page = (u32)f[4];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
   int quit = 0;
@@ -454,10 +455,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       tab = 1;
     else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
       tab = 2;
+    if (page < 1u)
+      page = 1u;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_UP))
-      up = rows >= 7u ? rows - 6u : 1u;
+      up = page;
     if (timui_key_pressed(fr, TIMUI_KEY_PAGE_DOWN))
-      dn = rows >= 7u ? rows - 6u : 1u;
+      dn = page;
     {
       int wheel = timui_mouse_wheel(fr);
       if (wheel > 0)

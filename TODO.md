@@ -389,7 +389,7 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       unbounded offset; they now expect the clamp.
 - [x] **M9** `/part` in the server buffer → usage error (view#10).
 - [x] **M10** `--port` range 1..65535 (view#11).
-- [x] **M11** PageUp/PageDown move a page (view#14). FFI sends `rows-6`.
+- [x] **M11** PageUp/PageDown move a page (view#14). FFI sends `Sess.body_h`.
 - [x] **M12** URL tokenizer: word boundary, trim trailing punctuation (view#13).
       Trailing set includes `)` `.` `,` `"` `]` `;`. `]8;;` keeps `]8` (digit).
 - [x] **M13** over-long URL → plain span (view#12).

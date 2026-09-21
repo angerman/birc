@@ -40,11 +40,11 @@ def Timui.open():
   import "../ffi/timui_ffi.c"
 
 # One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
-# reseeds the composer from input, including "".
+# reseeds the composer from input, including "". page is Sess.body_h.
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed):
+def Timui.frame(ui, ops, input, seed, page):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:
