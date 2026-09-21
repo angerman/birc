@@ -529,6 +529,22 @@ def msg_param(+m: Message, i: Nat) -> String:
     case Message{_, _, _, +ps}:
       param_at(ps, i)
 
+def msg_last_xs(xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h
+        case Con{_, _}:
+          msg_last_xs(t)
+
+def msg_last(+m: Message) -> String:
+  match m:
+    case Message{_, _, _, ps}:
+      msg_last_xs(ps)
+
 # ---- format -------------------------------------------------------------
 
 def format_pong.empty(empty: Bool, +token: String) -> String:
@@ -671,6 +687,34 @@ def pong_for.on(m: Maybe<&2, Message>) -> String:
 
 def pong_for(line: String) -> String:
   pong_for.on(parse(line))
+
+def is_433_num(+num: U32) -> Bool:
+  U32.is_eq(num, 433)
+
+def is_433_msg(+m: Message) -> Bool:
+  match m:
+    case Message{_, _, +num, _}:
+      is_433_num(num)
+
+def is_433_on(m: Maybe<&2, Message>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+msg}:
+      is_433_msg(msg)
+
+def is_433_line(line: String) -> Bool:
+  is_433_on(parse(line))
+
+def nick433_for.hit(+nick: String, hit: Bool) -> List<&2, String>:
+  match hit:
+    case False{}:
+      Nil{}
+    case True{}:
+      format_nick(nick) <> Nil{}
+
+def nick433_for(+line: String, +nick: String) -> List<&2, String>:
+  nick433_for.hit(nick, is_433_line(line))
 
 # Tag a Maybe<Message> for the harness.
 def show_cmd(c: Cmd) -> String:

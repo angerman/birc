@@ -18,7 +18,8 @@ def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +h: String, ping: Bo
     case True{}:
       FoldAcc{cl, Irc.pong_for(h) <> pongs}
     case False{}:
-      FoldAcc{Cl.feed(cl, h), pongs}
+      +cl2 = Cl.feed(cl, h)
+      FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl2)), pongs)}
 
 def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +h: String) -> FoldAcc:
   fold_step.ping(cl, pongs, h, Irc.is_ping_line(h))
