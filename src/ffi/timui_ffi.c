@@ -21,31 +21,30 @@ static TimuiTextAreaState birc_composer_st = {birc_composer, sizeof birc_compose
                                               0, 0};
 
 #ifdef CID_UIKEYS
-static Term birc_uikeys(Env e, int quit, int enter, int bs, const char *typed,
+static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t tab,
                         uint32_t click, uint32_t up, uint32_t dn,
                         uint32_t hist) {
-  Loc l = heap_alloc(e, cls_fit(10));
+  Loc l = heap_alloc(e, cls_fit(9));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(quit ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
-  e.mem[l + 2] = io_seal(e, (Term)(uint64_t)(bs ? 1u : 0u), CID_UIKEYS);
-  e.mem[l + 3] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
-  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
-  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
-  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
-  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
-  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
-  e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
+  e.mem[l + 2] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
+  e.mem[l + 3] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
+  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
+  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
+  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
+  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
+  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
   return term_ctr(CID_UIKEYS, l);
 }
 
-static Term birc_frame_out(Env e, Timui *ui, int quit, int enter, int bs,
+static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
                            const char *typed, size_t tlen, uint32_t rows,
                            uint32_t tab, uint32_t click, uint32_t up,
                            uint32_t dn, uint32_t hist) {
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
-                birc_uikeys(e, quit, enter, bs, typed, tlen, rows, tab, click,
-                            up, dn, hist));
+                birc_uikeys(e, quit, enter, typed, tlen, rows, tab, click, up,
+                            dn, hist));
 }
 #endif
 
@@ -97,7 +96,7 @@ static void draw_lines(TimuiFrame *fr, int x, int y, int max_y, const char *text
   }
 }
 
-/* Packed BodyLine wire: k|ts|spans\n  spans: P/B/I/C text or L url GS text,
+/* Packed body wire: k|ts|spans\n  spans: P/B/I/C text or L url GS text,
  * units separated by US (0x1f). C does not tokenize. */
 static uint32_t birc_kind_fg(int k) {
   switch (k) {
@@ -383,12 +382,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
   if (!ui) {
     birc_free_frame_strs(header, tabs, body, nicks, status, input);
-    return birc_frame_out(e, NULL, 1, 0, 0, "", 0, 24, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 0, 0, 0, 0, 0);
   }
 
   if (!timui_begin(ui, &fr)) {
     birc_free_frame_strs(header, tabs, body, nicks, status, input);
-    return birc_frame_out(e, ui, 1, 0, 0, "", 0, 24, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 0, 0, 0, 0, 0);
   }
   /* Before tabs: so Enter is not consumed as tab-bar activate. */
   if (timui_focus(fr) != TIMUI_ID("birc.composer"))
@@ -505,7 +504,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (timui_should_quit(ui))
     quit = 1;
   birc_free_frame_strs(header, tabs, body, nicks, status, input);
-  return birc_frame_out(e, ui, quit, enter, 0, typed, strlen(typed), rows, tab,
+  return birc_frame_out(e, ui, quit, enter, typed, strlen(typed), rows, tab,
                         click, up, dn, hist);
 }
 

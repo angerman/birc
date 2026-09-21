@@ -14,7 +14,7 @@ def u32_to_nat.step(fuel: Nat, +x: U32, +acc: Nat, zero: Bool) -> Nat:
           u32_to_nat.step(p, y, Nat.add(acc, 1n), U32.is_eq(y, 0))
 
 def u32_to_nat(+x: U32) -> Nat:
-  u32_to_nat.step(4096n, x, 0n, U32.is_eq(x, 0))
+  u32_to_nat.step(65536n, x, 0n, U32.is_eq(x, 0))
 
 # One live_go / reader_go tick per --frames unit. frames=0 is 0n; the live
 # path uses @unsafe idle loops instead of a fake terminator.

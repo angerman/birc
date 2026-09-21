@@ -68,9 +68,6 @@ def Laws.tokenize_has_link():
 def Laws.tokenize_unclosed():
   {==}
 
-def Laws.backoff_double():
-  {==}
-
 def Laws.overlong_drop():
   {==}
 
@@ -137,7 +134,7 @@ def Laws.connect_dial():
 def Laws.fmt_hms_ok():
   {==}
 
-def Laws.stamp_ok():
+def Laws.log_ts_ok():
   {==}
 
 def Laws.overlong_text_drop():

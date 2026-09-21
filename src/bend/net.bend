@@ -1,16 +1,17 @@
-# IRC networking IO (M4). Pure fold/fuel/backoff live in session.bend.
+# IRC networking IO (M4). Pure fold/fuel live in session.bend.
 # D2: IO.spawn net actor owns Socket; UI ↔ actor via Chan(Sess.NetEvt)/Chan(Sess.NetCmd).
 # D3: Base TCP.send / TCP.poll (String). Empty recv chunk = EOF.
 # P5: actor Socket.close then Timui.close (drain evt after Chan.close(cmd)).
-# Dial: connecting fiber owns the fd. A 1-slot Race Chan is the claim lock
-# (never Chan(Socket)). frames=0 uses @unsafe idle; --frames N is fuel.
+# Dial: actor owns the fd (never Chan(Socket)). Demo/Connecting Cont is
+# held (empty outs) so queued JOIN/PRIVMSG cannot flush after Dial.
+# frames=0 uses @unsafe idle; --frames N is fuel.
 import Base
 import ./irc.bend as Irc
 import ./client.bend as Cl
 import ./view.bend as V
 import ./timui.bend as T
 import ./session.bend as Sess
-import ./paint.bend as Paint
+
 import ./clock.bend as Clock
 import ./dns.bend as Dns
 
@@ -110,10 +111,15 @@ def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(U
     Unit <- wait_dead_g(256n, ui, evt, g0)
     IO.print("birc=ok")
 
+def paint_vm(ui: T.Ui, +vm: V.ViewModel) -> IO(T.Ui & T.UiKeys):
+  match vm:
+    case V.ViewModel{+h, +tabs, +b, +n, +s, +inp}:
+      T.Timui.frame(ui, h, tabs, b, n, s, inp)
+
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, net, _, rows}:
-      Paint.paint(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
+      paint_vm(ui, V.view_draft(cl, Sess.body_h(rows), draft, Sess.net_label(net)))
 
 def after_ui_send(
   ok: Bool,
@@ -150,7 +156,7 @@ def send_pair(
       match rest:
         case (+ncmd, halt):
           do IO<Unit>:
-            ok : Bool <- Chan.send(Sess.NetCmd, cmd, ncmd)
+            ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.hold_cmd(Sess.session_net(st2), ncmd))
             after_ui_send(ok, ui, st2, or_halt(quit, halt), evt, cmd, k)
 
 def step_rows(
@@ -177,10 +183,11 @@ def with_keys.go(
   +hist: U32,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit),
   quit: Bool,
-  enter: Bool,
-  bs: Bool
+  enter: Bool
 ) -> IO(Unit):
-  send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(st, typed, enter, bs, tab, click, up, dn, hist), rows), k)
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    send_pair(ui, quit, evt, cmd, step_rows(Sess.step_keys(Sess.session_set_now(st, ts), typed, enter, tab, click, up, dn, hist), rows), k)
 
 def with_keys(
   ui: T.Ui,
@@ -191,8 +198,8 @@ def with_keys(
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case T.UiKeys{quit, enter, bs, +typed, rows, tab, click, up, dn, hist}:
-      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, k, T.flag_on(quit), T.flag_on(enter), T.flag_on(bs))
+    case T.UiKeys{quit, enter, +typed, rows, tab, click, up, dn, hist}:
+      with_keys.go(ui, st, evt, cmd, typed, rows, tab, click, up, dn, hist, k, T.flag_on(quit), T.flag_on(enter))
 
 def with_tick.got(
   got: T.Ui & T.UiKeys,
@@ -205,27 +212,6 @@ def with_tick.got(
     case (ui2, keys):
       with_keys(ui2, st2, evt, cmd, keys, k)
 
-def with_tick.paint(
-  ui: T.Ui,
-  +st2: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-    with_tick.got(got, st2, evt, cmd, k)
-
-def with_tick.stamp(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.NetEvt),
-  +cmd: Chan(Sess.NetCmd),
-  +ts: String,
-  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
-) -> IO(Unit):
-  with_tick.paint(ui, Sess.stamp_session(st, ts), evt, cmd, k)
-
 def with_tick(
   ui: T.Ui,
   +st: Sess.Session,
@@ -234,8 +220,8 @@ def with_tick(
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ts : String <- Clock.hhmmss()
-    with_tick.stamp(ui, st, evt, cmd, ts, k)
+    got : T.Ui & T.UiKeys <- paint_session(ui, st)
+    with_tick.got(got, st, evt, cmd, k)
 
 def chunk_sent(
   ok: Bool,
@@ -264,6 +250,17 @@ def with_chunk_pair(
         ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{outs})
         chunk_sent(ok, ui, st2, evt, cmd, k)
 
+def with_chunk.ts(
+  ui: T.Ui,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +ts: String,
+  +st: Sess.Session,
+  +text: String,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  with_chunk_pair(ui, evt, cmd, Sess.step_on_chunk(Sess.session_set_now(st, ts), text), k)
+
 def with_chunk(
   ui: T.Ui,
   +st: Sess.Session,
@@ -272,7 +269,21 @@ def with_chunk(
   +text: String,
   k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  with_chunk_pair(ui, evt, cmd, Sess.step_on_chunk(st, text), k)
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    with_chunk.ts(ui, evt, cmd, ts, st, text, k)
+
+def with_fail(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +msg: String,
+  k: (T.Ui & Sess.Session & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    with_tick(ui, Sess.session_fail(Sess.session_set_now(st, ts), msg), evt, cmd, k)
 
 def on_evt_some(
   ui: T.Ui,
@@ -292,7 +303,7 @@ def on_evt_some(
     case Sess.Up{}:
       with_tick(ui, Sess.session_online(st), evt, cmd, k)
     case Sess.Fail{+msg}:
-      with_tick(ui, Sess.session_fail(st, msg), evt, cmd, k)
+      with_fail(ui, st, evt, cmd, msg, k)
 
 def on_evt(
   g: Maybe<&1, Sess.NetEvt>,
@@ -451,8 +462,6 @@ def on_cmd(
       reader_die(sock, evt)
     case Some{c}:
       match c:
-        case Sess.Stop{}:
-          reader_die(sock, evt)
         case Sess.Dial{_, _}:
           k(sock)
         case Sess.Cont{+outs}:
@@ -817,8 +826,6 @@ def idle_on_cmd(
       idle_die(evt)
     case Some{c}:
       match c:
-        case Sess.Stop{}:
-          idle_die(evt)
         case Sess.Cont{_}:
           k(Unit{})
         case Sess.Dial{+host, port}:
@@ -887,6 +894,17 @@ def idle_start(
 ) -> IO(Unit):
   idle_start.on(U32.is_eq(frames, 0), nick, frames, evt, cmd)
 
+def boot_demo(
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +chan: String,
+  +ts: String,
+  +frames: U32,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd)
+) -> IO(Unit):
+  live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), False{}), evt, cmd)
+
 def run_offline_on(
   +frames: U32,
   +cl: Cl.Client,
@@ -900,7 +918,8 @@ def run_offline_on(
   do IO<Unit>:
     Unit <- IO.spawn(Unit, idle_start(nick, frames, evt, cmd))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_demo(cl, chan), False{}), evt, cmd)
+    ts : String <- Clock.hhmmss()
+    boot_demo(ui, cl, chan, ts, frames, evt, cmd)
 
 def run_offline(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String) -> IO(Unit):
   do IO<Unit>:

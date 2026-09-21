@@ -1,4 +1,4 @@
-# Pure IRC session: fold, JOIN-after-001, keys, backoff.
+# Pure IRC session: fold, JOIN-after-001, keys. No reconnect/backoff.
 # Fuel helpers live in natutil.bend. No IO. net.bend owns Socket / Chan / TimUI.
 import Base
 import ./irc.bend as Irc
@@ -149,25 +149,7 @@ type NetEvt is Data:
 
 type NetCmd is Data:
   Cont{outs: List<&2, String>}
-  Stop{}
   Dial{host: String, port: U32}
-
-def draft_bs.len(+s: String, n: Nat) -> String:
-  match n:
-    case 0n:
-      ""
-    case 1n+p:
-      String.take(s, p)
-
-def draft_bs(+s: String, bs: Bool) -> String:
-  match bs:
-    case False{}:
-      s
-    case True{}:
-      draft_bs.len(s, String.length(s))
-
-def draft_typed(+s: String, +text: String) -> String:
-  s ++ text
 
 type NetState is Data:
   Demo{}
@@ -200,25 +182,63 @@ def is_online(st: NetState) -> Bool:
     case Offline{}:
       False{}
 
+def is_busy(st: NetState) -> Bool:
+  match st:
+    case Online{}:
+      True{}
+    case Connecting{}:
+      True{}
+    case Demo{}:
+      False{}
+    case Offline{}:
+      False{}
+
 def show_netcmd(c: NetCmd) -> String:
   match c:
     case Cont{_}:
       "cont"
-    case Stop{}:
-      "stop"
     case Dial{+host, port}:
       "dial:" ++ host ++ ":" ++ U32.show(port)
+
+def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
+  match net:
+    case Online{}:
+      Cont{outs}
+    case Connecting{}:
+      Cont{Nil{}}
+    case Demo{}:
+      Cont{Nil{}}
+    case Offline{}:
+      Cont{Nil{}}
+
+def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
+  match cmd:
+    case Dial{+host, port}:
+      Dial{host, port}
+    case Cont{outs}:
+      hold_cmd.outs(net, outs)
 
 def wrap_outs(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
   match pair:
     case (cl2, outs):
       (cl2, "", Cont{outs})
 
-def connect_apply.on(+cl: Cl.Client, +host: String, +port: U32, online: Bool) -> Cl.Client & String & NetCmd:
+def connect_apply.busy(+cl: Cl.Client, online: Bool) -> Cl.Client & String & NetCmd:
   match online:
     case True{}:
       (Sub.echo_err_server(cl, "already connected"), "", Cont{Nil{}})
     case False{}:
+      (Sub.echo_err_server(cl, "already connecting"), "", Cont{Nil{}})
+
+def connect_apply.st(+cl: Cl.Client, +host: String, +port: U32, net: NetState) -> Cl.Client & String & NetCmd:
+  match net:
+    case Online{}:
+      connect_apply.busy(cl, True{})
+    case Connecting{}:
+      connect_apply.busy(cl, False{})
+    case Demo{}:
+      (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port})
+    case Offline{}:
       (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port})
 
 def connect_apply(+cl: Cl.Client, net: NetState, c: Sub.Conn) -> Cl.Client & String & NetCmd:
@@ -226,7 +246,7 @@ def connect_apply(+cl: Cl.Client, net: NetState, c: Sub.Conn) -> Cl.Client & Str
     case Sub.ConnBad{}:
       (Sub.echo_err(cl, "usage: /connect host [port]"), "", Cont{Nil{}})
     case Sub.ConnOk{+host, port}:
-      connect_apply.on(cl, host, port, is_online(net))
+      connect_apply.st(cl, host, port, net)
 
 def submit_pair.enter(+cl: Cl.Client, net: NetState, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
   match conn:
@@ -256,6 +276,7 @@ def cmd_connect(+net: NetState, +input: String) -> NetCmd:
 def cmd_connect_ok() -> Bool:
   String.eq(show_netcmd(cmd_connect(Demo{}, "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
     && String.eq(show_netcmd(cmd_connect(Online{}, "/connect irc.example.net")), "cont")
+    && String.eq(show_netcmd(cmd_connect(Connecting{}, "/connect irc.example.net")), "cont")
     && String.eq(show_netcmd(cmd_connect(Demo{}, "/connect")), "cont")
 
 type Hist is Data:
@@ -414,10 +435,10 @@ def session_fail.got(+msg: String, +st: Session) -> Session:
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
 
-def stamp_session(+st: Session, +ts: String) -> Session:
+def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, rows}:
-      Session{Cl.stamp_client(cl, ts), drop, rem, draft, joined, chan, net, hist, rows}
+      Session{Cl.set_now(cl, ts), drop, rem, draft, joined, chan, net, hist, rows}
 
 def session_set_rows(+st: Session, +rows: U32) -> Session:
   match st:
@@ -429,6 +450,11 @@ def session_rows(+st: Session) -> U32:
     case Session{_, _, _, _, _, _, _, _, rows}:
       rows
 
+def session_net(+st: Session) -> NetState:
+  match st:
+    case Session{_, _, _, _, _, _, net, _, _}:
+      net
+
 def session_after.dial(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, +chan: String, +hist: Hist, +rows: U32, +host: String) -> Session:
   Session{Cl.set_server(cl, host), drop, rem, draft, False{}, chan, Connecting{}, hist, rows}
 
@@ -437,8 +463,6 @@ def session_after(+cl: Cl.Client, drop: Bool, +rem: String, +draft: String, join
     case Dial{+host, _}:
       session_after.dial(cl, drop, rem, draft, chan, hist, rows, host)
     case Cont{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, rows}
-    case Stop{}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, rows}
 
 def apply_click.on(+cl: Cl.Client, +click: U32, z: Bool) -> Cl.Client:
@@ -504,18 +528,14 @@ def finish_keys(
       +h2 = hist_after_enter(hist, line, enter)
       finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, line), rows, hist_move(h2, draft2, hcmd))
 
-def live_line(+typed: String, bs: Bool) -> String:
-  match bs:
-    case True{}:
-      typed
-    case False{}:
-      typed
-
-def step_keys(+st: Session, +typed: String, +enter: Bool, bs: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & NetCmd & Bool:
+def step_keys(+st: Session, +typed: String, +enter: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hcmd: U32) -> Session & NetCmd & Bool:
   match st:
     case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, rows}:
-      +line = live_line(typed, bs)
+      +line = typed
       finish_keys(drop, rem, joined, chan, net, enter, tab, click, up, dn, hcmd, hist, line, rows, apply_keys(cl, net, line, enter))
+
+def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
+  step_keys(st, line, True{}, 0, 0, 0, 0, 0)
 
 def step_chunk_got(
   +draft: String,
@@ -534,19 +554,4 @@ def step_on_chunk(+st: Session, +chunk: String) -> Session & List<&2, String>:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, rows}:
       step_chunk_got(draft, chan, net, hist, rows, step_chunk(cl, drop, rem, chunk, joined, chan))
 
-def BACKOFF_START() -> U32:
-  250
 
-def BACKOFF_CAP() -> U32:
-  8000
-
-def next_backoff.cap(+doubled: U32, over: Bool) -> U32:
-  match over:
-    case True{}:
-      BACKOFF_CAP()
-    case False{}:
-      doubled
-
-def next_backoff(+ms: U32) -> U32:
-  +d = U32.add(ms, ms)
-  next_backoff.cap(d, U32.is_gt(d, BACKOFF_CAP()))

@@ -1,4 +1,4 @@
-/* Wall-clock HH:MM:SS for Line.ts. C formats; Bend stamps at buf_log. */
+/* Wall-clock HH:MM:SS for Line.ts. C formats; Bend stores it at buf_log_ts. */
 #ifndef BIRC_CLOCK_FFI_C
 #define BIRC_CLOCK_FFI_C
 

@@ -55,19 +55,14 @@ def visible_lines(+lines: List<&2, Cl.Line>, +height: Nat, +scroll: Nat) -> List
     height
   )
 
-# M8 Data the FFI interprets. Temporary live paint still joins spans to a String.
+# Packed paint wire is the live API (C interprets k|ts|spans). TextSpan is
+# the tokenize law type.
 type TextSpan is Data:
   Plain{text: String}
   Bold{text: String}
   Italic{text: String}
   Code{text: String}
   Link{url: String, text: String}
-
-type BodyLine is Data:
-  BodyLine{kind: Cl.LineKind, ts: String, spans: List<&2, TextSpan>}
-
-type Tab is Data:
-  Tab{name: String, on: Bool}
 
 def TS_WIDTH() -> Nat:
   8n
@@ -378,125 +373,80 @@ def show_spans(+xs: List<&2, TextSpan>) -> String:
 def tokenize_roundtrip(+s: String) -> Bool:
   String.eq(show_spans(tokenize(s)), s)
 
-def tokenize_has_bold.go(+xs: List<&2, TextSpan>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
+type SpanKind is Data:
+  WantBold{}
+  WantItalic{}
+  WantCode{}
+  WantLink{}
+
+def span_hit(k: SpanKind, h: TextSpan) -> Bool:
+  match k:
+    case WantBold{}:
       match h:
         case Bold{_}:
           True{}
-        case Plain{_}:
-          tokenize_has_bold.go(t)
+        case _:
+          False{}
+    case WantItalic{}:
+      match h:
         case Italic{_}:
-          tokenize_has_bold.go(t)
+          True{}
+        case _:
+          False{}
+    case WantCode{}:
+      match h:
         case Code{_}:
-          tokenize_has_bold.go(t)
+          True{}
+        case _:
+          False{}
+    case WantLink{}:
+      match h:
         case Link{_, _}:
-          tokenize_has_bold.go(t)
+          True{}
+        case _:
+          False{}
+
+type HKPh is Data:
+  HKList{}
+  HKHit{hit: Bool, rest: List<&2, TextSpan>}
+
+def has_kind.go(fuel: Nat, ph: HKPh, +k: SpanKind, xs: List<&2, TextSpan>) -> Bool:
+  match fuel:
+    case 0n:
+      False{}
+    case 1n+p:
+      match ph:
+        case HKList{}:
+          match xs:
+            case Nil{}:
+              False{}
+            case Con{h, t}:
+              has_kind.go(p, HKHit{span_hit(k, h), t}, k, Nil{})
+        case HKHit{hit, rest}:
+          match hit:
+            case True{}:
+              True{}
+            case False{}:
+              has_kind.go(p, HKList{}, k, rest)
+
+def has_kind(k: SpanKind, +s: String) -> Bool:
+  +xs = tokenize(s)
+  has_kind.go(Nat.add(1n, Nat.mul(2n, List.length(&2, TextSpan, xs))), HKList{}, k, xs)
 
 def tokenize_has_bold(+s: String) -> Bool:
-  tokenize_has_bold.go(tokenize(s))
-
-def tokenize_has_italic.go(+xs: List<&2, TextSpan>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
-      match h:
-        case Italic{_}:
-          True{}
-        case Plain{_}:
-          tokenize_has_italic.go(t)
-        case Bold{_}:
-          tokenize_has_italic.go(t)
-        case Code{_}:
-          tokenize_has_italic.go(t)
-        case Link{_, _}:
-          tokenize_has_italic.go(t)
+  has_kind(WantBold{}, s)
 
 def tokenize_has_italic(+s: String) -> Bool:
-  tokenize_has_italic.go(tokenize(s))
-
-def tokenize_has_code.go(+xs: List<&2, TextSpan>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
-      match h:
-        case Code{_}:
-          True{}
-        case Plain{_}:
-          tokenize_has_code.go(t)
-        case Bold{_}:
-          tokenize_has_code.go(t)
-        case Italic{_}:
-          tokenize_has_code.go(t)
-        case Link{_, _}:
-          tokenize_has_code.go(t)
+  has_kind(WantItalic{}, s)
 
 def tokenize_has_code(+s: String) -> Bool:
-  tokenize_has_code.go(tokenize(s))
-
-def tokenize_has_link.go(+xs: List<&2, TextSpan>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
-      match h:
-        case Link{_, _}:
-          True{}
-        case Plain{_}:
-          tokenize_has_link.go(t)
-        case Bold{_}:
-          tokenize_has_link.go(t)
-        case Italic{_}:
-          tokenize_has_link.go(t)
-        case Code{_}:
-          tokenize_has_link.go(t)
+  has_kind(WantCode{}, s)
 
 def tokenize_has_link(+s: String) -> Bool:
-  tokenize_has_link.go(tokenize(s))
+  has_kind(WantLink{}, s)
 
 def unclosed_star_plain() -> Bool:
   Bool.not(tokenize_has_bold("*foo"))
-
-def show_vis.go(+xs: List<&2, Cl.Line>, +acc: String) -> String:
-  match xs:
-    case Nil{}:
-      acc
-    case Con{Cl.Line{_, _, +text}, t}:
-      show_vis.go(t, acc ++ show_spans(tokenize(text)) ++ "\n")
-
-def show_vis(+xs: List<&2, Cl.Line>) -> String:
-  show_vis.go(xs, "")
-
-def show_tabs.mark(+name: String, eq: Bool) -> String:
-  match eq:
-    case True{}:
-      "[" ++ name ++ "]"
-    case False{}:
-      name
-
-def show_tabs.go(+bufs: List<&2, Cl.Buffer>, +active: Nat, +i: Nat, +acc: String) -> String:
-  match bufs:
-    case Nil{}:
-      acc
-    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
-      show_tabs.go(t, active, 1n+i, acc ++ show_tabs.mark(name, Nat.is_eq(i, active)) ++ " ")
-
-def show_tabs(+cl: Cl.Client) -> String:
-  match cl:
-    case Cl.Client{_, _, +bufs, +active}:
-      show_tabs.go(bufs, active, 0n, "")
-
-def tab_mark(+name: String, on: Bool) -> Tab:
-  Tab{name, on}
-
-def tabs_step(+active: Nat, acc: List<&2, Tab>, pair: Cl.Buffer & Nat) -> List<&2, Tab>:
-  match pair:
-    case (Cl.Buffer{+name, _, _, _, _, _}, i):
-      tab_mark(name, Nat.is_eq(i, active)) <> acc
 
 # Test helper: visible window is chronological (oldest first).
 def vis_chrono_ok.pair(+t0: String, rest: List<&2, Cl.Line>) -> Bool:
@@ -521,11 +471,6 @@ def vis_chrono_ok.buf(b: Cl.Buffer) -> Bool:
 def vis_chrono_ok() -> Bool:
   vis_chrono_ok.buf(Cl.buf_log(Cl.buf_log(Cl.server_buf(), Cl.Msg{}, "one"), Cl.Msg{}, "two"))
 
-def to_body(+ln: Cl.Line) -> BodyLine:
-  match ln:
-    case Cl.Line{+k, +ts, +text}:
-      BodyLine{k, ts, tokenize(text)}
-
 def show_nicks_col.go(fuel: Nat, +ns: List<&2, String>, +acc: String) -> String:
   match fuel:
     case 0n:
@@ -549,7 +494,7 @@ def active_buf.on(+got: Maybe<&2, Cl.Buffer>) -> Cl.Buffer:
 
 def active_buf(+cl: Cl.Client) -> Cl.Buffer:
   match cl:
-    case Cl.Client{_, _, +bufs, +active}:
+    case Cl.Client{_, _, +bufs, +active, _}:
       active_buf.on(Cl.nth_buf(bufs, active))
 
 def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -> String:
@@ -559,7 +504,7 @@ def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -
 
 def header_of(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{+nick, +server, _, _}:
+    case Cl.Client{+nick, +server, _, _, _}:
       header_of.buf(nick, server, active_buf(cl), "demo")
 
 def pad_top(n: Nat, +s: String) -> String:
@@ -687,12 +632,12 @@ def pack_tab_names.go(+bufs: List<&2, Cl.Buffer>, acc: String) -> String:
 
 def pack_tabs(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, +active}:
+    case Cl.Client{_, _, +bufs, +active, _}:
       Nat.show(active) ++ "\t" ++ pack_tab_names.go(bufs, "")
 
 def view_draft(+cl: Cl.Client, +height: Nat, +draft: String, +net: String) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active}:
+    case Cl.Client{+nick, +server, +bufs, +active, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       h t = header_of.buf(nick, server, b, net) pack_tabs(cl)
       bod ns = body_of.buf(b, height) nicks_of.buf(b)
