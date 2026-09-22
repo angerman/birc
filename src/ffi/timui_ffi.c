@@ -83,6 +83,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   cfg.userdata = st;
   cfg.input_poll_ms = 0;
   if (timui_open(&cfg, &ui) != TIMUI_OK) {
+    if (st->poke_rd >= 0) (void)close(st->poke_rd);
+    if (st->poke_wr >= 0) (void)close(st->poke_wr);
     free(st);
     return io_fail(e, 1u, "timui_open failed");
   }
