@@ -569,7 +569,9 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 - [x] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
       `test-dns` is identity + parse only; `! grep one.one.one.one` on
       `dns_demo.bend`. `make test-dns-live` is documented and not in `check`.
-- [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
+- [x] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
+      `actor.bend` 780 (reader/idle/dial/send); `net.bend` 518 (UI/shutdown).
+      Goldens unchanged modulo the net_demo import.
 - [ ] **P5** Bare CR inside a line drops the whole line (RFC 1459).
 - [ ] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
 - [ ] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
