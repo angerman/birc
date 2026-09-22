@@ -208,7 +208,7 @@ test-pty-mixburst: build-ui ## Pty: text+Backspace+arrows+Enter burst (B3).
 test-pty-quitcap: build-ui ## Pty: /quit after a SEND_CAP burst still sends QUIT (X2).
 	$(NIXRUN) python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
 
-test-pty-tickrate: build-ui ## Pty: idle <= 2 ticks/s and CPU <= 0.5% (P1).
+test-pty-tickrate: build-ui ## Pty: idle <= 2 ticks/s and CPU <= 1.0% (P1).
 	$(NIXRUN) python3 tests/pty/tickrate.py ./$(BLDDIR)/birc
 
 test-pty-paintwake: build-ui ## Pty: incoming line paints within 100 ms after idle (P1).
@@ -238,6 +238,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@awk '/^def with_eof.go\(/{p=1;next} p&&/^def /{p=0} p&&/Chan.close\(Sess.NetEvt/{c=1} END{if(!c){print "with_eof must close the old evt"; exit 1}}' src/bend/net.bend
 	@grep -q 'F_SETFL, O_NONBLOCK' src/ffi/timui_ffi.c
 	@grep -q 'poll(p, 1, 0)' src/ffi/timui_ffi.c
+	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)
