@@ -27,7 +27,9 @@ make run HOST=irc.example.net   # live plaintext IRC (Bend DNS A + TCP)
 | Path | Role |
 |---|---|
 | `src/bend/irc.bend` | Pure RFC 1459/2812 parse / classify / format |
-| `src/bend/client.bend` | Client state + `feed` |
+| `src/bend/buffer.bend` | Buffer / Client container types |
+| `src/bend/client.bend` | `feed` dispatcher |
+| `src/bend/client_laws.bend` | Feed inspectors and law predicates |
 | `src/bend/submit.bend` | Composer → outbound IRC lines |
 | `src/bend/frame.bend` | CRLF octet framer + UTF-8 line decode |
 | `src/bend/view.bend` | ViewModel + scroll bounds |

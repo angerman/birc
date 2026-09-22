@@ -80,7 +80,8 @@ law framer_roundtrip:
 law scroll_bounds:
   {V.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
-# LAW: packed body lines fit in C's drawable rows (rows-6).
+# LAW: body height is rows minus six chrome rows (header, tabs, borders,
+# status), with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
 law body_h_fits:
   {Sess.body_h_ok() == True{} : Bool}
 
