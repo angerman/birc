@@ -58,6 +58,7 @@ silent flake/source pin updates. Routine Nix work uses
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` is `File.read` → `feed_all`, fail closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
 - Shutdown (P5): `Socket.close` then `Timui.close`, then `IO.die` so parked IO cannot linger.
 - Headless `birc` quits on the first frame; loop tests need a pty (`make test-pty`).
+- A new or changed pty test must pass three consecutive runs before its commit.
 - Prove laws; do not weaken them to make a candidate pass.
 - Bend pitfalls: no `match f(x)`; `+T` is copyable; match binders in param order;
   self-recursion needs decreasing fuel as the first arg; no dotted forward refs;
