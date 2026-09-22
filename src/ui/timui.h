@@ -3214,6 +3214,7 @@ struct Timui {
   int paste_len;
   char paste_utf8_tail[4];
   int paste_utf8_tail_len;
+  int paste_skip_lf; /* last paste chunk ended on a lone CR; skip a leading LF */
   int trace_fd; /* TIMUI_TRACE input trace fd, -1 = off */
   /* Submit segmentation for timui_input_field: byte offsets in text_in where
    * Enter fired this frame, in order. Lets the field submit ONE segment per
@@ -3229,6 +3230,8 @@ struct Timui {
   int pending_enter_at[64];
   uint32_t pending_enter_mods[64];
   int pending_enter_count;
+  TimuiEditOp pending_edit_ops[512];
+  int pending_edit_count;
   TimuiEditOp edit_ops[512];
   int edit_count;
   unsigned key_in;
@@ -3586,13 +3589,16 @@ static void timui_edit_rebuild_from_text_(Timui *ui) {
   timui_edit_add_text_(ui, j, ui->text_in_len - j);
 }
 static void timui_defer_edit_ops_after_(Timui *ui, int first) {
-  int i, text_len = 0, enter_count = 0;
+  int i, text_len = 0, enter_count = 0, edit_count = 0;
+  int edit_cap;
   if (!ui)
     return;
   if (first < 0)
     first = 0;
   if (first > ui->edit_count)
     first = ui->edit_count;
+  edit_cap =
+      (int)(sizeof(ui->pending_edit_ops) / sizeof(ui->pending_edit_ops[0]));
   for (i = first; i < ui->edit_count; i++) {
     TimuiEditOp *op = &ui->edit_ops[i];
     if (op->kind == TIMUI_EDIT_TEXT && op->len > 0) {
@@ -3601,22 +3607,38 @@ static void timui_defer_edit_ops_after_(Timui *ui, int first) {
         n = (int)sizeof(ui->pending_in) - text_len;
       if (n > 0) {
         memcpy(ui->pending_in + text_len, ui->text_in + op->start, (size_t)n);
+        if (edit_count < edit_cap) {
+          TimuiEditOp *d = &ui->pending_edit_ops[edit_count++];
+          d->kind = TIMUI_EDIT_TEXT;
+          d->key = 0;
+          d->start = text_len;
+          d->len = n;
+          d->mods = 0;
+        } else
+          ui->events_dropped++;
         text_len += n;
       }
       if (n < op->len)
         ui->events_dropped++;
-    } else if (op->kind == TIMUI_EDIT_KEY && op->key == TIMUI_EDIT_KEY_ENTER_) {
-      if (enter_count < (int)(sizeof(ui->pending_enter_at) /
-                              sizeof(ui->pending_enter_at[0]))) {
-        ui->pending_enter_at[enter_count] = text_len;
-        ui->pending_enter_mods[enter_count] = op->mods;
-        enter_count++;
-      } else
+    } else if (op->kind == TIMUI_EDIT_KEY) {
+      if (op->key == TIMUI_EDIT_KEY_ENTER_) {
+        if (enter_count < (int)(sizeof(ui->pending_enter_at) /
+                                sizeof(ui->pending_enter_at[0]))) {
+          ui->pending_enter_at[enter_count] = text_len;
+          ui->pending_enter_mods[enter_count] = op->mods;
+          enter_count++;
+        } else
+          ui->events_dropped++;
+      }
+      if (edit_count < edit_cap)
+        ui->pending_edit_ops[edit_count++] = *op;
+      else
         ui->events_dropped++;
     }
   }
   ui->pending_in_len = text_len;
   ui->pending_enter_count = enter_count;
+  ui->pending_edit_count = edit_count;
 }
 static int timui_append_text_cp_(Timui *ui, uint32_t cp) {
   char enc[4];
@@ -3636,43 +3658,81 @@ static int timui_append_text_cp_(Timui *ui, uint32_t cp) {
     ui->events_dropped++;
   return 0;
 }
-static int timui_append_paste_bytes_(Timui *ui, const char *ptr, size_t len) {
+/* Split a PASTE payload on CR/LF into text_in + enter_at (same as typed
+ * lines). Returns how many bytes of `ptr` were consumed. Unconsumed bytes
+ * stay with the caller to unget. Incomplete UTF-8 at the end of a fully
+ * walked `ptr` is stashed in paste_utf8_tail and counts as consumed. */
+static size_t timui_append_paste_bytes_(Timui *ui, const char *ptr, size_t len) {
   char bytes[sizeof(((Timui *)0)->paste_buf) + 4];
-  size_t total = 0, pk = 0;
-  int start;
+  size_t total = 0, pk = 0, tail0, orig_len, used;
+  int enter_cap, edit_cap, run_start, run_len;
   if (!ui || (!ptr && len > 0))
     return 0;
-  start = ui->text_in_len;
-  if (ui->paste_utf8_tail_len > 0) {
-    memcpy(bytes, ui->paste_utf8_tail, (size_t)ui->paste_utf8_tail_len);
-    total = (size_t)ui->paste_utf8_tail_len;
+  orig_len = len;
+  enter_cap = (int)(sizeof(ui->enter_at) / sizeof(ui->enter_at[0]));
+  edit_cap = (int)(sizeof(ui->edit_ops) / sizeof(ui->edit_ops[0]));
+  tail0 = (size_t)ui->paste_utf8_tail_len;
+  if (tail0 > 0) {
+    memcpy(bytes, ui->paste_utf8_tail, tail0);
+    total = tail0;
     ui->paste_utf8_tail_len = 0;
   }
-  if (len > sizeof(bytes) - total) {
+  if (len > sizeof(bytes) - total)
     len = sizeof(bytes) - total;
-    ui->events_dropped++;
-  }
   if (len > 0) {
     memcpy(bytes + total, ptr, len);
     total += len;
   }
+  if (ui->paste_skip_lf) {
+    if (pk < total && (unsigned char)bytes[pk] == '\n')
+      pk++;
+    ui->paste_skip_lf = 0;
+  }
+  run_start = ui->text_in_len;
+  run_len = 0;
   while (pk < total) {
     unsigned char pc = (unsigned char)bytes[pk];
     uint32_t cp = 0;
-    int adv;
+    int adv, n, start, need;
     if (pc == 0 || pc == 0x7f) {
       pk++;
       continue;
     }
-    if (pc < 0x20) {
-      if (pc != '\n' && pc != '\r' && pc != '\t') {
+    if (pc == '\r' || pc == '\n') {
+      need = (run_len > 0 ? 1 : 0) + 1;
+      if (ui->enter_count >= enter_cap || ui->edit_count + need > edit_cap)
+        break;
+      if (run_len > 0) {
+        timui_edit_add_text_(ui, run_start, run_len);
+        run_len = 0;
+      }
+      timui_edit_add_key_(ui, TIMUI_EDIT_KEY_ENTER_, 0);
+      ui->enter_at[ui->enter_count] = ui->text_in_len;
+      ui->enter_mods[ui->enter_count] = 0;
+      ui->enter_count++;
+      pk++;
+      if (pc == '\r' && pk < total && (unsigned char)bytes[pk] == '\n')
+        pk++;
+      else if (pc == '\r' && pk >= total)
+        ui->paste_skip_lf = 1;
+      run_start = ui->text_in_len;
+      continue;
+    }
+    if (pc < 0x20 && pc != '\t') {
+      pk++;
+      continue;
+    }
+    if (pc == '\t') {
+      if (ui->edit_count >= edit_cap)
+        break;
+      if (ui->text_in_len >= (int)sizeof(ui->text_in)) {
         pk++;
         continue;
       }
-      if (ui->text_in_len < (int)sizeof(ui->text_in))
-        ui->text_in[ui->text_in_len++] = (char)pc;
-      else
-        ui->events_dropped++;
+      if (run_len == 0)
+        run_start = ui->text_in_len;
+      ui->text_in[ui->text_in_len++] = '\t';
+      run_len++;
       pk++;
       continue;
     }
@@ -3683,14 +3743,35 @@ static int timui_append_paste_bytes_(Timui *ui, const char *ptr, size_t len) {
         rem = sizeof(ui->paste_utf8_tail);
       memcpy(ui->paste_utf8_tail, bytes + pk, rem);
       ui->paste_utf8_tail_len = (int)rem;
+      pk = total;
       break;
     }
     if (adv < 0)
       adv = 1;
-    (void)timui_append_text_cp_(ui, cp);
+    if (ui->edit_count >= edit_cap)
+      break;
+    start = ui->text_in_len;
+    if (start >= (int)sizeof(ui->text_in)) {
+      pk += (size_t)adv;
+      continue;
+    }
+    n = timui_append_text_cp_(ui, cp);
+    if (n > 0) {
+      if (run_len == 0)
+        run_start = start;
+      run_len += n;
+    }
     pk += (size_t)adv;
   }
-  return ui->text_in_len - start;
+  if (run_len > 0)
+    timui_edit_add_text_(ui, run_start, run_len);
+  if (pk <= tail0)
+    used = 0;
+  else
+    used = pk - tail0;
+  if (used > orig_len)
+    used = orig_len;
+  return used;
 }
 static void timui_flush_paste_utf8_tail_(Timui *ui) {
   int start, n;
@@ -4537,13 +4618,23 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       }
     }
     timui_input_flush_esc(&ui->input, timui_now_ms(), ui_event_cb, ui);
+  } else if (ui->event_count > 0) {
+    /* Holding leftover events: keep a partial CSI / paste terminator from
+     * idling out (50 ms Esc window) while we drain the Enter table one
+     * submit per frame. mixburst splits ESC[C across a 256-byte read. */
+    uint64_t now = timui_now_ms();
+    timui_input_set_now(&ui->input, now);
+    ui->input.esc_since_ms = now;
+    ui->input.paste_since_ms = now;
+    ui->input.str_since_ms = now;
   }
   /* drain parsed events: mouse -> hit-testing; tab/enter -> interaction;
    * printable text + cursor keys -> the focused input's accumulator. */
   /* Re-inject any input deferred from the previous frame's multi-Enter burst
    * (post-first-Enter tail), so this frame's new events append after it and a
    * fast "a\rb\r" submits one segment per frame instead of merging. */
-  if (ui->pending_in_len > 0 || ui->pending_enter_count > 0) {
+  if (ui->pending_in_len > 0 || ui->pending_enter_count > 0 ||
+      ui->pending_edit_count > 0) {
     int pe;
     memcpy(ui->text_in, ui->pending_in, (size_t)ui->pending_in_len);
     ui->text_in_len = ui->pending_in_len;
@@ -4552,9 +4643,15 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       ui->enter_mods[pe] = ui->pending_enter_mods[pe];
     }
     ui->enter_count = ui->pending_enter_count;
+    if (ui->pending_edit_count > 0) {
+      memcpy(ui->edit_ops, ui->pending_edit_ops,
+             (size_t)ui->pending_edit_count * sizeof(ui->edit_ops[0]));
+      ui->edit_count = ui->pending_edit_count;
+    } else
+      timui_edit_rebuild_from_text_(ui);
     ui->pending_in_len = 0;
     ui->pending_enter_count = 0;
-    timui_edit_rebuild_from_text_(ui);
+    ui->pending_edit_count = 0;
   } else {
     ui->text_in_len = 0;
     ui->enter_count = 0;
@@ -4712,17 +4809,21 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
         if (n > 0)
           timui_edit_add_text_(ui, start, n);
       } else if (ev.kind == TIMUI_EVENT_PASTE) {
-        int start = ui->text_in_len;
-        int n;
-        if (ui->text_in_len >= (int)sizeof(ui->text_in) - 4 ||
-            ui->edit_count >= edit_cap) {
+        size_t used;
+        if ((size_t)ui->text_in_len + ev.as.paste.len > sizeof(ui->text_in) ||
+            ui->edit_count >= edit_cap || ui->enter_count >= enter_cap) {
           timui_unget_event_(ui, &ev);
           input_held = 1;
           break;
         }
-        n = timui_append_paste_bytes_(ui, ev.as.paste.ptr, ev.as.paste.len);
-        if (n > 0)
-          timui_edit_add_text_(ui, start, n);
+        used = timui_append_paste_bytes_(ui, ev.as.paste.ptr, ev.as.paste.len);
+        if (used < ev.as.paste.len) {
+          ev.as.paste.ptr += used;
+          ev.as.paste.len -= used;
+          timui_unget_event_(ui, &ev);
+          input_held = 1;
+          break;
+        }
       } else if (ev.kind == TIMUI_EVENT_FOCUS) {
         if (focus_count < (int)(sizeof(focus_events) / sizeof(focus_events[0])))
           focus_events[focus_count++] = ev;

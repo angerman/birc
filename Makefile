@@ -27,6 +27,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
         test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
+        test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live
@@ -195,6 +196,14 @@ test-pty-paste50: build-ui ## Pty: burst paste 50/100/300 lines, then /quit (X3)
 	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 100
 	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 300
 
+test-pty-bpaste: build-ui ## Pty: bracketed paste 10/60/300 lines, then /quit (B1).
+	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 10
+	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 60
+	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 300
+
+test-pty-mixburst: build-ui ## Pty: text+Backspace+arrows+Enter burst (B3).
+	$(NIXRUN) python3 tests/pty/mixburst.py ./$(BLDDIR)/birc 200
+
 test-pty-quitcap: build-ui ## Pty: /quit after a SEND_CAP burst still sends QUIT (X2).
 	$(NIXRUN) python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
 
@@ -207,7 +216,7 @@ test-pty-paintwake: build-ui ## Pty: incoming line paints within 100 ms after id
 test-pty-joinlat: build-ui ## Pty: 001 to JOIN under 100 ms (P1 handshake).
 	$(NIXRUN) python3 tests/pty/join_latency.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

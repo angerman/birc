@@ -100,7 +100,14 @@ Local edits to `src/ui/timui.h` (re-apply on an upstream update):
    full, `timui_begin` ungets the current event and stops consuming; leftover
    events stay queued and no further `transport.read` runs until they drain.
    Enters are never merged or dropped. `pending_*` still carries the
-   post-submit tail of the current table.
+   post-submit tail of the current table. While events are held, the input
+   parser's Esc/paste/string clocks are re-anchored so a split CSI (arrow
+   key) does not idle-out across those frames.
+4. **Bracketed paste CR/LF split.** `TIMUI_EVENT_PASTE` payloads (ESC[200~ …
+   ESC[201~) are split on CR/LF into text plus `enter_at` entries, with the
+   same hold/unget when the tables are full. The PASTE hold guard bounds
+   `text_in_len + paste.len` (not a 4-byte code point). The deferred
+   post-Enter tail also keeps Backspace and cursor ops (`pending_edit_ops`).
 
 ### Pure domain types
 
