@@ -73,10 +73,12 @@ build: build-proto build-ui ## Build protocol harness and TimUI client.
 test-proto: build-proto ## Run Bend protocol golden harness.
 	$(NIXRUN) ./$(BLDDIR)/birc-proto
 
-test-feed: ## M1 feed goldens.
+test-feed: ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
 	$(NIXRUN) ./$(BLDDIR)/feed_demo
+	$(NIXRUN) bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
+	$(NIXRUN) timeout 2 ./$(BLDDIR)/feed_bench
 
 test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)

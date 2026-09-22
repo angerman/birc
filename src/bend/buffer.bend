@@ -70,6 +70,15 @@ def buf_count(+bufs: List<&2, Buffer>) -> Nat:
 # ---- buffer find/get ----------------------------------------------------
 
 # Skip index 0 (the server buffer). First later match wins.
+# One recursive call per step: Bool.pick evaluates both arms, so a recurse
+# in each arm is exponential in the buffer count (X1 / I7).
+def buf_find.rest(cont: Maybe<&2, Nat>, hit: Bool, +i: Nat) -> Maybe<&2, Nat>:
+  match hit:
+    case True{}:
+      Some{i}
+    case False{}:
+      cont
+
 def buf_find.go(xs: List<&2, Buffer>, +name: String, +i: Nat) -> Maybe<&2, Nat>:
   match xs:
     case Nil{}:
@@ -77,17 +86,19 @@ def buf_find.go(xs: List<&2, Buffer>, +name: String, +i: Nat) -> Maybe<&2, Nat>:
     case Con{h, +t}:
       match h:
         case Buffer{+n, _, _, _, _, _}:
-          Bool.pick(
-            Maybe<&2, Nat>,
-            Nat.is_eq(i, 0n),
-            buf_find.go(t, name, 1n+i),
-            Bool.pick(Maybe<&2, Nat>, Irc.ieq(n, name), Some{i}, buf_find.go(t, name, 1n+i))
-          )
+          buf_find.rest(buf_find.go(t, name, 1n+i), Irc.ieq(n, name), i)
+
+def buf_find.skip0(xs: List<&2, Buffer>, +name: String) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{_, t}:
+      buf_find.go(t, name, 1n)
 
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   match cl:
     case Client{_, _, +bufs, _, _}:
-      buf_find.go(bufs, name, 0n)
+      buf_find.skip0(bufs, name)
 
 def empty_buf(+name: String, is_channel: Bool) -> Buffer:
   Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, Nil{}, 0n}
