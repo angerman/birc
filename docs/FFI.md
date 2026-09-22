@@ -78,7 +78,10 @@ including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
 `timui_begin`. Bend uses 16 ms while `Connecting`, while `now < hot_until`
 (50 ms after Up/Chunk/Fail/Eof or keys, via `IO.now`; the poke byte already
 wakes the frame after an event), or if the composer is
-non-empty; else 1000 ms. Idle CPU (`tickrate.py`): ~0.5% of a core. With one
+non-empty; else 1000 ms. C also caps the poll at 0 ms if `event_count` or
+`pending_*` is non-empty, and at 16 ms if the composer has text or the
+previous frame saw keys (`hot_next`), so a one-write line+CR after idle
+cannot lose Enter behind a 1000 ms wait. Idle CPU (`tickrate.py`): ~0.5% of a core. With one
 inbound line every 1.5–2 s (`ratecpu.py`): ~1.0% of a core (was 5–6% at a
 2000 ms window). Actor events sit in a channel, so a 1000 ms poll
 would miss them (001 → JOIN waited a full idle tick). `wake_fd` is a **wake hint**: the actor's socket fd

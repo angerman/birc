@@ -16,6 +16,8 @@ typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int wake_dead;
+  int wake_seen;
+  int hot_next;
   int poke_rd;
   int poke_wr;
 } BircUi;
@@ -27,8 +29,7 @@ static Timui *birc_ui_live;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
-  if (ui)
-    timui_restore_terminal(ui);
+  if (ui) timui_restore_terminal(ui);
 }
 #ifdef CID_UIKEYS
 static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
@@ -64,8 +65,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   (void)f;
   (void)w;
   st = (BircUi *)calloc(1, sizeof(BircUi));
-  if (!st)
-    return io_fail(e, 1u, "timui_open failed");
+  if (!st) return io_fail(e, 1u, "timui_open failed");
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
   st->poke_rd = st->poke_wr = -1;
@@ -99,8 +99,7 @@ static void __attribute__((constructor)) timui_open_use(void) {
 static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
   int cx = x;
-  if (!s)
-    n = 0;
+  if (!s) n = 0;
   while (i < n) {
     uint32_t cp = 0;
     int adv = timui_utf8_decode(s + i, n - i, &cp);
@@ -124,11 +123,9 @@ static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
                          size_t n, uint32_t fg, uint32_t attrs, const char *uri) {
   int w = 0;
   TimuiStyle st;
-  if (!fr || n == 0 || x >= maxx)
-    return x;
+  if (!fr || n == 0 || x >= maxx) return x;
   n = birc_clip_cols(p, n, x, maxx, &w);
-  if (n == 0)
-    return x;
+  if (n == 0) return x;
   st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, attrs);
   if (uri)
     timui_label_hyperlink(fr, x, y, (TimuiStr){p, n}, uri, st);
@@ -140,8 +137,7 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
   char uri[512];
-  if (!fr || tlen == 0 || x >= maxx)
-    return x;
+  if (!fr || tlen == 0 || x >= maxx) return x;
   if (ulen >= sizeof uri)
     return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0, NULL);
   memcpy(uri, url, ulen);
@@ -306,19 +302,15 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   int prompt_w;
   size_t n;
   (void)st;
-  if (!fr || !stt)
-    return 0;
+  if (!fr || !stt) return 0;
   prompt_w = width > 2 ? 2 : 0;
-  if (prompt_w > 0)
-    timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
+  if (prompt_w > 0) timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
   id = TIMUI_ID("birc.composer");
-  if (timui_focus(fr) != id)
-    timui_set_focus(fr, id);
+  if (timui_focus(fr) != id) timui_set_focus(fr, id);
   r.x = x + prompt_w;
   r.y = y;
   r.w = width - prompt_w;
-  if (r.w < 1)
-    r.w = 1;
+  if (r.w < 1) r.w = 1;
   r.h = 1;
   res = timui_text_area_mut(fr, id, r, &stt->st, TIMUI_TEXT_AREA_ENTER_SUBMITS);
   n = strlen(stt->composer);
@@ -331,18 +323,18 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   int r, wake_i = -1, poke_i = -1, tty, timeout, poke_ready = 0;
   BircUi *bu = birc_state(ui);
   char dump;
-  if (!ui)
-    return;
-  if (wake_fd == 0u && bu)
-    bu->wake_dead = 0;
+  if (!ui) return;
+  if (bu) {
+    if (wake_fd == 0u || (int)wake_fd != bu->wake_seen) bu->wake_dead = 0;
+    bu->wake_seen = (int)wake_fd;
+  }
   tty = ui->fd.read_fd;
   if (tty >= 0) {
     p[n].fd = tty;
     p[n].events = POLLIN;
     p[n++].revents = 0;
   }
-  if (wake_fd > 0u && (int)wake_fd != tty && (int)wake_fd >= 0 &&
-      (!bu || !bu->wake_dead)) {
+  if (wake_fd > 0u && (int)wake_fd != tty && (int)wake_fd >= 0) {
     wake_i = (int)n;
     p[n].fd = (int)wake_fd;
     p[n].events = POLLIN;
@@ -357,6 +349,11 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   if (n == 0)
     return;
   timeout = wait_ms > 2147483647u ? -1 : (int)wait_ms;
+  if (ui->event_count || ui->pending_enter_count || ui->pending_edit_count)
+    timeout = 0;
+  else if (bu && (bu->hot_next || bu->composer[0]) && timeout > 16)
+    timeout = 16;
+  if (bu) bu->hot_next = 0;
   do {
     r = poll(p, n, timeout);
   } while (r == -1 && errno == EINTR);
@@ -480,6 +477,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       quit = 1;
     }
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
+    if (bu && (enter || ui->enter_count || ui->text_in_len || ui->event_count ||
+               bu->composer[0])) bu->hot_next = 1;
   }
   timui_end(fr);
   if (timui_should_quit(ui))
