@@ -821,6 +821,11 @@ def parse_id_mismatch_on(+want: U32, +xs: List<&2, U32>, m: Maybe<&2, U32>) -> B
 def parse_id_mismatch_ok(+want: U32, +xs: List<&2, U32>) -> Bool:
   parse_id_mismatch_on(want, xs, xs_id(xs))
 
+# Full A packet whose id is 2 (want 1 fails). Short witnesses never reach
+# the id-mismatch arm of parse_id_mismatch_on.
+def sample_bad_id() -> List<&2, U32>:
+  0 <> 2 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 1 <> 2 <> 3 <> 4 <> Nil{}
+
 type Take is Data:
   Miss{}
   HitOk{ip: String}

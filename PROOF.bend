@@ -194,10 +194,10 @@ def Laws.legal_509_line():
 def Laws.short_text_ok():
   {==}
 
-def Laws.push_rem_nil():
+def Laws.push_rem_510():
   {==}
 
-def Laws.push_rem_crlf():
+def Laws.push_rem_511():
   {==}
 
 def Laws.parse_id_short():
@@ -207,6 +207,11 @@ def Laws.parse_id_bad():
   {==}
 
 # P8 quantified attempts (2026-09-22). Kept as comments with checker output.
+#
+# law push_rem_bound at LINE_OCTET_MAX (510) is FALSE, not unprovable:
+# rem(510 'a' + CR) = 511 because push.go tests is_cr before over, so a CR
+# at a chunk boundary is held. Restated as LINE_OCTET_MAX+1 (LINE_REM_MAX).
+# Point laws: rem510 (exactly 510) and rem511 (exactly 511).
 #
 # law push_rem_bound:
 #   for xs: List<&2, U32>
@@ -228,6 +233,7 @@ def Laws.parse_id_bad():
 #   {Wire.parse_id_mismatch_ok(want, xs) == True{} : Bool}
 # Not reached: push_rem_bound failed first. parse_id goes through parse_hdr
 # / hdr_chks; a Client-universal nbuf cap has the same shape of blocker.
+# parse_id_bad now uses sample_bad_id() (full packet, id 2 vs want 1).
 
 def Laws.live_fuel_small():
   {==}

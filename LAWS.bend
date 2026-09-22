@@ -226,21 +226,21 @@ law legal_509_line:
 law short_text_ok:
   {Fr.short_text_ok() == True{} : Bool}
 
-# LAW: push of Nil leaves rem length 0 (≤ 510).
-law push_rem_nil:
-  {Fr.push_rem_le(Nil{}) == True{} : Bool}
+# LAW: 510 payload octets stay in rem (at LINE_OCTET_MAX).
+law push_rem_510:
+  {Fr.rem510_ok() == True{} : Bool}
 
-# LAW: a short CRLF line leaves rem empty.
-law push_rem_crlf:
-  {Fr.push_rem_le(Fr.crlf("hi")) == True{} : Bool}
+# LAW: 510 'a' + CR at a chunk boundary is held at LINE_OCTET_MAX+1.
+law push_rem_511:
+  {Fr.rem511_ok() == True{} : Bool}
 
 # LAW: parse_id on a short packet is not Done.
 law parse_id_short:
   {Wire.parse_id_mismatch_ok(1, Nil{}) == True{} : Bool}
 
-# LAW: parse_id is not Done when the id octets are 0,2 and want is 1.
+# LAW: parse_id is not Done on a full packet whose id is 2 and want is 1.
 law parse_id_bad:
-  {Wire.parse_id_mismatch_ok(1, 0 <> 2 <> Nil{}) == True{} : Bool}
+  {Wire.parse_id_mismatch_ok(1, Wire.sample_bad_id()) == True{} : Bool}
 
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:
