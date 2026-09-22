@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
@@ -19,6 +20,8 @@ typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int wake_dead;
+  int poke_rd;
+  int poke_wr;
 } BircUi;
 
 static BircUi *birc_state(const Timui *ui) {
@@ -85,6 +88,14 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
     return io_fail(e, 1u, "timui_open failed");
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
+  st->poke_rd = st->poke_wr = -1;
+  {
+    int pfd[2];
+    if (pipe(pfd) == 0) {
+      st->poke_rd = pfd[0];
+      st->poke_wr = pfd[1];
+    }
+  }
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
               TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
@@ -366,10 +377,11 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
 }
 
 static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
-  struct pollfd p[2];
+  struct pollfd p[3];
   nfds_t n = 0;
-  int r, wake_i = -1, tty, timeout;
+  int r, wake_i = -1, poke_i = -1, tty, timeout;
   BircUi *bu = birc_state(ui);
+  char dump;
   if (!ui)
     return;
   if (wake_fd == 0u && bu)
@@ -384,6 +396,12 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
       (!bu || !bu->wake_dead)) {
     wake_i = (int)n;
     p[n].fd = (int)wake_fd;
+    p[n].events = POLLIN;
+    p[n++].revents = 0;
+  }
+  if (bu && bu->poke_rd >= 0) {
+    poke_i = (int)n;
+    p[n].fd = bu->poke_rd;
     p[n].events = POLLIN;
     p[n++].revents = 0;
   }
@@ -407,6 +425,8 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
       } while (r == -1 && errno == EINTR);
     }
   }
+  if (r > 0 && poke_i >= 0 && (p[poke_i].revents & POLLIN))
+    (void)read(bu->poke_rd, &dump, 1);
 }
 
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
@@ -549,6 +569,12 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   (void)w;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
+  if (st) {
+    if (st->poke_rd >= 0)
+      (void)close(st->poke_rd);
+    if (st->poke_wr >= 0)
+      (void)close(st->poke_wr);
+  }
   if (ui)
     timui_close(ui);
   free(st);
@@ -558,5 +584,22 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
 static void __attribute__((constructor)) timui_close_use(void) {
   io_eff(CID_TIMUI_CLOSE, timui_close_run, 0);
 }
+
+#ifdef CID_WAKE_POKE
+Term wake_poke_run(Env e, Term *f, IoWork *w) {
+  BircUi *bu = birc_ui_live ? birc_state(birc_ui_live) : NULL;
+  char z = 0;
+  (void)e;
+  (void)f;
+  (void)w;
+  if (bu && bu->poke_wr >= 0)
+    (void)write(bu->poke_wr, &z, 1);
+  return term_pak(CID_UNIT, 0);
+}
+
+static void __attribute__((constructor)) wake_poke_use(void) {
+  io_eff(CID_WAKE_POKE, wake_poke_run, 0);
+}
+#endif
 
 #endif /* BIRC_TIMUI_FFI_C */

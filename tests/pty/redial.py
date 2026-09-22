@@ -103,11 +103,14 @@ def main() -> int:
         proc.kill()
         print("redial: second accept timeout", file=sys.stderr)
         return 1
+    conn2.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     conn2.settimeout(0.05)
     pump(master, out, conn2, 0.8)
     conn2.sendall(b":irc.example.net 001 probe :Welcome\r\n")
     got = bytearray()
-    end = time.time() + 3.0
+    t001 = time.time()
+    t_join = None
+    end = t001 + 1.5
     while time.time() < end:
         drain(master, out)
         try:
@@ -115,8 +118,9 @@ def main() -> int:
         except (socket.timeout, BlockingIOError, OSError):
             pass
         if b"JOIN #t" in got:
+            t_join = time.time()
             break
-        time.sleep(0.05)
+        time.sleep(0.005)
     os.write(master, b"/quit\r")
     t = time.time()
     while proc.poll() is None and time.time() - t < 8:
@@ -132,9 +136,13 @@ def main() -> int:
     os.close(master)
     srv.close()
     joined = b"JOIN #t" in got
-    print(f"redial JOIN after 001: {joined} recv={got!r}")
-    if not joined:
+    ms = None if t_join is None else (t_join - t001) * 1000.0
+    print(f"redial JOIN after 001: {joined} ms={ms} recv={got!r}")
+    if not joined or ms is None:
         print("redial: no JOIN after reconnect 001", file=sys.stderr)
+        return 1
+    if ms > 100.0:
+        print(f"redial: 001 to JOIN {ms:.1f} ms (want <= 100)", file=sys.stderr)
         return 1
     print("redial=ok")
     return 0

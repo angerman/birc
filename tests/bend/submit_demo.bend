@@ -221,6 +221,10 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
       cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667})),
       "dial:h:6667"
     )
+    Unit <- E.must_eq("wait_conn", U32.show(Sess.session_wait_ms(Sess.session0("me", "s", "#t"))), "16")
+    Unit <- E.must_eq("wait_demo", U32.show(Sess.session_wait_ms(Sess.session_demo(cl0, "#t"))), "1000")
+    Unit <- E.must_eq("wait_win", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 100)), "16")
+    Unit <- E.must_eq("wait_idle", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 2000)), "1000")
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

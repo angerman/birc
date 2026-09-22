@@ -18,6 +18,18 @@ import ./session.bend as Sess
 import ./clock.bend as Clock
 import ./dns.bend as Dns
 
+def evt_wake(+ok: Bool) -> IO(Unit):
+  match ok:
+    case False{}:
+      IO.pure(Unit, Unit{})
+    case True{}:
+      T.wake_poke()
+
+def poke_then(+ok: Bool, k: Bool -> IO(Unit)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- evt_wake(ok)
+    k(ok)
+
 def send_go_r(s: Socket, r: Result<&1, &1, (U32 & String), Unit>) -> Socket & Bool:
   match r:
     case Done{_}:
@@ -62,6 +74,7 @@ def register(sock: Socket, +nick: String) -> IO(Socket & Bool):
 def reader_die(sock: Socket, +evt: Chan(Sess.NetEvt)) -> IO(Unit):
   do IO<Unit>:
     ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
+    Unit <- evt_wake(ok)
     Socket.close(sock)
 
 # Close cmd so the actor can flush pending and post Eof. Wait for that Eof
@@ -102,7 +115,7 @@ def paint_session.size(
   ui: T.Ui,
   +cl: Cl.Client,
   +draft: String,
-  net: Sess.NetState,
+  +net: Sess.NetState,
   +seed: U32,
   size: Sess.Size,
   +wait: U32,
@@ -112,10 +125,25 @@ def paint_session.size(
     case Sess.Size{+rows, cols}:
       paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed, U32.from_nat(Sess.body_h(rows)), wait, wake)
 
+def paint_session.wait(
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  +wake: U32,
+  +until: U32,
+  now: Nat
+) -> IO(T.Ui & T.UiKeys):
+  paint_session.size(ui, cl, draft, net, seed, size, Sess.wait_ms.at(net, until, String.is_empty(draft), U32.from_nat(now)), wake)
+
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, net, _, size, seed, wake, hot}:
-      paint_session.size(ui, cl, draft, net, seed, size, Sess.wait_ms.on(hot, String.is_empty(draft)), wake)
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, wake, until}:
+      do IO<T.Ui & T.UiKeys>:
+        now : Nat <- IO.now()
+        paint_session.wait(ui, cl, draft, net, seed, size, wake, until, now)
 
 def after_ui_send(
   ok: Bool,
@@ -165,7 +193,7 @@ def with_keys.go(
   +st: Sess.Session,
   +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
-  keys: Sess.Keys,
+  +keys: Sess.Keys,
   +rows: U32,
   +cols: U32,
   +pending: List<&2, String>,
@@ -174,7 +202,8 @@ def with_keys.go(
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    send_pair(ui, quit, evt, cmd, step_size(Sess.step_keys(Sess.session_set_now(st, ts), keys), rows, cols), pending, k)
+    now : Nat <- IO.now()
+    send_pair(ui, quit, evt, cmd, step_size(Sess.step_keys(Sess.session_touch_if(Sess.session_set_now(st, ts), U32.from_nat(now), Sess.keys_hot(keys)), keys), rows, cols), pending, k)
 
 def with_keys(
   ui: T.Ui,
@@ -254,7 +283,8 @@ def with_chunk(
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    with_chunk.ts(ui, evt, cmd, ts, Sess.session_set_hot(st, True{}), xs, k)
+    now : Nat <- IO.now()
+    with_chunk.ts(ui, evt, cmd, ts, Sess.session_touch(st, U32.from_nat(now)), xs, k)
 
 def with_fail(
   ui: T.Ui,
@@ -266,7 +296,8 @@ def with_fail(
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    with_tick(ui, Sess.session_fail(Sess.session_set_now(st, ts), msg), evt, cmd, k)
+    now : Nat <- IO.now()
+    with_tick(ui, Sess.session_touch(Sess.session_fail(Sess.session_set_now(st, ts), msg), U32.from_nat(now)), evt, cmd, k)
 
 def after_offer(
   sock: Socket,
@@ -300,11 +331,12 @@ def after_hit(
     case True{}:
       do IO<Unit>:
         ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
+        Unit <- evt_wake(ok)
         reader_die(sock, evt)
     case False{}:
       do IO<Unit>:
         ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Chunk{xs})
-        after_offer(sock, evt, cmd, ok, k)
+        poke_then(ok, o => after_offer(sock, evt, cmd, o, k))
 
 def after_hit.xs(
   sock: Socket,
@@ -363,6 +395,7 @@ def take_oct.r(
     case Fail{_}:
       do IO<Unit>:
         ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
+        Unit <- evt_wake(ok)
         # Close the socket only. Leave evt open so a wake-fd poll that
         # returns before Chan.recv still sees Eof (RST/POLLERR).
         Socket.close(sock)
@@ -525,7 +558,7 @@ def idle_fail(
 ) -> IO(Unit):
   do IO<Unit>:
     ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Fail{msg})
-    idle_again(ok, evt, k)
+    poke_then(ok, o => idle_again(o, evt, k))
 
 def handoff_wait(ok: Bool, ack: Chan(Unit)) -> IO(Unit):
   match ok:
@@ -615,7 +648,7 @@ def idle_reg.up(
     case (s, fd):
       do IO<Unit>:
         up : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Up{fd})
-        idle_up(up, s, frames, evt, cmd, ack)
+        poke_then(up, o => idle_up(o, s, frames, evt, cmd, ack))
 
 def idle_reg.ok(
   sock: Socket,
@@ -886,9 +919,10 @@ def with_eof.go(
   +cmd2 = cmd0
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
+    now : Nat <- IO.now()
     Unit <- IO.spawn(Unit, idle_start(Sess.session_nick(st), frames, evt2, cmd2))
     Unit <- Chan.close(Sess.NetCmd, cmd)
-    with_tick(ui, Sess.session_fail(Sess.session_set_now(st, ts), "disconnected"), evt2, cmd2, k)
+    with_tick(ui, Sess.session_touch(Sess.session_fail(Sess.session_set_now(st, ts), "disconnected"), U32.from_nat(now)), evt2, cmd2, k)
 
 def with_eof(
   ui: T.Ui,
@@ -901,6 +935,18 @@ def with_eof(
     evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     with_eof.go(ui, st, cmd, frames, k, evt0, cmd0)
+
+def on_evt_up(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
+  +cmd: Chan(Sess.NetCmd),
+  +fd: U32,
+  k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    now : Nat <- IO.now()
+    with_tick(ui, Sess.session_touch(Sess.session_set_wake(Sess.session_online(st), fd), U32.from_nat(now)), evt, cmd, k)
 
 def on_evt_some(
   ui: T.Ui,
@@ -919,7 +965,7 @@ def on_evt_some(
     case Sess.Chunk{xs}:
       with_chunk(ui, st, evt, cmd, xs, k)
     case Sess.Up{fd}:
-      with_tick(ui, Sess.session_set_hot(Sess.session_set_wake(Sess.session_online(st), fd), True{}), evt, cmd, k)
+      on_evt_up(ui, st, evt, cmd, fd, k)
     case Sess.Fail{+msg}:
       with_fail(ui, st, evt, cmd, msg, k)
 
@@ -1013,7 +1059,7 @@ def actor_up.on(
     case (s, fd):
       do IO<Unit>:
         up : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Up{fd})
-        actor_up.sent(up, s, frames, evt, cmd)
+        poke_then(up, o => actor_up.sent(o, s, frames, evt, cmd))
 
 def actor_ready_ok(
   ok: Bool,
@@ -1145,7 +1191,7 @@ def start_ui(
   do IO<Unit>:
     ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{Nil{}})
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session_online(Sess.session0(nick, host, chan)), False{}), evt, cmd)
+    live_boot.on(U32.is_eq(frames, 0), frames, (ui, Sess.session0(nick, host, chan), False{}), evt, cmd)
 
 def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
   do IO<Unit>:

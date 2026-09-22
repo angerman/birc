@@ -53,3 +53,10 @@ law Timui.close:
 
 def Timui.close(ui):
   import "../ffi/timui_ffi.c"
+
+# Actor posts one byte on the UI self-pipe so a 1000 ms poll returns.
+law wake_poke:
+  IO(Unit)
+
+def wake_poke():
+  import "../ffi/timui_ffi.c"
