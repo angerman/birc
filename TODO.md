@@ -585,9 +585,12 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
       `Cur{pkt, rest, off}`; `byte_at` is `at_xs(rest)`; jumps use `at_off`
       once. `dns_demo` unchanged.
 - [x] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
-      Quantified `for xs. push_rem_le` failed: IH is PRead on the tail, step is
-      PAct (checker output in PROOF.bend). Point laws `push_rem_nil` /
-      `push_rem_crlf` / `parse_id_short` / `parse_id_bad` are proved.
+      Quantified `for xs. rem ≤ 510` is FALSE, not unprovable: `push.go` tests
+      `is_cr` before `over`, so a CR at a chunk boundary is held at 511
+      (`rem(510a+CR)=511`). Bound restated as `LINE_OCTET_MAX+1`. Point laws
+      `push_rem_510` / `push_rem_511` / `parse_id_short` / `parse_id_bad`
+      (`sample_bad_id()`, a full packet with a wrong id). Checker output for
+      the quantified attempt stays in PROOF.bend.
 - [x] **P9** `--die-after-open` (test-only) exercises atexit restore.
       Env `BIRC_DIE_AFTER_OPEN=1` (test-only) `exit(1)`s after `Timui.open`
       so atexit restore runs. `restore.py` checks ICANON after that path.

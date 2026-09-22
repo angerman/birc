@@ -571,8 +571,24 @@ def rem_len(got: List<&2, String> & List<&2, U32>) -> Nat:
     case (_, rem):
       List.length(&2, U32, rem)
 
+# A CR at a chunk boundary is held (is_cr before over), so rem can be 511.
+def LINE_REM_MAX() -> Nat:
+  Nat.add(LINE_OCTET_MAX(), 1n)
+
+def rem510() -> List<&2, U32>:
+  repeat_octet.go(510n, 97, Nil{})
+
+def rem510cr() -> List<&2, U32>:
+  List.append(&2, U32, rem510(), CR() <> Nil{})
+
 def push_rem_le(+xs: List<&2, U32>) -> Bool:
-  Nat.is_le(rem_len(push(Nil{}, xs)), LINE_OCTET_MAX())
+  Nat.is_le(rem_len(push(Nil{}, xs)), LINE_REM_MAX())
+
+def rem510_ok() -> Bool:
+  Nat.is_eq(rem_len(push(Nil{}, rem510())), LINE_OCTET_MAX())
+
+def rem511_ok() -> Bool:
+  Nat.is_eq(rem_len(push(Nil{}, rem510cr())), LINE_REM_MAX())
 
 def short_text_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:
