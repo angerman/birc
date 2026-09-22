@@ -45,6 +45,10 @@ Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets` +
 with `IO_READ` (that park would freeze Ticks). Peer is `host & (port & octets)`
 beside the payload (C7).
 
+The actor maps both a `Fail` (RST, POLLERR, other recv errno) and a
+`Done{Some{…, Nil{}}}` (zero-length read, clean FIN) to `NetEvt.Eof`. The UI
+then paints `disconnected` and stays up. `Done{None{}}` is idle (Tick).
+
 ## Build
 
 `bend src/bend/app.bend -o build/birc_bend.c`, then
@@ -99,7 +103,7 @@ Local edits to `src/ui/timui.h` (re-apply on an upstream update):
 ```text
 Client, Buffer, Line, LineKind
 NetEvt, NetCmd, ViewModel, DrawOp, SpanOp
-Config   # nick, host, port, channel, demo, max_frames
+Args.Cfg{demo, frames, host, port, nick, chan, replay}
 ```
 
 ## DrawOp contract

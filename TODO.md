@@ -403,8 +403,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       flush `pending` so `/quit` behind a full cap still reaches the wire
       (`tests/pty/quitcap.py`).
 - [x] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
-      Measured with `build/review/lead/cpu_pty.py` (pty, mock server, 15 s,
-      CPU = `ru_utime+ru_stime` of the birc process):
+      Measured with `tests/perf/cpu_pty.py` (pty, mock server, 15 s,
+      CPU = `ru_utime+ru_stime` of the birc process; not in `make check`):
       idle 30x100 = 6.6% of one core; idle 82x159 = 7.4%;
       flood ~70 lines/s 30x100 = 10.9%; flood 82x159 = 17.7%.
       Decision: no change. The 16 ms tick keeps key latency low (keys are
@@ -419,9 +419,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 ### Phase I — idiomatic Bend
 - [x] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
       `body_h` / `live_fuel` live in `session.bend`. `ticks_of` still aliases `live_fuel` (law `live_fuel_alias`).
-- [x] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
+- [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
       Data `Cur`/`Got` + `do Maybe`. Wire shims in `dns.bend` deleted; live
-      path and `dns_demo` call `Wire.*` directly.
+      path and `dns_demo` call `Wire.*` directly. **Still open:** `byte_at`
+      does `List.drop(pkt, off)` per octet (P7: carry the remaining suffix).
 - [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
       `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
       pass a `Buffer -> Buffer`. `set_nth_buf` deleted.
@@ -452,16 +453,17 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
       as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
       used from tests. Acc folds are I7.
-- [x] **I10** Remaining in-src `show_*` use `String.concat`/`join` (view idiom#2).
+- [ ] **I10** Remaining in-src `show_*` use `String.concat`/`join` (view idiom#2).
       `show_nicks`/`show_bufs`/`show_spans` concat chunks (trailing space/`;` kept).
-      Moved `show_ops`/`show_names` use `String.join`. Tokenizer fuel is I6.
+      **Still open:** `show_buf` / `show_client` / `show_netcmd` walk with `++`.
 - [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
       `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
       `SLPh` gone; `send_lines_go` matches the pair then the list.
-- [x] **I12** One framer (H7). Unreachable CR strip in `emit_line`/`payload_n` gone
-      (CR is never stored). `push_param` and `join_lines` cons then reverse once.
+- [ ] **I12** One framer (H7). Unreachable CR strip in `emit_line`/`payload_n` gone.
+      `push_param` and `join_lines` cons then reverse once. **Still open:** a
+      bare CR is skipped, not dropped; RFC 1459 forbids it (P5).
 - [x] **I13** Parallelism: rebalance `view_draft` (idiom §6).
-      Same measurement as M18 (`cpu_pty.py`, 15 s): idle 6.6–7.4% of one
+      Same measurement as M18 (`tests/perf/cpu_pty.py`, 15 s): idle 6.6–7.4% of one
       core, flood 10.9–17.7%. Parallel packing is not justified at these
       totals. Decision: no change.
 - [x] **I14** Dead code: 15 defs, `irc.bend:243-249`, stale tags, `Net` alias (idiom §3 §8).
