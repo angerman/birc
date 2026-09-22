@@ -84,6 +84,9 @@ the actor still owns the handle. A self-pipe on the Ui handle is also polled;
 `wake_poke` writes one byte when the actor posts Up/Chunk/Fail/Eof so those
 events do not wait out the idle poll. `Timui.open` sets TimUI `input_poll_ms` to 0
 so `timui_begin` does not sleep again after the FFI poll.
+Test-only: `BIRC_DIE_AFTER_OPEN=1` calls `exit(1)` after `atexit` is
+registered so `tests/pty/restore.py` can check cooked mode without
+`Timui.close`.
 
 ### Vendored `timui.h` patches
 

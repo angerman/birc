@@ -89,6 +89,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   timui_full_redraw(ui);
   birc_ui_live = ui;
   atexit(birc_ui_atexit);
+  if (getenv("BIRC_DIE_AFTER_OPEN"))
+    exit(1);
   return io_done(e, io_hand((uint64_t)(uintptr_t)ui));
 }
 static void __attribute__((constructor)) timui_open_use(void) {
