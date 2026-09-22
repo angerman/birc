@@ -29,7 +29,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
-        test-perf-cpu test-perf-tickrate
+        test-perf-cpu test-perf-tickrate test-dns-live
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -96,10 +96,16 @@ test-net: ## M4 loopback TCP.send/recv + register/pong goldens.
 	$(NIXRUN) bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
 	$(NIXRUN) ./$(BLDDIR)/net_demo | grep -qx net_demo=ok
 
-test-dns: ## UDP A lookup (identity + parse edges; live A may time out offline).
+test-dns: ## UDP A lookup identity + parse edges (no network).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
 	$(NIXRUN) ./$(BLDDIR)/dns_demo | grep -qx dns_demo=ok
+	@! grep -F 'Dns.resolve("one.one.one.one")' tests/bend/dns_demo.bend
+
+test-dns-live: ## Live A lookup of one.one.one.one (not in check).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
+	$(NIXRUN) ./$(BLDDIR)/dns_live | grep -qx dns_live=ok
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
