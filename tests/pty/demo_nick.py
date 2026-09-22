@@ -45,7 +45,8 @@ def main() -> int:
         env={**os.environ, "TERM": "xterm-256color"},
     )
     os.close(slave)
-    end = time.time() + 2
+    # Idle wait is 1000 ms (P1); two seconds is only ~2 frames and races the first poll.
+    end = time.time() + 4
     while time.time() < end:
         drain(master)
         time.sleep(0.05)

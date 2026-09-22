@@ -539,8 +539,15 @@ Idle baseline (supervisor, `build/review/lead/tickrate_pty.py`, `--demo --frames
 no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 `timui_begin` poll.
 
-- [ ] **P1** Idle CPU: `wait_ms` + tty/`wake_fd` poll before `timui_begin`; Bend
-      chooses 16 ms vs 1000 ms; actor sends socket fd as a wake hint (`Socket.fd_hint`).
+- [x] **P1** Idle CPU: `wait_ms` + tty/`wake_fd` poll before `timui_begin`; Bend
+      chooses 16 ms vs 1000 ms; actor sends socket fd as a wake hint (`fd_hint`).
+      Baseline (`tickrate_pty.py`, `--demo --frames 600`): 55 ticks/s, 7.8% of a
+      core at 30x100. After: `tests/pty/tickrate.py` 20 frames, 0.97 ticks/s,
+      0.46% (30x100) / 0.54% (82x159). Paint cost ~5 ms/tick keeps CPU% near
+      0.5% at a 1000 ms wait. `paint_wake.py`: incoming line in 28 ms after 3 s
+      idle (27–71 ms across five runs). TimUI `input_poll_ms=0` so begin does
+      not sleep again. C after P1: clock 26, dns 74, timui 562 (662). The
+      initial `--connect` path now posts `Up{fd}` so idle poll sees the socket.
 - [ ] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
 - [ ] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
 - [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).

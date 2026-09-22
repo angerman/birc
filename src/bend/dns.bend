@@ -35,6 +35,13 @@ law recv_octets:
 def recv_octets(sock, max):
   import "../ffi/dns_ffi.c"
 
+# Wake hint: the fd number as U32. Does not consume the Socket.
+law fd_hint:
+  Socket -> IO(Socket & U32)
+
+def fd_hint(sock):
+  import "../ffi/dns_ffi.c"
+
 def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     Unit <- Socket.close(sock)

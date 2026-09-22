@@ -117,7 +117,7 @@ def trip_nbuf(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
           Nat.show(CL.nbuf(cl))
 
 def trip_has_me.on(+cl: Cl.Client, +who: String, got: Maybe<&2, Cl.Buffer>) -> String:
@@ -131,7 +131,7 @@ def trip_has_me(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
           match cl:
             case Cl.Client{+nick, _, +bufs, +active, _}:
               trip_has_me.on(cl, nick, Cl.nth_buf(bufs, active))

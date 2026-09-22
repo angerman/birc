@@ -3,6 +3,8 @@
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
 
+#include <errno.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +18,7 @@
 typedef struct {
   char composer[512];
   TimuiTextAreaState st;
+  int wake_dead;
 } BircUi;
 
 static BircUi *birc_state(const Timui *ui) {
@@ -87,6 +90,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
               TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
   cfg.theme = TIMUI_THEME_MODERN_DARK;
   cfg.userdata = st;
+  /* FFI polls tty + wake_fd before begin; do not sleep again inside TimUI. */
+  cfg.input_poll_ms = 0;
   if (timui_open(&cfg, &ui) != TIMUI_OK) {
     free(st);
     return io_fail(e, 1u, "timui_open failed");
@@ -360,6 +365,50 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   return res.submitted ? 1 : 0;
 }
 
+static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
+  struct pollfd p[2];
+  nfds_t n = 0;
+  int r, wake_i = -1, tty, timeout;
+  BircUi *bu = birc_state(ui);
+  if (!ui)
+    return;
+  if (wake_fd == 0u && bu)
+    bu->wake_dead = 0;
+  tty = ui->fd.read_fd;
+  if (tty >= 0) {
+    p[n].fd = tty;
+    p[n].events = POLLIN;
+    p[n++].revents = 0;
+  }
+  if (wake_fd > 0u && (int)wake_fd != tty && (int)wake_fd >= 0 &&
+      (!bu || !bu->wake_dead)) {
+    wake_i = (int)n;
+    p[n].fd = (int)wake_fd;
+    p[n].events = POLLIN;
+    p[n++].revents = 0;
+  }
+  if (n == 0)
+    return;
+  timeout = wait_ms > 2147483647u ? -1 : (int)wait_ms;
+  do {
+    r = poll(p, n, timeout);
+  } while (r == -1 && errno == EINTR);
+  /* RST/HUP: drop wake hint or poll busy-loops; actor still posts Eof. */
+  if (r > 0 && wake_i >= 0 &&
+      (p[wake_i].revents & (POLLERR | POLLHUP | POLLNVAL))) {
+    if (bu)
+      bu->wake_dead = 1;
+    if (!(p[wake_i].revents & POLLIN) && tty >= 0) {
+      p[0].fd = tty;
+      p[0].events = POLLIN;
+      p[0].revents = 0;
+      do {
+        r = poll(p, 1, timeout);
+      } while (r == -1 && errno == EINTR);
+    }
+  }
+}
+
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   Term ops = f[1];
@@ -367,6 +416,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   char *input = io_cstr(e, f[2], &n_in);
   u32 seed = (u32)f[3];
   u32 page = (u32)f[4];
+  u32 wait_ms = (u32)f[5];
+  u32 wake_fd = (u32)f[6];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
   int quit = 0;
@@ -392,6 +443,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
 
+  birc_wait_fds(ui, wait_ms, wake_fd);
   if (!timui_begin(ui, &fr)) {
     free(input);
 #ifdef CID_CON

@@ -245,6 +245,9 @@ typedef struct {
   size_t message_queue_bytes;
   /* Opaque application context, readable back with timui_userdata. */
   void *userdata;
+  /* Milliseconds for the tty poll inside timui_begin. 16 is the historical
+   * default. 0 returns at once (caller already waited). */
+  int input_poll_ms;
 } TimuiConfig;
 
 /* ---- Convenience macros ------------------------------------------------ *
@@ -269,7 +272,8 @@ typedef struct {
                  0,                                                            \
                  0,                                                            \
                  0,                                                            \
-                 NULL})
+                 NULL,                                                         \
+                 16})
 
 /* ---- Lifecycle (POSIX terminal backend; Win32 ConPTY transport) -------- */
 TIMUI_API void timui_config_init(TimuiConfig *cfg);
@@ -4490,7 +4494,7 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       pfd.fd = ui->fd.read_fd;
       pfd.events = POLLIN;
       pfd.revents = 0;
-      while (poll(&pfd, 1, 16) == -1 && errno == EINTR) {
+      while (poll(&pfd, 1, ui->cfg.input_poll_ms) == -1 && errno == EINTR) {
       } /* retry on signal */
     }
     n = ui->transport.read(&ui->transport, buf, sizeof buf);
@@ -4508,8 +4512,10 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       /* non-tty real fd with no data (piped/headless input, incl. EOF):
        * the tty poll above doesn't run, so throttle explicitly to avoid a
        * 100% CPU hot-spin (W7). Test/fake transports have read_fd = -1. */
-      struct timespec ts = {0, 16 * 1000 * 1000};
-      nanosleep(&ts, NULL);
+      if (ui->cfg.input_poll_ms > 0) {
+        struct timespec ts = {0, (long)ui->cfg.input_poll_ms * 1000 * 1000};
+        nanosleep(&ts, NULL);
+      }
     }
     timui_input_flush_esc(&ui->input, timui_now_ms(), ui_event_cb, ui);
   }
