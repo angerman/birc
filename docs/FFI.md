@@ -80,6 +80,20 @@ the actor still owns the handle. A self-pipe on the Ui handle is also polled;
 events do not wait out the idle poll. `Timui.open` sets TimUI `input_poll_ms` to 0
 so `timui_begin` does not sleep again after the FFI poll.
 
+### Vendored `timui.h` patches
+
+Local edits to `src/ui/timui.h` (re-apply on an upstream update):
+
+1. **`input_poll_ms`** on `TimuiConfig` (default 16). `timui_begin` uses it for
+   the tty poll and the non-tty nanosleep. birc sets 0 so begin does not sleep
+   after the FFI `wait_ms` poll.
+2. **Enter table size** `enter_at` / `pending_enter_at` is 64 (upstream 32).
+3. **Lossless Enter overflow.** When `enter_at`, `text_in`, or `edit_ops` is
+   full, `timui_begin` ungets the current event and stops consuming; leftover
+   events stay queued and no further `transport.read` runs until they drain.
+   Enters are never merged or dropped. `pending_*` still carries the
+   post-submit tail of the current table.
+
 ### Pure domain types
 
 ```text

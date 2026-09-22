@@ -3219,7 +3219,8 @@ struct Timui {
    * Enter fired this frame, in order. Lets the field submit ONE segment per
    * frame ("a\rb\r" -> "a" then "b") instead of merging; the post-first-Enter
    * tail is stashed in pending_* and re-injected by timui_begin next frame.
-   * 64 holds a 50-line paste plus /quit; 32 merged the tail into one line. */
+   * When this table is full, begin stops consuming input and leaves the rest
+   * queued (lossless paste of any length). */
   int enter_at[64];
   uint32_t enter_mods[64];
   int enter_count;
@@ -4475,6 +4476,21 @@ TIMUI_API uint64_t timui_now_ms(void) {
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
+/* Push an event back to the front of the queue so a full Enter/text table
+ * can stop consuming this frame without dropping or merging the rest. */
+static void timui_unget_event_(Timui *ui, const TimuiEvent *ev) {
+  int i;
+  if (!ui || !ev)
+    return;
+  if (ui->event_count >= (int)(sizeof(ui->events) / sizeof(ui->events[0]))) {
+    ui->events_dropped++;
+    return;
+  }
+  for (i = ui->event_count; i > 0; i--)
+    ui->events[i] = ui->events[i - 1];
+  ui->events[0] = *ev;
+  ui->event_count++;
+}
 TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
   if (out_frame)
     *out_frame = NULL;
@@ -4486,7 +4502,9 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
   timui_images_release_placements_(ui);
   if (ui->should_quit)
     return TIMUI_ERR_CLOSED;
-  if (ui->have_transport) {
+  /* Leftover events from a full Enter/text table must drain before we read
+   * more bytes, or ui->events overflows and drops the tail of a paste. */
+  if (ui->have_transport && ui->event_count == 0) {
     char buf[256];
     int n;
     if (ui->termios_active) { /* real terminal: poll to avoid 100% CPU hot-spin
@@ -4554,7 +4572,10 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
     TimuiEvent focus_events[sizeof(ui->events) / sizeof(ui->events[0])];
     int focus_count = 0;
     int saw_mouse_press = 0, saw_mouse_release = 0;
-    while (timui_poll_event(ui, &ev)) {
+    int input_held = 0;
+    int enter_cap = (int)(sizeof(ui->enter_at) / sizeof(ui->enter_at[0]));
+    int edit_cap = (int)(sizeof(ui->edit_ops) / sizeof(ui->edit_ops[0]));
+    while (!input_held && timui_poll_event(ui, &ev)) {
       if (ev.kind == TIMUI_EVENT_MOUSE) {
         int mx = ev.as.mouse.x - 1;
         int my = ev.as.mouse.y - 1;
@@ -4588,16 +4609,16 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
         if (ev.as.key.key == TIMUI_KEY_TAB)
           timui_interact_set_keys(&ui->ia, 1, 0);
         else if (ev.as.key.key == TIMUI_KEY_ENTER) {
+          if (ui->enter_count >= enter_cap || ui->edit_count >= edit_cap) {
+            timui_unget_event_(ui, &ev);
+            input_held = 1;
+            break;
+          }
           timui_interact_set_keys(&ui->ia, 0, 1);
           timui_edit_add_key_(ui, TIMUI_EDIT_KEY_ENTER_, ev.as.key.mods);
-          /* record the Enter's position in the text stream (input_field
-           * segments submits on these; excess past the cap just merges). */
-          if (ui->enter_count <
-              (int)(sizeof(ui->enter_at) / sizeof(ui->enter_at[0]))) {
-            ui->enter_at[ui->enter_count] = ui->text_in_len;
-            ui->enter_mods[ui->enter_count] = ev.as.key.mods;
-            ui->enter_count++;
-          }
+          ui->enter_at[ui->enter_count] = ui->text_in_len;
+          ui->enter_mods[ui->enter_count] = ev.as.key.mods;
+          ui->enter_count++;
         } else if (ev.as.key.key == TIMUI_KEY_BACKSPACE) {
           ui->key_in |= TIMUI_KEYIN_BACKSPACE;
           timui_edit_add_key_(ui, TIMUI_KEYIN_BACKSPACE, ev.as.key.mods);
@@ -4624,7 +4645,14 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
                  (ev.as.key.mods & ~TIMUI_MOD_SHIFT) == TIMUI_MOD_NONE) {
           uint32_t cp = ev.as.key.codepoint;
           int start = ui->text_in_len;
-          int n = timui_append_text_cp_(ui, cp);
+          int n;
+          if (ui->text_in_len >= (int)sizeof(ui->text_in) - 4 ||
+              ui->edit_count >= edit_cap) {
+            timui_unget_event_(ui, &ev);
+            input_held = 1;
+            break;
+          }
+          n = timui_append_text_cp_(ui, cp);
           if (n > 0)
             timui_edit_add_text_(ui, start, n);
         } else if (ev.as.key.key == TIMUI_KEY_UNKNOWN &&
@@ -4673,12 +4701,26 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
          * input) via the single shared encoder (Z6). */
         uint32_t cp = ev.as.text.codepoint;
         int start = ui->text_in_len;
-        int n = timui_append_text_cp_(ui, cp);
+        int n;
+        if (ui->text_in_len >= (int)sizeof(ui->text_in) - 4 ||
+            ui->edit_count >= edit_cap) {
+          timui_unget_event_(ui, &ev);
+          input_held = 1;
+          break;
+        }
+        n = timui_append_text_cp_(ui, cp);
         if (n > 0)
           timui_edit_add_text_(ui, start, n);
       } else if (ev.kind == TIMUI_EVENT_PASTE) {
         int start = ui->text_in_len;
-        int n = timui_append_paste_bytes_(ui, ev.as.paste.ptr, ev.as.paste.len);
+        int n;
+        if (ui->text_in_len >= (int)sizeof(ui->text_in) - 4 ||
+            ui->edit_count >= edit_cap) {
+          timui_unget_event_(ui, &ev);
+          input_held = 1;
+          break;
+        }
+        n = timui_append_paste_bytes_(ui, ev.as.paste.ptr, ev.as.paste.len);
         if (n > 0)
           timui_edit_add_text_(ui, start, n);
       } else if (ev.kind == TIMUI_EVENT_FOCUS) {
@@ -4688,7 +4730,7 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
     }
     if (!ui->input.pasting)
       timui_flush_paste_utf8_tail_(ui);
-    if (focus_count > 0) {
+    if (focus_count > 0 && !input_held) {
       int fi;
       ui->event_count = 0;
       for (fi = 0; fi < focus_count; fi++)
@@ -4699,7 +4741,8 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       ui->ia.mouse_pressed = 1;
     if (saw_mouse_release)
       ui->ia.mouse_released = 1;
-    ui->paste_len = 0; /* queued paste slices have been consumed */
+    if (!input_held)
+      ui->paste_len = 0; /* queued paste slices have been consumed */
   }
   ui->cursor_visible = 0; /* F1.4: focused input re-requests each frame */
   ui->curr.has_clip = 0;  /* fresh clip stack each frame */

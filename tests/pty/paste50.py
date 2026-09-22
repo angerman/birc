@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""X3/M17: a 50-line paste in one write must all reach the server, in order.
+"""X3: a burst paste of N lines in one write must all reach the server, in order.
 
-(-) TimUI enter_at[32] dropped enters past 32, so a 50-line burst lost
-    the tail and /quit was ignored. One-line-at-a-time paste50 hid that.
-(+) one os.write of 50 lines; the exact ordered PRIVMSG list arrives.
+(-) enter_at overflow merged extra Enters into one line and /quit was ignored
+    (50 with a 32-slot table, 100 with a 64-slot table).
+(+) one os.write of N lines; the exact ordered PRIVMSG list arrives, then QUIT.
 
-usage: paste50.py ./build/birc
+usage: paste50.py ./build/birc [N]
 """
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ def drain(fd, sink):
 
 def main() -> int:
     birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
+    n = int(sys.argv[2]) if len(sys.argv) > 2 else 50
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -81,10 +82,10 @@ def main() -> int:
             pass
         time.sleep(0.03)
     buf = bytearray()
-    want = ["PRIVMSG #t :L%02d" % i for i in range(50)]
-    os.write(master, b"".join(("L%02d\r" % i).encode() for i in range(50)))
-    t = time.time()
-    while time.time() - t < 8.0:
+    want = ["PRIVMSG #t :L%03d" % i for i in range(n)]
+    os.write(master, b"".join(("L%03d\r" % i).encode() for i in range(n)))
+    deadline = time.time() + max(8.0, 0.05 * n + 5.0)
+    while time.time() < deadline:
         drain(master, out)
         try:
             d = conn.recv(65536)
@@ -114,10 +115,11 @@ def main() -> int:
     text = bytes(buf).decode("utf-8", "replace")
     msgs = [ln for ln in text.split("\r\n") if ln.startswith("PRIVMSG #t :L")]
     quits = [ln for ln in text.split("\r\n") if ln.startswith("QUIT")]
-    print(f"privmsgs={len(msgs)} want=50 quit={len(quits)} exit={proc.returncode}")
+    print(
+        f"n={n} privmsgs={len(msgs)} want={n} quit={len(quits)} "
+        f"exit={proc.returncode}"
+    )
     print("got=%r" % (msgs[:5] + ["..."] + msgs[-5:] if len(msgs) > 10 else msgs,))
-    ok = msgs == want and len(quits) == 1 and proc.returncode == 0
-    print("RESULT:", "PASS" if ok else "FAIL")
     if msgs != want:
         print("paste50: burst paste dropped or reordered lines", file=sys.stderr)
         return 1
