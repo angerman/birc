@@ -83,10 +83,20 @@ def main() -> int:
         time.sleep(0.03)
     buf = bytearray()
     want = ["PRIVMSG #t :L%03d" % i for i in range(n)]
-    os.write(master, b"".join(("L%03d\r" % i).encode() for i in range(n)))
+    payload = b"".join(("L%03d\r" % i).encode() for i in range(n))
+    # One logical write; drain the slave while feeding the master so a
+    # 300-line paint cannot fill the pty and deadlock os.write.
+    fl = fcntl.fcntl(master, fcntl.F_GETFL)
+    fcntl.fcntl(master, fcntl.F_SETFL, fl | os.O_NONBLOCK)
     deadline = time.time() + max(8.0, 0.05 * n + 5.0)
+    off = 0
     while time.time() < deadline:
         drain(master, out)
+        if off < len(payload):
+            try:
+                off += os.write(master, payload[off:])
+            except BlockingIOError:
+                pass
         try:
             d = conn.recv(65536)
             if d:
@@ -95,13 +105,19 @@ def main() -> int:
             pass
         text = bytes(buf).decode("utf-8", "replace")
         msgs = [ln for ln in text.split("\r\n") if ln.startswith("PRIVMSG #t :L")]
-        if msgs == want:
+        if off >= len(payload) and msgs == want:
             break
         time.sleep(0.02)
-    os.write(master, b"/quit\r")
+    sent_quit = False
     t = time.time()
     while proc.poll() is None and time.time() - t < 8:
         drain(master, out)
+        if not sent_quit:
+            try:
+                os.write(master, b"/quit\r")
+                sent_quit = True
+            except BlockingIOError:
+                pass
         try:
             d = conn.recv(65536)
             if d:

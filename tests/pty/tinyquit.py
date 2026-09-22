@@ -79,10 +79,12 @@ def run(birc, rows, cols, resize_to, payload, label):
         code = proc.returncode
     drain(master, out)
     os.close(master)
-    ok = not alive
+    restored = b"[?1049l" in bytes(out)
+    # A crash or SIGKILL is not a successful quit (was: ok = not alive).
+    ok = (not alive) and code == 0 and restored
     print(
         f"{label}: start={rows}x{cols} resize={resize_to} "
-        f"quit_worked={ok} exit={code}"
+        f"quit_worked={ok} exit={code} restored={restored}"
     )
     return ok
 

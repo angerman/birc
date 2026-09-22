@@ -71,39 +71,39 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
 test-proto: build-proto ## Run Bend protocol golden harness.
-	$(NIXRUN) ./$(BLDDIR)/birc-proto
+	$(NIXRUN) ./$(BLDDIR)/birc-proto | grep -qx proto_demo=ok
 
 test-feed: ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
-	$(NIXRUN) ./$(BLDDIR)/feed_demo
+	$(NIXRUN) ./$(BLDDIR)/feed_demo | grep -qx feed_demo=ok
 	$(NIXRUN) bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
-	$(NIXRUN) timeout 2 ./$(BLDDIR)/feed_bench
+	$(NIXRUN) timeout 2 ./$(BLDDIR)/feed_bench | grep -qx feed_bench=ok
 
 test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
-	$(NIXRUN) ./$(BLDDIR)/submit_demo
+	$(NIXRUN) ./$(BLDDIR)/submit_demo | grep -qx submit_demo=ok
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/frame_demo.bend -o $(BLDDIR)/frame_demo
-	$(NIXRUN) ./$(BLDDIR)/frame_demo
+	$(NIXRUN) ./$(BLDDIR)/frame_demo | grep -qx frame_demo=ok
 
 test-net: ## M4 loopback TCP.send/recv + register/pong goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
-	$(NIXRUN) ./$(BLDDIR)/net_demo
+	$(NIXRUN) ./$(BLDDIR)/net_demo | grep -qx net_demo=ok
 
 test-dns: ## UDP A lookup (identity + parse edges; live A may time out offline).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
-	$(NIXRUN) ./$(BLDDIR)/dns_demo
+	$(NIXRUN) ./$(BLDDIR)/dns_demo | grep -qx dns_demo=ok
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
-	$(NIXRUN) ./$(BLDDIR)/args_demo
+	$(NIXRUN) ./$(BLDDIR)/args_demo | grep -qx args_demo=ok
 
 proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures missing).
 	@test -f fixtures/demo.irc || { printf '%s\n' 'BLOCKED: fixtures/demo.irc missing' >&2; exit 2; }
@@ -117,7 +117,7 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	@python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc missing CTCP SOH' >&2; exit 2; }
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
-	$(NIXRUN) ./$(BLDDIR)/proto_parity
+	$(NIXRUN) ./$(BLDDIR)/proto_parity | grep -qx proto_parity=ok
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
 	$(NIXRUN) ./$(BLDDIR)/birc --demo --frames 3
@@ -213,7 +213,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c && ./$(BLDDIR)/utf8_fit_cap'
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ffi -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c && ./$(BLDDIR)/utf8_fit_cap | grep -qx utf8_fit_cap=ok'
 	@grep -F 'birc_utf8_fit(s ? s : "", (size_t)len < 63 ? (size_t)len : (size_t)63)' src/ffi/timui_ffi.c >/dev/null
 
 check: proof test lint-ffi ## Proofs + protocol tests + UI smoke + FFI lint.

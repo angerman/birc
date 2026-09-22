@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A7: tab labels must be cut on a UTF-8 code-point boundary.
 
-(-) birc_str_list fitted then clamped to 63, so a 2-byte é at byte 62..63
-    left a dangling C3 (U+FFFD / invalid UTF-8) in the tab strip.
-(+) birc_utf8_fit(s, min(len, 63)) backs up to 62.
+Fixture is 80 bytes: "#a" + 39 × é. Cap is 63 bytes.
+(-) fit then clamp to 63 keeps the lead byte of the 31st é (dangling C3).
+(+) birc_utf8_fit(s, min(len, 63)) backs up to 62: "#a" + 30 × é.
 
 usage: tab_cut.py ./build/birc
 """
@@ -12,6 +12,7 @@ from __future__ import annotations
 import fcntl
 import os
 import pty
+import re
 import select
 import socket
 import struct
@@ -69,7 +70,8 @@ def main() -> int:
     out = bytearray()
     conn, _ = srv.accept()
     conn.settimeout(0.2)
-    name = "#" + ("é" * 40)
+    # 2 + 39*2 = 80 bytes. Distinguishes old clamp-to-63 from a code-point cut.
+    name = "#a" + ("é" * 39)
     conn.sendall(b":irc.example.net 001 probe :Welcome\r\n")
     conn.sendall(b":probe!p@h JOIN #t\r\n")
     conn.sendall((":probe!p@h JOIN %s\r\n" % name).encode("utf-8"))
@@ -124,11 +126,25 @@ def main() -> int:
         i += 1
 
     text = raw.decode("utf-8", "replace")
-    e_count = text.count("é")
+    eacute = b"\xc3\xa9"
+    cut = b"#a" + eacute * 30
+    full = b"#a" + eacute * 39
+    # Old clamp-to-63 kept the lead of the 31st é (C3 not followed by A9).
+    # The JOIN body has the full 39, so that C3 is followed by A9 and does not match.
+    old_dangle = re.search(rb"#a(?:\xc3\xa9){30}\xc3(?!\xa9)", raw)
     has_fffd = "\ufffd" in text
-    print(f"e_count={e_count} dangling={dangling} fffd={has_fffd} exit={proc.returncode}")
-    # 31 × é fit in 62 bytes; a mid-code-point cut at 63 yields dangling/FFFD.
-    ok = e_count >= 20 and not dangling and not has_fffd
+    print(
+        f"dangling={dangling} fffd={has_fffd} cut30={cut in raw} "
+        f"full39={full in raw} old_dangle={old_dangle is not None} "
+        f"exit={proc.returncode}"
+    )
+    ok = (
+        cut in raw
+        and full in raw
+        and old_dangle is None
+        and not dangling
+        and not has_fffd
+    )
     print("RESULT:", "PASS" if ok else "FAIL")
     if not ok:
         print("tab_cut: tab label split inside a code point", file=sys.stderr)

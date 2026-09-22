@@ -1,19 +1,13 @@
-/* A7: tab-label cap must not split a UTF-8 code point.
+/* A7: tab-label 63-byte cap is a UTF-8 boundary.
  *
- * Keep birc_utf8_fit in sync with src/ffi/timui_ffi.c.
+ * Includes the real clip from src/ffi/birc_utf8_fit.h (do not re-declare).
  * (-) fit then clamp to 63 lands on the lead byte of é (index 62).
  * (+) fit(s, min(len, 63)) backs up to 62.
  */
 #include <stdio.h>
 #include <string.h>
 
-static size_t birc_utf8_fit(const char *s, size_t n) {
-  if (!s)
-    return 0;
-  while (n > 0 && (((unsigned char)s[n] & 0xC0u) == 0x80u))
-    n -= 1;
-  return n;
-}
+#include "birc_utf8_fit.h"
 
 static size_t cut_old(const char *s, size_t len) {
   size_t nlen = birc_utf8_fit(s, len);

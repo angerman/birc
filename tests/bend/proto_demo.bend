@@ -34,4 +34,5 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("ieq", Bool.show(Irc.ieq("PiNg", "ping")), "True")
     Unit <- E.must_eq("nick", Irc.format_nick("birc"), "NICK birc")
     Unit <- E.must_eq("user", Irc.format_user("birc"), "USER birc 0 * :birc")
-    E.must_eq("join_fmt", Irc.format_join("#birc"), "JOIN #birc")
+    Unit <- E.must_eq("join_fmt", Irc.format_join("#birc"), "JOIN #birc")
+    IO.print("proto_demo=ok")

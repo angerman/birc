@@ -11,6 +11,7 @@ from __future__ import annotations
 import fcntl
 import os
 import pty
+import re
 import select
 import socket
 import struct
@@ -89,7 +90,13 @@ def run(birc, reset: bool) -> tuple[bool, bool, int | None]:
         drain(master, out)
         time.sleep(0.05)
     alive = b"[?1049l" not in bytes(out) and proc.poll() is None
-    if proc.poll() is None:
+    if alive:
+        # "disconnected" is logged on the server buffer; JOIN left us on #t.
+        os.write(master, b"\x1b[1;2D")
+        t = time.time()
+        while time.time() - t < 1.0:
+            drain(master, out)
+            time.sleep(0.05)
         os.write(master, b"/quit\r")
         t = time.time()
         while proc.poll() is None and time.time() - t < 6:
@@ -100,20 +107,31 @@ def run(birc, reset: bool) -> tuple[bool, bool, int | None]:
         proc.wait()
     drain(master, out)
     os.close(master)
-    txt = bytes(out)
-    disc = b"disconnected" in txt
+    raw = bytes(out)
+    text = raw.decode("utf-8", "replace")
+    plain = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text)
+    disc = "disconnected" in plain
+    restored = b"[?1049l" in raw
+    code = proc.returncode
     print(
-        f"reset={reset} ui_alive_4s={alive} shows_disconnected={disc} exit={proc.returncode}"
+        f"reset={reset} ui_alive_4s={alive} shows_disconnected={disc} "
+        f"restored={restored} exit={code}"
     )
-    return alive, disc, proc.returncode
+    return alive, disc, restored, code
 
 
 def main() -> int:
     birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
-    fin_alive, fin_disc, _ = run(birc, False)
-    rst_alive, rst_disc, _ = run(birc, True)
+    fin_alive, fin_disc, fin_rest, fin_code = run(birc, False)
+    rst_alive, rst_disc, rst_rest, rst_code = run(birc, True)
     if not fin_alive or not rst_alive:
         print("rst: UI died after FIN or RST", file=sys.stderr)
+        return 1
+    if not fin_disc or not rst_disc:
+        print("rst: disconnected not painted after FIN or RST", file=sys.stderr)
+        return 1
+    if fin_code != 0 or rst_code != 0 or not fin_rest or not rst_rest:
+        print("rst: /quit did not exit 0 with restore", file=sys.stderr)
         return 1
     print("rst=ok")
     return 0
