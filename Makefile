@@ -105,6 +105,10 @@ test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
 	$(NIXRUN) ./$(BLDDIR)/args_demo | grep -qx args_demo=ok
+	@! grep -F 'def seed_bit' src/bend/session.bend
+	@! grep -F 'CopyMany' src/bend/args.bend
+	@! grep -F 'def is_433_line' src/bend/irc.bend
+	@! grep -F 'def submit_part.chan' src/bend/submit.bend
 
 proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures missing).
 	@test -f fixtures/demo.irc || { printf '%s\n' 'BLOCKED: fixtures/demo.irc missing' >&2; exit 2; }
