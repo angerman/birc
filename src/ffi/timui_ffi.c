@@ -28,14 +28,7 @@ static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
 
-/* Drop trailing UTF-8 continuation bytes so n is a code-point boundary. */
-static size_t birc_utf8_fit(const char *s, size_t n) {
-  if (!s)
-    return 0;
-  while (n > 0 && (((unsigned char)s[n] & 0xC0u) == 0x80u))
-    n -= 1;
-  return n;
-}
+#include "birc_utf8_fit.h"
 
 /* Live handle for atexit restore. Timui.close clears it first so the hook
  * is idempotent with the normal P5 path. err_fail/_exit skip atexit. */
