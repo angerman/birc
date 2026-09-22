@@ -94,10 +94,10 @@ def after_hit(
 ) -> IO(Unit):
   match empty:
     case True{}:
-      do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
-        Unit <- evt_wake(ok)
-        reader_die(sock, evt)
+      # FIN: reader_die is the sole Eof+poke producer. Sending here as well
+      # doubled the poke byte per disconnect; the pipe drain used to take
+      # only one byte per frame.
+      reader_die(sock, evt)
     case False{}:
       do IO<Unit>:
         ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Chunk{xs})

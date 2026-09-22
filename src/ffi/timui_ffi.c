@@ -72,8 +72,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   {
     int pfd[2];
     if (pipe(pfd) == 0) {
-      st->poke_rd = pfd[0];
-      st->poke_wr = pfd[1];
+      (void)fcntl((st->poke_rd = pfd[0]), F_SETFL, O_NONBLOCK);
+      (void)fcntl((st->poke_wr = pfd[1]), F_SETFL, O_NONBLOCK);
     }
   }
   cfg.title = "birc";
@@ -328,7 +328,7 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
 static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   struct pollfd p[3];
   nfds_t n = 0;
-  int r, wake_i = -1, poke_i = -1, tty, timeout;
+  int r, wake_i = -1, poke_i = -1, tty, timeout, poke_ready = 0;
   BircUi *bu = birc_state(ui);
   char dump;
   if (!ui)
@@ -360,21 +360,22 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   do {
     r = poll(p, n, timeout);
   } while (r == -1 && errno == EINTR);
+  poke_ready = r > 0 && poke_i >= 0 && (p[poke_i].revents & POLLIN);
   if (r > 0 && wake_i >= 0 &&
       (p[wake_i].revents & (POLLERR | POLLHUP | POLLNVAL))) {
-    if (bu)
-      bu->wake_dead = 1;
+    if (bu) bu->wake_dead = 1;
     if (!(p[wake_i].revents & POLLIN) && tty >= 0) {
       p[0].fd = tty;
       p[0].events = POLLIN;
       p[0].revents = 0;
       do {
-        r = poll(p, 1, timeout);
+        r = poll(p, 1, 0);
       } while (r == -1 && errno == EINTR);
     }
   }
-  if (r > 0 && poke_i >= 0 && (p[poke_i].revents & POLLIN))
-    (void)read(bu->poke_rd, &dump, 1);
+  if (poke_ready && bu)
+    while (read(bu->poke_rd, &dump, 1) > 0) {
+    }
 }
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
