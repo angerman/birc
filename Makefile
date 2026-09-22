@@ -231,6 +231,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_frame_out/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_frame_out/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
 	@awk '/^def after_hit\(/{p=1} p&&/case True\{}/{t=1} t&&/case False\{}/{t=0} t&&/Chan.send/{s=1} t&&/reader_die/{d=1} p&&/^def after_hit\.xs/{p=0} END{if(s||!d){print "after_hit: empty FIN must only reader_die"; exit 1}}' src/bend/actor.bend
+	@awk '/^def with_eof.go\(/{p=1;next} p&&/^def /{p=0} p&&/Chan.close\(Sess.NetEvt/{c=1} END{if(!c){print "with_eof must close the old evt"; exit 1}}' src/bend/net.bend
 	@grep -q 'F_SETFL, O_NONBLOCK' src/ffi/timui_ffi.c
 	@grep -q 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 
