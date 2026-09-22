@@ -39,6 +39,7 @@ def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
 | `send_octets` | `src/ffi/dns_ffi.c` | UDP datagram from `List U32` (twin of recv) |
 | `fd_hint` | `src/ffi/dns_ffi.c` | `Socket -> IO(Socket & U32)`; copies the fd, keeps the handle |
 | `local_secs` | `src/ffi/clock_ffi.c` | local seconds-of-day as `U32`; Bend formats HH:MM:SS |
+| `wake_poke` | `src/ffi/timui_ffi.c` | write one byte on the Ui self-pipe; actor posts after Up/Chunk/Fail/Eof |
 
 Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets` +
 `Fr.push`, not `TCP.recv`. `recv_octets` is non-blocking (`io_eff` flags `0`);
