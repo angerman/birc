@@ -555,6 +555,11 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
       idle (27–71 ms across five runs). TimUI `input_poll_ms=0` so begin does
       not sleep again. C after P1: clock 26, dns 74, timui 562 (662). The
       initial `--connect` path now posts `Up{fd}` so idle poll sees the socket.
+      Handshake: UI stays at 16 ms while `Connecting` and for 2 s after Up/Chunk/Fail/Eof
+      (`IO.now`, not frame count). Self-pipe `wake_poke` wakes the poll when the
+      actor posts those events. `tests/pty/join_latency.py` and `redial.py`
+      require 001 → JOIN ≤ 100 ms. C after handshake fix: clock 26, dns 74,
+      timui 605 (705).
 - [ ] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
 - [ ] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
 - [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).

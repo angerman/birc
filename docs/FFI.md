@@ -70,10 +70,14 @@ are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
 `Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
 including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
 `wait_ms` is how long C `poll()`s the tty (and optional `wake_fd`) before
-`timui_begin`. Bend uses 16 ms after recent keys, a non-empty composer, or a
-Chunk/Up, else 1000 ms. `wake_fd` is a **wake hint**: the actor's socket fd
+`timui_begin`. Bend uses 16 ms while `Connecting`, while `now < hot_until`
+(~2 s after Up/Chunk/Fail/Eof or keys, via `IO.now`), or if the composer is
+non-empty; else 1000 ms. Actor events sit in a channel, so a 1000 ms poll
+would miss them (001 → JOIN waited a full idle tick). `wake_fd` is a **wake hint**: the actor's socket fd
 as a plain `U32` (0 = none), from `fd_hint`. The UI never reads that socket;
-the actor still owns the handle. `Timui.open` sets TimUI `input_poll_ms` to 0
+the actor still owns the handle. A self-pipe on the Ui handle is also polled;
+`wake_poke` writes one byte when the actor posts Up/Chunk/Fail/Eof so those
+events do not wait out the idle poll. `Timui.open` sets TimUI `input_poll_ms` to 0
 so `timui_begin` does not sleep again after the FFI poll.
 
 ### Pure domain types

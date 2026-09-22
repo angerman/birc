@@ -493,40 +493,40 @@ type Session is Data:
     size: Size,
     seed: U32,
     wake_fd: U32,
-    hot: Bool
+    hot_until: U32
   }
 
 def SIZE0() -> Size:
   Size{24, 80}
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
-  Session{Cl.init(nick, host), False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, 0, False{}}
+  Session{Cl.init(nick, host), False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, 0, 0}
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
-  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, 0, False{}}
+  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, 0, 0}
 
 def session_online(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, wake, hot}:
-      Session{cl, drop, rem, draft, joined, chan, Online{}, hist, size, seed, wake, hot}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, wake, until}:
+      Session{cl, drop, rem, draft, joined, chan, Online{}, hist, size, seed, wake, until}
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
     case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, _, _}:
-      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, joined, chan, Offline{}, hist, size, seed, 0, False{}}
+      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, joined, chan, Offline{}, hist, size, seed, 0, 0}
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, wake, hot}:
-      Session{Cl.set_now(cl, ts), drop, rem, draft, joined, chan, net, hist, size, seed, wake, hot}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, wake, until}:
+      Session{Cl.set_now(cl, ts), drop, rem, draft, joined, chan, net, hist, size, seed, wake, until}
 
 def session_set_size(+st: Session, +rows: U32, +cols: U32) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, wake, hot}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, Size{rows, cols}, seed, wake, hot}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, wake, until}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, Size{rows, cols}, seed, wake, until}
 
 def session_net(+st: Session) -> NetState:
   match st:
@@ -539,16 +539,16 @@ def session_nick(+st: Session) -> String:
       Cl.nick_of(cl)
 
 def session_after.dial(+cl: Cl.Client, +draft: String, +chan: String, +hist: Hist, +size: Size, +seed: U32, +host: String) -> Session:
-  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, 0, False{}}
+  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, 0, 0}
 
-def session_after(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, +size: Size, +seed: U32, +wake: U32, hot: Bool, cmd: NetCmd) -> Session:
+def session_after(+cl: Cl.Client, drop: Bool, rem: List<&2, U32>, +draft: String, joined: Bool, +chan: String, net: NetState, +hist: Hist, +size: Size, +seed: U32, +wake: U32, +until: U32, cmd: NetCmd) -> Session:
   match cmd:
     case Dial{+host, _}:
       session_after.dial(cl, draft, chan, hist, size, seed, host)
     case Handoff{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, hot}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, until}
     case Cont{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, hot}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, until}
 
 def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
   match c:
@@ -608,23 +608,46 @@ def WAIT_HOT() -> U32:
 def WAIT_IDLE() -> U32:
   1000
 
+def HOT_WINDOW() -> U32:
+  2000
+
+def net_connecting(+net: NetState) -> Bool:
+  match net:
+    case Connecting{}:
+      True{}
+    case _:
+      False{}
+
+def until_open(+until: U32, +now: U32) -> Bool:
+  U32.is_lt(now, until)
+
+def wait_ms.at(+net: NetState, +until: U32, empty: Bool, +now: U32) -> U32:
+  Bool.pick(U32, Bool.or(net_connecting(net), Bool.or(until_open(until, now), Bool.not(empty))), WAIT_HOT(), WAIT_IDLE())
+
 def wait_ms.on(hot: Bool, empty: Bool) -> U32:
   Bool.pick(U32, Bool.or(hot, Bool.not(empty)), WAIT_HOT(), WAIT_IDLE())
 
 def session_wait_ms(+st: Session) -> U32:
   match st:
-    case Session{_, _, _, +draft, _, _, _, _, _, _, _, hot}:
-      wait_ms.on(hot, String.is_empty(draft))
+    case Session{_, _, _, +draft, _, _, net, _, _, _, _, until}:
+      wait_ms.at(net, until, String.is_empty(draft), 0)
 
 def session_set_wake(+st: Session, +fd: U32) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, _, hot}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, fd, hot}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, _, until}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, fd, until}
 
-def session_set_hot(+st: Session, hot: Bool) -> Session:
+def session_touch(+st: Session, +now: U32) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, wake, _}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, hot}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, wake, U32.add(now, HOT_WINDOW())}
+
+def session_touch_if(+st: Session, +now: U32, hot: Bool) -> Session:
+  match hot:
+    case True{}:
+      session_touch(st, now)
+    case False{}:
+      st
 
 def finish_hist(
   drop: Bool,
@@ -638,12 +661,12 @@ def finish_hist(
   +size: Size,
   +seed: U32,
   +wake: U32,
-  hot: Bool,
+  +until: U32,
   pair: Hist & String
 ) -> Session & NetCmd & Bool:
   match pair:
     case (h2, draft3):
-      (session_after(cl3, drop, rem, draft3, joined, chan, net, h2, size, seed, wake, hot, cmd), cmd, halt)
+      (session_after(cl3, drop, rem, draft3, joined, chan, net, h2, size, seed, wake, until, cmd), cmd, halt)
 
 def finish_keys(
   drop: Bool,
@@ -655,6 +678,7 @@ def finish_keys(
   +hist: Hist,
   +size: Size,
   +wake: U32,
+  +until: U32,
   triple: Cl.Client & String & NetCmd
 ) -> Session & NetCmd & Bool:
   match keys:
@@ -663,14 +687,14 @@ def finish_keys(
         case (cl2, draft2, cmd):
           +cl3 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl2, tab), click), up, dn))
           +h2 = hist_after_enter(hist, typed, enter)
-          finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, typed), size, seed_of(hdir), wake, keys_hot(Keys{typed, enter, tab, click, up, dn, hdir}), hist_move(h2, draft2, hdir))
+          finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, typed), size, seed_of(hdir), wake, until, hist_move(h2, draft2, hdir))
 
 def step_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, wake, _}:
+    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, wake, until}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _}:
-          finish_keys(drop, rem, joined, chan, net, keys, hist, size, wake, apply_keys(cl, net, typed, enter))
+          finish_keys(drop, rem, joined, chan, net, keys, hist, size, wake, until, apply_keys(cl, net, typed, enter))
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))
@@ -683,17 +707,17 @@ def step_chunk_got(
   +size: Size,
   +seed: U32,
   +wake: U32,
-  hot: Bool,
+  +until: U32,
   got: Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool
 ) -> Session & List<&2, String>:
   match got:
     case (cl2, rem2, drop2, outs, joined2):
-      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, wake, hot}, outs)
+      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, wake, until}, outs)
 
 def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, wake, hot}:
-      step_chunk_got(draft, chan, net, hist, size, seed, wake, hot, step_chunk(cl, drop, rem, chunk, joined, chan))
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, wake, until}:
+      step_chunk_got(draft, chan, net, hist, size, seed, wake, until, step_chunk(cl, drop, rem, chunk, joined, chan))
 
 def sess_drop(+st: Session) -> Bool:
   match st:
