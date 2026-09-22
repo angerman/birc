@@ -575,7 +575,9 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 - [x] **P5** Bare CR inside a line drops the whole line (RFC 1459).
       `"abc\\rdef\\r\\nhello\\r\\n"` yields only `hello`. Split CRLF still
       emits. `bare_cr_drop` law.
-- [ ] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
+- [x] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
+      Tab strip uses `*server*` for buffer 0; a query named `server` stays
+      `server`. `tab_names_ok` / `tab_collide_ok`.
 - [ ] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
 - [ ] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
 - [ ] **P9** `--die-after-open` (test-only) exercises atexit restore.
