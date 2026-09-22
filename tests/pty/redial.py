@@ -7,8 +7,8 @@
 
 Documented target: 001 → JOIN <= 100 ms after the redial. The pass
 criterion is the minimum of up to three trials in one run, so a load
-spike cannot fail the gate and a regression to the 1 s idle tick still
-fails all three.
+spike cannot fail the gate. A 1 s idle poll on the 001 path exceeds
+100 ms on every trial.
 
 usage: redial.py ./build/birc
 """
