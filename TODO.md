@@ -453,9 +453,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       take_last, `Maybe.default` for str_get, `Char.is_digit`. Keep `is_space`
       as RFC 1459 SP-only. Identity `nth_buf`/`str_eq` stay as typed wrappers
       used from tests. Acc folds are I7.
-- [ ] **I10** Remaining in-src `show_*` use `String.concat`/`join` (view idiom#2).
+- [x] **I10** Remaining in-src `show_*` use `String.concat`/`join` (view idiom#2).
       `show_nicks`/`show_bufs`/`show_spans` concat chunks (trailing space/`;` kept).
-      **Still open:** `show_buf` / `show_client` / `show_netcmd` walk with `++`.
+      `show_buf` / `show_client` / `show_netcmd` concat a mapped list of pieces.
 - [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
       `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
       `SLPh` gone; `send_lines_go` matches the pair then the list.

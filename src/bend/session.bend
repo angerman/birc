@@ -189,9 +189,9 @@ def show_netcmd(c: NetCmd) -> String:
     case Cont{_}:
       "cont"
     case Dial{+host, port}:
-      "dial:" ++ host ++ ":" ++ U32.show(port)
+      String.concat("dial:" <> host <> ":" <> U32.show(port) <> Nil{})
     case Handoff{take}:
-      "handoff:" ++ Bool.show(take)
+      String.concat("handoff:" <> Bool.show(take) <> Nil{})
 
 def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
   match net:
