@@ -557,11 +557,14 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
       idle (27–71 ms across five runs). TimUI `input_poll_ms=0` so begin does
       not sleep again. C after P1: clock 26, dns 74, timui 562 (662). The
       initial `--connect` path now posts `Up{fd}` so idle poll sees the socket.
-      Handshake: UI stays at 16 ms while `Connecting` and for 2 s after Up/Chunk/Fail/Eof
-      (`IO.now`, not frame count). Self-pipe `wake_poke` wakes the poll when the
-      actor posts those events. `tests/pty/join_latency.py` and `redial.py`
-      require 001 → JOIN ≤ 100 ms. C after handshake fix: clock 26, dns 74,
-      timui 605 (705).
+      Handshake: UI stays at 16 ms while `Connecting` and for 50 ms after
+      Up/Chunk/Fail/Eof (`IO.now`, not frame count; poke already wakes). A
+      2000 ms window cost 5–6% of a core at one inbound line every 1.5–5 s
+      (`ratecpu.py`); 50 ms is 0.9–1.0% (period 2.0 s: 0.9%; 1.5 s: 1.0%)
+      next to idle `tickrate.py` 0.52% (30x100) / 0.59% (82x159). Self-pipe
+      `wake_poke` wakes the poll when the actor posts those events.
+      `tests/pty/join_latency.py` and `redial.py` require 001 → JOIN ≤ 100 ms.
+      C after handshake fix: clock 26, dns 74, timui 605 (705).
 - [x] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
       `txid_of` is `U32.and(n, 65535)`, never 0. Query encode is `List U32`.
       `send_octets` is the outbound twin of `recv_octets`. C: clock 22, dns 99,

@@ -602,7 +602,7 @@ def WAIT_IDLE() -> U32:
   1000
 
 def HOT_WINDOW() -> U32:
-  2000
+  50
 
 def net_connecting(+net: NetState) -> Bool:
   match net:
