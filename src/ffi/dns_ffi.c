@@ -70,6 +70,7 @@ static void __attribute__((constructor)) fd_hint_use(void) {
 Term send_octets_run(Env e, Term *f, IoWork *w) {
   uint8_t buf[512];
   size_t n = 0;
+  int over = 0;
   Term xs = f[3], t[2];
   struct sockaddr_in dst;
   u64 hlen = 0;
@@ -79,18 +80,21 @@ Term send_octets_run(Env e, Term *f, IoWork *w) {
   memset(&dst, 0, sizeof dst);
   dst.sin_family = AF_INET;
   dst.sin_port = htons((uint16_t)(u32)f[2]);
-  while (n < sizeof buf && term_aux(xs) == CID_CON) {
+  while (term_aux(xs) == CID_CON) {
     Loc sp = ctr_take(e, xs, 2, t);
-    buf[n++] = (uint8_t)(u32)t[0];
+    if (n < sizeof buf)
+      buf[n++] = (uint8_t)(u32)t[0];
+    else
+      over = 1;
     xs = t[1];
     spare_free(e, cls_fit(2), sp);
   }
-  if (host && inet_pton(AF_INET, host, &dst.sin_addr) == 1)
+  if (!over && host && inet_pton(AF_INET, host, &dst.sin_addr) == 1)
     wr = sendto((int)io_hand_v(f[0]), buf, n, 0, (struct sockaddr *)&dst,
                 (socklen_t)sizeof dst);
   free(host);
-  return io_tup(e, f[0], wr < 0 ? io_fail(e, errno ? (u32)errno : 1u, NULL)
-                               : io_done(e, term_pak(CID_UNIT, 0)));
+  return io_tup(e, f[0], over || wr < 0 ? io_fail(e, errno ? (u32)errno : 1u, NULL)
+                                       : io_done(e, term_pak(CID_UNIT, 0)));
 }
 static void __attribute__((constructor)) send_octets_use(void) {
   io_eff(CID_SEND_OCTETS, send_octets_run, 0);
