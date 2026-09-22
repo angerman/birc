@@ -226,8 +226,9 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("hot_window", U32.show(Sess.HOT_WINDOW()), "50")
     Unit <- E.must_eq("wait_win", U32.show(Sess.wait_ms.at(Sess.Online{}, Sess.HOT_WINDOW(), True{}, 0)), "16")
     Unit <- E.must_eq("wait_idle", U32.show(Sess.wait_ms.at(Sess.Online{}, Sess.HOT_WINDOW(), True{}, Sess.HOT_WINDOW())), "1000")
-    Unit <- E.must_eq("wait_win2k", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 100)), "16")
-    Unit <- E.must_eq("wait_idle2k", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 2000)), "1000")
+    Unit <- E.must_eq("wait_far", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 100)), "1000")
+    Unit <- E.must_eq("wait_wrap", U32.show(Sess.wait_ms.at(Sess.Online{}, 40, True{}, U32.sub(0, 10))), "16")
+    Unit <- E.must_eq("wait_wrap_idle", U32.show(Sess.wait_ms.at(Sess.Online{}, 40, True{}, 41)), "1000")
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

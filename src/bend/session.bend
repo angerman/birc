@@ -611,8 +611,14 @@ def net_connecting(+net: NetState) -> Bool:
     case _:
       False{}
 
+# Wrap-safe: remaining = until - now (mod 2^32). A 50 ms window never
+# stores a deadline more than HOT_WINDOW ahead, so remaining > WINDOW
+# means the deadline has expired through wrap (every 49.7 days).
+def until_open.d(+d: U32) -> Bool:
+  U32.is_gt(d, 0) && U32.is_le(d, HOT_WINDOW())
+
 def until_open(+until: U32, +now: U32) -> Bool:
-  U32.is_lt(now, until)
+  until_open.d(U32.sub(until, now))
 
 def wait_ms.at(+net: NetState, +until: U32, empty: Bool, +now: U32) -> U32:
   Bool.pick(U32, Bool.or(net_connecting(net), Bool.or(until_open(until, now), Bool.not(empty))), WAIT_HOT(), WAIT_IDLE())
