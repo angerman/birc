@@ -9,6 +9,7 @@ import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/session.bend as Sess
 import ./session_preds.bend as SP
 import ../../src/bend/net.bend as IoNet
+import ../../src/bend/actor.bend as Act
 
 def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket):
   match m:
@@ -185,7 +186,7 @@ def finish_recv(sl: Socket & String, client2: Socket) -> IO(Unit):
   match sl:
     case (server2, chunk):
       do IO<Unit>:
-        dropped : Socket & Bool <- IoNet.send_lines(client2, Nil{})
+        dropped : Socket & Bool <- Act.send_lines(client2, Nil{})
         finish_drop(dropped, chunk, server2)
 
 def after_accept(
