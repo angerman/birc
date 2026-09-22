@@ -3218,14 +3218,15 @@ struct Timui {
   /* Submit segmentation for timui_input_field: byte offsets in text_in where
    * Enter fired this frame, in order. Lets the field submit ONE segment per
    * frame ("a\rb\r" -> "a" then "b") instead of merging; the post-first-Enter
-   * tail is stashed in pending_* and re-injected by timui_begin next frame. */
-  int enter_at[32];
-  uint32_t enter_mods[32];
+   * tail is stashed in pending_* and re-injected by timui_begin next frame.
+   * 64 holds a 50-line paste plus /quit; 32 merged the tail into one line. */
+  int enter_at[64];
+  uint32_t enter_mods[64];
   int enter_count;
   char pending_in[256];
   int pending_in_len;
-  int pending_enter_at[32];
-  uint32_t pending_enter_mods[32];
+  int pending_enter_at[64];
+  uint32_t pending_enter_mods[64];
   int pending_enter_count;
   TimuiEditOp edit_ops[512];
   int edit_count;

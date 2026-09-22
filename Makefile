@@ -61,7 +61,7 @@ build-proto: ## Build the Bend protocol self-test binary.
 # birc usage is --help-irc (args.bend).
 BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c
 
-$(BLDDIR)/birc: $(APP) $(BEND_UI_SRCS)
+$(BLDDIR)/birc: $(APP) $(BEND_UI_SRCS) src/ui/timui.h
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend $(APP) -o $(BLDDIR)/birc_bend.c
 	$(NIXRUN) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
