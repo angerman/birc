@@ -179,8 +179,10 @@ test-pty-tinyquit: build-ui ## Pty: /quit at 1-2 cols and after resize-back (A6)
 test-pty-tabcut: build-ui ## Pty: long UTF-8 tab label cut on a code point (A7).
 	$(NIXRUN) python3 tests/pty/tab_cut.py ./$(BLDDIR)/birc
 
-test-pty-paste50: build-ui ## Pty: 50-line paste all reach the server (M17).
-	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc
+test-pty-paste50: build-ui ## Pty: burst paste 50/100/300 lines, then /quit (X3).
+	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 50
+	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 100
+	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 300
 
 test-pty-quitcap: build-ui ## Pty: /quit after a SEND_CAP burst still sends QUIT (X2).
 	$(NIXRUN) python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
