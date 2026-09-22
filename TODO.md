@@ -24,7 +24,7 @@ Current split (approx):
 - [x] **P2** Laws before cutover: extend `LAWS.bend` / `PROOF.bend` for each pure module; `make proof` stays green.
 - [x] **P3** Fail closed: Makefile targets that are not ready exit nonzero (`BLOCKED:`), never pretend.
 - [x] **P4** Handles stay opaque: TimUI / sockets are Bend handles or foreign handles — never stuff pointers into `U32`/`Nat`.
-- [x] **P5** Shutdown order: UI `Chan.close(evt)` → `Timui.close`; net actor `Socket.close` (live path).
+- [x] **P5** Shutdown order: actor `Socket.close`, then `Chan.close(cmd)`, drain Eof, `Timui.close`. Do not `Chan.close(evt)` — a recv after close deadlocks.
 - [x] **P6** Live path uses Base `TCP.send` (String) and `recv_octets` + `Fr.push`. Lines are UTF-8, Latin-1 if invalid.
 - [x] **P7** Fuel for open loops: UI/net loops take `Nat` fuel (`--frames`; `frames=0` live is `@unsafe` idle).
 
@@ -403,13 +403,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       flush `pending` so `/quit` behind a full cap still reaches the wire
       (`tests/pty/quitcap.py`).
 - [x] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
-      Measured with `tests/perf/cpu_pty.py` (pty, mock server, 15 s,
-      CPU = `ru_utime+ru_stime` of the birc process; not in `make check`):
-      idle 30x100 = 6.6% of one core; idle 82x159 = 7.4%;
-      flood ~70 lines/s 30x100 = 10.9%; flood 82x159 = 17.7%.
-      Decision: no change. The 16 ms tick keeps key latency low (keys are
-      read only when a frame runs). A lower idle cost would need a separate
-      input actor, which is out of scope. No `--timing` flag.
+      Superseded by **P1**: idle wait is 1000 ms, 16 ms only while Connecting,
+      for 50 ms after actor events, or if the composer is non-empty.
+      Historical `cpu_pty.py` numbers (16 ms always): idle 6.6–7.4%. After P1:
+      `tickrate.py` ~0.4–0.6% idle; with-traffic `ratecpu.py` ~1.0%.
 - [x] **M19** `pack_spans.cons` empty-means-first; bare `JOIN` must not create `""` (view dead#7).
       Empty JOIN does not open a buffer. pack_spans deleted with the packed wire.
 - [x] **M20** Small C fixes: `timui_full_redraw`, dead stores, `tlen`, feature macro, `localtime` (ffi A14–A17).

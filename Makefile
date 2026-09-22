@@ -239,6 +239,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@grep -q 'F_SETFL, O_NONBLOCK' src/ffi/timui_ffi.c
 	@grep -q 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
+	@awk '/if \(timui_open/{p=1} p&&/poke_rd/{c=1} p&&/free\(st\)/{p=0} END{if(!c){print "timui_open fail must close poke fds"; exit 1}}' src/ffi/timui_ffi.c
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)

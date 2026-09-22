@@ -33,11 +33,12 @@ make run HOST=irc.example.net   # live plaintext IRC (Bend DNS A + TCP)
 | `src/bend/submit.bend` | Composer → outbound IRC lines |
 | `src/bend/frame.bend` | CRLF octet framer + UTF-8 line decode |
 | `src/bend/view.bend` | ViewModel + scroll bounds |
-| `src/bend/net.bend` | Register / PONG / spawned net actor + Chan UI loop |
+| `src/bend/net.bend` | Chan UI loop, shutdown, Eof respawn |
+| `src/bend/actor.bend` | Socket actor: reader, idle, dial, send |
 | `src/bend/timui.bend` | `Timui.open` / `frame` / `close` |
 | `src/bend/app.bend` | Bend `main` (demo + live dispatch) |
 | `src/ffi/timui_ffi.c` | Thin TimUI FFI (`TIMUI_IMPLEMENTATION`) |
-| `src/ffi/dns_ffi.c` | UDP/TCP `recv_octets` |
+| `src/ffi/dns_ffi.c` | `recv_octets`, `send_octets`, `fd_hint` |
 | `src/ffi/clock_ffi.c` | Local `HH:MM:SS` for log timestamps |
 | `build/birc_bend.c` | **Build artefact** — Bend emits the whole program as one C TU; not hand-written |
 | `src/ui/timui.h` | Vendored [timui.h](https://timui.dev) |
