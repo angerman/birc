@@ -239,6 +239,7 @@ def with_fail(
 def with_eof.go(
   ui: T.Ui,
   +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +frames: U32,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit),
@@ -252,11 +253,15 @@ def with_eof.go(
     now : Nat <- IO.now()
     Unit <- IO.spawn(Unit, Act.idle_start(Sess.session_nick(st), frames, evt2, cmd2))
     Unit <- Chan.close(Sess.NetCmd, cmd)
+    # Actor already posted Eof (we are in the Eof arm). Close the old evt
+    # so the channel does not leak across redials.
+    Unit <- Chan.close(Sess.NetEvt, evt)
     with_tick(ui, Sess.session_touch(Sess.session_fail(Sess.session_set_now(st, ts), "disconnected"), U32.from_nat(now)), evt2, cmd2, k)
 
 def with_eof(
   ui: T.Ui,
   +st: Sess.Session,
+  +evt: Chan(Sess.NetEvt),
   +cmd: Chan(Sess.NetCmd),
   +frames: U32,
   k: (T.Ui & Sess.Session & Chan(Sess.NetEvt) & Chan(Sess.NetCmd) & Bool) -> IO(Unit)
@@ -264,7 +269,7 @@ def with_eof(
   do IO<Unit>:
     evt0 : Chan(Sess.NetEvt) <- Chan.new(Sess.NetEvt, 64)
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
-    with_eof.go(ui, st, cmd, frames, k, evt0, cmd0)
+    with_eof.go(ui, st, evt, cmd, frames, k, evt0, cmd0)
 
 def on_evt_up(
   ui: T.Ui,
@@ -289,7 +294,7 @@ def on_evt_some(
 ) -> IO(Unit):
   match e:
     case Sess.Eof{}:
-      with_eof(ui, st, cmd, frames, k)
+      with_eof(ui, st, evt, cmd, frames, k)
     case Sess.Tick{}:
       with_tick(ui, st, evt, cmd, k)
     case Sess.Chunk{xs}:
