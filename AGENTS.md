@@ -45,7 +45,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/buffer.bend` | Buffer / Client container types (I15b) |
 | `src/bend/client_laws.bend` | Feed inspectors and `*_ok` predicates (I15a) |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
-| `src/ffi/dns_ffi.c` | `recv_octets`, `fd_hint` |
+| `src/ffi/dns_ffi.c` | `recv_octets`, `send_octets`, `fd_hint` |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |

@@ -1,8 +1,7 @@
 # DNS A lookup. Pure wire lives in dns_wire.bend.
-# Live path: UDP.bind + UDP.send_to + recv_octets (not UDP.recv String).
+# Live path: UDP.bind + send_octets + recv_octets (not UDP.send_to String).
 # IPv4/A only: IPv6 literals fail with "ipv6". Resolver is the first IPv4
-# nameserver in /etc/resolv.conf, else 1.1.1.1. Transaction ids are 14-bit
-# (UDP.send_to is a String; bytes >= 128 become UTF-8).
+# nameserver in /etc/resolv.conf, else 1.1.1.1. Transaction ids are 16-bit.
 import Base
 import ./dns_wire.bend as Wire
 
@@ -42,6 +41,13 @@ law fd_hint:
 def fd_hint(sock):
   import "../ffi/dns_ffi.c"
 
+# Twin of recv_octets: build a UDP datagram from octets (0..255).
+law send_octets:
+  Socket -> String -> U32 -> List<&2, U32> -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
+
+def send_octets(sock, host, port, xs):
+  import "../ffi/dns_ffi.c"
+
 def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     Unit <- Socket.close(sock)
@@ -73,7 +79,7 @@ def wait_idle(
   resend: Bool,
   sock: Socket,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
@@ -82,13 +88,13 @@ def wait_idle(
       wait_sleep(sock, n, k)
     case True{}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
+        sent : Socket & Result<&1, &1, U32 & String, Unit> <- send_octets(sock, ns, DNS_PORT(), q)
         wait_sent(sent, n, k)
 
 def wait_take(
   sock: Socket,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   t: Wire.Take,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
@@ -108,7 +114,7 @@ def wait_port(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   +phost: String,
   rest: U32 & List<&2, U32>,
@@ -123,7 +129,7 @@ def wait_peer(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   p: String & (U32 & List<&2, U32>),
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
@@ -137,7 +143,7 @@ def wait_got(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   got: Maybe<&1, String & (U32 & List<&2, U32>)>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
@@ -153,7 +159,7 @@ def wait_r(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
@@ -169,7 +175,7 @@ def wait_poll(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat,
   k: Socket -> IO(Result<&1, &1, U32 & String, String>)
 ) -> IO(Result<&1, &1, U32 & String, String>):
@@ -184,7 +190,7 @@ def wait_ans(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   +n: Nat
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match fuel:
@@ -200,7 +206,7 @@ def after_send_r(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String,
+  +q: List<&2, U32>,
   r: Result<&1, &1, U32 & String, Unit>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
@@ -214,7 +220,7 @@ def after_send(
   +id: U32,
   +qhost: String,
   +ns: String,
-  +q: String
+  +q: List<&2, U32>
 ) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (sock, r):
@@ -222,7 +228,7 @@ def after_send(
 
 def after_bind(
   r: Result<&1, &1, U32 & String, Socket>,
-  +q: String,
+  +q: List<&2, U32>,
   +id: U32,
   +host: String,
   +ns: String
@@ -232,11 +238,11 @@ def after_bind(
       IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("bind"))
     case Done{sock}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        sent : Socket & Result<&1, &1, U32 & String, Unit> <- UDP.send_to(sock, ns, DNS_PORT(), q)
+        sent : Socket & Result<&1, &1, U32 & String, Unit> <- send_octets(sock, ns, DNS_PORT(), q)
         after_send(sent, id, host, ns, q)
 
 def lookup_q(
-  enc: Result<&1, &1, U32 & String, String>,
+  enc: Result<&1, &1, U32 & String, List<&2, U32>>,
   +id: U32,
   +host: String,
   +ns: String

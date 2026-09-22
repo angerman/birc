@@ -25,34 +25,25 @@ def show_take(t: Wire.Take) -> String:
     case Wire.HitErr{+msg}:
       "fail:" ++ msg
 
-def drop_s(fuel: Nat, z: Bool, +n: Nat, s: String) -> String:
-  match fuel:
-    case 0n:
-      s
-    case 1n+p:
-      match z:
-        case True{}:
-          s
-        case False{}:
-          match s:
-            case SNil{}:
-              ""
-            case SCon{_, t}:
-              drop_s(p, Nat.is_eq(Nat.sub(n, 1n), 0n), Nat.sub(n, 1n), t)
-
-def head_code(+s: String) -> U32:
-  match s:
-    case SNil{}:
+def oct_at.head(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
       0
-    case SCon{+h, _}:
-      Char.to_u32(h)
+    case Con{+h, _}:
+      h
 
-def prefix_ok(+s: String) -> Bool:
-  match s:
-    case SCon{+a, SCon{+b, SCon{+c, SCon{+d, SCon{+e, SCon{+f, _}}}}}}:
-      U32.is_eq(Char.to_u32(a), 0) && U32.is_eq(Char.to_u32(b), 1) && U32.is_eq(Char.to_u32(c), 1) && U32.is_eq(Char.to_u32(d), 0) && U32.is_eq(Char.to_u32(e), 0) && U32.is_eq(Char.to_u32(f), 1)
-    case _:
-      False{}
+def oct_at(+xs: List<&2, U32>, +n: Nat) -> U32:
+  oct_at.head(List.drop(&2, U32, xs, n))
+
+def prefix_ok_xs(+xs: List<&2, U32>) -> Bool:
+  U32.is_eq(oct_at(xs, 0n), 0) && U32.is_eq(oct_at(xs, 1n), 1) && U32.is_eq(oct_at(xs, 2n), 1) && U32.is_eq(oct_at(xs, 3n), 0) && U32.is_eq(oct_at(xs, 4n), 0) && U32.is_eq(oct_at(xs, 5n), 1)
+
+def show_enc(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> String:
+  match r:
+    case Done{_}:
+      "ok"
+    case Fail{e}:
+      show_fail(e)
 
 def from_octets(fuel: Nat, xs: List<&2, U32>, acc: String) -> String:
   match fuel:
@@ -283,31 +274,24 @@ def check_v6_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
         case (_, +msg):
           E.must_eq("resolve_v6", msg, "ipv6")
 
-def check_enc_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+def check_enc_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
   match r:
     case Fail{_}:
       IO.die(Unit, 1, "encode failed")
     case Done{+q}:
       do IO<Unit>:
-        Unit <- E.must("enc_len", Nat.is_eq(String.length(q), 29n))
-        Unit <- E.must("enc_pre", prefix_ok(q))
-        E.must("enc_lab", U32.is_eq(head_code(drop_s(13n, False{}, 12n, q)), 7))
+        Unit <- E.must("enc_len", Nat.is_eq(List.length(&2, U32, q), 29n))
+        Unit <- E.must("enc_pre", prefix_ok_xs(q))
+        E.must("enc_lab", U32.is_eq(oct_at(q, 12n), 7))
 
-def snd_code(+s: String) -> U32:
-  match s:
-    case SCon{_, t}:
-      head_code(t)
-    case SNil{}:
-      0
-
-def check_enc_hi_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+def check_enc_hi_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
   match r:
     case Fail{_}:
       IO.die(Unit, 1, "encode hi failed")
     case Done{+q}:
       do IO<Unit>:
-        Unit <- E.must("hi_b0", U32.is_lt(head_code(q), 128))
-        E.must("hi_b1", U32.is_lt(snd_code(q), 128))
+        Unit <- E.must("hi_b0", U32.is_eq(oct_at(q, 0n), 255))
+        E.must("hi_b1", U32.is_eq(oct_at(q, 1n), 255))
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -334,10 +318,11 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("octets_u80", show_oct(octets(SCon{Chr{128}, ""})), "194,128,")
     Unit <- E.must_eq("octets_fused", show_oct(octets(SCon{Chr{128}, SCon{Chr{0}, SCon{Chr{1}, ""}}})), "194,128,0,1,")
     Unit <- E.must_eq("parse_fused", show_res(Wire.parse_id(1, sample_fused_raw())), "ok:194.128.0.1")
-    Unit <- E.must("txid_hi7", U32.is_lt(U32.shrn(Wire.txid_of(65535), 8n), 128))
-    Unit <- E.must("txid_lo7", U32.is_lt(U32.and(Wire.txid_of(65535), 255), 128))
     Unit <- E.must("txid_nz", Bool.not(U32.is_zero(Wire.txid_of(0))))
-    Unit <- E.must("txid_14", U32.is_eq(Wire.txid_of(1), Wire.txid_of(16385)))
+    Unit <- E.must("txid_16", U32.is_eq(Wire.txid_of(65535), 65535))
+    Unit <- E.must("txid_8080", U32.is_eq(Wire.txid_of(32896), 32896))
+    Unit <- E.must("txid_b7", Bool.not(U32.is_zero(U32.and(Wire.txid_of(32896), 128))))
+    Unit <- E.must("txid_b15", Bool.not(U32.is_zero(U32.and(Wire.txid_of(32896), 32768))))
     Unit <- E.must_eq("ns first", Wire.nameserver_of("nameserver 8.8.8.8\n"), "8.8.8.8")
     Unit <- E.must_eq("ns tab", Wire.nameserver_of("nameserver" ++ SCon{Chr{9}, "8.8.8.8\n"}), "8.8.8.8")
     Unit <- E.must_eq("ns indent", Wire.nameserver_of("  nameserver 8.8.8.8\n"), "8.8.8.8")
@@ -368,7 +353,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("liar", show_res(Wire.parse_id(1, pkt_liar())), "fail:bad dns")
     Unit <- E.must_eq("trunc_rd", show_res(Wire.parse_id(1, pkt_trunc_rd())), "fail:bad dns")
     Unit <- E.must_eq("empty", show_res(Wire.parse_id(1, pkt_empty())), "fail:short")
-    Unit <- E.must_eq("encode_long", show_res(Wire.encode(long_name())), "fail:bad name")
+    Unit <- E.must_eq("encode_long", show_enc(Wire.encode(long_name())), "fail:bad name")
     Unit <- E.must("peer_ok", Wire.peer_ok("1.1.1.1", "1.1.1.1", 53))
     Unit <- E.must("peer_ip", Bool.not(Wire.peer_ok("1.1.1.1", "8.8.8.8", 53)))
     Unit <- E.must("peer_port", Bool.not(Wire.peer_ok("1.1.1.1", "1.1.1.1", 54)))

@@ -2,20 +2,16 @@
  * TIMUI_IMPLEMENTATION once. Include-guarded for multi-import. */
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
-
 #include <errno.h>
 #include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
 #endif
 #include "timui.h"
-
-/* Composer state lives on the Ui handle (cfg.userdata), not file statics. */
 typedef struct {
   char composer[512];
   TimuiTextAreaState st;
@@ -23,24 +19,17 @@ typedef struct {
   int poke_rd;
   int poke_wr;
 } BircUi;
-
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
-
 #include "birc_utf8_fit.h"
-
-/* Live handle for atexit restore. Timui.close clears it first so the hook
- * is idempotent with the normal P5 path. err_fail/_exit skip atexit. */
 static Timui *birc_ui_live;
-
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
   if (ui)
     timui_restore_terminal(ui);
 }
-
 #ifdef CID_UIKEYS
 static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols, uint32_t tab,
@@ -59,7 +48,6 @@ static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
   e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
   return term_ctr(CID_UIKEYS, l);
 }
-
 static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
                            const char *typed, size_t tlen, uint32_t rows,
                            uint32_t cols, uint32_t tab, uint32_t click,
@@ -69,7 +57,6 @@ static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
                             up, dn, hist));
 }
 #endif
-
 Term timui_open_run(Env e, Term *f, IoWork *w) {
   TimuiConfig cfg = TIMUI_CONFIG_INIT;
   Timui *ui = NULL;
@@ -94,27 +81,19 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
               TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
   cfg.theme = TIMUI_THEME_MODERN_DARK;
   cfg.userdata = st;
-  /* FFI polls tty + wake_fd before begin; do not sleep again inside TimUI. */
   cfg.input_poll_ms = 0;
   if (timui_open(&cfg, &ui) != TIMUI_OK) {
     free(st);
     return io_fail(e, 1u, "timui_open failed");
   }
-  /* Alt-screen (1049h) does not always wipe a nested tmux pane. Force a
-     full erase so the first paint cannot sit on leftover glyphs. */
   timui_full_redraw(ui);
   birc_ui_live = ui;
   atexit(birc_ui_atexit);
   return io_done(e, io_hand((uint64_t)(uintptr_t)ui));
 }
-
 static void __attribute__((constructor)) timui_open_use(void) {
   io_eff(CID_TIMUI_OPEN, timui_open_run, 0);
 }
-
-/* DrawOp walker. Bend owns layout, colours, spans, and y. */
-
-/* One UTF-8 walk: clip to maxx columns and report display width. */
 static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
   int cx = x;
@@ -139,7 +118,6 @@ static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_
     *out_w = cx - x;
   return i;
 }
-
 static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
                          size_t n, uint32_t fg, uint32_t attrs, const char *uri) {
   int w = 0;
@@ -156,7 +134,6 @@ static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
     timui_label(fr, x, y, (TimuiStr){p, n}, st);
   return x + w;
 }
-
 static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url,
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
@@ -169,7 +146,6 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
   uri[ulen] = '\0';
   return birc_put_span(fr, x, y, maxx, text, tlen, fg, TIMUI_ATTR_UNDERLINE, uri);
 }
-
 #if defined(CID_CON)
 static Term birc_cons_head(Env e, Term xs, Term *tail) {
   Term fb[2];
@@ -178,7 +154,6 @@ static Term birc_cons_head(Env e, Term xs, Term *tail) {
   spare_free(e, cls_fit(2), sp);
   return fb[0];
 }
-
 static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
                          int max) {
   int n = 0;
@@ -200,16 +175,6 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
   }
   return n;
 }
-
-static char *birc_cstr(Env e, Term t, u64 *n) {
-  char *s = io_cstr(e, t, n);
-  if (!s) {
-    *n = 0;
-    return NULL;
-  }
-  return s;
-}
-
 static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
                            uint32_t fg, Term xs) {
   while (term_aux(xs) == CID_CON) {
@@ -220,15 +185,15 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
     xs = rest;
     if (cid == CID_VIEW_LNK) {
       u64 ulen = 0, tlen = 0;
-      char *url = birc_cstr(e, f[0], &ulen);
-      char *text = birc_cstr(e, f[1], &tlen);
+      char *url = io_cstr(e, f[0], &ulen);
+      char *text = io_cstr(e, f[1], &tlen);
       x = birc_put_link(fr, x, y, maxx, url ? url : "", (size_t)ulen,
                         text ? text : "", (size_t)tlen, fg);
       free(url);
       free(text);
     } else if (cid == CID_VIEW_SPN) {
       u64 tlen = 0;
-      char *text = birc_cstr(e, f[1], &tlen);
+      char *text = io_cstr(e, f[1], &tlen);
       x = birc_put_span(fr, x, y, maxx, text ? text : "", (size_t)tlen, fg,
                         (uint32_t)f[0], NULL);
       free(text);
@@ -237,25 +202,22 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
   }
   return x;
 }
-
 typedef struct {
   TimuiCellBuffer *buf;
   TimuiStyle border;
   TimuiRect root;
   uint32_t *click;
 } BircLay;
-
 static void rect_from(Term *f, TimuiRect *r) {
   r->x = (int)(uint32_t)f[0];
   r->y = (int)(uint32_t)f[1];
   r->w = (int)(uint32_t)f[2];
   r->h = (int)(uint32_t)f[3];
 }
-
 static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
                            uint32_t fg, Term ts_t, Term spans) {
   u64 tslen = 0;
-  char *ts = birc_cstr(e, ts_t, &tslen);
+  char *ts = io_cstr(e, ts_t, &tslen);
   if (fr && ts && tslen > 0) {
     int tw = 0;
     (void)birc_clip_cols(ts, (size_t)tslen, 0, 100000, &tw);
@@ -266,7 +228,6 @@ static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
   free(ts);
   (void)birc_draw_spans(e, fr, x, y, maxx, fg, spans);
 }
-
 static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
   if (cid == CID_VIEW_OPBOX) {
@@ -286,7 +247,7 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     int y = (int)(uint32_t)f[1];
     int w = (int)(uint32_t)f[2];
     u64 n = 0;
-    char *s = birc_cstr(e, f[5], &n);
+    char *s = io_cstr(e, f[5], &n);
     (void)birc_put_span(fr, x, y, x + w, s ? s : "", (size_t)n, (uint32_t)f[3],
                         (uint32_t)f[4], NULL);
     free(s);
@@ -323,7 +284,6 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     spare_free(e, cls_fit(6), loc);
   }
 }
-
 static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
   while (term_aux(xs) == CID_CON) {
     Term rest;
@@ -332,13 +292,10 @@ static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
     birc_draw_op(e, fr, op, ly);
   }
 }
-
-/* Consume the DrawOp list without painting (early frame returns). */
 static void birc_drop_ops(Env e, Term xs) {
   birc_draw_ops(e, NULL, xs, NULL);
 }
 #endif /* CID_CON */
-
 static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
                          BircUi *stt, size_t *tlen) {
   TimuiId id;
@@ -349,8 +306,6 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   (void)st;
   if (!fr || !stt)
     return 0;
-  /* Always register the text area. Skipping it on a narrow frame drops the
-   * widget (and its focus); resize-back then cannot type or /quit. */
   prompt_w = width > 2 ? 2 : 0;
   if (prompt_w > 0)
     timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
@@ -368,7 +323,6 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   *tlen = birc_utf8_fit(stt->composer, n);
   return res.submitted ? 1 : 0;
 }
-
 static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   struct pollfd p[3];
   nfds_t n = 0;
@@ -404,7 +358,6 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   do {
     r = poll(p, n, timeout);
   } while (r == -1 && errno == EINTR);
-  /* RST/HUP: drop wake hint or poll busy-loops; actor still posts Eof. */
   if (r > 0 && wake_i >= 0 &&
       (p[wake_i].revents & (POLLERR | POLLHUP | POLLNVAL))) {
     if (bu)
@@ -421,7 +374,6 @@ static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
   if (r > 0 && poke_i >= 0 && (p[poke_i].revents & POLLIN))
     (void)read(bu->poke_rd, &dump, 1);
 }
-
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   Term ops = f[1];
@@ -444,7 +396,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint32_t hist = 0;
   size_t tlen = 0;
   (void)w;
-
 #ifndef CID_UIKEYS
 #error "Timui.frame returns Ui & UiKeys; CID_UIKEYS is required"
 #endif
@@ -455,7 +406,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
     return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
-
   birc_wait_fds(ui, wait_ms, wake_fd);
   if (!timui_begin(ui, &fr)) {
     free(input);
@@ -464,9 +414,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
     return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
-  if (timui_focus(fr) != TIMUI_ID("birc.composer"))
-    timui_set_focus(fr, TIMUI_ID("birc.composer"));
-
   {
     TimuiRect root = timui_root(fr);
     TimuiCellBuffer *buf = timui_frame_buffer(fr);
@@ -548,13 +495,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     return out;
   }
 }
-
 static void __attribute__((constructor)) timui_frame_use(void) {
   io_eff(CID_TIMUI_FRAME, timui_frame_run, 0);
 }
-
-/* ---- Timui.close : Ui -> IO(Unit) ------------------------------------- */
-
 Term timui_close_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   BircUi *st = birc_state(ui);
@@ -573,11 +516,9 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   free(st);
   return term_pak(CID_UNIT, 0);
 }
-
 static void __attribute__((constructor)) timui_close_use(void) {
   io_eff(CID_TIMUI_CLOSE, timui_close_run, 0);
 }
-
 #ifdef CID_WAKE_POKE
 Term wake_poke_run(Env e, Term *f, IoWork *w) {
   BircUi *bu = birc_ui_live ? birc_state(birc_ui_live) : NULL;
@@ -589,10 +530,8 @@ Term wake_poke_run(Env e, Term *f, IoWork *w) {
     (void)write(bu->poke_wr, &z, 1);
   return term_pak(CID_UNIT, 0);
 }
-
 static void __attribute__((constructor)) wake_poke_use(void) {
   io_eff(CID_WAKE_POKE, wake_poke_run, 0);
 }
 #endif
-
 #endif /* BIRC_TIMUI_FFI_C */
