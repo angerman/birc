@@ -3,11 +3,12 @@
 
 Actor events (Up/Chunk) used to sit in the evt channel while the UI polled
 1000 ms, so 001 → JOIN was ~1 s. Keep the UI at 16 ms while Connecting and
-for ~2 s after actor events.
+for 50 ms after actor events. This test idles 2.5 s after accept (more than
+HOT_WINDOW) so 001 is sent on the wake path, not inside the hot window.
 
 Documented target: <= 100 ms. The pass criterion is the minimum of up to
-three trials in one run, so a load spike cannot fail the gate and a
-regression to the 1 s idle tick still fails all three.
+three trials in one run, so a load spike cannot fail the gate. A 1 s idle
+poll on the 001 path exceeds 100 ms on every trial.
 
 usage: join_latency.py ./build/birc
 """
@@ -92,7 +93,7 @@ def trial(birc: str) -> tuple[bool, float | None]:
                 time.sleep(0.005)
             return False
 
-        pump(1.5)
+        pump(2.5)
         t0 = time.time()
         conn.sendall(b":irc.example.net 001 probe :Welcome\r\n")
         ok = pump(2.0, b"JOIN #t")

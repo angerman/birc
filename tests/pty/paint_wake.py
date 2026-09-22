@@ -4,8 +4,8 @@
 The UI polls the socket fd as a wake hint; it never reads the socket.
 
 Documented target: <= 100 ms. The pass criterion is the minimum of up to
-three trials in one run, so a load spike cannot fail the gate and a
-regression to the 1 s idle tick still fails all three.
+three trials in one run, so a load spike cannot fail the gate. A 1 s idle
+poll on the paint path exceeds 100 ms on every trial.
 
 usage: paint_wake.py ./build/birc
 """
