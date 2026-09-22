@@ -399,7 +399,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
       C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
 - [x] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
       `SEND_CAP` is 8. `reader_go`/`reader_idle` carry leftover lines.
-      Pty: `tests/pty/paste50.py` (50 PRIVMSGs).
+      Pty: `tests/pty/paste50.py` (50 PRIVMSGs). X2: cmd close and fuel-0
+      flush `pending` so `/quit` behind a full cap still reaches the wire
+      (`tests/pty/quitcap.py`).
 - [x] **M18** `Timui.frame` blocks the loop up to 16 ms: measure first (net#13).
       Measured with `build/review/lead/cpu_pty.py` (pty, mock server, 15 s,
       CPU = `ru_utime+ru_stime` of the birc process):
