@@ -24,11 +24,18 @@ def show_buf.chan(+ch: Bool) -> String:
 def show_buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, _}:
-      name
-        ++ show_buf.chan(ch)
-        ++ "{" ++ topic ++ "|"
-        ++ Nat.show(List.length(&2, Cl.Line, lines)) ++ "|"
-        ++ show_nicks(nicks) ++ "}"
+      String.concat(
+        name
+          <> show_buf.chan(ch)
+          <> "{"
+          <> topic
+          <> "|"
+          <> Nat.show(List.length(&2, Cl.Line, lines))
+          <> "|"
+          <> show_nicks(nicks)
+          <> "}"
+          <> Nil{}
+      )
 
 def show_bufs.chunks(+xs: List<&2, Cl.Buffer>) -> List<&2, String>:
   match xs:
@@ -43,7 +50,16 @@ def show_bufs(+xs: List<&2, Cl.Buffer>) -> String:
 def show_client(+cl: Cl.Client) -> String:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _}:
-      nick ++ "@" ++ server ++ "[" ++ Nat.show(active) ++ "]:" ++ show_bufs(bufs)
+      String.concat(
+        nick
+          <> "@"
+          <> server
+          <> "["
+          <> Nat.show(active)
+          <> "]:"
+          <> show_bufs(bufs)
+          <> Nil{}
+      )
 
 def nbuf(+cl: Cl.Client) -> Nat:
   match cl:
