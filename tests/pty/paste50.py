@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""M17: a 50-line paste must all reach the server (cap 8 per actor tick).
+"""X3/M17: a 50-line paste in one write must all reach the server, in order.
 
-(-) send_lines flushed the whole Cont in one tick with no leftover.
-(+) reader carries pending; all 50 PRIVMSGs arrive.
+(-) TimUI enter_at[32] dropped enters past 32, so a 50-line burst lost
+    the tail and /quit was ignored. One-line-at-a-time paste50 hid that.
+(+) one os.write of 50 lines; the exact ordered PRIVMSG list arrives.
 
 usage: paste50.py ./build/birc
 """
@@ -70,26 +71,32 @@ def main() -> int:
     conn.settimeout(0.05)
     conn.sendall(b":irc.example.net 001 probe :Welcome\r\n:probe!p@h JOIN #t\r\n")
     t = time.time()
-    while time.time() - t < 1.2:
+    while time.time() - t < 3.0:
         drain(master, out)
         try:
-            conn.recv(65536)
+            d = conn.recv(65536)
+            if d and b"JOIN #t" in d:
+                break
         except (socket.timeout, BlockingIOError, OSError):
             pass
         time.sleep(0.03)
     buf = bytearray()
-    for i in range(50):
-        os.write(master, ("L%02d\r" % i).encode())
-        t = time.time()
-        while time.time() - t < 0.15:
-            drain(master, out)
-            try:
-                d = conn.recv(65536)
-                if d:
-                    buf += d
-            except (socket.timeout, BlockingIOError, OSError):
-                pass
-            time.sleep(0.02)
+    want = ["PRIVMSG #t :L%02d" % i for i in range(50)]
+    os.write(master, b"".join(("L%02d\r" % i).encode() for i in range(50)))
+    t = time.time()
+    while time.time() - t < 8.0:
+        drain(master, out)
+        try:
+            d = conn.recv(65536)
+            if d:
+                buf += d
+        except (socket.timeout, BlockingIOError, OSError):
+            pass
+        text = bytes(buf).decode("utf-8", "replace")
+        msgs = [ln for ln in text.split("\r\n") if ln.startswith("PRIVMSG #t :L")]
+        if msgs == want:
+            break
+        time.sleep(0.02)
     os.write(master, b"/quit\r")
     t = time.time()
     while proc.poll() is None and time.time() - t < 8:
@@ -106,11 +113,16 @@ def main() -> int:
         proc.wait()
     text = bytes(buf).decode("utf-8", "replace")
     msgs = [ln for ln in text.split("\r\n") if ln.startswith("PRIVMSG #t :L")]
-    print(f"privmsgs={len(msgs)} want=50 exit={proc.returncode}")
-    ok = len(msgs) == 50
+    quits = [ln for ln in text.split("\r\n") if ln.startswith("QUIT")]
+    print(f"privmsgs={len(msgs)} want=50 quit={len(quits)} exit={proc.returncode}")
+    print("got=%r" % (msgs[:5] + ["..."] + msgs[-5:] if len(msgs) > 10 else msgs,))
+    ok = msgs == want and len(quits) == 1 and proc.returncode == 0
     print("RESULT:", "PASS" if ok else "FAIL")
-    if not ok:
-        print("paste50: outbound cap dropped lines", file=sys.stderr)
+    if msgs != want:
+        print("paste50: burst paste dropped or reordered lines", file=sys.stderr)
+        return 1
+    if len(quits) != 1 or proc.returncode != 0:
+        print("paste50: /quit ignored after burst", file=sys.stderr)
         return 1
     print("paste50=ok")
     return 0
