@@ -277,10 +277,13 @@ type PushPhase is Data:
   PRead{}
   PClass{}
   PAct{}
+  PCr{}
   PDrop{}
   PDropLf{}
 
-# CR is skipped, never stored; rem length is the payload length.
+# RFC 1459: a line ends in CRLF. A CR not followed by LF is a bare CR
+# and drops the whole line, like the over-long case. A CR at the end of
+# a chunk is held on rem (octet 13) so a split CRLF still emits.
 def payload_n(+rem: List<&2, U32>) -> Nat:
   List.length(&2, U32, rem)
 
@@ -293,7 +296,7 @@ def push.go(
   phase: PushPhase,
   +inp: List<&2, U32>,
   +rem: List<&2, U32>,
-  lines: List<&2, String>,
+  +lines: List<&2, String>,
   +n: Nat,
   +b: U32,
   is_lf: Bool,
@@ -308,6 +311,8 @@ def push.go(
           push.go.halt(lines, rem, True{})
         case PDropLf{}:
           push.go.halt(lines, rem, True{})
+        case PCr{}:
+          push.go.halt(lines, CR() <> rem, False{})
         case _:
           push.go.halt(lines, rem, False{})
     case 1n+p:
@@ -327,13 +332,31 @@ def push.go(
             case False{}:
               match is_cr:
                 case True{}:
-                  push.go(p, PRead{}, inp, rem, lines, n, 0, False{}, False{}, False{})
+                  push.go(p, PCr{}, inp, rem, lines, n, 0, False{}, False{}, False{})
                 case False{}:
                   match over:
                     case True{}:
                       push.go(p, PDrop{}, inp, Nil{}, lines, 0n, 0, False{}, False{}, False{})
                     case False{}:
                       push.go(p, PRead{}, inp, b <> rem, lines, 1n+n, 0, False{}, False{}, False{})
+        case PCr{}:
+          match inp:
+            case Nil{}:
+              push.go.halt(lines, CR() <> rem, False{})
+            case Con{+hd, t}:
+              +lf = U32.is_eq(hd, LF())
+              push.go(
+                p,
+                Bool.pick(PushPhase, lf, PRead{}, PDrop{}),
+                Bool.pick(List<&2, U32>, lf, t, hd <> t),
+                Nil{},
+                Bool.pick(List<&2, String>, lf, emit_line(rem, lines), lines),
+                0n,
+                0,
+                False{},
+                False{},
+                False{}
+              )
         case PDrop{}:
           match inp:
             case Nil{}:
@@ -347,19 +370,22 @@ def push.go(
             case False{}:
               push.go(p, PDrop{}, inp, Nil{}, lines, 0n, 0, False{}, False{}, False{})
 
+def push_ex.keep.hd(+chunk: List<&2, U32>, +n: Nat, +h: U32, t: List<&2, U32>, pend: Bool) -> List<&2, String> & List<&2, U32> & Bool:
+  match pend:
+    case True{}:
+      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PCr{}, chunk, t, Nil{}, Nat.sub(n, 1n), 0, False{}, False{}, False{})
+    case False{}:
+      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PRead{}, chunk, h <> t, Nil{}, n, 0, False{}, False{}, False{})
+
+def push_ex.keep.cr(+rev: List<&2, U32>, +chunk: List<&2, U32>, +n: Nat) -> List<&2, String> & List<&2, U32> & Bool:
+  match rev:
+    case Nil{}:
+      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PRead{}, chunk, Nil{}, Nil{}, n, 0, False{}, False{}, False{})
+    case Con{+h, t}:
+      push_ex.keep.hd(chunk, n, h, t, U32.is_eq(h, CR()))
+
 def push_ex.keep(+rem: List<&2, U32>, +chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
-  push.go(
-    Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))),
-    PRead{},
-    chunk,
-    List.reverse(&2, U32, rem),
-    Nil{},
-    payload_n(rem),
-    0,
-    False{},
-    False{},
-    False{}
-  )
+  push_ex.keep.cr(List.reverse(&2, U32, rem), chunk, payload_n(rem))
 
 def push_ex.drop(+chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
   push.go(
@@ -522,6 +548,23 @@ def overlong_text_drop_ok() -> Bool:
 
 def cr_flood_ok() -> Bool:
   cr_flood_oct_ok()
+
+# Bare CR (not the CR of CRLF) drops the line. Next CRLF line still parses.
+def bare_cr_drop_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
+  match got:
+    case (lines, rem):
+      strings_eq(lines, "hello" <> Nil{}) && octets_eq(rem, Nil{})
+
+def bare_cr_drop_ok() -> Bool:
+  bare_cr_drop_ok.fin(push(Nil{}, string_to_octets("abc" ++ SCon{Chr{13}, "def\r\nhello\r\n"})))
+
+def bare_cr_old_merge_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
+  match got:
+    case (lines, _):
+      strings_eq(lines, "abcdef" <> "hello" <> Nil{})
+
+def bare_cr_old_merge_ok() -> Bool:
+  bare_cr_old_merge_ok.fin(push(Nil{}, string_to_octets("abc" ++ SCon{Chr{13}, "def\r\nhello\r\n"})))
 
 def short_text_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:

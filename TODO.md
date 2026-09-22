@@ -459,9 +459,9 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I11** `net.bend`: factor loops; `send_go` pure; SLPh (net#16 #18 #20).
       `poll_pass` deleted. `send_go` is pure `Socket & Result -> Socket & Bool`.
       `SLPh` gone; `send_lines_go` matches the pair then the list.
-- [ ] **I12** One framer (H7). Unreachable CR strip in `emit_line`/`payload_n` gone.
-      `push_param` and `join_lines` cons then reverse once. **Still open:** a
-      bare CR is skipped, not dropped; RFC 1459 forbids it (P5).
+- [x] **I12** One framer (H7). Unreachable CR strip in `emit_line`/`payload_n` gone.
+      `push_param` and `join_lines` cons then reverse once. P5: a bare CR
+      drops the whole line (RFC 1459); CRLF still ends a line.
 - [x] **I13** Parallelism: rebalance `view_draft` (idiom §6).
       Same measurement as M18 (`tests/perf/cpu_pty.py`, 15 s): idle 6.6–7.4% of one
       core, flood 10.9–17.7%. Parallel packing is not justified at these
@@ -572,7 +572,9 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 - [x] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
       `actor.bend` 780 (reader/idle/dial/send); `net.bend` 518 (UI/shutdown).
       Goldens unchanged modulo the net_demo import.
-- [ ] **P5** Bare CR inside a line drops the whole line (RFC 1459).
+- [x] **P5** Bare CR inside a line drops the whole line (RFC 1459).
+      `"abc\\rdef\\r\\nhello\\r\\n"` yields only `hello`. Split CRLF still
+      emits. `bare_cr_drop` law.
 - [ ] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
 - [ ] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
 - [ ] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
