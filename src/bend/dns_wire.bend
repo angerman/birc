@@ -293,7 +293,7 @@ def encode(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
 # ---- Data cursor (copyable). Pairs are affine; a do-block needs Data. --
 
 type Cur is Data:
-  Cur{pkt: List<&2, U32>, off: U32}
+  Cur{pkt: List<&2, U32>, rest: List<&2, U32>, off: U32}
 
 type Got is Data:
   Got{v: U32, cur: Cur}
@@ -325,13 +325,27 @@ def got_cur(+g: Got) -> Cur:
 
 def cur_off(+c: Cur) -> U32:
   match c:
-    case Cur{_, off}:
+    case Cur{_, _, off}:
       off
+
+def rest_drop(n: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match n:
+    case 0n:
+      xs
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{_, t}:
+          rest_drop(p, t)
 
 def cur_add(+c: Cur, +n: U32) -> Cur:
   match c:
-    case Cur{pkt, off}:
-      Cur{pkt, U32.add(off, n)}
+    case Cur{pkt, rest, off}:
+      Cur{pkt, rest_drop(U32.to_nat(n), rest), U32.add(off, n)}
+
+def at_off(+pkt: List<&2, U32>, +off: U32) -> Cur:
+  Cur{pkt, rest_drop(U32.to_nat(off), pkt), off}
 
 def nm_name(+n: Nm) -> String:
   match n:
@@ -412,8 +426,8 @@ def at_xs(xs: List<&2, U32>) -> Maybe<&2, U32>:
 
 def byte_at(+c: Cur) -> Maybe<&2, U32>:
   match c:
-    case Cur{pkt, off}:
-      at_xs(List.drop(&2, U32, pkt, U32.to_nat(off)))
+    case Cur{_, rest, _}:
+      at_xs(rest)
 
 def take8(+c: Cur) -> Maybe<&2, Got>:
   do Maybe<&2, Got>:
@@ -511,7 +525,7 @@ def read_name_go(
     case 1n+p:
       match ph:
         case RdGet{}:
-          read_name_go(p, RdGot{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(Cur{pkt, pos}), False{})
+          read_name_go(p, RdGot{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(at_off(pkt, pos)), False{})
         case RdGot{}:
           match got:
             case None{}:
@@ -521,7 +535,7 @@ def read_name_go(
         case RdKind{}:
           match flag:
             case True{}:
-              read_name_go(p, RdPtr{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(Cur{pkt, U32.add(pos, 1)}), False{})
+              read_name_go(p, RdPtr{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(at_off(pkt, U32.add(pos, 1))), False{})
             case False{}:
               read_name_go(p, RdRes{}, pkt, pos, ret, hops, acc, lab, n, b, None{}, U32.is_ge(b, 64))
         case RdRes{}:
@@ -555,7 +569,7 @@ def read_name_go(
             case True{}:
               read_name_go(p, RdGet{}, pkt, pos, ret, hops, name_join(acc, lab), "", 0, 0, None{}, False{})
             case False{}:
-              read_name_go(p, RdLabB{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(Cur{pkt, pos}), False{})
+              read_name_go(p, RdLabB{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(at_off(pkt, pos)), False{})
         case RdLabB{}:
           match got:
             case None{}:
@@ -581,7 +595,7 @@ def read_name(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, Nm>:
 
 def ip4_at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, String>:
   do Maybe<&2, String>:
-    +g0 : Got <- take8(Cur{pkt, off})
+    +g0 : Got <- take8(at_off(pkt, off))
     +g1 : Got <- take8(got_cur(g0))
     +g2 : Got <- take8(got_cur(g1))
     +g3 : Got <- take8(got_cur(g2))
@@ -590,7 +604,7 @@ def ip4_at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, String>:
 def read_rr(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, RR>:
   do Maybe<&2, RR>:
     +nm : Nm <- read_name(pkt, off)
-    +gt : Got <- take16(Cur{pkt, nm_off(nm)})
+    +gt : Got <- take16(at_off(pkt, nm_off(nm)))
     +gc : Got <- take16(got_cur(gt))
     +t0 : Got <- take16(got_cur(gc))
     +t1 : Got <- take16(got_cur(t0))
@@ -707,7 +721,7 @@ def walk_an(+pkt: List<&2, U32>, +off: U32, +an: U32, +sought: String) -> Result
 
 def parse_hdr(+pkt: List<&2, U32>) -> Maybe<&2, Hdr>:
   do Maybe<&2, Hdr>:
-    +g0 : Got <- take16(Cur{pkt, 0})
+    +g0 : Got <- take16(at_off(pkt, 0))
     +g1 : Got <- take8(got_cur(g0))
     +g2 : Got <- take8(got_cur(g1))
     +g3 : Got <- take16(got_cur(g2))
@@ -719,7 +733,7 @@ def parse_hdr(+pkt: List<&2, U32>) -> Maybe<&2, Hdr>:
 def read_qsec(+pkt: List<&2, U32>) -> Maybe<&2, Qsec>:
   do Maybe<&2, Qsec>:
     +nm : Nm <- read_name(pkt, 12)
-    +gt : Got <- take16(Cur{pkt, nm_off(nm)})
+    +gt : Got <- take16(at_off(pkt, nm_off(nm)))
     +gc : Got <- take16(got_cur(gt))
     return Qsec{nm_name(nm), got_v(gt), got_v(gc), cur_off(got_cur(gc))}
 

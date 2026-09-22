@@ -419,10 +419,10 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 ### Phase I — idiomatic Bend
 - [x] **I1** Delete `natutil.bend`; `body_h` to `session.bend`; drop `ticks_of` (idiom top10#1, proto dead#4).
       `body_h` / `live_fuel` live in `session.bend`. `ticks_of` still aliases `live_fuel` (law `live_fuel_alias`).
-- [ ] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
+- [x] **I2** `dns_wire` Data cursor + `do Maybe`; nested patterns; drop shims (dns#17–#23 #28–#30).
       Data `Cur`/`Got` + `do Maybe`. Wire shims in `dns.bend` deleted; live
-      path and `dns_demo` call `Wire.*` directly. **Still open:** `byte_at`
-      does `List.drop(pkt, off)` per octet (P7: carry the remaining suffix).
+      path and `dns_demo` call `Wire.*` directly. P7: `Cur` carries the
+      remaining suffix; `byte_at` is the head of `rest`.
 - [x] **I3** `List.modify` at the 10 buffer-update sites (idiom §4#6, client#17).
       `buf_modify` walks the buffer list; join/part/kick/topic/log/scroll
       pass a `Buffer -> Buffer`. `set_nth_buf` deleted.
@@ -578,7 +578,9 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 - [x] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
       Tab strip uses `*server*` for buffer 0; a query named `server` stays
       `server`. `tab_names_ok` / `tab_collide_ok`.
-- [ ] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
+- [x] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
+      `Cur{pkt, rest, off}`; `byte_at` is `at_xs(rest)`; jumps use `at_off`
+      once. `dns_demo` unchanged.
 - [ ] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
 - [ ] **P9** `--die-after-open` (test-only) exercises atexit restore.
 
