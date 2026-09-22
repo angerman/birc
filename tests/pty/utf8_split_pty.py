@@ -60,24 +60,26 @@ def main() -> int:
     conn, _ = srv.accept()
     conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     conn.sendall(b":irc.example.net 001 probe :Welcome\r\n:probe!p@h JOIN #t\r\n")
-    pump(master, out, 1.2)
+    pump(master, out, 2.0)
 
     def wipe():
         conn.sendall(b":w!w@h PRIVMSG #t :" + b"W" * 40 + b"\r\n")
-        pump(master, out, 0.4)
+        # Idle wait is 1000 ms (P1). 0.4 s used to lose the wipe paint, then
+        # TimUI dirty-cell skip hid the next probe's first letter.
+        pump(master, out, 1.5)
 
     # Wipe the bottom row before each probe so TimUI dirty-cell skip cannot
     # hide letters that overlap a previous line (café vs naïve share 'a').
     conn.sendall(b":a!a@h PRIVMSG #t :caf\xc3")
-    pump(master, out, 0.5)
+    pump(master, out, 1.2)
     conn.sendall(b"\xa9 split\r\n")
-    pump(master, out, 0.8)
+    pump(master, out, 1.5)
     wipe()
     conn.sendall(b":a!a@h PRIVMSG #t :na\xefve latin1\r\n")
-    pump(master, out, 0.8)
+    pump(master, out, 1.5)
     wipe()
     conn.sendall(b":a!a@h PRIVMSG #t :\xe6\xbc\xa2 cjk whole\r\n")
-    pump(master, out, 0.8)
+    pump(master, out, 1.5)
     os.write(master, b"/quit\r")
     t = time.time()
     while proc.poll() is None and time.time() - t < 15:

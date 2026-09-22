@@ -7,9 +7,9 @@ TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
 
 ```bend
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page):
+def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
   import "../ffi/timui_ffi.c"
 ```
 
@@ -36,6 +36,7 @@ def Timui.frame(ui, ops, input, seed, page):
 |---|---|---|
 | `Timui.open` / `Timui.frame` / `Timui.close` | `src/ffi/timui_ffi.c` | `TIMUI_IMPLEMENTATION` once |
 | `recv_octets` | `src/ffi/dns_ffi.c` | UDP/TCP octets + peer; not `UDP.recv` String |
+| `fd_hint` | `src/ffi/dns_ffi.c` | `Socket -> IO(Socket & U32)`; copies the fd, keeps the handle |
 | `local_secs` | `src/ffi/clock_ffi.c` | local seconds-of-day as `U32`; Bend formats HH:MM:SS |
 
 Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets` +
@@ -59,7 +60,7 @@ of the project FFI is `make lint-ffi`: stub header `tests/lint-ffi/ffi_stub.h`,
 law Ui: Type
 
 Timui.open  : IO(Result<&1,&1, U32 & String, Ui>)
-Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
 Timui.close : Ui -> IO(Unit)
 ```
 
@@ -68,6 +69,12 @@ are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
 `tab`, `click`, `up`, `dn`, `hist`). Unpack like `Window.frame`. Do not put
 `Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
 including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
+`wait_ms` is how long C `poll()`s the tty (and optional `wake_fd`) before
+`timui_begin`. Bend uses 16 ms after recent keys, a non-empty composer, or a
+Chunk/Up, else 1000 ms. `wake_fd` is a **wake hint**: the actor's socket fd
+as a plain `U32` (0 = none), from `fd_hint`. The UI never reads that socket;
+the actor still owns the handle. `Timui.open` sets TimUI `input_poll_ms` to 0
+so `timui_begin` does not sleep again after the FFI poll.
 
 ### Pure domain types
 

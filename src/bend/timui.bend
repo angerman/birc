@@ -41,10 +41,11 @@ def Timui.open():
 
 # One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
 # reseeds the composer from input, including "". page is Sess.body_h.
+# wait_ms is the FFI poll timeout; wake_fd is a socket wake hint (0 = none).
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page):
+def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:

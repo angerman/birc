@@ -43,6 +43,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_HHMMSS 10u
 #define CID_LOCAL_SECS 12u
 #define CID_RECV_OCTETS 11u
+#define CID_FD_HINT 21u
 #define CID_VIEW_OPBOX 13u
 #define CID_VIEW_OPTEXT 14u
 #define CID_VIEW_OPTABS 15u

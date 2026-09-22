@@ -76,7 +76,13 @@ def main() -> int:
         return 1
     conn.settimeout(0.005)
     conn.sendall(b":irc.example.net 001 probe :Welcome\r\n:probe!p@h JOIN #t\r\n")
-    time.sleep(0.2)
+    # Idle wait is 1000 ms until Up{fd} is applied; 0.2 s used to lose JOIN.
+    end = time.time() + 2.0
+    while time.time() < end and proc.poll() is None:
+        drain(master, out)
+        if b"#t" in bytes(out):
+            break
+        time.sleep(0.05)
     for i in range(n):
         drain(master, out)
         if proc.poll() is not None:
@@ -90,6 +96,10 @@ def main() -> int:
         except (socket.timeout, ConnectionResetError, BrokenPipeError):
             pass
         time.sleep(0.03)
+    end = time.time() + 1.2
+    while time.time() < end and proc.poll() is None:
+        drain(master, out)
+        time.sleep(0.05)
     try:
         conn.close()
     except OSError:

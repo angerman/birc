@@ -60,4 +60,15 @@ static void __attribute__((constructor)) recv_octets_use(void) {
 }
 #endif
 
+#ifdef CID_FD_HINT
+Term fd_hint_run(Env e, Term *f, IoWork *w) {
+  uint32_t fd = (uint32_t)io_hand_v(f[0]);
+  (void)w;
+  return io_tup(e, f[0], (Term)(uint64_t)fd);
+}
+
+static void __attribute__((constructor)) fd_hint_use(void) {
+  io_eff(CID_FD_HINT, fd_hint_run, 0);
+}
+#endif
 #endif /* BIRC_DNS_FFI_C */

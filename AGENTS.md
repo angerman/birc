@@ -43,7 +43,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `TODO.md` | Bend migration checklist (M8 = TimUI example parity) |
 | `src/bend/*.bend` | Protocol, client, submit, frame, session (pure), dns_wire, net (IO), view, app |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
-| `src/ffi/dns_ffi.c` | `recv_octets` |
+| `src/ffi/dns_ffi.c` | `recv_octets`, `fd_hint` |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
@@ -52,7 +52,7 @@ silent flake/source pin updates. Routine Nix work uses
 
 - Fail closed: missing targets exit nonzero.
 - Keep IRC lines ≤ 512 bytes including CRLF.
-- Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop. Live paint is `List<DrawOp>` (`OpBox` / `OpText` / `OpTabs` / `OpLine`); C walks and paints, and does not tokenize or classify IRC. Keys are Data on the frame return. PageUp/PageDown size is `Sess.body_h` passed into the frame effect.
+- Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop. Live paint is `List<DrawOp>` (`OpBox` / `OpText` / `OpTabs` / `OpLine`); C walks and paints, and does not tokenize or classify IRC. Keys are Data on the frame return. PageUp/PageDown size is `Sess.body_h` passed into the frame effect. `wait_ms` / `wake_fd` are poll arguments: the FFI waits on the tty and an optional socket fd **as a wake hint only** (plain `U32` from `fd_hint`; 0 = none). The UI never reads the socket; the actor keeps ownership.
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `--frames N` is one fuel tick per event; `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` is `File.read` → `feed_all`, fail closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
 - Shutdown (P5): `Socket.close` then `Timui.close`, then `IO.die` so parked IO cannot linger.
 - Headless `birc` quits on the first frame; loop tests need a pty (`make test-pty`).
