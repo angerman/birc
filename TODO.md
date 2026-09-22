@@ -566,7 +566,9 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
       `txid_of` is `U32.and(n, 65535)`, never 0. Query encode is `List U32`.
       `send_octets` is the outbound twin of `recv_octets`. C: clock 22, dns 99,
       timui 537 (658). `txid_of(0x8080)` keeps bits 7 and 15.
-- [ ] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
+- [x] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
+      `test-dns` is identity + parse only; `! grep one.one.one.one` on
+      `dns_demo.bend`. `make test-dns-live` is documented and not in `check`.
 - [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
 - [ ] **P5** Bare CR inside a line drops the whole line (RFC 1459).
 - [ ] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
