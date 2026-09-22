@@ -562,7 +562,10 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
       actor posts those events. `tests/pty/join_latency.py` and `redial.py`
       require 001 → JOIN ≤ 100 ms. C after handshake fix: clock 26, dns 74,
       timui 605 (705).
-- [ ] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
+- [x] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
+      `txid_of` is `U32.and(n, 65535)`, never 0. Query encode is `List U32`.
+      `send_octets` is the outbound twin of `recv_octets`. C: clock 22, dns 99,
+      timui 537 (658). `txid_of(0x8080)` keeps bits 7 and 15.
 - [ ] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
 - [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
 - [ ] **P5** Bare CR inside a line drops the whole line (RFC 1459).

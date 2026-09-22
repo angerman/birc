@@ -1,7 +1,6 @@
 # Pure DNS A wire encode/parse. No IO. dns.bend owns UDP.
-# Query bytes are all < 128 so String send stays one octet per Char.
-# Live recv is recv_octets (List U32 0..255). Cursor is a Data record so
-# a do Maybe block can bind more than once (idiom §4#1).
+# Query encode is List U32 (send_octets). Live recv is recv_octets.
+# Cursor is a Data record so a do Maybe block can bind more than once.
 import Base
 
 def byte(+n: U32) -> String:
@@ -218,25 +217,29 @@ def txid_nz(+n: U32, z: Bool) -> U32:
     case False{}:
       n
 
-# Both ID bytes must be < 128: UDP.send_to is a String, so a high byte
-# becomes UTF-8 (two wire octets) and the resolver answers garbage
-# ("bad dns") or nothing. 7+7 bits, never 0. 16-bit ids need send_octets.
-def txid_hi(+n: U32) -> U32:
-  U32.and(U32.shrn(n, 7n), 127)
-
-def txid_lo(+n: U32) -> U32:
-  U32.and(n, 127)
-
+# Full 16-bit id (never 0). High bytes go on the wire via send_octets.
 def txid_of(+n: U32) -> U32:
-  +hi = txid_hi(n)
-  +lo = txid_lo(n)
-  txid_nz(U32.add(U32.mul(hi, 256), lo), U32.is_eq(hi, 0) && U32.is_eq(lo, 0))
+  +id = U32.and(n, 65535)
+  txid_nz(id, U32.is_zero(id))
 
-def header(+id: U32) -> String:
-  byte(u8(U32.shrn(id, 8n))) ++ byte(u8(id)) ++ byte(1) ++ byte(0) ++ byte(0) ++ byte(1) ++ byte(0) ++ byte(0) ++ byte(0) ++ byte(0) ++ byte(0) ++ byte(0)
+def header(+id: U32) -> List<&2, U32>:
+  u8(U32.shrn(id, 8n)) <> u8(id) <> 1 <> 0 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 0 <> 0 <> Nil{}
 
-def push_lab(+acc: String, +lab: String) -> String:
-  String.append(acc, SCon{Chr{U32.from_nat(String.length(lab))}, lab})
+def lab_octets(+lab: String) -> List<&2, U32>:
+  match lab:
+    case SNil{}:
+      Nil{}
+    case SCon{+h, t}:
+      Char.to_u32(h) <> lab_octets(t)
+
+def push_lab(+acc: List<&2, U32>, +lab: String) -> List<&2, U32>:
+  List.append(&2, U32, acc, U32.from_nat(String.length(lab)) <> lab_octets(lab))
+
+def enc_err(+msg: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  Fail{(1, msg)}
+
+def enc_ok(+xs: List<&2, U32>) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  Done{xs}
 
 type Enc is Data:
   ELab{}
@@ -248,43 +251,43 @@ def encode_go(
   fuel: Nat,
   ph: Enc,
   xs: List<&2, String>,
-  acc: String,
+  acc: List<&2, U32>,
   +lab: String,
   ok: Bool,
   +nlen: U32
-) -> Result<&1, &1, U32 & String, String>:
+) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   match fuel:
     case 0n:
-      err("bad name")
+      enc_err("bad name")
     case 1n+p:
       match ph:
         case ELab{}:
           match xs:
             case Nil{}:
-              Done{acc ++ byte(0) ++ byte(0) ++ byte(1) ++ byte(0) ++ byte(1)}
+              enc_ok(List.append(&2, U32, acc, 0 <> 0 <> 1 <> 0 <> 1 <> Nil{}))
             case Con{+h, t}:
               encode_go(p, EOk{}, t, acc, h, label_ok(h), nlen)
         case EOk{}:
           match ok:
             case False{}:
-              err("bad name")
+              enc_err("bad name")
             case True{}:
               +n2 = U32.add(nlen, U32.add(1, U32.from_nat(String.length(lab))))
               encode_go(p, ELen{}, xs, acc, lab, U32.is_gt(n2, 255), n2)
         case ELen{}:
           match ok:
             case True{}:
-              err("bad name")
+              enc_err("bad name")
             case False{}:
               encode_go(p, ELab{}, xs, push_lab(acc, lab), "", True{}, nlen)
 
-def encode_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & String, String>:
+def encode_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), ELab{}, xs, header(id), "", True{}, 1)
 
-def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, String>:
+def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_xs(id, String.split(host, Chr{46}))
 
-def encode(+host: String) -> Result<&1, &1, U32 & String, String>:
+def encode(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_id(1, host)
 
 # ---- Data cursor (copyable). Pairs are affine; a do-block needs Data. --

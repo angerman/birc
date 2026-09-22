@@ -36,6 +36,7 @@ def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
 |---|---|---|
 | `Timui.open` / `Timui.frame` / `Timui.close` | `src/ffi/timui_ffi.c` | `TIMUI_IMPLEMENTATION` once |
 | `recv_octets` | `src/ffi/dns_ffi.c` | UDP/TCP octets + peer; not `UDP.recv` String |
+| `send_octets` | `src/ffi/dns_ffi.c` | UDP datagram from `List U32` (twin of recv) |
 | `fd_hint` | `src/ffi/dns_ffi.c` | `Socket -> IO(Socket & U32)`; copies the fd, keeps the handle |
 | `local_secs` | `src/ffi/clock_ffi.c` | local seconds-of-day as `U32`; Bend formats HH:MM:SS |
 
