@@ -531,6 +531,27 @@ C line count before: 662 (`src/ffi` + `tests/ffi`). After C trim: 599
 
 ---
 
+## Milestone 10 — open points (work order 2)
+
+Base: `1d9e5bd`. Same rules as M9. Boxes P1–P9 from `build/review/HANDOVER2.md`.
+
+Idle baseline (supervisor, `build/review/lead/tickrate_pty.py`, `--demo --frames 600`,
+no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
+`timui_begin` poll.
+
+- [ ] **P1** Idle CPU: `wait_ms` + tty/`wake_fd` poll before `timui_begin`; Bend
+      chooses 16 ms vs 1000 ms; actor sends socket fd as a wake hint (`Socket.fd_hint`).
+- [ ] **P2** 16-bit DNS txid via `send_octets` (≤ 25 lines C; total C < 662).
+- [ ] **P3** `make check` offline: live DNS lookup moves to `test-dns-live`.
+- [ ] **P4** Split `net.bend` into `actor.bend` + `net.bend` (both < 1000 lines).
+- [ ] **P5** Bare CR inside a line drops the whole line (RFC 1459).
+- [ ] **P6** Server tab reserved label so a nick/channel `server` cannot collide.
+- [ ] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
+- [ ] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
+- [ ] **P9** `--die-after-open` (test-only) exercises atexit restore.
+
+---
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
