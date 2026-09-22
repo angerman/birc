@@ -581,7 +581,10 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 - [x] **P7** `dns_wire` cursor carries the remaining packet suffix (no `List.drop` per byte).
       `Cur{pkt, rest, off}`; `byte_at` is `at_xs(rest)`; jumps use `at_off`
       once. `dns_demo` unchanged.
-- [ ] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
+- [x] **P8** Two quantified laws by induction (`push` rem bound; `nbuf` cap or DNS `parse_id`).
+      Quantified `for xs. push_rem_le` failed: IH is PRead on the tail, step is
+      PAct (checker output in PROOF.bend). Point laws `push_rem_nil` /
+      `push_rem_crlf` / `parse_id_short` / `parse_id_bad` are proved.
 - [ ] **P9** `--die-after-open` (test-only) exercises atexit restore.
 
 ---
