@@ -437,6 +437,11 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **I7** `client.bend`: replace `*Acc` folds; `cycle_tab` enum (client#12 #13 #18 #19).
       `strip_cr` copy deleted. `nick_has` is `List.contains` + `nick_eq`.
       Find/Has/Del/Ren/Quit/Nick Acc gone. `cycle_tab` takes `TabDir`.
+      X1: `buf_find.go` had a recursive call in both `Bool.pick` arms (eager →
+      exponential in buffer count). One recurse per step; `tests/bend/feed_bench.bend`
+      (15 JOINs + 20 PRIVMSGs) finishes under 2 s. Other `Bool.pick` lookups in
+      `src/` are linear-eager (`cls_lookup` / `slash_lookup` / `num_kind` /
+      `take_until_space`); not shorter to rewrite.
 - [x] **I8** Decode `UiKeys` into Data at the FFI edge (idiom §7, net#14 #19).
       `with_keys` builds `Sess.Keys` (`TabDir`, `HistDir`, `Maybe` click).
       `step_keys` takes that record. C `UiKeys` packing unchanged.
