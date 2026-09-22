@@ -566,6 +566,14 @@ def bare_cr_old_merge_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
 def bare_cr_old_merge_ok() -> Bool:
   bare_cr_old_merge_ok.fin(push(Nil{}, string_to_octets("abc" ++ SCon{Chr{13}, "def\r\nhello\r\n"})))
 
+def rem_len(got: List<&2, String> & List<&2, U32>) -> Nat:
+  match got:
+    case (_, rem):
+      List.length(&2, U32, rem)
+
+def push_rem_le(+xs: List<&2, U32>) -> Bool:
+  Nat.is_le(rem_len(push(Nil{}, xs)), LINE_OCTET_MAX())
+
 def short_text_ok.fin(got: List<&2, String> & List<&2, U32>) -> Bool:
   match got:
     case (lines, _):

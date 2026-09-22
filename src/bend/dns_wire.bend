@@ -795,6 +795,32 @@ def parse_q(+want: U32, +host: String, +xs: List<&2, U32>) -> Result<&1, &1, U32
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   parse_q(want, "a", xs)
 
+def parse_done(r: Result<&1, &1, U32 & String, String>) -> Bool:
+  match r:
+    case Done{_}:
+      True{}
+    case Fail{_}:
+      False{}
+
+def xs_id(xs: List<&2, U32>) -> Maybe<&2, U32>:
+  match xs:
+    case Con{+a, Con{+b, _}}:
+      Some{u16_of(a, b)}
+    case Nil{}:
+      None{}
+    case Con{_, Nil{}}:
+      None{}
+
+def parse_id_mismatch_on(+want: U32, +xs: List<&2, U32>, m: Maybe<&2, U32>) -> Bool:
+  match m:
+    case None{}:
+      Bool.not(parse_done(parse_id(want, xs)))
+    case Some{id}:
+      U32.is_eq(id, want) || Bool.not(parse_done(parse_id(want, xs)))
+
+def parse_id_mismatch_ok(+want: U32, +xs: List<&2, U32>) -> Bool:
+  parse_id_mismatch_on(want, xs, xs_id(xs))
+
 type Take is Data:
   Miss{}
   HitOk{ip: String}

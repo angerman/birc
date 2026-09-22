@@ -9,6 +9,7 @@ import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
 import ./src/bend/clock.bend as Clock
+import ./src/bend/dns_wire.bend as Wire
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -224,6 +225,22 @@ law legal_509_line:
 # LAW: short CRLF text still frames.
 law short_text_ok:
   {Fr.short_text_ok() == True{} : Bool}
+
+# LAW: push of Nil leaves rem length 0 (≤ 510).
+law push_rem_nil:
+  {Fr.push_rem_le(Nil{}) == True{} : Bool}
+
+# LAW: a short CRLF line leaves rem empty.
+law push_rem_crlf:
+  {Fr.push_rem_le(Fr.crlf("hi")) == True{} : Bool}
+
+# LAW: parse_id on a short packet is not Done.
+law parse_id_short:
+  {Wire.parse_id_mismatch_ok(1, Nil{}) == True{} : Bool}
+
+# LAW: parse_id is not Done when the id octets are 0,2 and want is 1.
+law parse_id_bad:
+  {Wire.parse_id_mismatch_ok(1, 0 <> 2 <> Nil{}) == True{} : Bool}
 
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:

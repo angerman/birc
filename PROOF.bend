@@ -194,5 +194,40 @@ def Laws.legal_509_line():
 def Laws.short_text_ok():
   {==}
 
+def Laws.push_rem_nil():
+  {==}
+
+def Laws.push_rem_crlf():
+  {==}
+
+def Laws.parse_id_short():
+  {==}
+
+def Laws.parse_id_bad():
+  {==}
+
+# P8 quantified attempts (2026-09-22). Kept as comments with checker output.
+#
+# law push_rem_bound:
+#   for xs: List<&2, U32>
+#   {Fr.push_rem_le(xs) == True{} : Bool}
+# Proof by match xs / IH on t:
+# Error:
+# - expected : {Cmp.is_le(Nat.cmp(src/bend/frame.rem_len(src/bend/frame.push.pair(src/bend/frame.push.go(Nat.add(List.length(&2, U32, t), 1n+Nat.add(List.length(&2, U32, t), 1n+Nat.add(List.length(&2, U32, t), 1n+Nat.add(List.length(&2, U32, t), 0n)))), src/bend/frame.PAct{}, t, [], [], 0n, _, Cmp.is_eq(U32.cmp(_, 10)), Cmp.is_eq(U32.cmp(_, 13)), False{}))), 510n)) == True{} : Bool}
+# - observed : {Cmp.is_le(Nat.cmp(src/bend/frame.rem_len(src/bend/frame.push.pair(src/bend/frame.push.go(1n+Nat.add(List.length(&2, U32, t), Nat.add(List.length(&2, U32, t), Nat.add(List.length(&2, U32, t), Nat.add(List.length(&2, U32, t), 0n)))), src/bend/frame.PRead{}, t, [], [], 0n, 0, False{}, False{}, False{}))), 510n)) == True{} : Bool}
+# Context:
+# - _ : U32
+# - t : List<&2, U32>
+# Location: LAWS.push_rem_bound
+# The IH is push.go(PRead, empty rem) on the tail; the step is push.go(PAct)
+# with the head byte. A phase-indexed invariant is out of reach here.
+#
+# law parse_id_mismatch:
+#   for want: U32
+#   for xs: List<&2, U32>
+#   {Wire.parse_id_mismatch_ok(want, xs) == True{} : Bool}
+# Not reached: push_rem_bound failed first. parse_id goes through parse_hdr
+# / hdr_chks; a Client-universal nbuf cap has the same shape of blocker.
+
 def Laws.live_fuel_small():
   {==}
