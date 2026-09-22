@@ -113,13 +113,6 @@ def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 
 # ---- /part --------------------------------------------------------------
 
-def submit_part.chan(+cl: Cl.Client, +rest: String, empty: Bool) -> String:
-  match empty:
-    case True{}:
-      active_name(cl)
-    case False{}:
-      rest
-
 def submit_part.drop.fin(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
   (Cl.drop_buf(Cl.Client{nick, server, bufs, active, now}, bi), one_out(Irc.format_part(chan)))
 

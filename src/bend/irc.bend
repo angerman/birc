@@ -675,16 +675,6 @@ def is_433_msg(+m: Message) -> Bool:
     case Message{_, _, +num, _}:
       is_433_num(num)
 
-def is_433_on(m: Maybe<&2, Message>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{+msg}:
-      is_433_msg(msg)
-
-def is_433_line(line: String) -> Bool:
-  is_433_on(parse(line))
-
 def nick433_retry(+m: Message, +nick: String) -> Bool:
   is_433_msg(m) && ieq(msg_param(m, 1n), nick)
 

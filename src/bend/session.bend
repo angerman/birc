@@ -571,13 +571,6 @@ def halt_of(enter: Bool, +line: String) -> Bool:
     case False{}:
       False{}
 
-def seed_bit(z: Bool) -> U32:
-  match z:
-    case True{}:
-      0
-    case False{}:
-      1
-
 def seed_of(dir: HistDir) -> U32:
   match dir:
     case HistStay{}:

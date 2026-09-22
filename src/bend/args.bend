@@ -259,29 +259,18 @@ def args_go(fuel: Nat, st: Step) -> Parsed:
 def parse(+xs: List<&2, String>) -> Parsed:
   args_go(64n, Go{ xs, cfg0()})
 
-type Copy is Data:
-  CopyOk{xs: List<&2, String>}
-  CopyMany{}
-
-def copy_args(src: List<&1, String>, acc: List<&2, String>) -> Copy:
+def copy_args(src: List<&1, String>, acc: List<&2, String>) -> List<&2, String>:
   match src:
     case Nil{}:
-      CopyOk{List.reverse(&2, String, acc)}
+      List.reverse(&2, String, acc)
     case Con{+h, t}:
       copy_args(t, h <> acc)
 
-def copy_parse(c: Copy) -> Parsed:
-  match c:
-    case CopyMany{}:
-      Bad{"birc: too many arguments"}
-    case CopyOk{xs}:
-      parse(xs)
-
 def parse_raw(raw: List<&1, String>) -> Parsed:
-  copy_parse(copy_args(raw, Nil{}))
+  parse(copy_args(raw, Nil{}))
 
-# Same fail-closed rule as copy_args fuel 0, on a List<&2> so tests can
-# construct the remainder without IO.args.
+# Fail closed on leftover argv. Tests construct the remainder as List<&2>
+# without IO.args (copy_args itself has no cap; parse is 64 flags).
 def copy_fin2(rest: List<&2, String>, acc: List<&2, String>) -> Parsed:
   match rest:
     case Nil{}:
