@@ -1,6 +1,7 @@
 # Uncited view *_ok / show_* helpers. body_ys_ok and show_spans stay in src.
 import Base
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/view.bend as V
 
 def style_spec_ok() -> Bool:
@@ -101,6 +102,26 @@ def draw_tabs_ok() -> Bool:
     show_op(V.OpTabs{0, 1, 10, 1, "server" <> "#birc" <> Nil{}}),
     "T:1|server,#birc"
   )
+
+def tab_star_ok() -> Bool:
+  V.tab_names_ok()
+
+def tab_collide.labs(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Con{+a, Con{+b, t}}:
+      String.eq(a, "*server*") && String.eq(b, "server")
+    case Nil{}:
+      False{}
+    case Con{_, Nil{}}:
+      False{}
+
+def tab_collide_ok.on(cl: Cl.Client) -> Bool:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _}:
+      tab_collide.labs(V.tab_names(bufs))
+
+def tab_collide_ok() -> Bool:
+  tab_collide_ok.on(Feed.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi"))
 
 def draw_nicks_ok() -> Bool:
   String.eq(

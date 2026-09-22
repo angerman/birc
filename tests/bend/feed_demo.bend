@@ -69,6 +69,8 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("draw_link", VP.draw_link_ok())
     Unit <- E.must("draw_hostile", VP.draw_hostile_ok())
     Unit <- E.must("draw_tabs", VP.draw_tabs_ok())
+    Unit <- E.must("tab_star", V.tab_names_ok())
+    Unit <- E.must("tab_collide", VP.tab_collide_ok())
     Unit <- E.must("draw_nicks", VP.draw_nicks_ok())
     Unit <- E.must("body_ys", V.body_ys_ok())
     Unit <- E.must("tsw", V.ts_width_ok())

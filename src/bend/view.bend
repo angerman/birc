@@ -564,12 +564,46 @@ def status_of.buf(+b: Cl.Buffer) -> String:
 def view_input(+draft: String) -> String:
   draft
 
-def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
+def tab_lab(+name: String, first: Bool) -> String:
+  match first:
+    case True{}:
+      "*" ++ name ++ "*"
+    case False{}:
+      name
+
+def tab_names.go(bufs: List<&2, Cl.Buffer>, first: Bool) -> List<&2, String>:
   match bufs:
     case Nil{}:
       Nil{}
     case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
-      name <> tab_names(t)
+      tab_lab(name, first) <> tab_names.go(t, False{})
+
+# Server buffer keeps the name "server" internally; the tab strip uses
+# *server* so a nick or channel named server cannot collide.
+def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
+  tab_names.go(bufs, True{})
+
+def tab_names_ok.rest(t: List<&2, String>) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case Con{_, _}:
+      False{}
+
+def tab_names_ok.head(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Con{+h, t}:
+      String.eq(h, "*server*") && tab_names_ok.rest(t)
+    case Nil{}:
+      False{}
+
+def tab_names_ok.on(cl: Cl.Client) -> Bool:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _}:
+      tab_names_ok.head(tab_names(bufs))
+
+def tab_names_ok() -> Bool:
+  tab_names_ok.on(Cl.init("me", "s"))
 
 def vis_h(+rows: U32) -> Nat:
   Sess.body_h(rows)
