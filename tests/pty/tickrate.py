@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """P1 idle tick rate. (−) on 1d9e5bd: ~55 ticks/s, ~7.8% of a core.
-(+) idle <= 2 ticks/s and CPU <= 0.5% of a core at 30x100 and 82x159.
+(+) idle <= 2 ticks/s and CPU <= 1.0% of a core at 30x100 and 82x159.
 
 usage: tickrate.py ./build/birc
 """
