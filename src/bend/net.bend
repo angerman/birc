@@ -64,21 +64,32 @@ def reader_die(sock: Socket, +evt: Chan(Sess.NetEvt)) -> IO(Unit):
     ok : Bool <- Chan.send(Sess.NetEvt, evt, Sess.Eof{})
     Socket.close(sock)
 
-def shutdown_close(ui: T.Ui, g: Maybe<&1, Sess.NetEvt>) -> IO(Unit):
-  match g:
-    case None{}:
+# Close cmd so the actor can flush pending and post Eof. Wait for that Eof
+# (skip Tick/Chunk) before Timui.close; do not Chan.close(evt) — a recv after
+# close deadlocks (chunk_flood /quit vs FIN).
+# checker: expected a decreasing self-call / observed wait_eof.g
+def wait_eof.g(fuel: Nat, ui: T.Ui, +evt: Chan(Sess.NetEvt), g: Maybe<&1, Sess.NetEvt>) -> IO(Unit):
+  match fuel:
+    case 0n:
       T.Timui.close(ui)
-    case Some{_}:
-      T.Timui.close(ui)
+    case 1n+p:
+      match g:
+        case None{}:
+          T.Timui.close(ui)
+        case Some{e}:
+          match e:
+            case Sess.Eof{}:
+              T.Timui.close(ui)
+            case _:
+              do IO<Unit>:
+                g2 : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
+                wait_eof.g(p, ui, evt, g2)
 
-# Close cmd so the actor can post Eof, take that event, then Timui.close.
-# Do not Chan.close(evt): a recv after close deadlocks (chunk_flood /quit vs FIN).
-# Halt so a parked TCP.connect / sleep cannot keep io_loop alive (H4, H6).
 def shutdown(ui: T.Ui, +evt: Chan(Sess.NetEvt), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Chan.close(Sess.NetCmd, cmd)
     g0 : Maybe<&1, Sess.NetEvt> <- Chan.recv(Sess.NetEvt, evt)
-    Unit <- shutdown_close(ui, g0)
+    Unit <- wait_eof.g(256n, ui, evt, g0)
     Unit <- IO.print("birc=ok")
     IO.die(Unit, 0, "")
 
@@ -413,6 +424,17 @@ def on_cont(
         sent : Socket & Bool <- send_lines(sock, now)
         after_send_ok(sent, evt, cmd, s => k(s, later))
 
+def flush_die.sent(pair: Socket & Bool, +evt: Chan(Sess.NetEvt)) -> IO(Unit):
+  match pair:
+    case (sock, _):
+      reader_die(sock, evt)
+
+# Shutdown and fuel-0 must put leftover lines (including QUIT) on the wire.
+def flush_die(sock: Socket, +evt: Chan(Sess.NetEvt), +pending: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    sent : Socket & Bool <- send_lines(sock, pending)
+    flush_die.sent(sent, evt)
+
 def on_cmd(
   g: Maybe<&1, Sess.NetCmd>,
   sock: Socket,
@@ -423,7 +445,7 @@ def on_cmd(
 ) -> IO(Unit):
   match g:
     case None{}:
-      reader_die(sock, evt)
+      flush_die(sock, evt, pending)
     case Some{c}:
       match c:
         case Sess.Dial{_, _}:
@@ -447,7 +469,7 @@ def reader_go(
 ) -> IO(Unit):
   match fuel:
     case 0n:
-      reader_die(sock, evt)
+      flush_die(sock, evt, pending)
     case 1n+p:
       do IO<Unit>:
         next : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
