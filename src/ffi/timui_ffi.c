@@ -10,9 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#ifndef IO_READ
-#define IO_READ 1
-#endif
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
 #endif
@@ -29,6 +26,7 @@ static Timui *birc_ui_live;
 /* Timui held bytes that are not still sitting in the kernel buffer.
  * Tty.ready must not park in that case or a paste tail never drains. */
 static int birc_input_left;
+static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
@@ -473,7 +471,6 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   BircUi *st = birc_state(ui);
   (void)e;
   (void)w;
-  (void)st;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
   if (ui)
@@ -510,23 +507,37 @@ static void __attribute__((constructor)) timui_tty_use(void) {
   io_eff(CID_TIMUI_TTY, timui_tty_run, 0);
 }
 #endif
-#ifdef CID_TTY_READY
-static Term tty_ready_more(Env e, IoWork *w) {
+#if defined(CID_TTY_READY) || defined(CID_WINCH_READY)
+/* Shared park. Drain the winch pipe only; the frame reads the tty. */
+static Term fd_ready_more(Env e, IoWork *w) {
+  int fd = (int)w->hand;
+  char dump;
   (void)e;
-  return io_hand((u64)w->hand);
+  if (w->made)
+    while (read(fd, &dump, 1) > 0) {}
+  return io_hand((u64)fd);
 }
-Term tty_ready_run(Env e, Term *f, IoWork *w) {
+static Term fd_ready_run(Env e, Term *f, IoWork *w) {
   int fd = (int)io_hand_v(f[0]);
+  int drain = fd >= 0 && fd == birc_winch_rd;
+  char dump;
   (void)e;
-  if (birc_input_left) {
+  if (!drain && birc_input_left) {
     birc_input_left = 0;
     return f[0];
   }
+  if (drain && read(fd, &dump, 1) > 0) {
+    while (read(fd, &dump, 1) > 0) {}
+    return f[0];
+  }
   w->hand = (intptr_t)fd;
-  return io_wait_on(w, fd, POLLIN, 0, tty_ready_more);
+  w->made = drain;
+  return io_wait_on(w, fd, POLLIN, 0, fd_ready_more);
 }
+#endif
+#ifdef CID_TTY_READY
 static void __attribute__((constructor)) tty_ready_use(void) {
-  io_eff(CID_TTY_READY, tty_ready_run, 0);
+  io_eff(CID_TTY_READY, fd_ready_run, 0);
 }
 #endif
 #ifdef CID_TTY_CLOSE
@@ -564,17 +575,13 @@ Term winch_open_run(Env e, Term *f, IoWork *w) {
   (void)f;
   (void)w;
   if (pipe(pfd) != 0) return io_fail(e, (u32)errno, "winch pipe");
-  {
-    int fl0 = fcntl(pfd[0], F_GETFL, 0);
-    int fl1 = fcntl(pfd[1], F_GETFL, 0);
-    if (fl0 < 0 || fl1 < 0 ||
-        fcntl(pfd[0], F_SETFL, fl0 | O_NONBLOCK) < 0 ||
-        fcntl(pfd[1], F_SETFL, fl1 | O_NONBLOCK) < 0) {
-      (void)close(pfd[0]);
-      (void)close(pfd[1]);
-      return io_fail(e, (u32)errno, "winch nonblock");
-    }
+  if (fcntl(pfd[0], F_SETFL, O_NONBLOCK) < 0 ||
+      fcntl(pfd[1], F_SETFL, O_NONBLOCK) < 0) {
+    (void)close(pfd[0]);
+    (void)close(pfd[1]);
+    return io_fail(e, (u32)errno, "winch nonblock");
   }
+  birc_winch_rd = pfd[0];
   birc_winch_wr = (sig_atomic_t)pfd[1];
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = birc_on_winch;
@@ -582,6 +589,7 @@ Term winch_open_run(Env e, Term *f, IoWork *w) {
   if (sigaction(SIGWINCH, &sa, &birc_winch_old) != 0) {
     (void)close(pfd[0]);
     (void)close(pfd[1]);
+    birc_winch_rd = -1;
     birc_winch_wr = (sig_atomic_t)-1;
     return io_fail(e, (u32)errno, "sigaction");
   }
@@ -593,17 +601,8 @@ static void __attribute__((constructor)) winch_open_use(void) {
 }
 #endif
 #ifdef CID_WINCH_READY
-Term winch_ready_run(Env e, Term *f, IoWork *w) {
-  int fd = (int)io_hand_v(f[0]);
-  char dump;
-  (void)e;
-  (void)w;
-  while (read(fd, &dump, 1) > 0) {
-  }
-  return f[0];
-}
 static void __attribute__((constructor)) winch_ready_use(void) {
-  io_eff(CID_WINCH_READY, winch_ready_run, IO_READ);
+  io_eff(CID_WINCH_READY, fd_ready_run, 0);
 }
 #endif
 #ifdef CID_WINCH_CLOSE
@@ -615,6 +614,7 @@ Term winch_close_run(Env e, Term *f, IoWork *w) {
     (void)sigaction(SIGWINCH, &birc_winch_old, NULL);
     birc_winch_have = 0;
   }
+  birc_winch_rd = -1;
   if (birc_winch_wr >= 0) {
     (void)close((int)birc_winch_wr);
     birc_winch_wr = (sig_atomic_t)-1;

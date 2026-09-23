@@ -647,6 +647,12 @@ CHANGE, three consecutive pty runs, never push).
       deletions; K2 does not edit it. `gen_eof.py` and the parked `--demo`
       CPU sample (`tickrate.py`) each passed three times. `/connect` while
       `Connecting` does not wait out a parked `TCP.connect`.
+      `Tty.ready` and `Winch.ready` are one C function (`fd_ready`).
+      `recv_octets` / `recv_nb` already share `recv_try`. `timui_frame_run`
+      has no dead wait loop; the 50 ms poll is the lone-Esc timeout.
+      Lines stay clock 22, dns 149, timui 629 (800) + header 15. The old
+      `birc_wait_fds` / `wake_poke` were smaller than the dup, the winch
+      pipe, and that Esc poll, so the total is still above 666.
 - [x] **K3** `recv_octets` is `io_eff(..., IO_READ)`. DNS keeps `recv_nb`
       (`io_eff` flags 0); `wait_ans` calls `recv_nb` and not
       `recv_octets`. No timer actor. Peer check is `Wire.peer_ok` (host
