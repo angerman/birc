@@ -691,6 +691,53 @@ CHANGE, three consecutive pty runs, never push).
 
 ---
 
+## Milestone 12 — C FFI review
+
+Same rules as M11 (TDD red on `c10b967`, one item per commit, `make check`
+green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
+`build/review/reports/ffi2.md`. Repros: `build/review/ffireview/`.
+
+### Part 1 — bugs
+
+- [ ] **F1** Stalled terminal must not freeze the loop. Frame write gets a
+      deadline; on timeout drop the frame and full-redraw next. `stall.py`:
+      PONG while the tty is stalled, then a correct screen after drain.
+- [ ] **F2** Esc split across reads must not apply keys twice. Remove the
+      lone-Esc block; park the tty watcher 50 ms when Esc is pending.
+      Lone Esc still quits. `\x1b` then `[A` after 10 ms is one Up.
+      `esc_up.py` three times inside the test.
+- [ ] **F3** Paste: invalid UTF-8 before CR must not swallow Enter. Stash a
+      tail only when every remaining byte is a continuation.
+- [ ] **F4** Paste: expanding invalid bytes to U+FFFD must hold, not drop.
+      Also held focus events, a lost stashed prefix, and `paste_skip_lf`
+      in the vendored-patch list. `paste_harness.c` in `make check`.
+- [ ] **F5** URI buffer matches TimUI's 256. Longer URLs are a plain span.
+- [ ] **F6** SIGWINCH saves errno and sets `SA_RESTART`. `Winch.close`
+      clears the write fd before `close`. `send_octets` reports errno,
+      `EMSGSIZE`, or `EINVAL`. `winch_open` saves errno before `close`.
+      `birc_str_list` drops names past 16. `watch_go` closes Winch if
+      `Timui.tty` fails. `timui_open` returns the TimUI result code.
+- [ ] **F7** Lint stub covers the seven watcher CIDs and `IO_READ`.
+      `-Wconversion -Wsign-conversion -Wcast-qual -Wshadow` stay clean.
+      The stub says it is syntax-only.
+
+### Part 2 — shrink the C
+
+- [ ] **S1** Lone-Esc block removed with F2.
+- [ ] **S2** `UiKeys.more` replaces `birc_input_left`. Bend posts `Key{}`
+      when `more` is set.
+- [ ] **S3** C returns the raw key, mods, and wheel. Bend maps tab, page,
+      history, and quit. The `page` argument of `Timui.frame` goes away.
+- [ ] **S4** Timestamp is an ordinary `OpText`. `OpLine` drops `ts`.
+- [ ] **S5** Dead guards, NULL checks, duplicate focus, no-op fit, merged
+      frame out, unused clamps.
+- [ ] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
+      is a no-op or gone.
+- [ ] **S7** Fix `docs/FFI.md` and the `timui_ffi.c` header comment.
+      Update the vendored-patch list.
+
+---
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
