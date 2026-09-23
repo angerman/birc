@@ -614,8 +614,18 @@ CHANGE, three consecutive pty runs, never push).
       `law push_rem_bound`. Invariant: Normal and AfterCr keep `n ≤ 510`
       and `n = length(rem)` (the held CR is the +1); Drop keeps rem empty.
       Point laws `push_rem_510` / `push_rem_511` stay.
-- [ ] **Q3** Quantified `parse_id` mismatch only if Q2 succeeded and it is
-      cheap. Otherwise record why not here.
+- [x] **Q3** Quantified `parse_id` mismatch. Q2 is proved. Not cheap, so
+      not attempted. `parse_id` is `parse_q(want, "a", xs)`: `parse_hdr`
+      is a `do Maybe` of seven `take16`/`take8` steps, then
+      `first_fail(hdr_chks)` (the id check is the first `Chk`), then
+      `read_name` and `walk_an_go` (fuel phases `AwLeft` / `AwSkip` /
+      `AwA`). The mismatch fact is "header id ≠ want ⇒ not `Done`", but
+      tying `xs_id(xs)` to `hdr_id(parse_hdr(xs))` for every list means
+      proving the cursor (`at_off` / `rest_drop` / `take16`) inside
+      `do Maybe`, plus the short-packet `None` case. That is another
+      induction, not a lemma on the Q2 pattern. Point laws stay:
+      `parse_id_short` (`Nil`) and `parse_id_bad` (`sample_bad_id()`,
+      id 2 vs want 1).
 
 ### Part B — input actor
 
