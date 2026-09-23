@@ -629,8 +629,11 @@ CHANGE, three consecutive pty runs, never push).
 
 ### Part B — input actor
 
-- [ ] **K1** Design note in `docs/FFI.md` before any code: tty watcher parks
+- [x] **K1** Design note in `docs/FFI.md` before any code: tty watcher parks
       with `IO_READ`, UI blocks on `Chan.recv`, resize wake, `NetCmd` counting.
+      Resize is a `SIGWINCH` pipe (`Winch.ready` consumes one byte), not a
+      1 s timer: a timer frame is ~0.5% of a core and misses the 0.3% cap.
+      `Key` and `Resize` do not send a `NetCmd`. `input_poll_ms` stays 0.
 - [ ] **K2** Implement K1. Delete `birc_wait_fds`, self-pipe, `wake_poke`,
       `fd_hint`, `wait_ms` / `wake_fd`, hot window, and `input_poll_ms` if
       unused. Report C line counts and the `timui.h` diff against `ac97be1`.
