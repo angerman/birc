@@ -234,6 +234,12 @@ law push_rem_510:
 law push_rem_511:
   {Fr.rem511_ok() == True{} : Bool}
 
+# LAW: for every chunk, the remainder of push(Nil, chunk) has length
+# at most LINE_OCTET_MAX+1. A CR held at a chunk boundary is the +1.
+law push_rem_bound:
+  for xs: List<&2, U32>
+  {Fr.push_rem_le(xs) == True{} : Bool}
+
 # LAW: parse_id on a short packet is not Done.
 law parse_id_short:
   {Wire.parse_id_mismatch_ok(1, Nil{}) == True{} : Bool}

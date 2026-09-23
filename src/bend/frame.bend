@@ -285,6 +285,25 @@ type FrMode is Data:
 type FrSt is Data:
   FrSt{rem: List<&2, U32>, lines: List<&2, String>, n: Nat, mode: FrMode}
 
+# Invariant for the rem bound. Normal and AfterCr: n ≤ 510 and n is the
+# length of rem (the held CR is not stored yet). Drop: rem is empty.
+def len_ok(+rem: List<&2, U32>, +n: Nat) -> Bool:
+  Nat.is_eq(List.length(&2, U32, rem), n)
+
+def mode_ok(mode: FrMode, +rem: List<&2, U32>, +n: Nat) -> Bool:
+  match mode:
+    case Normal{}:
+      Bool.and(Nat.is_le(n, LINE_OCTET_MAX()), len_ok(rem, n))
+    case AfterCr{}:
+      Bool.and(Nat.is_le(n, LINE_OCTET_MAX()), len_ok(rem, n))
+    case Drop{}:
+      Bool.and(Nat.is_eq(n, 0n), len_ok(rem, 0n))
+
+def inv(st: FrSt) -> Bool:
+  match st:
+    case FrSt{+rem, _, +n, mode}:
+      mode_ok(mode, rem, n)
+
 def payload_n(+rem: List<&2, U32>) -> Nat:
   List.length(&2, U32, rem)
 
