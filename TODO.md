@@ -609,9 +609,11 @@ CHANGE, three consecutive pty runs, never push).
       511, same before and after). user 0.02 s + sys 0.06 s both, five
       runs; wall after warmup 0.21–0.28 s before, 0.09–0.25 s after.
       No cost regression.
-- [ ] **Q2** Quantified law: `for xs`, `rem` of `push(Nil, xs)` has length
+- [x] **Q2** Quantified law: `for xs`, `rem` of `push(Nil, xs)` has length
       `≤ LINE_OCTET_MAX+1`, proved by induction (pattern `strip_ctl_clean`).
-      Keep the point laws.
+      `law push_rem_bound`. Invariant: Normal and AfterCr keep `n ≤ 510`
+      and `n = length(rem)` (the held CR is the +1); Drop keeps rem empty.
+      Point laws `push_rem_510` / `push_rem_511` stay.
 - [ ] **Q3** Quantified `parse_id` mismatch only if Q2 succeeded and it is
       cheap. Otherwise record why not here.
 
