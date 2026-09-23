@@ -3,11 +3,16 @@
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef IO_READ
+#define IO_READ 1
+#endif
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
 #endif
@@ -15,17 +20,15 @@
 typedef struct {
   char composer[512];
   TimuiTextAreaState st;
-  int wake_dead;
-  int wake_seen;
-  int hot_next;
-  int poke_rd;
-  int poke_wr;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+/* Timui held bytes that are not still sitting in the kernel buffer.
+ * Tty.ready must not park in that case or a paste tail never drains. */
+static int birc_input_left;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
@@ -68,14 +71,6 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   if (!st) return io_fail(e, 1u, "timui_open failed");
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
-  st->poke_rd = st->poke_wr = -1;
-  {
-    int pfd[2];
-    if (pipe(pfd) == 0) {
-      (void)fcntl((st->poke_rd = pfd[0]), F_SETFL, O_NONBLOCK);
-      (void)fcntl((st->poke_wr = pfd[1]), F_SETFL, O_NONBLOCK);
-    }
-  }
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
               TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
@@ -83,8 +78,6 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   cfg.userdata = st;
   cfg.input_poll_ms = 0;
   if (timui_open(&cfg, &ui) != TIMUI_OK) {
-    if (st->poke_rd >= 0) (void)close(st->poke_rd);
-    if (st->poke_wr >= 0) (void)close(st->poke_wr);
     free(st);
     return io_fail(e, 1u, "timui_open failed");
   }
@@ -319,63 +312,6 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   *tlen = birc_utf8_fit(stt->composer, n);
   return res.submitted ? 1 : 0;
 }
-static void birc_wait_fds(Timui *ui, uint32_t wait_ms, uint32_t wake_fd) {
-  struct pollfd p[3];
-  nfds_t n = 0;
-  int r, wake_i = -1, poke_i = -1, tty, timeout, poke_ready = 0;
-  BircUi *bu = birc_state(ui);
-  char dump;
-  if (!ui) return;
-  if (bu) {
-    if (wake_fd == 0u || (int)wake_fd != bu->wake_seen) bu->wake_dead = 0;
-    bu->wake_seen = (int)wake_fd;
-  }
-  tty = ui->fd.read_fd;
-  if (tty >= 0) {
-    p[n].fd = tty;
-    p[n].events = POLLIN;
-    p[n++].revents = 0;
-  }
-  if (wake_fd > 0u && (int)wake_fd != tty && (int)wake_fd >= 0) {
-    wake_i = (int)n;
-    p[n].fd = (int)wake_fd;
-    p[n].events = POLLIN;
-    p[n++].revents = 0;
-  }
-  if (bu && bu->poke_rd >= 0) {
-    poke_i = (int)n;
-    p[n].fd = bu->poke_rd;
-    p[n].events = POLLIN;
-    p[n++].revents = 0;
-  }
-  if (n == 0)
-    return;
-  timeout = wait_ms > 2147483647u ? -1 : (int)wait_ms;
-  if (ui->event_count || ui->pending_enter_count || ui->pending_edit_count)
-    timeout = 0;
-  else if (bu && (bu->hot_next || bu->composer[0]) && timeout > 16)
-    timeout = 16;
-  if (bu) bu->hot_next = 0;
-  do {
-    r = poll(p, n, timeout);
-  } while (r == -1 && errno == EINTR);
-  poke_ready = r > 0 && poke_i >= 0 && (p[poke_i].revents & POLLIN);
-  if (r > 0 && wake_i >= 0 &&
-      (p[wake_i].revents & (POLLERR | POLLHUP | POLLNVAL))) {
-    if (bu) bu->wake_dead = 1;
-    if (!(p[wake_i].revents & POLLIN) && tty >= 0) {
-      p[0].fd = tty;
-      p[0].events = POLLIN;
-      p[0].revents = 0;
-      do {
-        r = poll(p, 1, 0);
-      } while (r == -1 && errno == EINTR);
-    }
-  }
-  if (poke_ready && bu)
-    while (read(bu->poke_rd, &dump, 1) > 0) {
-    }
-}
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   Term ops = f[1];
@@ -383,8 +319,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   char *input = io_cstr(e, f[2], &n_in);
   u32 seed = (u32)f[3];
   u32 page = (u32)f[4];
-  u32 wait_ms = (u32)f[5];
-  u32 wake_fd = (u32)f[6];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
   int quit = 0;
@@ -408,13 +342,45 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
     return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
-  birc_wait_fds(ui, wait_ms, wake_fd);
   if (!timui_begin(ui, &fr)) {
     free(input);
 #ifdef CID_CON
     birc_drop_ops(e, ops);
 #endif
     return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
+  }
+  /* Lone Esc becomes a key only after 50 ms with no follower. The old
+   * tick loop observed that on the next frame. We park, so resolve it
+   * before this frame reads keys. */
+  if (ui->input.state == 1) {
+    struct pollfd pfd;
+    char more[256];
+    int n;
+    int before = ui->event_count;
+    pfd.fd = ui->fd.read_fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    if (pfd.fd >= 0) {
+      while (poll(&pfd, 1, 50) < 0 && errno == EINTR) {
+      }
+      if (pfd.revents & (POLLIN | POLLHUP)) {
+        n = ui->transport.read(&ui->transport, more, sizeof more);
+        if (n > 0) {
+          timui_input_set_now(&ui->input, timui_now_ms());
+          timui_input_feed(&ui->input, more, (size_t)n, ui_event_cb, ui);
+        }
+      }
+    }
+    /* 50 matches TIMUI_ESC_TIMEOUT_MS; that macro is #undef'd before we run. */
+    timui_input_flush_esc(&ui->input, timui_now_ms() + 50ull, ui_event_cb, ui);
+    while (before < ui->event_count) {
+      TimuiEvent ev = ui->events[before];
+      if (ev.kind == TIMUI_EVENT_KEY) {
+        ui->key_pressed = ev.as.key.key;
+        ui->key_mods = ev.as.key.mods;
+      }
+      before += 1;
+    }
   }
   {
     TimuiRect root = timui_root(fr);
@@ -479,8 +445,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       quit = 1;
     }
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
-    if (bu && (enter || ui->enter_count || ui->text_in_len || ui->event_count ||
-               bu->composer[0])) bu->hot_next = 1;
   }
   timui_end(fr);
   if (timui_should_quit(ui))
@@ -496,6 +460,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->st.scroll_y = 0;
     }
     free(input);
+    birc_input_left = ui->event_count > 0 || ui->pending_in_len > 0 ||
+                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0;
     return out;
   }
 }
@@ -507,14 +473,9 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   BircUi *st = birc_state(ui);
   (void)e;
   (void)w;
+  (void)st;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
-  if (st) {
-    if (st->poke_rd >= 0)
-      (void)close(st->poke_rd);
-    if (st->poke_wr >= 0)
-      (void)close(st->poke_wr);
-  }
   if (ui)
     timui_close(ui);
   free(st);
@@ -523,19 +484,146 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
 static void __attribute__((constructor)) timui_close_use(void) {
   io_eff(CID_TIMUI_CLOSE, timui_close_run, 0);
 }
-#ifdef CID_WAKE_POKE
-Term wake_poke_run(Env e, Term *f, IoWork *w) {
-  BircUi *bu = birc_ui_live ? birc_state(birc_ui_live) : NULL;
-  char z = 0;
+#ifdef CID_TIMUI_ISATTY
+Term timui_isatty_run(Env e, Term *f, IoWork *w) {
   (void)e;
   (void)f;
   (void)w;
-  if (bu && bu->poke_wr >= 0)
-    (void)write(bu->poke_wr, &z, 1);
+  return (Term)(isatty(0) ? 1u : 0u);
+}
+static void __attribute__((constructor)) timui_isatty_use(void) {
+  io_eff(CID_TIMUI_ISATTY, timui_isatty_run, 0);
+}
+#endif
+#ifdef CID_TIMUI_TTY
+Term timui_tty_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  int d;
+  (void)w;
+  if (!ui) return io_tup(e, f[0], io_fail(e, 1u, "no ui"));
+  d = dup(ui->fd.read_fd);
+  if (d < 0) return io_tup(e, f[0], io_fail(e, (u32)errno, "dup tty"));
+  /* Do not F_SETFL this dup. Status flags are shared with the Ui fd. */
+  return io_tup(e, f[0], io_done(e, io_hand((u64)d)));
+}
+static void __attribute__((constructor)) timui_tty_use(void) {
+  io_eff(CID_TIMUI_TTY, timui_tty_run, 0);
+}
+#endif
+#ifdef CID_TTY_READY
+static Term tty_ready_more(Env e, IoWork *w) {
+  (void)e;
+  return io_hand((u64)w->hand);
+}
+Term tty_ready_run(Env e, Term *f, IoWork *w) {
+  int fd = (int)io_hand_v(f[0]);
+  (void)e;
+  if (birc_input_left) {
+    birc_input_left = 0;
+    return f[0];
+  }
+  w->hand = (intptr_t)fd;
+  return io_wait_on(w, fd, POLLIN, 0, tty_ready_more);
+}
+static void __attribute__((constructor)) tty_ready_use(void) {
+  io_eff(CID_TTY_READY, tty_ready_run, 0);
+}
+#endif
+#ifdef CID_TTY_CLOSE
+Term tty_close_run(Env e, Term *f, IoWork *w) {
+  int fd = (int)io_hand_v(f[0]);
+  (void)e;
+  (void)w;
+  if (fd >= 0) (void)close(fd);
   return term_pak(CID_UNIT, 0);
 }
-static void __attribute__((constructor)) wake_poke_use(void) {
-  io_eff(CID_WAKE_POKE, wake_poke_run, 0);
+static void __attribute__((constructor)) tty_close_use(void) {
+  io_eff(CID_TTY_CLOSE, tty_close_run, 0);
+}
+#endif
+#if defined(CID_WINCH_OPEN) || defined(CID_WINCH_CLOSE)
+static volatile sig_atomic_t birc_winch_wr = -1;
+static struct sigaction birc_winch_old;
+static int birc_winch_have;
+#endif
+#ifdef CID_WINCH_OPEN
+static void birc_on_winch(int sig) {
+  char z = 1;
+  int fd = (int)birc_winch_wr;
+  (void)sig;
+  if (fd >= 0) {
+    ssize_t n = write(fd, &z, 1);
+    (void)n;
+  }
+}
+#endif
+#ifdef CID_WINCH_OPEN
+Term winch_open_run(Env e, Term *f, IoWork *w) {
+  int pfd[2];
+  struct sigaction sa;
+  (void)f;
+  (void)w;
+  if (pipe(pfd) != 0) return io_fail(e, (u32)errno, "winch pipe");
+  {
+    int fl0 = fcntl(pfd[0], F_GETFL, 0);
+    int fl1 = fcntl(pfd[1], F_GETFL, 0);
+    if (fl0 < 0 || fl1 < 0 ||
+        fcntl(pfd[0], F_SETFL, fl0 | O_NONBLOCK) < 0 ||
+        fcntl(pfd[1], F_SETFL, fl1 | O_NONBLOCK) < 0) {
+      (void)close(pfd[0]);
+      (void)close(pfd[1]);
+      return io_fail(e, (u32)errno, "winch nonblock");
+    }
+  }
+  birc_winch_wr = (sig_atomic_t)pfd[1];
+  memset(&sa, 0, sizeof sa);
+  sa.sa_handler = birc_on_winch;
+  sigemptyset(&sa.sa_mask);
+  if (sigaction(SIGWINCH, &sa, &birc_winch_old) != 0) {
+    (void)close(pfd[0]);
+    (void)close(pfd[1]);
+    birc_winch_wr = (sig_atomic_t)-1;
+    return io_fail(e, (u32)errno, "sigaction");
+  }
+  birc_winch_have = 1;
+  return io_done(e, io_hand((u64)pfd[0]));
+}
+static void __attribute__((constructor)) winch_open_use(void) {
+  io_eff(CID_WINCH_OPEN, winch_open_run, 0);
+}
+#endif
+#ifdef CID_WINCH_READY
+Term winch_ready_run(Env e, Term *f, IoWork *w) {
+  int fd = (int)io_hand_v(f[0]);
+  char dump;
+  (void)e;
+  (void)w;
+  while (read(fd, &dump, 1) > 0) {
+  }
+  return f[0];
+}
+static void __attribute__((constructor)) winch_ready_use(void) {
+  io_eff(CID_WINCH_READY, winch_ready_run, IO_READ);
+}
+#endif
+#ifdef CID_WINCH_CLOSE
+Term winch_close_run(Env e, Term *f, IoWork *w) {
+  int rd = (int)io_hand_v(f[0]);
+  (void)e;
+  (void)w;
+  if (birc_winch_have) {
+    (void)sigaction(SIGWINCH, &birc_winch_old, NULL);
+    birc_winch_have = 0;
+  }
+  if (birc_winch_wr >= 0) {
+    (void)close((int)birc_winch_wr);
+    birc_winch_wr = (sig_atomic_t)-1;
+  }
+  if (rd >= 0) (void)close(rd);
+  return term_pak(CID_UNIT, 0);
+}
+static void __attribute__((constructor)) winch_close_use(void) {
+  io_eff(CID_WINCH_CLOSE, winch_close_run, 0);
 }
 #endif
 #endif /* BIRC_TIMUI_FFI_C */

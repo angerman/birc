@@ -29,7 +29,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
-        test-pty-manyeof \
+        test-pty-manyeof test-pty-geneof \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live
 
@@ -208,8 +208,11 @@ test-pty-mixburst: build-ui ## Pty: text+Backspace+arrows+Enter burst (B3).
 test-pty-quitcap: build-ui ## Pty: /quit after a SEND_CAP burst still sends QUIT (X2).
 	$(NIXRUN) python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
 
-test-pty-tickrate: build-ui ## Pty: idle <= 2 ticks/s and CPU <= 1.0% (P1).
+test-pty-tickrate: build-ui ## Pty: parked --demo idle CPU <= 1.0% (K2).
 	$(NIXRUN) python3 tests/pty/tickrate.py ./$(BLDDIR)/birc
+
+test-pty-geneof: build-ui ## Pty: late Eof from the old server does not drop the new one.
+	$(NIXRUN) python3 tests/pty/gen_eof.py ./$(BLDDIR)/birc
 
 test-pty-paintwake: build-ui ## Pty: incoming line paints within 100 ms after idle (P1).
 	$(NIXRUN) python3 tests/pty/paint_wake.py ./$(BLDDIR)/birc
@@ -220,7 +223,7 @@ test-pty-joinlat: build-ui ## Pty: 001 to JOIN under 100 ms (P1 handshake).
 test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (note 16).
 	$(NIXRUN) python3 tests/pty/many_eof.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -234,12 +237,15 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_frame_out/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_frame_out/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
-	@awk '/^def after_hit\(/{p=1} p&&/case True\{}/{t=1} t&&/case False\{}/{t=0} t&&/Chan.send/{s=1} t&&/reader_die/{d=1} p&&/^def after_hit\.xs/{p=0} END{if(s||!d){print "after_hit: empty FIN must only reader_die"; exit 1}}' src/bend/actor.bend
-	@awk '/^def with_eof.go\(/{p=1;next} p&&/^def /{p=0} p&&/Chan.close\(Sess.NetEvt/{c=1} END{if(!c){print "with_eof must close the old evt"; exit 1}}' src/bend/net.bend
-	@grep -q 'F_SETFL, O_NONBLOCK' src/ffi/timui_ffi.c
-	@grep -q 'poll(p, 1, 0)' src/ffi/timui_ffi.c
+	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Socket.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend
+	@! grep -F 'Chan.close(Sess.UiMsg' src/bend/net.bend
+	@! grep -F 'birc_wait_fds' src/ffi/timui_ffi.c
+	@! grep -F 'wake_poke' src/ffi/*.c
+	@! grep -F 'fd_hint' src/ffi/dns_ffi.c
+	@grep -q 'O_NONBLOCK' src/ffi/timui_ffi.c
+	@! grep -F 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
-	@awk '/if \(timui_open/{p=1} p&&/poke_rd/{c=1} p&&/free\(st\)/{p=0} END{if(!c){print "timui_open fail must close poke fds"; exit 1}}' src/ffi/timui_ffi.c
+	@awk '/if \(timui_open/{p=1} p&&/free\(st\)/{c=1} p&&/return io_fail/{p=0} END{if(!c){print "timui_open fail must free st"; exit 1}}' src/ffi/timui_ffi.c
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)

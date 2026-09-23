@@ -637,9 +637,16 @@ CHANGE, three consecutive pty runs, never push).
       still runs. `Socket.shutdown` then the writer closes `sock` and the
       reader closes only the dup. Watchers run in every UI mode. `gen_eof.py`
       locks the redial race.
-- [ ] **K2** Implement K1. Delete `birc_wait_fds`, self-pipe, `wake_poke`,
-      `fd_hint`, `wait_ms` / `wake_fd`, hot window, and `input_poll_ms` if
-      unused. Report C line counts and the `timui.h` diff against `ac97be1`.
+- [x] **K2** Implemented K1. Deleted `birc_wait_fds`, the Ui self-pipe,
+      `wake_poke`, `fd_hint`, `wait_ms` / `wake_fd`, and the hot window.
+      `input_poll_ms` stays 0 (still read by `timui_begin`). Added
+      `Socket.shutdown`, `Socket.dup`, non-blocking `recv_nb`, the tty dup,
+      and the `SIGWINCH` pipe. C lines before (`f34bbc9`): 666 + header 15.
+      After: `clock_ffi.c` 22, `dns_ffi.c` 149, `timui_ffi.c` 629 = 800,
+      header still 15. `timui.h` vs `ac97be1` is 207 insertions and 56
+      deletions; K2 does not edit it. `gen_eof.py` and the parked `--demo`
+      CPU sample (`tickrate.py`) each passed three times. `/connect` while
+      `Connecting` does not wait out a parked `TCP.connect`.
 - [ ] **K3** `recv_octets` parks with `IO_READ`. DNS timeout/resend still works.
 - [ ] **K4** Pty measurements before (`f34bbc9`) and after: idle ticks/CPU,
       traffic CPU, latencies, key latency, full pty set. Targets: idle ≤ 0.3%
