@@ -647,7 +647,15 @@ CHANGE, three consecutive pty runs, never push).
       deletions; K2 does not edit it. `gen_eof.py` and the parked `--demo`
       CPU sample (`tickrate.py`) each passed three times. `/connect` while
       `Connecting` does not wait out a parked `TCP.connect`.
-- [ ] **K3** `recv_octets` parks with `IO_READ`. DNS timeout/resend still works.
+- [x] **K3** `recv_octets` is `io_eff(..., IO_READ)`. DNS keeps `recv_nb`
+      (`io_eff` flags 0); `wait_ans` calls `recv_nb` and not
+      `recv_octets`. No timer actor. Peer check is `Wire.peer_ok` (host
+      equals the nameserver and port 53), still covered by `dns_demo`
+      (`peer_ok`, `peer_ip`, `peer_port`, `take_peer`). `recv_try`
+      clamps `max` to 4096 and treats `EINTR` like `EAGAIN` (park again,
+      or `None` on the DNS path). `dns_timeout.bend` looks up
+      `example.test` at `192.0.2.1` and prints `dns_timeout=ok` in
+      3.915 s (`timeout` from fuel 80). `timeout 15` wraps it in check.
 - [ ] **K4** Pty measurements before (`f34bbc9`) and after: idle ticks/CPU,
       traffic CPU, latencies, key latency, full pty set. Targets: idle ≤ 0.3%
       and ≤ 1 frame/s, traffic ≤ 1%, latencies ≤ 100 ms, resize ≤ 1.1 s.

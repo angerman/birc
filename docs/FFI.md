@@ -257,6 +257,9 @@ keeps the non-blocking path. `recv_nb` is the same C function with
 `io_eff` flags `0` (EAGAIN is `None`). `wait_ans` keeps calling it, so
 the existing sleep and fuel stay the time bound. The TCP reader is the
 only caller of parked `recv_octets`. No timer actor.
+`tests/bend/dns_timeout.bend` looks up `example.test` at `192.0.2.1`
+(the packet is dropped) and must print `timeout` within 15 s. Peer
+check, the 4096 clamp, and the EINTR retry stay on both recv paths.
 
 `Tick`, `hold_cmd`, and the pending/ack coupling between the UI and the
 net actor go away. The tty ack stays; it is not a `NetCmd`. `Key` and
