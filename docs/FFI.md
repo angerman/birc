@@ -194,8 +194,10 @@ One UI channel, `Chan(UiMsg)`, capacity 64. Producers:
 The UI blocks only in `Chan.recv`. It does not poll. There is no `Tick`.
 
 `Timui.tty(ui) -> Tty` dups the tty fd into a fresh linear handle. The Ui
-keeps the original fd. `Tty.ready(tty) -> IO(Unit)` is `io_eff(..., IO_READ)`
-and does not read the bytes (`timui_begin` does). The watcher loop is:
+keeps the original fd. `Tty.ready` and `Winch.ready` are one C function.
+It parks with `io_wait_on` (not `IO_READ`, so a paste tail still in TimUI
+can return). It does not read the tty. It drains only the winch pipe.
+The watcher loop is:
 
 ```text
 Tty.ready(tty)
@@ -297,8 +299,9 @@ timer frame is about 5 ms of paint, about 0.5% of a core, over the 0.3%
 idle cap, and it is not zero frames.
 
 Decision: a signal pipe, not a timer. Both ends `O_NONBLOCK`. The handler
-writes one byte and ignores `EAGAIN`. `Winch.ready` is `IO_READ`, consumes
-that byte, and the watcher sends `Resize{}`. No ack. The frame calls
+writes one byte and ignores `EAGAIN`. `Winch.ready` is the shared fd
+park and consumes that byte, and the watcher sends `Resize{}`. No ack.
+The frame calls
 `timui_term_size` and repaints, inside the 1.1 s bound. Idle is zero frames
 when nothing happens. This pipe is not a net wake.
 
