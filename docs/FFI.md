@@ -182,15 +182,16 @@ above are still what the program does.
 
 ### Wake sources
 
-One UI channel, `Chan(UiMsg)`, capacity 64. Three producers:
+One UI channel, `Chan(UiMsg)`, capacity 64. Producers:
 
 | Producer | Message | How it wakes |
 |---|---|---|
-| Net actor | `FromNet{NetEvt}` | `Chan.send`, as today |
+| Reader actor | `FromNet{Chunk}` / `FromNet{Eof}` | parks in `recv_octets` (`IO_READ`) |
+| Dial job | `FromNet{Up}` | after `TCP.connect` |
 | Tty watcher | `Key{}` | parks in `Tty.ready` |
 | Winch watcher | `Resize{}` | parks in `Winch.ready` |
 
-The UI thread blocks only in `Chan.recv`. It does not poll.
+The UI blocks only in `Chan.recv`. It does not poll. There is no `Tick`.
 
 `Timui.tty(ui) -> Tty` dups the tty fd into a fresh linear handle. The Ui
 keeps the original fd. `Tty.ready(tty) -> IO(Unit)` is `io_eff(..., IO_READ)`
@@ -202,46 +203,89 @@ Chan.send(ui_evt, Key{})
 Chan.recv(ack)
 ```
 
-The ack is what stops a busy loop while the tty stays readable. The UI
-sends it only after `Timui.frame` has returned. `Tty.close` closes the dup.
+The ack stops a busy loop while the tty stays readable. The UI sends it
+only after `Timui.frame` has returned. `Tty.close` closes the dup, never
+the Ui's fd.
+
+### Outbound, and why the net side is two actors
+
+Today a typed line leaves because the actor wakes every 16 ms and each
+`Tick` gives the UI one `NetCmd` slot for `Cont{outs}`. Parking the reader
+on the socket removes those ticks. If the UI sent a `NetCmd` only as the
+answer to `FromNet`, a `PRIVMSG` on a quiet channel would wait for the
+server (seconds to minutes).
+
+The net side splits.
+
+**Writer.** Owns the `Socket`. Blocks in `Chan.recv(cmd)`. The UI sends
+`Cont{outs}` when it has lines, not as a reply to a net event. The writer
+sends them at once. `SEND_CAP` (8 lines) stays inside the writer: the rest
+sits in the writer's own list, not in a bargain with the UI. On quit, and
+on `/connect` before the old socket is replaced, the writer calls
+`Socket.shutdown` (`SHUT_RDWR`) and then `Socket.close`.
+
+**Reader.** Owns a `dup` of that socket as its own linear handle (same
+trick as `Timui.tty`). Parks in `recv_octets` with `IO_READ`. Sends
+`FromNet{Chunk}` or `FromNet{Eof}`. Never touches `NetCmd`. `shutdown`
+makes `recv` return 0, so it posts `Eof`, closes only the dup, and exits.
+
+**Dial.** `/connect` from demo is a tested path. The dial job connects,
+dups the fd, starts the reader on the dup, gives the `Socket` to the
+writer, and posts `FromNet{Up}` on the UI channel. That post is how the UI
+learns the dial finished. `Up`'s number is not a poll hint.
+
+`Tick`, `hold_cmd`, and the pending/ack coupling between the UI and the
+net actor go away. The tty ack stays; it is not a `NetCmd`. `Key` and
+`Resize` never answer a net event. The UI sends `Cont{outs}` only when a
+frame produced lines (or `Dial` for `/connect`).
+
+Base has no `shutdown`. K2 adds `Socket.shutdown(sock) -> IO(Socket)`,
+always `SHUT_RDWR`, a few lines of C, counted in the `src/ffi` total. It
+returns the same socket so the writer can close it next.
+
+### Who closes which fd
+
+`dup` shares one open file description. `shutdown` affects that
+description, so the reader's `recv` wakes. `close` on one descriptor does
+not close the other, and does not by itself deliver EOF. No descriptor
+number is closed twice.
+
+1. Writer: `Socket.shutdown(sock)` then `Socket.close(sock)`. Only the
+   writer closes `sock`. It does not wait for the reader, and it does not
+   close the dup.
+2. Reader: `recv` returns 0, send `FromNet{Eof}`, `close` the dup only,
+   exit. It never closes `sock`.
+3. UI, on `Eof`, closes neither socket fd.
+4. Quit also stops the watchers, then `Timui.close`. `Tty.close` closes
+   the tty dup; `Timui.close` closes the fd inside the `Ui`.
+5. `Winch.close` restores the previous `SIGWINCH` handler first, then
+   closes the write end, then the read end, so the handler cannot write a
+   fd that was already closed.
 
 ### Resize
 
-TimUI has no `SIGWINCH` handler. `timui_term_size` is `TIOCGWINSZ`, and the
-frame already uses that size. A 1 s `IO.sleep` tick would paint about once
-a second. A frame costs about 5 ms, so that is about 0.5% of a core, over
-the K4 idle cap of 0.3%, and it is not zero frames.
+TimUI has no `SIGWINCH` handler. `timui_term_size` is `TIOCGWINSZ`. A 1 s
+timer frame is about 5 ms of paint, about 0.5% of a core, over the 0.3%
+idle cap, and it is not zero frames.
 
-Decision: a signal pipe, not a timer. One self-pipe, both ends
-`O_NONBLOCK`. The `SIGWINCH` handler writes one byte and ignores `EAGAIN`
-(a pending byte already means "resize"). `Winch.ready` is `IO_READ` on the
-read end and consumes that byte, then the watcher sends `Resize{}`. No ack:
-the byte is gone, so the next `ready` parks until the next signal. The UI
-frame calls `timui_term_size` and repaints. That is well inside the 1.1 s
-resize bound, and idle is zero frames when nothing happens.
-
-This pipe is not the old wake pipe. Net events do not use it.
+Decision: a signal pipe, not a timer. Both ends `O_NONBLOCK`. The handler
+writes one byte and ignores `EAGAIN`. `Winch.ready` is `IO_READ`, consumes
+that byte, and the watcher sends `Resize{}`. No ack. The frame calls
+`timui_term_size` and repaints, inside the 1.1 s bound. Idle is zero frames
+when nothing happens. This pipe is not a net wake.
 
 ### Frame
 
 `FromNet`, `Key`, and `Resize` each run one `Timui.frame` with no wait.
-`input_poll_ms` stays 0, and the vendored patch stays: `timui_begin` must
-not sleep again after the runtime has already woken us. `wait_ms` and
-`wake_fd` go away.
+`input_poll_ms` stays 0 (the vendored patch stays) so `timui_begin` does
+not sleep again. `wait_ms` and `wake_fd` go away.
 
-`--frames N` (N > 0) is still a fuel cap: at most N messages, then
-shutdown. `frames=0` is the unbounded park (`@unsafe`). Demo and replay do
-not start the tty or winch watchers; they keep a fuel loop of frames with
-no wait.
+Every mode that opens a UI starts the tty watcher and the winch watcher,
+including demo and replay. Demo `/connect` is typed on that tty. `frames=0`
+parks forever (`@unsafe`). `frames=N` (N > 0) on a tty is a cap: at most N
+messages, then shutdown. It does not spin.
 
-### NetCmd counting
-
-The net actor's bargain does not change. After it sends one `NetEvt` it
-waits for exactly one `NetCmd` (`idle_after_tick`, `reader_go`). The UI
-sends that command only when the message it just took is `FromNet{e}`.
-
-`Key` and `Resize` are not net events. Handling them does not
-`Chan.send` a `NetCmd`. Their ack, if any, is the watcher's ack channel,
-not the command channel. A key that arrives while the actor is blocked in
-`Chan.recv(cmd)` stays queued until the UI has answered the outstanding
-`FromNet`; it must not be that answer.
+The only loop that does not wait is the headless smoke
+`birc --demo --frames 3` (no tty). It paints N frames and exits. A pty
+test measures idle CPU of `--demo` with a tty and no input, so a busy
+frame loop cannot hide there.
