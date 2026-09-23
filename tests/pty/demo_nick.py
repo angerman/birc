@@ -36,7 +36,7 @@ def main() -> int:
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
     port = srv.getsockname()[1]
-    srv.settimeout(15)
+    srv.settimeout(0.05)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     proc = subprocess.Popen(
@@ -51,9 +51,18 @@ def main() -> int:
         drain(master)
         time.sleep(0.05)
     os.write(master, f"/connect 127.0.0.1 {port}\r".encode())
-    try:
-        conn, _ = srv.accept()
-    except socket.timeout:
+    # The dial is sent after the frame's write returns. Keep reading the
+    # pty or that write blocks and the TCP connect never starts.
+    conn = None
+    end = time.time() + 15
+    while time.time() < end and conn is None:
+        drain(master)
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            pass
+        time.sleep(0.02)
+    if conn is None:
         proc.kill()
         print("demo_nick: accept timeout", file=sys.stderr)
         return 1

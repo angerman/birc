@@ -30,7 +30,13 @@ def drain(fd: int) -> None:
             return
 
 
-def run_one(birc: str, extra_env: dict, argv: list[str], allow_nonzero: bool) -> int:
+def run_one(
+    birc: str,
+    extra_env: dict,
+    argv: list[str],
+    allow_nonzero: bool,
+    quit_line: bytes | None = None,
+) -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     proc = subprocess.Popen(
@@ -42,6 +48,17 @@ def run_one(birc: str, extra_env: dict, argv: list[str], allow_nonzero: bool) ->
         env={**os.environ, "TERM": "xterm-256color", **extra_env},
     )
     os.close(slave)
+    # frames=N on a tty parks until a message. Wait until the first
+    # paint, then ask it to quit. The cooked-mode check is unchanged.
+    if quit_line is not None:
+        end = time.time() + 5
+        while time.time() < end and proc.poll() is None:
+            r, _, _ = select.select([master], [], [], 0.1)
+            if r:
+                drain(master)
+                break
+        if proc.poll() is None:
+            os.write(master, quit_line)
     t1 = time.time() + 15
     while proc.poll() is None and time.time() < t1:
         drain(master)
@@ -67,7 +84,7 @@ def run_one(birc: str, extra_env: dict, argv: list[str], allow_nonzero: bool) ->
 
 def main() -> int:
     birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
-    if run_one(birc, {}, ["--demo", "--frames", "2"], False) != 0:
+    if run_one(birc, {}, ["--demo", "--frames", "20"], False, b"/quit\r") != 0:
         return 1
     # Test-only: die after Timui.open so atexit restore runs (normal /quit
     # goes through Timui.close and skips the hook).

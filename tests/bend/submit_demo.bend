@@ -89,7 +89,7 @@ def cmd_head(c: Sess.NetCmd) -> String:
   match c:
     case Sess.Cont{xs}:
       "cont:" ++ first_out(xs)
-    case Sess.Dial{+host, port}:
+    case Sess.Dial{+host, port, _}:
       "dial:" ++ host ++ ":" ++ U32.show(port)
     case Sess.Handoff{take}:
       "handoff:" ++ Bool.show(take)
@@ -117,7 +117,7 @@ def trip_nbuf(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _}:
           Nat.show(CL.nbuf(cl))
 
 def trip_has_me.on(+cl: Cl.Client, +who: String, got: Maybe<&2, Cl.Buffer>) -> String:
@@ -131,7 +131,7 @@ def trip_has_me(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _}:
           match cl:
             case Cl.Client{+nick, _, +bufs, +active, _}:
               trip_has_me.on(cl, nick, Cl.nth_buf(bufs, active))
@@ -207,7 +207,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("join_nbuf", trip_nbuf(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "2")
     Unit <- E.must_eq("join_self", trip_has_me(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "True")
     Unit <- E.must_eq("dial_demo", trip_cmd(Sess.step_enter(Sess.session_demo(cl0, "#birc"), "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
-    Unit <- E.must_eq("nodial_online", trip_cmd(Sess.step_enter(Sess.session_online(Sess.session0("me", "s", "#birc")), "/connect irc.example.net")), "cont:")
+    Unit <- E.must_eq("redial_online", trip_cmd(Sess.step_enter(Sess.session_online(Sess.session0("me", "s", "#birc")), "/connect irc.example.net")), "dial:irc.example.net:6667")
     Unit <- E.must_eq("nodial_connecting", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/connect irc.example.net")), "cont:")
     Unit <- E.must_eq("hold_demo", cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:")
     Unit <- E.must_eq("hold_on", cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:JOIN #x")
@@ -218,17 +218,9 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must_eq(
       "merge_dial",
-      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667})),
+      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667, 0})),
       "dial:h:6667"
     )
-    Unit <- E.must_eq("wait_conn", U32.show(Sess.session_wait_ms(Sess.session0("me", "s", "#t"))), "16")
-    Unit <- E.must_eq("wait_demo", U32.show(Sess.session_wait_ms(Sess.session_demo(cl0, "#t"))), "1000")
-    Unit <- E.must_eq("hot_window", U32.show(Sess.HOT_WINDOW()), "50")
-    Unit <- E.must_eq("wait_win", U32.show(Sess.wait_ms.at(Sess.Online{}, Sess.HOT_WINDOW(), True{}, 0)), "16")
-    Unit <- E.must_eq("wait_idle", U32.show(Sess.wait_ms.at(Sess.Online{}, Sess.HOT_WINDOW(), True{}, Sess.HOT_WINDOW())), "1000")
-    Unit <- E.must_eq("wait_far", U32.show(Sess.wait_ms.at(Sess.Online{}, 2000, True{}, 100)), "1000")
-    Unit <- E.must_eq("wait_wrap", U32.show(Sess.wait_ms.at(Sess.Online{}, 40, True{}, U32.sub(0, 10))), "16")
-    Unit <- E.must_eq("wait_wrap_idle", U32.show(Sess.wait_ms.at(Sess.Online{}, 40, True{}, 41)), "1000")
     IO.print("submit_demo=ok")
 
 def main_on.with(+cl0: Cl.Client, +cl1: Cl.Client, outs: List<&2, String>) -> IO(Unit):

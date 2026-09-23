@@ -43,8 +43,9 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_HHMMSS 10u
 #define CID_LOCAL_SECS 12u
 #define CID_RECV_OCTETS 11u
-#define CID_FD_HINT 21u
-#define CID_WAKE_POKE 22u
+#define CID_RECV_NB 24u
+#define CID_SOCKET_DUP 25u
+#define CID_SOCKET_SHUTDOWN 26u
 #define CID_SEND_OCTETS 23u
 #define CID_VIEW_OPBOX 13u
 #define CID_VIEW_OPTEXT 14u
@@ -76,5 +77,7 @@ Term io_tup(Env e, Term a, Term b);
 Term io_done(Env e, Term v);
 Term io_fail(Env e, u32 code, const char *text);
 void io_eff(u32 cid, Effect run, u32 need);
+typedef Term (*IoMore)(Env e, IoWork *w);
+Term io_wait_on(IoWork *w, int fd, short evts, uint64_t time, IoMore more);
 
 #endif

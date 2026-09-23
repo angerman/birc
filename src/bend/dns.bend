@@ -27,18 +27,35 @@ def tick_ms(+n: Nat) -> U32:
 def need_resend(+n: Nat) -> Bool:
   Nat.is_eq(n, 16n) || Nat.is_eq(n, 32n) || Nat.is_eq(n, 48n) || Nat.is_eq(n, 64n)
 
-# Octet recv. Peer is host & (port & octets). None is EAGAIN/EINTR.
+# TCP reader. Parks until the socket is readable (IO_READ). n = 0 is EOF
+# (Some of an empty list). EAGAIN parks again.
 law recv_octets:
   Socket -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>)
 
 def recv_octets(sock, max):
   import "../ffi/dns_ffi.c"
 
-# Wake hint: the fd number as U32. Does not consume the Socket.
-law fd_hint:
-  Socket -> IO(Socket & U32)
+# DNS only. Same bytes as recv_octets, but EAGAIN is None so wait_ans
+# can sleep, resend, and hit its fuel timeout.
+law recv_nb:
+  Socket -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>)
 
-def fd_hint(sock):
+def recv_nb(sock, max):
+  import "../ffi/dns_ffi.c"
+
+# dup the fd. The result Socket is a different descriptor. Close it once.
+law Socket.dup:
+  Socket -> IO(Socket & Result<&1, &1, U32 & String, Socket>)
+
+def Socket.dup(sock):
+  import "../ffi/dns_ffi.c"
+
+# SHUT_RDWR on this descriptor. Does not close it. Wakes a reader parked
+# on a dup of the same open file description.
+law Socket.shutdown:
+  Socket -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
+
+def Socket.shutdown(sock):
   import "../ffi/dns_ffi.c"
 
 # Twin of recv_octets: build a UDP datagram from octets (0..255).
@@ -198,7 +215,7 @@ def wait_ans(
       fail_close(sock, "timeout")
     case 1n+p:
       do IO<Result<&1, &1, U32 & String, String>>:
-        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_octets(sock, 512)
+        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_nb(sock, 512)
         wait_poll(m, id, qhost, ns, q, n, s2 => wait_ans(p, s2, id, qhost, ns, q, Nat.add(n, 1n)))
 
 def after_send_r(

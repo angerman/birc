@@ -171,14 +171,14 @@ actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `local_secs`
 is a thin localtime FFI; Bend sets `Client.now` at the IO edge so `buf_log_ts`
 stores `Line.ts` at log time.
 
-## K1 — input actor (design, not yet the code)
+## K1 — input actor
 
 Replaces the C wait path (`birc_wait_fds`, the Ui self-pipe, `wake_poke`,
-`fd_hint`, `wait_ms` / `wake_fd`, the Bend hot window). The runtime already
-parks an effect registered with `IO_READ` on the fd of its first handle
+`fd_hint`, `wait_ms` / `wake_fd`, the Bend hot window). The runtime parks
+an effect registered with `IO_READ` on the fd of its first handle
 argument until `POLLIN` (`bend2/comp.ts` `io_step`; `tcp_recv.c` is the
-pattern). K2 implements this section. Until that commit, the paragraphs
-above are still what the program does.
+pattern). K2 is this section. The effect table above this heading still
+names the old frame arguments; K5 replaces it.
 
 ### Wake sources
 

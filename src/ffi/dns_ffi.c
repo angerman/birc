@@ -7,22 +7,40 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#ifdef CID_RECV_OCTETS
-Term recv_octets_run(Env e, Term *f, IoWork *w) {
-  int fd = (int)io_hand_v(f[0]);
-  u32 max = f[1] < INT32_MAX ? (u32)f[1] : INT32_MAX;
+#include <unistd.h>
+#ifndef IO_READ
+#define IO_READ 1
+#endif
+/* park=1: EAGAIN waits again (TCP reader). park=0: EAGAIN is None (DNS). */
+static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_in *src) {
+  char host[INET_ADDRSTRLEN];
+  Term xs = term_pak(CID_NIL, 0);
+  u64 i;
+  u64 nn = (u64)n;
+  u32 port = (u32)ntohs(src->sin_port);
+  host[0] = '\0';
+  if (src->sin_family == AF_INET)
+    (void)inet_ntop(AF_INET, &src->sin_addr, host, (socklen_t)sizeof host);
+  for (i = nn; i > 0; i -= 1)
+    xs = io_node(e, CID_CON, data[i - 1], xs);
+  return io_done(e, io_box(e, CID_SOME,
+                            io_tup(e, io_str(e, host, (u64)strlen(host)),
+                                   io_tup(e, (Term)port, xs))));
+}
+static Term recv_more(Env e, IoWork *w);
+static Term recv_try(Env e, int fd, u32 max, IoWork *w, int park) {
   uint8_t *data;
   struct sockaddr_in src;
   socklen_t slen;
   ssize_t n;
   u32 code;
   Term r;
-  (void)w;
   if (max > 4096u)
     max = 4096u;
   data = io_mem(malloc((size_t)max + 1u));
@@ -31,39 +49,67 @@ Term recv_octets_run(Env e, Term *f, IoWork *w) {
   n = recvfrom(fd, data, (size_t)max, 0, (struct sockaddr *)&src, &slen);
   code = n < 0 ? (u32)errno : 0;
   if (code == (u32)EAGAIN || code == (u32)EWOULDBLOCK || code == (u32)EINTR) {
-    r = io_done(e, term_pak(CID_NONE, 0));
+    free(data);
+    if (park && w) {
+      w->hand = (intptr_t)fd;
+      w->made = (intptr_t)max;
+      return io_wait_on(w, fd, POLLIN, 0, recv_more);
+    }
+    return io_tup(e, io_hand((u64)fd), io_done(e, term_pak(CID_NONE, 0)));
   } else if (code != 0 || n < 0) {
     r = io_fail(e, code != 0 ? code : 1u, NULL);
   } else {
-    char host[INET_ADDRSTRLEN];
-    Term xs = term_pak(CID_NIL, 0);
-    u64 i;
-    u64 nn = (u64)n;
-    u32 port = (u32)ntohs(src.sin_port);
-    host[0] = '\0';
-    if (src.sin_family == AF_INET)
-      (void)inet_ntop(AF_INET, &src.sin_addr, host, (socklen_t)sizeof host);
-    for (i = nn; i > 0; i -= 1)
-      xs = io_node(e, CID_CON, data[i - 1], xs);
-    r = io_done(e, io_box(e, CID_SOME,
-                          io_tup(e, io_str(e, host, (u64)strlen(host)),
-                                 io_tup(e, (Term)port, xs))));
+    r = recv_fill(e, data, n, &src);
   }
   free(data);
-  return io_tup(e, f[0], r);
+  return io_tup(e, io_hand((u64)fd), r);
+}
+static Term recv_more(Env e, IoWork *w) {
+  return recv_try(e, (int)w->hand, (u32)w->made, w, 1);
+}
+#ifdef CID_RECV_OCTETS
+Term recv_octets_run(Env e, Term *f, IoWork *w) {
+  u32 max = f[1] < INT32_MAX ? (u32)f[1] : INT32_MAX;
+  return recv_try(e, (int)io_hand_v(f[0]), max, w, 1);
 }
 static void __attribute__((constructor)) recv_octets_use(void) {
-  io_eff(CID_RECV_OCTETS, recv_octets_run, 0);
+  io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ);
 }
 #endif
-#ifdef CID_FD_HINT
-Term fd_hint_run(Env e, Term *f, IoWork *w) {
-  uint32_t fd = (uint32_t)io_hand_v(f[0]);
+#ifdef CID_RECV_NB
+Term recv_nb_run(Env e, Term *f, IoWork *w) {
+  u32 max = f[1] < INT32_MAX ? (u32)f[1] : INT32_MAX;
   (void)w;
-  return io_tup(e, f[0], (Term)(uint64_t)fd);
+  return recv_try(e, (int)io_hand_v(f[0]), max, NULL, 0);
 }
-static void __attribute__((constructor)) fd_hint_use(void) {
-  io_eff(CID_FD_HINT, fd_hint_run, 0);
+static void __attribute__((constructor)) recv_nb_use(void) {
+  io_eff(CID_RECV_NB, recv_nb_run, 0);
+}
+#endif
+#ifdef CID_SOCKET_DUP
+Term socket_dup_run(Env e, Term *f, IoWork *w) {
+  int fd = (int)io_hand_v(f[0]);
+  int d;
+  (void)w;
+  d = dup(fd);
+  if (d < 0)
+    return io_tup(e, f[0], io_fail(e, (u32)errno, NULL));
+  return io_tup(e, f[0], io_done(e, io_hand((u64)d)));
+}
+static void __attribute__((constructor)) socket_dup_use(void) {
+  io_eff(CID_SOCKET_DUP, socket_dup_run, 0);
+}
+#endif
+#ifdef CID_SOCKET_SHUTDOWN
+Term socket_shutdown_run(Env e, Term *f, IoWork *w) {
+  int fd = (int)io_hand_v(f[0]);
+  (void)w;
+  if (shutdown(fd, SHUT_RDWR) != 0)
+    return io_tup(e, f[0], io_fail(e, (u32)errno, NULL));
+  return io_tup(e, f[0], io_done(e, term_pak(CID_UNIT, 0)));
+}
+static void __attribute__((constructor)) socket_shutdown_use(void) {
+  io_eff(CID_SOCKET_SHUTDOWN, socket_shutdown_run, 0);
 }
 #endif
 #ifdef CID_SEND_OCTETS

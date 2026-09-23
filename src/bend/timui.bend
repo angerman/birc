@@ -41,11 +41,11 @@ def Timui.open():
 
 # One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
 # reseeds the composer from input, including "". page is Sess.body_h.
-# wait_ms is the FFI poll timeout; wake_fd is a socket wake hint (0 = none).
+# The UI does not poll. Watchers park; this frame does not wait.
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
+def Timui.frame(ui, ops, input, seed, page):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:
@@ -54,9 +54,56 @@ law Timui.close:
 def Timui.close(ui):
   import "../ffi/timui_ffi.c"
 
-# Actor posts one byte on the UI self-pipe so a 1000 ms poll returns.
-law wake_poke:
-  IO(Unit)
+# 1 if stdin is a tty. The headless --frames smoke is not.
+law Timui.isatty:
+  IO(U32)
 
-def wake_poke():
+def Timui.isatty():
+  import "../ffi/timui_ffi.c"
+
+# Opaque dup of the tty. Closing it does not close the Ui fd.
+law Tty: Type
+
+def Tty():
+  Window
+
+law Timui.tty:
+  Ui -> IO(Ui & Result<&1, &1, U32 & String, Tty>)
+
+def Timui.tty(ui):
+  import "../ffi/timui_ffi.c"
+
+law Tty.ready:
+  Tty -> IO(Tty)
+
+def Tty.ready(tty):
+  import "../ffi/timui_ffi.c"
+
+law Tty.close:
+  Tty -> IO(Unit)
+
+def Tty.close(tty):
+  import "../ffi/timui_ffi.c"
+
+law Winch: Type
+
+def Winch():
+  Window
+
+law Winch.open:
+  IO(Result<&1, &1, U32 & String, Winch>)
+
+def Winch.open():
+  import "../ffi/timui_ffi.c"
+
+law Winch.ready:
+  Winch -> IO(Winch)
+
+def Winch.ready(w):
+  import "../ffi/timui_ffi.c"
+
+law Winch.close:
+  Winch -> IO(Unit)
+
+def Winch.close(w):
   import "../ffi/timui_ffi.c"
