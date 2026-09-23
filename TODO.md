@@ -602,9 +602,13 @@ CHANGE, three consecutive pty runs, never push).
 
 ### Part A — structural framer
 
-- [ ] **Q1** `push.go` is structural: one byte per recursive call. `FrSt` +
+- [x] **Q1** `push.go` is structural: one byte per recursive call. `FrSt` +
       `step` (no recursion) + `walk` (no fuel). No behaviour change.
-      `feed_bench` and a 1 MB `push` timed before and after.
+      `feed_bench` real 0.55 s before, 0.52 s after (`/usr/bin/time -p`).
+      1_000_000 `a` octets through `push`: rem length 0 (dropped at octet
+      511, same before and after). user 0.02 s + sys 0.06 s both, five
+      runs; wall after warmup 0.21–0.28 s before, 0.09–0.25 s after.
+      No cost regression.
 - [ ] **Q2** Quantified law: `for xs`, `rem` of `push(Nil, xs)` has length
       `≤ LINE_OCTET_MAX+1`, proved by induction (pattern `strip_ctl_clean`).
       Keep the point laws.
