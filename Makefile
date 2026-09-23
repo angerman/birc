@@ -31,7 +31,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
-        test-perf-cpu test-perf-tickrate test-dns-live
+        test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -108,6 +108,11 @@ test-dns-live: ## Live A lookup of one.one.one.one (not in check).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
 	$(NIXRUN) ./$(BLDDIR)/dns_live | grep -qx dns_live=ok
+
+test-dns-timeout: ## K3: blackhole nameserver returns timeout, does not park.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
+	$(NIXRUN) timeout 15 ./$(BLDDIR)/dns_timeout | grep -qx dns_timeout=ok
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
@@ -225,7 +230,7 @@ test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (not
 
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof ## Pty loop tests.
 
-test: test-proto test-feed test-submit test-frame test-net test-dns test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
@@ -246,6 +251,11 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@! grep -F 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
 	@awk '/if \(timui_open/{p=1} p&&/free\(st\)/{c=1} p&&/return io_fail/{p=0} END{if(!c){print "timui_open fail must free st"; exit 1}}' src/ffi/timui_ffi.c
+	@grep -q 'io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ)' src/ffi/dns_ffi.c
+	@grep -q 'io_eff(CID_RECV_NB, recv_nb_run, 0)' src/ffi/dns_ffi.c
+	@grep -q 'if (max > 4096u)' src/ffi/dns_ffi.c
+	@grep -q 'code == (u32)EINTR' src/ffi/dns_ffi.c
+	@awk '/^def wait_ans/{p=1} p&&/recv_nb\(sock/{n=1} p&&/recv_octets\(sock/{b=1} p&&/^def / && !/^def wait_ans/{p=0} END{if(!n||b){print "wait_ans must call recv_nb, not recv_octets"; exit 1}}' src/bend/dns.bend
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)
