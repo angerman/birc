@@ -168,6 +168,28 @@ def after_emit(
     case False{}:
       k((ui, st, gen, False{}))
 
+# timui_begin reads the tty on every frame, including a chunk or Eof
+# paint. Dropping those keys swallows /quit: the watcher is already back
+# in POLLIN, the line is gone, and shutdown never runs.
+def on_key_cmd(
+  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match packed:
+    case (ui, rest):
+      match rest:
+        case (+st, rest2):
+          match rest2:
+            case (+ncmd, halt):
+              do IO<Unit>:
+                gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+                after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
+
 def on_chunk.paint(
   got: T.Ui & T.UiKeys,
   +st: Sess.Session,
@@ -178,9 +200,7 @@ def on_chunk.paint(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  match got:
-    case (ui, _):
-      k((ui, st, gen, False{}))
+  on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
 def on_chunk_go(
   pair: Sess.Session & List<&2, String>,
@@ -309,25 +329,6 @@ def on_from(
     case True{}:
       on_evt(e, ui, st, evt, cmd, ack, gen, frames, k)
 
-def on_key_cmd(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match packed:
-    case (ui, rest):
-      match rest:
-        case (+st, rest2):
-          match rest2:
-            case (+ncmd, halt):
-              do IO<Unit>:
-                gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-                after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
-
 def on_key(
   ui: T.Ui,
   +st: Sess.Session,
@@ -343,19 +344,8 @@ def on_key(
     ok : Bool <- Chan.send(Unit, ack, Unit{})
     on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
-def on_resize_keys(
-  got: T.Ui & T.UiKeys,
-  +st: Sess.Session,
-  +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match got:
-    case (ui, keys):
-      match keys:
-        case T.UiKeys{_, _, _, rows, cols, _, _, _, _, _}:
-          k((ui, Sess.session_set_size(st, rows, cols), gen, False{}))
-
-# Resize paints the new size. It does not submit keys or send a NetCmd.
+# Resize paints the new size and applies whatever the frame read. A
+# resize frame can swallow /quit the same way a chunk frame can.
 def on_resize(
   ui: T.Ui,
   +st: Sess.Session,
@@ -368,7 +358,7 @@ def on_resize(
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_resize_keys(got, st, gen, k)
+    on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
 def on_msg(
   m: Sess.UiMsg,

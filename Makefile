@@ -29,7 +29,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
-        test-pty-manyeof test-pty-geneof \
+        test-pty-manyeof test-pty-geneof test-pty-closequit \
         lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
 
@@ -219,6 +219,9 @@ test-pty-tickrate: build-ui ## Pty: parked --demo idle CPU <= 1.0% (K2).
 test-pty-geneof: build-ui ## Pty: late Eof from the old server does not drop the new one.
 	$(NIXRUN) python3 tests/pty/gen_eof.py ./$(BLDDIR)/birc
 
+test-pty-closequit: build-ui ## Pty: server close then /quit exits (12 runs).
+	$(NIXRUN) python3 tests/pty/close_then_quit.py ./$(BLDDIR)/birc
+
 test-pty-paintwake: build-ui ## Pty: incoming line paints within 100 ms after idle (P1).
 	$(NIXRUN) python3 tests/pty/paint_wake.py ./$(BLDDIR)/birc
 
@@ -228,7 +231,7 @@ test-pty-joinlat: build-ui ## Pty: 001 to JOIN under 100 ms (P1 handshake).
 test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (note 16).
 	$(NIXRUN) python3 tests/pty/many_eof.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
