@@ -33,13 +33,13 @@ make run HOST=irc.example.net   # live plaintext IRC (Bend DNS A + TCP)
 | `src/bend/submit.bend` | Composer → outbound IRC lines |
 | `src/bend/frame.bend` | CRLF octet framer + UTF-8 line decode |
 | `src/bend/view.bend` | ViewModel + scroll bounds |
-| `src/bend/net.bend` | Chan UI loop, shutdown, Eof respawn |
-| `src/bend/actor.bend` | Socket actor: reader, idle, dial, send |
-| `src/bend/timui.bend` | `Timui.open` / `frame` / `close` |
+| `src/bend/net.bend` | Chan UI loop, watchers, shutdown |
+| `src/bend/actor.bend` | Writer owns the socket; reader parks on a dup |
+| `src/bend/timui.bend` | `Timui.open` / `frame` / `close`, tty, winch |
 | `src/bend/app.bend` | Bend `main` (demo + live dispatch) |
 | `src/ffi/timui_ffi.c` | Thin TimUI FFI (`TIMUI_IMPLEMENTATION`) |
-| `src/ffi/dns_ffi.c` | `recv_octets`, `send_octets`, `fd_hint` |
-| `src/ffi/clock_ffi.c` | Local `HH:MM:SS` for log timestamps |
+| `src/ffi/dns_ffi.c` | `recv_octets`, `recv_nb`, `send_octets`, dup, shutdown |
+| `src/ffi/clock_ffi.c` | Local seconds-of-day; Bend formats HH:MM:SS |
 | `build/birc_bend.c` | **Build artefact** — Bend emits the whole program as one C TU; not hand-written |
 | `src/ui/timui.h` | Vendored [timui.h](https://timui.dev) |
 | `LAWS.bend` / `PROOF.bend` | Protocol / feed / submit / framer / scroll laws |

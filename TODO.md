@@ -681,8 +681,13 @@ CHANGE, three consecutive pty runs, never push).
       Full pty set after: `build/review/wo3/fdready-check.log` exit 0
       (includes many_eof, bpaste 300, paste50 300, composer, rst, tinyquit,
       tall_rows, gen_eof, close_then_quit).
-- [ ] **K5** UBSan hostile pty: 0 reports. `make lint-ffi` clean. Update
-      `AGENTS.md`, `docs/FFI.md`, `README.md`.
+- [x] **K5** UBSan: `clang -fsanitize=undefined -fno-sanitize-recover=undefined`
+      then `build/review/review77/hostile.py ./build/birc_ubsan`.
+      `exit=0 killed=False restored=True`. No `build/ubsan.log*` file,
+      so 0 reports. `make lint-ffi` in `fdready-check.log` printed no
+      compiler warning. `AGENTS.md`, `docs/FFI.md`, and `README.md`
+      describe the parked frame, not `wait_ms` / `wake_fd` / `fd_hint` /
+      `wake_poke`.
 
 ---
 

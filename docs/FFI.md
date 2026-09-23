@@ -7,9 +7,9 @@ TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
 
 ```bend
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
+def Timui.frame(ui, ops, input, seed, page):
   import "../ffi/timui_ffi.c"
 ```
 
@@ -34,22 +34,21 @@ def Timui.frame(ui, ops, input, seed, page, wait_ms, wake_fd):
 
 | Effect | C file | Notes |
 |---|---|---|
-| `Timui.open` / `Timui.frame` / `Timui.close` | `src/ffi/timui_ffi.c` | `TIMUI_IMPLEMENTATION` once |
-| `recv_octets` | `src/ffi/dns_ffi.c` | UDP/TCP octets + peer; not `UDP.recv` String |
-| `send_octets` | `src/ffi/dns_ffi.c` | UDP datagram from `List U32` (twin of recv) |
-| `fd_hint` | `src/ffi/dns_ffi.c` | `Socket -> IO(Socket & U32)`; copies the fd, keeps the handle |
+| `Timui.open` / `frame` / `close` / `isatty` / `tty` | `src/ffi/timui_ffi.c` | `TIMUI_IMPLEMENTATION` once |
+| `Tty.ready` / `Tty.close` / `Winch.open` / `ready` / `close` | `src/ffi/timui_ffi.c` | tty and winch share `fd_ready` |
+| `recv_octets` / `recv_nb` | `src/ffi/dns_ffi.c` | one `recv_try`; octets + peer, not `UDP.recv` String |
+| `send_octets` | `src/ffi/dns_ffi.c` | UDP datagram from `List U32` |
+| `Socket.dup` / `Socket.shutdown` | `src/ffi/dns_ffi.c` | reader dup; `SHUT_RDWR` wakes that dup |
 | `local_secs` | `src/ffi/clock_ffi.c` | local seconds-of-day as `U32`; Bend formats HH:MM:SS |
-| `wake_poke` | `src/ffi/timui_ffi.c` | write one byte on the Ui self-pipe; actor posts after Up/Chunk/Fail/Eof |
 
-Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets` +
-`Fr.push`, not `TCP.recv`. `recv_octets` is non-blocking (`io_eff` flags `0`);
-`None` is EAGAIN/EINTR so the actor can still Tick. It is **not** registered
-with `IO_READ` (that park would freeze Ticks). Peer is `host & (port & octets)`
-beside the payload (C7).
+Live TCP outbound is Base `TCP.send` (String). Live inbound is `recv_octets`
+(`IO_READ`) + `Fr.push`, not `TCP.recv`. DNS uses `recv_nb` (flags 0) so its
+fuel timeout still runs. Peer is `host & (port & octets)` beside the payload.
+`EINTR` is treated like `EAGAIN`. `max` is clamped to 4096.
 
-The actor maps both a `Fail` (RST, POLLERR, other recv errno) and a
-`Done{Some{…, Nil{}}}` (zero-length read, clean FIN) to `NetEvt.Eof`. The UI
-then paints `disconnected` and stays up. `Done{None{}}` is idle (Tick).
+The reader maps a `Fail` and a zero-length read to `FromNet{gen, Eof}`. The
+UI paints `disconnected` and stays up. It drops a `FromNet` whose generation
+is not current.
 
 ## Build
 
@@ -65,9 +64,11 @@ of the project FFI is `make lint-ffi`: stub header `tests/lint-ffi/ffi_stub.h`,
 ```text
 law Ui: Type
 
-Timui.open  : IO(Result<&1,&1, U32 & String, Ui>)
-Timui.frame : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> U32 -> U32 -> IO(Ui & UiKeys)
-Timui.close : Ui -> IO(Unit)
+Timui.open   : IO(Result<&1,&1, U32 & String, Ui>)
+Timui.frame  : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+Timui.close  : Ui -> IO(Unit)
+Timui.isatty : IO(U32)
+Timui.tty    : Ui -> IO(Ui & Result<&1,&1, U32 & String, Tty>)
 ```
 
 `UiKeys` is Data. `typed` is a `String` (the composer field). `rows` and `cols`
@@ -75,33 +76,21 @@ are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
 `tab`, `click`, `up`, `dn`, `hist`). Unpack like `Window.frame`. Do not put
 `Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
 including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
-`wait_ms` is how long C `poll()`s the tty (and optional `wake_fd`) before
-`timui_begin`. Bend uses 16 ms while `Connecting`, while `now < hot_until`
-(50 ms after Up/Chunk/Fail/Eof or keys, via `IO.now`; the poke byte already
-wakes the frame after an event), or if the composer is
-non-empty; else 1000 ms. C also caps the poll at 0 ms if `event_count` or
-`pending_*` is non-empty, and at 16 ms if the composer has text or the
-previous frame saw keys (`hot_next`), so a one-write line+CR after idle
-cannot lose Enter behind a 1000 ms wait. Idle CPU (`tickrate.py`): ~0.5% of a core. With one
-inbound line every 1.5–2 s (`ratecpu.py`): ~1.0% of a core (was 5–6% at a
-2000 ms window). Actor events sit in a channel, so a 1000 ms poll
-would miss them (001 → JOIN waited a full idle tick). `wake_fd` is a **wake hint**: the actor's socket fd
-as a plain `U32` (0 = none), from `fd_hint`. The UI never reads that socket;
-the actor still owns the handle. A self-pipe on the Ui handle is also polled;
-`wake_poke` writes one byte when the actor posts Up/Chunk/Fail/Eof so those
-events do not wait out the idle poll. `Timui.open` sets TimUI `input_poll_ms` to 0
-so `timui_begin` does not sleep again after the FFI poll.
-Test-only: `BIRC_DIE_AFTER_OPEN=1` calls `exit(1)` after `atexit` is
-registered so `tests/pty/restore.py` can check cooked mode without
-`Timui.close`.
+The frame does not wait. A tty watcher and a winch watcher wake the UI;
+see K1 below. `Timui.open` sets `input_poll_ms` to 0.
+On a non-tty, `--frames N` paints N frames and exits. On a tty, `N` is a
+cap of messages and the loop parks. Test-only: `BIRC_DIE_AFTER_OPEN=1`
+calls `exit(1)` after `atexit` is registered so `tests/pty/restore.py` can
+check cooked mode without `Timui.close`.
 
 ### Vendored `timui.h` patches
 
 Local edits to `src/ui/timui.h` (re-apply on an upstream update):
 
 1. **`input_poll_ms`** on `TimuiConfig` (default 16). `timui_begin` uses it for
-   the tty poll and the non-tty nanosleep. birc sets 0 so begin does not sleep
-   after the FFI `wait_ms` poll.
+   the tty poll and the non-tty nanosleep. birc sets 0 so begin does not sleep.
+   The frame still polls 50 ms when a lone Esc is pending, because a parked
+   UI has no next tick to notice the timeout.
 2. **Enter table size** `enter_at` / `pending_enter_at` is 64 (upstream 32).
 3. **Lossless Enter overflow.** When `enter_at`, `text_in`, or `edit_ops` is
    full, `timui_begin` ungets the current event and stops consuming; leftover
@@ -177,8 +166,7 @@ Replaces the C wait path (`birc_wait_fds`, the Ui self-pipe, `wake_poke`,
 `fd_hint`, `wait_ms` / `wake_fd`, the Bend hot window). The runtime parks
 an effect registered with `IO_READ` on the fd of its first handle
 argument until `POLLIN` (`bend2/comp.ts` `io_step`; `tcp_recv.c` is the
-pattern). K2 is this section. The effect table above this heading still
-names the old frame arguments; K5 replaces it.
+pattern). K2 is this section.
 
 ### Wake sources
 
