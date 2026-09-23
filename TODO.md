@@ -594,6 +594,39 @@ no input): 55 ticks/s, 7.8% of one core at 30x100 (9.2% at 82x159). Cause: 16 ms
 
 ---
 
+## Milestone 11 — structural framer and input actor
+
+Base: `master` at `f34bbc9`. Branch `wo3`. Boxes from `build/review/HANDOVER3.md`.
+Same rules as M9/M10 (TDD, one item per commit, `make check` green, GOLDEN
+CHANGE, three consecutive pty runs, never push).
+
+### Part A — structural framer
+
+- [ ] **Q1** `push.go` is structural: one byte per recursive call. `FrSt` +
+      `step` (no recursion) + `walk` (no fuel). No behaviour change.
+      `feed_bench` and a 1 MB `push` timed before and after.
+- [ ] **Q2** Quantified law: `for xs`, `rem` of `push(Nil, xs)` has length
+      `≤ LINE_OCTET_MAX+1`, proved by induction (pattern `strip_ctl_clean`).
+      Keep the point laws.
+- [ ] **Q3** Quantified `parse_id` mismatch only if Q2 succeeded and it is
+      cheap. Otherwise record why not here.
+
+### Part B — input actor
+
+- [ ] **K1** Design note in `docs/FFI.md` before any code: tty watcher parks
+      with `IO_READ`, UI blocks on `Chan.recv`, resize wake, `NetCmd` counting.
+- [ ] **K2** Implement K1. Delete `birc_wait_fds`, self-pipe, `wake_poke`,
+      `fd_hint`, `wait_ms` / `wake_fd`, hot window, and `input_poll_ms` if
+      unused. Report C line counts and the `timui.h` diff against `ac97be1`.
+- [ ] **K3** `recv_octets` parks with `IO_READ`. DNS timeout/resend still works.
+- [ ] **K4** Pty measurements before (`f34bbc9`) and after: idle ticks/CPU,
+      traffic CPU, latencies, key latency, full pty set. Targets: idle ≤ 0.3%
+      and ≤ 1 frame/s, traffic ≤ 1%, latencies ≤ 100 ms, resize ≤ 1.1 s.
+- [ ] **K5** UBSan hostile pty: 0 reports. `make lint-ffi` clean. Update
+      `AGENTS.md`, `docs/FFI.md`, `README.md`.
+
+---
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
