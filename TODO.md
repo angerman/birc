@@ -629,14 +629,14 @@ CHANGE, three consecutive pty runs, never push).
 
 ### Part B — input actor
 
-- [x] **K1** Design note in `docs/FFI.md` before any code. Revised: writer
-      owns the `Socket` and blocks on `NetCmd`; reader owns a dup and parks
-      in `recv_octets` (`IO_READ`). UI sends `Cont{outs}` when it has lines.
-      No `Tick`, no `hold_cmd`. Dial posts `FromNet{Up}`. `Socket.shutdown`
-      (`SHUT_RDWR`) then the writer closes `sock` and the reader closes only
-      the dup. Tty and winch watchers run in every UI mode; only the
-      headless `--frames` smoke loops without waiting. Resize is a
-      `SIGWINCH` pipe. `input_poll_ms` stays 0.
+- [x] **K1** Design note in `docs/FFI.md`. Writer owns the `Socket` and
+      blocks on `NetCmd`; reader owns a dup and parks in `recv_octets`
+      (`IO_READ`). UI sends `Cont{outs}` when it has lines. Every `FromNet`
+      carries a generation; the UI bumps it on each `Dial` and drops a
+      stale `Eof`. DNS keeps non-blocking `recv_nb` so its fuel timeout
+      still runs. `Socket.shutdown` then the writer closes `sock` and the
+      reader closes only the dup. Watchers run in every UI mode. `gen_eof.py`
+      locks the redial race.
 - [ ] **K2** Implement K1. Delete `birc_wait_fds`, self-pipe, `wake_poke`,
       `fd_hint`, `wait_ms` / `wake_fd`, hot window, and `input_poll_ms` if
       unused. Report C line counts and the `timui.h` diff against `ac97be1`.

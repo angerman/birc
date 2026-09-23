@@ -186,8 +186,8 @@ One UI channel, `Chan(UiMsg)`, capacity 64. Producers:
 
 | Producer | Message | How it wakes |
 |---|---|---|
-| Reader actor | `FromNet{Chunk}` / `FromNet{Eof}` | parks in `recv_octets` (`IO_READ`) |
-| Dial job | `FromNet{Up}` | after `TCP.connect` |
+| Reader actor | `FromNet{gen, Chunk}` / `FromNet{gen, Eof}` | parks in `recv_octets` (`IO_READ`) |
+| Dial job | `FromNet{gen, Up}` / `FromNet{gen, Fail}` | after `TCP.connect` |
 | Tty watcher | `Key{}` | parks in `Tty.ready` |
 | Winch watcher | `Resize{}` | parks in `Winch.ready` |
 
@@ -226,13 +226,37 @@ on `/connect` before the old socket is replaced, the writer calls
 
 **Reader.** Owns a `dup` of that socket as its own linear handle (same
 trick as `Timui.tty`). Parks in `recv_octets` with `IO_READ`. Sends
-`FromNet{Chunk}` or `FromNet{Eof}`. Never touches `NetCmd`. `shutdown`
-makes `recv` return 0, so it posts `Eof`, closes only the dup, and exits.
+`FromNet{gen, Chunk}` or `FromNet{gen, Eof}`. Never touches `NetCmd`.
+`shutdown` makes `recv` return 0, so it posts `Eof` for that generation,
+closes only the dup, and exits.
 
-**Dial.** `/connect` from demo is a tested path. The dial job connects,
-dups the fd, starts the reader on the dup, gives the `Socket` to the
-writer, and posts `FromNet{Up}` on the UI channel. That post is how the UI
-learns the dial finished. `Up`'s number is not a poll hint.
+**Dial.** `/connect` works from demo and from an already online session
+(the old "already connected" refusal goes away). The UI bumps a
+generation, then the dial job connects, dups the fd, starts the reader
+on the dup with that generation, gives the `Socket` to the writer, and
+posts `FromNet{gen, Up}`. That post is how the UI learns the dial
+finished. `Up`'s fd number is not a poll hint.
+
+**Generation.** Same class of race as `c3bffde`. On `/connect` while
+connected, the writer shuts down the old socket, so the old reader posts
+`FromNet{old, Eof}` possibly after the new dial has posted
+`FromNet{new, Up}`. If the UI treated that `Eof` as "disconnected" it
+would mark the new connection offline. Every `FromNet` (`Up`, `Chunk`,
+`Eof`, and `Fail`) carries a `U32` generation. The UI starts at 0 and
+bumps it on each `Dial`, including the first connect, and passes that
+value to the dial job and the reader. The UI drops any `FromNet` whose
+generation is not the current one. `tests/pty/gen_eof.py` locks it:
+connect, `/connect` to a second mock, the first server stays open for
+1 s and then closes; the client must stay on the second connection and
+send `JOIN` there.
+
+**DNS time bound (K3).** A `recv_octets` registered with `IO_READ` parks
+until the socket is readable. It has no timeout, so the resolver's fuel
+loop would never reach `IO.sleep`, the resend, or fuel 0. Decision: DNS
+keeps the non-blocking path. `recv_nb` is the same C function with
+`io_eff` flags `0` (EAGAIN is `None`). `wait_ans` keeps calling it, so
+the existing sleep and fuel stay the time bound. The TCP reader is the
+only caller of parked `recv_octets`. No timer actor.
 
 `Tick`, `hold_cmd`, and the pending/ack coupling between the UI and the
 net actor go away. The tty ack stays; it is not a `NetCmd`. `Key` and
@@ -253,8 +277,9 @@ number is closed twice.
 1. Writer: `Socket.shutdown(sock)` then `Socket.close(sock)`. Only the
    writer closes `sock`. It does not wait for the reader, and it does not
    close the dup.
-2. Reader: `recv` returns 0, send `FromNet{Eof}`, `close` the dup only,
-   exit. It never closes `sock`.
+2. Reader: `recv` returns 0, send `FromNet{gen, Eof}`, `close` the dup
+   only, exit. It never closes `sock`. A late `Eof` still carries the
+   old generation, so the UI drops it after a newer dial.
 3. UI, on `Eof`, closes neither socket fd.
 4. Quit also stops the watchers, then `Timui.close`. `Tty.close` closes
    the tty dup; `Timui.close` closes the fd inside the `Ui`.
