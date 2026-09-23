@@ -72,6 +72,21 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("rem511", Nat.show(Fr.rem_len(Fr.push(Nil{}, Fr.rem510cr()))), "511")
     Unit <- E.must("rem510_ok", Fr.rem510_ok())
     Unit <- E.must("rem511_ok", Fr.rem511_ok())
+    Unit <- E.must_eq(
+      "split_crlf",
+      report_ex(Fr.push_ex(False{}, Fr.string_to_octets("ab\r"), Fr.string_to_octets("\ncd\r\n"))),
+      "lines=ab|cd| rem= drop=False"
+    )
+    Unit <- E.must_eq(
+      "hold_cr",
+      report_pair(Fr.push(Nil{}, Fr.string_to_octets("ab\r"))),
+      "lines= rem=97,98,13,"
+    )
+    Unit <- E.must_eq(
+      "bare_then_x",
+      report_ex(Fr.push_ex(False{}, Fr.string_to_octets("ab\r"), Fr.string_to_octets("X\r\nZ\r\n"))),
+      "lines=Z| rem= drop=False"
+    )
     Unit <- E.must("legal_max", Fr.legal_max_ok())
     Unit <- E.must("legal_509", Fr.legal_509_ok())
     Unit <- E.must("utf8_cafe", FP.utf8_cafe_ok())

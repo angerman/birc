@@ -273,24 +273,170 @@ def crlf(+s: String) -> List<&2, U32>:
 def emit_line(+rem_rev: List<&2, U32>, lines: List<&2, String>) -> List<&2, String>:
   Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, rem_rev))) <> lines
 
-type PushPhase is Data:
-  PRead{}
-  PClass{}
-  PAct{}
-  PCr{}
-  PDrop{}
-  PDropLf{}
-
 # RFC 1459: a line ends in CRLF. A CR not followed by LF is a bare CR
 # and drops the whole line, like the over-long case. A CR at the end of
 # a chunk is held on rem (octet 13) so a split CRLF still emits.
+# One byte, one step. walk recurses on the tail only (no fuel).
+type FrMode is Data:
+  Normal{}
+  AfterCr{}
+  Drop{}
+
+type FrSt is Data:
+  FrSt{rem: List<&2, U32>, lines: List<&2, String>, n: Nat, mode: FrMode}
+
+# frame_demo still names the two halt phases. They are modes, not a fuel machine.
+type PushPhase is Data:
+  PRead{}
+  PDrop{}
+
 def payload_n(+rem: List<&2, U32>) -> Nat:
   List.length(&2, U32, rem)
 
-def push.go.halt(+lines: List<&2, String>, +rem: List<&2, U32>, drop: Bool) -> List<&2, String> & List<&2, U32> & Bool:
+def step_emit(+rem: List<&2, U32>, +lines: List<&2, String>) -> FrSt:
+  FrSt{Nil{}, emit_line(rem, lines), 0n, Normal{}}
+
+def step_hold(+rem: List<&2, U32>, +lines: List<&2, String>, +n: Nat) -> FrSt:
+  FrSt{rem, lines, n, AfterCr{}}
+
+def step_store(+rem: List<&2, U32>, +lines: List<&2, String>, +n: Nat, +b: U32) -> FrSt:
+  FrSt{b <> rem, lines, 1n+n, Normal{}}
+
+def step_to_drop(+lines: List<&2, String>) -> FrSt:
+  FrSt{Nil{}, lines, 0n, Drop{}}
+
+def step_from_drop(+lines: List<&2, String>) -> FrSt:
+  FrSt{Nil{}, lines, 0n, Normal{}}
+
+def step_normal.over(
+  +rem: List<&2, U32>,
+  +lines: List<&2, String>,
+  +n: Nat,
+  +b: U32,
+  over: Bool
+) -> FrSt:
+  match over:
+    case True{}:
+      step_to_drop(lines)
+    case False{}:
+      step_store(rem, lines, n, b)
+
+def step_normal.cr(
+  +rem: List<&2, U32>,
+  +lines: List<&2, String>,
+  +n: Nat,
+  +b: U32,
+  is_cr: Bool,
+  over: Bool
+) -> FrSt:
+  match is_cr:
+    case True{}:
+      step_hold(rem, lines, n)
+    case False{}:
+      step_normal.over(rem, lines, n, b, over)
+
+def step_normal(
+  +rem: List<&2, U32>,
+  +lines: List<&2, String>,
+  +n: Nat,
+  +b: U32,
+  is_lf: Bool,
+  is_cr: Bool,
+  over: Bool
+) -> FrSt:
+  match is_lf:
+    case True{}:
+      step_emit(rem, lines)
+    case False{}:
+      step_normal.cr(rem, lines, n, b, is_cr, over)
+
+def step_after(+rem: List<&2, U32>, +lines: List<&2, String>, +n: Nat, is_lf: Bool) -> FrSt:
+  match is_lf:
+    case True{}:
+      step_emit(rem, lines)
+    case False{}:
+      step_to_drop(lines)
+
+def step_dropping(+lines: List<&2, String>, is_lf: Bool) -> FrSt:
+  match is_lf:
+    case True{}:
+      step_from_drop(lines)
+    case False{}:
+      step_to_drop(lines)
+
+def step_mode(
+  mode: FrMode,
+  +rem: List<&2, U32>,
+  +lines: List<&2, String>,
+  +n: Nat,
+  +b: U32
+) -> FrSt:
+  match mode:
+    case Normal{}:
+      step_normal(rem, lines, n, b, U32.is_eq(b, LF()), U32.is_eq(b, CR()), Nat.is_ge(n, LINE_OCTET_MAX()))
+    case AfterCr{}:
+      step_after(rem, lines, n, U32.is_eq(b, LF()))
+    case Drop{}:
+      step_dropping(lines, U32.is_eq(b, LF()))
+
+def step(st: FrSt, +b: U32) -> FrSt:
+  match st:
+    case FrSt{+rem, +lines, +n, mode}:
+      step_mode(mode, rem, lines, n, b)
+
+def finish.out(+lines: List<&2, String>, +rem: List<&2, U32>, drop: Bool) -> List<&2, String> & List<&2, U32> & Bool:
   (List.reverse(&2, String, lines), List.reverse(&2, U32, rem), drop)
 
-# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed push.go
+def finish_mode(mode: FrMode, +rem: List<&2, U32>, +lines: List<&2, String>) -> List<&2, String> & List<&2, U32> & Bool:
+  match mode:
+    case Normal{}:
+      finish.out(lines, rem, False{})
+    case AfterCr{}:
+      finish.out(lines, CR() <> rem, False{})
+    case Drop{}:
+      finish.out(lines, Nil{}, True{})
+
+def finish(st: FrSt) -> List<&2, String> & List<&2, U32> & Bool:
+  match st:
+    case FrSt{+rem, +lines, _, mode}:
+      finish_mode(mode, rem, lines)
+
+def walk(+inp: List<&2, U32>, st: FrSt) -> List<&2, String> & List<&2, U32> & Bool:
+  match inp:
+    case Nil{}:
+      finish(st)
+    case Con{+b, t}:
+      walk(t, step(st, b))
+
+def phase_mode(phase: PushPhase) -> FrMode:
+  match phase:
+    case PRead{}:
+      Normal{}
+    case PDrop{}:
+      Drop{}
+
+def push.go.fuel(fuel: Nat) -> Unit:
+  match fuel:
+    case 0n:
+      Unit{}
+    case 1n+_:
+      Unit{}
+
+# The four frame_demo rows call this. Fuel is not a bound: the walk
+# consumes the input. Those rows are an empty buffer, or one non-LF
+# byte while already dropping, so a fuel-0 halt and a full walk agree.
+def push.go.on(
+  u: Unit,
+  phase: PushPhase,
+  +inp: List<&2, U32>,
+  +rem: List<&2, U32>,
+  +lines: List<&2, String>,
+  +n: Nat
+) -> List<&2, String> & List<&2, U32> & Bool:
+  match u:
+    case Unit{}:
+      walk(inp, FrSt{rem, lines, n, phase_mode(phase)})
+
 def push.go(
   fuel: Nat,
   phase: PushPhase,
@@ -303,113 +449,34 @@ def push.go(
   is_cr: Bool,
   over: Bool
 ) -> List<&2, String> & List<&2, U32> & Bool:
-  match fuel:
-    case 0n:
-      # Fuel exhaustion keeps the current drop phase; do not reset to False.
-      match phase:
-        case PDrop{}:
-          push.go.halt(lines, rem, True{})
-        case PDropLf{}:
-          push.go.halt(lines, rem, True{})
-        case PCr{}:
-          push.go.halt(lines, CR() <> rem, False{})
-        case _:
-          push.go.halt(lines, rem, False{})
-    case 1n+p:
-      match phase:
-        case PRead{}:
-          match inp:
-            case Nil{}:
-              push.go.halt(lines, rem, False{})
-            case Con{+hd, t}:
-              push.go(p, PClass{}, t, rem, lines, n, hd, False{}, False{}, False{})
-        case PClass{}:
-          push.go(p, PAct{}, inp, rem, lines, n, b, U32.is_eq(b, LF()), U32.is_eq(b, CR()), Nat.is_ge(n, LINE_OCTET_MAX()))
-        case PAct{}:
-          match is_lf:
-            case True{}:
-              push.go(p, PRead{}, inp, Nil{}, emit_line(rem, lines), 0n, 0, False{}, False{}, False{})
-            case False{}:
-              match is_cr:
-                case True{}:
-                  push.go(p, PCr{}, inp, rem, lines, n, 0, False{}, False{}, False{})
-                case False{}:
-                  match over:
-                    case True{}:
-                      push.go(p, PDrop{}, inp, Nil{}, lines, 0n, 0, False{}, False{}, False{})
-                    case False{}:
-                      push.go(p, PRead{}, inp, b <> rem, lines, 1n+n, 0, False{}, False{}, False{})
-        case PCr{}:
-          match inp:
-            case Nil{}:
-              push.go.halt(lines, CR() <> rem, False{})
-            case Con{+hd, t}:
-              +lf = U32.is_eq(hd, LF())
-              push.go(
-                p,
-                Bool.pick(PushPhase, lf, PRead{}, PDrop{}),
-                Bool.pick(List<&2, U32>, lf, t, hd <> t),
-                Nil{},
-                Bool.pick(List<&2, String>, lf, emit_line(rem, lines), lines),
-                0n,
-                0,
-                False{},
-                False{},
-                False{}
-              )
-        case PDrop{}:
-          match inp:
-            case Nil{}:
-              push.go.halt(lines, Nil{}, True{})
-            case Con{+hd, t}:
-              push.go(p, PDropLf{}, t, Nil{}, lines, 0n, hd, U32.is_eq(hd, LF()), False{}, False{})
-        case PDropLf{}:
-          match is_lf:
-            case True{}:
-              push.go(p, PRead{}, inp, Nil{}, lines, 0n, 0, False{}, False{}, False{})
-            case False{}:
-              push.go(p, PDrop{}, inp, Nil{}, lines, 0n, 0, False{}, False{}, False{})
+  push.go.on(push.go.fuel(fuel), phase, inp, rem, lines, n)
 
-def push_ex.keep.hd(+chunk: List<&2, U32>, +n: Nat, +h: U32, t: List<&2, U32>, pend: Bool) -> List<&2, String> & List<&2, U32> & Bool:
+def reopen_hd(+h: U32, t: List<&2, U32>, +n: Nat, pend: Bool) -> FrSt:
   match pend:
     case True{}:
-      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PCr{}, chunk, t, Nil{}, Nat.sub(n, 1n), 0, False{}, False{}, False{})
+      FrSt{t, Nil{}, Nat.sub(n, 1n), AfterCr{}}
     case False{}:
-      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PRead{}, chunk, h <> t, Nil{}, n, 0, False{}, False{}, False{})
+      FrSt{h <> t, Nil{}, n, Normal{}}
 
-def push_ex.keep.cr(+rev: List<&2, U32>, +chunk: List<&2, U32>, +n: Nat) -> List<&2, String> & List<&2, U32> & Bool:
+def reopen_cr(+rev: List<&2, U32>, +n: Nat) -> FrSt:
   match rev:
     case Nil{}:
-      push.go(Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))), PRead{}, chunk, Nil{}, Nil{}, n, 0, False{}, False{}, False{})
+      FrSt{Nil{}, Nil{}, n, Normal{}}
     case Con{+h, t}:
-      push_ex.keep.hd(chunk, n, h, t, U32.is_eq(h, CR()))
+      reopen_hd(h, t, n, U32.is_eq(h, CR()))
 
-def push_ex.keep(+rem: List<&2, U32>, +chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
-  push_ex.keep.cr(List.reverse(&2, U32, rem), chunk, payload_n(rem))
+def reopen_keep(+rem: List<&2, U32>) -> FrSt:
+  reopen_cr(List.reverse(&2, U32, rem), payload_n(rem))
 
-def push_ex.drop(+chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
-  push.go(
-    Nat.add(1n, Nat.mul(4n, List.length(&2, U32, chunk))),
-    PDrop{},
-    chunk,
-    Nil{},
-    Nil{},
-    0n,
-    0,
-    False{},
-    False{},
-    False{}
-  )
-
-def push_ex.on(drop: Bool, +rem: List<&2, U32>, +chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
+def reopen(drop: Bool, +rem: List<&2, U32>) -> FrSt:
   match drop:
     case True{}:
-      push_ex.drop(chunk)
+      FrSt{Nil{}, Nil{}, 0n, Drop{}}
     case False{}:
-      push_ex.keep(rem, chunk)
+      reopen_keep(rem)
 
 def push_ex(+drop: Bool, +rem: List<&2, U32>, +chunk: List<&2, U32>) -> List<&2, String> & List<&2, U32> & Bool:
-  push_ex.on(drop, rem, chunk)
+  walk(chunk, reopen(drop, rem))
 
 def push.pair(got: List<&2, String> & List<&2, U32> & Bool) -> List<&2, String> & List<&2, U32>:
   match got:
