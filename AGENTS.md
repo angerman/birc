@@ -45,7 +45,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/buffer.bend` | Buffer / Client container types (I15b) |
 | `src/bend/client_laws.bend` | Feed inspectors and `*_ok` predicates (I15a) |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
-| `src/ffi/dns_ffi.c` | `recv_octets`, `send_octets`, `fd_hint` |
+| `src/ffi/dns_ffi.c` | `recv_octets`, `recv_nb`, `send_octets`, `Socket.dup`, `Socket.shutdown` |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
@@ -54,10 +54,10 @@ silent flake/source pin updates. Routine Nix work uses
 
 - Fail closed: missing targets exit nonzero.
 - Keep IRC lines ≤ 512 bytes including CRLF.
-- Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop. Live paint is `List<DrawOp>` (`OpBox` / `OpText` / `OpTabs` / `OpLine`); C walks and paints, and does not tokenize or classify IRC. Keys are Data on the frame return. PageUp/PageDown size is `Sess.body_h` passed into the frame effect. `wait_ms` / `wake_fd` are poll arguments: the FFI waits on the tty and an optional socket fd **as a wake hint only** (plain `U32` from `fd_hint`; 0 = none). The UI never reads the socket; the actor keeps ownership. `wait_ms` is 16 ms while Connecting, for 50 ms (`IO.now`) after Up/Chunk/Fail/Eof, or if the composer is non-empty; else 1000 ms idle.
+- Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop and the frame does not poll. Live paint is `List<DrawOp>` (`OpBox` / `OpText` / `OpTabs` / `OpLine`); C walks and paints, and does not tokenize or classify IRC. Keys are Data on the frame return. PageUp/PageDown size is `Sess.body_h` passed into the frame effect. A tty watcher and a `SIGWINCH` pipe wake one `Chan(UiMsg)`. The UI parks on that channel. Every paint applies the keys the frame read, including a chunk or Eof paint.
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` is `File.read` → `feed_all`, fail closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
 - Shutdown (P5): `Socket.close` then `Timui.close`, then `IO.die` so parked IO cannot linger.
-- Headless `birc` quits on the first frame; loop tests need a pty (`make test-pty`).
+- Headless (stdin is not a tty) paints `--frames N` and exits. On a tty, `N` is a message cap and the loop parks; loop tests need a pty (`make test-pty`).
 - A new or changed pty test must pass three consecutive runs before its commit.
 - Prove laws; do not weaken them to make a candidate pass.
 - Bend pitfalls: no `match f(x)`; `+T` is copyable; match binders in param order;
