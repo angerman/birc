@@ -109,23 +109,18 @@ def main() -> IO(Unit):
     Unit <- E.must("overlong_octets_again", Fr.overlong_drop_ok())
     Unit <- E.must("legal_max_again", Fr.legal_max_ok())
     Unit <- E.must_eq(
-      "fuel0_pdrop",
-      report_ex(Fr.push.go(0n, Fr.PDrop{}, Fr.string_to_octets("A"), Nil{}, Nil{}, 0n, 0, False{}, False{}, False{})),
+      "drop_byte",
+      report_ex(Fr.walk(Fr.string_to_octets("A"), Fr.FrSt{Nil{}, Nil{}, 0n, Fr.Drop{}})),
       "lines= rem= drop=True"
     )
     Unit <- E.must_eq(
-      "pdrop_empty",
-      report_ex(Fr.push.go(1n, Fr.PDrop{}, Nil{}, Nil{}, Nil{}, 0n, 0, False{}, False{}, False{})),
+      "drop_empty",
+      report_ex(Fr.walk(Nil{}, Fr.FrSt{Nil{}, Nil{}, 0n, Fr.Drop{}})),
       "lines= rem= drop=True"
     )
     Unit <- E.must_eq(
-      "fuel0_pread",
-      report_ex(Fr.push.go(0n, Fr.PRead{}, Nil{}, Nil{}, Nil{}, 0n, 0, False{}, False{}, False{})),
-      "lines= rem= drop=False"
-    )
-    Unit <- E.must_eq(
-      "pread_empty",
-      report_ex(Fr.push.go(1n, Fr.PRead{}, Nil{}, Nil{}, Nil{}, 0n, 0, False{}, False{}, False{})),
+      "normal_empty",
+      report_ex(Fr.walk(Nil{}, Fr.FrSt{Nil{}, Nil{}, 0n, Fr.Normal{}})),
       "lines= rem= drop=False"
     )
     Unit <- E.must(

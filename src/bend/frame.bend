@@ -285,11 +285,6 @@ type FrMode is Data:
 type FrSt is Data:
   FrSt{rem: List<&2, U32>, lines: List<&2, String>, n: Nat, mode: FrMode}
 
-# frame_demo still names the two halt phases. They are modes, not a fuel machine.
-type PushPhase is Data:
-  PRead{}
-  PDrop{}
-
 def payload_n(+rem: List<&2, U32>) -> Nat:
   List.length(&2, U32, rem)
 
@@ -407,49 +402,6 @@ def walk(+inp: List<&2, U32>, st: FrSt) -> List<&2, String> & List<&2, U32> & Bo
       finish(st)
     case Con{+b, t}:
       walk(t, step(st, b))
-
-def phase_mode(phase: PushPhase) -> FrMode:
-  match phase:
-    case PRead{}:
-      Normal{}
-    case PDrop{}:
-      Drop{}
-
-def push.go.fuel(fuel: Nat) -> Unit:
-  match fuel:
-    case 0n:
-      Unit{}
-    case 1n+_:
-      Unit{}
-
-# The four frame_demo rows call this. Fuel is not a bound: the walk
-# consumes the input. Those rows are an empty buffer, or one non-LF
-# byte while already dropping, so a fuel-0 halt and a full walk agree.
-def push.go.on(
-  u: Unit,
-  phase: PushPhase,
-  +inp: List<&2, U32>,
-  +rem: List<&2, U32>,
-  +lines: List<&2, String>,
-  +n: Nat
-) -> List<&2, String> & List<&2, U32> & Bool:
-  match u:
-    case Unit{}:
-      walk(inp, FrSt{rem, lines, n, phase_mode(phase)})
-
-def push.go(
-  fuel: Nat,
-  phase: PushPhase,
-  +inp: List<&2, U32>,
-  +rem: List<&2, U32>,
-  +lines: List<&2, String>,
-  +n: Nat,
-  +b: U32,
-  is_lf: Bool,
-  is_cr: Bool,
-  over: Bool
-) -> List<&2, String> & List<&2, U32> & Bool:
-  push.go.on(push.go.fuel(fuel), phase, inp, rem, lines, n)
 
 def reopen_hd(+h: U32, t: List<&2, U32>, +n: Nat, pend: Bool) -> FrSt:
   match pend:
