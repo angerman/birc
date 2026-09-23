@@ -311,6 +311,26 @@ when nothing happens. This pipe is not a net wake.
 `input_poll_ms` stays 0 (the vendored patch stays) so `timui_begin` does
 not sleep again. `wait_ms` and `wake_fd` go away.
 
+### K4 measurements
+
+Same pty, before `f34bbc9` and after the parked UI. Idle CPU is the
+marginal sample after the first paint. `cpu_pty.py` divides cumulative
+rusage by the window, so it includes startup and is not the idle rate.
+
+| | before | after |
+|---|---|---|
+| idle frames | 0.97/s (`--frames 20` in 20.70 s) | 0 (0 tty bytes in a 3 s quiet window) |
+| idle CPU | 0.53% over those 20 frames | 0.00% / 0.01% (`tickrate.py`) |
+| 1 msg / 1.5 s | 1.1% | 0.7% |
+| key | min 4.1 ms | min 10.2 ms |
+| resize | min 542 ms | min 6.2 ms |
+| 001 → JOIN | 33.7 ms | 1.2 ms |
+| paint wake | 42.5 ms | 8.1 ms |
+| redial JOIN | min 90.1 ms | 1.6 ms |
+
+Flood at about 100 lines/s was 33–50% before and 18–33% after. That is
+not the 1% traffic gate. The full pty set on the after binary exited 0.
+
 Every mode that opens a UI starts the tty watcher and the winch watcher,
 including demo and replay. Demo `/connect` is typed on that tty. `frames=0`
 parks forever (`@unsafe`). `frames=N` (N > 0) on a tty is a cap: at most N

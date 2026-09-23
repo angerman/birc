@@ -662,9 +662,25 @@ CHANGE, three consecutive pty runs, never push).
       or `None` on the DNS path). `dns_timeout.bend` looks up
       `example.test` at `192.0.2.1` and prints `dns_timeout=ok` in
       3.915 s (`timeout` from fuel 80). `timeout 15` wraps it in check.
-- [ ] **K4** Pty measurements before (`f34bbc9`) and after: idle ticks/CPU,
-      traffic CPU, latencies, key latency, full pty set. Targets: idle ≤ 0.3%
-      and ≤ 1 frame/s, traffic ≤ 1%, latencies ≤ 100 ms, resize ≤ 1.1 s.
+- [x] **K4** Pty numbers, before `f34bbc9` and after `a4f30e5`. Load was
+      about 30. Idle gate is the marginal sample (not cpu_pty's cumulative
+      rusage, which includes process start).
+      Before: `--demo --frames 20` drained in 20.70 s = 0.97 frames/s,
+      0.53% CPU. A quiet window still wrote 13254 / 25945 bytes.
+      `tickrate_pty.py 600` hit its 120 s kill; its printed 5 ticks/s
+      uses the requested count, so it is not a measurement.
+      cpu_pty idle 0.5% / 0.7%, flood 33.4% / 50.1%. ratecpu 1 msg / 1.5 s
+      1.1%. Key min 4.1 ms. Resize min 542 ms. join 33.7 ms, paint 42.5 ms,
+      redial min 90.1 ms.
+      After: quiet window 0 bytes and 0.00% at 30x100 and 82x159 (0 frames,
+      process stayed up). tickrate marginal 0.00% / 0.01%. cpu_pty idle
+      0.6% / 0.5% cumulative, flood 17.9% / 33.2%. ratecpu 0.7%. Key min
+      10.2 ms. Resize min 6.2 ms. join 1.2 ms, paint 8.1 ms, redial 1.6 ms.
+      Gates: idle ≤ 0.3% and 0 frames, traffic ≤ 1%, latencies ≤ 100 ms,
+      resize ≤ 1.1 s. The 100 line/s flood is not that traffic gate.
+      Full pty set after: `build/review/wo3/fdready-check.log` exit 0
+      (includes many_eof, bpaste 300, paste50 300, composer, rst, tinyquit,
+      tall_rows, gen_eof, close_then_quit).
 - [ ] **K5** UBSan hostile pty: 0 reports. `make lint-ffi` clean. Update
       `AGENTS.md`, `docs/FFI.md`, `README.md`.
 
