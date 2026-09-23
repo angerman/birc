@@ -170,3 +170,78 @@ closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
 actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `local_secs`
 is a thin localtime FFI; Bend sets `Client.now` at the IO edge so `buf_log_ts`
 stores `Line.ts` at log time.
+
+## K1 — input actor (design, not yet the code)
+
+Replaces the C wait path (`birc_wait_fds`, the Ui self-pipe, `wake_poke`,
+`fd_hint`, `wait_ms` / `wake_fd`, the Bend hot window). The runtime already
+parks an effect registered with `IO_READ` on the fd of its first handle
+argument until `POLLIN` (`bend2/comp.ts` `io_step`; `tcp_recv.c` is the
+pattern). K2 implements this section. Until that commit, the paragraphs
+above are still what the program does.
+
+### Wake sources
+
+One UI channel, `Chan(UiMsg)`, capacity 64. Three producers:
+
+| Producer | Message | How it wakes |
+|---|---|---|
+| Net actor | `FromNet{NetEvt}` | `Chan.send`, as today |
+| Tty watcher | `Key{}` | parks in `Tty.ready` |
+| Winch watcher | `Resize{}` | parks in `Winch.ready` |
+
+The UI thread blocks only in `Chan.recv`. It does not poll.
+
+`Timui.tty(ui) -> Tty` dups the tty fd into a fresh linear handle. The Ui
+keeps the original fd. `Tty.ready(tty) -> IO(Unit)` is `io_eff(..., IO_READ)`
+and does not read the bytes (`timui_begin` does). The watcher loop is:
+
+```text
+Tty.ready(tty)
+Chan.send(ui_evt, Key{})
+Chan.recv(ack)
+```
+
+The ack is what stops a busy loop while the tty stays readable. The UI
+sends it only after `Timui.frame` has returned. `Tty.close` closes the dup.
+
+### Resize
+
+TimUI has no `SIGWINCH` handler. `timui_term_size` is `TIOCGWINSZ`, and the
+frame already uses that size. A 1 s `IO.sleep` tick would paint about once
+a second. A frame costs about 5 ms, so that is about 0.5% of a core, over
+the K4 idle cap of 0.3%, and it is not zero frames.
+
+Decision: a signal pipe, not a timer. One self-pipe, both ends
+`O_NONBLOCK`. The `SIGWINCH` handler writes one byte and ignores `EAGAIN`
+(a pending byte already means "resize"). `Winch.ready` is `IO_READ` on the
+read end and consumes that byte, then the watcher sends `Resize{}`. No ack:
+the byte is gone, so the next `ready` parks until the next signal. The UI
+frame calls `timui_term_size` and repaints. That is well inside the 1.1 s
+resize bound, and idle is zero frames when nothing happens.
+
+This pipe is not the old wake pipe. Net events do not use it.
+
+### Frame
+
+`FromNet`, `Key`, and `Resize` each run one `Timui.frame` with no wait.
+`input_poll_ms` stays 0, and the vendored patch stays: `timui_begin` must
+not sleep again after the runtime has already woken us. `wait_ms` and
+`wake_fd` go away.
+
+`--frames N` (N > 0) is still a fuel cap: at most N messages, then
+shutdown. `frames=0` is the unbounded park (`@unsafe`). Demo and replay do
+not start the tty or winch watchers; they keep a fuel loop of frames with
+no wait.
+
+### NetCmd counting
+
+The net actor's bargain does not change. After it sends one `NetEvt` it
+waits for exactly one `NetCmd` (`idle_after_tick`, `reader_go`). The UI
+sends that command only when the message it just took is `FromNet{e}`.
+
+`Key` and `Resize` are not net events. Handling them does not
+`Chan.send` a `NetCmd`. Their ack, if any, is the watcher's ack channel,
+not the command channel. A key that arrives while the actor is blocked in
+`Chan.recv(cmd)` stays queued until the UI has answered the outstanding
+`FromNet`; it must not be that answer.
