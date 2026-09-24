@@ -141,22 +141,75 @@ def submit_part.on(+cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.C
 def submit_part.with(+cl: Cl.Client, +chan: String) -> Cl.Client & List<&2, String>:
   submit_part.on(cl, chan, Cl.buf_find(cl, chan))
 
+def submit_part.is_ch(+cl: Cl.Client, +chan: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  match is_chan:
+    case True{}:
+      submit_part.with(cl, chan)
+    case False{}:
+      (echo_err(cl, "not a channel — use /close"), empty_out())
+
 def submit_part.empty.on(+cl: Cl.Client, +rest: String, server: Bool) -> Cl.Client & List<&2, String>:
   match server:
     case True{}:
       (echo_err(cl, "usage: /part #chan"), empty_out())
     case False{}:
-      submit_part.with(cl, active_name(cl))
+      submit_part.is_ch(cl, active_name(cl), Irc.starts_channel(active_name(cl)))
 
 def submit_part.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       submit_part.empty.on(cl, rest, Nat.is_eq(active_idx(cl), 0n))
     case False{}:
-      submit_part.with(cl, rest)
+      submit_part.is_ch(cl, rest, Irc.starts_channel(rest))
 
 def submit_part(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_part.empty(cl, rest, String.is_empty(rest))
+
+# ---- /close -------------------------------------------------------------
+
+def submit_close.out(+tgt: String, is_chan: Bool) -> List<&2, String>:
+  match is_chan:
+    case True{}:
+      one_out(Irc.format_part(tgt))
+    case False{}:
+      empty_out()
+
+def submit_close.fin(+cl: Cl.Client, +tgt: String, +bi: Nat, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  (Cl.drop_buf(cl, bi), submit_close.out(tgt, is_chan))
+
+def submit_close.drop(+cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+  match is_server:
+    case True{}:
+      (echo_err(cl, "cannot close server buffer"), empty_out())
+    case False{}:
+      submit_close.fin(cl, tgt, bi, Irc.starts_channel(tgt))
+
+def submit_close.miss(+cl: Cl.Client, +tgt: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  match is_chan:
+    case True{}:
+      (cl, one_out(Irc.format_part(tgt)))
+    case False{}:
+      (echo_err(cl, "no such buffer: " ++ tgt), empty_out())
+
+def submit_close.on(+cl: Cl.Client, +tgt: String, found: Maybe<&2, Nat>) -> Cl.Client & List<&2, String>:
+  match found:
+    case None{}:
+      submit_close.miss(cl, tgt, Irc.starts_channel(tgt))
+    case Some{+bi}:
+      submit_close.drop(cl, tgt, bi, Nat.is_eq(bi, 0n))
+
+def submit_close.with(+cl: Cl.Client, +tgt: String) -> Cl.Client & List<&2, String>:
+  submit_close.on(cl, tgt, Cl.buf_find(cl, tgt))
+
+def submit_close.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      submit_close.drop(cl, active_name(cl), active_idx(cl), Nat.is_eq(active_idx(cl), 0n))
+    case False{}:
+      submit_close.with(cl, rest)
+
+def submit_close(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_close.empty(cl, rest, String.is_empty(rest))
 
 # ---- /msg ---------------------------------------------------------------
 
@@ -295,6 +348,7 @@ def connect_parse(+rest: String) -> Conn:
 type Slash is Data:
   Join{}
   Part{}
+  Close{}
   Msg{}
   Nick{}
   Me{}
@@ -305,7 +359,7 @@ type SlashRow is Data:
   SlashRow{name: String, cmd: Slash}
 
 def slash_rows() -> List<&2, SlashRow>:
-  SlashRow{"join", Join{}} <> SlashRow{"part", Part{}} <> SlashRow{"msg", Msg{}} <> SlashRow{"nick", Nick{}} <> SlashRow{"me", Me{}} <> SlashRow{"quit", Quit{}} <> Nil{}
+  SlashRow{"join", Join{}} <> SlashRow{"part", Part{}} <> SlashRow{"close", Close{}} <> SlashRow{"msg", Msg{}} <> SlashRow{"nick", Nick{}} <> SlashRow{"me", Me{}} <> SlashRow{"quit", Quit{}} <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
   match xs:
@@ -325,6 +379,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_join(cl, rest)
     case Part{}:
       submit_part(cl, rest)
+    case Close{}:
+      submit_close(cl, rest)
     case Msg{}:
       submit_msg(cl, rest)
     case Nick{}:
