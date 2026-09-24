@@ -439,13 +439,11 @@ static void __attribute__((constructor)) timui_isatty_use(void) {
 #ifdef CID_TIMUI_TTY
 Term timui_tty_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
-  int d;
   (void)w;
-  if (!ui) return io_tup(e, f[0], io_fail(e, 1u, "no ui"));
-  d = dup(ui->fd.read_fd);
-  if (d < 0) return io_tup(e, f[0], io_fail(e, (u32)errno, "dup tty"));
-  /* Do not F_SETFL this dup. Status flags are shared with the Ui fd. */
-  return io_tup(e, f[0], io_done(e, io_hand((u64)d)));
+  /* Same descriptor as the Ui. Do not dup: a close would be stdin. */
+  if (!ui || ui->fd.read_fd < 0)
+    return io_tup(e, f[0], io_fail(e, 1u, "no ui"));
+  return io_tup(e, f[0], io_done(e, io_hand((u64)ui->fd.read_fd)));
 }
 static void __attribute__((constructor)) timui_tty_use(void) {
   io_eff(CID_TIMUI_TTY, timui_tty_run, 0);
@@ -487,10 +485,9 @@ static void __attribute__((constructor)) tty_ready_use(void) {
 #endif
 #ifdef CID_TTY_CLOSE
 Term tty_close_run(Env e, Term *f, IoWork *w) {
-  int fd = (int)io_hand_v(f[0]);
   (void)e;
+  (void)f;
   (void)w;
-  if (fd >= 0) (void)close(fd);
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) tty_close_use(void) {
