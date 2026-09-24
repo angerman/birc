@@ -129,7 +129,7 @@ static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
 static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url,
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
-  char uri[512];
+  char uri[256];
   if (!fr || tlen == 0 || x >= maxx) return x;
   if (ulen >= sizeof uri)
     return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0, NULL);
