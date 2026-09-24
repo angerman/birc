@@ -699,9 +699,10 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ### Part 1 — bugs
 
-- [ ] **F1** Stalled terminal must not freeze the loop. Frame write gets a
+- [x] **F1** Stalled terminal must not freeze the loop. Frame write gets a
       deadline; on timeout drop the frame and full-redraw next. `stall.py`:
       PONG while the tty is stalled, then a correct screen after drain.
+      On `c10b967` the PONG did not arrive (`PONG while tty stalled: False`).
 - [ ] **F2** Esc split across reads must not apply keys twice. Remove the
       lone-Esc block; park the tty watcher 50 ms when Esc is pending.
       Lone Esc still quits. `\x1b` then `[A` after 10 ms is one Up.
