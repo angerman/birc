@@ -133,23 +133,47 @@ def step_size(
 def apply_frame.go(
   ui: T.Ui,
   triple: Sess.Session & Sess.NetCmd & Bool,
-  quit: Bool
-) -> T.Ui & Sess.Session & Sess.NetCmd & Bool:
+  quit: Bool,
+  more: Bool
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match triple:
     case (+st, rest):
       match rest:
         case (+cmd, halt):
-          (ui, st, cmd, Bool.or(quit, halt))
+          (ui, st, cmd, Bool.or(quit, halt), more)
 
 def apply_frame(
   got: T.Ui & T.UiKeys,
   +st: Sess.Session
-) -> T.Ui & Sess.Session & Sess.NetCmd & Bool:
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match got:
     case (ui, keys):
       match keys:
-        case T.UiKeys{quit, enter, +typed, rows, cols, tab, click, up, dn, hist}:
-          apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, T.flag_on(enter), tab, click, up, dn, hist)), rows, cols), T.flag_on(quit))
+        case T.UiKeys{quit, enter, +typed, rows, cols, tab, click, up, dn, hist, more}:
+          apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, T.flag_on(enter), tab, click, up, dn, hist)), rows, cols), T.flag_on(quit), T.flag_on(more))
+
+def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
+  match is_key:
+    case True{}:
+      do IO<Unit>:
+        _ : Bool <- Chan.send(Unit, ack, Unit{})
+        return Unit{}
+    case False{}:
+      IO.pure(Unit, Unit{})
+
+def handle_more(
+  more: Bool,
+  is_key: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +ack: Chan(Unit)
+) -> IO(Unit):
+  match more:
+    case True{}:
+      do IO<Unit>:
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Key{})
+        return Unit{}
+    case False{}:
+      handle_more.done(is_key, ack)
 
 def after_emit(
   gen: U32,
@@ -172,7 +196,8 @@ def after_emit(
 # paint. Dropping those keys swallows /quit: the watcher is already back
 # in POLLIN, the line is gone, and shutdown never runs.
 def on_key_cmd(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool,
+  is_key: Bool,
+  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
@@ -185,10 +210,13 @@ def on_key_cmd(
       match rest:
         case (+st, rest2):
           match rest2:
-            case (+ncmd, halt):
-              do IO<Unit>:
-                gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-                after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
+            case (+ncmd, rest3):
+              match rest3:
+                case (halt, more):
+                  do IO<Unit>:
+                    gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+                    Unit <- handle_more(more, is_key, evt, ack)
+                    after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
 
 def on_chunk.paint(
   got: T.Ui & T.UiKeys,
@@ -200,7 +228,7 @@ def on_chunk.paint(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
+  on_key_cmd(False{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
 def on_chunk_go(
   pair: Sess.Session & List<&2, String>,
@@ -341,8 +369,7 @@ def on_key(
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    ok : Bool <- Chan.send(Unit, ack, Unit{})
-    on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
+    on_key_cmd(True{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
 # Resize paints the new size and applies whatever the frame read. A
 # resize frame can swallow /quit the same way a chunk frame can.
@@ -358,7 +385,7 @@ def on_resize(
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_key_cmd(apply_frame(got, st), evt, cmd, ack, gen, frames, k)
+    on_key_cmd(False{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
 def on_msg(
   m: Sess.UiMsg,
@@ -499,7 +526,7 @@ def winch_watch(w: T.Winch, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     winch_watch.on(ok, w2, w3 => winch_watch(w3, evt))
 
 def watch_paint(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool,
+  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
@@ -513,16 +540,19 @@ def watch_paint(
       match rest:
         case (+st, rest2):
           match rest2:
-            case (+ncmd, halt):
-              match halt:
-                case True{}:
-                  shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
-                case False{}:
-                  do IO<Unit>:
-                    gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-                    Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
-                    Unit <- IO.spawn(Unit, winch_watch(w, evt))
-                    live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack)
+            case (+ncmd, rest3):
+              match rest3:
+                case (halt, more):
+                  match halt:
+                    case True{}:
+                      shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
+                    case False{}:
+                      do IO<Unit>:
+                        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+                        Unit <- handle_more(more, False{}, evt, ack)
+                        Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
+                        Unit <- IO.spawn(Unit, winch_watch(w, evt))
+                        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack)
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:

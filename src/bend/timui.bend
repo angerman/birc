@@ -26,7 +26,8 @@ type UiKeys is Data:
     click: U32,
     up: U32,
     dn: U32,
-    hist: U32
+    hist: U32,
+    more: U32
   }
 
 def flag_on(+n: U32) -> Bool:

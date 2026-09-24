@@ -23,9 +23,7 @@ static BircUi *birc_state(const Timui *ui) {
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
-/* Timui held bytes that are not still sitting in the kernel buffer.
- * Tty.ready must not park in that case or a paste tail never drains. */
-static int birc_input_left;
+
 static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
@@ -36,8 +34,8 @@ static void birc_ui_atexit(void) {
 static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols, uint32_t tab,
                         uint32_t click, uint32_t up, uint32_t dn,
-                        uint32_t hist) {
-  Loc l = heap_alloc(e, cls_fit(10));
+                        uint32_t hist, uint32_t more) {
+  Loc l = heap_alloc(e, cls_fit(11));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(quit ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
@@ -48,15 +46,17 @@ static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
   e.mem[l + 7] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
   e.mem[l + 8] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
   e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
+  e.mem[l + 10] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
   return term_ctr(CID_UIKEYS, l);
 }
 static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
                            const char *typed, size_t tlen, uint32_t rows,
                            uint32_t cols, uint32_t tab, uint32_t click,
-                           uint32_t up, uint32_t dn, uint32_t hist) {
+                           uint32_t up, uint32_t dn, uint32_t hist,
+                           uint32_t more) {
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
                 birc_uikeys(e, quit, enter, typed, tlen, rows, cols, tab, click,
-                            up, dn, hist));
+                            up, dn, hist, more));
 }
 #endif
 Term timui_open_run(Env e, Term *f, IoWork *w) {
@@ -360,14 +360,14 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #ifdef CID_CON
     birc_drop_ops(e, ops);
 #endif
-    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0, 0);
   }
   if (!timui_begin(ui, &fr)) {
     free(input);
 #ifdef CID_CON
     birc_drop_ops(e, ops);
 #endif
-    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0, 0);
   }
 
   {
@@ -470,17 +470,17 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     quit = 1;
   {
     const char *typed = bu ? bu->composer : "";
+    uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
+                     ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
     Term out;
     out = birc_frame_out(e, ui, quit, enter, typed, tlen, rows, cols, tab, click,
-                         up, dn, hist);
+                         up, dn, hist, more);
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;
       bu->st.scroll_y = 0;
     }
     free(input);
-    birc_input_left = ui->event_count > 0 || ui->pending_in_len > 0 ||
-                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0;
     return out;
   }
 }
@@ -543,10 +543,6 @@ static Term fd_ready_run(Env e, Term *f, IoWork *w) {
   int drain = fd >= 0 && fd == birc_winch_rd;
   char dump;
   (void)e;
-  if (!drain && birc_input_left) {
-    birc_input_left = 0;
-    return f[0];
-  }
   if (drain && read(fd, &dump, 1) > 0) {
     while (read(fd, &dump, 1) > 0) {}
     return f[0];
