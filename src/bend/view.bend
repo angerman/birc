@@ -640,17 +640,15 @@ def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, Cl.Line>:
     case Cl.Buffer{_, _, _, +lines, _, +scroll}:
       visible_lines(lines, height, scroll)
 
-def nicks_title.on(+name: String, +topic: String, empty: Bool) -> String:
-  match empty:
-    case True{}:
-      name
-    case False{}:
-      name ++ " — " ++ topic
+def body_title_of(+b: Cl.Buffer) -> String:
+  match b:
+    case Cl.Buffer{_, _, +topic, _, _, _}:
+      topic
 
 def nicks_title_of(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, _, +topic, _, _, _}:
-      nicks_title.on(name, topic, String.is_empty(topic))
+    case Cl.Buffer{+name, _, _, _, _, _}:
+      name
 
 def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
   match b:
@@ -860,6 +858,18 @@ def op_box(r: Rect) -> DrawOp:
     case Rect{x, y, w, h}:
       OpBox{x, y, w, h}
 
+def body_box.on(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool) -> List<&2, DrawOp>:
+  match empty:
+    case True{}:
+      OpBox{x, y, w, h} <> Nil{}
+    case False{}:
+      OpBox{x, y, w, h} <> OpText{inner_x(x), y, inner_w(w), FG_DIM(), 0, title} <> Nil{}
+
+def body_box(r: Rect, +title: String) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, w, h}:
+      body_box.on(x, y, w, h, title, String.is_empty(title))
+
 def op_text(r: Rect, +fg: U32, +text: String) -> DrawOp:
   match r:
     case Rect{x, y, w, _}:
@@ -925,24 +935,27 @@ def view_ops(
   +active: Nat,
   +names: List<&2, String>,
   +bod: List<&2, Cl.Line>,
-  +title: String,
+  +btitle: String,
+  +ntitle: String,
   +nicks: List<&2, String>,
   +st: String
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{hr, tr, +br, nr, sr}:
-      op_text(hr, FG_TEXT(), h)
-        <> op_tabs(tr, U32.from_nat(active), names)
-        <> op_box(br)
-        <> view_ops.rest(br, bod, nr, title, nicks, sr, st)
+      List.append(&2, DrawOp,
+        op_text(hr, FG_TEXT(), h)
+          <> op_tabs(tr, U32.from_nat(active), names)
+          <> body_box(br, btitle),
+        view_ops.rest(br, bod, nr, ntitle, nicks, sr, st))
 
 def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       h bod = header_of.buf(nick, server, b, net) body_of.buf(b, vis_h(rows))
-      title ns = nicks_title_of(b) nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, title, ns, status_of.buf(b)), view_input(draft)}
+      bt nt = body_title_of(b) nicks_title_of(b)
+      +ns = nicks_list_of(b)
+      ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, bt, nt, ns, status_of.buf(b)), view_input(draft)}
 
 def dummy_line(+i: Nat) -> Cl.Line:
   Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i)}
