@@ -386,9 +386,86 @@ def on_key(
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
     on_key_cmd(True{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
 
-# Resize paints the new size and applies whatever the frame read. A
-# resize frame can swallow /quit the same way a chunk frame can.
-def on_resize(
+def apply_pack(
+  ui: T.Ui,
+  +st: Sess.Session,
+  cmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  (ui, st, cmd, halt, more)
+
+def on_resize.redo(
+  ui2: T.Ui,
+  +st2: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match halt:
+    case True{}:
+      on_key_cmd(False{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case False{}:
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+        Unit <- handle_more(more, False{}, evt, ack)
+        got2 : T.Ui & T.UiKeys <- paint_session(ui2, st2)
+        on_key_cmd(False{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
+
+def on_resize.pick(
+  same: Bool,
+  ui2: T.Ui,
+  +st2: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match same:
+    case True{}:
+      on_key_cmd(False{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case False{}:
+      on_resize.redo(ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k)
+
+def on_resize.check(
+  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
+  old_sz: Sess.Size,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match packed:
+    case (ui2, rest):
+      match rest:
+        case (+st2, rest2):
+          match rest2:
+            case (+ncmd, rest3):
+              match rest3:
+                case (halt, more):
+                  on_resize.pick(
+                    Sess.size_eq(old_sz, Sess.session_size(st2)),
+                    ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k
+                  )
+
+# Resize paints the new size and applies whatever the frame read. When
+# terminal dimensions change, an immediate second redraw with the updated
+# session size prevents stale viewport rendering (V-06).
+def on_resize.go(
+  old_sz: Sess.Size,
   ui: T.Ui,
   +st: Sess.Session,
   +evt: Chan(Sess.UiMsg),
@@ -400,7 +477,19 @@ def on_resize(
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_key_cmd(False{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
+    on_resize.check(apply_frame(got, st), old_sz, evt, cmd, ack, gen, frames, k)
+
+def on_resize(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  on_resize.go(Sess.session_size(st), ui, st, evt, cmd, ack, gen, frames, k)
 
 def on_msg(
   m: Sess.UiMsg,
