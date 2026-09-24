@@ -70,10 +70,10 @@ def shutdown(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +evt: Chan(Ses
     Unit <- Chan.close(Unit, ack)
     shutdown_pick(wait, ui, evt, gen)
 
-def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32, +page: U32) -> IO(T.Ui & T.UiKeys):
+def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
     case V.ViewModel{+ops, +inp}:
-      T.Timui.frame(ui, ops, inp, seed, page)
+      T.Timui.frame(ui, ops, inp, seed)
 
 def paint_go(
   ui: T.Ui,
@@ -85,7 +85,7 @@ def paint_go(
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed, U32.from_nat(Sess.body_h(rows)))
+      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
@@ -142,6 +142,21 @@ def apply_frame.go(
         case (+cmd, halt):
           (ui, st, cmd, Bool.or(quit, halt), more)
 
+def apply_pol(
+  ui: T.Ui,
+  +st: Sess.Session,
+  enter: Bool,
+  +typed: String,
+  +rows: U32,
+  +cols: U32,
+  +click: U32,
+  more: Bool,
+  pol: Sess.KeyPol
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  match pol:
+    case Sess.KeyPol{tab, up, dn, hist, quit}:
+      apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist)), rows, cols), T.flag_on(quit), more)
+
 def apply_frame(
   got: T.Ui & T.UiKeys,
   +st: Sess.Session
@@ -149,8 +164,8 @@ def apply_frame(
   match got:
     case (ui, keys):
       match keys:
-        case T.UiKeys{quit, enter, +typed, rows, cols, tab, click, up, dn, hist, more}:
-          apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, T.flag_on(enter), tab, click, up, dn, hist)), rows, cols), T.flag_on(quit), T.flag_on(more))
+        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, wheel, more}:
+          apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol(key, mods, wheel, rows))
 
 def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
   match is_key:

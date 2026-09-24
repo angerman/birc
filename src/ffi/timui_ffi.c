@@ -31,32 +31,29 @@ static void birc_ui_atexit(void) {
   if (ui) timui_restore_terminal(ui);
 }
 #ifdef CID_UIKEYS
-static Term birc_uikeys(Env e, int quit, int enter, const char *typed,
-                        size_t tlen, uint32_t rows, uint32_t cols, uint32_t tab,
-                        uint32_t click, uint32_t up, uint32_t dn,
-                        uint32_t hist, uint32_t more) {
-  Loc l = heap_alloc(e, cls_fit(11));
-  e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(quit ? 1u : 0u), CID_UIKEYS);
-  e.mem[l + 1] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
-  e.mem[l + 2] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
-  e.mem[l + 3] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
-  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)cols, CID_UIKEYS);
-  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)tab, CID_UIKEYS);
-  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
-  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)up, CID_UIKEYS);
-  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)dn, CID_UIKEYS);
-  e.mem[l + 9] = io_seal(e, (Term)(uint64_t)hist, CID_UIKEYS);
-  e.mem[l + 10] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
+static Term birc_uikeys(Env e, int enter, const char *typed, size_t tlen,
+                        uint32_t rows, uint32_t cols, uint32_t click,
+                        uint32_t key, uint32_t mods, uint32_t wheel,
+                        uint32_t more) {
+  Loc l = heap_alloc(e, cls_fit(9));
+  e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
+  e.mem[l + 1] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
+  e.mem[l + 2] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
+  e.mem[l + 3] = io_seal(e, (Term)(uint64_t)cols, CID_UIKEYS);
+  e.mem[l + 4] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
+  e.mem[l + 5] = io_seal(e, (Term)(uint64_t)key, CID_UIKEYS);
+  e.mem[l + 6] = io_seal(e, (Term)(uint64_t)mods, CID_UIKEYS);
+  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
+  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
   return term_ctr(CID_UIKEYS, l);
 }
-static Term birc_frame_out(Env e, Timui *ui, int quit, int enter,
-                           const char *typed, size_t tlen, uint32_t rows,
-                           uint32_t cols, uint32_t tab, uint32_t click,
-                           uint32_t up, uint32_t dn, uint32_t hist,
-                           uint32_t more) {
+static Term birc_frame_out(Env e, Timui *ui, int enter, const char *typed,
+                           size_t tlen, uint32_t rows, uint32_t cols,
+                           uint32_t click, uint32_t key, uint32_t mods,
+                           uint32_t wheel, uint32_t more) {
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
-                birc_uikeys(e, quit, enter, typed, tlen, rows, cols, tab, click,
-                            up, dn, hist, more));
+                birc_uikeys(e, enter, typed, tlen, rows, cols, click, key, mods,
+                            wheel, more));
 }
 #endif
 Term timui_open_run(Env e, Term *f, IoWork *w) {
@@ -338,18 +335,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint64_t n_in = 0;
   char *input = io_cstr(e, f[2], &n_in);
   u32 seed = (u32)f[3];
-  u32 page = (u32)f[4];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
-  int quit = 0;
   int enter = 0;
   uint32_t rows = 24;
   uint32_t cols = 80;
-  uint32_t tab = 0;
   uint32_t click = 0;
-  uint32_t up = 0;
-  uint32_t dn = 0;
-  uint32_t hist = 0;
   size_t tlen = 0;
   (void)w;
 #ifndef CID_UIKEYS
@@ -360,14 +351,14 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #ifdef CID_CON
     birc_drop_ops(e, ops);
 #endif
-    return birc_frame_out(e, NULL, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
   if (!timui_begin(ui, &fr)) {
     free(input);
 #ifdef CID_CON
     birc_drop_ops(e, ops);
 #endif
-    return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0, 0);
+    return birc_frame_out(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
 
   {
@@ -404,34 +395,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     if (timui_focus(fr) != TIMUI_ID("birc.composer"))
       timui_set_focus(fr, TIMUI_ID("birc.composer"));
-    if (timui_key_pressed_mods(fr, TIMUI_KEY_RIGHT, TIMUI_MOD_SHIFT))
-      tab = 1;
-    else if (timui_key_pressed_mods(fr, TIMUI_KEY_LEFT, TIMUI_MOD_SHIFT))
-      tab = 2;
-    if (page < 1u)
-      page = 1u;
-    if (timui_key_pressed(fr, TIMUI_KEY_PAGE_UP))
-      up = page;
-    if (timui_key_pressed(fr, TIMUI_KEY_PAGE_DOWN))
-      dn = page;
-    {
-      int wheel = timui_mouse_wheel(fr);
-      if (wheel > 0)
-        up += (uint32_t)wheel;
-      else if (wheel < 0)
-        dn += (uint32_t)(-wheel);
-    }
-    if (timui_key_pressed(fr, TIMUI_KEY_UP) &&
-        !timui_key_pressed_mods(fr, TIMUI_KEY_UP, TIMUI_MOD_SHIFT))
-      hist = 1;
-    if (timui_key_pressed(fr, TIMUI_KEY_DOWN) &&
-        !timui_key_pressed_mods(fr, TIMUI_KEY_DOWN, TIMUI_MOD_SHIFT))
-      hist = 2;
-    if (timui_key_pressed(fr, TIMUI_KEY_ESCAPE) ||
-        timui_key_pressed(fr, TIMUI_KEY_F10)) {
-      timui_quit(ui);
-      quit = 1;
-    }
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
   }
   {
@@ -466,15 +429,20 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       birc_tty_stalled = 0;
     }
   }
-  if (timui_should_quit(ui))
-    quit = 1;
   {
     const char *typed = bu ? bu->composer : "";
+    uint32_t key = (uint32_t)ui->key_pressed;
+    uint32_t mods = ui->key_mods;
+    int wh = fr ? timui_mouse_wheel(fr) : 0;
     uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
     Term out;
-    out = birc_frame_out(e, ui, quit, enter, typed, tlen, rows, cols, tab, click,
-                         up, dn, hist, more);
+    if (timui_should_quit(ui) && key == 0)
+      key = (uint32_t)TIMUI_KEY_ESCAPE;
+    if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
+      timui_quit(ui);
+    out = birc_frame_out(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
+                         (uint32_t)wh, more);
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;

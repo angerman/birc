@@ -727,8 +727,9 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **S1** Lone-Esc block removed with F2.
 - [x] **S2** `UiKeys.more` replaces `birc_input_left`. Bend posts `Key{}`
       when `more` is set.
-- [ ] **S3** C returns the raw key, mods, and wheel. Bend maps tab, page,
-      history, and quit. The `page` argument of `Timui.frame` goes away.
+- [x] **S3** C returns the raw key, mods, and wheel. Bend maps tab, page,
+      history, and quit (`Sess.key_pol`, locked by `key_pol_ok`). The
+      `page` argument of `Timui.frame` is gone.
 - [ ] **S4** Timestamp is an ordinary `OpText`. `OpLine` drops `ts`.
 - [ ] **S5** Dead guards, NULL checks, duplicate focus, no-op fit, merged
       frame out, unused clamps.
