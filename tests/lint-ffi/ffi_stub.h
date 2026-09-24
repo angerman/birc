@@ -1,4 +1,4 @@
-/* Minimal stand-in for the Bend runtime prelude so the project's own FFI
+/* Syntax-only stand-in for the Bend runtime prelude so the project's own FFI
  * .c files can be compiled with warnings on. */
 #ifndef BIRC_FFI_STUB_H
 #define BIRC_FFI_STUB_H
@@ -31,6 +31,10 @@ typedef struct IoWork {
 
 typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 
+#ifndef IO_READ
+#define IO_READ 1u
+#endif
+
 #define CID_UNIT 1u
 #define CID_NONE 2u
 #define CID_SOME 3u
@@ -53,6 +57,13 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_VIEW_OPLINE 16u
 #define CID_VIEW_SPN 19u
 #define CID_VIEW_LNK 20u
+#define CID_TIMUI_ISATTY 30u
+#define CID_TIMUI_TTY 31u
+#define CID_TTY_READY 32u
+#define CID_TTY_CLOSE 33u
+#define CID_WINCH_OPEN 34u
+#define CID_WINCH_READY 35u
+#define CID_WINCH_CLOSE 36u
 #ifndef THR
 #define THR
 #endif

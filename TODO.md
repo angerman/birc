@@ -718,7 +718,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       `EMSGSIZE`, or `EINVAL`. `winch_open` saves errno before `close`.
       `birc_str_list` drops names past 16. `watch_go` closes Winch if
       `Timui.tty` fails. `timui_open` returns the TimUI result code.
-- [ ] **F7** Lint stub covers the seven watcher CIDs and `IO_READ`.
+- [x] **F7** Lint stub covers the seven watcher CIDs and `IO_READ`.
       `-Wconversion -Wsign-conversion -Wcast-qual -Wshadow` stay clean.
       The stub says it is syntax-only.
 
