@@ -108,12 +108,22 @@ def feed_priv.write(+cl: Cl.Client, +bi: Nat, +from: String, notice: Bool, +body
     case False{}:
       feed_priv.write.msg(cl, bi, from, body, is_action(body))
 
+def feed_priv.drop_log.on(+cl: Cl.Client, on_server: Bool, +from: String) -> Cl.Client:
+  match on_server:
+    case True{}:
+      cl
+    case False{}:
+      Cl.client_log(cl, Cl.active_of(cl), Cl.Error{}, "buffer limit reached — dropped message from " ++ from)
+
+def feed_priv.drop_log(+cl: Cl.Client, +from: String) -> Cl.Client:
+  feed_priv.drop_log.on(cl, Nat.is_eq(Cl.active_of(cl), 0n), from)
+
 def feed_priv.write_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String) -> Cl.Client:
   match pair:
     case (cl2, Some{+bi}):
       feed_priv.write(cl2, bi, from, notice, body)
     case (cl2, None{}):
-      cl2
+      feed_priv.drop_log(cl2, from)
 
 def feed_priv.key.on(+from: String, +target: String, self: Bool) -> String:
   match self:

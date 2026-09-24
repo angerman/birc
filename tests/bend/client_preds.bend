@@ -47,3 +47,9 @@ def nick433_same_ok() -> Bool:
 def nick437_star_ok() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 437 * me :Nick/channel is temporarily unavailable")
   String.eq(Cl.nick_of(cl), "me_") && String.eq(CL.buf_texts(cl, 0n), "[437] Nick/channel is temporarily unavailable|")
+
+def pm_drop_alert_ok() -> Bool:
+  +full = Feed.feed_all(Cl.init("me", "s"), CL.flood_joins(16n))
+  +active = Cl.set_active(full, 1n)
+  +after = Feed.feed(active, ":stranger!s@h PRIVMSG me :hello")
+  String.eq(CL.buf_texts(after, 1n), "-> me joined #c0|buffer limit reached — dropped message from stranger|")

@@ -48,6 +48,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("nick433_star", Pred.nick433_star_ok())
     Unit <- E.must("nick433_same", Pred.nick433_same_ok())
     Unit <- E.must("nick437_star", Pred.nick437_star_ok())
+    Unit <- E.must("pm_drop_alert", Pred.pm_drop_alert_ok())
     Unit <- E.must("flood", CL.flood_buffers_capped())
     Unit <- E.must("flood_server", CL.flood_server_clean())
     Unit <- E.must(
