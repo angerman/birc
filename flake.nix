@@ -23,10 +23,22 @@
         let
           pkgs = import nixpkgs { inherit system; };
           bend = pkgs.callPackage ./nix/bend.nix { inherit bend-src; };
+          birc = pkgs.callPackage ./nix/birc.nix { inherit bend; };
         in {
-          inherit bend;
-          default = bend;
+          inherit bend birc;
+          default = birc;
         });
+
+      apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.birc}/bin/birc";
+        };
+        birc = {
+          type = "app";
+          program = "${self.packages.${system}.birc}/bin/birc";
+        };
+      });
 
       devShells = forAllSystems (system:
         let

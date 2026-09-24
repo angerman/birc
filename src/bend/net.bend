@@ -411,9 +411,8 @@ def on_key.redo(
     case False{}:
       do IO<Unit>:
         gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-        Unit <- handle_more(more, True{}, evt, ack)
         got2 : T.Ui & T.UiKeys <- paint_session(ui2, st2)
-        on_key_cmd(False{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
+        on_key_cmd(True{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
 
 def on_key.pick(
   hot: Bool,

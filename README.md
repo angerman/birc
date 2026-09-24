@@ -112,9 +112,19 @@ make proof
 
 ## Quick Start
 
-`birc` uses [Nix](https://nixos.org) to provision a locked, reproducible toolchain (Bend compiler, clang, and tools).
+### Run Directly with Nix Flakes
 
-### 1. Build and Test
+Run `birc` instantly without cloning:
+
+```sh
+# Launch offline interactive demo
+nix run github:angerman/birc -- --demo
+
+# Connect to a live IRC network
+nix run github:angerman/birc -- --connect irc.libera.chat --channel '#bend'
+```
+
+### 1. Build and Test Locally
 
 ```sh
 make bootstrap   # Once: create flake.lock
@@ -134,12 +144,13 @@ make run-demo
 Connect to any plaintext IRC network:
 
 ```sh
+# Run directly without cloning
+nix run github:angerman/birc -- --connect irc.libera.chat --nick mynick --channel '#birc'
+
+# Or via make in a cloned checkout
 make run HOST=irc.libera.chat NICK=birc_user CHAN='#birc'
-```
 
-Or invoke the binary directly:
-
-```sh
+# Or invoke the built binary directly
 ./build/birc --connect irc.libera.chat --port 6667 --nick mynick --channel '#birc'
 ```
 
@@ -235,4 +246,4 @@ make clean                 # Remove build artifacts
 
 Licensed under the **Apache License, Version 2.0** ([`LICENSE`](file:///Users/angerman/Projects/zw3rk/birc/LICENSE)).
 
-Copyright (c) Moritz Angermann <moritz@zw3rk.com>.
+Copyright (c) Moritz Angermann <moritz.angermann@gmail.com>.
