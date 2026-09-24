@@ -754,6 +754,9 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **D6** Alert active tab when incoming private messages are dropped due to buffer capacity limit (V-03).
 - [x] **D7** Rewind DNS Answer traversal upon encountering CNAME records to handle out-of-order A records and self-loop guards (V-10).
 - [x] **D8** Use non-intercepted loopback (127.0.0.2) in DNS fuel timeout test to prevent false rcode failures under VPN/Tailscale MagicDNS.
+- [x] **D9** Immediate redraw on view-changing keys/clicks (Shift-arrows, tab clicks, PageUp/Dn, history, enter) so 1 press/click switches tabs and updates views without lag (`tests/pty/tab_switch.py`).
+- [x] **D10** Drop artificial background color fill on panels, nicks, messages, hints, and composer by resetting theme slot backgrounds to `TIMUI_COLOR_DEFAULT`, letting the terminal's native background show through cleanly.
+- [x] **D11** Move channel headline/topic to the top border of the main text window (`br`), using the channel name (`#channel`) on the nick list header (`nr`), eliminating header truncation.
 
 ---
 
