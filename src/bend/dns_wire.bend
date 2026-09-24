@@ -76,9 +76,7 @@ def is_ipv6(s: String) -> Bool:
     case SCon{+h, t}:
       U32.is_eq(Char.to_u32(h), 58) || is_ipv6(t)
 
-# First IPv4 `nameserver` in resolv.conf text. Fallback is documented.
-def NS_FALLBACK() -> String:
-  "1.1.1.1"
+# First IPv4 `nameserver` in resolv.conf text. Fails closed if missing.
 
 def ns_ip(+ip: String, good: Bool) -> Maybe<&2, String>:
   match good:
@@ -167,22 +165,22 @@ def ns_norm(s: String) -> String:
 def nameserver_line(+line: String) -> Maybe<&2, String>:
   ns_words(String.split(line, Chr{32}))
 
-def ns_go(xs: List<&2, String>, m: Maybe<&2, String>) -> String:
+def ns_go(xs: List<&2, String>, m: Maybe<&2, String>) -> Result<&1, &1, U32 & String, String>:
   match xs:
     case Nil{}:
       match m:
         case Some{ip}:
-          ip
+          ok(ip)
         case None{}:
-          NS_FALLBACK()
+          err("no nameserver")
     case Con{+h, t}:
       match m:
         case Some{ip}:
-          ip
+          ok(ip)
         case None{}:
           ns_go(t, nameserver_line(h))
 
-def nameserver_of(+text: String) -> String:
+def nameserver_of(+text: String) -> Result<&1, &1, U32 & String, String>:
   ns_go(String.split(ns_norm(text), Chr{10}), None{})
 
 # ---- query encoder ------------------------------------------------------
