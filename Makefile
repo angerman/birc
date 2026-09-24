@@ -138,8 +138,8 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	$(NIXRUN) ./$(BLDDIR)/proto_parity | grep -qx proto_parity=ok
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
-	$(NIXRUN) ./$(BLDDIR)/birc --demo --frames 3
-	$(NIXRUN) ./$(BLDDIR)/birc --replay fixtures/demo.irc --frames 1
+	$(NIXRUN) ./$(BLDDIR)/birc --demo --frames 3 </dev/null
+	$(NIXRUN) ./$(BLDDIR)/birc --replay fixtures/demo.irc --frames 1 </dev/null
 
 test-cli: build-ui ## Binary argv errors (no TimUI).
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --frames xyz >/dev/null 2>&1; test $$? -eq 2'
@@ -237,7 +237,10 @@ test-pty-joinlat: build-ui ## Pty: 001 to JOIN under 100 ms (P1 handshake).
 test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (note 16).
 	$(NIXRUN) python3 tests/pty/many_eof.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup ## Pty loop tests.
+test-pty-tabswitch: build-ui ## Pty: 1-press / 1-click tab switching.
+	$(NIXRUN) python3 tests/pty/tab_switch.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
