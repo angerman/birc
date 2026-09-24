@@ -244,7 +244,7 @@ test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-tim
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
 
-LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wno-unused-command-line-argument -fsyntax-only
+LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
 lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
