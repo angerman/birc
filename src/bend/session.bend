@@ -678,6 +678,18 @@ def session_set_size(+st: Session, +rows: U32, +cols: U32) -> Session:
     case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, Size{rows, cols}, seed}
 
+def session_size(+st: Session) -> Size:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, size, _}:
+      size
+
+def size_eq(a: Size, b: Size) -> Bool:
+  match a:
+    case Size{ar, ac}:
+      match b:
+        case Size{br, bc}:
+          U32.is_eq(ar, br) && U32.is_eq(ac, bc)
+
 def session_net(+st: Session) -> NetState:
   match st:
     case Session{_, _, _, _, _, _, net, _, _, _}:

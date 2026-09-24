@@ -749,7 +749,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **D1** Treat non-matching or malformed DNS UDP packets (`bad id`, `bad dns`, `short`) as `Miss{}` so extraneous traffic does not fatally abort resolution (V-02).
 - [x] **D2** Fail closed with a clean error when no nameserver is available instead of leaking queries to 1.1.1.1 (V-11).
 - [x] **D3** Add `/close` command to cleanly close query tabs without sending invalid `PART` to IRC daemon (V-09).
-- [ ] **D4** Trigger immediate redraw on `SIGWINCH` resize to prevent stale viewport rendering (V-06).
+- [x] **D4** Trigger immediate redraw on `SIGWINCH` resize to prevent stale viewport rendering (V-06).
 
 ---
 
