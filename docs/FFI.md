@@ -7,9 +7,9 @@ TOOLCHAIN conventions and upstream `bend2/effs/*.c`.
 
 ```bend
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page):
+def Timui.frame(ui, ops, input, seed):
   import "../ffi/timui_ffi.c"
 ```
 
@@ -65,17 +65,19 @@ of the project FFI is `make lint-ffi`: stub header `tests/lint-ffi/ffi_stub.h`,
 law Ui: Type
 
 Timui.open   : IO(Result<&1,&1, U32 & String, Ui>)
-Timui.frame  : Ui -> List<&2, DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+Timui.frame  : Ui -> List<&2, DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 Timui.close  : Ui -> IO(Unit)
 Timui.isatty : IO(U32)
 Timui.tty    : Ui -> IO(Ui & Result<&1,&1, U32 & String, Tty>)
 ```
 
 `UiKeys` is Data. `typed` is a `String` (the composer field). `rows` and `cols`
-are the live root size. Other fields are U32 flags/counters (`quit`, `enter`,
-`tab`, `click`, `up`, `dn`, `hist`). Unpack like `Window.frame`. Do not put
-`Ui` inside a `Result`. `seed != 0` reseeds the composer from `input`,
-including `""`. `page` is `Sess.body_h` (PageUp/PageDown line count).
+are the live root size. `enter`, `click`, and `more` are U32 flags or
+counters. `key`, `mods`, and `wheel` are the raw TimUI key, modifier bits,
+and wheel (wheel is a uint32 two's complement). Bend maps them in
+`Sess.key_pol` (Shift-arrows, PageUp/PageDown via `Sess.body_h`, history,
+Esc/F10). Unpack like `Window.frame`. Do not put `Ui` inside a `Result`.
+`seed != 0` reseeds the composer from `input`, including `""`.
 The frame does not wait. A tty watcher and a winch watcher wake the UI;
 see K1 below. `Timui.open` sets `input_poll_ms` to 0.
 On a non-tty, `--frames N` paints N frames and exits. On a tty, `N` is a

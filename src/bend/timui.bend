@@ -17,16 +17,14 @@ def Ui():
 # is TAG_PAK; a 10-field Data ctor was not matching Enter).
 type UiKeys is Data:
   UiKeys{
-    quit: U32,
     enter: U32,
     typed: String,
     rows: U32,
     cols: U32,
-    tab: U32,
     click: U32,
-    up: U32,
-    dn: U32,
-    hist: U32,
+    key: U32,
+    mods: U32,
+    wheel: U32,
     more: U32
   }
 
@@ -41,12 +39,12 @@ def Timui.open():
   import "../ffi/timui_ffi.c"
 
 # One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
-# reseeds the composer from input, including "". page is Sess.body_h.
-# The UI does not poll. Watchers park; this frame does not wait.
+# reseeds the composer from input, including "". Key policy is Bend's
+# (Sess.key_pol). The UI does not poll. Watchers park; this frame does not wait.
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed, page):
+def Timui.frame(ui, ops, input, seed):
   import "../ffi/timui_ffi.c"
 
 law Timui.close:

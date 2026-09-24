@@ -96,7 +96,8 @@ def body_h_on(+rows: U32, ge: Bool) -> Nat:
 def body_h(+rows: U32) -> Nat:
   body_h_on(rows, U32.is_ge(rows, 7))
 
-# Body lines and PageUp/PageDown share this height (passed into Timui.frame).
+# Body lines and PageUp/PageDown share this height. Bend applies it
+# from the frame's row count (Sess.key_pol); C does not take a page.
 def body_h_ok() -> Bool:
   Nat.is_eq(body_h(24), 18n) && Nat.is_eq(body_h(16), 10n) && Nat.is_eq(body_h(6), 1n) && Nat.is_eq(body_h(7), 1n)
 
@@ -430,6 +431,154 @@ type Keys is Data:
 
 def keys_enter(+line: String) -> Keys:
   Keys{line, True{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}}
+
+# TimUI key numbers (TimuiKey). Bend maps them; C only reports the raw key.
+def KEY_ESCAPE() -> U32:
+  1
+
+def KEY_UP() -> U32:
+  7
+
+def KEY_DOWN() -> U32:
+  8
+
+def KEY_LEFT() -> U32:
+  9
+
+def KEY_RIGHT() -> U32:
+  10
+
+def KEY_PAGE_UP() -> U32:
+  13
+
+def KEY_PAGE_DOWN() -> U32:
+  14
+
+def KEY_F10() -> U32:
+  24
+
+def MOD_SHIFT() -> U32:
+  1
+
+def WHEEL_SIGN() -> U32:
+  2147483648
+
+def shift_on(+mods: U32) -> Bool:
+  U32.is_eq(U32.and(mods, MOD_SHIFT()), MOD_SHIFT())
+
+def key_tab.on(shift: Bool, right: Bool, left: Bool) -> U32:
+  match shift:
+    case False{}:
+      0
+    case True{}:
+      match right:
+        case True{}:
+          1
+        case False{}:
+          match left:
+            case True{}:
+              2
+            case False{}:
+              0
+
+def key_tab(+key: U32, +mods: U32) -> U32:
+  key_tab.on(shift_on(mods), U32.is_eq(key, KEY_RIGHT()), U32.is_eq(key, KEY_LEFT()))
+
+def key_hist.on(shift: Bool, up: Bool, down: Bool) -> U32:
+  match shift:
+    case True{}:
+      0
+    case False{}:
+      match up:
+        case True{}:
+          1
+        case False{}:
+          match down:
+            case True{}:
+              2
+            case False{}:
+              0
+
+def key_hist(+key: U32, +mods: U32) -> U32:
+  key_hist.on(shift_on(mods), U32.is_eq(key, KEY_UP()), U32.is_eq(key, KEY_DOWN()))
+
+def key_quit.on(esc: Bool, f10: Bool) -> U32:
+  match esc:
+    case True{}:
+      1
+    case False{}:
+      match f10:
+        case True{}:
+          1
+        case False{}:
+          0
+
+def key_quit(+key: U32) -> U32:
+  key_quit.on(U32.is_eq(key, KEY_ESCAPE()), U32.is_eq(key, KEY_F10()))
+
+def wheel_neg(+w: U32) -> Bool:
+  U32.is_ge(w, WHEEL_SIGN())
+
+def wheel_up.on(+w: U32, neg: Bool) -> U32:
+  match neg:
+    case True{}:
+      0
+    case False{}:
+      w
+
+def wheel_up(+w: U32) -> U32:
+  wheel_up.on(w, wheel_neg(w))
+
+# A negative wheel is uint32 two's complement. Its magnitude is ~w+1.
+# 2^32 does not fit in U32, so this is not a subtraction from 2^32.
+def wheel_dn.on(+w: U32, neg: Bool) -> U32:
+  match neg:
+    case False{}:
+      0
+    case True{}:
+      U32.add(U32.not(w), 1)
+
+def wheel_dn(+w: U32) -> U32:
+  wheel_dn.on(w, wheel_neg(w))
+
+def page_amt(on: Bool, +rows: U32) -> U32:
+  match on:
+    case False{}:
+      0
+    case True{}:
+      U32.from_nat(body_h(rows))
+
+def scroll_up(+key: U32, +wheel: U32, +rows: U32) -> U32:
+  U32.add(wheel_up(wheel), page_amt(U32.is_eq(key, KEY_PAGE_UP()), rows))
+
+def scroll_dn(+key: U32, +wheel: U32, +rows: U32) -> U32:
+  U32.add(wheel_dn(wheel), page_amt(U32.is_eq(key, KEY_PAGE_DOWN()), rows))
+
+type KeyPol is Data:
+  KeyPol{tab: U32, up: U32, dn: U32, hist: U32, quit: U32}
+
+def key_pol(+key: U32, +mods: U32, +wheel: U32, +rows: U32) -> KeyPol:
+  KeyPol{key_tab(key, mods), scroll_up(key, wheel, rows), scroll_dn(key, wheel, rows), key_hist(key, mods), key_quit(key)}
+
+def pol_eq(p: KeyPol, +tab: U32, +up: U32, +dn: U32, +hist: U32, +quit: U32) -> Bool:
+  match p:
+    case KeyPol{t, u, d, h, q}:
+      U32.is_eq(t, tab) && U32.is_eq(u, up) && U32.is_eq(d, dn) && U32.is_eq(h, hist) && U32.is_eq(q, quit)
+
+def key_pol_ok() -> Bool:
+  pol_eq(key_pol(KEY_RIGHT(), MOD_SHIFT(), 0, 24), 1, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_LEFT(), MOD_SHIFT(), 0, 24), 2, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_RIGHT(), 0, 0, 24), 0, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_UP(), 0, 0, 24), 0, 0, 0, 1, 0)
+    && pol_eq(key_pol(KEY_UP(), MOD_SHIFT(), 0, 24), 0, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_DOWN(), 0, 0, 24), 0, 0, 0, 2, 0)
+    && pol_eq(key_pol(KEY_ESCAPE(), 0, 0, 24), 0, 0, 0, 0, 1)
+    && pol_eq(key_pol(KEY_F10(), 0, 0, 24), 0, 0, 0, 0, 1)
+    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 0, 24), 0, 18, 0, 0, 0)
+    && pol_eq(key_pol(KEY_PAGE_DOWN(), 0, 0, 24), 0, 0, 18, 0, 0)
+    && pol_eq(key_pol(0, 0, 3, 24), 0, 3, 0, 0, 0)
+    && pol_eq(key_pol(0, 0, 4294967294, 24), 0, 0, 2, 0, 0)
+    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 2, 24), 0, 20, 0, 0, 0)
 
 def keys_of(+typed: String, enter: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32) -> Keys:
   Keys{typed, enter, Cl.tab_dir(tab), click_of(click), U32.to_nat(up), U32.to_nat(dn), hist_dir(hist)}

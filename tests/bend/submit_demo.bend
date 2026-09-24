@@ -182,6 +182,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must("connect_slash", Sub.submit_is_connect("/connect x"))
     Unit <- E.must("connect_not", Bool.not(Sub.submit_is_connect("/join #x")))
+    Unit <- E.must("key_pol", Sess.key_pol_ok())
     Unit <- E.must_eq("body_h24", Nat.show(Sess.body_h(24)), "18")
     Unit <- E.must_eq("body_h16", Nat.show(Sess.body_h(16)), "10")
     Unit <- E.must_eq(
