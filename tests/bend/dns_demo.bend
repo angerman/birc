@@ -207,6 +207,14 @@ def pkt_cname_owner() -> List<&2, U32>:
 def pkt_cname_an() -> List<&2, U32>:
   0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
 
+# V-10: A for b precedes CNAME a→b in ANSWER (non-canonical ordering).
+def pkt_cname_rev() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> Nil{}
+
+# V-10: CNAME self-loop (a→a) rejected cleanly as bad dns.
+def pkt_cname_loop() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 97 <> 0 <> Nil{}
+
 # + dns#1: TXT then A, both in ANSWER (rdlen skip).
 def pkt_txt_an() -> List<&2, U32>:
   List.append(&2, U32, 0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 16 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 3 <> 32 <> Nil{}, List.append(&2, U32, txt_pad(800n, Nil{}), 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 8 <> 8 <> 8 <> 8 <> Nil{}))
@@ -331,6 +339,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("wrong_q", show_res(Wire.parse_id(1, pkt_wrong_q())), "fail:bad dns")
     Unit <- E.must_eq("cname_owner", show_res(Wire.parse_id(1, pkt_cname_owner())), "ok:9.9.9.9")
     Unit <- E.must_eq("cname_an", show_res(Wire.parse_id(1, pkt_cname_an())), "ok:9.9.9.9")
+    Unit <- E.must_eq("cname_rev", show_res(Wire.parse_id(1, pkt_cname_rev())), "ok:9.9.9.9")
+    Unit <- E.must_eq("cname_loop", show_res(Wire.parse_id(1, pkt_cname_loop())), "fail:bad dns")
     Unit <- E.must_eq("txt_an", show_res(Wire.parse_id(1, pkt_txt_an())), "ok:8.8.8.8")
     Unit <- E.must_eq("liar", show_res(Wire.parse_id(1, pkt_liar())), "fail:bad dns")
     Unit <- E.must_eq("trunc_rd", show_res(Wire.parse_id(1, pkt_trunc_rd())), "fail:bad dns")
