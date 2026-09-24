@@ -724,7 +724,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ### Part 2 — shrink the C
 
-- [ ] **S1** Lone-Esc block removed with F2.
+- [x] **S1** Lone-Esc block removed with F2.
 - [ ] **S2** `UiKeys.more` replaces `birc_input_left`. Bend posts `Key{}`
       when `more` is set.
 - [ ] **S3** C returns the raw key, mods, and wheel. Bend maps tab, page,
