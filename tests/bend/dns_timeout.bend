@@ -1,5 +1,5 @@
 # K3: a nameserver that never answers must hit the fuel timeout.
-# 192.0.2.1 drops UDP. wait_ans uses recv_nb, sleeps, and resends.
+# 127.0.0.2 drops UDP. wait_ans uses recv_nb, sleeps, and resends.
 # A parked recv_octets would not return; the recipe kills it at 15 s.
 import Base
 import ./expect.bend as E
@@ -18,5 +18,5 @@ def check_to(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    r : Result<&1, &1, U32 & String, String> <- Dns.lookup_n("example.test", "192.0.2.1", 1)
+    r : Result<&1, &1, U32 & String, String> <- Dns.lookup_n("example.test", "127.0.0.2", 1)
     check_to(r)
