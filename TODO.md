@@ -738,8 +738,9 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       clamp stays: Bend does not prove `sel < len(names)`.
 - [x] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
       does not close it.
-- [ ] **S7** Fix `docs/FFI.md` and the `timui_ffi.c` header comment.
-      Update the vendored-patch list.
+- [x] **S7** `docs/FFI.md` matches close order, watcher lifetime, and
+      the tty fd. The `timui_ffi.c` header no longer claims budget/config.
+      The vendored-patch list names `paste_skip_lf` and held `paste_len`.
 
 ---
 

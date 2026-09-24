@@ -106,6 +106,7 @@ Local edits to `src/ui/timui.h` (re-apply on an upstream update):
    same hold/unget when the tables are full. The PASTE hold guard breaks when
    expanding invalid bytes cannot fit in `text_in` (lossless). A CR ending a
    chunk marks `paste_skip_lf` to skip a leading LF in the following chunk.
+   While input is held, `paste_len` is kept so queued slices are not dropped.
    Incomplete UTF-8 tails are stashed only when followed by continuation bytes;
    an unconsumed prefix of the stashed tail is restored on early exit. Held
    input preserves queued focus events across frames. The deferred post-Enter
@@ -189,8 +190,9 @@ One UI channel, `Chan(UiMsg)`, capacity 64. Producers:
 
 The UI blocks only in `Chan.recv`. It does not poll. There is no `Tick`.
 
-`Timui.tty(ui) -> Tty` dups the tty fd into a fresh linear handle. The Ui
-keeps the original fd. `Tty.ready` and `Winch.ready` are one C function.
+`Timui.tty(ui) -> Tty` returns the Ui read fd. There is no dup.
+`Tty.close` does not close it: TimUI's `fd_close` is a no-op, and a
+`close` would be stdin. `Tty.ready` and `Winch.ready` are one C function.
 It parks with `io_wait_on` (not `IO_READ`, so a paste tail still in TimUI
 can return). It does not read the tty. It drains only the winch pipe.
 The watcher loop is:
@@ -202,8 +204,7 @@ Chan.recv(ack)
 ```
 
 The ack stops a busy loop while the tty stays readable. The UI sends it
-only after `Timui.frame` has returned. `Tty.close` closes the dup, never
-the Ui's fd.
+only after `Timui.frame` has returned. `Tty.close` does not close the fd.
 
 ### Outbound, and why the net side is two actors
 
@@ -282,11 +283,13 @@ number is closed twice.
    only, exit. It never closes `sock`. A late `Eof` still carries the
    old generation, so the UI drops it after a newer dial.
 3. UI, on `Eof`, closes neither socket fd.
-4. Quit also stops the watchers, then `Timui.close`. `Tty.close` closes
-   the tty dup; `Timui.close` closes the fd inside the `Ui`.
-5. `Winch.close` restores the previous `SIGWINCH` handler first, then
-   closes the write end, then the read end, so the handler cannot write a
-   fd that was already closed.
+4. Quit does not stop the watchers. A watcher parked in `Tty.ready` or
+   `Winch.ready` lives until `IO.die`. `Timui.close` restores the terminal
+   and does not close an fd (`fd_close` is a no-op). `Tty.close` is a
+   no-op: the handle is that same fd.
+5. `Winch.close` restores the previous `SIGWINCH` handler, sets the write
+   fd to -1, then closes it, then closes the read end. The handler cannot
+   write a descriptor that was already closed.
 
 ### Resize
 
