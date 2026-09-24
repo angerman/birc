@@ -30,14 +30,13 @@ static void birc_ui_atexit(void) {
   birc_ui_live = NULL;
   if (ui) timui_restore_terminal(ui);
 }
-#ifdef CID_UIKEYS
-static Term birc_uikeys(Env e, int enter, const char *typed, size_t tlen,
-                        uint32_t rows, uint32_t cols, uint32_t click,
-                        uint32_t key, uint32_t mods, uint32_t wheel,
-                        uint32_t more) {
+static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
+                        size_t tlen, uint32_t rows, uint32_t cols,
+                        uint32_t click, uint32_t key, uint32_t mods,
+                        uint32_t wheel, uint32_t more) {
   Loc l = heap_alloc(e, cls_fit(9));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
-  e.mem[l + 1] = io_seal(e, io_str(e, typed ? typed : "", tlen), CID_UIKEYS);
+  e.mem[l + 1] = io_seal(e, io_str(e, typed, tlen), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
   e.mem[l + 3] = io_seal(e, (Term)(uint64_t)cols, CID_UIKEYS);
   e.mem[l + 4] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
@@ -45,17 +44,8 @@ static Term birc_uikeys(Env e, int enter, const char *typed, size_t tlen,
   e.mem[l + 6] = io_seal(e, (Term)(uint64_t)mods, CID_UIKEYS);
   e.mem[l + 7] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
   e.mem[l + 8] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
-  return term_ctr(CID_UIKEYS, l);
+  return io_tup(e, io_hand((uint64_t)(uintptr_t)ui), term_ctr(CID_UIKEYS, l));
 }
-static Term birc_frame_out(Env e, Timui *ui, int enter, const char *typed,
-                           size_t tlen, uint32_t rows, uint32_t cols,
-                           uint32_t click, uint32_t key, uint32_t mods,
-                           uint32_t wheel, uint32_t more) {
-  return io_tup(e, io_hand((uint64_t)(uintptr_t)ui),
-                birc_uikeys(e, enter, typed, tlen, rows, cols, click, key, mods,
-                            wheel, more));
-}
-#endif
 Term timui_open_run(Env e, Term *f, IoWork *w) {
   TimuiConfig cfg = TIMUI_CONFIG_INIT;
   Timui *ui = NULL;
@@ -135,7 +125,6 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
   uri[ulen] = '\0';
   return birc_put_span(fr, x, y, maxx, text, tlen, fg, TIMUI_ATTR_UNDERLINE, uri);
 }
-#if defined(CID_CON)
 static Term birc_cons_head(Env e, Term xs, Term *tail) {
   Term fb[2];
   Loc sp = ctr_take(e, xs, 2, fb);
@@ -154,17 +143,15 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
     Term h = birc_cons_head(e, xs, &t);
     xs = t;
     s = io_cstr(e, h, &len);
-    nlen = birc_utf8_fit(s ? s : "", (size_t)len < 63 ? (size_t)len : (size_t)63);
-    if (s && nlen > 0)
+    nlen = birc_utf8_fit(s, (size_t)len < 63 ? (size_t)len : (size_t)63);
+    if (nlen > 0)
       memcpy(store[n], s, nlen);
     store[n][nlen] = '\0';
     labs[n] = store[n];
     free(s);
     n++;
   }
-#if defined(CID_CON)
   term_sink(e, xs);
-#endif
   return n;
 }
 static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
@@ -179,14 +166,14 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
       u64 ulen = 0, tlen = 0;
       char *url = io_cstr(e, f[0], &ulen);
       char *text = io_cstr(e, f[1], &tlen);
-      x = birc_put_link(fr, x, y, maxx, url ? url : "", (size_t)ulen,
-                        text ? text : "", (size_t)tlen, fg);
+      x = birc_put_link(fr, x, y, maxx, url, (size_t)ulen, text, (size_t)tlen,
+                        fg);
       free(url);
       free(text);
     } else if (cid == CID_VIEW_SPN) {
       u64 tlen = 0;
       char *text = io_cstr(e, f[1], &tlen);
-      x = birc_put_span(fr, x, y, maxx, text ? text : "", (size_t)tlen, fg,
+      x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, fg,
                         (uint32_t)f[0], NULL);
       free(text);
     }
@@ -200,19 +187,16 @@ typedef struct {
   TimuiRect root;
   uint32_t *click;
 } BircLay;
-static void rect_from(Term *f, TimuiRect *r) {
-  r->x = (int)(uint32_t)f[0];
-  r->y = (int)(uint32_t)f[1];
-  r->w = (int)(uint32_t)f[2];
-  r->h = (int)(uint32_t)f[3];
-}
 static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
   if (cid == CID_VIEW_OPBOX) {
     Term f[4];
     Loc loc = ctr_take(e, op, 4, f);
     TimuiRect r;
-    rect_from(f, &r);
+    r.x = (int)(uint32_t)f[0];
+    r.y = (int)(uint32_t)f[1];
+    r.w = (int)(uint32_t)f[2];
+    r.h = (int)(uint32_t)f[3];
     if (ly && r.y + r.h > ly->root.y + ly->root.h)
       r.h = ly->root.y + ly->root.h - r.y;
     if (fr && ly && r.h > 0 && r.w > 2)
@@ -226,7 +210,7 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     int w = (int)(uint32_t)f[2];
     u64 n = 0;
     char *s = io_cstr(e, f[5], &n);
-    (void)birc_put_span(fr, x, y, x + w, s ? s : "", (size_t)n, (uint32_t)f[3],
+    (void)birc_put_span(fr, x, y, x + w, s, (size_t)n, (uint32_t)f[3],
                         (uint32_t)f[4], NULL);
     free(s);
     spare_free(e, cls_fit(6), loc);
@@ -273,7 +257,6 @@ static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
 static void birc_drop_ops(Env e, Term xs) {
   birc_draw_ops(e, NULL, xs, NULL);
 }
-#endif /* CID_CON */
 /* A tty that stops reading must not park the only event-loop thread.
  * The first blocked frame waits a few ms; later frames fail at once
  * until a whole frame gets out. A dropped frame forces a full redraw. */
@@ -299,7 +282,6 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   TimuiTextAreaResult res;
   int prompt_w;
   size_t n;
-  (void)st;
   if (!fr || !stt) return 0;
   prompt_w = width > 2 ? 2 : 0;
   if (prompt_w > 0) timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
@@ -312,7 +294,7 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   r.h = 1;
   res = timui_text_area_mut(fr, id, r, &stt->st, TIMUI_TEXT_AREA_ENTER_SUBMITS);
   n = strlen(stt->composer);
-  *tlen = birc_utf8_fit(stt->composer, n);
+  *tlen = n;
   return res.submitted ? 1 : 0;
 }
 Term timui_frame_run(Env e, Term *f, IoWork *w) {
@@ -329,22 +311,15 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint32_t click = 0;
   size_t tlen = 0;
   (void)w;
-#ifndef CID_UIKEYS
-#error "Timui.frame returns Ui & UiKeys; CID_UIKEYS is required"
-#endif
   if (!ui) {
     free(input);
-#ifdef CID_CON
     birc_drop_ops(e, ops);
-#endif
-    return birc_frame_out(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
+    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
   if (!timui_begin(ui, &fr)) {
     free(input);
-#ifdef CID_CON
     birc_drop_ops(e, ops);
-#endif
-    return birc_frame_out(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
+    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
 
   {
@@ -362,25 +337,19 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     ly.root = root;
     ly.click = &click;
     timui_draw_fill(buf, root, panel);
-#ifdef CID_CON
     birc_draw_ops(e, fr, ops, &ly);
-#else
-    (void)ops;
-#endif
     if (seed != 0 && bu) {
-      size_t ilen = input ? (size_t)n_in : 0;
+      size_t ilen = (size_t)n_in;
       if (ilen >= sizeof bu->composer)
         ilen = birc_utf8_fit(input, sizeof bu->composer - 1);
-      else if (input)
+      else
         ilen = birc_utf8_fit(input, ilen);
-      if (input && ilen > 0)
+      if (ilen > 0)
         memcpy(bu->composer, input, ilen);
       bu->composer[ilen] = '\0';
       bu->st.cursor = ilen;
       bu->st.scroll_y = 0;
     }
-    if (timui_focus(fr) != TIMUI_ID("birc.composer"))
-      timui_set_focus(fr, TIMUI_ID("birc.composer"));
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
   }
   {
@@ -427,7 +396,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       key = (uint32_t)TIMUI_KEY_ESCAPE;
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
       timui_quit(ui);
-    out = birc_frame_out(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
+    out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
                          (uint32_t)wh, more);
     if (enter && bu) {
       bu->composer[0] = '\0';
