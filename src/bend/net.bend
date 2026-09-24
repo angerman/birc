@@ -558,6 +558,19 @@ def watch_win(
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
         watch_paint(apply_frame(got, st), gen, evt, cmd, ack, frames, tty, w)
 
+def watch_die_win(
+  wr: Result<&1, &1, U32 & String, T.Winch>,
+  e: U32 & String,
+  ui: T.Ui
+) -> IO(Unit):
+  match wr:
+    case Done{w}:
+      do IO<Unit>:
+        Unit <- T.Winch.close(w)
+        watch_die(e, ui)
+    case Fail{_}:
+      watch_die(e, ui)
+
 def watch_go(
   tr: Result<&1, &1, U32 & String, T.Tty>,
   wr: Result<&1, &1, U32 & String, T.Winch>,
@@ -571,7 +584,7 @@ def watch_go(
 ) -> IO(Unit):
   match tr:
     case Fail{e}:
-      watch_die(e, ui)
+      watch_die_win(wr, e, ui)
     case Done{tty}:
       watch_win(wr, tty, ui, st, gen, evt, cmd, ack, frames)
 

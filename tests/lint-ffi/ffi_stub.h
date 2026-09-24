@@ -59,6 +59,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 u64 term_aux(Term t);
 Loc ctr_take(Env e, Term t, u32 n, Term *out);
 void spare_free(Env e, Cls cls, Loc loc);
+void term_sink(Env e, Term t);
 
 #define term_ctr(cid, loc) ((Term)(((u64)(cid) << 48) | (u64)(loc)))
 #define term_pak(cid, loc) ((Term)(((u64)(cid) << 48) | (u64)(loc)))

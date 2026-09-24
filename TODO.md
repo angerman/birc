@@ -713,7 +713,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       Also held focus events, a lost stashed prefix, and `paste_skip_lf`
       in the vendored-patch list. `paste_harness.c` in `make check`.
 - [x] **F5** URI buffer matches TimUI's 256. Longer URLs are a plain span.
-- [ ] **F6** SIGWINCH saves errno and sets `SA_RESTART`. `Winch.close`
+- [x] **F6** SIGWINCH saves errno and sets `SA_RESTART`. `Winch.close`
       clears the write fd before `close`. `send_octets` reports errno,
       `EMSGSIZE`, or `EINVAL`. `winch_open` saves errno before `close`.
       `birc_str_list` drops names past 16. `watch_go` closes Winch if

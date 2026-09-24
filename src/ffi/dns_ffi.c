@@ -135,12 +135,20 @@ Term send_octets_run(Env e, Term *f, IoWork *w) {
     xs = t[1];
     spare_free(e, cls_fit(2), sp);
   }
-  if (!over && host && inet_pton(AF_INET, host, &dst.sin_addr) == 1)
+  int err = 0;
+  if (over)
+    err = EMSGSIZE;
+  else if (!host || inet_pton(AF_INET, host, &dst.sin_addr) != 1)
+    err = EINVAL;
+  else {
     wr = sendto((int)io_hand_v(f[0]), buf, n, 0, (struct sockaddr *)&dst,
                 (socklen_t)sizeof dst);
+    if (wr < 0)
+      err = errno ? errno : 1;
+  }
   free(host);
-  return io_tup(e, f[0], over || wr < 0 ? io_fail(e, errno ? (u32)errno : 1u, NULL)
-                                       : io_done(e, term_pak(CID_UNIT, 0)));
+  return io_tup(e, f[0], err != 0 ? io_fail(e, (u32)err, NULL)
+                                  : io_done(e, term_pak(CID_UNIT, 0)));
 }
 static void __attribute__((constructor)) send_octets_use(void) {
   io_eff(CID_SEND_OCTETS, send_octets_run, 0);
