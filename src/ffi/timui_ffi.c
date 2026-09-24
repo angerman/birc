@@ -206,20 +206,6 @@ static void rect_from(Term *f, TimuiRect *r) {
   r->w = (int)(uint32_t)f[2];
   r->h = (int)(uint32_t)f[3];
 }
-static void birc_draw_line(Env e, TimuiFrame *fr, int x, int y, int maxx,
-                           uint32_t fg, Term ts_t, Term spans) {
-  u64 tslen = 0;
-  char *ts = io_cstr(e, ts_t, &tslen);
-  if (fr && ts && tslen > 0) {
-    int tw = 0;
-    (void)birc_clip_cols(ts, (size_t)tslen, 0, 100000, &tw);
-    timui_label(fr, x, y, (TimuiStr){ts, (size_t)tslen},
-                timui_style_make(0xa0a0a0u, TIMUI_COLOR_DEFAULT, 0));
-    x += tw + 1;
-  }
-  free(ts);
-  (void)birc_draw_spans(e, fr, x, y, maxx, fg, spans);
-}
 static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
   if (cid == CID_VIEW_OPBOX) {
@@ -267,13 +253,13 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
       *ly->click = (uint32_t)sel + 1u;
     spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPLINE) {
-    Term f[6];
-    Loc loc = ctr_take(e, op, 6, f);
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
     int x = (int)(uint32_t)f[0];
     int y = (int)(uint32_t)f[1];
     int w = (int)(uint32_t)f[2];
-    birc_draw_line(e, fr, x, y, x + w, (uint32_t)f[3], f[4], f[5]);
-    spare_free(e, cls_fit(6), loc);
+    (void)birc_draw_spans(e, fr, x, y, x + w, (uint32_t)f[3], f[4]);
+    spare_free(e, cls_fit(5), loc);
   }
 }
 static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {

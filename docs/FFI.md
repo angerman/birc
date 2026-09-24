@@ -134,14 +134,16 @@ type DrawOp is Data:
   OpBox{x, y, w, h: U32}
   OpText{x, y, w, fg, attrs: U32, text: String}
   OpTabs{x, y, w, sel: U32, names: List String}
-  OpLine{x, y, w, fg: U32, ts: String, spans: List SpanOp}
+  OpLine{x, y, w, fg: U32, spans: List SpanOp}
 ```
 
 - `OpBox` — rounded border; C clips `h` to the live root.
 - `OpText` — label at `(x,y)`, clipped to `x+w`.
 - `OpTabs` — `timui_tabs`; click reports only when the widget changes `sel`.
-- `OpLine` — timestamp (dim) then spans at the Bend-assigned `y`. No C buffer,
-  no 64-line cap, no bottom-align arithmetic.
+- `OpLine` — spans at the Bend-assigned `y`. A timestamp is a separate
+  `OpText` of at most 8 columns (`FG_DIM`, `0xa0a0a0`), clipped to the line
+  width, then the line `x` moves by 9. No C buffer, no 64-line cap, no
+  bottom-align arithmetic. C does not draw a timestamp.
 - C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
   `SpanOp`.
 - Wrapping: each IRC line is one paint line. C clips a span that would run
