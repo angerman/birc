@@ -712,7 +712,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **F4** Paste: expanding invalid bytes to U+FFFD must hold, not drop.
       Also held focus events, a lost stashed prefix, and `paste_skip_lf`
       in the vendored-patch list. `paste_harness.c` in `make check`.
-- [ ] **F5** URI buffer matches TimUI's 256. Longer URLs are a plain span.
+- [x] **F5** URI buffer matches TimUI's 256. Longer URLs are a plain span.
 - [ ] **F6** SIGWINCH saves errno and sets `SA_RESTART`. `Winch.close`
       clears the write fd before `close`. `send_octets` reports errno,
       `EMSGSIZE`, or `EINVAL`. `winch_open` saves errno before `close`.

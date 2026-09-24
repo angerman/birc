@@ -143,7 +143,7 @@ type DrawOp is Data:
 - C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
   `SpanOp`.
 - Wrapping: each IRC line is one paint line. C clips a span that would run
-  past `maxx` (no continuation row). A URL longer than 511 bytes is drawn as
+  past `maxx` (no continuation row). A URL longer than 255 bytes is drawn as
   a plain span.
 - Composer stays a C textarea widget (`timui_text_area_mut`).
 
