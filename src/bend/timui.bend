@@ -60,7 +60,8 @@ law Timui.isatty:
 def Timui.isatty():
   import "../ffi/timui_ffi.c"
 
-# Opaque dup of the tty. Closing it does not close the Ui fd.
+# The Ui read fd. TimUI does not close it. Tty.close is a no-op so a
+# watcher shutdown cannot close stdin. Do not F_SETFL this fd.
 law Tty: Type
 
 def Tty():

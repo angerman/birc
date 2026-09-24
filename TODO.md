@@ -736,8 +736,8 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       duplicate focus, the no-op composer fit, and the `INT32_MAX` recv
       clamps are gone. `birc_frame_out` is `birc_uikeys`. The tab `sel`
       clamp stays: Bend does not prove `sel < len(names)`.
-- [ ] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
-      is a no-op or gone.
+- [x] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
+      does not close it.
 - [ ] **S7** Fix `docs/FFI.md` and the `timui_ffi.c` header comment.
       Update the vendored-patch list.
 
