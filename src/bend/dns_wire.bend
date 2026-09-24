@@ -834,8 +834,11 @@ type Take is Data:
 def peer_ok(+ns: String, +host: String, +port: U32) -> Bool:
   String.eq(ns, host) && U32.is_eq(port, 53)
 
-def take_id(+msg: String, bad: Bool) -> Take:
-  match bad:
+def is_miss(+msg: String) -> Bool:
+  String.eq(msg, "bad id") || String.eq(msg, "bad dns") || String.eq(msg, "short")
+
+def take_id(+msg: String, miss: Bool) -> Take:
+  match miss:
     case True{}:
       Miss{}
     case False{}:
@@ -844,7 +847,7 @@ def take_id(+msg: String, bad: Bool) -> Take:
 def take_parse(r: Result<&1, &1, U32 & String, String>) -> Take:
   match r:
     case Fail{(_, +msg)}:
-      take_id(msg, String.eq(msg, "bad id"))
+      take_id(msg, is_miss(msg))
     case Done{+ip}:
       HitOk{ip}
 
