@@ -660,7 +660,7 @@ def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, _, _, +nicks, _}:
-      "/connect /join /part /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
+      "/connect /join /part /close /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
 
