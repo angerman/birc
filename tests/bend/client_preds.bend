@@ -43,3 +43,7 @@ def nick433_star_ok() -> Bool:
 def nick433_same_ok() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 433 me me :Nickname is already in use")
   String.eq(Cl.nick_of(cl), "me_") && String.eq(CL.buf_texts(cl, 0n), "[433] Nickname is already in use|")
+
+def nick437_star_ok() -> Bool:
+  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 437 * me :Nick/channel is temporarily unavailable")
+  String.eq(Cl.nick_of(cl), "me_") && String.eq(CL.buf_texts(cl, 0n), "[437] Nick/channel is temporarily unavailable|")

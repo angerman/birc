@@ -668,7 +668,7 @@ def pong_for(line: String) -> String:
   pong_for.on(parse(line))
 
 def is_433_num(+num: U32) -> Bool:
-  U32.is_eq(num, 433)
+  U32.is_eq(num, 433) || U32.is_eq(num, 437)
 
 def is_433_msg(+m: Message) -> Bool:
   match m:

@@ -487,7 +487,7 @@ type NumRow is Data:
   NumRow{code: U32, k: NumK}
 
 def num_rows() -> List<&2, NumRow>:
-  NumRow{1, N001{}} <> NumRow{332, N332{}} <> NumRow{353, N353{}} <> NumRow{366, N366{}} <> NumRow{433, N433{}} <> Nil{}
+  NumRow{1, N001{}} <> NumRow{332, N332{}} <> NumRow{353, N353{}} <> NumRow{366, N366{}} <> NumRow{433, N433{}} <> NumRow{437, N433{}} <> Nil{}
 
 def num_kind(xs: List<&2, NumRow>, +n: U32) -> NumK:
   match xs:

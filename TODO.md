@@ -750,6 +750,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **D2** Fail closed with a clean error when no nameserver is available instead of leaking queries to 1.1.1.1 (V-11).
 - [x] **D3** Add `/close` command to cleanly close query tabs without sending invalid `PART` to IRC daemon (V-09).
 - [x] **D4** Trigger immediate redraw on `SIGWINCH` resize to prevent stale viewport rendering (V-06).
+- [x] **D5** Handle temporary unavailability (437) registration rejections by retrying with nick_ (V-08).
 
 ---
 
