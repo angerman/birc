@@ -372,6 +372,150 @@ def on_from(
     case True{}:
       on_evt(e, ui, st, evt, cmd, ack, gen, frames, k)
 
+def apply_pack(
+  ui: T.Ui,
+  +st: Sess.Session,
+  cmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  (ui, st, cmd, halt, more)
+
+def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool) -> Bool:
+  Bool.or(enter,
+  Bool.or(Bool.not(U32.is_zero(tab)),
+  Bool.or(Bool.not(U32.is_zero(click)),
+  Bool.or(Bool.not(U32.is_zero(up)),
+  Bool.or(Bool.not(U32.is_zero(dn)),
+          Bool.not(U32.is_zero(hist)))))))
+
+# When keys or clicks alter the view (switching tabs, clicking channels,
+# scrolling, recalling history, or submitting lines), an immediate second
+# redraw with the updated session state prevents stale viewport rendering (V-06).
+def on_key.redo(
+  ui2: T.Ui,
+  +st2: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match halt:
+    case True{}:
+      on_key_cmd(True{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case False{}:
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+        Unit <- handle_more(more, True{}, evt, ack)
+        got2 : T.Ui & T.UiKeys <- paint_session(ui2, st2)
+        on_key_cmd(False{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
+
+def on_key.pick(
+  hot: Bool,
+  ui2: T.Ui,
+  +st2: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match hot:
+    case False{}:
+      on_key_cmd(True{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case True{}:
+      on_key.redo(ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k)
+
+def on_key.check(
+  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
+  hot: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match packed:
+    case (ui2, rest):
+      match rest:
+        case (+st2, rest2):
+          match rest2:
+            case (+ncmd, rest3):
+              match rest3:
+                case (halt, more):
+                  on_key.pick(
+                    hot,
+                    ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k
+                  )
+
+def on_key.pol(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +enter: Bool,
+  +typed: String,
+  +rows: U32,
+  +cols: U32,
+  +click: U32,
+  more: Bool,
+  pol: Sess.KeyPol,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match pol:
+    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit}:
+      on_key.check(
+        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit}),
+        pol_hot(tab, click, up, dn, hist, enter),
+        evt, cmd, ack, gen, frames, k
+      )
+
+def on_key.keys(
+  ui: T.Ui,
+  +st: Sess.Session,
+  keys: T.UiKeys,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match keys:
+    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, wheel, more}:
+      on_key.pol(
+        ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more),
+        Sess.key_pol(key, mods, wheel, rows),
+        evt, cmd, ack, gen, frames, k
+      )
+
+def on_key.got(
+  got: T.Ui & T.UiKeys,
+  +st: Sess.Session,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match got:
+    case (ui, keys):
+      on_key.keys(ui, st, keys, evt, cmd, ack, gen, frames, k)
+
 def on_key(
   ui: T.Ui,
   +st: Sess.Session,
@@ -384,16 +528,7 @@ def on_key(
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_key_cmd(True{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
-
-def apply_pack(
-  ui: T.Ui,
-  +st: Sess.Session,
-  cmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool
-) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
-  (ui, st, cmd, halt, more)
+    on_key.got(got, st, evt, cmd, ack, gen, frames, k)
 
 def on_resize.redo(
   ui2: T.Ui,
