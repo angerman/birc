@@ -1,4 +1,4 @@
-/* Bend TimUI foreign effects — thin open / frame / close / budget / config.
+/* Bend TimUI foreign effects — open, frame, close, tty watch, and winch.
  * TIMUI_IMPLEMENTATION once. Include-guarded for multi-import. */
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
