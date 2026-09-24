@@ -67,6 +67,11 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
     free(st);
     return io_fail(e, (u32)tr, "timui_open failed");
   }
+  for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
+    if (i != TIMUI_SLOT_SELECTION && i != TIMUI_SLOT_BUTTON_ACTIVE) {
+      ui->theme.slots[i].bg = TIMUI_COLOR_DEFAULT;
+    }
+  }
   timui_full_redraw(ui);
   birc_ui_live = ui;
   atexit(birc_ui_atexit);
