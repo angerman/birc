@@ -287,6 +287,24 @@ static void birc_drop_ops(Env e, Term xs) {
   birc_draw_ops(e, NULL, xs, NULL);
 }
 #endif /* CID_CON */
+/* A tty that stops reading must not park the only event-loop thread.
+ * The first blocked frame waits a few ms; later frames fail at once
+ * until a whole frame gets out. A dropped frame forces a full redraw. */
+static uint64_t birc_frame_deadline;
+static int birc_frame_short;
+static int birc_tty_stalled;
+
+static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
+  TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
+  int w;
+  if (!c || n > 0x7fffffff)
+    return -1;
+  w = timui_write_all_until_(c->write_fd, data, n, birc_frame_deadline);
+  if (w < 0 || (size_t)w < n)
+    birc_frame_short = 1;
+  return w;
+}
+
 static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
                          BircUi *stt, size_t *tlen) {
   TimuiId id;
@@ -444,7 +462,38 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
   }
-  timui_end(fr);
+  {
+    TimuiTransportWrite saved = ui->transport.write;
+    int wait_ms = 40;
+    struct pollfd pfd;
+    birc_frame_short = 0;
+    /* While the tty is stalled, fail at once so the net loop runs.
+     * If the buffer already has room, spend longer: a full redraw is
+     * larger than the pty buffer and needs the reader to drain it. */
+    if (birc_tty_stalled) {
+      int room = 0;
+      wait_ms = 0;
+      if (ui->fd.write_fd >= 0) {
+        pfd.fd = ui->fd.write_fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT))
+          room = 1;
+      }
+      if (room)
+        wait_ms = 2000;
+    }
+    birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
+    ui->transport.write = birc_frame_write;
+    timui_end(fr);
+    ui->transport.write = saved;
+    if (birc_frame_short) {
+      birc_tty_stalled = 1;
+      timui_full_redraw(ui);
+    } else {
+      birc_tty_stalled = 0;
+    }
+  }
   if (timui_should_quit(ui))
     quit = 1;
   {
