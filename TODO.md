@@ -752,6 +752,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **D4** Trigger immediate redraw on `SIGWINCH` resize to prevent stale viewport rendering (V-06).
 - [x] **D5** Handle temporary unavailability (437) registration rejections by retrying with nick_ (V-08).
 - [x] **D6** Alert active tab when incoming private messages are dropped due to buffer capacity limit (V-03).
+- [x] **D7** Rewind DNS Answer traversal upon encountering CNAME records to handle out-of-order A records and self-loop guards (V-10).
 
 ---
 

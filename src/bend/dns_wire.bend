@@ -622,6 +622,7 @@ type Aw is Data:
   AwOwnCn{}
   AwA{}
   AwCn{}
+  AwLoop{}
   AwSkip{}
 
 # checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed walk_an_go
@@ -629,6 +630,8 @@ def walk_an_go(
   fuel: Nat,
   ph: Aw,
   +pkt: List<&2, U32>,
+  +base_off: U32,
+  +an_total: U32,
   +off: U32,
   +left: U32,
   +sought: String,
@@ -648,43 +651,43 @@ def walk_an_go(
             case True{}:
               err("no A")
             case False{}:
-              walk_an_go(p, AwGot{}, pkt, off, left, sought, rec, read_rr(pkt, off), None{}, None{}, False{})
+              walk_an_go(p, AwGot{}, pkt, base_off, an_total, off, left, sought, rec, read_rr(pkt, off), None{}, None{}, False{})
         case AwGot{}:
           match mrr:
             case None{}:
               err("bad dns")
             case Some{+r}:
-              walk_an_go(p, AwIn{}, pkt, off, left, sought, r, None{}, None{}, None{}, U32.is_eq(rr_cls(r), 1))
+              walk_an_go(p, AwIn{}, pkt, base_off, an_total, off, left, sought, r, None{}, None{}, None{}, U32.is_eq(rr_cls(r), 1))
         case AwIn{}:
           match flag:
             case False{}:
-              walk_an_go(p, AwSkip{}, pkt, off, left, sought, rec, None{}, None{}, None{}, False{})
+              walk_an_go(p, AwSkip{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, False{})
             case True{}:
-              walk_an_go(p, AwTyA{}, pkt, off, left, sought, rec, None{}, None{}, None{}, U32.is_eq(rr_ty(rec), 1) && U32.is_eq(rr_rdlen(rec), 4))
+              walk_an_go(p, AwTyA{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, U32.is_eq(rr_ty(rec), 1) && U32.is_eq(rr_rdlen(rec), 4))
         case AwTyA{}:
           match flag:
             case True{}:
-              walk_an_go(p, AwOwnA{}, pkt, off, left, sought, rec, None{}, None{}, None{}, String.eq(rr_owner(rec), sought))
+              walk_an_go(p, AwOwnA{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, String.eq(rr_owner(rec), sought))
             case False{}:
-              walk_an_go(p, AwTyCn{}, pkt, off, left, sought, rec, None{}, None{}, None{}, U32.is_eq(rr_ty(rec), 5))
+              walk_an_go(p, AwTyCn{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, U32.is_eq(rr_ty(rec), 5))
         case AwOwnA{}:
           match flag:
             case True{}:
-              walk_an_go(p, AwA{}, pkt, off, left, sought, rec, None{}, None{}, ip4_at(pkt, rr_rd(rec)), False{})
+              walk_an_go(p, AwA{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, ip4_at(pkt, rr_rd(rec)), False{})
             case False{}:
-              walk_an_go(p, AwSkip{}, pkt, off, left, sought, rec, None{}, None{}, None{}, False{})
+              walk_an_go(p, AwSkip{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, False{})
         case AwTyCn{}:
           match flag:
             case True{}:
-              walk_an_go(p, AwOwnCn{}, pkt, off, left, sought, rec, None{}, None{}, None{}, String.eq(rr_owner(rec), sought))
+              walk_an_go(p, AwOwnCn{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, String.eq(rr_owner(rec), sought))
             case False{}:
-              walk_an_go(p, AwSkip{}, pkt, off, left, sought, rec, None{}, None{}, None{}, False{})
+              walk_an_go(p, AwSkip{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, False{})
         case AwOwnCn{}:
           match flag:
             case True{}:
-              walk_an_go(p, AwCn{}, pkt, off, left, sought, rec, None{}, read_name(pkt, rr_rd(rec)), None{}, False{})
+              walk_an_go(p, AwCn{}, pkt, base_off, an_total, off, left, sought, rec, None{}, read_name(pkt, rr_rd(rec)), None{}, False{})
             case False{}:
-              walk_an_go(p, AwSkip{}, pkt, off, left, sought, rec, None{}, None{}, None{}, False{})
+              walk_an_go(p, AwSkip{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, False{})
         case AwA{}:
           match mip:
             case None{}:
@@ -696,17 +699,25 @@ def walk_an_go(
             case None{}:
               err("bad dns")
             case Some{+tgt}:
-              +left2 = U32.sub(left, 1)
-              walk_an_go(p, AwLeft{}, pkt, rr_next(rec), left2, nm_name(tgt), rec, None{}, None{}, None{}, U32.is_zero(left2))
+              +new_sought = nm_name(tgt)
+              walk_an_go(p, AwLoop{}, pkt, base_off, an_total, off, left, new_sought, rec, None{}, None{}, None{}, String.eq(new_sought, sought))
+        case AwLoop{}:
+          match flag:
+            case True{}:
+              err("bad dns")
+            case False{}:
+              walk_an_go(p, AwLeft{}, pkt, base_off, an_total, base_off, an_total, sought, rec, None{}, None{}, None{}, U32.is_zero(an_total))
         case AwSkip{}:
           +left2 = U32.sub(left, 1)
-          walk_an_go(p, AwLeft{}, pkt, rr_next(rec), left2, sought, rec, None{}, None{}, None{}, U32.is_zero(left2))
+          walk_an_go(p, AwLeft{}, pkt, base_off, an_total, rr_next(rec), left2, sought, rec, None{}, None{}, None{}, U32.is_zero(left2))
 
 def walk_an(+pkt: List<&2, U32>, +off: U32, +an: U32, +sought: String) -> Result<&1, &1, U32 & String, String>:
   walk_an_go(
     Nat.add(32n, Nat.mul(32n, List.length(&2, U32, pkt))),
     AwLeft{},
     pkt,
+    off,
+    an,
     off,
     an,
     sought,
