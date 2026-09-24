@@ -101,9 +101,13 @@ Local edits to `src/ui/timui.h` (re-apply on an upstream update):
    key) does not idle-out across those frames.
 4. **Bracketed paste CR/LF split.** `TIMUI_EVENT_PASTE` payloads (ESC[200~ …
    ESC[201~) are split on CR/LF into text plus `enter_at` entries, with the
-   same hold/unget when the tables are full. The PASTE hold guard bounds
-   `text_in_len + paste.len` (not a 4-byte code point). The deferred
-   post-Enter tail also keeps Backspace and cursor ops (`pending_edit_ops`).
+   same hold/unget when the tables are full. The PASTE hold guard breaks when
+   expanding invalid bytes cannot fit in `text_in` (lossless). A CR ending a
+   chunk marks `paste_skip_lf` to skip a leading LF in the following chunk.
+   Incomplete UTF-8 tails are stashed only when followed by continuation bytes;
+   an unconsumed prefix of the stashed tail is restored on early exit. Held
+   input preserves queued focus events across frames. The deferred post-Enter
+   tail also keeps Backspace and cursor ops (`pending_edit_ops`).
 
 ### Pure domain types
 

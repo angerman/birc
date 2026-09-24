@@ -30,7 +30,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
-        lint-ffi test-utf8-fit proto-parity proof check run run-demo clean \
+        lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
 
 help: ## Show the public targets (default).
@@ -271,13 +271,17 @@ test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ffi -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c && ./$(BLDDIR)/utf8_fit_cap | grep -qx utf8_fit_cap=ok'
 	@grep -F 'birc_utf8_fit(s ? s : "", (size_t)len < 63 ? (size_t)len : (size_t)63)' src/ffi/timui_ffi.c >/dev/null
 
+test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c && ./$(BLDDIR)/paste_harness | grep -qx paste_harness=ok'
+
 test-perf-cpu: build-ui ## 15 s idle/flood CPU (not in check).
 	$(NIXRUN) python3 tests/perf/cpu_pty.py ./$(BLDDIR)/birc
 
 test-perf-tickrate: build-ui ## 600-frame idle tickrate (not in check).
 	$(NIXRUN) python3 tests/perf/tickrate_pty.py ./$(BLDDIR)/birc 600 30 100
 
-check: proof test lint-ffi ## Proofs + protocol tests + UI smoke + FFI lint.
+check: proof test lint-ffi test-paste-harness ## Proofs + protocol tests + UI smoke + FFI lint + paste harness.
 
 run-demo: build-ui ## Offline TimUI demo with canned IRC transcript.
 	$(NIXRUN) ./$(BLDDIR)/birc --demo

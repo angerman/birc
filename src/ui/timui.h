@@ -3739,22 +3739,32 @@ static size_t timui_append_paste_bytes_(Timui *ui, const char *ptr, size_t len) 
     adv = timui_utf8_decode(bytes + pk, total - pk, &cp);
     if (adv == 0) {
       size_t rem = total - pk;
-      if (rem > sizeof(ui->paste_utf8_tail))
-        rem = sizeof(ui->paste_utf8_tail);
-      memcpy(ui->paste_utf8_tail, bytes + pk, rem);
-      ui->paste_utf8_tail_len = (int)rem;
-      pk = total;
-      break;
+      size_t j;
+      int all_cont = 1;
+      for (j = pk + 1; j < total; j++) {
+        if (((unsigned char)bytes[j] & 0xC0u) != 0x80u) {
+          all_cont = 0;
+          break;
+        }
+      }
+      if (all_cont) {
+        if (rem > sizeof(ui->paste_utf8_tail))
+          rem = sizeof(ui->paste_utf8_tail);
+        memcpy(ui->paste_utf8_tail, bytes + pk, rem);
+        ui->paste_utf8_tail_len = (int)rem;
+        pk = total;
+        break;
+      }
+      adv = 1;
+      cp = 0xFFFDu;
     }
     if (adv < 0)
       adv = 1;
     if (ui->edit_count >= edit_cap)
       break;
     start = ui->text_in_len;
-    if (start >= (int)sizeof(ui->text_in)) {
-      pk += (size_t)adv;
-      continue;
-    }
+    if (start + 4 > (int)sizeof(ui->text_in))
+      break;
     n = timui_append_text_cp_(ui, cp);
     if (n > 0) {
       if (run_len == 0)
@@ -3765,9 +3775,11 @@ static size_t timui_append_paste_bytes_(Timui *ui, const char *ptr, size_t len) 
   }
   if (run_len > 0)
     timui_edit_add_text_(ui, run_start, run_len);
-  if (pk <= tail0)
+  if (pk < tail0) {
+    memmove(ui->paste_utf8_tail, bytes + pk, tail0 - pk);
+    ui->paste_utf8_tail_len = (int)(tail0 - pk);
     used = 0;
-  else
+  } else
     used = pk - tail0;
   if (used > orig_len)
     used = orig_len;
@@ -4831,11 +4843,12 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
     }
     if (!ui->input.pasting)
       timui_flush_paste_utf8_tail_(ui);
-    if (focus_count > 0 && !input_held) {
+    if (focus_count > 0) {
       int fi;
-      ui->event_count = 0;
-      for (fi = 0; fi < focus_count; fi++)
-        ui->events[ui->event_count++] = focus_events[fi];
+      if (!input_held)
+        ui->event_count = 0;
+      for (fi = focus_count - 1; fi >= 0; fi--)
+        timui_unget_event_(ui, &focus_events[fi]);
     }
     timui_interact_begin(&ui->ia);
     if (saw_mouse_press)

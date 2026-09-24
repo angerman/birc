@@ -707,9 +707,9 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       lone-Esc block; park the tty watcher 50 ms when Esc is pending.
       Lone Esc still quits. `\x1b` then `[A` after 10 ms is one Up.
       `esc_up.py` three times inside the test.
-- [ ] **F3** Paste: invalid UTF-8 before CR must not swallow Enter. Stash a
+- [x] **F3** Paste: invalid UTF-8 before CR must not swallow Enter. Stash a
       tail only when every remaining byte is a continuation.
-- [ ] **F4** Paste: expanding invalid bytes to U+FFFD must hold, not drop.
+- [x] **F4** Paste: expanding invalid bytes to U+FFFD must hold, not drop.
       Also held focus events, a lost stashed prefix, and `paste_skip_lf`
       in the vendored-patch list. `paste_harness.c` in `make check`.
 - [ ] **F5** URI buffer matches TimUI's 256. Longer URLs are a plain span.
