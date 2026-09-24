@@ -259,7 +259,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@grep -q 'O_NONBLOCK' src/ffi/timui_ffi.c
 	@! grep -F 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
-	@awk '/if \(timui_open/{p=1} p&&/free\(st\)/{c=1} p&&/return io_fail/{p=0} END{if(!c){print "timui_open fail must free st"; exit 1}}' src/ffi/timui_ffi.c
+	@awk '/timui_open\(&cfg/{p=1} p&&/free\(st\)/{c=1} p&&/return io_fail/{p=0} END{if(!c){print "timui_open fail must free st"; exit 1}}' src/ffi/timui_ffi.c
 	@grep -q 'io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ)' src/ffi/dns_ffi.c
 	@grep -q 'io_eff(CID_RECV_NB, recv_nb_run, 0)' src/ffi/dns_ffi.c
 	@grep -q 'if (max > 4096u)' src/ffi/dns_ffi.c

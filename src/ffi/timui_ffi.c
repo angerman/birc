@@ -75,9 +75,10 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   cfg.theme = TIMUI_THEME_MODERN_DARK;
   cfg.userdata = st;
   cfg.input_poll_ms = 0;
-  if (timui_open(&cfg, &ui) != TIMUI_OK) {
+  TimuiResult tr = timui_open(&cfg, &ui);
+  if (tr != TIMUI_OK) {
     free(st);
-    return io_fail(e, 1u, "timui_open failed");
+    return io_fail(e, (u32)tr, "timui_open failed");
   }
   timui_full_redraw(ui);
   birc_ui_live = ui;
@@ -164,6 +165,9 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
     free(s);
     n++;
   }
+#if defined(CID_CON)
+  term_sink(e, xs);
+#endif
   return n;
 }
 static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
@@ -581,6 +585,7 @@ static int birc_winch_have;
 #endif
 #ifdef CID_WINCH_OPEN
 static void birc_on_winch(int sig) {
+  int save_errno = errno;
   char z = 1;
   int fd = (int)birc_winch_wr;
   (void)sig;
@@ -588,6 +593,7 @@ static void birc_on_winch(int sig) {
     ssize_t n = write(fd, &z, 1);
     (void)n;
   }
+  errno = save_errno;
 }
 #endif
 #ifdef CID_WINCH_OPEN
@@ -599,21 +605,24 @@ Term winch_open_run(Env e, Term *f, IoWork *w) {
   if (pipe(pfd) != 0) return io_fail(e, (u32)errno, "winch pipe");
   if (fcntl(pfd[0], F_SETFL, O_NONBLOCK) < 0 ||
       fcntl(pfd[1], F_SETFL, O_NONBLOCK) < 0) {
+    int err = errno;
     (void)close(pfd[0]);
     (void)close(pfd[1]);
-    return io_fail(e, (u32)errno, "winch nonblock");
+    return io_fail(e, (u32)err, "winch nonblock");
   }
   birc_winch_rd = pfd[0];
   birc_winch_wr = (sig_atomic_t)pfd[1];
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = birc_on_winch;
+  sa.sa_flags = SA_RESTART;
   sigemptyset(&sa.sa_mask);
   if (sigaction(SIGWINCH, &sa, &birc_winch_old) != 0) {
+    int err = errno;
     (void)close(pfd[0]);
     (void)close(pfd[1]);
     birc_winch_rd = -1;
     birc_winch_wr = (sig_atomic_t)-1;
-    return io_fail(e, (u32)errno, "sigaction");
+    return io_fail(e, (u32)err, "sigaction");
   }
   birc_winch_have = 1;
   return io_done(e, io_hand((u64)pfd[0]));
@@ -637,9 +646,11 @@ Term winch_close_run(Env e, Term *f, IoWork *w) {
     birc_winch_have = 0;
   }
   birc_winch_rd = -1;
-  if (birc_winch_wr >= 0) {
-    (void)close((int)birc_winch_wr);
+  {
+    int wr = (int)birc_winch_wr;
     birc_winch_wr = (sig_atomic_t)-1;
+    if (wr >= 0)
+      (void)close(wr);
   }
   if (rd >= 0) (void)close(rd);
   return term_pak(CID_UNIT, 0);
