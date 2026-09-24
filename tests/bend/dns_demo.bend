@@ -342,6 +342,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("take_hit", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, sample())), "ok:1.2.3.4")
     Unit <- E.must_eq("take_peer", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "8.8.8.8", 53, sample())), "miss")
     Unit <- E.must_eq("take_id", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, sample_bad_id())), "miss")
+    Unit <- E.must_eq("take_short", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, Nil{})), "miss")
     Unit <- E.must_eq("take_tc", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc())), "fail:tc")
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
