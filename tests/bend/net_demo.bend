@@ -100,6 +100,15 @@ def nick433_fold_star() -> Bool:
     )
   )
 
+def nick437_fold_star() -> Bool:
+  nick433_fold_retry.on(
+    "NICK me_|",
+    Sess.fold_lines(
+      Cl.init("me", "s"),
+      ":irc.example.net 437 * me :Nick/channel is temporarily unavailable" <> Nil{}
+    )
+  )
+
 # A2: 433 retry keys on Client.nick. Demo used to init("me") while
 # registration used --nick, so 433 * bob never retried.
 def nick433_demo_mismatch() -> Bool:
@@ -157,6 +166,7 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("chunk_join_pong", chunk_join_pong())
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
+    Unit <- E.must("nick437_star", nick437_fold_star())
     Unit <- E.must("nick433_same", nick433_fold_same())
     Unit <- E.must("nick433_demo_mismatch", nick433_demo_mismatch())
     Unit <- E.must("nick433_demo_nick", nick433_demo_nick())
