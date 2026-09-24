@@ -703,7 +703,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       deadline; on timeout drop the frame and full-redraw next. `stall.py`:
       PONG while the tty is stalled, then a correct screen after drain.
       On `c10b967` the PONG did not arrive (`PONG while tty stalled: False`).
-- [ ] **F2** Esc split across reads must not apply keys twice. Remove the
+- [x] **F2** Esc split across reads must not apply keys twice. Remove the
       lone-Esc block; park the tty watcher 50 ms when Esc is pending.
       Lone Esc still quits. `\x1b` then `[A` after 10 ms is one Up.
       `esc_up.py` three times inside the test.

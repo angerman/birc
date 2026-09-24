@@ -365,39 +365,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
 #endif
     return birc_frame_out(e, ui, 1, 0, "", 0, 24, 80, 0, 0, 0, 0, 0);
   }
-  /* Lone Esc becomes a key only after 50 ms with no follower. The old
-   * tick loop observed that on the next frame. We park, so resolve it
-   * before this frame reads keys. */
-  if (ui->input.state == 1) {
-    struct pollfd pfd;
-    char more[256];
-    int n;
-    int before = ui->event_count;
-    pfd.fd = ui->fd.read_fd;
-    pfd.events = POLLIN;
-    pfd.revents = 0;
-    if (pfd.fd >= 0) {
-      while (poll(&pfd, 1, 50) < 0 && errno == EINTR) {
-      }
-      if (pfd.revents & (POLLIN | POLLHUP)) {
-        n = ui->transport.read(&ui->transport, more, sizeof more);
-        if (n > 0) {
-          timui_input_set_now(&ui->input, timui_now_ms());
-          timui_input_feed(&ui->input, more, (size_t)n, ui_event_cb, ui);
-        }
-      }
-    }
-    /* 50 matches TIMUI_ESC_TIMEOUT_MS; that macro is #undef'd before we run. */
-    timui_input_flush_esc(&ui->input, timui_now_ms() + 50ull, ui_event_cb, ui);
-    while (before < ui->event_count) {
-      TimuiEvent ev = ui->events[before];
-      if (ev.kind == TIMUI_EVENT_KEY) {
-        ui->key_pressed = ev.as.key.key;
-        ui->key_mods = ev.as.key.mods;
-      }
-      before += 1;
-    }
-  }
+
   {
     TimuiRect root = timui_root(fr);
     TimuiCellBuffer *buf = timui_frame_buffer(fr);
@@ -581,7 +549,12 @@ static Term fd_ready_run(Env e, Term *f, IoWork *w) {
   }
   w->hand = (intptr_t)fd;
   w->made = drain;
-  return io_wait_on(w, fd, POLLIN, 0, fd_ready_more);
+  {
+    u64 at = (!drain && birc_ui_live && birc_ui_live->input.state != 0)
+                 ? io_tick() + 50000000ull
+                 : 0;
+    return io_wait_on(w, fd, POLLIN, at, fd_ready_more);
+  }
 }
 #endif
 #ifdef CID_TTY_READY

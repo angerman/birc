@@ -78,6 +78,7 @@ Term io_done(Env e, Term v);
 Term io_fail(Env e, u32 code, const char *text);
 void io_eff(u32 cid, Effect run, u32 need);
 typedef Term (*IoMore)(Env e, IoWork *w);
+u64 io_tick(void);
 Term io_wait_on(IoWork *w, int fd, short evts, uint64_t time, IoMore more);
 
 #endif
