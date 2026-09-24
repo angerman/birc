@@ -732,8 +732,10 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       `page` argument of `Timui.frame` is gone.
 - [x] **S4** Timestamp is an ordinary `OpText`. `OpLine` drops `ts`.
       A stamp wider than the line is clipped to the line (`line_ts_ok`).
-- [ ] **S5** Dead guards, NULL checks, duplicate focus, no-op fit, merged
-      frame out, unused clamps.
+- [x] **S5** Dead `CID_CON` / `CID_UIKEYS` guards, `io_cstr` NULL checks,
+      duplicate focus, the no-op composer fit, and the `INT32_MAX` recv
+      clamps are gone. `birc_frame_out` is `birc_uikeys`. The tab `sel`
+      clamp stays: Bend does not prove `sel < len(names)`.
 - [ ] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
       is a no-op or gone.
 - [ ] **S7** Fix `docs/FFI.md` and the `timui_ffi.c` header comment.

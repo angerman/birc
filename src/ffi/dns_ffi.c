@@ -14,9 +14,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#ifndef IO_READ
-#define IO_READ 1
-#endif
 /* park=1: EAGAIN waits again (TCP reader). park=0: EAGAIN is None (DNS). */
 static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_in *src) {
   char host[INET_ADDRSTRLEN];
@@ -69,8 +66,7 @@ static Term recv_more(Env e, IoWork *w) {
 }
 #ifdef CID_RECV_OCTETS
 Term recv_octets_run(Env e, Term *f, IoWork *w) {
-  u32 max = f[1] < INT32_MAX ? (u32)f[1] : INT32_MAX;
-  return recv_try(e, (int)io_hand_v(f[0]), max, w, 1);
+  return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], w, 1);
 }
 static void __attribute__((constructor)) recv_octets_use(void) {
   io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ);
@@ -78,9 +74,8 @@ static void __attribute__((constructor)) recv_octets_use(void) {
 #endif
 #ifdef CID_RECV_NB
 Term recv_nb_run(Env e, Term *f, IoWork *w) {
-  u32 max = f[1] < INT32_MAX ? (u32)f[1] : INT32_MAX;
   (void)w;
-  return recv_try(e, (int)io_hand_v(f[0]), max, NULL, 0);
+  return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], NULL, 0);
 }
 static void __attribute__((constructor)) recv_nb_use(void) {
   io_eff(CID_RECV_NB, recv_nb_run, 0);
