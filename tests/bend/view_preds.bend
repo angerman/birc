@@ -57,8 +57,8 @@ def show_op(op: V.DrawOp) -> String:
       "t:" ++ U32.show(y) ++ "|" ++ text
     case V.OpTabs{_, _, _, sel, names}:
       "T:" ++ U32.show(sel) ++ "|" ++ show_names(names)
-    case V.OpLine{_, y, _, fg, +ts, spans}:
-      "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ ts ++ "|" ++ show_spanops(spans)
+    case V.OpLine{_, y, _, fg, spans}:
+      "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ show_spanops(spans)
 
 def show_ops.chunks(+xs: List<&2, V.DrawOp>) -> List<&2, String>:
   match xs:
@@ -72,14 +72,14 @@ def show_ops(+xs: List<&2, V.DrawOp>) -> String:
 
 def draw_line_ok() -> Bool:
   String.eq(
-    show_op(V.line_op(Cl.Line{Cl.Msg{}, "12:00:00", "hello"})),
-    "L:0|13158600|12:00:00|hello"
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "12:00:00", "hello"})),
+    "t:0|12:00:00;L:0|13158600|hello"
   )
 
 def draw_link_ok() -> Bool:
   String.eq(
-    show_op(V.line_op(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x"})),
-    "L:0|13158600||see [https://timui.dev]https://timui.dev x"
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x"})),
+    "L:0|13158600|see [https://timui.dev]https://timui.dev x"
   )
 
 def hostile_body() -> String:
@@ -90,8 +90,8 @@ def hostile_body() -> String:
 
 def draw_hostile_ok() -> Bool:
   String.eq(
-    show_op(V.line_op(Cl.Line{Cl.Msg{}, "", hostile_body()})),
-    "L:0|13158600||look "
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", hostile_body()})),
+    "L:0|13158600|look "
       ++ SCon{Chr{31}, "Lhttps://evil.example"}
       ++ SCon{Chr{29}, "[https://github.com/zw3rk/birc]https://github.com/zw3rk/birc"}
       ++ SCon{Chr{27}, "x"}

@@ -66,6 +66,7 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("style", V.style_self_ne_msg())
     Unit <- E.must("style_spec", VP.style_spec_ok())
     Unit <- E.must("draw_line", VP.draw_line_ok())
+    Unit <- E.must("line_ts", V.line_ts_ok())
     Unit <- E.must("draw_link", VP.draw_link_ok())
     Unit <- E.must("draw_hostile", VP.draw_hostile_ok())
     Unit <- E.must("draw_tabs", VP.draw_tabs_ok())

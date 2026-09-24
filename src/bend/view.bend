@@ -16,7 +16,7 @@ type DrawOp is Data:
   OpBox{x: U32, y: U32, w: U32, h: U32}
   OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>}
-  OpLine{x: U32, y: U32, w: U32, fg: U32, ts: String, spans: List<&2, SpanOp>}
+  OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
 
 type Lay is Data:
   Lay{header: Rect, tabs: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -524,13 +524,116 @@ def FG_TEXT() -> U32:
 def FG_DIM() -> U32:
   10526880
 
-def line_op.at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> DrawOp:
+# Timestamp is an OpText of at most 8 columns, then one space, then the
+# line. A narrow body clips the stamp to w so it cannot spill past the line.
+def ts_w.on(+w: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      8
+    case False{}:
+      w
+
+def ts_w(+w: U32) -> U32:
+  ts_w.on(w, U32.is_ge(w, 8))
+
+def line_shift.on(+w: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}:
+      9
+    case False{}:
+      w
+
+def line_shift(+w: U32) -> U32:
+  line_shift.on(w, U32.is_ge(w, 9))
+
+def line_rest(+w: U32) -> U32:
+  U32.sub(w, line_shift(w))
+
+def line_ops_go(
+  +x: U32,
+  +y: U32,
+  +w: U32,
+  +fg: U32,
+  +ts: String,
+  +spans: List<&2, SpanOp>,
+  empty: Bool
+) -> List<&2, DrawOp>:
+  match empty:
+    case True{}:
+      OpLine{x, y, w, fg, spans} <> Nil{}
+    case False{}:
+      OpText{x, y, ts_w(w), FG_DIM(), 0, ts}
+        <> (OpLine{U32.add(x, line_shift(w)), y, line_rest(w), fg, spans} <> Nil{})
+
+def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
   match ln:
     case Cl.Line{+k, +ts, +text}:
-      OpLine{x, y, w, style_of(k), ts, span_ops(tokenize(text))}
+      line_ops_go(x, y, w, style_of(k), ts, span_ops(tokenize(text)), String.is_empty(ts))
 
-def line_op(+ln: Cl.Line) -> DrawOp:
-  line_op.at(0, 0, 40, ln)
+def line_ops(+ln: Cl.Line) -> List<&2, DrawOp>:
+  line_ops_at(0, 0, 40, ln)
+
+def span_hello(spans: List<&2, SpanOp>) -> Bool:
+  match spans:
+    case Con{Spn{a, +text}, Nil{}}:
+      U32.is_eq(a, 0) && String.eq(text, "hello")
+    case _:
+      False{}
+
+def line_ts_wide.line(ok: Bool, rest: List<&2, DrawOp>) -> Bool:
+  match rest:
+    case Con{OpLine{x, y, w, fg, spans}, Nil{}}:
+      ok && U32.is_eq(x, 9) && U32.is_eq(y, 0) && U32.is_eq(w, 31) && U32.is_eq(fg, FG_TEXT()) && span_hello(spans)
+    case _:
+      False{}
+
+def line_ts_wide.ops(ops: List<&2, DrawOp>) -> Bool:
+  match ops:
+    case Con{OpText{x, y, w, fg, attrs, +text}, rest}:
+      line_ts_wide.line(U32.is_eq(x, 0) && U32.is_eq(y, 0) && U32.is_eq(w, 8) && U32.is_eq(fg, FG_DIM()) && U32.is_eq(attrs, 0) && String.eq(text, "12:00:00"), rest)
+    case _:
+      False{}
+
+def line_ts_narrow.line(ok: Bool, rest: List<&2, DrawOp>) -> Bool:
+  match rest:
+    case Con{OpLine{x, _, w, _, _}, Nil{}}:
+      ok && U32.is_eq(x, 4) && U32.is_eq(w, 0)
+    case _:
+      False{}
+
+def line_ts_narrow.ops(ops: List<&2, DrawOp>) -> Bool:
+  match ops:
+    case Con{OpText{_, _, w, _, _, _}, rest}:
+      line_ts_narrow.line(U32.is_eq(w, 4), rest)
+    case _:
+      False{}
+
+def line_ts_empty.ops(ops: List<&2, DrawOp>) -> Bool:
+  match ops:
+    case Con{OpLine{x, _, w, _, spans}, Nil{}}:
+      U32.is_eq(x, 0) && U32.is_eq(w, 40) && span_hello(spans)
+    case _:
+      False{}
+
+def line_ts_long.line(ok: Bool, rest: List<&2, DrawOp>) -> Bool:
+  match rest:
+    case Con{OpLine{x, _, _, _, _}, Nil{}}:
+      ok && U32.is_eq(x, 9)
+    case _:
+      False{}
+
+def line_ts_long.ops(ops: List<&2, DrawOp>) -> Bool:
+  match ops:
+    case Con{OpText{_, _, w, _, _, +text}, rest}:
+      line_ts_long.line(U32.is_eq(w, 8) && String.eq(text, "12:00:00.extra"), rest)
+    case _:
+      False{}
+
+def line_ts_ok() -> Bool:
+  line_ts_wide.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00", "hello"}))
+    && line_ts_narrow.ops(line_ops_at(0, 0, 4, Cl.Line{Cl.Msg{}, "12:00:00", "hello"}))
+    && line_ts_empty.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "", "hello"}))
+    && line_ts_long.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00.extra", "hello"}))
 
 def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, Cl.Line>:
   match b:
@@ -772,7 +875,7 @@ def body_ops.go(xs: List<&2, Cl.Line>, +x: U32, +y: U32, +w: U32) -> List<&2, Dr
     case Nil{}:
       Nil{}
     case Con{+h, t}:
-      line_op.at(x, y, w, h) <> body_ops.go(t, x, U32.add(y, 1), w)
+      List.append(&2, DrawOp, line_ops_at(x, y, w, h), body_ops.go(t, x, U32.add(y, 1), w))
 
 def body_ops(r: Rect, +xs: List<&2, Cl.Line>) -> List<&2, DrawOp>:
   match r:
@@ -858,7 +961,7 @@ def body_line_ys.go(ops: List<&2, DrawOp>) -> List<&2, U32>:
   match ops:
     case Nil{}:
       Nil{}
-    case Con{OpLine{_, y, _, _, _, _}, t}:
+    case Con{OpLine{_, y, _, _, _}, t}:
       y <> body_line_ys.go(t)
     case Con{_, t}:
       body_line_ys.go(t)

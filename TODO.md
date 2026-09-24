@@ -730,7 +730,8 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **S3** C returns the raw key, mods, and wheel. Bend maps tab, page,
       history, and quit (`Sess.key_pol`, locked by `key_pol_ok`). The
       `page` argument of `Timui.frame` is gone.
-- [ ] **S4** Timestamp is an ordinary `OpText`. `OpLine` drops `ts`.
+- [x] **S4** Timestamp is an ordinary `OpText`. `OpLine` drops `ts`.
+      A stamp wider than the line is clipped to the line (`line_ts_ok`).
 - [ ] **S5** Dead guards, NULL checks, duplicate focus, no-op fit, merged
       frame out, unused clamps.
 - [ ] **S6** No tty `dup`. `Timui.tty` returns the Ui read fd. `Tty.close`
