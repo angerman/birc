@@ -1,12 +1,9 @@
 # DNS A lookup. Pure wire lives in dns_wire.bend.
 # Live path: UDP.bind + send_octets + recv_octets (not UDP.send_to String).
 # IPv4/A only: IPv6 literals fail with "ipv6". Resolver is the first IPv4
-# nameserver in /etc/resolv.conf, else 1.1.1.1. Transaction ids are 16-bit.
+# nameserver in /etc/resolv.conf, else fails closed. Transaction ids are 16-bit.
 import Base
 import ./dns_wire.bend as Wire
-
-def NS() -> String:
-  Wire.NS_FALLBACK()
 
 def DNS_PORT() -> U32:
   53
@@ -283,41 +280,49 @@ def lookup_rnd(+host: String, +ns: String, rnd: Result<&1, &1, U32 & String, U32
     case Done{n}:
       lookup_n(host, ns, n)
 
-def load_ns_text(r: Result<&1, &1, U32 & String, String>, f: File) -> IO(String):
+def load_ns_text(r: Result<&1, &1, U32 & String, String>, f: File) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
-    case Fail{_}:
-      do IO<String>:
+    case Fail{e}:
+      do IO<Result<&1, &1, U32 & String, String>>:
         Unit <- File.close(f)
-        return NS()
+        return Fail{e}
     case Done{+text}:
-      do IO<String>:
+      do IO<Result<&1, &1, U32 & String, String>>:
         Unit <- File.close(f)
         return Wire.nameserver_of(text)
 
-def load_ns_read(pair: File & Result<&1, &1, U32 & String, String>) -> IO(String):
+def load_ns_read(pair: File & Result<&1, &1, U32 & String, String>) -> IO(Result<&1, &1, U32 & String, String>):
   match pair:
     case (f, r):
       load_ns_text(r, f)
 
-def load_ns_open(r: Result<&1, &1, U32 & String, File>) -> IO(String):
+def load_ns_open(r: Result<&1, &1, U32 & String, File>) -> IO(Result<&1, &1, U32 & String, String>):
   match r:
     case Fail{_}:
-      IO.pure(String, NS())
+      IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("no nameserver"))
     case Done{f}:
-      do IO<String>:
+      do IO<Result<&1, &1, U32 & String, String>>:
         pair : File & Result<&1, &1, U32 & String, String> <- File.read(f, 4096)
         load_ns_read(pair)
 
-def load_ns() -> IO(String):
-  do IO<String>:
+def load_ns() -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
     r : Result<&1, &1, U32 & String, File> <- File.open("/etc/resolv.conf", "r")
     load_ns_open(r)
 
+def lookup_ns(rns: Result<&1, &1, U32 & String, String>, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
+  match rns:
+    case Fail{e}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
+    case Done{+ns}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        rnd : Result<&1, &1, U32 & String, U32> <- IO.random_u32()
+        lookup_rnd(host, ns, rnd)
+
 def lookup_a(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
-    ns : String <- load_ns()
-    rnd : Result<&1, &1, U32 & String, U32> <- IO.random_u32()
-    lookup_rnd(host, ns, rnd)
+    rns : Result<&1, &1, U32 & String, String> <- load_ns()
+    lookup_ns(rns, host)
 
 def resolve_v6(+host: String, v6: Bool) -> IO(Result<&1, &1, U32 & String, String>):
   match v6:
