@@ -212,7 +212,7 @@ def wait_ans(
       fail_close(sock, "timeout")
     case 1n+p:
       do IO<Result<&1, &1, U32 & String, String>>:
-        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_nb(sock, 512)
+        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_nb(sock, 4096)
         wait_poll(m, id, qhost, ns, q, n, s2 => wait_ans(p, s2, id, qhost, ns, q, Nat.add(n, 1n)))
 
 def after_send_r(
@@ -255,6 +255,136 @@ def after_bind(
         sent : Socket & Result<&1, &1, U32 & String, Unit> <- send_octets(sock, ns, DNS_PORT(), q)
         after_send(sent, id, host, ns, q)
 
+def lookup_tcp_xs(
+  +id: U32,
+  +host: String,
+  rest: U32 & List<&2, U32>
+) -> Result<&1, &1, U32 & String, String>:
+  match rest:
+    case (_, xs):
+      Wire.parse_q(id, host, Wire.tcp_strip(xs))
+
+def lookup_tcp_peer(
+  +id: U32,
+  +host: String,
+  p: String & (U32 & List<&2, U32>)
+) -> Result<&1, &1, U32 & String, String>:
+  match p:
+    case (_, rest):
+      lookup_tcp_xs(id, host, rest)
+
+def lookup_tcp_got(
+  +id: U32,
+  +host: String,
+  got: Maybe<&1, String & (U32 & List<&2, U32>)>
+) -> Result<&1, &1, U32 & String, String>:
+  match got:
+    case None{}:
+      Wire.err("tcp eof")
+    case Some{p}:
+      lookup_tcp_peer(id, host, p)
+
+def lookup_tcp_r(
+  +id: U32,
+  +host: String,
+  r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>
+) -> Result<&1, &1, U32 & String, String>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{got}:
+      lookup_tcp_got(id, host, got)
+
+def lookup_tcp_read(
+  +id: U32,
+  +host: String,
+  pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match pair:
+    case (s, r):
+      do IO<Result<&1, &1, U32 & String, String>>:
+        Unit <- Socket.close(s)
+        return lookup_tcp_r(id, host, r)
+
+def lookup_tcp_sent(
+  sock: Socket,
+  +id: U32,
+  +host: String,
+  r: Result<&1, &1, U32 & String, Unit>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match r:
+    case Fail{_}:
+      fail_close(sock, "tcp send")
+    case Done{_}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_octets(sock, 4096)
+        lookup_tcp_read(id, host, m)
+
+def lookup_tcp_send(
+  pair: Socket & Result<&1, &1, U32 & String, Unit>,
+  +id: U32,
+  +host: String
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match pair:
+    case (sock, r):
+      lookup_tcp_sent(sock, id, host, r)
+
+def lookup_tcp_sock(
+  sock: Socket,
+  +id: U32,
+  +host: String,
+  +q: List<&2, U32>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    sent : Socket & Result<&1, &1, U32 & String, Unit> <- send_octets(sock, "", 0, Wire.tcp_frame(q))
+    lookup_tcp_send(sent, id, host)
+
+def lookup_tcp_conn(
+  cr: Result<&1, &1, U32 & String, Socket>,
+  +id: U32,
+  +host: String,
+  +q: List<&2, U32>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match cr:
+    case Fail{_}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Wire.err("tcp connect"))
+    case Done{sock}:
+      lookup_tcp_sock(sock, id, host, q)
+
+def lookup_tcp(+host: String, +ns: String, +id: U32, +q: List<&2, U32>) -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect(ns, DNS_PORT())
+    lookup_tcp_conn(cr, id, host, q)
+
+def lookup_fallback(
+  +host: String,
+  +ns: String,
+  +id: U32,
+  +q: List<&2, U32>,
+  r: Result<&1, &1, U32 & String, String>,
+  is_tc: Bool
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match is_tc:
+    case True{}:
+      lookup_tcp(host, ns, id, q)
+    case False{}:
+      IO.pure(Result<&1, &1, U32 & String, String>, r)
+
+def lookup_res(
+  +host: String,
+  +ns: String,
+  +id: U32,
+  +q: List<&2, U32>,
+  r: Result<&1, &1, U32 & String, String>
+) -> IO(Result<&1, &1, U32 & String, String>):
+  match r:
+    case Done{+ip}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Done{ip})
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          lookup_fallback(host, ns, id, q, Fail{e}, String.eq(msg, "tc"))
+
 def lookup_q(
   enc: Result<&1, &1, U32 & String, List<&2, U32>>,
   +id: U32,
@@ -267,11 +397,12 @@ def lookup_q(
     case Done{+q}:
       do IO<Result<&1, &1, U32 & String, String>>:
         br : Result<&1, &1, U32 & String, Socket> <- UDP.bind(0)
-        after_bind(br, q, id, host, ns)
+        r : Result<&1, &1, U32 & String, String> <- after_bind(br, q, id, host, ns)
+        lookup_res(host, ns, id, q, r)
 
 def lookup_n(+host: String, +ns: String, +n: U32) -> IO(Result<&1, &1, U32 & String, String>):
   +id = Wire.txid_of(n)
-  lookup_q(Wire.encode_id(id, host), id, host, ns)
+  lookup_q(Wire.encode_edns_id(id, host), id, host, ns)
 
 def lookup_rnd(+host: String, +ns: String, rnd: Result<&1, &1, U32 & String, U32>) -> IO(Result<&1, &1, U32 & String, String>):
   match rnd:

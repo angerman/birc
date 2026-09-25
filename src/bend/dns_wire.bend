@@ -288,6 +288,38 @@ def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, List<&2, 
 def encode(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_id(1, host)
 
+# EDNS0 OPT RR (RFC 6891): name=0, type=41, payload=4096 (0x1000), ttl=0, rdlen=0
+def opt_rr() -> List<&2, U32>:
+  0 <> 0 <> 41 <> 16 <> 0 <> 0 <> 0 <> 0 <> 0 <> 0 <> 0 <> Nil{}
+
+# Header with ARCOUNT=1 (for EDNS0 OPT RR in Additional section)
+def header_edns(+id: U32) -> List<&2, U32>:
+  u8(U32.shrn(id, 8n)) <> u8(id) <> 1 <> 0 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 0 <> 1 <> Nil{}
+
+def encode_edns_tail(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{q}:
+      Done{List.append(&2, U32, q, opt_rr())}
+
+def encode_edns_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  encode_edns_tail(encode_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), ELab{}, xs, header_edns(id), "", True{}, 1))
+
+def encode_edns_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  encode_edns_xs(id, String.split(host, Chr{46}))
+
+def encode_edns(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
+  encode_edns_id(1, host)
+
+# 2-byte length-prefix framing for DNS over TCP (RFC 1035 §4.2.2)
+def tcp_frame(+q: List<&2, U32>) -> List<&2, U32>:
+  +n = U32.from_nat(List.length(&2, U32, q))
+  u8(U32.shrn(n, 8n)) <> u8(n) <> q
+
+def tcp_strip(xs: List<&2, U32>) -> List<&2, U32>:
+  List.drop(&2, U32, xs, 2n)
+
 # ---- Data cursor (copyable). Pairs are affine; a do-block needs Data. --
 
 type Cur is Data:
@@ -759,8 +791,11 @@ def first_fail(xs: List<&2, Chk>) -> Maybe<&2, String>:
             case True{}:
               first_fail(t)
 
+def tc_ok(+fb: U32, +an: U32) -> Bool:
+  U32.is_zero(U32.and(fb, 2)) || U32.is_gt(an, 0)
+
 def hdr_chks(+want: U32, +h: Hdr) -> List<&2, Chk>:
-  Chk{U32.is_eq(hdr_id(h), want), "bad id"} <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"} <> Chk{U32.is_zero(U32.and(hdr_fb(h), 2)), "tc"} <> Chk{rcode_ok(hdr_sb(h)), "rcode"} <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
+  Chk{U32.is_eq(hdr_id(h), want), "bad id"} <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"} <> Chk{tc_ok(hdr_fb(h), hdr_an(h)), "tc"} <> Chk{rcode_ok(hdr_sb(h)), "rcode"} <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
 
 def parse_q_qs_ok(
   +host: String,

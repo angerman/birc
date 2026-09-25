@@ -191,6 +191,10 @@ def pkt_class_ch() -> List<&2, U32>:
 def pkt_tc() -> List<&2, U32>:
   0 <> 1 <> 131 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 8 <> 8 <> 4 <> 4 <> Nil{}
 
+# TC bit set with no answers (ANCOUNT=0)
+def pkt_tc_no_an() -> List<&2, U32>:
+  0 <> 1 <> 131 <> 128 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> Nil{}
+
 # − dns#5: QDCOUNT=0.
 def pkt_qd0() -> List<&2, U32>:
   0 <> 1 <> 129 <> 128 <> 0 <> 0 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 5 <> 5 <> 5 <> 5 <> Nil{}
@@ -283,6 +287,18 @@ def check_enc_hi_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
         Unit <- E.must("hi_b0", U32.is_eq(oct_at(q, 0n), 255))
         E.must("hi_b1", U32.is_eq(oct_at(q, 1n), 255))
 
+def check_enc_edns_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
+  match r:
+    case Fail{_}:
+      IO.die(Unit, 1, "encode edns failed")
+    case Done{+q}:
+      do IO<Unit>:
+        Unit <- E.must("enc_edns_len", Nat.is_eq(List.length(&2, U32, q), 40n))
+        Unit <- E.must("enc_edns_pre", prefix_ok_xs(q))
+        Unit <- E.must("enc_edns_lab", U32.is_eq(oct_at(q, 12n), 7))
+        Unit <- E.must("enc_edns_ar", U32.is_eq(oct_at(q, 11n), 1))
+        E.must("enc_edns_opt", U32.is_eq(oct_at(q, 31n), 41))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("ipv4 127", Wire.is_ipv4("127.0.0.1"))
@@ -297,6 +313,7 @@ def main() -> IO(Unit):
     Unit <- E.must("ipv6 not v4", Bool.not(Wire.is_ipv6("1.2.3.4")))
     Unit <- E.must("ipv6 not name", Bool.not(Wire.is_ipv6("example.com")))
     Unit <- check_enc_r(Wire.encode("example.com"))
+    Unit <- check_enc_edns_r(Wire.encode_edns("example.com"))
     Unit <- check_enc_hi_r(Wire.encode_id(Wire.txid_of(65535), "example.com"))
     Unit <- E.must("pack_len", Nat.is_eq(String.length(pack(sample())), List.length(&2, U32, sample())))
     Unit <- E.must_eq("parse", show_res(Wire.parse_id(1, sample())), "ok:1.2.3.4")
@@ -334,7 +351,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("ar_evil", show_res(Wire.parse_id(1, pkt_ar_evil())), "fail:no A")
     Unit <- E.must_eq("ns_evil", show_res(Wire.parse_id(1, pkt_ns_evil())), "fail:no A")
     Unit <- E.must_eq("class_ch", show_res(Wire.parse_id(1, pkt_class_ch())), "fail:no A")
-    Unit <- E.must_eq("tc", show_res(Wire.parse_id(1, pkt_tc())), "fail:tc")
+    Unit <- E.must_eq("tc_an", show_res(Wire.parse_id(1, pkt_tc())), "ok:8.8.4.4")
+    Unit <- E.must_eq("tc_no_an", show_res(Wire.parse_id(1, pkt_tc_no_an())), "fail:tc")
     Unit <- E.must_eq("qd0", show_res(Wire.parse_id(1, pkt_qd0())), "fail:bad dns")
     Unit <- E.must_eq("wrong_q", show_res(Wire.parse_id(1, pkt_wrong_q())), "fail:bad dns")
     Unit <- E.must_eq("cname_owner", show_res(Wire.parse_id(1, pkt_cname_owner())), "ok:9.9.9.9")
@@ -353,7 +371,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("take_peer", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "8.8.8.8", 53, sample())), "miss")
     Unit <- E.must_eq("take_id", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, sample_bad_id())), "miss")
     Unit <- E.must_eq("take_short", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, Nil{})), "miss")
-    Unit <- E.must_eq("take_tc", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc())), "fail:tc")
+    Unit <- E.must_eq("take_tc_an", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc())), "ok:8.8.4.4")
+    Unit <- E.must_eq("take_tc_no_an", show_take(Wire.take_pkt("1.1.1.1", 1, "a", "1.1.1.1", 53, pkt_tc_no_an())), "fail:tc")
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
     v6 : Result<&1, &1, U32 & String, String> <- Dns.resolve("::1")
