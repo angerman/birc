@@ -133,9 +133,13 @@ Term send_octets_run(Env e, Term *f, IoWork *w) {
   int err = 0;
   if (over)
     err = EMSGSIZE;
-  else if (!host || inet_pton(AF_INET, host, &dst.sin_addr) != 1)
+  else if (!host || (host[0] != '\0' && inet_pton(AF_INET, host, &dst.sin_addr) != 1))
     err = EINVAL;
-  else {
+  else if (host[0] == '\0') {
+    wr = send((int)io_hand_v(f[0]), buf, n, 0);
+    if (wr < 0)
+      err = errno ? errno : 1;
+  } else {
     wr = sendto((int)io_hand_v(f[0]), buf, n, 0, (struct sockaddr *)&dst,
                 (socklen_t)sizeof dst);
     if (wr < 0)
