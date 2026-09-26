@@ -81,10 +81,11 @@ law framer_roundtrip:
 law scroll_bounds:
   {V.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
-# LAW: body height is rows minus six chrome rows (header, tabs, borders,
-# status), with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
+# LAW: body height is rows minus five chrome rows (tabs, borders,
+# status, composer), with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
 law body_h_fits:
   {Sess.body_h_ok() == True{} : Bool}
+
 
 # LAW: M5.3 tokenize roundtrips *bold* markup.
 law tokenize_bold:

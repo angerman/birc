@@ -56,21 +56,23 @@ def dns_die(e: U32 & String) -> IO(Unit):
 
 def main_live_on(
   +frames: U32,
+  +host: String,
   +port: U32,
   +nick: String,
   +chan: String,
   r: Result<&1, &1, U32 & String, String>
 ) -> IO(Unit):
   match r:
-    case Done{+ip}:
-      Net.run_live(frames, ip, port, nick, chan)
+    case Done{_}:
+      Net.run_live(frames, host, port, nick, chan)
     case Fail{e}:
       dns_die(e)
 
 def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
   do IO<Unit>:
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    main_live_on(frames, port, nick, chan, r)
+    main_live_on(frames, host, port, nick, chan, r)
+
 
 def demo_client(+nick: String) -> IO(Cl.Client):
   do IO<Cl.Client>:

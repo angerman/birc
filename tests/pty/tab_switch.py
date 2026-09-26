@@ -70,15 +70,15 @@ def main() -> int:
             print("FAIL: 1st Shift-Left did not switch back to #birc", file=sys.stderr)
             return 1
 
-        # Test 3: Mouse click on *server* tab (col 5, row 2) ONCE
-        os.write(master, b"\x1b[<0;5;2M\x1b[<0;5;2m")
+        # Test 3: Mouse click on *server* tab (col 5, row 1) ONCE
+        os.write(master, b"\x1b[<0;5;1M\x1b[<0;5;1m")
         out3 = drain(master, 0.5)
         if b"Welcome to the birc IRC Network me" not in out3:
             print("FAIL: 1st mouse click did not switch to server buffer", file=sys.stderr)
             return 1
 
-        # Test 4: Mouse click on #birc tab (col 15, row 2) ONCE
-        os.write(master, b"\x1b[<0;15;2M\x1b[<0;15;2m")
+        # Test 4: Mouse click on #birc tab (col 15, row 1) ONCE
+        os.write(master, b"\x1b[<0;15;1M\x1b[<0;15;1m")
         out4 = drain(master, 0.5)
         if b"alice" not in out4:
             print("FAIL: 1st mouse click did not switch back to #birc", file=sys.stderr)
