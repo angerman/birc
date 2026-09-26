@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Pty test verifying tab switching via Shift-Left/Right and mouse click works on the first press/click.
+"""Pty test verifying dynamic window resize expands and shrinks the UI properly.
 
-Prior to fix, on_key painted before reading input without a follow-up redraw,
-requiring two key presses or two mouse clicks to observe channel switches.
+Tests both grow and shrink, verifying that composer and status bar are dynamically
+repositioned to the bottom rows and redraw cleanly.
 
-usage: tab_switch.py ./build/birc
+usage: resize.py ./build/birc
 """
 from __future__ import annotations
 
@@ -50,38 +50,30 @@ def main() -> int:
     os.close(slave)
 
     try:
-        # Drain initial paint
+        # Drain initial paint (24x80)
         init_out = drain(master, 1.0)
         if b"#birc" not in init_out:
             print("FAIL: initial screen missing #birc", file=sys.stderr)
             return 1
 
-        # Test 1: Shift-Right ONCE must switch to server buffer
-        os.write(master, b"\x1b[1;2C")
-        out1 = drain(master, 0.5)
-        if b"Welcome to the birc IRC Network me" not in out1:
-            print("FAIL: 1st Shift-Right did not switch to server buffer", file=sys.stderr)
+        # Test 1: Expand to 35 rows, 120 cols
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 120, 0, 0))
+        proc.send_signal(28)  # SIGWINCH
+        out_expand = drain(master, 1.0)
+
+        # In 35 rows: status is row 34, composer is row 35
+        if b"\x1b[35;" not in out_expand or b"\x1b[34;" not in out_expand:
+            print("FAIL: expand to 35 rows did not position UI at rows 34-35", file=sys.stderr)
             return 1
 
-        # Test 2: Shift-Left ONCE must switch back to #birc
-        os.write(master, b"\x1b[1;2D")
-        out2 = drain(master, 0.5)
-        if b"alice" not in out2:
-            print("FAIL: 1st Shift-Left did not switch back to #birc", file=sys.stderr)
-            return 1
+        # Test 2: Shrink to 18 rows, 60 cols
+        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 18, 60, 0, 0))
+        proc.send_signal(28)  # SIGWINCH
+        out_shrink = drain(master, 1.0)
 
-        # Test 3: Mouse click on *server* tab (col 5, row 1) ONCE
-        os.write(master, b"\x1b[<0;5;1M\x1b[<0;5;1m")
-        out3 = drain(master, 0.5)
-        if b"Welcome to the birc IRC Network me" not in out3:
-            print("FAIL: 1st mouse click did not switch to server buffer", file=sys.stderr)
-            return 1
-
-        # Test 4: Mouse click on #birc tab (col 15, row 1) ONCE
-        os.write(master, b"\x1b[<0;15;1M\x1b[<0;15;1m")
-        out4 = drain(master, 0.5)
-        if b"alice" not in out4:
-            print("FAIL: 1st mouse click did not switch back to #birc", file=sys.stderr)
+        # In 18 rows: status is row 17, composer is row 18
+        if b"\x1b[18;" not in out_shrink or b"\x1b[17;" not in out_shrink:
+            print("FAIL: shrink to 18 rows did not position UI at rows 17-18", file=sys.stderr)
             return 1
 
         # Clean exit
@@ -91,7 +83,7 @@ def main() -> int:
             print(f"FAIL: exit code {proc.returncode}", file=sys.stderr)
             return 1
 
-        print("tab_switch=ok")
+        print("resize=ok")
         return 0
     finally:
         if proc.poll() is None:

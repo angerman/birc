@@ -17,6 +17,7 @@
 typedef struct {
   char composer[512];
   TimuiTextAreaState st;
+  int last_tab;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
@@ -56,6 +57,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   if (!st) return io_fail(e, 1u, "timui_open failed");
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
+  st->last_tab = -1;
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
               TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
@@ -191,6 +193,8 @@ typedef struct {
   TimuiStyle border;
   TimuiRect root;
   uint32_t *click;
+  BircUi *bu;
+  Timui *ui;
 } BircLay;
 static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
@@ -236,6 +240,12 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     if (ntabs > 0 && sel >= ntabs)
       sel = ntabs - 1;
     orig = sel;
+    if (ly && ly->bu && ly->ui) {
+      if (ly->bu->last_tab >= 0 && ly->bu->last_tab != orig) {
+        timui_full_redraw(ly->ui);
+      }
+      ly->bu->last_tab = orig;
+    }
     if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
     if (ly && sel != orig && sel >= 0 && sel < ntabs)
@@ -321,6 +331,22 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     birc_drop_ops(e, ops);
     return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
+  {
+    int check_fd = -1;
+    if (ui->fd.write_fd >= 0 && isatty(ui->fd.write_fd))
+      check_fd = ui->fd.write_fd;
+    else if (ui->fd.read_fd >= 0 && isatty(ui->fd.read_fd))
+      check_fd = ui->fd.read_fd;
+    if (check_fd >= 0) {
+      int tw = 0, th = 0, px_w = 0, px_h = 0;
+      if (timui_term_size_pixels(check_fd, &tw, &th, &px_w, &px_h) == TIMUI_OK) {
+        if (tw > 0 && th > 0 && (tw != ui->w || th != ui->h)) {
+          if (timui_ui_resize_pixels(ui, tw, th, px_w, px_h) == TIMUI_OK)
+            timui_full_redraw(ui);
+        }
+      }
+    }
+  }
   if (!timui_begin(ui, &fr)) {
     free(input);
     birc_drop_ops(e, ops);
@@ -341,6 +367,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     ly.border = border;
     ly.root = root;
     ly.click = &click;
+    ly.bu = bu;
+    ly.ui = ui;
     timui_draw_fill(buf, root, panel);
     birc_draw_ops(e, fr, ops, &ly);
     if (seed != 0 && bu) {

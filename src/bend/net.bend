@@ -89,8 +89,9 @@ def paint_go(
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _}:
       paint_go(ui, cl, draft, net, seed, size)
+
 
 def outs_nil(+xs: List<&2, String>) -> Bool:
   match xs:
@@ -154,8 +155,9 @@ def apply_pol(
   pol: Sess.KeyPol
 ) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match pol:
-    case Sess.KeyPol{tab, up, dn, hist, quit}:
-      apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist)), rows, cols), T.flag_on(quit), more)
+    case Sess.KeyPol{tab, up, dn, hist, quit, comp}:
+      apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp)), rows, cols), T.flag_on(quit), more)
+
 
 def apply_frame(
   got: T.Ui & T.UiKeys,
@@ -381,13 +383,14 @@ def apply_pack(
 ) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   (ui, st, cmd, halt, more)
 
-def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool) -> Bool:
+def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32) -> Bool:
   Bool.or(enter,
   Bool.or(Bool.not(U32.is_zero(tab)),
   Bool.or(Bool.not(U32.is_zero(click)),
   Bool.or(Bool.not(U32.is_zero(up)),
   Bool.or(Bool.not(U32.is_zero(dn)),
-          Bool.not(U32.is_zero(hist)))))))
+  Bool.or(Bool.not(U32.is_zero(hist)),
+          Bool.not(U32.is_zero(comp))))))))
 
 # When keys or clicks alter the view (switching tabs, clicking channels,
 # scrolling, recalling history, or submitting lines), an immediate second
@@ -475,12 +478,13 @@ def on_key.pol(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pol:
-    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit}:
+    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp}:
       on_key.check(
-        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit}),
-        pol_hot(tab, click, up, dn, hist, enter),
+        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp}),
+        pol_hot(tab, click, up, dn, hist, enter, comp),
         evt, cmd, ack, gen, frames, k
       )
+
 
 def on_key.keys(
   ui: T.Ui,

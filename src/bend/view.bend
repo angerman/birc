@@ -19,7 +19,8 @@ type DrawOp is Data:
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
 
 type Lay is Data:
-  Lay{header: Rect, tabs: Rect, body: Rect, nicks: Rect, status: Rect}
+  Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}
+
 
 type ViewModel is Data:
   ViewModel{ops: List<&2, DrawOp>, input: String}
@@ -493,10 +494,24 @@ def active_buf.on(+got: Maybe<&2, Cl.Buffer>) -> Cl.Buffer:
     case None{}:
       Cl.server_buf()
 
-def header_of.buf(+nick: String, +server: String, +b: Cl.Buffer, +net: String) -> String:
-  match b:
-    case Cl.Buffer{+name, _, +topic, _, _, _}:
-      nick ++ "@" ++ server ++ " · " ++ name ++ " · " ++ net
+def user_host_label.empty(+base: String, +net: String, empty: Bool) -> String:
+  match empty:
+    case True{}:
+      base
+    case False{}:
+      base ++ " · " ++ net
+
+def user_host_label.on(+base: String, +net: String, is_online: Bool) -> String:
+  match is_online:
+    case True{}:
+      base
+    case False{}:
+      user_host_label.empty(base, net, String.is_empty(net))
+
+def user_host_label(+nick: String, +server: String, +net: String) -> String:
+  +base = nick ++ "@" ++ server
+  user_host_label.on(base, net, String.eq(net, "online"))
+
 
 def span_op(sp: TextSpan) -> SpanOp:
   match sp:
@@ -565,10 +580,13 @@ def line_ops_go(
       OpText{x, y, ts_w(w), FG_DIM(), 0, ts}
         <> (OpLine{U32.add(x, line_shift(w)), y, line_rest(w), fg, spans} <> Nil{})
 
-def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
+def line_ops_at_ts(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool) -> List<&2, DrawOp>:
   match ln:
     case Cl.Line{+k, +ts, +text}:
-      line_ops_go(x, y, w, style_of(k), ts, span_ops(tokenize(text)), String.is_empty(ts))
+      line_ops_go(x, y, w, style_of(k), ts, span_ops(tokenize(text)), Bool.not(show_ts) || String.is_empty(ts))
+
+def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
+  line_ops_at_ts(x, y, w, ln, True{})
 
 def line_ops(+ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at(0, 0, 40, ln)
@@ -700,7 +718,7 @@ def tab_names_ok.head(xs: List<&2, String>) -> Bool:
 
 def tab_names_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _}:
       tab_names_ok.head(tab_names(bufs))
 
 def tab_names_ok() -> Bool:
@@ -730,23 +748,23 @@ def status_y(+rows: U32) -> U32:
   status_y.on(rows, U32.is_ge(rows, 2))
 
 # Body last occupied row is y+h-1. Keep y+h <= status_y so the box never
-# reaches the status (or composer) row. Prefer y=2 when there is room.
+# reaches the status (or composer) row. Prefer y=1 (row 0 is tabs bar).
 def body_top.small(+end: U32, ge: Bool) -> U32:
   match ge:
     case True{}:
-      U32.sub(end, 1)
+      1
     case False{}:
       0
 
 def body_top.on(+end: U32, room: Bool) -> U32:
   match room:
     case True{}:
-      2
+      1
     case False{}:
       body_top.small(end, U32.is_ge(end, 1))
 
 def body_top(+end: U32) -> U32:
-  body_top.on(end, U32.is_gt(end, 2))
+  body_top.on(end, U32.is_gt(end, 1))
 
 def body_box_h.on(+end: U32, +top: U32, gt: Bool) -> U32:
   match gt:
@@ -768,18 +786,42 @@ def nick_w.on(+cols: U32, +mid: U32, ge: Bool) -> U32:
 def nick_w(+cols: U32, +mid: U32) -> U32:
   nick_w.on(cols, mid, U32.is_ge(cols, mid))
 
-def lay(+rows: U32, +cols: U32) -> Lay:
+def user_w(+s: String) -> U32:
+  U32.from_nat(String.length(s))
+
+def tabs_w.on(+cols: U32, +uw: U32, room: Bool) -> U32:
+  match room:
+    case True{}:
+      U32.sub(cols, U32.add(uw, 2))
+    case False{}:
+      cols
+
+def tabs_w(+cols: U32, +uw: U32) -> U32:
+  tabs_w.on(cols, uw, U32.is_ge(cols, U32.add(uw, 12)))
+
+def user_rect.on(+cols: U32, +uw: U32, room: Bool) -> Rect:
+  match room:
+    case True{}:
+      Rect{U32.sub(U32.sub(cols, uw), 1), 0, uw, 1}
+    case False{}:
+      Rect{0, 0, 0, 0}
+
+def user_rect(+cols: U32, +uw: U32) -> Rect:
+  user_rect.on(cols, uw, U32.is_ge(cols, U32.add(uw, 12)))
+
+def lay(+rows: U32, +cols: U32, +uw: U32) -> Lay:
   +mid = mid_w(cols)
   +sy = status_y(rows)
   +top = body_top(sy)
   +bh = body_box_h(sy, top)
   Lay{
-    Rect{0, 0, cols, 1},
-    Rect{0, 1, cols, 1},
+    Rect{0, 0, tabs_w(cols, uw), 1},
+    user_rect(cols, uw),
     Rect{0, top, mid, bh},
     Rect{mid, top, nick_w(cols, mid), bh},
     Rect{0, sy, cols, 1}
   }
+
 
 def inner_x(+x: U32) -> U32:
   U32.add(x, 1)
@@ -841,7 +883,8 @@ def last_body_row.of(lay0: Lay) -> U32:
       last_body_row.box(br)
 
 def last_body_row(+rows: U32) -> U32:
-  last_body_row.of(lay(rows, 80))
+  last_body_row.of(lay(rows, 80, 0))
+
 
 def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
   match ge:
@@ -880,18 +923,18 @@ def op_tabs(r: Rect, +sel: U32, +names: List<&2, String>) -> DrawOp:
     case Rect{x, y, w, _}:
       OpTabs{x, y, w, sel, names}
 
-def body_ops.go(xs: List<&2, Cl.Line>, +x: U32, +y: U32, +w: U32) -> List<&2, DrawOp>:
+def body_ops.go(xs: List<&2, Cl.Line>, +x: U32, +y: U32, +w: U32, +show_ts: Bool) -> List<&2, DrawOp>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{+h, t}:
-      List.append(&2, DrawOp, line_ops_at(x, y, w, h), body_ops.go(t, x, U32.add(y, 1), w))
+      List.append(&2, DrawOp, line_ops_at_ts(x, y, w, h, show_ts), body_ops.go(t, x, U32.add(y, 1), w, show_ts))
 
-def body_ops(r: Rect, +xs: List<&2, Cl.Line>) -> List<&2, DrawOp>:
+def body_ops(r: Rect, +xs: List<&2, Cl.Line>, +show_ts: Bool) -> List<&2, DrawOp>:
   match r:
     case Rect{x, y, w, h}:
       +n = U32.from_nat(List.length(&2, Cl.Line, xs))
-      body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w))
+      body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w), show_ts)
 
 def nick_ops.go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32) -> List<&2, DrawOp>:
   match xs:
@@ -924,38 +967,41 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
     case Rect{x, y, +w, h}:
       nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
 
-def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, body_ops(br, bod),
+def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
+  List.append(&2, DrawOp, body_ops(br, bod, show_ts),
     List.append(&2, DrawOp, nick_ops(nr, title, nicks),
       op_text(sr, FG_DIM(), st) <> Nil{}))
 
 def view_ops(
   lay0: Lay,
-  +h: String,
+  +uh: String,
   +active: Nat,
   +names: List<&2, String>,
   +bod: List<&2, Cl.Line>,
   +btitle: String,
   +ntitle: String,
   +nicks: List<&2, String>,
-  +st: String
+  +st: String,
+  +show_ts: Bool
 ) -> List<&2, DrawOp>:
   match lay0:
-    case Lay{hr, tr, +br, nr, sr}:
+    case Lay{tr, ur, +br, nr, sr}:
       List.append(&2, DrawOp,
-        op_text(hr, FG_TEXT(), h)
-          <> op_tabs(tr, U32.from_nat(active), names)
+        op_tabs(tr, U32.from_nat(active), names)
+          <> op_text(ur, FG_DIM(), uh)
           <> body_box(br, btitle),
-        view_ops.rest(br, bod, nr, ntitle, nicks, sr, st))
+        view_ops.rest(br, bod, nr, ntitle, nicks, sr, st, show_ts))
 
 def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
-      h bod = header_of.buf(nick, server, b, net) body_of.buf(b, vis_h(rows))
+      +uh = user_host_label(nick, server, net)
+      bod = body_of.buf(b, vis_h(rows))
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols), h, active, tab_names(bufs), bod, bt, nt, ns, status_of.buf(b)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols, user_w(uh)), uh, active, tab_names(bufs), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+
 
 def dummy_line(+i: Nat) -> Cl.Line:
   Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i)}
@@ -968,7 +1014,7 @@ def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       dummy_line(i) <> dummy_lines.go(p, 1n+i)
 
 def dummy_cl(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, ""}
+  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, "", Cl.settings0()}
 
 def body_line_ys.go(ops: List<&2, DrawOp>) -> List<&2, U32>:
   match ops:
@@ -1045,8 +1091,9 @@ def body_ys_ok() -> Bool:
     && body_ys_case(6, 8n)
     && body_ys_case(7, 8n)
     && body_ys_case(8, 8n)
-    && lay_body_ok(lay(4, 80), 1, 1, 2)
-    && lay_body_ok(lay(24, 80), 2, 20, 22)
+    && lay_body_ok(lay(4, 80, 0), 1, 1, 2)
+    && lay_body_ok(lay(24, 80, 0), 1, 21, 22)
+
     && ys_clear_chrome(4)
     && ys_clear_chrome(5)
     && ys_clear_chrome(6)

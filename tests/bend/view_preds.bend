@@ -117,7 +117,7 @@ def tab_collide.labs(xs: List<&2, String>) -> Bool:
 
 def tab_collide_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _}:
       tab_collide.labs(V.tab_names(bufs))
 
 def tab_collide_ok() -> Bool:

@@ -48,7 +48,7 @@ def skip_slash(+s: String) -> String:
 
 def active_idx(+cl: Cl.Client) -> Nat:
   match cl:
-    case Cl.Client{_, _, _, +active, _}:
+    case Cl.Client{_, _, _, +active, _, _}:
       active
 
 def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
@@ -62,21 +62,24 @@ def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
 
 def active_name(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, +active, _}:
+    case Cl.Client{_, _, +bufs, +active, _, _}:
       active_name.on(Cl.nth_buf(bufs, active))
 
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _}:
       Cl.client_log(cl, bi, Cl.Self{}, Feed.fmt_msg(nick, body))
 
 def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _}:
       Cl.client_log(cl, bi, Cl.Action{}, Feed.fmt_action(nick, body))
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, active_idx(cl), Cl.Error{}, msg)
+
+def echo_info(+cl: Cl.Client, +msg: String) -> Cl.Client:
+  Cl.client_log(cl, active_idx(cl), Cl.System{}, msg)
 
 def echo_sys(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, 0n, Cl.System{}, msg)
@@ -91,7 +94,7 @@ def submit_join.got.on(+cl2: Cl.Client, +bi: Nat, +rest: String, +nick: String) 
 
 def submit_join.got.cl(+cl2: Cl.Client, +bi: Nat, +rest: String) -> Cl.Client & List<&2, String>:
   match cl2:
-    case Cl.Client{+nick, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _}:
       submit_join.got.on(cl2, bi, rest, nick)
 
 def submit_join.got(pair: Cl.Client & Maybe<&2, Nat>, +rest: String) -> Cl.Client & List<&2, String>:
@@ -113,23 +116,15 @@ def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 
 # ---- /part --------------------------------------------------------------
 
-def submit_part.drop.fin(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
-  (Cl.drop_buf(Cl.Client{nick, server, bufs, active, now}, bi), one_out(Irc.format_part(chan)))
-
-def submit_part.drop.pick(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+def submit_part.drop.pick(+cl: Cl.Client, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
   match is_server:
     case True{}:
-      (Cl.Client{nick, server, bufs, active, now}, one_out(Irc.format_part(chan)))
+      (cl, one_out(Irc.format_part(chan)))
     case False{}:
-      submit_part.drop.fin(nick, server, bufs, active, now, chan, bi)
-
-def submit_part.drop.body(+cl: Cl.Client, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now}:
-      submit_part.drop.pick(nick, server, bufs, active, now, chan, bi, is_server)
+      (Cl.drop_buf(cl, bi), one_out(Irc.format_part(chan)))
 
 def submit_part.drop(+cl: Cl.Client, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
-  submit_part.drop.body(cl, chan, bi, Nat.is_eq(bi, 0n))
+  submit_part.drop.pick(cl, chan, bi, Nat.is_eq(bi, 0n))
 
 def submit_part.on(+cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.Client & List<&2, String>:
   match found:
@@ -345,6 +340,197 @@ def connect_parse.words(pair: String & String) -> Conn:
 def connect_parse(+rest: String) -> Conn:
   connect_parse.words(take_word(Irc.drop_spaces(rest)))
 
+# ---- /settings, /set, /toggle -------------------------------------------
+
+def bool_str(b: Bool) -> String:
+  match b:
+    case True{}:
+      "ON"
+    case False{}:
+      "OFF"
+
+def populate_settings(+cl: Cl.Client, +bi: Nat) -> Cl.Client:
+  +stg = Cl.get_settings(cl)
+  +c1 = Cl.buf_clear_at(cl, bi)
+  +c2 = Cl.client_log(c1, bi, Cl.System{}, "=== BIRC SETTINGS ===")
+  +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins  : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
+  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts     : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
+  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd   : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
+  +c6 = Cl.client_log(c5, bi, Cl.System{}, "")
+  +c7 = Cl.client_log(c6, bi, Cl.System{}, "Commands:")
+  +c8 = Cl.client_log(c7, bi, Cl.System{}, "  /set <setting> <on|off>   — change a setting")
+  +c9 = Cl.client_log(c8, bi, Cl.System{}, "  /toggle <setting>         — toggle a setting")
+  Cl.client_log(c9, bi, Cl.System{}, "  /close                    — close settings buffer")
+
+def refresh_settings_if_open.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> Cl.Client:
+  match found:
+    case None{}:
+      cl
+    case Some{+bi}:
+      populate_settings(cl, bi)
+
+def refresh_settings_if_open(+cl: Cl.Client) -> Cl.Client:
+  refresh_settings_if_open.found(cl, Cl.buf_find(cl, "*settings*"))
+
+def submit_settings.got(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
+      (populate_settings(Cl.set_active(cl2, bi), bi), empty_out())
+
+def submit_settings(+cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  submit_settings.got(Cl.buf_get(cl, "*settings*", False{}, True{}))
+
+type SettingKey is Data:
+  KeyJoins{}
+  KeyTs{}
+  KeyMotd{}
+  KeyBad{}
+
+def parse_key.motd(hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyMotd{}
+    case False{}:
+      KeyBad{}
+
+def parse_key.ts(+s: String, hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyTs{}
+    case False{}:
+      parse_key.motd(Irc.ieq(s, "motd"))
+
+def parse_key.joins(+s: String, hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyJoins{}
+    case False{}:
+      parse_key.ts(s, Irc.ieq(s, "ts") || Irc.ieq(s, "timestamp") || Irc.ieq(s, "timestamps"))
+
+def parse_key(+s: String) -> SettingKey:
+  parse_key.joins(s, Irc.ieq(s, "joins") || Irc.ieq(s, "join"))
+
+def is_bool_true(+s: String) -> Bool:
+  Irc.ieq(s, "on") || Irc.ieq(s, "true") || Irc.ieq(s, "yes") || Irc.ieq(s, "1")
+
+def is_bool_false(+s: String) -> Bool:
+  Irc.ieq(s, "off") || Irc.ieq(s, "false") || Irc.ieq(s, "no") || Irc.ieq(s, "0")
+
+def parse_bool.false(hit: Bool) -> Maybe<&2, Bool>:
+  match hit:
+    case True{}:
+      Some{False{}}
+    case False{}:
+      None{}
+
+def parse_bool.true(+s: String, hit: Bool) -> Maybe<&2, Bool>:
+  match hit:
+    case True{}:
+      Some{True{}}
+    case False{}:
+      parse_bool.false(is_bool_false(s))
+
+def parse_bool(+s: String) -> Maybe<&2, Bool>:
+  parse_bool.true(s, is_bool_true(s))
+
+def apply_set_key.joins(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_joins(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'joins' is now " ++ bool_str(b)), empty_out())
+
+def apply_set_key.ts(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_ts(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'ts' is now " ++ bool_str(b)), empty_out())
+
+def apply_set_key.motd(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_motd(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'motd' is now " ++ bool_str(b)), empty_out())
+
+def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  match k:
+    case KeyJoins{}:
+      apply_set_key.joins(cl, b)
+    case KeyTs{}:
+      apply_set_key.ts(cl, b)
+    case KeyMotd{}:
+      apply_set_key.motd(cl, b)
+    case KeyBad{}:
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd)"), empty_out())
+
+def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  match k:
+    case KeyJoins{}:
+      apply_set_key.joins(cl, Bool.not(Cl.settings_joins(Cl.get_settings(cl))))
+    case KeyTs{}:
+      apply_set_key.ts(cl, Bool.not(Cl.settings_ts(Cl.get_settings(cl))))
+    case KeyMotd{}:
+      apply_set_key.motd(cl, Bool.not(Cl.settings_motd(Cl.get_settings(cl))))
+    case KeyBad{}:
+      (echo_err(cl, "usage: /toggle <joins|ts|motd>"), empty_out())
+
+def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  match k:
+    case KeyJoins{}:
+      (echo_info(cl, "joins is " ++ bool_str(Cl.settings_joins(Cl.get_settings(cl)))), empty_out())
+    case KeyTs{}:
+      (echo_info(cl, "ts is " ++ bool_str(Cl.settings_ts(Cl.get_settings(cl)))), empty_out())
+    case KeyMotd{}:
+      (echo_info(cl, "motd is " ++ bool_str(Cl.settings_motd(Cl.get_settings(cl)))), empty_out())
+    case KeyBad{}:
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd)"), empty_out())
+
+def submit_set.parsed(mb: Maybe<&2, Bool>, k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  match mb:
+    case None{}:
+      (echo_err(cl, "invalid value: expected on|off"), empty_out())
+    case Some{+b}:
+      apply_set_key(k, cl, b)
+
+def submit_set.val(+cl: Cl.Client, +key: String, +val: String, empty_val: Bool) -> Cl.Client & List<&2, String>:
+  match empty_val:
+    case True{}:
+      show_setting_key(parse_key(key), cl)
+    case False{}:
+      submit_set.parsed(parse_bool(val), parse_key(key), cl)
+
+def submit_set.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+key, +val_raw):
+      +val = Irc.drop_spaces(val_raw)
+      submit_set.val(cl, key, val, String.is_empty(val))
+
+def submit_set.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      submit_settings(cl)
+    case False{}:
+      submit_set.words(cl, take_word(rest))
+
+def submit_set(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_set.empty(cl, rest, String.is_empty(rest))
+
+def submit_toggle.word(+cl: Cl.Client, +key: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /toggle <joins|ts|motd>"), empty_out())
+    case False{}:
+      apply_toggle_key(parse_key(key), cl)
+
+def submit_toggle.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+key, _):
+      submit_toggle.word(cl, key, String.is_empty(key))
+
+def submit_toggle(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_toggle.words(cl, take_word(Irc.drop_spaces(rest)))
+
 type Slash is Data:
   Join{}
   Part{}
@@ -353,13 +539,26 @@ type Slash is Data:
   Nick{}
   Me{}
   Quit{}
+  SettingsCmd{}
+  SetCmd{}
+  ToggleCmd{}
   Unknown{}
 
 type SlashRow is Data:
   SlashRow{name: String, cmd: Slash}
 
 def slash_rows() -> List<&2, SlashRow>:
-  SlashRow{"join", Join{}} <> SlashRow{"part", Part{}} <> SlashRow{"close", Close{}} <> SlashRow{"msg", Msg{}} <> SlashRow{"nick", Nick{}} <> SlashRow{"me", Me{}} <> SlashRow{"quit", Quit{}} <> Nil{}
+  SlashRow{"join", Join{}}
+    <> SlashRow{"part", Part{}}
+    <> SlashRow{"close", Close{}}
+    <> SlashRow{"msg", Msg{}}
+    <> SlashRow{"nick", Nick{}}
+    <> SlashRow{"me", Me{}}
+    <> SlashRow{"quit", Quit{}}
+    <> SlashRow{"settings", SettingsCmd{}}
+    <> SlashRow{"set", SetCmd{}}
+    <> SlashRow{"toggle", ToggleCmd{}}
+    <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
   match xs:
@@ -389,6 +588,12 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_me(cl, rest)
     case Quit{}:
       submit_quit(cl, rest)
+    case SettingsCmd{}:
+      submit_settings(cl)
+    case SetCmd{}:
+      submit_set(cl, rest)
+    case ToggleCmd{}:
+      submit_toggle(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 

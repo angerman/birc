@@ -30,6 +30,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
+        test-pty-tabswitch test-pty-resize test-pty-settings \
         lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
 
@@ -240,7 +241,13 @@ test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (not
 test-pty-tabswitch: build-ui ## Pty: 1-press / 1-click tab switching.
 	$(NIXRUN) python3 tests/pty/tab_switch.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch ## Pty loop tests.
+test-pty-resize: build-ui ## Pty: dynamic window resize expand and shrink.
+	$(NIXRUN) python3 tests/pty/resize.py ./$(BLDDIR)/birc
+
+test-pty-settings: build-ui ## Pty: /settings panel, /set, and /toggle commands.
+	$(NIXRUN) python3 tests/pty/settings.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-resize test-pty-settings ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""Pty test verifying tab switching via Shift-Left/Right and mouse click works on the first press/click.
+"""Pty test verifying /settings panel, /set, and /toggle commands.
 
-Prior to fix, on_key painted before reading input without a follow-up redraw,
-requiring two key presses or two mouse clicks to observe channel switches.
-
-usage: tab_switch.py ./build/birc
+usage: settings.py ./build/birc
 """
 from __future__ import annotations
 
@@ -56,32 +53,35 @@ def main() -> int:
             print("FAIL: initial screen missing #birc", file=sys.stderr)
             return 1
 
-        # Test 1: Shift-Right ONCE must switch to server buffer
-        os.write(master, b"\x1b[1;2C")
-        out1 = drain(master, 0.5)
-        if b"Welcome to the birc IRC Network me" not in out1:
-            print("FAIL: 1st Shift-Right did not switch to server buffer", file=sys.stderr)
+        # Test 1: Open /settings panel
+        os.write(master, b"/settings\r")
+        out1 = drain(master, 0.8)
+        if b"*settings*" not in out1 or b"=== BIRC SETTINGS ===" not in out1:
+            print("FAIL: /settings did not open settings panel", file=sys.stderr)
+            return 1
+        if b"joins" not in out1 or b"ON" not in out1:
+            print("FAIL: settings panel missing joins: ON", file=sys.stderr)
             return 1
 
-        # Test 2: Shift-Left ONCE must switch back to #birc
-        os.write(master, b"\x1b[1;2D")
-        out2 = drain(master, 0.5)
-        if b"alice" not in out2:
-            print("FAIL: 1st Shift-Left did not switch back to #birc", file=sys.stderr)
+        # Test 2: Turn off joins with /set joins off
+        os.write(master, b"/set joins off\r")
+        out2 = drain(master, 0.8)
+        if b"OFF" not in out2:
+            print("FAIL: /set joins off did not update setting to OFF", file=sys.stderr)
             return 1
 
-        # Test 3: Mouse click on *server* tab (col 5, row 1) ONCE
-        os.write(master, b"\x1b[<0;5;1M\x1b[<0;5;1m")
-        out3 = drain(master, 0.5)
-        if b"Welcome to the birc IRC Network me" not in out3:
-            print("FAIL: 1st mouse click did not switch to server buffer", file=sys.stderr)
+        # Test 3: Toggle timestamps with /toggle ts
+        os.write(master, b"/toggle ts\r")
+        out3 = drain(master, 0.8)
+        if b"setting 'ts' is now OFF" not in out3 and b"OFF" not in out3:
+            print("FAIL: /toggle ts did not toggle ts to OFF", file=sys.stderr)
             return 1
 
-        # Test 4: Mouse click on #birc tab (col 15, row 1) ONCE
-        os.write(master, b"\x1b[<0;15;1M\x1b[<0;15;1m")
-        out4 = drain(master, 0.5)
-        if b"alice" not in out4:
-            print("FAIL: 1st mouse click did not switch back to #birc", file=sys.stderr)
+        # Test 4: Close settings buffer with /close
+        os.write(master, b"/close\r")
+        out4 = drain(master, 0.8)
+        if b"*settings*" in out4 and b"#birc" not in out4:
+            print("FAIL: /close did not leave settings buffer", file=sys.stderr)
             return 1
 
         # Clean exit
@@ -91,7 +91,7 @@ def main() -> int:
             print(f"FAIL: exit code {proc.returncode}", file=sys.stderr)
             return 1
 
-        print("tab_switch=ok")
+        print("settings=ok")
         return 0
     finally:
         if proc.poll() is None:
