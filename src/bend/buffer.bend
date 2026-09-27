@@ -34,40 +34,63 @@ type Buffer is Data:
   }
 
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32}
 
 def settings0() -> Settings:
-  Settings{True{}, True{}, True{}}
+  Settings{True{}, True{}, True{}, True{}, 100}
+
+def settings_with_cap(cap: U32) -> Settings:
+  Settings{True{}, True{}, True{}, True{}, cap}
 
 def settings_joins(+s: Settings) -> Bool:
   match s:
-    case Settings{joins, _, _}:
+    case Settings{joins, _, _, _, _}:
       joins
 
 def settings_ts(+s: Settings) -> Bool:
   match s:
-    case Settings{_, ts, _}:
+    case Settings{_, ts, _, _, _}:
       ts
 
 def settings_motd(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, motd}:
+    case Settings{_, _, motd, _, _}:
       motd
+
+def settings_history(+s: Settings) -> Bool:
+  match s:
+    case Settings{_, _, _, history, _}:
+      history
+
+def settings_hist_cap(+s: Settings) -> U32:
+  match s:
+    case Settings{_, _, _, _, cap}:
+      cap
 
 def set_joins(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{_, ts, motd}:
-      Settings{val, ts, motd}
+    case Settings{_, ts, motd, history, cap}:
+      Settings{val, ts, motd, history, cap}
 
 def set_ts(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, _, motd}:
-      Settings{joins, val, motd}
+    case Settings{joins, _, motd, history, cap}:
+      Settings{joins, val, motd, history, cap}
 
 def set_motd(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, _}:
-      Settings{joins, ts, val}
+    case Settings{joins, ts, _, history, cap}:
+      Settings{joins, ts, val, history, cap}
+
+def set_history(+s: Settings, val: Bool) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, _, cap}:
+      Settings{joins, ts, motd, val, cap}
+
+def set_hist_cap(+s: Settings, val: U32) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, _}:
+      Settings{joins, ts, motd, history, val}
 
 type Client is Data:
   Client{
@@ -86,6 +109,9 @@ def server_buf() -> Buffer:
 
 def init(+nick: String, +server: String) -> Client:
   Client{nick, server, server_buf() <> Nil{}, 0n, "", settings0()}
+
+def init_with_cap(+nick: String, +server: String, cap: U32) -> Client:
+  Client{nick, server, server_buf() <> Nil{}, 0n, "", settings_with_cap(cap)}
 
 def get_settings(+cl: Client) -> Settings:
   match cl:
@@ -244,6 +270,11 @@ def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, buf_log_at(kind, now, text)), active, now, stg}
+
+def buf_modify_client(+cl: Client, +i: Nat, f: Buffer -> Buffer) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg}:
+      Client{nick, server, buf_modify(bufs, i, f), active, now, stg}
 
 def set_now(+cl: Client, +ts: String) -> Client:
   match cl:

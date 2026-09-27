@@ -353,14 +353,16 @@ def populate_settings(+cl: Cl.Client, +bi: Nat) -> Cl.Client:
   +stg = Cl.get_settings(cl)
   +c1 = Cl.buf_clear_at(cl, bi)
   +c2 = Cl.client_log(c1, bi, Cl.System{}, "=== BIRC SETTINGS ===")
-  +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins  : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
-  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts     : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
-  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd   : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
-  +c6 = Cl.client_log(c5, bi, Cl.System{}, "")
-  +c7 = Cl.client_log(c6, bi, Cl.System{}, "Commands:")
-  +c8 = Cl.client_log(c7, bi, Cl.System{}, "  /set <setting> <on|off>   — change a setting")
-  +c9 = Cl.client_log(c8, bi, Cl.System{}, "  /toggle <setting>         — toggle a setting")
-  Cl.client_log(c9, bi, Cl.System{}, "  /close                    — close settings buffer")
+  +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins    : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
+  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts       : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
+  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd     : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
+  +c6 = Cl.client_log(c5, bi, Cl.System{}, "  history  : " ++ bool_str(Cl.settings_history(stg)) ++ "  (persist chat scrollback to disk)")
+  +c7 = Cl.client_log(c6, bi, Cl.System{}, "  hist_cap : " ++ U32.show(Cl.settings_hist_cap(stg)) ++ "  (lines of history per channel/server)")
+  +c8 = Cl.client_log(c7, bi, Cl.System{}, "")
+  +c9 = Cl.client_log(c8, bi, Cl.System{}, "Commands:")
+  +c10 = Cl.client_log(c9, bi, Cl.System{}, "  /set <setting> <value>    — change a setting")
+  +c11 = Cl.client_log(c10, bi, Cl.System{}, "  /toggle <setting>         — toggle a boolean setting")
+  Cl.client_log(c11, bi, Cl.System{}, "  /close                    — close settings buffer")
 
 def refresh_settings_if_open.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> Cl.Client:
   match found:
@@ -386,21 +388,37 @@ type SettingKey is Data:
   KeyJoins{}
   KeyTs{}
   KeyMotd{}
+  KeyHist{}
+  KeyHistCap{}
   KeyBad{}
 
-def parse_key.motd(hit: Bool) -> SettingKey:
+def parse_key.cap(hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyHistCap{}
+    case False{}:
+      KeyBad{}
+
+def parse_key.hist(+s: String, hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyHist{}
+    case False{}:
+      parse_key.cap(Irc.ieq(s, "hist_cap") || Irc.ieq(s, "histcap") || Irc.ieq(s, "lines") || Irc.ieq(s, "history_cap"))
+
+def parse_key.motd(+s: String, hit: Bool) -> SettingKey:
   match hit:
     case True{}:
       KeyMotd{}
     case False{}:
-      KeyBad{}
+      parse_key.hist(s, Irc.ieq(s, "history") || Irc.ieq(s, "hist"))
 
 def parse_key.ts(+s: String, hit: Bool) -> SettingKey:
   match hit:
     case True{}:
       KeyTs{}
     case False{}:
-      parse_key.motd(Irc.ieq(s, "motd"))
+      parse_key.motd(s, Irc.ieq(s, "motd"))
 
 def parse_key.joins(+s: String, hit: Bool) -> SettingKey:
   match hit:
@@ -453,6 +471,18 @@ def apply_set_key.motd(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>
   +cl3 = refresh_settings_if_open(cl2)
   (echo_info(cl3, "setting 'motd' is now " ++ bool_str(b)), empty_out())
 
+def apply_set_key.hist(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_history(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'history' is now " ++ bool_str(b)), empty_out())
+
+def apply_set_key.cap(+cl: Cl.Client, +cap: U32) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_hist_cap(stg, cap))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'hist_cap' is now " ++ U32.show(cap)), empty_out())
+
 def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   match k:
     case KeyJoins{}:
@@ -461,8 +491,12 @@ def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&
       apply_set_key.ts(cl, b)
     case KeyMotd{}:
       apply_set_key.motd(cl, b)
+    case KeyHist{}:
+      apply_set_key.hist(cl, b)
+    case KeyHistCap{}:
+      (echo_err(cl, "hist_cap expects a number: /set hist_cap <number>"), empty_out())
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap)"), empty_out())
 
 def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
@@ -472,8 +506,12 @@ def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
       apply_set_key.ts(cl, Bool.not(Cl.settings_ts(Cl.get_settings(cl))))
     case KeyMotd{}:
       apply_set_key.motd(cl, Bool.not(Cl.settings_motd(Cl.get_settings(cl))))
+    case KeyHist{}:
+      apply_set_key.hist(cl, Bool.not(Cl.settings_history(Cl.get_settings(cl))))
+    case KeyHistCap{}:
+      (echo_err(cl, "cannot toggle hist_cap: use /set hist_cap <number>"), empty_out())
     case KeyBad{}:
-      (echo_err(cl, "usage: /toggle <joins|ts|motd>"), empty_out())
+      (echo_err(cl, "usage: /toggle <joins|ts|motd|history>"), empty_out())
 
 def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
@@ -483,8 +521,19 @@ def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
       (echo_info(cl, "ts is " ++ bool_str(Cl.settings_ts(Cl.get_settings(cl)))), empty_out())
     case KeyMotd{}:
       (echo_info(cl, "motd is " ++ bool_str(Cl.settings_motd(Cl.get_settings(cl)))), empty_out())
+    case KeyHist{}:
+      (echo_info(cl, "history is " ++ bool_str(Cl.settings_history(Cl.get_settings(cl)))), empty_out())
+    case KeyHistCap{}:
+      (echo_info(cl, "hist_cap is " ++ U32.show(Cl.settings_hist_cap(Cl.get_settings(cl)))), empty_out())
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap)"), empty_out())
+
+def submit_set.cap(+cl: Cl.Client, mb: Maybe<&2, U32>) -> Cl.Client & List<&2, String>:
+  match mb:
+    case None{}:
+      (echo_err(cl, "invalid value: expected number (e.g. 50, 100, 200)"), empty_out())
+    case Some{cap}:
+      apply_set_key.cap(cl, cap)
 
 def submit_set.parsed(mb: Maybe<&2, Bool>, k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match mb:
@@ -493,12 +542,19 @@ def submit_set.parsed(mb: Maybe<&2, Bool>, k: SettingKey, +cl: Cl.Client) -> Cl.
     case Some{+b}:
       apply_set_key(k, cl, b)
 
+def submit_set.dispatch(k: SettingKey, +cl: Cl.Client, +val: String) -> Cl.Client & List<&2, String>:
+  match k:
+    case KeyHistCap{}:
+      submit_set.cap(cl, U32.read(val))
+    case _:
+      submit_set.parsed(parse_bool(val), k, cl)
+
 def submit_set.val(+cl: Cl.Client, +key: String, +val: String, empty_val: Bool) -> Cl.Client & List<&2, String>:
   match empty_val:
     case True{}:
       show_setting_key(parse_key(key), cl)
     case False{}:
-      submit_set.parsed(parse_bool(val), parse_key(key), cl)
+      submit_set.dispatch(parse_key(key), cl, val)
 
 def submit_set.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:

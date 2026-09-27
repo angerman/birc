@@ -775,8 +775,11 @@ type Session is Data:
 def SIZE0() -> Size:
   Size{24, 80}
 
+def session_with_client(+cl: Cl.Client, +chan: String) -> Session:
+  Session{cl, False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, comp0()}
+
 def session0(+nick: String, +host: String, +chan: String) -> Session:
-  Session{Cl.init(nick, host), False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, comp0()}
+  session_with_client(Cl.init(nick, host), chan)
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
   Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, comp0()}
@@ -785,6 +788,58 @@ def session_online(+st: Session) -> Session:
   match st:
     case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp}:
       Session{cl, drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp}
+
+def session_cl(+st: Session) -> Cl.Client:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _}:
+      cl
+
+def session_was_offline(+st: Session) -> Bool:
+  match st:
+    case Session{_, _, _, _, _, _, net, _, _, _, _}:
+      match net:
+        case Offline{}: True{}
+        case _: False{}
+
+def buf_has_lines(+b: Cl.Buffer) -> Bool:
+  match b:
+    case Cl.Buffer{_, _, _, lines, _, _}:
+      match lines:
+        case Nil{}: False{}
+        case Con{_, _}: True{}
+
+def add_recon_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffer:
+  match has:
+    case False{}: b
+    case True{}:
+      +b1 = Cl.buf_log_ts(b, Cl.System{}, "", "[...]")
+      Cl.buf_log_ts(b1, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
+
+def add_recon_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
+  add_recon_marker.has(buf_has_lines(b), b, now)
+
+def add_recon_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, t}:
+      add_recon_marker(b, now) <> add_recon_bufs(t, now)
+
+def add_recon_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
+  match cl:
+    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg}:
+      Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg}
+
+def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
+  match was_off:
+    case False{}:
+      session_online(st)
+    case True{}:
+      match st:
+        case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp}:
+          Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp}
+
+def session_reconnected(+st: Session, +now: String) -> Session:
+  session_reconnected.on(session_was_offline(st), st, now)
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:

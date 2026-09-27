@@ -7,6 +7,7 @@ import ./timui.bend as T
 import ./session.bend as Sess
 import ./clock.bend as Clock
 import ./actor.bend as Act
+import ./history.bend as Hist
 
 def shutdown_finish(ui: T.Ui) -> IO(Unit):
   do IO<Unit>:
@@ -301,7 +302,9 @@ def on_up(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_up_go(Sess.session_online(st), ui, evt, cmd, ack, gen, frames, k)
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, frames, k)
 
 def on_fail_go(
   +st2: Sess.Session,
@@ -665,6 +668,18 @@ def on_recv(
     case Some{m}:
       on_msg(m, ui, st, evt, cmd, ack, gen, frames, k)
 
+def live_step.next(
+  acc: T.Ui & Sess.Session & U32 & Bool,
+  +old_cl: Cl.Client,
+  +hist_path: String,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match acc:
+    case (ui, +new_st, gen, quit):
+      do IO<Unit>:
+        Unit <- Hist.maybe_save_history(hist_path, old_cl, Sess.session_cl(new_st))
+        k((ui, new_st, gen, quit))
+
 def live_step(
   ui: T.Ui,
   +st: Sess.Session,
@@ -674,6 +689,7 @@ def live_step(
   +gen: U32,
   +frames: U32,
   quit: Bool,
+  +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match quit:
@@ -682,7 +698,7 @@ def live_step(
     case False{}:
       do IO<Unit>:
         g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-        on_recv(g, ui, st, evt, cmd, ack, gen, frames, k)
+        on_recv(g, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, Sess.session_cl(st), hist_path, k))
 
 def live_go(
   fuel: Nat,
@@ -690,7 +706,8 @@ def live_go(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32
+  +frames: U32,
+  +hist_path: String
 ) -> IO(Unit):
   match fuel:
     case 0n:
@@ -700,7 +717,7 @@ def live_go(
     case 1n+p:
       match acc:
         case (ui, +st, gen, quit):
-          live_step(ui, st, evt, cmd, ack, gen, frames, quit, nxt => live_go(p, nxt, evt, cmd, ack, frames))
+          live_step(ui, st, evt, cmd, ack, gen, frames, quit, hist_path, nxt => live_go(p, nxt, evt, cmd, ack, frames, hist_path))
 
 @unsafe
 def live_idle(
@@ -708,18 +725,19 @@ def live_idle(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32
+  +frames: U32,
+  +hist_path: String
 ) -> IO(Unit):
   match acc:
     case (ui, +st, gen, quit):
-      live_step(ui, st, evt, cmd, ack, gen, frames, quit, nxt => live_idle(nxt, evt, cmd, ack, frames))
+      live_step(ui, st, evt, cmd, ack, gen, frames, quit, hist_path, nxt => live_idle(nxt, evt, cmd, ack, frames, hist_path))
 
-def live_boot(zero: Bool, +frames: U32, ui: T.Ui, +st: Sess.Session, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit)) -> IO(Unit):
+def live_boot(zero: Bool, +frames: U32, ui: T.Ui, +st: Sess.Session, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +hist_path: String) -> IO(Unit):
   match zero:
     case True{}:
-      live_idle((ui, st, gen, False{}), evt, cmd, ack, frames)
+      live_idle((ui, st, gen, False{}), evt, cmd, ack, frames, hist_path)
     case False{}:
-      live_go(Sess.ticks_of(frames), (ui, st, gen, False{}), evt, cmd, ack, frames)
+      live_go(Sess.ticks_of(frames), (ui, st, gen, False{}), evt, cmd, ack, frames, hist_path)
 
 def tty_watch.ack(
   g: Maybe<&1, Unit>,
@@ -775,7 +793,8 @@ def watch_paint(
   +ack: Chan(Unit),
   +frames: U32,
   tty: T.Tty,
-  w: T.Winch
+  w: T.Winch,
+  +hist_path: String
 ) -> IO(Unit):
   match packed:
     case (ui, rest):
@@ -794,7 +813,7 @@ def watch_paint(
                         Unit <- handle_more(more, False{}, evt, ack)
                         Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
                         Unit <- IO.spawn(Unit, winch_watch(w, evt))
-                        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack)
+                        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack, hist_path)
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:
@@ -820,7 +839,8 @@ def watch_win(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32
+  +frames: U32,
+  +hist_path: String
 ) -> IO(Unit):
   match wr:
     case Fail{e}:
@@ -828,7 +848,7 @@ def watch_win(
     case Done{w}:
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
-        watch_paint(apply_frame(got, st), gen, evt, cmd, ack, frames, tty, w)
+        watch_paint(apply_frame(got, st), gen, evt, cmd, ack, frames, tty, w, hist_path)
 
 def watch_die_win(
   wr: Result<&1, &1, U32 & String, T.Winch>,
@@ -852,13 +872,14 @@ def watch_go(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32
+  +frames: U32,
+  +hist_path: String
 ) -> IO(Unit):
   match tr:
     case Fail{e}:
       watch_die_win(wr, e, ui)
     case Done{tty}:
-      watch_win(wr, tty, ui, st, gen, evt, cmd, ack, frames)
+      watch_win(wr, tty, ui, st, gen, evt, cmd, ack, frames, hist_path)
 
 def open_tty(
   pair: T.Ui & Result<&1, &1, U32 & String, T.Tty>,
@@ -868,17 +889,27 @@ def open_tty(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +frames: U32,
-  wr: Result<&1, &1, U32 & String, T.Winch>
+  wr: Result<&1, &1, U32 & String, T.Winch>,
+  +hist_path: String
 ) -> IO(Unit):
   match pair:
     case (ui, tr):
-      watch_go(tr, wr, ui, st, gen, evt, cmd, ack, frames)
+      watch_go(tr, wr, ui, st, gen, evt, cmd, ack, frames, hist_path)
 
-def open_watch(ui: T.Ui, +st: Sess.Session, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +frames: U32) -> IO(Unit):
+def open_watch(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +gen: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +frames: U32,
+  +hist_path: String
+) -> IO(Unit):
   do IO<Unit>:
     wr : Result<&1, &1, U32 & String, T.Winch> <- T.Winch.open()
     pair : T.Ui & Result<&1, &1, U32 & String, T.Tty> <- T.Timui.tty(ui)
-    open_tty(pair, st, gen, evt, cmd, ack, frames, wr)
+    open_tty(pair, st, gen, evt, cmd, ack, frames, wr, hist_path)
 
 def smoke_painted(
   got: T.Ui & T.UiKeys,
@@ -934,6 +965,34 @@ def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
     Unit <- Chan.close(Sess.NetCmd, cmd)
     IO.die(Unit, 1, msg)
 
+def start_ui_go(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +frames: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +hist_path: String
+) -> IO(Unit):
+  open_watch(ui, st, 1, evt, cmd, ack, frames, hist_path)
+
+def start_ui_load(
+  +hist_path: String,
+  +hist_cap: U32,
+  +nick: String,
+  +host: String,
+  +now: String,
+  ui: T.Ui,
+  +chan: String,
+  +frames: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    cl : Cl.Client <- Hist.history_init_client(hist_path, hist_cap, nick, host, now)
+    start_ui_go(ui, Sess.session_with_client(cl, chan), frames, evt, cmd, ack, hist_path)
+
 def start_ui(
   +frames: U32,
   +evt: Chan(Sess.UiMsg),
@@ -945,7 +1004,10 @@ def start_ui(
   do IO<Unit>:
     ack : Chan(Unit) <- Chan.new(Unit, 1)
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    open_watch(ui, Sess.session0(nick, host, chan), 1, evt, cmd, ack, frames)
+    hist_path : String <- Hist.resolve_history_path()
+    hist_cap : U32 <- Hist.resolve_history_cap()
+    now : String <- Clock.hhmmss()
+    start_ui_load(hist_path, hist_cap, nick, host, now, ui, chan, frames, evt, cmd, ack)
 
 def boot_ui_on(
   e: Act.Boot,
@@ -1024,7 +1086,7 @@ def run_demo_go(
   do IO<Unit>:
     Unit <- IO.spawn(Unit, Act.idle_start(nick, evt, cmd))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    open_watch(ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), 0, evt, cmd, ack, frames)
+    open_watch(ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), 0, evt, cmd, ack, frames, "")
 
 def run_demo_tty(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String, +ts: String) -> IO(Unit):
   do IO<Unit>:
