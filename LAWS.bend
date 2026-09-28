@@ -10,6 +10,7 @@ import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
 import ./src/bend/clock.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
+import ./src/bend/base64.bend as B64
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -252,3 +253,17 @@ law parse_id_bad:
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:
   {Nat.is_eq(Sess.live_fuel(3), 3n) == True{} : Bool}
+
+# LAW: SASL PLAIN Base64 encoding matches standard test vectors.
+law sasl_plain_golden:
+  {B64.sasl_plain_ok() == True{} : Bool}
+
+# LAW: server-time extracts HH:MM:SS from ISO-8601 message tags.
+law server_time_extract:
+  {Irc.server_time_sample_ok() == True{} : Bool}
+
+# LAW: Tab on slash command prefix completes to command with trailing space.
+law tab_completion_slash:
+  {Sess.comp_step_ok() == True{} : Bool}
+
+

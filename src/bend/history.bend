@@ -13,8 +13,9 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.Action{}: "ACT"
     case Cl.Notice{}: "NOT"
     case Cl.Error{}: "ERR"
+    case Cl.Highlight{}: "HL"
 
-def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool) -> Cl.LineKind:
+def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool) -> Cl.LineKind:
   match is_msg:
     case True{}: Cl.Msg{}
     case False{}:
@@ -29,7 +30,10 @@ def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_no
                 case False{}:
                   match is_not:
                     case True{}: Cl.Notice{}
-                    case False{}: Cl.Error{}
+                    case False{}:
+                      match is_hl:
+                        case True{}: Cl.Highlight{}
+                        case False{}: Cl.Error{}
 
 def parse_kind(+s: String) -> Cl.LineKind:
   parse_kind.on(
@@ -37,11 +41,12 @@ def parse_kind(+s: String) -> Cl.LineKind:
     String.eq(s, "SELF"),
     String.eq(s, "SYS"),
     String.eq(s, "ACT"),
-    String.eq(s, "NOT")
+    String.eq(s, "NOT"),
+    String.eq(s, "HL")
   )
 
 def is_reconnect_marker(+text: String) -> Bool:
-  String.starts_with(text, "--- Reconnected") || String.eq(text, "[...]")
+  String.contains(text, "Reconnected:")
 
 def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> String:
   match is_recon:
@@ -138,6 +143,10 @@ def kind_eq(k1: Cl.LineKind, k2: Cl.LineKind) -> Bool:
     case Cl.Error{}:
       match k2:
         case Cl.Error{}: True{}
+        case _: False{}
+    case Cl.Highlight{}:
+      match k2:
+        case Cl.Highlight{}: True{}
         case _: False{}
 
 def line_eq(l1: Cl.Line, l2: Cl.Line) -> Bool:
@@ -267,8 +276,7 @@ def add_reconnect_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffe
   match has:
     case False{}: b
     case True{}:
-      +b1 = Cl.buf_log_ts(b, Cl.System{}, "", "[...]")
-      Cl.buf_log_ts(b1, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
+      Cl.buf_log_ts(b, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
 
 def add_reconnect_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
   add_reconnect_marker.has(buf_has_lines(b), b, now)

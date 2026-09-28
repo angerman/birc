@@ -6,9 +6,7 @@ import ./buffer.bend as Cl
 # ---- format helpers -----------------------------------------------------
 
 def msg_nick(+m: Irc.Message) -> String:
-  match m:
-    case Irc.Message{+nick, _, _, _}:
-      nick
+  Irc.msg_nick(m)
 
 def fmt_msg.empty(empty: Bool, +nick: String, +body: String) -> String:
   match empty:
@@ -94,19 +92,38 @@ def feed_none(+cl: Cl.Client) -> Cl.Client:
 def feed_ping(+cl: Cl.Client) -> Cl.Client:
   cl
 
-def feed_priv.write.msg(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, act: Bool) -> Cl.Client:
+def feed_priv.write.msg.kind(is_hl: Bool) -> Cl.LineKind:
+  match is_hl:
+    case True{}: Cl.Highlight{}
+    case False{}: Cl.Msg{}
+
+def feed_priv.write.msg.body(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, is_hl: Bool) -> Cl.Client:
+  Cl.client_log_ts(cl, bi, feed_priv.write.msg.kind(is_hl), ts, fmt_msg(from, body))
+
+def feed_priv.write.msg(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, act: Bool, is_hl: Bool) -> Cl.Client:
   match act:
     case True{}:
-      Cl.client_log(cl, bi, Cl.Action{}, fmt_action(from, action_text(body)))
+      Cl.client_log_ts(cl, bi, Cl.Action{}, ts, fmt_action(from, action_text(body)))
     case False{}:
-      Cl.client_log(cl, bi, Cl.Msg{}, fmt_msg(from, body))
+      feed_priv.write.msg.body(cl, bi, from, body, ts, is_hl)
 
-def feed_priv.write(+cl: Cl.Client, +bi: Nat, +from: String, notice: Bool, +body: String) -> Cl.Client:
+def feed_priv.write.body(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, act: Bool, +is_hl: Bool) -> Cl.Client:
+  +cl2 = feed_priv.write.msg(cl, bi, from, body, ts, act, is_hl)
+  Cl.mark_unread_idx(cl2, bi, is_hl)
+
+def feed_priv.write.notice(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String) -> Cl.Client:
+  +cl2 = Cl.client_log_ts(cl, bi, Cl.Notice{}, ts, fmt_msg(from, body))
+  Cl.mark_unread_idx(cl2, bi, False{})
+
+def feed_priv.write.route(notice: Bool, +cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String) -> Cl.Client:
   match notice:
     case True{}:
-      Cl.client_log(cl, bi, Cl.Notice{}, fmt_msg(from, body))
+      feed_priv.write.notice(cl, bi, from, body, ts)
     case False{}:
-      feed_priv.write.msg(cl, bi, from, body, is_action(body))
+      feed_priv.write.body(cl, bi, from, body, ts, is_action(body), Cl.is_mention(body, Cl.nick_of(cl)))
+
+def feed_priv.write(+cl: Cl.Client, +bi: Nat, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
+  feed_priv.write.route(notice, cl, bi, from, body, ts)
 
 def feed_priv.drop_log.on(+cl: Cl.Client, on_server: Bool, +from: String) -> Cl.Client:
   match on_server:
@@ -118,10 +135,10 @@ def feed_priv.drop_log.on(+cl: Cl.Client, on_server: Bool, +from: String) -> Cl.
 def feed_priv.drop_log(+cl: Cl.Client, +from: String) -> Cl.Client:
   feed_priv.drop_log.on(cl, Nat.is_eq(Cl.active_of(cl), 0n), from)
 
-def feed_priv.write_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String) -> Cl.Client:
+def feed_priv.write_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
   match pair:
     case (cl2, Some{+bi}):
-      feed_priv.write(cl2, bi, from, notice, body)
+      feed_priv.write(cl2, bi, from, notice, body, ts)
     case (cl2, None{}):
       feed_priv.drop_log(cl2, from)
 
@@ -143,13 +160,14 @@ def feed_priv.nonchan(
   notice: Bool,
   +body: String,
   empty: Bool,
-  +target: String
+  +target: String,
+  +ts: String
 ) -> Cl.Client:
   match empty:
     case True{}:
-      feed_priv.write(cl, 0n, from, notice, body)
+      feed_priv.write(cl, 0n, from, notice, body, ts)
     case False{}:
-      feed_priv.write_got(Cl.buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body)
+      feed_priv.write_got(Cl.buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body, ts)
 
 def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
   match empty:
@@ -162,16 +180,22 @@ def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
 def feed_priv.to_server(+from: String, +target: String) -> Bool:
   feed_priv.to_server.on(String.is_empty(from), Irc.ieq(target, "*") || Irc.ieq(target, "AUTH"))
 
-def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, chan: Bool) -> Cl.Client:
+def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String, chan: Bool) -> Cl.Client:
   match chan:
     case True{}:
-      feed_priv.write_got(Cl.buf_get(cl, target, True{}, False{}), from, notice, body)
+      feed_priv.write_got(Cl.buf_get(cl, target, True{}, False{}), from, notice, body, ts)
     case False{}:
-      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target), target)
+      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target), target, ts)
 
-def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String) -> Cl.Client:
-  +tgt = Irc.chan_target(target)
-  feed_priv.route.on(cl, tgt, from, notice, body, Irc.starts_channel(tgt))
+def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
+  match muted:
+    case True{}: cl
+    case False{}:
+      +tgt = Irc.chan_target(target)
+      feed_priv.route.on(cl, tgt, from, notice, body, ts, Irc.starts_channel(tgt))
+
+def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
+  feed_priv.route.mute(Cl.is_muted_client(cl, from, target), cl, target, from, notice, body, ts)
 
 def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
   match self:
@@ -559,7 +583,7 @@ def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Clien
 
 def feed_numeric(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
-    case Irc.Message{_, _, +num, _}:
+    case Irc.Message{_, _, _, +num, _}:
       feed_num.by(cl, m, num, num_kind(num_rows(), num))
 
 def feed_self.empty(empty: Bool, +cl: Cl.Client, +from: String) -> Bool:
@@ -596,12 +620,12 @@ def first_param(+ps: List<&2, String>) -> String:
 
 def feed_mode(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
-    case Irc.Message{+nick, _, _, +ps}:
+    case Irc.Message{_, +nick, _, _, +ps}:
       feed_mode.got(cl, nick, ps, Cl.buf_find(cl, first_param(ps)))
 
 def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
-    case Irc.Message{_, +cmd, _, _}:
+    case Irc.Message{_, _, +cmd, _, _}:
       Cl.client_log(cl, 0n, Cl.System{}, fmt_unk(cmd, Irc.msg_param(m, 0n)))
 
 def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd) -> Cl.Client:
@@ -609,9 +633,9 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
     case Irc.Ping{}:
       feed_ping(cl)
     case Irc.Privmsg{}:
-      feed_priv.route(cl, Irc.msg_param(m, 0n), from, False{}, Irc.msg_param(m, 1n))
+      feed_priv.route(cl, Irc.msg_param(m, 0n), from, False{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Notice{}:
-      feed_priv.route(cl, Irc.msg_param(m, 0n), from, True{}, Irc.msg_param(m, 1n))
+      feed_priv.route(cl, Irc.msg_param(m, 0n), from, True{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Join{}:
       feed_join(cl, m, self)
     case Irc.Part{}:
@@ -628,6 +652,8 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
       feed_mode(cl, m)
     case Irc.Numeric{_}:
       feed_numeric(cl, m)
+    case Irc.Cap{}:
+      cl
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
     case _:

@@ -250,6 +250,38 @@ def submit_msg.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<
 def submit_msg(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_msg.words(cl, take_word(rest))
 
+def submit_query.send(has_text: Bool, +cl: Cl.Client, +bi: Nat, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match has_text:
+    case False{}:
+      (cl, empty_out())
+    case True{}:
+      (echo_self(cl, bi, body), one_out(Irc.format_privmsg(who, body)))
+
+def submit_query.found(+cl2: Cl.Client, +bi: Nat, +who: String, +body: String, has_text: Bool) -> Cl.Client & List<&2, String>:
+  submit_query.send(has_text, Cl.set_active(cl2, bi), bi, who, body)
+
+def submit_query.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, has_text: Bool) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
+      submit_query.found(cl2, bi, who, body, has_text)
+
+def submit_query.empty(+cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
+    case False{}:
+      submit_query.text(Cl.buf_get(cl, who, False{}, True{}), who, body, Bool.not(String.is_empty(body)))
+
+def submit_query.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+who, +body):
+      submit_query.empty(cl, String.is_empty(who), who, body)
+
+def submit_query(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_query.words(cl, take_word(Irc.drop_spaces(rest)))
+
 # ---- /nick /me /quit /unknown -------------------------------------------
 
 def submit_nick.on(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
@@ -303,6 +335,7 @@ def submit_unknown(+cl: Cl.Client, +verb: String) -> Cl.Client & List<&2, String
 type Conn is Data:
   ConnBad{}
   ConnOk{host: String, port: U32}
+  ConnReconnect{}
 
 def connect_port.range(+host: String, +p: U32, bad: Bool) -> Conn:
   match bad:
@@ -353,16 +386,24 @@ def populate_settings(+cl: Cl.Client, +bi: Nat) -> Cl.Client:
   +stg = Cl.get_settings(cl)
   +c1 = Cl.buf_clear_at(cl, bi)
   +c2 = Cl.client_log(c1, bi, Cl.System{}, "=== BIRC SETTINGS ===")
-  +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins    : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
-  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts       : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
-  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd     : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
-  +c6 = Cl.client_log(c5, bi, Cl.System{}, "  history  : " ++ bool_str(Cl.settings_history(stg)) ++ "  (persist chat scrollback to disk)")
-  +c7 = Cl.client_log(c6, bi, Cl.System{}, "  hist_cap : " ++ U32.show(Cl.settings_hist_cap(stg)) ++ "  (lines of history per channel/server)")
-  +c8 = Cl.client_log(c7, bi, Cl.System{}, "")
-  +c9 = Cl.client_log(c8, bi, Cl.System{}, "Commands:")
-  +c10 = Cl.client_log(c9, bi, Cl.System{}, "  /set <setting> <value>    — change a setting")
-  +c11 = Cl.client_log(c10, bi, Cl.System{}, "  /toggle <setting>         — toggle a boolean setting")
-  Cl.client_log(c11, bi, Cl.System{}, "  /close                    — close settings buffer")
+  +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins     : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
+  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts        : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
+  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd      : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
+  +c6 = Cl.client_log(c5, bi, Cl.System{}, "  history   : " ++ bool_str(Cl.settings_history(stg)) ++ "  (persist chat scrollback to disk)")
+  +c7 = Cl.client_log(c6, bi, Cl.System{}, "  hist_cap  : " ++ U32.show(Cl.settings_hist_cap(stg)) ++ "  (lines of history per channel/server)")
+  +c8 = Cl.client_log(c7, bi, Cl.System{}, "  autoreconn: " ++ bool_str(Cl.settings_autoreconn(stg)) ++ "  (auto-reconnect on unexpected disconnect)")
+  +c9 = Cl.client_log(c8, bi, Cl.System{}, "  bell      : " ++ bool_str(Cl.settings_bell(stg)) ++ "  (terminal bell on mentions/highlights)")
+  +c10 = Cl.client_log(c9, bi, Cl.System{}, "  mutes     : " ++ Nat.show(List.length(&2, String, Cl.settings_mutes(stg))) ++ " active rule(s)")
+  +c11 = Cl.client_log(c10, bi, Cl.System{}, "")
+  +c12 = Cl.client_log(c11, bi, Cl.System{}, "Commands:")
+  +c13 = Cl.client_log(c12, bi, Cl.System{}, "  /set <setting> <value>    — change a setting")
+  +c14 = Cl.client_log(c13, bi, Cl.System{}, "  /toggle <setting>         — toggle a boolean setting")
+  +c15 = Cl.client_log(c14, bi, Cl.System{}, "  /query <nick> [text]      — open 1-on-1 private chat tab")
+  +c16 = Cl.client_log(c15, bi, Cl.System{}, "  /mute <nick>              — mute nick on active channel/server")
+  +c17 = Cl.client_log(c16, bi, Cl.System{}, "  /unmute <nick>            — remove nick from mute list")
+  +c18 = Cl.client_log(c17, bi, Cl.System{}, "  /mutes                    — show active mute rules")
+  +c19 = Cl.client_log(c18, bi, Cl.System{}, "  /reconnect                — reconnect to current server")
+  Cl.client_log(c19, bi, Cl.System{}, "  /close                    — close settings buffer")
 
 def refresh_settings_if_open.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> Cl.Client:
   match found:
@@ -390,21 +431,37 @@ type SettingKey is Data:
   KeyMotd{}
   KeyHist{}
   KeyHistCap{}
+  KeyAutoreconn{}
+  KeyBell{}
   KeyBad{}
 
-def parse_key.cap(hit: Bool) -> SettingKey:
+def parse_key.bell(hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyBell{}
+    case False{}:
+      KeyBad{}
+
+def parse_key.bad(hit: Bool, +s: String) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyAutoreconn{}
+    case False{}:
+      parse_key.bell(Irc.ieq(s, "bell") || Irc.ieq(s, "beep") || Irc.ieq(s, "alert"))
+
+def parse_key.cap(+s: String, hit: Bool) -> SettingKey:
   match hit:
     case True{}:
       KeyHistCap{}
     case False{}:
-      KeyBad{}
+      parse_key.bad(Irc.ieq(s, "autoreconn") || Irc.ieq(s, "autoreconnect") || Irc.ieq(s, "reconn"), s)
 
 def parse_key.hist(+s: String, hit: Bool) -> SettingKey:
   match hit:
     case True{}:
       KeyHist{}
     case False{}:
-      parse_key.cap(Irc.ieq(s, "hist_cap") || Irc.ieq(s, "histcap") || Irc.ieq(s, "lines") || Irc.ieq(s, "history_cap"))
+      parse_key.cap(s, Irc.ieq(s, "hist_cap") || Irc.ieq(s, "histcap") || Irc.ieq(s, "lines") || Irc.ieq(s, "history_cap"))
 
 def parse_key.motd(+s: String, hit: Bool) -> SettingKey:
   match hit:
@@ -483,6 +540,18 @@ def apply_set_key.cap(+cl: Cl.Client, +cap: U32) -> Cl.Client & List<&2, String>
   +cl3 = refresh_settings_if_open(cl2)
   (echo_info(cl3, "setting 'hist_cap' is now " ++ U32.show(cap)), empty_out())
 
+def apply_set_key.autoreconn(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_autoreconn(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'autoreconn' is now " ++ bool_str(b)), empty_out())
+
+def apply_set_key.bell(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_bell(stg, b))
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "setting 'bell' is now " ++ bool_str(b)), empty_out())
+
 def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   match k:
     case KeyJoins{}:
@@ -495,8 +564,12 @@ def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&
       apply_set_key.hist(cl, b)
     case KeyHistCap{}:
       (echo_err(cl, "hist_cap expects a number: /set hist_cap <number>"), empty_out())
+    case KeyAutoreconn{}:
+      apply_set_key.autoreconn(cl, b)
+    case KeyBell{}:
+      apply_set_key.bell(cl, b)
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
 
 def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
@@ -510,8 +583,12 @@ def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
       apply_set_key.hist(cl, Bool.not(Cl.settings_history(Cl.get_settings(cl))))
     case KeyHistCap{}:
       (echo_err(cl, "cannot toggle hist_cap: use /set hist_cap <number>"), empty_out())
+    case KeyAutoreconn{}:
+      apply_set_key.autoreconn(cl, Bool.not(Cl.settings_autoreconn(Cl.get_settings(cl))))
+    case KeyBell{}:
+      apply_set_key.bell(cl, Bool.not(Cl.settings_bell(Cl.get_settings(cl))))
     case KeyBad{}:
-      (echo_err(cl, "usage: /toggle <joins|ts|motd|history>"), empty_out())
+      (echo_err(cl, "usage: /toggle <joins|ts|motd|history|autoreconn|bell>"), empty_out())
 
 def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
@@ -525,8 +602,12 @@ def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
       (echo_info(cl, "history is " ++ bool_str(Cl.settings_history(Cl.get_settings(cl)))), empty_out())
     case KeyHistCap{}:
       (echo_info(cl, "hist_cap is " ++ U32.show(Cl.settings_hist_cap(Cl.get_settings(cl)))), empty_out())
+    case KeyAutoreconn{}:
+      (echo_info(cl, "autoreconn is " ++ bool_str(Cl.settings_autoreconn(Cl.get_settings(cl)))), empty_out())
+    case KeyBell{}:
+      (echo_info(cl, "bell is " ++ bool_str(Cl.settings_bell(Cl.get_settings(cl)))), empty_out())
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
 
 def submit_set.cap(+cl: Cl.Client, mb: Maybe<&2, U32>) -> Cl.Client & List<&2, String>:
   match mb:
@@ -587,17 +668,291 @@ def submit_toggle.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & Li
 def submit_toggle(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_toggle.words(cl, take_word(Irc.drop_spaces(rest)))
 
+def submit_mute.pat(+cl: Cl.Client, +nick: String, is_chan: Bool) -> String:
+  match is_chan:
+    case True{}:
+      nick ++ Cl.active_buf_name(cl) ++ "@" ++ Cl.server_of(cl)
+    case False{}:
+      nick ++ "*@" ++ Cl.server_of(cl)
+
+def submit_mute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
+  +pat = submit_mute.pat(cl, nick, Irc.starts_channel(Cl.active_buf_name(cl)))
+  +cl2 = Cl.add_mute_client(cl, pat)
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "muted " ++ nick ++ " (" ++ pat ++ ")"), empty_out())
+
+def submit_mute.word(+cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /mute <nick>"), empty_out())
+    case False{}:
+      submit_mute.nick(cl, nick)
+
+def submit_mute.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+nick, _):
+      submit_mute.word(cl, nick, String.is_empty(nick))
+
+def submit_mute(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_mute.words(cl, take_word(Irc.drop_spaces(rest)))
+
+def submit_unmute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
+  +cl2 = Cl.del_mute_client(cl, nick)
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "unmuted " ++ nick), empty_out())
+
+def submit_unmute.word(+cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /unmute <nick>"), empty_out())
+    case False{}:
+      submit_unmute.nick(cl, nick)
+
+def submit_unmute.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+nick, _):
+      submit_unmute.word(cl, nick, String.is_empty(nick))
+
+def submit_unmute(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_unmute.words(cl, take_word(Irc.drop_spaces(rest)))
+
+def submit_mutes.go(+cl: Cl.Client, mutes: List<&2, String>) -> Cl.Client & List<&2, String>:
+  match mutes:
+    case Nil{}:
+      (echo_info(cl, "no active mutes"), empty_out())
+    case Con{+m, t}:
+      (echo_info(cl, "active mutes: " ++ String.join(m <> t, ", ")), empty_out())
+
+def submit_mutes(+cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  submit_mutes.go(cl, Cl.settings_mutes(stg))
+
+def submit.is_slash.on(+h: Char) -> Bool:
+  Irc.code_is(h, 47)
+
+def submit.is_slash(+s: String) -> Bool:
+  match s:
+    case SCon{+h, _}:
+      submit.is_slash.on(h)
+    case SNil{}:
+      False{}
+
+def is_http_pfx(+s: String) -> Bool:
+  String.starts_with(s, "http://") || String.starts_with(s, "https://")
+
+def is_url_end(c: Char) -> Bool:
+  match c:
+    case Chr{+n}:
+      U32.is_eq(n, 32) || U32.is_eq(n, 9) || U32.is_eq(n, 10) || U32.is_eq(n, 13)
+
+def take_url_tok.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
+
+def take_url_tok.fin(+h: Char, +t: String, r: String & String, stop: Bool) -> String & String:
+  match stop:
+    case True{}:
+      ("", SCon{h, t})
+    case False{}:
+      take_url_tok.cons(h, r)
+
+def take_url_tok.go(fuel: Nat, s: String) -> String & String:
+  match fuel:
+    case 0n: ("", "")
+    case 1n+p:
+      match s:
+        case SNil{}: ("", "")
+        case SCon{+h, +t}:
+          take_url_tok.fin(h, t, take_url_tok.go(p, t), is_url_end(h))
+
+def take_url_tok(+s: String) -> String & String:
+  take_url_tok.go(Nat.add(1n, String.length(s)), s)
+
+def is_url_punct(c: Char) -> Bool:
+  match c:
+    case Chr{+n}:
+      U32.is_eq(n, 41) || U32.is_eq(n, 46) || U32.is_eq(n, 44) || U32.is_eq(n, 34)
+        || U32.is_eq(n, 93) || U32.is_eq(n, 59)
+
+def trim_url_punct.keep(+h: Char, t: String, rec: String, trail: Bool) -> String:
+  match trail:
+    case True{}: rec
+    case False{}: String.reverse(SCon{h, t})
+
+def trim_url_punct.go(fuel: Nat, rev: String) -> String:
+  match fuel:
+    case 0n: ""
+    case 1n+p:
+      match rev:
+        case SNil{}: ""
+        case SCon{+h, +t}:
+          trim_url_punct.keep(h, t, trim_url_punct.go(p, t), is_url_punct(h))
+
+def trim_url_punct(+url: String) -> String:
+  trim_url_punct.go(Nat.add(1n, String.length(url)), String.reverse(url))
+
+def take_url_tok_url.pair(pair: String & String) -> String:
+  match pair:
+    case (+tok, _): tok
+
+def take_url_tok_url(+s: String) -> String:
+  take_url_tok_url.pair(take_url_tok(s))
+
+def extract_urls.step(is_http: Bool, +s: String, tail: List<&2, String>) -> List<&2, String>:
+  match is_http:
+    case True{}:
+      trim_url_punct(take_url_tok_url(s)) <> tail
+    case False{}:
+      tail
+
+def extract_urls.go(fuel: Nat, s: String) -> List<&2, String>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match s:
+        case SNil{}: Nil{}
+        case SCon{+h, +t}:
+          extract_urls.step(is_http_pfx(SCon{h, t}), SCon{h, t}, extract_urls.go(p, t))
+
+def extract_urls(+s: String) -> List<&2, String>:
+  extract_urls.go(Nat.add(1n, String.length(s)), s)
+
+def lines_urls.go(fuel: Nat, lines: List<&2, Cl.Line>) -> List<&2, String>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match lines:
+        case Nil{}: Nil{}
+        case Con{ln, t}:
+          match ln:
+            case Cl.Line{_, _, +text}:
+              List.append(&2, String, extract_urls(text), lines_urls.go(p, t))
+
+def active_buf_urls(+cl: Cl.Client) -> List<&2, String>:
+  +rev_lines = List.reverse(&2, Cl.Line, Cl.active_buf_lines(cl))
+  lines_urls.go(Nat.add(1n, List.length(&2, Cl.Line, rev_lines)), rev_lines)
+
+def nth_link.go(fuel: Nat, xs: List<&2, String>, n: Nat) -> Maybe<&2, String>:
+  match fuel:
+    case 0n: None{}
+    case 1n+p:
+      match xs:
+        case Nil{}: None{}
+        case Con{+h, t}:
+          match n:
+            case 0n: Some{h}
+            case 1n+pn: nth_link.go(p, t, pn)
+
+def nth_link(xs: List<&2, String>, +n: Nat) -> Maybe<&2, String>:
+  nth_link.go(Nat.add(1n, n), xs, n)
+
+def echo_links.go(fuel: Nat, cl: Cl.Client, xs: List<&2, String>, +idx: Nat) -> Cl.Client:
+  match fuel:
+    case 0n: cl
+    case 1n+p:
+      match xs:
+        case Nil{}: cl
+        case Con{+h, t}:
+          +msg = "[" ++ Nat.show(idx) ++ "] " ++ h
+          echo_links.go(p, echo_info(cl, msg), t, Nat.add(idx, 1n))
+
+def submit_links.on(+cl: Cl.Client, urls: List<&2, String>) -> Cl.Client & List<&2, String>:
+  match urls:
+    case Nil{}:
+      (echo_info(cl, "no links found in buffer"), empty_out())
+    case Con{+h, t}:
+      +cl2 = echo_info(cl, "recent links:")
+      (echo_links.go(100n, echo_info(cl2, "[1] " ++ h), t, 2n), empty_out())
+
+def submit_links(+cl: Cl.Client) -> Cl.Client & List<&2, String>:
+  submit_links.on(cl, active_buf_urls(cl))
+
+def open_parse_arg.zero(is_zero: Bool, +cl: Cl.Client, n: U32) -> Maybe<&2, String>:
+  match is_zero:
+    case True{}: None{}
+    case False{}:
+      nth_link(active_buf_urls(cl), U32.to_nat(U32.sub(n, 1)))
+
+def open_parse_arg.num(+cl: Cl.Client, num_mb: Maybe<&2, U32>) -> Maybe<&2, String>:
+  match num_mb:
+    case None{}:
+      None{}
+    case Some{+n}:
+      open_parse_arg.zero(U32.is_eq(n, 0), cl, n)
+
+def open_resolve_target.http(is_http: Bool, +cl: Cl.Client, +arg: String) -> Maybe<&2, String>:
+  match is_http:
+    case True{}:
+      Some{arg}
+    case False{}:
+      open_parse_arg.num(cl, U32.read(arg))
+
+def open_resolve_target.empty(empty: Bool, +cl: Cl.Client, +arg: String) -> Maybe<&2, String>:
+  match empty:
+    case True{}:
+      nth_link(active_buf_urls(cl), 0n)
+    case False{}:
+      open_resolve_target.http(is_http_pfx(arg), cl, arg)
+
+def open_resolve_target(+cl: Cl.Client, +arg: String) -> Maybe<&2, String>:
+  open_resolve_target.empty(String.is_empty(arg), cl, arg)
+
+def submit_open_cmd.got(+cl: Cl.Client, mb: Maybe<&2, String>) -> Cl.Client & List<&2, String>:
+  match mb:
+    case None{}:
+      (echo_err(cl, "no link found"), empty_out())
+    case Some{+url}:
+      (echo_info(cl, "opening " ++ url), empty_out())
+
+def submit_open_cmd(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_open_cmd.got(cl, open_resolve_target(cl, Irc.drop_spaces(rest)))
+
+def submit_is_open.verb(is_open: Bool) -> Bool:
+  match is_open:
+    case True{}: True{}
+    case False{}: False{}
+
+def submit_is_open.pair(pair: String & String) -> Bool:
+  match pair:
+    case (+verb, _):
+      submit_is_open.verb(Irc.ieq(verb, "open"))
+
+def submit_is_open.slash(slash: Bool, +input: String) -> Bool:
+  match slash:
+    case True{}:
+      submit_is_open.pair(take_word(Irc.drop_spaces(String.drop(input, 1n))))
+    case False{}:
+      False{}
+
+def submit_is_open(+input: String) -> Bool:
+  submit_is_open.slash(submit.is_slash(input), input)
+
+def open_arg_from_input.pair(pair: String & String) -> String:
+  match pair:
+    case (_, +rest):
+      Irc.drop_spaces(rest)
+
+def open_arg_from_input(+input: String) -> String:
+  open_arg_from_input.pair(take_word(Irc.drop_spaces(String.drop(input, 1n))))
+
 type Slash is Data:
   Join{}
   Part{}
   Close{}
   Msg{}
+  QueryCmd{}
   Nick{}
   Me{}
   Quit{}
   SettingsCmd{}
   SetCmd{}
   ToggleCmd{}
+  MuteCmd{}
+  UnmuteCmd{}
+  MutesCmd{}
+  LinksCmd{}
+  OpenCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -608,12 +963,18 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"part", Part{}}
     <> SlashRow{"close", Close{}}
     <> SlashRow{"msg", Msg{}}
+    <> SlashRow{"query", QueryCmd{}}
     <> SlashRow{"nick", Nick{}}
     <> SlashRow{"me", Me{}}
     <> SlashRow{"quit", Quit{}}
     <> SlashRow{"settings", SettingsCmd{}}
     <> SlashRow{"set", SetCmd{}}
     <> SlashRow{"toggle", ToggleCmd{}}
+    <> SlashRow{"mute", MuteCmd{}}
+    <> SlashRow{"unmute", UnmuteCmd{}}
+    <> SlashRow{"mutes", MutesCmd{}}
+    <> SlashRow{"links", LinksCmd{}}
+    <> SlashRow{"open", OpenCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -638,6 +999,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_close(cl, rest)
     case Msg{}:
       submit_msg(cl, rest)
+    case QueryCmd{}:
+      submit_query(cl, rest)
     case Nick{}:
       submit_nick(cl, rest)
     case Me{}:
@@ -650,6 +1013,16 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_set(cl, rest)
     case ToggleCmd{}:
       submit_toggle(cl, rest)
+    case MuteCmd{}:
+      submit_mute(cl, rest)
+    case UnmuteCmd{}:
+      submit_unmute(cl, rest)
+    case MutesCmd{}:
+      submit_mutes(cl)
+    case LinksCmd{}:
+      submit_links(cl)
+    case OpenCmd{}:
+      submit_open_cmd(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 
@@ -675,16 +1048,6 @@ def submit.verb(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, S
 
 def submit.slash(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit.verb(cl, take_verb(skip_slash(input)))
-
-def submit.is_slash.on(+h: Char) -> Bool:
-  Irc.code_is(h, 47)
-
-def submit.is_slash(+s: String) -> Bool:
-  match s:
-    case SCon{+h, _}:
-      submit.is_slash.on(h)
-    case SNil{}:
-      False{}
 
 def submit.on(+cl: Cl.Client, +input: String, slash: Bool) -> Cl.Client & List<&2, String>:
   match slash:
@@ -753,17 +1116,21 @@ def submit_is_quit(+input: String) -> Bool:
 def submit_halt_ok() -> Bool:
   submit_is_quit("/quit") && submit_is_quit("/quit bye") && Bool.not(submit_is_quit("hello")) && Bool.not(submit_is_quit("/join #x"))
 
-def connect_verb.on(hit: Bool) -> Bool:
-  match hit:
+def connect_verb.on(is_conn: Bool, is_recon: Bool) -> Bool:
+  match is_conn:
     case True{}:
       True{}
     case False{}:
-      False{}
+      match is_recon:
+        case True{}:
+          True{}
+        case False{}:
+          False{}
 
 def connect_verb(pair: String & String) -> Bool:
   match pair:
     case (+verb, _):
-      connect_verb.on(Irc.ieq(verb, "connect"))
+      connect_verb.on(Irc.ieq(verb, "connect"), Irc.ieq(verb, "reconnect"))
 
 def submit_is_connect.on(+input: String, slash: Bool) -> Bool:
   match slash:
@@ -775,10 +1142,17 @@ def submit_is_connect.on(+input: String, slash: Bool) -> Bool:
 def submit_is_connect(+input: String) -> Bool:
   submit_is_connect.on(input, submit.is_slash(input))
 
+def connect_from_input.verb(is_recon: Bool, +rest: String) -> Conn:
+  match is_recon:
+    case True{}:
+      ConnReconnect{}
+    case False{}:
+      connect_parse(Irc.drop_spaces(rest))
+
 def connect_from_input.on(pair: String & String) -> Conn:
   match pair:
-    case (_, +rest):
-      connect_parse(Irc.drop_spaces(rest))
+    case (+verb, +rest):
+      connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest)
 
 def connect_from_input.slash(+input: String, slash: Bool) -> Conn:
   match slash:
@@ -796,6 +1170,8 @@ def connect_parse_ok.on(c: Conn) -> Bool:
       String.eq(host, "irc.example.net") && U32.is_eq(port, 6668)
     case ConnBad{}:
       False{}
+    case ConnReconnect{}:
+      False{}
 
 def connect_default_ok.on(c: Conn) -> Bool:
   match c:
@@ -803,12 +1179,16 @@ def connect_default_ok.on(c: Conn) -> Bool:
       U32.is_eq(p, 6667)
     case ConnBad{}:
       False{}
+    case ConnReconnect{}:
+      False{}
 
 def connect_bad.on(c: Conn) -> Bool:
   match c:
     case ConnBad{}:
       True{}
     case ConnOk{_, _}:
+      False{}
+    case ConnReconnect{}:
       False{}
 
 def connect_port_range_ok() -> Bool:

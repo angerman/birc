@@ -6,40 +6,120 @@ import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./frame.bend as Fr
 import ./submit.bend as Sub
+import ./base64.bend as B64
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
 
-type FoldAcc is Data:
-  FoldAcc{cl: Cl.Client, pongs: List<&2, String>}
+def handshake_lines(+nick: String, has_sasl: Bool) -> List<&2, String>:
+  match has_sasl:
+    case True{}:
+      "CAP LS 302" <> "CAP REQ :sasl server-time" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+    case False{}:
+      "CAP REQ :server-time" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
 
-def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +h: String, ping: Bool) -> FoldAcc:
+type FoldAcc is Data:
+  FoldAcc{cl: Cl.Client, pongs: List<&2, String>, now_ms: U32}
+
+def fold_step.normal(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  +cl2 = Feed.feed(cl, h)
+  FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs), now_ms}
+
+def fold_step.lag_rtt.on(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, ok: Bool) -> FoldAcc:
+  match ok:
+    case True{}:
+      +rtt = U32.sub(now_ms, sent)
+      +cl2 = Cl.client_set_lag(cl, rtt)
+      FoldAcc{Feed.feed(cl2, h), pongs, now_ms}
+    case False{}:
+      FoldAcc{Feed.feed(cl, h), pongs, now_ms}
+
+def fold_step.lag_rtt(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32) -> FoldAcc:
+  fold_step.lag_rtt.on(cl, pongs, now_ms, h, sent, U32.is_ge(now_ms, sent) && Bool.not(U32.is_zero(now_ms)))
+
+def fold_step.lag_on(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, m: Maybe<&2, U32>) -> FoldAcc:
+  match m:
+    case None{}:
+      fold_step.normal(cl, pongs, now_ms, h)
+    case Some{sent}:
+      fold_step.lag_rtt(cl, pongs, now_ms, h, sent)
+
+def fold_step.lag(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  fold_step.lag_on(cl, pongs, now_ms, h, Irc.extract_pong_lag_line(h))
+
+def fold_step.sasl_nak(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_nak: Bool) -> FoldAcc:
+  match is_nak:
+    case True{}:
+      +c1 = Feed.feed(cl, h)
+      +c2 = Cl.client_log(c1, 0n, Cl.Error{}, "SASL: capability rejected")
+      FoldAcc{c2, "CAP END" <> pongs, now_ms}
+    case False{}:
+      fold_step.lag(cl, pongs, now_ms, h)
+
+def fold_step.sasl_fail(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_fail: Bool) -> FoldAcc:
+  match is_fail:
+    case True{}:
+      +c1 = Feed.feed(cl, h)
+      +c2 = Cl.client_log(c1, 0n, Cl.Error{}, "SASL: authentication failed")
+      FoldAcc{c2, "CAP END" <> pongs, now_ms}
+    case False{}:
+      fold_step.sasl_nak(cl, pongs, now_ms, h, Irc.is_cap_nak(h) && String.contains(h, "sasl"))
+
+def fold_step.sasl_succ(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_succ: Bool) -> FoldAcc:
+  match is_succ:
+    case True{}:
+      +c1 = Feed.feed(cl, h)
+      +c2 = Cl.client_log(c1, 0n, Cl.System{}, "SASL: authentication successful")
+      FoldAcc{c2, "CAP END" <> pongs, now_ms}
+    case False{}:
+      fold_step.sasl_fail(cl, pongs, now_ms, h, Irc.is_sasl_fail(h))
+
+def fold_step.auth_plus(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_ap: Bool) -> FoldAcc:
+  match is_ap:
+    case True{}:
+      +payload = B64.sasl_plain(Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl))
+      FoldAcc{cl, ("AUTHENTICATE " ++ payload) <> pongs, now_ms}
+    case False{}:
+      fold_step.sasl_succ(cl, pongs, now_ms, h, Irc.is_sasl_success(h))
+
+def fold_step.cap_ack(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_ack: Bool) -> FoldAcc:
+  match is_ack:
+    case True{}:
+      +c1 = Feed.feed(cl, h)
+      +c2 = Cl.client_log(c1, 0n, Cl.System{}, "SASL: authenticating with PLAIN...")
+      FoldAcc{c2, "AUTHENTICATE PLAIN" <> pongs, now_ms}
+    case False{}:
+      fold_step.auth_plus(cl, pongs, now_ms, h, Irc.is_authenticate_plus(h))
+
+def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool) -> FoldAcc:
   match ping:
     case True{}:
-      FoldAcc{cl, Irc.pong_for(h) <> pongs}
+      FoldAcc{cl, Irc.pong_for(h) <> pongs, now_ms}
     case False{}:
-      +cl2 = Feed.feed(cl, h)
-      FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs)}
+      fold_step.cap_ack(cl, pongs, now_ms, h, Irc.is_cap_ack_sasl(h))
 
-def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +h: String) -> FoldAcc:
-  fold_step.ping(cl, pongs, h, Irc.is_ping_line(h))
+def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  fold_step.ping(cl, pongs, now_ms, h, Irc.is_ping_line(h))
 
 def fold_step(st: FoldAcc, h: String) -> FoldAcc:
   match st:
-    case FoldAcc{+cl, pongs}:
-      fold_step.got(cl, pongs, h)
+    case FoldAcc{+cl, pongs, +now_ms}:
+      fold_step.got(cl, pongs, now_ms, h)
 
 def fold_fin(st: FoldAcc) -> Cl.Client & List<&2, String>:
   match st:
-    case FoldAcc{+cl, pongs}:
+    case FoldAcc{+cl, pongs, _}:
       (cl, List.reverse(&2, String, pongs))
 
+def fold_lines_ms(+cl: Cl.Client, +xs: List<&2, String>, +now_ms: U32) -> Cl.Client & List<&2, String>:
+  fold_fin(List.foldl(~&2, ~String, ~FoldAcc, ~fold_step, xs, FoldAcc{cl, Nil{}, now_ms}))
+
 def fold_lines(+cl: Cl.Client, +xs: List<&2, String>) -> Cl.Client & List<&2, String>:
-  fold_fin(List.foldl(~&2, ~String, ~FoldAcc, ~fold_step, xs, FoldAcc{cl, Nil{}}))
+  fold_lines_ms(cl, xs, 0)
 
 def is_001_msg(+m: Irc.Message) -> Bool:
   match m:
-    case Irc.Message{_, _, +num, _}:
+    case Irc.Message{_, _, _, +num, _}:
       U32.is_eq(num, 1)
 
 def is_001_on(m: Maybe<&2, Irc.Message>) -> Bool:
@@ -124,15 +204,35 @@ def push_pure_join(
     case (cl2, pongs):
       push_pure_join2(cl2, rem2, drop2, join_outs(joined, chan, xs, pongs))
 
+def push_pure_pair_ms(
+  +cl: Cl.Client,
+  got: List<&2, String> & List<&2, U32> & Bool,
+  +joined: Bool,
+  +chan: String,
+  +now_ms: U32
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
+  match got:
+    case (+lines, rem2, drop2):
+      push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
+
 def push_pure_pair(
   +cl: Cl.Client,
   got: List<&2, String> & List<&2, U32> & Bool,
   +joined: Bool,
   +chan: String
 ) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  match got:
-    case (+lines, rem2, drop2):
-      push_pure_join(fold_lines(cl, lines), rem2, drop2, joined, chan, lines)
+  push_pure_pair_ms(cl, got, joined, chan, 0)
+
+def push_pure_ms(
+  +cl: Cl.Client,
+  drop: Bool,
+  rem: List<&2, U32>,
+  chunk: List<&2, U32>,
+  +joined: Bool,
+  +chan: String,
+  +now_ms: U32
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
+  push_pure_pair_ms(cl, Fr.push_ex(drop, rem, chunk), joined, chan, now_ms)
 
 def push_pure(
   +cl: Cl.Client,
@@ -142,7 +242,18 @@ def push_pure(
   +joined: Bool,
   +chan: String
 ) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure_pair(cl, Fr.push_ex(drop, rem, chunk), joined, chan)
+  push_pure_ms(cl, drop, rem, chunk, joined, chan, 0)
+
+def step_chunk_ms(
+  +cl: Cl.Client,
+  drop: Bool,
+  rem: List<&2, U32>,
+  chunk: List<&2, U32>,
+  +joined: Bool,
+  +chan: String,
+  +now_ms: U32
+) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
+  push_pure_ms(cl, drop, rem, chunk, joined, chan, now_ms)
 
 def step_chunk(
   +cl: Cl.Client,
@@ -152,7 +263,7 @@ def step_chunk(
   +joined: Bool,
   +chan: String
 ) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure(cl, drop, rem, chunk, joined, chan)
+  step_chunk_ms(cl, drop, rem, chunk, joined, chan, 0)
 
 type NetEvt is Data:
   Chunk{xs: List<&2, U32>}
@@ -166,6 +277,7 @@ type NetCmd is Data:
   Cont{outs: List<&2, String>}
   Dial{host: String, port: U32, gen: U32}
   Handoff{take: Bool}
+  OpenUrl{url: String}
 
 # One UI channel. FromNet is ignored unless gen is the UI's current one.
 type UiMsg is Data:
@@ -190,6 +302,18 @@ def net_label(st: NetState) -> String:
     case Offline{}:
       "offline"
 
+def net_label_lag.online(+lag: U32, is_zero: Bool) -> String:
+  match is_zero:
+    case True{}: "online"
+    case False{}: "online · " ++ U32.show(lag) ++ "ms"
+
+def net_label_lag(+st: NetState, +lag: U32) -> String:
+  match st:
+    case Online{}: net_label_lag.online(lag, U32.is_eq(lag, 0))
+    case Demo{}: "demo"
+    case Connecting{}: "connecting"
+    case Offline{}: "offline"
+
 def net_demo_ok() -> Bool:
   String.eq(net_label(Demo{}), "demo") && String.eq(net_label(Online{}), "online")
 
@@ -201,6 +325,8 @@ def show_netcmd(c: NetCmd) -> String:
       String.concat("dial:" <> host <> ":" <> U32.show(port) <> Nil{})
     case Handoff{take}:
       String.concat("handoff:" <> Bool.show(take) <> Nil{})
+    case OpenUrl{+url}:
+      "open:" ++ url
 
 def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
   match net:
@@ -221,6 +347,8 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
       Handoff{take}
     case Cont{outs}:
       hold_cmd.outs(net, outs)
+    case OpenUrl{+url}:
+      OpenUrl{url}
 
 # Kept for the submit goldens. The UI does not call these.
 def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
@@ -231,6 +359,8 @@ def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
       Handoff{take}
     case Cont{outs}:
       Cont{List.append(&2, String, pending, outs)}
+    case OpenUrl{+url}:
+      OpenUrl{url}
 
 def wrap_outs(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
   match pair:
@@ -276,19 +406,49 @@ def connect_apply.st(+cl: Cl.Client, +host: String, +port: U32, net: NetState) -
     case _:
       (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port, 0})
 
+def connect_apply.recon_ok(ok: Bool, +cl: Cl.Client, net: NetState, +server: String) -> Cl.Client & String & NetCmd:
+  match ok:
+    case True{}:
+      connect_apply.st(cl, server, 6667, net)
+    case False{}:
+      (Sub.echo_err(cl, "cannot reconnect: no server configured"), "", Cont{Nil{}})
+
+def connect_apply.reconnect(+cl: Cl.Client, net: NetState, +server: String) -> Cl.Client & String & NetCmd:
+  connect_apply.recon_ok(Bool.not(String.is_empty(server) || String.eq(server, "demo") || String.eq(server, "s")), cl, net, server)
+
 def connect_apply(+cl: Cl.Client, net: NetState, c: Sub.Conn) -> Cl.Client & String & NetCmd:
   match c:
     case Sub.ConnBad{}:
       (Sub.echo_err(cl, "usage: /connect host [port]"), "", Cont{Nil{}})
     case Sub.ConnOk{+host, port}:
       connect_apply.st(cl, host, port, net)
+    case Sub.ConnReconnect{}:
+      connect_apply.reconnect(cl, net, Cl.server_of(cl))
+
+def open_apply.got(+cl: Cl.Client, mb: Maybe<&2, String>) -> Cl.Client & String & NetCmd:
+  match mb:
+    case None{}:
+      (Sub.echo_err(cl, "no link found"), "", Cont{Nil{}})
+    case Some{+url}:
+      (Sub.echo_info(cl, "opening " ++ url), "", OpenUrl{url})
+
+def open_apply(+cl: Cl.Client, +draft: String) -> Cl.Client & String & NetCmd:
+  +arg = Sub.open_arg_from_input(draft)
+  open_apply.got(cl, Sub.open_resolve_target(cl, arg))
+
+def submit_pair.enter.on(+cl: Cl.Client, +net: NetState, +draft: String, is_open: Bool) -> Cl.Client & String & NetCmd:
+  match is_open:
+    case True{}:
+      open_apply(cl, draft)
+    case False{}:
+      submit_send(cl, net, draft, can_send(net))
 
 def submit_pair.enter(+cl: Cl.Client, +net: NetState, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
   match conn:
     case True{}:
       connect_apply(cl, net, Sub.connect_from_input(draft))
     case False{}:
-      submit_send(cl, net, draft, can_send(net))
+      submit_pair.enter.on(cl, net, draft, Sub.submit_is_open(draft))
 
 def submit_pair(+cl: Cl.Client, net: NetState, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
   match enter:
@@ -719,6 +879,48 @@ def comp_format.on(+pre: String, +nick: String, spaces: Bool) -> String:
 def comp_format(+pre: String, +nick: String) -> String:
   comp_format.on(pre, nick, is_all_spaces(pre))
 
+def slash_command_list() -> List<&2, String>:
+  "/join" <> "/part" <> "/close" <> "/msg" <> "/query" <> "/nick" <> "/me"
+    <> "/quit" <> "/settings" <> "/set" <> "/toggle" <> "/mute" <> "/unmute"
+    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> Nil{}
+
+def is_slash_word(+w: String) -> Bool:
+  String.starts_with(w, "/")
+
+def match_slash.keep(+cand: String, rest: List<&2, String>, hit: Bool) -> List<&2, String>:
+  match hit:
+    case True{}:
+      cand <> rest
+    case False{}:
+      rest
+
+def match_slash.go(xs: List<&2, String>, +word: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      +rest = match_slash.go(t, word)
+      match_slash.keep(h, rest, String.starts_with(Irc.rfc1459(h), Irc.rfc1459(word)))
+
+def comp_candidates.on(+cl: Cl.Client, +word: String, slash: Bool) -> List<&2, String>:
+  match slash:
+    case True{}:
+      match_slash.go(slash_command_list(), word)
+    case False{}:
+      match_nicks.go(Cl.active_nicks(cl), Cl.nick_of(cl), word)
+
+def comp_candidates(+cl: Cl.Client, +word: String) -> List<&2, String>:
+  comp_candidates.on(cl, word, is_slash_word(word))
+
+def comp_format.choice(+pre: String, +item: String, slash: Bool) -> String:
+  match slash:
+    case True{}:
+      pre ++ item ++ " "
+    case False{}:
+      comp_format(pre, item)
+
+def comp_format_cand(+pre: String, +word: String, +item: String) -> String:
+  comp_format.choice(pre, item, is_slash_word(word))
 
 def comp_pick.on(
   +matches: List<&2, String>,
@@ -732,18 +934,18 @@ def comp_pick.on(
     case True{}:
       (CompNone{}, typed, 0)
     case False{}:
-      +nick = str_get(matches, idx)
-      (CompActive{pre, word, idx}, comp_format(pre, nick), 1)
+      +item = str_get(matches, idx)
+      (CompActive{pre, word, idx}, comp_format_cand(pre, word, item), 1)
 
 def comp_step.active(+cl: Cl.Client, +pre: String, +word: String, +idx: Nat, +typed: String) -> Comp & String & U32:
-  +matches = match_nicks.go(Cl.active_nicks(cl), Cl.nick_of(cl), word)
+  +matches = comp_candidates(cl, word)
   +len = List.length(&2, String, matches)
   comp_pick.on(matches, pre, word, typed, comp_next_idx(idx, len), Nat.is_eq(len, 0n))
 
 def comp_step.fresh(+cl: Cl.Client, pair: String & String, +typed: String) -> Comp & String & U32:
   match pair:
     case (+pre, +word):
-      +matches = match_nicks.go(Cl.active_nicks(cl), Cl.nick_of(cl), word)
+      +matches = comp_candidates(cl, word)
       comp_pick.on(matches, pre, word, typed, 0n, Nat.is_eq(List.length(&2, String, matches), 0n))
 
 def comp_step(+cl: Cl.Client, comp: Comp, +typed: String) -> Comp & String & U32:
@@ -752,6 +954,17 @@ def comp_step(+cl: Cl.Client, comp: Comp, +typed: String) -> Comp & String & U32
       comp_step.fresh(cl, split_word(typed), typed)
     case CompActive{+pre, +word, idx}:
       comp_step.active(cl, pre, word, idx, typed)
+
+def comp_step_ok.check(c: Comp, +str: String, seed: U32) -> Bool:
+  String.eq(str, "/join ") && U32.is_eq(seed, 1)
+
+def comp_step_ok.got(trip: Comp & String & U32) -> Bool:
+  match trip:
+    case (c, str, seed):
+      comp_step_ok.check(c, str, seed)
+
+def comp_step_ok() -> Bool:
+  comp_step_ok.got(comp_step(Cl.init("me", "s"), comp0(), "/j"))
 
 
 type Size is Data:
@@ -812,8 +1025,7 @@ def add_recon_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffer:
   match has:
     case False{}: b
     case True{}:
-      +b1 = Cl.buf_log_ts(b, Cl.System{}, "", "[...]")
-      Cl.buf_log_ts(b1, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
+      Cl.buf_log_ts(b, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
 
 def add_recon_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
   add_recon_marker.has(buf_has_lines(b), b, now)
@@ -848,6 +1060,39 @@ def session_fail.got(+msg: String, +st: Session) -> Session:
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
+
+def session_autoreconnect.st(
+  +cl: Cl.Client,
+  +draft: String,
+  +chan: String,
+  +hist: Hist,
+  +size: Size,
+  +seed: U32,
+  +comp: Comp,
+  +server: String
+) -> Session:
+  Session{Sub.echo_sys(cl, "auto-reconnecting to " ++ server ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp}
+
+def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
+  match ok:
+    case False{}:
+      (st, Cont{Nil{}})
+    case True{}:
+      match st:
+        case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp}:
+          (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, server), Dial{server, 6667, 0})
+
+def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Session & NetCmd:
+  match auto:
+    case False{}:
+      (st, Cont{Nil{}})
+    case True{}:
+      session_autoreconnect.dial(Bool.not(String.is_empty(server) || String.eq(server, "demo") || String.eq(server, "s")), st, server)
+
+def session_autoreconnect(+st: Session) -> Session & NetCmd:
+  +cl = session_cl(st)
+  +stg = Cl.get_settings(cl)
+  session_autoreconnect.chk(Cl.settings_autoreconn(stg), st, Cl.server_of(cl))
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
@@ -913,6 +1158,8 @@ def session_after(
     case Handoff{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp}
     case Cont{_}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp}
+    case OpenUrl{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp}
 
 def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
@@ -1057,10 +1304,13 @@ def step_chunk_got(
     case (cl2, rem2, drop2, outs, joined2):
       (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp}, outs)
 
-def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, String>:
+def step_on_chunk_ms(+st: Session, chunk: List<&2, U32>, +now_ms: U32) -> Session & List<&2, String>:
   match st:
     case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp}:
-      step_chunk_got(draft, chan, net, hist, size, seed, comp, step_chunk(cl, drop, rem, chunk, joined, chan))
+      step_chunk_got(draft, chan, net, hist, size, seed, comp, step_chunk_ms(cl, drop, rem, chunk, joined, chan, now_ms))
+
+def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, String>:
+  step_on_chunk_ms(st, chunk, 0)
 
 def sess_drop(+st: Session) -> Bool:
   match st:

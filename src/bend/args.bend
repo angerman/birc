@@ -2,7 +2,7 @@
 import Base
 
 type Cfg is Data:
-  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String}
+  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String}
 
 type Parsed is Data:
   Good{cfg: Cfg}
@@ -12,7 +12,7 @@ type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", 6667, "birc", "#birc", ""}
+  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", ""}
 
 def parse_u32.on(m: Maybe<&2, U32>) -> Num:
   match m:
@@ -26,38 +26,54 @@ def parse_u32(+s: String) -> Num:
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, _, +host, port, +nick, +chan, +replay}:
-      Cfg{demo, n, host, port, nick, chan, replay}
+    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp}:
+      Cfg{demo, n, host, port, nick, chan, replay, su, sp}
 
 def set_host(+cfg: Cfg, +host: String) -> Cfg:
   match cfg:
-    case Cfg{_, frames, _, port, +nick, +chan, +replay}:
-      Cfg{False{}, frames, host, port, nick, chan, replay}
+    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp}:
+      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp}
 
 def set_port(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, _, +nick, +chan, +replay}:
-      Cfg{demo, frames, host, n, nick, chan, replay}
+    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp}:
+      Cfg{demo, frames, host, n, nick, chan, replay, su, sp}
 
 def set_nick(+cfg: Cfg, +nick: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, _, +chan, +replay}:
-      Cfg{demo, frames, host, port, nick, chan, replay}
+    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
 
 def set_chan(+cfg: Cfg, +chan: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, _, +replay}:
-      Cfg{demo, frames, host, port, nick, chan, replay}
+    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
 
 def set_replay(+cfg: Cfg, +replay: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, _}:
-      Cfg{demo, frames, host, port, nick, chan, replay}
+    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
 
 def set_demo(+cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{_, frames, +host, port, +nick, +chan, +replay}:
-      Cfg{True{}, frames, host, port, nick, chan, replay}
+    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp}:
+      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp}
+
+def set_sasl_user.nick(is_def: Bool, +user: String, +nick: String) -> String:
+  match is_def:
+    case True{}: user
+    case False{}: nick
+
+def set_sasl_user(+cfg: Cfg, +user: String) -> Cfg:
+  match cfg:
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp}:
+      +n = set_sasl_user.nick(String.eq(nick, "birc") || String.eq(nick, "me"), user, nick)
+      Cfg{demo, frames, host, port, n, chan, replay, user, sp}
+
+def set_sasl_pass(+cfg: Cfg, +pass: String) -> Cfg:
+  match cfg:
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, pass}
 
 type Step is Data:
   Go{xs: List<&2, String>, cfg: Cfg}
@@ -187,8 +203,42 @@ def args_replay_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
 def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   args_replay_on(xs, cfg, args_need(xs))
 
+def args_sasl_user_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  match xs:
+    case Nil{}:
+      Stop{Bad{"birc: missing value"}}
+    case Con{+h, t}:
+      Go{ t, set_sasl_user(cfg, h)}
+
+def args_sasl_user_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
+  match need:
+    case True{}:
+      Stop{Bad{"birc: missing value"}}
+    case False{}:
+      args_sasl_user_con(xs, cfg)
+
+def args_sasl_user(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  args_sasl_user_on(xs, cfg, args_need(xs))
+
+def args_sasl_pass_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  match xs:
+    case Nil{}:
+      Stop{Bad{"birc: missing value"}}
+    case Con{+h, t}:
+      Go{ t, set_sasl_pass(cfg, h)}
+
+def args_sasl_pass_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
+  match need:
+    case True{}:
+      Stop{Bad{"birc: missing value"}}
+    case False{}:
+      args_sasl_pass_con(xs, cfg)
+
+def args_sasl_pass(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  args_sasl_pass_on(xs, cfg, args_need(xs))
+
 def USAGE() -> String:
-  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--demo] [--help-irc]"
+  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--demo] [--help-irc]"
 
 type Flag is Data:
   FDemo{}
@@ -198,6 +248,8 @@ type Flag is Data:
   FNick{}
   FChan{}
   FReplay{}
+  FSaslUser{}
+  FSaslPass{}
   FHelp{}
   FUnknown{}
 
@@ -205,7 +257,7 @@ type FlagRow is Data:
   FlagRow{name: String, f: Flag}
 
 def flag_rows() -> List<&2, FlagRow>:
-  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--help-irc", FHelp{}} <> Nil{}
+  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--help-irc", FHelp{}} <> Nil{}
 
 def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
   match xs:
@@ -232,6 +284,10 @@ def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
       args_chan(t, cfg)
     case FReplay{}:
       args_replay(t, cfg)
+    case FSaslUser{}:
+      args_sasl_user(t, cfg)
+    case FSaslPass{}:
+      args_sasl_pass(t, cfg)
     case FHelp{}:
       Stop{Bad{USAGE()}}
     case FUnknown{}:

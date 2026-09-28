@@ -19,4 +19,21 @@ static void __attribute__((constructor)) local_secs_use(void) {
   io_eff(CID_LOCAL_SECS, local_secs_run, 0);
 }
 #endif
+#ifdef CID_MILLIS
+Term millis_run(Env e, Term *f, IoWork *w) {
+  struct timespec ts;
+  (void)e;
+  (void)f;
+  (void)w;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+    return (Term)0;
+  uint64_t sec = ts.tv_sec > 0 ? (uint64_t)ts.tv_sec : 0ULL;
+  uint64_t nsec = ts.tv_nsec > 0 ? (uint64_t)ts.tv_nsec : 0ULL;
+  uint32_t ms = (uint32_t)((sec * 1000ULL + nsec / 1000000ULL) & 0xFFFFFFFFULL);
+  return (Term)ms;
+}
+static void __attribute__((constructor)) millis_use(void) {
+  io_eff(CID_MILLIS, millis_run, 0);
+}
+#endif
 #endif /* BIRC_CLOCK_FFI_C */

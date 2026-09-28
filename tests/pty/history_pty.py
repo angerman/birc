@@ -3,10 +3,9 @@
 
 Verifies:
 1. Session 1 receives messages in server and #t, saves them to BIRC_HISTORY file upon quit.
-2. Saved history file contains only actual messages (no [...] or --- Reconnected --- markers).
+2. Saved history file contains only actual messages (no reconnect markers).
 3. Session 2 restores messages from BIRC_HISTORY, and renders:
-   - [...]
-   - --- Reconnected: <timestamp> ---
+   - Reconnected: <timestamp> divider line
    in buffers that had prior history.
 4. Session 2 appends new messages without saving the reconnect markers.
 5. BIRC_HISTORY=none disables persistence completely.
@@ -156,7 +155,7 @@ def main() -> int:
             print("history_pty: 'history message one' missing from history file", file=sys.stderr)
             print("content was:\n", content1, file=sys.stderr)
             return 1
-        if "[...]" in content1 or "--- Reconnected" in content1:
+        if "--- Reconnected" in content1 or "Reconnected:" in content1:
             print("history_pty: reconnect marker saved into history file in session 1", file=sys.stderr)
             return 1
 
@@ -204,7 +203,7 @@ def main() -> int:
         # Wait for server buffer restored history & markers
         ok_srv2, acc2 = wait_for(
             master2,
-            lambda p: "Welcome to IRC" in p and "[...]" in p and "Reconnected:" in p
+            lambda p: "Welcome to IRC" in p and "Reconnected:" in p
         )
         if not ok_srv2:
             print("history_pty: session 2 server buffer missing restored history or markers", file=sys.stderr)
@@ -219,7 +218,7 @@ def main() -> int:
         os.write(master2, b"\x1b[1;2C")
         ok_t2, acc2 = wait_for(
             master2,
-            lambda p: "history message one" in p and "[...]" in p and "Reconnected:" in p,
+            lambda p: "history message one" in p and "Reconnected:" in p,
             accumulated=acc2
         )
         if not ok_t2:
@@ -254,7 +253,7 @@ def main() -> int:
             print("history_pty: 'history message two' missing after session 2", file=sys.stderr)
             print("content was:\n", content2, file=sys.stderr)
             return 1
-        if "[...]" in content2 or "--- Reconnected" in content2:
+        if "--- Reconnected" in content2 or "Reconnected:" in content2:
             print("history_pty: reconnect marker saved into history file in session 2", file=sys.stderr)
             return 1
 

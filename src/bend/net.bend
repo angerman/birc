@@ -86,7 +86,7 @@ def paint_go(
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label(net)), seed)
+      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl))), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
@@ -120,6 +120,10 @@ def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
       emit_outs(chan, outs, gen, outs_nil(outs))
     case Sess.Handoff{_}:
       IO.pure(U32, gen)
+    case Sess.OpenUrl{+url}:
+      do IO<U32>:
+        code : U32 <- T.Sys.open_url(url)
+        return gen
 
 def step_size(
   triple: Sess.Session & Sess.NetCmd & Bool,
@@ -276,7 +280,9 @@ def on_chunk(
   xs: List<&2, U32>,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_chunk_go(Sess.step_on_chunk(st, xs), ui, evt, cmd, ack, gen, frames, k)
+  do IO<Unit>:
+    now_ms : U32 <- Clock.millis()
+    on_chunk_go(Sess.step_on_chunk_ms(st, xs, now_ms), ui, evt, cmd, ack, gen, frames, k)
 
 def on_up_go(
   +st2: Sess.Session,
@@ -306,6 +312,23 @@ def on_up(
     ts : String <- Clock.hhmmss()
     on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, frames, k)
 
+def on_fail_recon(
+  recon: Sess.Session & Sess.NetCmd,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match recon:
+    case (+st3, recon_cmd):
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(cmd, recon_cmd, gen)
+        got : T.Ui & T.UiKeys <- paint_session(ui, st3)
+        on_chunk.paint(got, st3, evt, cmd, ack, gen2, frames, k)
+
 def on_fail_go(
   +st2: Sess.Session,
   ui: T.Ui,
@@ -316,9 +339,7 @@ def on_fail_go(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-    on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+  on_fail_recon(Sess.session_autoreconnect(st2), ui, evt, cmd, ack, gen, frames, k)
 
 def on_fail(
   ui: T.Ui,
@@ -632,7 +653,7 @@ def on_resize(
 ) -> IO(Unit):
   on_resize.go(Sess.session_size(st), ui, st, evt, cmd, ack, gen, frames, k)
 
-def on_msg(
+def on_msg_go(
   m: Sess.UiMsg,
   ui: T.Ui,
   +st: Sess.Session,
@@ -650,6 +671,21 @@ def on_msg(
       on_resize(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.FromNet{+got, e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, frames, U32.is_eq(got, gen), k)
+
+def on_msg(
+  m: Sess.UiMsg,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    ts : String <- Clock.hhmmss()
+    on_msg_go(m, ui, Sess.session_set_now(st, ts), evt, cmd, ack, gen, frames, k)
 
 def on_recv(
   g: Maybe<&1, Sess.UiMsg>,
@@ -976,6 +1012,21 @@ def start_ui_go(
 ) -> IO(Unit):
   open_watch(ui, st, 1, evt, cmd, ack, frames, hist_path)
 
+@unsafe
+def heartbeat_step(ok: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match ok:
+    case False{}:
+      IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        Unit <- IO.sleep(5000)
+        ms : U32 <- Clock.millis()
+        nxt : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{ ("PING :birc_" ++ U32.show(ms)) <> Nil{} })
+        heartbeat_step(nxt, cmd)
+
+def heartbeat(+cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  heartbeat_step(True{}, cmd)
+
 def start_ui_load(
   +hist_path: String,
   +hist_cap: U32,
@@ -985,13 +1036,15 @@ def start_ui_load(
   ui: T.Ui,
   +chan: String,
   +frames: U32,
+  +sasl_user: String,
+  +sasl_pass: String,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- Hist.history_init_client(hist_path, hist_cap, nick, host, now)
-    start_ui_go(ui, Sess.session_with_client(cl, chan), frames, evt, cmd, ack, hist_path)
+    start_ui_go(ui, Sess.session_with_client(Cl.client_set_sasl(cl, sasl_user, sasl_pass), chan), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   +frames: U32,
@@ -999,7 +1052,9 @@ def start_ui(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
-  +chan: String
+  +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
   do IO<Unit>:
     ack : Chan(Unit) <- Chan.new(Unit, 1)
@@ -1007,7 +1062,8 @@ def start_ui(
     hist_path : String <- Hist.resolve_history_path()
     hist_cap : U32 <- Hist.resolve_history_cap()
     now : String <- Clock.hhmmss()
-    start_ui_load(hist_path, hist_cap, nick, host, now, ui, chan, frames, evt, cmd, ack)
+    Unit <- IO.spawn(Unit, heartbeat(cmd))
+    start_ui_load(hist_path, hist_cap, nick, host, now, ui, chan, frames, sasl_user, sasl_pass, evt, cmd, ack)
 
 def boot_ui_on(
   e: Act.Boot,
@@ -1016,7 +1072,9 @@ def boot_ui_on(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
-  +chan: String
+  +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
   match e:
     case Act.Timeout{}:
@@ -1024,7 +1082,7 @@ def boot_ui_on(
     case Act.Down{+msg}:
       boot_die(cmd, msg)
     case Act.Ready{}:
-      start_ui(frames, evt, cmd, nick, host, chan)
+      start_ui(frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
 
 def boot_ui(
   g: Maybe<&1, Act.Boot>,
@@ -1035,7 +1093,9 @@ def boot_ui(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
-  +chan: String
+  +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
   match g:
     case None{}:
@@ -1044,7 +1104,7 @@ def boot_ui(
       do IO<Unit>:
         Unit <- Chan.close(Act.Boot, boot)
         Unit <- Chan.close(Unit, stop)
-        boot_ui_on(e, frames, evt, cmd, nick, host, chan)
+        boot_ui_on(e, frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
 
 def run_live_on(
   +frames: U32,
@@ -1052,24 +1112,27 @@ def run_live_on(
   +port: U32,
   +nick: String,
   +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Act.Boot),
   +stop: Chan(Unit)
 ) -> IO(Unit):
+  +has_sasl = Bool.not(String.is_empty(sasl_user)) && Bool.not(String.is_empty(sasl_pass))
   do IO<Unit>:
-    Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot))
+    Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl))
     Unit <- IO.spawn(Unit, boot_clock(boot, stop))
     g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
-    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, chan)
+    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
 
-def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
+def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   do IO<Unit>:
     evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     stop : Chan(Unit) <- Chan.new(Unit, 80)
-    run_live_on(frames, host, port, nick, chan, evt, cmd, boot, stop)
+    run_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, evt, cmd, boot, stop)
 
 def run_demo_go(
   evt0: Chan(Sess.UiMsg),

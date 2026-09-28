@@ -31,6 +31,12 @@ law local_secs:
 def local_secs():
   import "../ffi/clock_ffi.c"
 
+law millis:
+  IO(U32)
+
+def millis():
+  import "../ffi/clock_ffi.c"
+
 def hhmmss() -> IO(String):
   do IO<String>:
     n : U32 <- local_secs()

@@ -11,6 +11,7 @@ def style_spec_ok() -> Bool:
     && U32.is_eq(V.style_of(Cl.Action{}), 13079274)
     && U32.is_eq(V.style_of(Cl.Notice{}), 8563455)
     && U32.is_eq(V.style_of(Cl.Error{}), 16223340)
+    && U32.is_eq(V.style_of(Cl.Highlight{}), 16766720)
 
 def show_spanop.ital(+tx: String, ital: Bool) -> String:
   match ital:
@@ -35,6 +36,8 @@ def show_spanop(sp: V.SpanOp) -> String:
       show_spanop.spn(attrs, tx)
     case V.Lnk{+url, +text}:
       "[" ++ url ++ "]" ++ text
+    case V.Col{attrs, _, +tx}:
+      show_spanop.spn(attrs, tx)
 
 def show_spanops.chunks(+xs: List<&2, V.SpanOp>) -> List<&2, String>:
   match xs:
@@ -117,8 +120,8 @@ def tab_collide.labs(xs: List<&2, String>) -> Bool:
 
 def tab_collide_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
-      tab_collide.labs(V.tab_names(bufs))
+    case Cl.Client{_, _, +bufs, _, _, +stg}:
+      tab_collide.labs(V.tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_collide_ok() -> Bool:
   tab_collide_ok.on(Feed.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi"))

@@ -7,6 +7,7 @@ import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
+import ./src/bend/base64.bend as B64
 import ./LAWS.bend as Laws
 
 def Laws.ping_classified():
@@ -637,3 +638,14 @@ def Laws.push_rem_bound(xs):
 
 def Laws.live_fuel_small():
   {==}
+
+def Laws.sasl_plain_golden():
+  {==}
+
+def Laws.server_time_extract():
+  {==}
+
+def Laws.tab_completion_slash():
+  {==}
+
+

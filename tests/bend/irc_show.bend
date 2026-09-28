@@ -32,6 +32,8 @@ def show_cmd(c: Irc.Cmd) -> String:
       "NAMES"
     case Irc.Error{}:
       "ERROR"
+    case Irc.Cap{}:
+      "CAP"
     case Irc.Numeric{+code}:
       "NUM" ++ U32.show(code)
 
@@ -47,7 +49,7 @@ def show_params(+ps: List<&2, String>) -> String:
 
 def show_msg(+m: Irc.Message) -> String:
   match m:
-    case Irc.Message{+nick, +cmd, +num, +ps}:
+    case Irc.Message{_, +nick, +cmd, +num, +ps}:
       nick ++ "!" ++ cmd ++ "#" ++ U32.show(num) ++ show_params(ps)
 
 def show_parse.on(m: Maybe<&2, Irc.Message>) -> String:

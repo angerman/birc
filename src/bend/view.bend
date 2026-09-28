@@ -1,5 +1,6 @@
 # View model from Client. Pure scroll math + DrawOp list for the paint FFI.
 import Base
+import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./session.bend as Sess
 
@@ -8,6 +9,7 @@ import ./session.bend as Sess
 type SpanOp is Data:
   Spn{attrs: U32, text: String}
   Lnk{url: String, text: String}
+  Col{attrs: U32, fg: U32, text: String}
 
 type Rect is Data:
   Rect{x: U32, y: U32, w: U32, h: U32}
@@ -93,6 +95,8 @@ def style_of(k: Cl.LineKind) -> U32:
       8563455
     case Cl.Error{}:
       16223340
+    case Cl.Highlight{}:
+      16766720
 
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
@@ -501,16 +505,27 @@ def user_host_label.empty(+base: String, +net: String, empty: Bool) -> String:
     case False{}:
       base ++ " · " ++ net
 
-def user_host_label.on(+base: String, +net: String, is_online: Bool) -> String:
-  match is_online:
-    case True{}:
-      base
-    case False{}:
-      user_host_label.empty(base, net, String.is_empty(net))
-
 def user_host_label(+nick: String, +server: String, +net: String) -> String:
   +base = nick ++ "@" ++ server
-  user_host_label.on(base, net, String.eq(net, "online"))
+  user_host_label.empty(base, net, String.is_empty(net))
+
+def status_color.on(+net: String, is_online: Bool, is_offline: Bool, is_conn: Bool) -> U32:
+  match is_online:
+    case True{}:
+      5635925
+    case False{}:
+      match is_offline:
+        case True{}:
+          16223340
+        case False{}:
+          match is_conn:
+            case True{}:
+              15720050
+            case False{}:
+              10526880
+
+def status_color(+net: String) -> U32:
+  status_color.on(net, String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
 
 
 def span_op(sp: TextSpan) -> SpanOp:
@@ -539,6 +554,22 @@ def FG_TEXT() -> U32:
 def FG_DIM() -> U32:
   10526880
 
+def user_header_ops.split(r: Rect, +base: String, +net: String, empty: Bool) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, w, _}:
+      match empty:
+        case True{}:
+          OpText{x, y, w, FG_DIM(), 0, base} <> Nil{}
+        case False{}:
+          +pfx = base ++ " · "
+          +pw = U32.from_nat(String.length(pfx))
+          +nw = U32.from_nat(String.length(net))
+          OpText{x, y, pw, FG_DIM(), 0, pfx}
+            <> (OpText{U32.add(x, pw), y, nw, status_color(net), 1, net} <> Nil{})
+
+def user_header_ops(r: Rect, +nick: String, +server: String, +net: String) -> List<&2, DrawOp>:
+  user_header_ops.split(r, nick ++ "@" ++ server, net, String.is_empty(net))
+
 # Timestamp is an OpText of at most 8 columns, then one space, then the
 # line. A narrow body clips the stamp to w so it cannot spill past the line.
 def ts_w.on(+w: U32, ge: Bool) -> U32:
@@ -564,6 +595,165 @@ def line_shift(+w: U32) -> U32:
 def line_rest(+w: U32) -> U32:
   U32.sub(w, line_shift(w))
 
+def nick_hash.char(+c: Char, +h: U32) -> U32:
+  U32.add(U32.mul(h, 33), Irc.code_of(c))
+
+def nick_hash.go(s: String, +h: U32) -> U32:
+  match s:
+    case SNil{}:
+      h
+    case SCon{c, t}:
+      nick_hash.go(t, nick_hash.char(c, h))
+
+def nick_hash(+s: String) -> U32:
+  nick_hash.go(s, 5381)
+
+def nick_color_idx(+idx: U32) -> U32:
+  match idx:
+    case 0: 16738914
+    case 1: 5635925
+    case 2: 16766770
+    case 3: 5547007
+    case 4: 13079039
+    case 5: 5635999
+    case 6: 16747674
+    case 7: 10485606
+    case 8: 16753920
+    case 9: 10079487
+    case 10: 14467071
+    case 11: 7526270
+    case 12: 16763030
+    case 13: 8576972
+    case 14: 16744652
+    case _: 14540253
+
+def nick_color(+nick: String) -> U32:
+  nick_color_idx(U32.and(nick_hash(nick), 15))
+
+def take_until_gt.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest):
+      (SCon{h, tok}, rest)
+
+def take_until_gt.fin(+h: Char, +t: String, r: String & String, hit: Bool) -> String & String:
+  match hit:
+    case True{}:
+      ("", t)
+    case False{}:
+      take_until_gt.cons(h, r)
+
+def take_until_gt(s: String) -> String & String:
+  match s:
+    case SNil{}:
+      ("", "")
+    case SCon{+h, +t}:
+      take_until_gt.fin(h, t, take_until_gt(t), Char.is_eq(h, '>'))
+
+def parse_nick_msg.body(+rest: String, +nick: String) -> List<&2, SpanOp>:
+  match rest:
+    case SNil{}:
+      span_ops(tokenize("<" ++ nick ++ ">"))
+    case SCon{_, body}:
+      Spn{0, "<"}
+        <> (Col{1, nick_color(nick), nick}
+        <> (Spn{0, "> "}
+        <> span_ops(tokenize(body))))
+
+def parse_nick_msg.ok(ok: Bool, +rest: String, +nick: String) -> List<&2, SpanOp>:
+  match ok:
+    case True{}:
+      parse_nick_msg.body(rest, nick)
+    case False{}:
+      span_ops(tokenize("<" ++ nick ++ rest))
+
+def parse_nick_msg.parsed(pair: String & String) -> List<&2, SpanOp>:
+  match pair:
+    case (+nick, +rest):
+      parse_nick_msg.ok(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick)
+
+def parse_nick_msg.head(is_lt: Bool, +t: String, +s: String) -> List<&2, SpanOp>:
+  match is_lt:
+    case True{}:
+      parse_nick_msg.parsed(take_until_gt(t))
+    case False{}:
+      span_ops(tokenize(s))
+
+def parse_nick_msg.con(+c: Char, +t: String, +s: String) -> List<&2, SpanOp>:
+  parse_nick_msg.head(Char.is_eq(c, '<'), t, s)
+
+def parse_nick_msg(s: String) -> List<&2, SpanOp>:
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{+c, +t}:
+      parse_nick_msg.con(c, t, s)
+
+def parse_nick_act.body(+rest: String, +nick: String) -> List<&2, SpanOp>:
+  match rest:
+    case SNil{}:
+      span_ops(tokenize("* " ++ nick))
+    case SCon{_, body}:
+      Spn{0, "* "}
+        <> (Col{1, nick_color(nick), nick}
+        <> (Spn{0, " "}
+        <> span_ops(tokenize(body))))
+
+def parse_nick_act.ok(ok: Bool, +rest: String, +nick: String) -> List<&2, SpanOp>:
+  match ok:
+    case True{}:
+      parse_nick_act.body(rest, nick)
+    case False{}:
+      span_ops(tokenize("* " ++ nick ++ rest))
+
+def parse_nick_act.parsed(pair: String & String) -> List<&2, SpanOp>:
+  match pair:
+    case (+nick, +rest):
+      parse_nick_act.ok(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick)
+
+def parse_nick_act.rest(+t2: String) -> List<&2, SpanOp>:
+  parse_nick_act.parsed(Irc.take_until_space(t2))
+
+def parse_nick_act.sp(is_sp: Bool, +t2: String, +s: String) -> List<&2, SpanOp>:
+  match is_sp:
+    case True{}:
+      parse_nick_act.rest(t2)
+    case False{}:
+      span_ops(tokenize(s))
+
+def parse_nick_act.t1(+t1: String, +s: String) -> List<&2, SpanOp>:
+  match t1:
+    case SNil{}:
+      span_ops(tokenize(s))
+    case SCon{+c2, +t2}:
+      parse_nick_act.sp(Char.is_eq(c2, ' '), t2, s)
+
+def parse_nick_act.star(is_star: Bool, +t1: String, +s: String) -> List<&2, SpanOp>:
+  match is_star:
+    case True{}:
+      parse_nick_act.t1(t1, s)
+    case False{}:
+      span_ops(tokenize(s))
+
+def parse_nick_act(s: String) -> List<&2, SpanOp>:
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{+c1, +t1}:
+      parse_nick_act.star(Char.is_eq(c1, '*'), t1, s)
+
+def line_spans_for(k: Cl.LineKind, +text: String) -> List<&2, SpanOp>:
+  match k:
+    case Cl.Msg{}:
+      parse_nick_msg(text)
+    case Cl.Self{}:
+      parse_nick_msg(text)
+    case Cl.Highlight{}:
+      parse_nick_msg(text)
+    case Cl.Action{}:
+      parse_nick_act(text)
+    case _:
+      span_ops(tokenize(text))
+
 def line_ops_go(
   +x: U32,
   +y: U32,
@@ -580,10 +770,78 @@ def line_ops_go(
       OpText{x, y, ts_w(w), FG_DIM(), 0, ts}
         <> (OpLine{U32.add(x, line_shift(w)), y, line_rest(w), fg, spans} <> Nil{})
 
+def repeat_dash.go(fuel: Nat, acc: String) -> String:
+  match fuel:
+    case 0n: acc
+    case 1n+p: repeat_dash.go(p, "─" ++ acc)
+
+def repeat_dash(n: Nat) -> String:
+  repeat_dash.go(n, "")
+
+def take_recon_after(pair: String & String) -> String:
+  match pair:
+    case (+word, _): word
+
+def take_recon_ts.step(sw: Bool, +s: String, +rest: String) -> String:
+  match sw:
+    case True{}:
+      take_recon_after(Irc.take_until_space(String.drop(s, 13n)))
+    case False{}:
+      rest
+
+def take_recon_ts.find(fuel: Nat, s: String) -> String:
+  match fuel:
+    case 0n: ""
+    case 1n+p:
+      match s:
+        case SNil{}: ""
+        case SCon{+h, +t}:
+          take_recon_ts.step(String.starts_with(SCon{h, t}, "Reconnected: "), SCon{h, t}, take_recon_ts.find(p, t))
+
+def take_recon_ts(+s: String) -> String:
+  take_recon_ts.find(Nat.add(1n, String.length(s)), s)
+
+def recon_label.ts(empty: Bool, +ts: String) -> String:
+  match empty:
+    case True{}: " Reconnected "
+    case False{}: " Reconnected: " ++ ts ++ " "
+
+def recon_label(+text: String) -> String:
+  +ts = take_recon_ts(text)
+  recon_label.ts(String.is_empty(ts), ts)
+
+def recon_divider.gt(gt: Bool, +lbl: String, +lbl_w: U32, +w: U32) -> String:
+  match gt:
+    case False{}:
+      lbl
+    case True{}:
+      +rem = U32.sub(w, lbl_w)
+      +half = U32.to_nat(U32.div(rem, 2))
+      +rest = U32.to_nat(U32.sub(rem, U32.div(rem, 2)))
+      repeat_dash(half) ++ lbl ++ repeat_dash(rest)
+
+def recon_divider(+text: String, +w: U32) -> String:
+  +lbl = recon_label(text)
+  +lbl_w = U32.from_nat(String.length(lbl))
+  recon_divider.gt(U32.is_gt(w, lbl_w), lbl, lbl_w, w)
+
+def is_recon_line(+text: String) -> Bool:
+  String.contains(text, "Reconnected:")
+
+def line_ops_at_ts.recon(+x: U32, +y: U32, +w: U32, +text: String) -> List<&2, DrawOp>:
+  OpText{x, y, w, FG_DIM(), 0, recon_divider(text, w)} <> Nil{}
+
+def line_ops_at_ts.chk(is_rec: Bool, +x: U32, +y: U32, +w: U32, +k: Cl.LineKind, +ts: String, +text: String, show_ts: Bool) -> List<&2, DrawOp>:
+  match is_rec:
+    case True{}:
+      line_ops_at_ts.recon(x, y, w, text)
+    case False{}:
+      line_ops_go(x, y, w, style_of(k), ts, line_spans_for(k, text), Bool.not(show_ts) || String.is_empty(ts))
+
 def line_ops_at_ts(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool) -> List<&2, DrawOp>:
   match ln:
     case Cl.Line{+k, +ts, +text}:
-      line_ops_go(x, y, w, style_of(k), ts, span_ops(tokenize(text)), Bool.not(show_ts) || String.is_empty(ts))
+      line_ops_at_ts.chk(is_recon_line(text), x, y, w, k, ts, text, show_ts)
 
 def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at_ts(x, y, w, ln, True{})
@@ -653,10 +911,15 @@ def line_ts_ok() -> Bool:
     && line_ts_empty.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "", "hello"}))
     && line_ts_long.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00.extra", "hello"}))
 
-def body_of.buf(+b: Cl.Buffer, +height: Nat) -> List<&2, Cl.Line>:
+def body_of.lines(lines: List<&2, Cl.Line>, mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Cl.Line>:
+  match mutes:
+    case Nil{}: lines
+    case Con{_, _}: Cl.filter_muted_lines(lines, mutes, chan, server)
+
+def body_of.buf(+b: Cl.Buffer, +height: Nat, mutes: List<&2, String>, +server: String) -> List<&2, Cl.Line>:
   match b:
-    case Cl.Buffer{_, _, _, +lines, _, +scroll}:
-      visible_lines(lines, height, scroll)
+    case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
+      visible_lines(body_of.lines(lines, mutes, name, server), height, scroll)
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -683,24 +946,27 @@ def status_of.buf(+b: Cl.Buffer) -> String:
 def view_input(+draft: String) -> String:
   draft
 
-def tab_lab(+name: String, first: Bool) -> String:
+def tab_lab(+name: String, first: Bool, unread: U32) -> String:
   match first:
     case True{}:
       "*" ++ name ++ "*"
     case False{}:
-      name
+      match unread:
+        case 2: name ++ "!"
+        case 1: name ++ "*"
+        case _: name
 
-def tab_names.go(bufs: List<&2, Cl.Buffer>, first: Bool) -> List<&2, String>:
+def tab_names.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>, first: Bool) -> List<&2, String>:
   match bufs:
     case Nil{}:
       Nil{}
     case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
-      tab_lab(name, first) <> tab_names.go(t, False{})
+      tab_lab(name, first, Cl.buf_unread_status(unreads, name)) <> tab_names.go(t, unreads, False{})
 
 # Server buffer keeps the name "server" internally; the tab strip uses
 # *server* so a nick or channel named server cannot collide.
-def tab_names(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
-  tab_names.go(bufs, True{})
+def tab_names(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>) -> List<&2, String>:
+  tab_names.go(bufs, unreads, True{})
 
 def tab_names_ok.rest(t: List<&2, String>) -> Bool:
   match t:
@@ -718,8 +984,8 @@ def tab_names_ok.head(xs: List<&2, String>) -> Bool:
 
 def tab_names_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
-      tab_names_ok.head(tab_names(bufs))
+    case Cl.Client{_, _, +bufs, _, _, +stg}:
+      tab_names_ok.head(tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_names_ok() -> Bool:
   tab_names_ok.on(Cl.init("me", "s"))
@@ -945,7 +1211,7 @@ def nick_ops.go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: 
         case False{}:
           Nil{}
         case True{}:
-          OpText{x, y, w, fg, 0, h}
+          OpText{x, y, w, nick_color(Cl.nick_strip(h)), 0, h}
             <> nick_ops.go(t, U32.is_lt(U32.add(y, 1), max_y), x, U32.add(y, 1), w, fg, max_y)
 
 def nick_ops.wide(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: List<&2, String>, wide: Bool) -> List<&2, DrawOp>:
@@ -974,7 +1240,9 @@ def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String,
 
 def view_ops(
   lay0: Lay,
-  +uh: String,
+  +nick: String,
+  +server: String,
+  +net: String,
   +active: Nat,
   +names: List<&2, String>,
   +bod: List<&2, Cl.Line>,
@@ -988,8 +1256,7 @@ def view_ops(
     case Lay{tr, ur, +br, nr, sr}:
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names)
-          <> op_text(ur, FG_DIM(), uh)
-          <> body_box(br, btitle),
+          <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
         view_ops.rest(br, bod, nr, ntitle, nicks, sr, st, show_ts))
 
 def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
@@ -997,10 +1264,10 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
-      bod = body_of.buf(b, vis_h(rows))
+      bod = body_of.buf(b, vis_h(rows), Cl.settings_mutes(stg), server)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols, user_w(uh)), uh, active, tab_names(bufs), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
 
 
 def dummy_line(+i: Nat) -> Cl.Line:

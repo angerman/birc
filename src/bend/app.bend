@@ -54,24 +54,60 @@ def dns_die(e: U32 & String) -> IO(Unit):
     case (code, +msg):
       IO.die(Unit, code, "cannot resolve: " ++ msg)
 
+def resolve_sasl_user.env(r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Done{+v}: v
+    case Fail{_}: ""
+
+def resolve_sasl_user.empty(empty: Bool, +su: String) -> IO(String):
+  match empty:
+    case True{}:
+      do IO<String>:
+        r : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_SASL_USER")
+        return resolve_sasl_user.env(r)
+    case False{}:
+      IO.pure(String, su)
+
+def resolve_sasl_user(+su: String) -> IO(String):
+  resolve_sasl_user.empty(String.is_empty(su), su)
+
+def resolve_sasl_pass.env(r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Done{+v}: v
+    case Fail{_}: ""
+
+def resolve_sasl_pass.empty(empty: Bool, +sp: String) -> IO(String):
+  match empty:
+    case True{}:
+      do IO<String>:
+        r : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_SASL_PASS")
+        return resolve_sasl_pass.env(r)
+    case False{}:
+      IO.pure(String, sp)
+
+def resolve_sasl_pass(+sp: String) -> IO(String):
+  resolve_sasl_pass.empty(String.is_empty(sp), sp)
+
 def main_live_on(
   +frames: U32,
   +host: String,
   +port: U32,
   +nick: String,
   +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String,
   r: Result<&1, &1, U32 & String, String>
 ) -> IO(Unit):
   match r:
     case Done{_}:
-      Net.run_live(frames, host, port, nick, chan)
+      Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
     case Fail{e}:
       dns_die(e)
 
-def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String) -> IO(Unit):
+def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   do IO<Unit>:
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    main_live_on(frames, host, port, nick, chan, r)
+    main_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, r)
 
 
 def demo_client(+nick: String) -> IO(Cl.Client):
@@ -93,7 +129,9 @@ def main_dispatch.demo(
   +host: String,
   +port: U32,
   +nick: String,
-  +chan: String
+  +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
   match demo:
     case True{}:
@@ -101,7 +139,7 @@ def main_dispatch.demo(
         cl : Cl.Client <- demo_client(nick)
         main_offline(frames, nick, chan, cl)
     case False{}:
-      main_live(frames, host, port, nick, chan)
+      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
 
 def main_dispatch.on(
   +frames: U32,
@@ -111,13 +149,15 @@ def main_dispatch.on(
   +nick: String,
   +chan: String,
   +replay: String,
-  has_replay: Bool
+  has_replay: Bool,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
   match has_replay:
     case True{}:
       main_replay(frames, nick, chan, replay)
     case False{}:
-      main_dispatch.demo(frames, demo, host, port, nick, chan)
+      main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass)
 
 def main_dispatch(
   +frames: U32,
@@ -126,14 +166,43 @@ def main_dispatch(
   +port: U32,
   +nick: String,
   +chan: String,
-  +replay: String
+  +replay: String,
+  +sasl_user: String,
+  +sasl_pass: String
 ) -> IO(Unit):
-  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)))
+  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass)
+
+def align_sasl_nick.pick(should_align: Bool, +user: String, +nick: String) -> String:
+  match should_align:
+    case True{}: user
+    case False{}: nick
+
+def align_sasl_nick(+user: String, +nick: String) -> String:
+  +is_def = String.eq(nick, "birc") || String.eq(nick, "me")
+  +has_user = Bool.not(String.is_empty(user))
+  align_sasl_nick.pick(is_def && has_user, user, nick)
+
+def main_cfg.dispatch(
+  +frames: U32,
+  demo: Bool,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String,
+  +replay: String,
+  +user: String,
+  +pass: String
+) -> IO(Unit):
+  +n = align_sasl_nick(user, nick)
+  main_dispatch(frames, demo, host, port, n, chan, replay, user, pass)
 
 def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay}:
-      main_dispatch(frames, demo, host, port, nick, chan, replay)
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp}:
+      do IO<Unit>:
+        user : String <- resolve_sasl_user(su)
+        pass : String <- resolve_sasl_pass(sp)
+        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, user, pass)
 
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:

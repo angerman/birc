@@ -21,15 +21,43 @@ type Cmd is Data:
   Mode{}
   Names{}
   Error{}
+  Cap{}
   Numeric{code: U32}
 
 type Message is Data:
   Message{
+    time: String,
     nick: String,
     command: String,
     numeric: U32,
     params: List<&2, String>
   }
+
+def msg_time(+m: Message) -> String:
+  match m:
+    case Message{+time, _, _, _, _}:
+      time
+
+def msg_nick(+m: Message) -> String:
+  match m:
+    case Message{_, +nick, _, _, _}:
+      nick
+
+def msg_command(+m: Message) -> String:
+  match m:
+    case Message{_, _, +cmd, _, _}:
+      cmd
+
+def msg_num(+m: Message) -> U32:
+  match m:
+    case Message{_, _, _, +num, _}:
+      num
+
+def msg_params(+m: Message) -> List<&2, String>:
+  match m:
+    case Message{_, _, _, _, +ps}:
+      ps
+
 
 # ---- character helpers --------------------------------------------------
 
@@ -259,48 +287,122 @@ def parse_params(+s: String) -> List<&2, String>:
     ("", "")
   )
 
-def parse_after_prefix.empty(empty: Bool, +cmd: String, +more: String, +nick: String) -> Maybe<&2, Message>:
+def take_8_exact.on(+sub: String, is8: Bool) -> String:
+  match is8:
+    case True{}:
+      sub
+    case False{}:
+      ""
+
+def take_8_exact(+s: String) -> String:
+  +sub = String.take(s, 8n)
+  take_8_exact.on(sub, Nat.is_eq(String.length(sub), 8n))
+
+def take_8_hhmmss.pick(is_t: Bool, +t: String, +rest: String) -> String:
+  match is_t:
+    case True{}:
+      take_8_exact(t)
+    case False{}:
+      rest
+
+def take_8_hhmmss.go(fuel: Nat, s: String) -> String:
+  match fuel:
+    case 0n:
+      ""
+    case 1n+p:
+      match s:
+        case SNil{}:
+          ""
+        case SCon{+h, +t}:
+          take_8_hhmmss.pick(code_is(h, 84), t, take_8_hhmmss.go(p, t))
+
+def extract_time_val(+val: String) -> String:
+  take_8_hhmmss.go(Nat.add(1n, String.length(val)), val)
+
+def parse_server_time.is_time(+tag: String, is_tm: Bool) -> String:
+  match is_tm:
+    case True{}:
+      extract_time_val(String.drop(tag, 5n))
+    case False{}:
+      ""
+
+def parse_server_time.on_tag(+tag: String, acc: String) -> String:
+  match acc:
+    case SNil{}:
+      parse_server_time.is_time(tag, String.starts_with(tag, "time="))
+    case SCon{+h, +t}:
+      SCon{h, t}
+
+def parse_server_time.step(acc: String, tag: String) -> String:
+  parse_server_time.on_tag(tag, acc)
+
+def parse_server_time(+tags: String) -> String:
+  List.foldl(~&2, ~String, ~String, ~parse_server_time.step, String.split(tags, Chr{59}), "")
+
+def parse_after_prefix.empty(empty: Bool, +time: String, +cmd: String, +more: String, +nick: String) -> Maybe<&2, Message>:
   match empty:
     case True{}:
       None{}
     case False{}:
       +num = Bool.pick(U32, is_numeric3(cmd), parse_numeric3(cmd), 0)
-      Some{Message{nick, cmd, num, parse_params(more)}}
+      Some{Message{time, nick, cmd, num, parse_params(more)}}
 
-def parse_after_prefix.cmd2(+cmd: String, more: String, +nick: String) -> Maybe<&2, Message>:
-  parse_after_prefix.empty(String.is_empty(cmd), cmd, more, nick)
+def parse_after_prefix.cmd2(+time: String, +cmd: String, more: String, +nick: String) -> Maybe<&2, Message>:
+  parse_after_prefix.empty(String.is_empty(cmd), time, cmd, more, nick)
 
-def parse_after_prefix.cmd(pair: String & String, +nick: String) -> Maybe<&2, Message>:
+def parse_after_prefix.cmd(+time: String, pair: String & String, +nick: String) -> Maybe<&2, Message>:
   (cmd, more) = pair
-  parse_after_prefix.cmd2(cmd, more, nick)
+  parse_after_prefix.cmd2(time, cmd, more, nick)
 
-def parse_after_prefix.on_rest(rest: String, nick: String) -> Maybe<&2, Message>:
+def parse_after_prefix.on_rest(+time: String, rest: String, nick: String) -> Maybe<&2, Message>:
   match rest:
     case SNil{}:
       None{}
     case _:
-      parse_after_prefix.cmd(take_until_space(rest), nick)
+      parse_after_prefix.cmd(time, take_until_space(rest), nick)
 
-def parse_after_prefix(s: String, nick: String) -> Maybe<&2, Message>:
-  parse_after_prefix.on_rest(drop_spaces(s), nick)
+def parse_after_prefix(+time: String, s: String, nick: String) -> Maybe<&2, Message>:
+  parse_after_prefix.on_rest(time, drop_spaces(s), nick)
 
-def parse_body.with_pfx(pair: String & String) -> Maybe<&2, Message>:
+def parse_body.with_pfx(+time: String, pair: String & String) -> Maybe<&2, Message>:
   (pfx, more) = pair
-  parse_after_prefix(more, nick_of_prefix(pfx))
+  parse_after_prefix(time, more, nick_of_prefix(pfx))
 
-def parse_body.colon(colon: Bool, +h: Char, +t: String, +rest: String) -> Maybe<&2, Message>:
+def parse_body.colon(+time: String, colon: Bool, +h: Char, +t: String, +rest: String) -> Maybe<&2, Message>:
   match colon:
     case True{}:
-      parse_body.with_pfx(take_until_space(t))
+      parse_body.with_pfx(time, take_until_space(t))
     case False{}:
-      parse_after_prefix(rest, "")
+      parse_after_prefix(time, rest, "")
+
+def parse_body.tagged_on(+time: String, rest: String) -> Maybe<&2, Message>:
+  match rest:
+    case SNil{}:
+      None{}
+    case SCon{+h, +t}:
+      parse_body.colon(time, is_colon(h), h, t, SCon{h, t})
+
+def parse_body.tagged(+time: String, s: String) -> Maybe<&2, Message>:
+  parse_body.tagged_on(time, drop_spaces(s))
+
+def parse_body.tags_pair(pair: String & String) -> Maybe<&2, Message>:
+  match pair:
+    case (tags, more):
+      parse_body.tagged(parse_server_time(tags), more)
+
+def parse_body.at(at: Bool, +h: Char, +t: String, +rest: String) -> Maybe<&2, Message>:
+  match at:
+    case True{}:
+      parse_body.tags_pair(take_until_space(t))
+    case False{}:
+      parse_body.colon("", is_colon(h), h, t, rest)
 
 def parse_body.on_rest(rest: String) -> Maybe<&2, Message>:
   match rest:
     case SNil{}:
       None{}
     case SCon{+h, +t}:
-      parse_body.colon(is_colon(h), h, t, SCon{h, t})
+      parse_body.at(code_is(h, 64), h, t, SCon{h, t})
 
 def parse_body(s: String) -> Maybe<&2, Message>:
   parse_body.on_rest(drop_spaces(s))
@@ -452,7 +554,7 @@ type ClsRow is Data:
   ClsRow{name: String, cmd: Cmd}
 
 def cls_rows() -> List<&2, ClsRow>:
-  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> Nil{}
+  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> Nil{}
 
 def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
   match xs:
@@ -472,7 +574,7 @@ def cls_verb(num: Bool, +cmd: String, +code: U32) -> Cmd:
 
 def classify(+m: Message) -> Cmd:
   match m:
-    case Message{_, +cmd, +num, _}:
+    case Message{_, _, +cmd, +num, _}:
       cls_verb(U32.is_gt(num, 0), cmd, num)
 
 def param_at(ps: List<&2, String>, i: Nat) -> String:
@@ -488,7 +590,7 @@ def param_at(ps: List<&2, String>, i: Nat) -> String:
 
 def msg_param(+m: Message, i: Nat) -> String:
   match m:
-    case Message{_, _, _, +ps}:
+    case Message{_, _, _, _, +ps}:
       param_at(ps, i)
 
 def msg_last_xs(xs: List<&2, String>) -> String:
@@ -504,7 +606,7 @@ def msg_last_xs(xs: List<&2, String>) -> String:
 
 def msg_last(+m: Message) -> String:
   match m:
-    case Message{_, _, _, ps}:
+    case Message{_, _, _, _, ps}:
       msg_last_xs(ps)
 
 # ---- format -------------------------------------------------------------
@@ -672,7 +774,7 @@ def is_433_num(+num: U32) -> Bool:
 
 def is_433_msg(+m: Message) -> Bool:
   match m:
-    case Message{_, _, +num, _}:
+    case Message{_, _, _, +num, _}:
       is_433_num(num)
 
 def nick433_retry(+m: Message, +nick: String) -> Bool:
@@ -694,3 +796,80 @@ def nick433_for.got(m: Maybe<&2, Message>, +nick: String) -> List<&2, String>:
 
 def nick433_for(+line: String, +nick: String) -> List<&2, String>:
   nick433_for.got(parse(line), nick)
+
+def format_cap_req(+caps: String) -> String:
+  "CAP REQ :" ++ caps
+
+def format_cap_end() -> String:
+  "CAP END"
+
+def format_authenticate(+payload: String) -> String:
+  "AUTHENTICATE " ++ payload
+
+def is_cap_ack_sasl(+line: String) -> Bool:
+  String.contains(line, "CAP") && String.contains(line, "ACK") && String.contains(line, "sasl")
+
+def is_authenticate_plus(+line: String) -> Bool:
+  String.starts_with(line, "AUTHENTICATE +") || String.contains(line, " AUTHENTICATE +")
+
+def is_sasl_success(+line: String) -> Bool:
+  String.contains(line, " 903 ")
+
+def is_sasl_fail(+line: String) -> Bool:
+  String.contains(line, " 904 ") || String.contains(line, " 905 ") || String.contains(line, " 906 ")
+
+def is_cap_nak(+line: String) -> Bool:
+  String.contains(line, "CAP") && String.contains(line, "NAK")
+
+def parse_u32_read.on(m: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match m:
+    case None{}: None{}
+    case Some{n}: Some{n}
+
+def parse_u32_read(+s: String) -> Maybe<&2, U32>:
+  parse_u32_read.on(U32.read(s))
+
+def extract_lag_token.on(+tok: String, is_birc: Bool) -> Maybe<&2, U32>:
+  match is_birc:
+    case True{}:
+      parse_u32_read(String.drop(tok, 5n))
+    case False{}:
+      None{}
+
+def extract_lag_token(+tok: String) -> Maybe<&2, U32>:
+  extract_lag_token.on(tok, String.starts_with(tok, "birc_"))
+
+def extract_pong_lag.on(cand: Maybe<&2, U32>, cont: Maybe<&2, U32>) -> Maybe<&2, U32>:
+  match cand:
+    case Some{n}: Some{n}
+    case None{}: cont
+
+def extract_pong_lag.ps(ps: List<&2, String>) -> Maybe<&2, U32>:
+  match ps:
+    case Nil{}:
+      None{}
+    case Con{+h, t}:
+      extract_pong_lag.on(extract_lag_token(h), extract_pong_lag.ps(t))
+
+def extract_pong_lag.is_pong(+ps: List<&2, String>, is_p: Bool) -> Maybe<&2, U32>:
+  match is_p:
+    case True{}: extract_pong_lag.ps(ps)
+    case False{}: None{}
+
+def extract_pong_lag(+m: Message) -> Maybe<&2, U32>:
+  match m:
+    case Message{_, _, +cmd, _, +ps}:
+      extract_pong_lag.is_pong(ps, ieq(cmd, "PONG"))
+
+def extract_pong_lag_line.on(m: Maybe<&2, Message>) -> Maybe<&2, U32>:
+  match m:
+    case None{}: None{}
+    case Some{msg}: extract_pong_lag(msg)
+
+def extract_pong_lag_line(+line: String) -> Maybe<&2, U32>:
+  extract_pong_lag_line.on(parse(line))
+
+def server_time_sample_ok() -> Bool:
+  String.eq(parse_server_time("time=2026-09-28T17:40:27.123Z"), "17:40:27")
+    && String.eq(parse_server_time("account=u;time=2023-01-02T03:04:05Z;foo=1"), "03:04:05")
+

@@ -7,7 +7,7 @@ def MAX_BUFFERS() -> Nat:
   16n
 
 def SCROLL_CAP() -> Nat:
-  512n
+  1024n
 
 def MAX_NICKS() -> Nat:
   256n
@@ -19,6 +19,7 @@ type LineKind is Data:
   Action{}
   Notice{}
   Error{}
+  Highlight{}
 
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String}
@@ -34,63 +35,299 @@ type Buffer is Data:
   }
 
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, String>, sasl_user: String, sasl_pass: String, lag: U32}
 
 def settings0() -> Settings:
-  Settings{True{}, True{}, True{}, True{}, 100}
+  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0}
 
 def settings_with_cap(cap: U32) -> Settings:
-  Settings{True{}, True{}, True{}, True{}, cap}
+  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0}
 
 def settings_joins(+s: Settings) -> Bool:
   match s:
-    case Settings{joins, _, _, _, _}:
+    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _}:
       joins
 
 def settings_ts(+s: Settings) -> Bool:
   match s:
-    case Settings{_, ts, _, _, _}:
+    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _}:
       ts
 
 def settings_motd(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, motd, _, _}:
+    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _}:
       motd
 
 def settings_history(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, history, _}:
+    case Settings{_, _, _, history, _, _, _, _, _, _, _, _}:
       history
 
 def settings_hist_cap(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, cap}:
+    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _}:
       cap
+
+def settings_autoreconn(+s: Settings) -> Bool:
+  match s:
+    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _}:
+      auto
+
+def settings_bell(+s: Settings) -> Bool:
+  match s:
+    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _}:
+      bell
+
+def settings_mutes(+s: Settings) -> List<&2, String>:
+  match s:
+    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _}:
+      mutes
+
+def settings_unreads(+s: Settings) -> List<&2, String>:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _}:
+      unreads
+
+def settings_sasl_user(+s: Settings) -> String:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _}:
+      su
+
+def settings_sasl_pass(+s: Settings) -> String:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _}:
+      sp
+
+def settings_lag(+s: Settings) -> U32:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag}:
+      lag
 
 def set_joins(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{_, ts, motd, history, cap}:
-      Settings{val, ts, motd, history, cap}
+    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
 
 def set_ts(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, _, motd, history, cap}:
-      Settings{joins, val, motd, history, cap}
+    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
 
 def set_motd(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, _, history, cap}:
-      Settings{joins, ts, val, history, cap}
+    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag}
 
 def set_history(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, _, cap}:
-      Settings{joins, ts, motd, val, cap}
+    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag}
 
 def set_hist_cap(+s: Settings, val: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, _}:
-      Settings{joins, ts, motd, history, val}
+    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag}
+
+def set_autoreconn(+s: Settings, val: Bool) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag}
+
+def set_bell(+s: Settings, val: Bool) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag}
+
+def set_mutes(+s: Settings, +val: List<&2, String>) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag}:
+      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag}
+
+def set_unreads(+s: Settings, +val: List<&2, String>) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag}
+
+def set_sasl_user(+s: Settings, +val: String) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag}
+
+def set_sasl_pass(+s: Settings, +val: String) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag}
+
+def set_lag(+s: Settings, lag: U32) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
+
+def mute_match(+m: String, +from: String, +chan: String, +server: String) -> Bool:
+  Irc.ieq(m, from)
+    || Irc.ieq(m, from ++ chan)
+    || Irc.ieq(m, from ++ "@" ++ server)
+    || Irc.ieq(m, from ++ chan ++ "@" ++ server)
+    || Irc.ieq(m, from ++ "*@" ++ server)
+
+def is_muted_list(mutes: List<&2, String>, +from: String, +chan: String, +server: String) -> Bool:
+  match mutes:
+    case Nil{}: False{}
+    case Con{+m, t}:
+      mute_match(m, from, chan, server) || is_muted_list(t, from, chan, server)
+
+def add_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+  pat <> mutes
+
+def del_mute_list.rest(tail: List<&2, String>, +m: String, hit: Bool) -> List<&2, String>:
+  match hit:
+    case True{}:
+      tail
+    case False{}:
+      m <> tail
+
+def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+  match mutes:
+    case Nil{}: Nil{}
+    case Con{+m, t}:
+      +hit = Irc.ieq(m, pat) || String.starts_with(m, pat ++ "#") || String.starts_with(m, pat ++ "*")
+      del_mute_list.rest(del_mute_list(t, pat), m, hit)
+
+def line_from_nick(+ln: Line, +nick: String) -> Bool:
+  match ln:
+    case Line{kind, _, +text}:
+      match kind:
+        case Msg{}: String.starts_with(text, "<" ++ nick ++ ">")
+        case Self{}: String.starts_with(text, "<" ++ nick ++ ">")
+        case Action{}: String.starts_with(text, "* " ++ nick ++ " ")
+        case Notice{}: String.starts_with(text, "-" ++ nick ++ "-")
+        case Highlight{}: String.starts_with(text, "<" ++ nick ++ ">")
+        case _: False{}
+
+def is_mute_sep(+c: Char) -> Bool:
+  Char.is_eq(c, '#') || Char.is_eq(c, '*') || Char.is_eq(c, '@')
+
+def mute_pat_nick.fin(+h: Char, r: String, is_sep: Bool) -> String:
+  match is_sep:
+    case True{}: ""
+    case False{}: SCon{h, r}
+
+def mute_pat_nick(s: String) -> String:
+  match s:
+    case SNil{}: ""
+    case SCon{+h, +t}:
+      mute_pat_nick.fin(h, mute_pat_nick(t), is_mute_sep(h))
+
+def is_line_muted_pat(+m: String, +ln: Line, +chan: String, +server: String) -> Bool:
+  +nick = mute_pat_nick(m)
+  mute_match(m, nick, chan, server) && line_from_nick(ln, nick)
+
+def is_line_muted(mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
+  match mutes:
+    case Nil{}: False{}
+    case Con{+m, t}:
+      is_line_muted_pat(m, ln, chan, server) || is_line_muted(t, ln, chan, server)
+
+def filter_muted_lines.rest(tail: List<&2, Line>, +ln: Line, muted: Bool) -> List<&2, Line>:
+  match muted:
+    case True{}: tail
+    case False{}: ln <> tail
+
+def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+ln, t}:
+      filter_muted_lines.rest(filter_muted_lines(t, mutes, chan, server), ln, is_line_muted(mutes, ln, chan, server))
+
+def str_contains.step(hit: Bool, rest: Bool) -> Bool:
+  match hit:
+    case True{}: True{}
+    case False{}: rest
+
+def str_contains(haystack: String, +needle: String) -> Bool:
+  match haystack:
+    case SNil{}: False{}
+    case SCon{+h, +t}:
+      str_contains.step(String.starts_with(SCon{h, t}, needle), str_contains(t, needle))
+
+def is_mention.on(empty: Bool, +body: String, +nick: String) -> Bool:
+  match empty:
+    case True{}: False{}
+    case False{}:
+      str_contains(Irc.rfc1459(body), Irc.rfc1459(nick))
+
+def is_mention(+body: String, +nick: String) -> Bool:
+  is_mention.on(String.is_empty(nick), body, nick)
+
+def buf_unread_status.norm(is_norm: Bool) -> U32:
+  match is_norm:
+    case True{}: 1
+    case False{}: 0
+
+def buf_unread_status.hl(is_hl: Bool, is_norm: Bool) -> U32:
+  match is_hl:
+    case True{}: 2
+    case False{}: buf_unread_status.norm(is_norm)
+
+def buf_unread_status.item(+u: String, +name: String) -> U32:
+  buf_unread_status.hl(String.eq(u, "!" ++ name), String.eq(u, name))
+
+def buf_unread_status.pick(ge: Bool, +s1: U32, +s2: U32) -> U32:
+  match ge:
+    case True{}: s1
+    case False{}: s2
+
+def buf_unread_status.max(+s1: U32, +s2: U32) -> U32:
+  buf_unread_status.pick(U32.is_ge(s1, s2), s1, s2)
+
+def buf_unread_status(unreads: List<&2, String>, +name: String) -> U32:
+  match unreads:
+    case Nil{}: 0
+    case Con{+u, t}:
+      buf_unread_status.max(buf_unread_status.item(u, name), buf_unread_status(t, name))
+
+def has_unread_item(unreads: List<&2, String>, +item: String) -> Bool:
+  match unreads:
+    case Nil{}: False{}
+    case Con{+u, t}:
+      String.eq(u, item) || has_unread_item(t, item)
+
+def add_unread_item.on(has: Bool, unreads: List<&2, String>, +item: String) -> List<&2, String>:
+  match has:
+    case True{}: unreads
+    case False{}: item <> unreads
+
+def add_unread_item(+unreads: List<&2, String>, +item: String) -> List<&2, String>:
+  add_unread_item.on(has_unread_item(unreads, item), unreads, item)
+
+def del_unread_items.hit(tail: List<&2, String>, +u: String, hit: Bool) -> List<&2, String>:
+  match hit:
+    case True{}: tail
+    case False{}: u <> tail
+
+def del_unread_items(unreads: List<&2, String>, +name: String) -> List<&2, String>:
+  match unreads:
+    case Nil{}: Nil{}
+    case Con{+u, t}:
+      del_unread_items.hit(del_unread_items(t, name), u, String.eq(u, name) || String.eq(u, "!" ++ name))
+
+def purge_nick_lines.rest(tail: List<&2, Line>, +h: Line, hit: Bool) -> List<&2, Line>:
+  match hit:
+    case True{}:
+      tail
+    case False{}:
+      h <> tail
+
+def purge_nick_lines(lines: List<&2, Line>, +nick: String) -> List<&2, Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      purge_nick_lines.rest(purge_nick_lines(t, nick), h, line_from_nick(h, nick))
+
+def purge_nick_buf(b: Buffer, +nick: String) -> Buffer:
+  match b:
+    case Buffer{+name, is_ch, +topic, lines, +nicks, scroll}:
+      Buffer{name, is_ch, topic, purge_nick_lines(lines, nick), nicks, scroll}
 
 type Client is Data:
   Client{
@@ -101,6 +338,21 @@ type Client is Data:
     now: String,
     settings: Settings
   }
+
+def is_muted_client(+cl: Client, +from: String, +chan: String) -> Bool:
+  match cl:
+    case Client{_, +server, _, _, _, +stg}:
+      is_muted_list(settings_mutes(stg), from, chan, server)
+
+def add_mute_client(+cl: Client, +pat: String) -> Client:
+  match cl:
+    case Client{+nick, +server, bufs, active, now, +stg}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, add_mute_list(settings_mutes(stg), pat))}
+
+def del_mute_client(+cl: Client, +pat: String) -> Client:
+  match cl:
+    case Client{+nick, +server, bufs, active, now, +stg}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list(settings_mutes(stg), pat))}
 
 # ---- init ---------------------------------------------------------------
 
@@ -122,6 +374,24 @@ def set_settings(+cl: Client, +stg: Settings) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, _}:
       Client{nick, server, bufs, active, now, stg}
+
+def client_sasl_user(+cl: Client) -> String:
+  settings_sasl_user(get_settings(cl))
+
+def client_sasl_pass(+cl: Client) -> String:
+  settings_sasl_pass(get_settings(cl))
+
+def client_lag(+cl: Client) -> U32:
+  settings_lag(get_settings(cl))
+
+def client_set_lag(+cl: Client, lag: U32) -> Client:
+  set_settings(cl, set_lag(get_settings(cl), lag))
+
+def client_set_sasl(+cl: Client, +u: String, +p: String) -> Client:
+  set_settings(cl, set_sasl_pass(set_sasl_user(get_settings(cl), u), p))
+
+def client_has_sasl(+cl: Client) -> Bool:
+  Bool.not(String.is_empty(client_sasl_user(cl))) && Bool.not(String.is_empty(client_sasl_pass(cl)))
 
 # ---- list helpers -------------------------------------------------------
 
@@ -149,6 +419,42 @@ def buf_clear_at(+cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, buf_clear), active, now, stg}
+
+def mark_unread.tag(is_hl: Bool, +name: String) -> String:
+  match is_hl:
+    case True{}: "!" ++ name
+    case False{}: name
+
+def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
+  match is_server:
+    case True{}: stg
+    case False{}:
+      set_unreads(stg, add_unread_item(settings_unreads(stg), mark_unread.tag(is_hl, name)))
+
+def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+  match got:
+    case None{}: stg
+    case Some{b}:
+      match b:
+        case Buffer{+name, _, _, _, _, _}:
+          mark_unread.check(String.eq(name, "server"), is_hl, name, stg)
+
+def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+  match is_active:
+    case True{}: stg
+    case False{}: mark_unread.buf(got, is_hl, stg)
+
+def mark_unread_idx(+cl: Client, +i: Nat, is_hl: Bool) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +act, +now, +stg}:
+      +stg2 = mark_unread_idx.on(Nat.is_eq(i, act), nth_buf(bufs, i), is_hl, stg)
+      Client{nick, server, bufs, act, now, stg2}
+
+def clear_unread(+cl: Client, +name: String) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +act, +now, +stg}:
+      +stg2 = set_unreads(stg, del_unread_items(settings_unreads(stg), name))
+      Client{nick, server, bufs, act, now, stg2}
 
 # ---- buffer find/get ----------------------------------------------------
 
@@ -183,8 +489,19 @@ def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
     case Client{_, _, +bufs, _, _, _}:
       buf_find.skip0(bufs, name)
 
-def empty_buf(+name: String, is_channel: Bool) -> Buffer:
-  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, Nil{}, 0n}
+def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
+  match is_srv:
+    case True{}: Nil{}
+    case False{}: Irc.sanitize_in(name) <> Nil{}
+
+def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
+  match is_channel:
+    case True{}: Nil{}
+    case False{}:
+      empty_buf.nicks.server(String.eq(name, "server"), name)
+
+def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
+  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), 0n}
 
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   match b:
@@ -266,15 +583,31 @@ def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
 def buf_log_at(kind: LineKind, +ts: String, +text: String, b: Buffer) -> Buffer:
   buf_log_ts(b, kind, ts, text)
 
-def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
+def client_log_ts.pick(empty: Bool, +ts: String, +now: String) -> String:
+  match empty:
+    case True{}:
+      now
+    case False{}:
+      ts
+
+def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
-      Client{nick, server, buf_modify(bufs, i, buf_log_at(kind, now, text)), active, now, stg}
+      +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
+      Client{nick, server, buf_modify(bufs, i, buf_log_at(kind, ts_use, text)), active, now, stg}
+
+def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
+  client_log_ts(cl, i, kind, "", text)
 
 def buf_modify_client(+cl: Client, +i: Nat, f: Buffer -> Buffer) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, f), active, now, stg}
+
+def purge_nick_from_active_buf(+cl: Client, +nick: String) -> Client:
+  match cl:
+    case Client{_, _, _, +active, _, _}:
+      buf_modify_client(cl, active, b => purge_nick_buf(b, nick))
 
 def set_now(+cl: Client, +ts: String) -> Client:
   match cl:
@@ -603,6 +936,11 @@ def nick_of(+cl: Client) -> String:
     case Client{+nick, _, _, _, _, _}:
       nick
 
+def server_of(+cl: Client) -> String:
+  match cl:
+    case Client{_, +server, _, _, _, _}:
+      server
+
 def active_nicks.on(got: Maybe<&2, Buffer>) -> List<&2, String>:
   match got:
     case None{}:
@@ -630,4 +968,19 @@ def active_buf_name(+cl: Client) -> String:
   match cl:
     case Client{_, _, +bufs, +active, _, _}:
       active_buf_name.on(nth_buf(bufs, active))
+
+def active_buf_lines.on(got: Maybe<&2, Buffer>) -> List<&2, Line>:
+  match got:
+    case None{}:
+      Nil{}
+    case Some{b}:
+      match b:
+        case Buffer{_, _, _, +lines, _, _}:
+          lines
+
+def active_buf_lines(+cl: Client) -> List<&2, Line>:
+  match cl:
+    case Client{_, _, +bufs, +active, _, _}:
+      active_buf_lines.on(nth_buf(bufs, active))
+
 

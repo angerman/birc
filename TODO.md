@@ -760,6 +760,42 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ---
 
+## Milestone 14 — Enhanced IRC Client Capabilities
+
+- [x] **M14.1** Nick coloring: deterministic hash palette for nicknames in chat lines (`<nick>`), actions (`* nick`), and sidebar nicklist.
+- [x] **M14.2** Nick mute / ignore: `/mute <nick>`, `/unmute <nick>`, `/mutes`, per-channel/server scoping, dynamic view-time filtering (messages reappear on `/unmute`), and settings dashboard integration.
+- [x] **M14.3** Configurable scrollback expansion: raise `SCROLL_CAP` to 1,000 lines and default `hist_cap` to 500 lines (~50–100 KB).
+- [x] **M14.4** `/reconnect` command: re-establish connection to current server/port with saved nick/channel after disconnect.
+- [x] **M14.5** Status indicator colors: render "online" in green and "offline" in red in header bar.
+- [x] **M14.6** Auto-reconnect: automatic reconnection attempt on unexpected server disconnect with configurable toggle in settings (`autoreconn: ON|OFF`).
+- [x] **M14.7** Query / Private message buffers: `/query <nick> [text]` to initiate private 1-on-1 chats in dedicated tabs, send initial messages, and `/close` to dismiss.
+- [x] **M14.8** Mentions & highlights: highlight messages mentioning own nick in Gold (`#FFD700`), with configurable terminal bell (`bell: ON|OFF`) in `/settings`.
+- [x] **M14.9** Unread activity badges: visual activity (`*`) and mention (`!`) indicators on background tabs, automatically cleared upon switching to the tab.
+- [x] **M14.10** SASL PLAIN authentication: plaintext base64 SASL authentication on connection handshake (`CAP REQ :sasl`).
+- [x] **M14.11** IRCv3 `server-time`: parse message tag timestamps (`@time=...`) for accurate bouncer/scrollback timing.
+- [x] **M14.12** Link opener (`/open [n]`): open detected URLs via external system launcher (`open` / `xdg-open`).
+
+---
+
+## Milestone 15 — Everyday Ergonomics & Quality-of-Life
+
+- [x] **M15.1** Nick & Slash-Command Tab Completion: `Tab` in composer cycles completions for nicknames from active channel nicklist and `/commands`.
+- [x] **M15.2** Interactive URL Picker (`/links` or `Alt-O`): pop-up HUD listing extracted URLs from recent chat with author/timestamp context to quickly select and open.
+- [x] **M15.3** Live Server Latency / Lag Meter: heartbeat `PING`/`PONG` round-trip latency counter displayed in status bar (`online · 34ms`).
+- [x] **M15.4** In-App Mouse Selection & System Clipboard: pane-scoped drag selection in body and nick list with reverse video highlight, automatic copy to OSC 52 and `pbcopy` on release, Esc dismissal without quitting, and mode 1002 button-motion tracking (`tests/pty/mouse_select.py`).
+- [x] **M15.5** Parley Server Compatibility & Polish: `CAP LS 302` initial handshake, default nick alignment to `--sasl-user`/`BIRC_SASL_USER`, silent handling of server `CAP` replies, gold `#FFD700` `❯ ` composer prompt, and dynamic Unicode `─` centered reconnect divider.
+
+---
+
+## Milestone 16 — Next-Gen Terminal Visuals & Advanced Capabilities
+
+- [ ] **M16.1** Kitty Graphics Protocol Image Viewer: inline thumbnails and `/preview <url>` overlays for image links via Kitty graphics escapes.
+- [ ] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
+- [ ] **M16.3** Parallel Scrollback Search / Fuzzy Grep: Bend parallel tree-search over message history across all buffers (`/search <query>`).
+- [ ] **M16.4** IRCv3 Live Typing Notifications (`+typing`): render typing indicators above composer when participants type.
+
+---
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

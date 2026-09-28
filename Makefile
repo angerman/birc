@@ -21,6 +21,9 @@ endif
 BLDDIR := build
 APP := src/bend/app.bend
 PROTO := tests/bend/proto_demo.bend
+
+test%: export BIRC_HISTORY ?= none
+check: export BIRC_HISTORY ?= none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
@@ -30,7 +33,7 @@ PROTO := tests/bend/proto_demo.bend
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
-        test-pty-tabswitch test-pty-resize test-pty-settings test-pty-history \
+        test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history \
         lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
         test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
 
@@ -114,6 +117,11 @@ test-dns-timeout: ## K3: blackhole nameserver returns timeout, does not park.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
 	$(NIXRUN) timeout 15 ./$(BLDDIR)/dns_timeout | grep -qx dns_timeout=ok
+
+test-base64: ## Base64 and SASL PLAIN golden tests.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/base64_demo.bend -o $(BLDDIR)/base64_demo
+	$(NIXRUN) ./$(BLDDIR)/base64_demo | grep -qx base64_demo=ok
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
@@ -241,6 +249,9 @@ test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (not
 test-pty-tabswitch: build-ui ## Pty: 1-press / 1-click tab switching.
 	$(NIXRUN) python3 tests/pty/tab_switch.py ./$(BLDDIR)/birc
 
+test-pty-mouseselect: build-ui ## Pty: in-app mouse selection and Esc dismissal.
+	$(NIXRUN) python3 tests/pty/mouse_select.py ./$(BLDDIR)/birc
+
 test-pty-resize: build-ui ## Pty: dynamic window resize expand and shrink.
 	$(NIXRUN) python3 tests/pty/resize.py ./$(BLDDIR)/birc
 
@@ -250,9 +261,9 @@ test-pty-settings: build-ui ## Pty: /settings panel, /set, and /toggle commands.
 test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and BIRC_HISTORY.
 	$(NIXRUN) python3 tests/pty/history_pty.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-resize test-pty-settings test-pty-history ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history ## Pty loop tests.
 
-test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend

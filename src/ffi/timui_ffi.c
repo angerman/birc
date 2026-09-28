@@ -7,6 +7,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -14,10 +15,22 @@
 #define TIMUI_IMPLEMENTATION
 #endif
 #include "timui.h"
+
+typedef struct {
+  int active;       /* 1 if selection exists */
+  int dragging;     /* 1 if left mouse button is pressed and held */
+  int start_x, start_y;
+  int cur_x, cur_y;
+  TimuiRect pane;   /* bounds of pane where drag started */
+} BircSel;
+
 typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int last_tab;
+  TimuiRect body_inner;
+  TimuiRect nicks_inner;
+  BircSel sel;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
@@ -29,7 +42,11 @@ static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
-  if (ui) timui_restore_terminal(ui);
+  if (ui) {
+    if (ui->fd.write_fd >= 0)
+      (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
+    timui_restore_terminal(ui);
+  }
 }
 static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols,
@@ -60,7 +77,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   st->last_tab = -1;
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
-              TIMUI_FLAG_MOUSE | TIMUI_FLAG_BRACKETED_PASTE;
+              TIMUI_FLAG_BRACKETED_PASTE | TIMUI_FLAG_MOUSE;
   cfg.theme = TIMUI_THEME_MODERN_DARK;
   cfg.userdata = st;
   cfg.input_poll_ms = 0;
@@ -69,6 +86,8 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
     free(st);
     return io_fail(e, (u32)tr, "timui_open failed");
   }
+  if (ui && ui->fd.write_fd >= 0)
+    (void)write(ui->fd.write_fd, "\x1b[?1002h", 8);
   for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
     if (i != TIMUI_SLOT_SELECTION && i != TIMUI_SLOT_BUTTON_ACTIVE) {
       ui->theme.slots[i].bg = TIMUI_COLOR_DEFAULT;
@@ -164,27 +183,37 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
 static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
                            uint32_t fg, Term xs) {
   while (term_aux(xs) == CID_CON) {
-    Term rest, f[2];
+    Term rest, f[3];
     Term sp = birc_cons_head(e, xs, &rest);
     u64 cid = term_aux(sp);
-    Loc loc = ctr_take(e, sp, 2, f);
     xs = rest;
-    if (cid == CID_VIEW_LNK) {
-      u64 ulen = 0, tlen = 0;
-      char *url = io_cstr(e, f[0], &ulen);
-      char *text = io_cstr(e, f[1], &tlen);
-      x = birc_put_link(fr, x, y, maxx, url, (size_t)ulen, text, (size_t)tlen,
-                        fg);
-      free(url);
-      free(text);
-    } else if (cid == CID_VIEW_SPN) {
+    if (cid == CID_VIEW_COL) {
+      Loc loc = ctr_take(e, sp, 3, f);
       u64 tlen = 0;
-      char *text = io_cstr(e, f[1], &tlen);
-      x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, fg,
+      char *text = io_cstr(e, f[2], &tlen);
+      x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, (uint32_t)f[1],
                         (uint32_t)f[0], NULL);
       free(text);
+      spare_free(e, cls_fit(3), loc);
+    } else {
+      Loc loc = ctr_take(e, sp, 2, f);
+      if (cid == CID_VIEW_LNK) {
+        u64 ulen = 0, tlen = 0;
+        char *url = io_cstr(e, f[0], &ulen);
+        char *text = io_cstr(e, f[1], &tlen);
+        x = birc_put_link(fr, x, y, maxx, url, (size_t)ulen, text, (size_t)tlen,
+                          fg);
+        free(url);
+        free(text);
+      } else if (cid == CID_VIEW_SPN) {
+        u64 tlen = 0;
+        char *text = io_cstr(e, f[1], &tlen);
+        x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, fg,
+                          (uint32_t)f[0], NULL);
+        free(text);
+      }
+      spare_free(e, cls_fit(2), loc);
     }
-    spare_free(e, cls_fit(2), loc);
   }
   return x;
 }
@@ -208,6 +237,12 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     r.h = (int)(uint32_t)f[3];
     if (ly && r.y + r.h > ly->root.y + ly->root.h)
       r.h = ly->root.y + ly->root.h - r.y;
+    if (ly && ly->bu) {
+      if (r.x == 0)
+        ly->bu->body_inner = (TimuiRect){r.x + 1, r.y + 1, r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+      else
+        ly->bu->nicks_inner = (TimuiRect){r.x + 1, r.y + 1, r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+    }
     if (fr && ly && r.h > 0 && r.w > 2)
       timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
     spare_free(e, cls_fit(4), loc);
@@ -290,6 +325,117 @@ static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
   return w;
 }
 
+static inline int birc_pt_in_rect(int x, int y, TimuiRect r) {
+  return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+
+static inline int birc_clamp(int v, int min_v, int max_v) {
+  if (v < min_v) return min_v;
+  if (v > max_v) return max_v;
+  return v;
+}
+
+static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
+  int from_x, from_y, to_x, to_y;
+  int min_x, max_x;
+  size_t cap, len;
+  char *out;
+  if (!ui || !buf || !bu || !bu->sel.active) return;
+  if (bu->sel.start_y < bu->sel.cur_y ||
+      (bu->sel.start_y == bu->sel.cur_y && bu->sel.start_x <= bu->sel.cur_x)) {
+    from_x = bu->sel.start_x; from_y = bu->sel.start_y;
+    to_x = bu->sel.cur_x; to_y = bu->sel.cur_y;
+  } else {
+    from_x = bu->sel.cur_x; from_y = bu->sel.cur_y;
+    to_x = bu->sel.start_x; to_y = bu->sel.start_y;
+  }
+  min_x = bu->sel.pane.x;
+  max_x = bu->sel.pane.x + (bu->sel.pane.w > 0 ? bu->sel.pane.w - 1 : 0);
+  cap = 4096;
+  len = 0;
+  out = (char *)malloc(cap);
+  if (!out) return;
+
+  for (int y = from_y; y <= to_y; y++) {
+    int start_col = (y == from_y) ? from_x : min_x;
+    int end_col = (y == to_y) ? to_x : max_x;
+    char line[2048];
+    size_t line_len = 0;
+    for (int x = start_col; x <= end_col; x++) {
+      TimuiCell *c;
+      uint32_t cp;
+      char utf8[8];
+      int n;
+      if (x < 0 || x >= buf->w || y < 0 || y >= buf->h) continue;
+      c = &buf->cells[y * buf->w + x];
+      if (c->flags & TIMUI_CELL_CONTINUATION) continue;
+      cp = c->codepoint ? c->codepoint : (uint32_t)' ';
+      n = timui_utf8_encode_(cp, utf8);
+      if (n > 0 && line_len + (size_t)n < sizeof line) {
+        memcpy(line + line_len, utf8, (size_t)n);
+        line_len += (size_t)n;
+      }
+    }
+    while (line_len > 0 && line[line_len - 1] == ' ')
+      line_len--;
+    if (y < to_y) {
+      if (line_len + 1 < sizeof line) {
+        line[line_len++] = '\n';
+      }
+    }
+    if (line_len > 0) {
+      if (len + line_len + 1 >= cap) {
+        cap = (cap + line_len + 1) * 2;
+        char *nout = (char *)realloc(out, cap);
+        if (!nout) { free(out); return; }
+        out = nout;
+      }
+      memcpy(out + len, line, line_len);
+      len += line_len;
+      out[len] = '\0';
+    }
+  }
+  if (len > 0) {
+    timui_clipboard_set(&ui->transport, (TimuiStr){out, len});
+#ifdef __APPLE__
+    {
+      FILE *p = popen("pbcopy", "w");
+      if (p) {
+        (void)fwrite(out, 1, len, p);
+        pclose(p);
+      }
+    }
+#endif
+  }
+  free(out);
+}
+
+static void birc_render_selection(TimuiCellBuffer *buf, BircUi *bu) {
+  int from_x, from_y, to_x, to_y;
+  int min_x, max_x;
+  if (!buf || !bu || !bu->sel.active) return;
+  if (bu->sel.start_y < bu->sel.cur_y ||
+      (bu->sel.start_y == bu->sel.cur_y && bu->sel.start_x <= bu->sel.cur_x)) {
+    from_x = bu->sel.start_x; from_y = bu->sel.start_y;
+    to_x = bu->sel.cur_x; to_y = bu->sel.cur_y;
+  } else {
+    from_x = bu->sel.cur_x; from_y = bu->sel.cur_y;
+    to_x = bu->sel.start_x; to_y = bu->sel.start_y;
+  }
+  min_x = bu->sel.pane.x;
+  max_x = bu->sel.pane.x + (bu->sel.pane.w > 0 ? bu->sel.pane.w - 1 : 0);
+  for (int y = from_y; y <= to_y; y++) {
+    int start_col = (y == from_y) ? from_x : min_x;
+    int end_col = (y == to_y) ? to_x : max_x;
+    for (int x = start_col; x <= end_col; x++) {
+      if (x >= 0 && x < buf->w && y >= 0 && y < buf->h) {
+        buf->cells[y * buf->w + x].attrs |= TIMUI_ATTR_REVERSE;
+      }
+    }
+  }
+}
+
+
 static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
                          BircUi *stt, size_t *tlen) {
   TimuiId id;
@@ -298,8 +444,12 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
   int prompt_w;
   size_t n;
   if (!fr || !stt) return 0;
+  (void)st;
   prompt_w = width > 2 ? 2 : 0;
-  if (prompt_w > 0) timui_label(fr, x, y, (TimuiStr){"> ", 2}, st);
+  if (prompt_w > 0) {
+    TimuiStyle p_st = timui_style_make(0xFFD700, TIMUI_COLOR_DEFAULT, 0);
+    timui_label(fr, x, y, (TimuiStr){"❯ ", 4}, p_st);
+  }
   id = TIMUI_ID("birc.composer");
   if (timui_focus(fr) != id) timui_set_focus(fr, id);
   r.x = x + prompt_w;
@@ -384,6 +534,51 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->st.scroll_y = 0;
     }
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
+    if (bu) {
+      if (ui->ia.mouse_pressed) {
+        if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->body_inner)) {
+          bu->sel.active = 0;
+          bu->sel.dragging = 1;
+          bu->sel.start_x = bu->sel.cur_x = ui->ia.mouse_x;
+          bu->sel.start_y = bu->sel.cur_y = ui->ia.mouse_y;
+          bu->sel.pane = bu->body_inner;
+        } else if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->nicks_inner)) {
+          bu->sel.active = 0;
+          bu->sel.dragging = 1;
+          bu->sel.start_x = bu->sel.cur_x = ui->ia.mouse_x;
+          bu->sel.start_y = bu->sel.cur_y = ui->ia.mouse_y;
+          bu->sel.pane = bu->nicks_inner;
+        } else {
+          bu->sel.active = 0;
+          bu->sel.dragging = 0;
+        }
+      } else if (bu->sel.dragging && ui->ia.mouse_down) {
+        int min_x = bu->sel.pane.x;
+        int max_x = bu->sel.pane.x + (bu->sel.pane.w > 0 ? bu->sel.pane.w - 1 : 0);
+        int min_y = bu->sel.pane.y;
+        int max_y = bu->sel.pane.y + (bu->sel.pane.h > 0 ? bu->sel.pane.h - 1 : 0);
+        bu->sel.cur_x = birc_clamp(ui->ia.mouse_x, min_x, max_x);
+        bu->sel.cur_y = birc_clamp(ui->ia.mouse_y, min_y, max_y);
+        if (bu->sel.cur_x != bu->sel.start_x || bu->sel.cur_y != bu->sel.start_y) {
+          bu->sel.active = 1;
+        }
+      }
+      if (bu->sel.dragging && ui->ia.mouse_released) {
+        int min_x = bu->sel.pane.x;
+        int max_x = bu->sel.pane.x + (bu->sel.pane.w > 0 ? bu->sel.pane.w - 1 : 0);
+        int min_y = bu->sel.pane.y;
+        int max_y = bu->sel.pane.y + (bu->sel.pane.h > 0 ? bu->sel.pane.h - 1 : 0);
+        bu->sel.dragging = 0;
+        bu->sel.cur_x = birc_clamp(ui->ia.mouse_x, min_x, max_x);
+        bu->sel.cur_y = birc_clamp(ui->ia.mouse_y, min_y, max_y);
+        if (bu->sel.cur_x != bu->sel.start_x || bu->sel.cur_y != bu->sel.start_y) {
+          bu->sel.active = 1;
+          birc_copy_selection(ui, buf, bu);
+        } else {
+          bu->sel.active = 0;
+        }
+      }
+    }
   }
   {
     TimuiTransportWrite saved = ui->transport.write;
@@ -408,6 +603,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
     ui->transport.write = birc_frame_write;
+    if (bu && bu->sel.active) {
+      birc_render_selection(timui_frame_buffer(fr), bu);
+    }
     timui_end(fr);
     ui->transport.write = saved;
     if (birc_frame_short) {
@@ -425,6 +623,17 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
     Term out;
+    if (bu && bu->sel.active) {
+      if (key == (uint32_t)TIMUI_KEY_ESCAPE) {
+        bu->sel.active = 0;
+        bu->sel.dragging = 0;
+        key = 0;
+        ui->key_pressed = (TimuiKey)0;
+      } else if (key != 0 || enter || wh != 0) {
+        bu->sel.active = 0;
+        bu->sel.dragging = 0;
+      }
+    }
     if (timui_should_quit(ui) && key == 0)
       key = (uint32_t)TIMUI_KEY_ESCAPE;
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
@@ -450,8 +659,11 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   (void)w;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
-  if (ui)
+  if (ui) {
+    if (ui->fd.write_fd >= 0)
+      (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
     timui_close(ui);
+  }
   free(st);
   return term_pak(CID_UNIT, 0);
 }
@@ -606,6 +818,37 @@ Term winch_close_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) winch_close_use(void) {
   io_eff(CID_WINCH_CLOSE, winch_close_run, 0);
+}
+#endif
+#ifdef CID_SYS_OPEN_URL
+Term sys_open_url_run(Env e, Term *f, IoWork *w) {
+  u64 ulen = 0;
+  char *url = io_cstr(e, f[0], &ulen);
+  (void)w;
+  if (url) {
+    pid_t pid = fork();
+    if (pid == 0) {
+      int devnull = open("/dev/null", O_RDWR);
+      if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        close(devnull);
+      }
+#if defined(__APPLE__)
+      char *argv[] = {"open", url, NULL};
+#else
+      char *argv[] = {"xdg-open", url, NULL};
+#endif
+      execvp(argv[0], argv);
+      _exit(1);
+    }
+    free(url);
+  }
+  return (Term)0;
+}
+static void __attribute__((constructor)) sys_open_url_use(void) {
+  io_eff(CID_SYS_OPEN_URL, sys_open_url_run, 0);
 }
 #endif
 #endif /* BIRC_TIMUI_FFI_C */

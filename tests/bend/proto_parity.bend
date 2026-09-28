@@ -37,7 +37,7 @@ def nparams.on(m: Maybe<&2, Irc.Message>) -> Nat:
       0n
     case Some{msg}:
       match msg:
-        case Irc.Message{_, _, _, ps}:
+        case Irc.Message{_, _, _, _, ps}:
           List.length(&2, String, ps)
 
 def params_n_ok(+n: Nat) -> Bool:

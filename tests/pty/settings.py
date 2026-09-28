@@ -62,6 +62,12 @@ def main() -> int:
         if b"joins" not in out1 or b"ON" not in out1:
             print("FAIL: settings panel missing joins: ON", file=sys.stderr)
             return 1
+        if b"autoreconn" not in out1:
+            print("FAIL: settings panel missing autoreconn setting", file=sys.stderr)
+            return 1
+        if b"bell" not in out1:
+            print("FAIL: settings panel missing bell setting", file=sys.stderr)
+            return 1
 
         # Test 2: Turn off joins with /set joins off
         os.write(master, b"/set joins off\r")
@@ -70,11 +76,16 @@ def main() -> int:
             print("FAIL: /set joins off did not update setting to OFF", file=sys.stderr)
             return 1
 
-        # Test 3: Toggle timestamps with /toggle ts
+        # Test 3: Toggle timestamps with /toggle ts and toggle autoreconn
         os.write(master, b"/toggle ts\r")
         out3 = drain(master, 0.8)
         if b"setting 'ts' is now OFF" not in out3 and b"OFF" not in out3:
             print("FAIL: /toggle ts did not toggle ts to OFF", file=sys.stderr)
+            return 1
+        os.write(master, b"/toggle autoreconn\r")
+        out3b = drain(master, 0.8)
+        if b"setting 'autoreconn' is now ON" not in out3b and b"ON" not in out3b:
+            print("FAIL: /toggle autoreconn did not toggle autoreconn to ON", file=sys.stderr)
             return 1
 
         # Test 4: Close settings buffer with /close
@@ -82,6 +93,63 @@ def main() -> int:
         out4 = drain(master, 0.8)
         if b"*settings*" in out4 and b"#birc" not in out4:
             print("FAIL: /close did not leave settings buffer", file=sys.stderr)
+            return 1
+        # In #birc, alice's initial message is visible
+        if b"hi everyone" not in out4:
+            print("FAIL: initial message from alice missing in #birc", file=sys.stderr)
+            return 1
+
+        # Test 5: /mute alice (retroactively purges 'hi everyone' and adds mute)
+        os.write(master, b"/mute alice\r")
+        out5 = drain(master, 0.8)
+        if b"muted alice" not in out5:
+            print("FAIL: /mute alice did not confirm muting", file=sys.stderr)
+            return 1
+        if b"hi everyone" in out5:
+            print("FAIL: /mute alice did not retroactively purge alice lines", file=sys.stderr)
+            return 1
+
+        # Test 6: /mutes lists active mutes
+        os.write(master, b"/mutes\r")
+        out6 = drain(master, 0.8)
+        if b"alice#birc@irc.birc.dev" not in out6:
+            print("FAIL: /mutes did not list alice#birc@irc.birc.dev", file=sys.stderr)
+            return 1
+
+        # Test 7: /unmute alice restores messages
+        os.write(master, b"/unmute alice\r")
+        out7 = drain(master, 0.8)
+        if b"alice" not in out7:
+            print("FAIL: /unmute alice did not confirm unmuting", file=sys.stderr)
+            return 1
+        if b"hi everyone" not in out7:
+            print("FAIL: alice messages did not show up again after /unmute", file=sys.stderr)
+            return 1
+        os.write(master, b"/mutes\r")
+        out7b = drain(master, 0.8)
+        if b"no active mutes" not in out7b:
+            print("FAIL: /mutes after unmute did not report 'no active mutes'", file=sys.stderr)
+            return 1
+
+        # Test 8: /query bob hello bob creates dedicated DM tab and sends message
+        os.write(master, b"/query bob hello bob\r")
+        out8 = drain(master, 0.8)
+        if b" bob " not in out8 or b"hello bob" not in out8:
+            print(f"FAIL: /query bob did not switch to bob tab or send message, got: {out8!r}", file=sys.stderr)
+            return 1
+
+        # Test 9: /close closes query tab back to #birc
+        os.write(master, b"/close\r")
+        out9 = drain(master, 0.8)
+        if b" bob " in out9 or b"#birc" not in out9:
+            print("FAIL: /close did not switch back to #birc", file=sys.stderr)
+            return 1
+
+        # Test 10: /reconnect command initiates reconnection
+        os.write(master, b"/reconnect\r")
+        out10 = drain(master, 0.8)
+        if b"connecting" not in out10 or b"me@irc.birc.dev" not in out10:
+            print("FAIL: /reconnect did not initiate connection to irc.birc.dev", file=sys.stderr)
             return 1
 
         # Clean exit

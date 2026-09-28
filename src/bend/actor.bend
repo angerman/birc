@@ -43,8 +43,8 @@ def send_lines(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
   send_lines_go(xs, (sock, True{}))
 
 # JOIN is sent after 001 (live_go), not here.
-def register(sock: Socket, +nick: String) -> IO(Socket & Bool):
-  send_lines(sock, Sess.register_lines(nick))
+def register(sock: Socket, +nick: String, has_sasl: Bool) -> IO(Socket & Bool):
+  send_lines(sock, Sess.handshake_lines(nick, has_sasl))
 
 def SEND_CAP() -> Nat:
   8n
@@ -334,6 +334,7 @@ def after_conn(
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match r:
@@ -341,7 +342,7 @@ def after_conn(
       arm_fail(live, nick, boot, evt, cmd, gen, err_msg(e), k)
     case Done{sock}:
       do IO<Unit>:
-        pair : Socket & Bool <- register(sock, nick)
+        pair : Socket & Bool <- register(sock, nick, has_sasl)
         after_reg(pair, nick, gen, evt, cmd, boot, live, k)
 
 def after_dns(
@@ -353,6 +354,7 @@ def after_dns(
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match r:
@@ -361,7 +363,7 @@ def after_dns(
     case Done{+ip}:
       do IO<Unit>:
         cr : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(ip, port)
-        after_conn(cr, nick, gen, evt, cmd, boot, live, k)
+        after_conn(cr, nick, gen, evt, cmd, boot, live, has_sasl, k)
 
 def dial_begin(
   +host: String,
@@ -372,11 +374,12 @@ def dial_begin(
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    after_dns(r, port, nick, gen, evt, cmd, boot, live, k)
+    after_dns(r, port, nick, gen, evt, cmd, boot, live, has_sasl, k)
 
 def writer_end_go(
   trip: Socket & List<&2, String> & Bool,
@@ -438,6 +441,7 @@ def writer_cmd(
   +cmd: Chan(Sess.NetCmd),
   +pending: List<&2, String>,
   +boot: Chan(Boot),
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match g:
@@ -450,8 +454,10 @@ def writer_cmd(
         case Sess.Dial{+host, port, dgen}:
           do IO<Unit>:
             Unit <- writer_drop(sock)
-            dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, k)
+            dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
         case Sess.Handoff{_}:
+          k((Some{sock}, gen, pending))
+        case Sess.OpenUrl{_}:
           k((Some{sock}, gen, pending))
 
 def wait_cmd(
@@ -461,6 +467,7 @@ def wait_cmd(
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   +gen: U32,
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match g:
@@ -469,10 +476,12 @@ def wait_cmd(
     case Some{c}:
       match c:
         case Sess.Dial{+host, port, dgen}:
-          dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, k)
+          dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
         case Sess.Cont{_}:
           k((None{}, gen, Nil{}))
         case Sess.Handoff{_}:
+          k((None{}, gen, Nil{}))
+        case Sess.OpenUrl{_}:
           k((None{}, gen, Nil{}))
 
 def writer_go_s(
@@ -483,17 +492,18 @@ def writer_go_s(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match s:
     case None{}:
       do IO<Unit>:
         g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        wait_cmd(g, nick, evt, cmd, boot, gen, k)
+        wait_cmd(g, nick, evt, cmd, boot, gen, has_sasl, k)
     case Some{sock}:
       do IO<Unit>:
         g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        writer_cmd(g, sock, nick, gen, evt, cmd, pending, boot, k)
+        writer_cmd(g, sock, nick, gen, evt, cmd, pending, boot, has_sasl, k)
 
 def writer_go_rest(
   rest: U32 & List<&2, String>,
@@ -502,11 +512,12 @@ def writer_go_rest(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match rest:
     case (gen, +pending):
-      writer_go_s(s, gen, pending, nick, evt, cmd, boot, k)
+      writer_go_s(s, gen, pending, nick, evt, cmd, boot, has_sasl, k)
 
 def writer_go_st(
   st: Maybe<&1, Socket> & U32 & List<&2, String>,
@@ -514,11 +525,12 @@ def writer_go_st(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
+  has_sasl: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   match st:
     case (s, rest):
-      writer_go_rest(rest, s, nick, evt, cmd, boot, k)
+      writer_go_rest(rest, s, nick, evt, cmd, boot, has_sasl, k)
 
 @unsafe
 def writer_go(
@@ -526,9 +538,10 @@ def writer_go(
   +nick: String,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
+  +boot: Chan(Boot),
+  +has_sasl: Bool
 ) -> IO(Unit):
-  writer_go_st(st, nick, evt, cmd, boot, p => writer_go(p, nick, evt, cmd, boot))
+  writer_go_st(st, nick, evt, cmd, boot, has_sasl, p => writer_go(p, nick, evt, cmd, boot, has_sasl))
 
 def actor_boot(
   +host: String,
@@ -537,11 +550,12 @@ def actor_boot(
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot)
+  +boot: Chan(Boot),
+  +has_sasl: Bool
 ) -> IO(Unit):
-  dial_begin(host, port, nick, gen, evt, cmd, boot, True{}, st => writer_go(st, nick, evt, cmd, boot))
+  dial_begin(host, port, nick, gen, evt, cmd, boot, True{}, has_sasl, st => writer_go(st, nick, evt, cmd, boot, has_sasl))
 
 def idle_start(+nick: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   do IO<Unit>:
     boot : Chan(Boot) <- Chan.new(Boot, 1)
-    writer_go((None{}, 0, Nil{}), nick, evt, cmd, boot)
+    writer_go((None{}, 0, Nil{}), nick, evt, cmd, boot, False{})
