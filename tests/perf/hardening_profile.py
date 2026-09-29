@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Profile the production replay and frame path at the in-memory limits.
+"""Profile the production replay and frame path at a bounded scale.
 
 The program emits per-frame phase averages only when BIRC_FRAME_PROFILE is
 set. This harness also measures end-to-end replay wall time. It is a profiler,
@@ -23,25 +23,28 @@ import time
 import fcntl
 
 
-BUFFERS = 15  # MAX_BUFFERS includes the server buffer.
-LINES = 1024
+DEFAULT_BUFFERS = 8
+DEFAULT_LINES = 256
+MAX_BUFFERS = 15  # MAX_BUFFERS includes the server buffer.
+MAX_LINES = 1024
 FRAME_PULSES = 32
+MAX_REPLAY_BYTES = 1_048_576
 PROFILE_RE = re.compile(
     rb"birc_profile frames=(\d+) prepare_us=(\d+) begin_us=(\d+) "
     rb"draw_us=(\d+) end_us=(\d+)"
 )
 
 
-def corpus() -> bytes:
+def corpus(buffers: int, lines: int) -> bytes:
     parts: list[bytes] = []
-    for buf in range(BUFFERS):
+    for buf in range(buffers):
         channel = f"#m7-{buf}".encode()
         parts.append(b":probe!u@h JOIN " + channel + b"\n")
-        for line in range(LINES):
+        for line in range(lines):
             parts.append(
-                b":peer!u@h PRIVMSG "
+                b":p!u@h PRIVMSG "
                 + channel
-                + f" :scale message {buf}:{line} *bold* https://example.test/x\n".encode()
+                + f" :m {buf}:{line} *b* https://x\n".encode()
             )
     return b"".join(parts)
 
@@ -120,8 +123,17 @@ def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__.strip(), file=sys.stderr)
         return 2
+    buffers = int(os.environ.get("BIRC_PROFILE_BUFFERS", DEFAULT_BUFFERS))
+    lines = int(os.environ.get("BIRC_PROFILE_LINES", DEFAULT_LINES))
+    if not 1 <= buffers <= MAX_BUFFERS or not 1 <= lines <= MAX_LINES:
+        print("hardening_profile: requested scale exceeds in-memory limits", file=sys.stderr)
+        return 2
+    replay = corpus(buffers, lines)
+    if len(replay) > MAX_REPLAY_BYTES:
+        print("hardening_profile: scale corpus exceeds replay reader cap", file=sys.stderr)
+        return 1
     with tempfile.NamedTemporaryFile(prefix="birc-m7-", suffix=".irc") as fixture:
-        fixture.write(corpus())
+        fixture.write(replay)
         fixture.flush()
         _, _, quiet = run(sys.argv[1], fixture.name, False)
         if b"birc_profile" in quiet:
@@ -137,7 +149,8 @@ def main() -> int:
         print(f"hardening_profile: only {frames} real frames", file=sys.stderr)
         return 1
     print(
-        f"hardening_profile buffers={BUFFERS} lines={LINES} frames={frames} "
+        f"hardening_profile buffers={buffers} lines={lines} bytes={len(replay)} "
+        f"frames={frames} "
         f"ready_ms={ready_ms:.1f} wall_ms={wall_ms:.1f} "
         f"prepare_us={prepare} begin_us={begin} "
         f"draw_us={draw} end_us={end}"
