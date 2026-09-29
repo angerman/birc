@@ -25,7 +25,7 @@ PROTO := tests/bend/proto_demo.bend
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
-        test test-proto test-ui test-feed test-submit test-search test-frame test-net test-dns \
+        test test-proto test-ui test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
@@ -33,7 +33,7 @@ check: export BIRC_HISTORY ?= none
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
-        test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history \
+        test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-split test-pty-typing \
         test-pty-hostile lint-ffi test-utf8-fit test-paste-harness proto-parity proof check \
         test-asan test-ubsan test-sanitizers test-perf-gates check-hardening \
         run run-demo clean \
@@ -101,6 +101,21 @@ test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
 	$(NIXRUN) ./$(BLDDIR)/search_demo | grep -qx search_demo=ok
+
+test-split: ## M16.2 split-view state, focus, geometry, and routing goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/split_demo.bend -o $(BLDDIR)/split_demo
+	$(NIXRUN) ./$(BLDDIR)/split_demo | grep -qx split_demo=ok
+
+test-preview: ## M16.1 local PNG preview command and DrawOp goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/preview_demo.bend -o $(BLDDIR)/preview_demo
+	$(NIXRUN) ./$(BLDDIR)/preview_demo | grep -qx preview_demo=ok
+
+test-typing: ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
+	$(NIXRUN) ./$(BLDDIR)/typing_demo | grep -qx typing_demo=ok
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
@@ -262,6 +277,9 @@ test-pty-tabswitch: build-ui ## Pty: 1-press / 1-click tab switching.
 test-pty-mouseselect: build-ui ## Pty: in-app mouse selection and Esc dismissal.
 	$(NIXRUN) python3 tests/pty/mouse_select.py ./$(BLDDIR)/birc
 
+test-pty-preview: build-ui ## Pty: local PNG preview emits Kitty transmit and placement escapes.
+	$(NIXRUN) python3 tests/pty/preview_kitty.py ./$(BLDDIR)/birc
+
 test-pty-resize: build-ui ## Pty: dynamic window resize expand and shrink.
 	$(NIXRUN) python3 tests/pty/resize.py ./$(BLDDIR)/birc
 
@@ -274,9 +292,15 @@ test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and B
 test-pty-hostile: build-ui ## M7.6: combined hostile wire, resize, cap, and recovery corpus.
 	$(NIXRUN) timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history test-pty-hostile ## Pty loop tests.
+test-pty-split: build-ui ## Pty: visible split geometry/content, focus keys, selection, and tiny resize.
+	$(NIXRUN) python3 tests/pty/split_pty.py ./$(BLDDIR)/birc
 
-test: test-proto test-feed test-submit test-search test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and muted clear.
+	$(NIXRUN) python3 tests/pty/typing.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
+
+test: test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend

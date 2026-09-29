@@ -12,7 +12,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 - **Formally Verified**: Core invariants—including control-character sanitization across all strings, CRLF framer buffer bounds, scroll clamping, and protocol classification—are formally proved using `bend PROOF.bend`.
 - **Zero-Poll / 0.0% Idle CPU**: The event loop parks on OS descriptors (terminal tty, `SIGWINCH` resize pipe, and socket dup) waking a single Bend `Chan(UiMsg)` channel. No polling, no busy-waiting.
 - **Native DNS Engine**: Full RFC 1035 UDP A-record DNS client implemented directly in Bend with wire-format packet cursors, CNAME chasing, and fault tolerance—independent of libc `getaddrinfo`.
-- **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, scrollback buffer, mouse wheel scrolling, tab clicking, OSC 8 clickable links, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
+- **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, scrollback buffer, mouse wheel scrolling, tab clicking, IRCv3 live typing indicators, OSC 8 clickable links, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
 - **Hardened for Production**: Bounded memory, strict 512-byte IRC wire clamping, UTF-8 decoder with Latin-1 fallback, flood protection, and fail-closed error handling.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
@@ -45,7 +45,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 |  |     (view.bend)     |                                               |
 |  +---------------------+                                               |
 |             |                                                          |
-|             | List<DrawOp> (OpBox, OpText, OpTabs, OpLine)             |
+|             | List<DrawOp> (includes OpSplit and OpImage)              |
 |             v                                                          |
 +-------------|----------------------------------------------------------+
               | Foreign Effect (Timui.frame)
@@ -73,6 +73,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 | [`src/bend/dns_wire.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
 | [`src/bend/view.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/view.bend) | Bend 2 | ViewModel generation, span tokenizer, and `List<DrawOp>` layout |
 | [`src/bend/session.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
+| [`src/bend/typing.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
 | [`src/bend/actor.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/actor.bend) | Bend 2 | Background network actor: socket ownership and read/write loops |
 | [`src/bend/net.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
 | [`src/bend/args.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
@@ -191,6 +192,7 @@ Run `./build/birc --help-irc` for a full summary:
 | <kbd>Shift</kbd> + <kbd>&rarr;</kbd> | Switch to next buffer tab |
 | <kbd>Page Up</kbd> | Scroll active buffer view up |
 | <kbd>Page Down</kbd> | Scroll active buffer view down |
+| <kbd>F6</kbd> / <kbd>Ctrl</kbd> + <kbd>W</kbd> | Move focus to the other split pane |
 | <kbd>&uarr;</kbd> (Up Arrow) | Recall previous command from history |
 | <kbd>&darr;</kbd> (Down Arrow) | Recall next command from history |
 | <kbd>Enter</kbd> | Send typed message or slash command; snap scroll to latest |
@@ -200,6 +202,7 @@ Run `./build/birc --help-irc` for a full summary:
 
 - **Click Tab**: Directly switch to any visible buffer tab.
 - **Mouse Wheel**: Scroll buffer scrollback history up or down.
+- **Drag in a Pane**: Select and copy text within that pane.
 
 ### In-Client Commands
 
@@ -213,9 +216,17 @@ Type commands into the composer prompt:
 | `/close` | Close the active private query buffer tab |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
+| `/split [orientation] [buffer]` | Open a stacked split by default; orientation is `horizontal` or `vertical`, and the target must already be open |
+| `/vsplit [buffer]` | Open a side-by-side split with an existing buffer |
+| `/focus` | Move focus to the other split pane |
+| `/split-off` or `/unsplit` | Close the split without closing either buffer |
+| `/preview <path-or-file-url>` | Preview one local PNG with the terminal image protocol; HTTP(S) is rejected |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |
+
+Send, scroll, nick-list, and status actions use the focused pane. Split commands
+never join a channel or create a buffer.
 
 ---
 

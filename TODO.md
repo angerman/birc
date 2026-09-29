@@ -806,24 +806,30 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ## Milestone 16 — Next-Gen Terminal Visuals & Advanced Capabilities
 
-- [ ] **M16.1** Kitty Graphics Protocol Image Viewer: inline thumbnails and `/preview <url>` overlays for image links via Kitty graphics escapes.
-      The generated `track3-kitty` commit is not a candidate: its preview
-      CID is absent from the real build, it performs blocking ambient-`curl`
-      networking in C, and it bypasses TimUI image and write safety.
-- [ ] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
-      The generated `track4-split` commit and its uncommitted follow-up do
-      not compile. They also break pane-scoped mouse selection, discard the
-      Ctrl-W codepoint, and send through the primary pane when pane 2 is focused.
+- [x] **M16.1** Kitty Graphics Protocol Image Viewer: `/preview <path-or-file-url>` opens a local PNG overlay through TimUI's Kitty image transport.
+      The C edge accepts only bounded regular files, caches up to two images
+      for split panes, and uses the existing frame deadline. HTTP(S) is rejected
+      explicitly: plaintext birc has no TLS downloader, and C does not perform
+      networking.
+- [x] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
+      `/split`, `/vsplit`, `/split-off`, `/unsplit`, and `/focus` use existing
+      buffers only. F6/Ctrl-W changes the focused pane; send, scroll, nick list,
+      status, page size, and mouse selection follow that focus. Bend owns split
+      state and absolute drawing geometry. C interprets `OpSplit` through TimUI
+      and keeps mouse selection within the selected pane.
 - [x] **M16.3** Parallel Scrollback Search / Fuzzy Grep: Bend parallel tree-search over message history across all buffers (`/search <query>`).
       `BIRC_SEARCH_PROFILE=serial|parallel tests/perf/search_profile.bend`
       times tree build and scan separately at the production maximum
       (16 buffers x 1,024 lines). Five alternating warm runs measured
       serial 24-25 ms vs parallel 6-7 ms before fuzzy matching, then
       serial 21-22 ms vs parallel 5-7 ms after it. The parallel hypothesis held.
-- [ ] **M16.4** IRCv3 Live Typing Notifications (`+typing`): render typing indicators above composer when participants type.
-      The generated `track2-typing` commit does not compile and is not
-      protocol-complete: it has no 6 s active / 30 s paused expiry, treats
-      `paused` as `done`, leaves typers unbounded, and has a vacuous PTY check.
+- [x] **M16.4** IRCv3 Live Typing Notifications (`+typing`): request
+      `message-tags`; parse `active`, `paused`, and `done` `TAGMSG` events;
+      render active participants above the composer; expire active state at
+      6 s and paused state at 30 s with wrap-safe Bend clock arithmetic; clear
+      on messages (including muted messages), PART, KICK, QUIT, and NICK; and
+      cap transient state at 32 participants. Pure boundary/lifecycle tests,
+      laws, and a non-vacuous loopback PTY test cover the live path.
 
 The generated `track5-wrap` branch contains no changes. Long-line wrapping
 also reverses the recorded M9 decision that C clips and Bend does not wrap, so

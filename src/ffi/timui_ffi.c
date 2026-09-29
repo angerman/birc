@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #ifndef TIMUI_IMPLEMENTATION
@@ -67,10 +68,17 @@ typedef struct {
 } BircSel;
 
 typedef struct {
+  TimuiImage *image;
+  char path[4096];
+  size_t path_len;
+} BircPreview;
+
+typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int last_tab;
-  TimuiRect body_inner;
+  TimuiRect body_inner[2];
+  int body_count;
   TimuiRect nicks_inner;
   BircSel sel;
   int profile_enabled;
@@ -79,6 +87,8 @@ typedef struct {
   uint64_t profile_begin_ns;
   uint64_t profile_draw_ns;
   uint64_t profile_end_ns;
+  BircPreview previews[2];
+  int preview_count;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
@@ -97,6 +107,65 @@ static uint64_t birc_profile_us(uint64_t ns, uint64_t frames) {
   return frames > 0 ? ns / frames / 1000ULL : 0;
 }
 
+static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
+  unsigned char *data = NULL;
+  TimuiImage *img = NULL;
+  struct stat st;
+  size_t size;
+  size_t off = 0;
+  int fd;
+  if (!ui || !path || path[0] == '\0')
+    return NULL;
+  fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return NULL;
+  if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fstat(fd, &st) < 0 ||
+      !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+      (uintmax_t)st.st_size > (uintmax_t)TIMUI_IMAGE_PNG_MAX_BYTES) {
+    (void)close(fd);
+    return NULL;
+  }
+  size = (size_t)st.st_size;
+  data = (unsigned char *)malloc(size);
+  if (!data) {
+    (void)close(fd);
+    return NULL;
+  }
+  while (off < size) {
+    ssize_t got = read(fd, data + off, size - off);
+    if (got > 0) {
+      off += (size_t)got;
+    } else if (got < 0 && errno == EINTR) {
+      continue;
+    } else {
+      break;
+    }
+  }
+  (void)close(fd);
+  if (off == size)
+    img = timui_image_from_png(ui, data, size);
+  free(data);
+  return img;
+}
+
+static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
+                             size_t path_len) {
+  if (!preview || !ui || !path || path_len == 0 ||
+      path_len >= sizeof preview->path || memchr(path, '\0', path_len))
+    return;
+  if (preview->path_len == path_len &&
+      memcmp(preview->path, path, path_len) == 0)
+    return;
+  if (preview->image) {
+    timui_image_free(ui, preview->image);
+    preview->image = NULL;
+  }
+  memcpy(preview->path, path, path_len);
+  preview->path[path_len] = '\0';
+  preview->path_len = path_len;
+  preview->image = birc_preview_load(ui, preview->path);
+}
+
 static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
@@ -110,8 +179,8 @@ static void birc_ui_atexit(void) {
 static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols,
                         uint32_t click, uint32_t key, uint32_t mods,
-                        uint32_t wheel, uint32_t more) {
-  Loc l = heap_alloc(e, cls_fit(9));
+                        uint32_t codepoint, uint32_t wheel, uint32_t more) {
+  Loc l = heap_alloc(e, cls_fit(10));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, io_str(e, typed, tlen), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
@@ -119,8 +188,9 @@ static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
   e.mem[l + 4] = io_seal(e, (Term)(uint64_t)click, CID_UIKEYS);
   e.mem[l + 5] = io_seal(e, (Term)(uint64_t)key, CID_UIKEYS);
   e.mem[l + 6] = io_seal(e, (Term)(uint64_t)mods, CID_UIKEYS);
-  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
-  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
+  e.mem[l + 7] = io_seal(e, (Term)(uint64_t)codepoint, CID_UIKEYS);
+  e.mem[l + 8] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
+  e.mem[l + 9] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui), term_ctr(CID_UIKEYS, l));
 }
 Term timui_open_run(Env e, Term *f, IoWork *w) {
@@ -146,6 +216,9 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
     free(st);
     return io_fail(e, (u32)tr, "timui_open failed");
   }
+  if (getenv("BIRC_FORCE_IMAGE_PROTOCOL") &&
+      strcmp(getenv("BIRC_FORCE_IMAGE_PROTOCOL"), "kitty") == 0)
+    timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
   if (ui && ui->fd.write_fd >= 0)
     (void)write(ui->fd.write_fd, "\x1b[?1002h", 8);
   for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
@@ -298,14 +371,47 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     if (ly && r.y + r.h > ly->root.y + ly->root.h)
       r.h = ly->root.y + ly->root.h - r.y;
     if (ly && ly->bu) {
-      if (r.x == 0)
-        ly->bu->body_inner = (TimuiRect){r.x + 1, r.y + 1, r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
-      else
-        ly->bu->nicks_inner = (TimuiRect){r.x + 1, r.y + 1, r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+      int i, body_box = 0;
+      for (i = 0; i < ly->bu->body_count; i++) {
+        TimuiRect in = ly->bu->body_inner[i];
+        if (r.x == in.x - 1 && r.y == in.y - 1 &&
+            r.w == in.w + 2 && r.h == in.h + 2)
+          body_box = 1;
+      }
+      if (ly->bu->body_count == 0 && r.x == 0) {
+        ly->bu->body_inner[0] = (TimuiRect){r.x + 1, r.y + 1,
+          r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+        ly->bu->body_count = 1;
+      } else if (!body_box) {
+        ly->bu->nicks_inner = (TimuiRect){r.x + 1, r.y + 1,
+          r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+      }
     }
     if (fr && ly && r.h > 0 && r.w > 2)
       timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
     spare_free(e, cls_fit(4), loc);
+  } else if (cid == CID_VIEW_OPSPLIT) {
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect area, panes[2];
+    TimuiConstraint cons[2] = {TIMUI_FLEX(1), TIMUI_FLEX(1)};
+    int axis = (int)(uint32_t)f[4];
+    int made;
+    area.x = (int)(uint32_t)f[0];
+    area.y = (int)(uint32_t)f[1];
+    area.w = (int)(uint32_t)f[2];
+    area.h = (int)(uint32_t)f[3];
+    made = axis == 0 ? timui_split_h(area, cons, 2, panes)
+                     : timui_split_v(area, cons, 2, panes);
+    if (ly && ly->bu && made == 2) {
+      int i;
+      ly->bu->body_count = 2;
+      for (i = 0; i < 2; i++)
+        ly->bu->body_inner[i] = (TimuiRect){panes[i].x + 1, panes[i].y + 1,
+          panes[i].w > 2 ? panes[i].w - 2 : 0,
+          panes[i].h > 2 ? panes[i].h - 2 : 0};
+    }
+    spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPTEXT) {
     Term f[6];
     Loc loc = ctr_take(e, op, 6, f);
@@ -354,6 +460,26 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     int w = (int)(uint32_t)f[2];
     (void)birc_draw_spans(e, fr, x, y, x + w, (uint32_t)f[3], f[4]);
     spare_free(e, cls_fit(5), loc);
+  } else if (cid == CID_VIEW_OPIMAGE) {
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect r;
+    u64 n = 0;
+    char *path = io_cstr(e, f[4], &n);
+    BircPreview *preview = NULL;
+    r.x = (int)(uint32_t)f[0];
+    r.y = (int)(uint32_t)f[1];
+    r.w = (int)(uint32_t)f[2];
+    r.h = (int)(uint32_t)f[3];
+    if (ly && ly->bu && ly->ui && ly->bu->preview_count < 2 &&
+        n <= (u64)SIZE_MAX) {
+      preview = &ly->bu->previews[ly->bu->preview_count++];
+      birc_preview_set(preview, ly->ui, path, (size_t)n);
+    }
+    if (fr && preview && preview->image && r.w > 0 && r.h > 0)
+      timui_image_draw_clipped(fr, preview->image, r, r);
+    free(path);
+    spare_free(e, cls_fit(5), loc);
   }
 }
 static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
@@ -393,6 +519,21 @@ static inline int birc_clamp(int v, int min_v, int max_v) {
   if (v < min_v) return min_v;
   if (v > max_v) return max_v;
   return v;
+}
+
+static void birc_hold_ctrl_w(Timui *ui) {
+  int ctrl_w;
+  if (!ui) return;
+  ctrl_w = ui->key_pressed == TIMUI_KEY_UNKNOWN &&
+           (ui->key_mods & TIMUI_MOD_CTRL) != 0 &&
+           (ui->key_codepoint == (uint32_t)'w' ||
+            ui->key_codepoint == (uint32_t)'W');
+  if (!ctrl_w) return;
+  ui->key_in &= ~TIMUI_KEYIN_KILL_WORD;
+  if (ui->edit_count > 0 &&
+      ui->edit_ops[ui->edit_count - 1].kind == TIMUI_EDIT_KEY &&
+      ui->edit_ops[ui->edit_count - 1].key == TIMUI_KEYIN_KILL_WORD)
+    ui->edit_count--;
 }
 
 static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
@@ -544,7 +685,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (!ui) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
+    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0);
   }
   {
     int check_fd = -1;
@@ -567,10 +708,11 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (!timui_begin(ui, &fr)) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
+    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0);
   }
   if (bu && bu->profile_enabled)
     profile_t2 = birc_profile_now_ns();
+  birc_hold_ctrl_w(ui);
 
   {
     TimuiRect root = timui_root(fr);
@@ -588,6 +730,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     ly.click = &click;
     ly.bu = bu;
     ly.ui = ui;
+    if (bu) {
+      bu->body_count = 0;
+      bu->preview_count = 0;
+      memset(bu->body_inner, 0, sizeof bu->body_inner);
+      memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
+    }
     timui_draw_fill(buf, root, panel);
     birc_draw_ops(e, fr, ops, &ly);
     if (seed != 0 && bu) {
@@ -605,12 +753,17 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
     if (bu) {
       if (ui->ia.mouse_pressed) {
-        if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->body_inner)) {
+        int body_hit = -1;
+        int i;
+        for (i = 0; i < bu->body_count; i++)
+          if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->body_inner[i]))
+            body_hit = i;
+        if (body_hit >= 0) {
           bu->sel.active = 0;
           bu->sel.dragging = 1;
           bu->sel.start_x = bu->sel.cur_x = ui->ia.mouse_x;
           bu->sel.start_y = bu->sel.cur_y = ui->ia.mouse_y;
-          bu->sel.pane = bu->body_inner;
+          bu->sel.pane = bu->body_inner[body_hit];
         } else if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->nicks_inner)) {
           bu->sel.active = 0;
           bu->sel.dragging = 1;
@@ -698,6 +851,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     const char *typed = bu ? bu->composer : "";
     uint32_t key = (uint32_t)ui->key_pressed;
     uint32_t mods = ui->key_mods;
+    uint32_t codepoint = ui->key_codepoint;
     int wh = fr ? timui_mouse_wheel(fr) : 0;
     uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
@@ -718,7 +872,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
       timui_quit(ui);
     out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
-                         (uint32_t)wh, more);
+                         codepoint, (uint32_t)wh, more);
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;
@@ -755,6 +909,13 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   if (ui) {
     if (ui->fd.write_fd >= 0)
       (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
+    if (st)
+      for (int i = 0; i < 2; i++) {
+        if (st->previews[i].image) {
+          timui_image_free(ui, st->previews[i].image);
+          st->previews[i].image = NULL;
+        }
+      }
     timui_close(ui);
   }
   free(st);

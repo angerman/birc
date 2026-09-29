@@ -13,8 +13,7 @@ def Ui():
 
 # Named Data so C packs CID_UIKEYS (not a `Keys` ctor, which collides
 # with a `Timui.keys` law). Copyable; the Ui handle stays linear.
-# Flags are U32 0/1 so C can pack them as unboxed words (Bool True/False
-# is TAG_PAK; a 10-field Data ctor was not matching Enter).
+# Flags are U32 0/1 so C can pack them as unboxed words.
 type UiKeys is Data:
   UiKeys{
     enter: U32,
@@ -24,6 +23,7 @@ type UiKeys is Data:
     click: U32,
     key: U32,
     mods: U32,
+    codepoint: U32,
     wheel: U32,
     more: U32
   }

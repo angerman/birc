@@ -3237,6 +3237,7 @@ struct Timui {
   unsigned key_in;
   TimuiKey key_pressed;
   uint32_t key_mods; /* modifiers of the last key event */
+  uint32_t key_codepoint; /* codepoint of the last key event */
   int mouse_wheel;   /* accumulated wheel delta this frame (+up/-down) */
   int mouse_wheel_x, mouse_wheel_y; /* cell of the wheel event */
   int mouse_x, mouse_y;             /* last reported cell (0-based) */
@@ -4672,6 +4673,7 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
   ui->key_in = 0;
   ui->key_pressed = TIMUI_KEY_UNKNOWN;
   ui->key_mods = 0;
+  ui->key_codepoint = 0;
   ui->mouse_wheel = 0;
   ui->mouse_wheel_x = -1;
   ui->mouse_wheel_y = -1;
@@ -4715,6 +4717,7 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
       } else if (ev.kind == TIMUI_EVENT_KEY) {
         ui->key_pressed = ev.as.key.key; /* app-level key detection */
         ui->key_mods = ev.as.key.mods;
+        ui->key_codepoint = ev.as.key.codepoint;
         if (ev.as.key.key == TIMUI_KEY_TAB)
           timui_interact_set_keys(&ui->ia, 1, 0);
         else if (ev.as.key.key == TIMUI_KEY_ENTER) {

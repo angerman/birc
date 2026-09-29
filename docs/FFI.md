@@ -73,10 +73,11 @@ Timui.tty    : Ui -> IO(Ui & Result<&1,&1, U32 & String, Tty>)
 
 `UiKeys` is Data. `typed` is a `String` (the composer field). `rows` and `cols`
 are the live root size. `enter`, `click`, and `more` are U32 flags or
-counters. `key`, `mods`, and `wheel` are the raw TimUI key, modifier bits,
-and wheel (wheel is a uint32 two's complement). Bend maps them in
-`Sess.key_pol` (Shift-arrows, PageUp/PageDown via `Sess.body_h`, history,
-Esc/F10). Unpack like `Window.frame`. Do not put `Ui` inside a `Result`.
+counters. `key`, `mods`, `codepoint`, and `wheel` are the raw TimUI key,
+modifier bits, key codepoint, and wheel (wheel is a uint32 two's complement).
+Bend maps them in `Sess.key_pol_for` (Shift-arrows, focused-pane
+PageUp/PageDown, F6/Ctrl-W split focus, history, Esc/F10). Unpack like
+`Window.frame`. Do not put `Ui` inside a `Result`.
 `seed != 0` reseeds the composer from `input`, including `""`.
 The frame does not wait. A tty watcher and a winch watcher wake the UI;
 see K1 below. `Timui.open` sets `input_poll_ms` to 0.
@@ -133,18 +134,28 @@ type SpanOp is Data:
 
 type DrawOp is Data:
   OpBox{x, y, w, h: U32}
+  OpSplit{x, y, w, h, axis: U32}
   OpText{x, y, w, fg, attrs: U32, text: String}
   OpTabs{x, y, w, sel: U32, names: List String}
   OpLine{x, y, w, fg: U32, spans: List SpanOp}
+  OpImage{x, y, w, h: U32, path: String}
 ```
 
 - `OpBox` — rounded border; C clips `h` to the live root.
+- `OpSplit` — a Bend-owned parent rectangle and orientation (`0` horizontal,
+  `1` vertical). C runs `timui_split_h` or `timui_split_v` with two equal flex
+  constraints and records the resulting pane interiors for mouse selection.
+  Bend still emits the absolute child `OpBox`, `OpText`, and `OpLine` geometry.
 - `OpText` — label at `(x,y)`, clipped to `x+w`.
 - `OpTabs` — `timui_tabs`; click reports only when the widget changes `sel`.
 - `OpLine` — spans at the Bend-assigned `y`. A timestamp is a separate
   `OpText` of at most 8 columns (`FG_DIM`, `0xa0a0a0`), clipped to the line
   width, then the line `x` moves by 9. No C buffer, no 64-line cap, no
   bottom-align arithmetic. C does not draw a timestamp.
+- `OpImage` — a local PNG path and Bend-owned pane rectangle. C reads a
+  bounded regular file, caches one TimUI image per visible preview pane, and
+  draws it through TimUI's selected terminal image protocol. C does not fetch
+  URLs or choose layout.
 - C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
   `SpanOp`.
 - Wrapping: each IRC line is one paint line. C clips a span that would run
