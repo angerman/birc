@@ -791,7 +791,12 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 - [ ] **M16.1** Kitty Graphics Protocol Image Viewer: inline thumbnails and `/preview <url>` overlays for image links via Kitty graphics escapes.
 - [ ] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
-- [ ] **M16.3** Parallel Scrollback Search / Fuzzy Grep: Bend parallel tree-search over message history across all buffers (`/search <query>`).
+- [x] **M16.3** Parallel Scrollback Search / Fuzzy Grep: Bend parallel tree-search over message history across all buffers (`/search <query>`).
+      `BIRC_SEARCH_PROFILE=serial|parallel tests/perf/search_profile.bend`
+      times tree build and scan separately at the production maximum
+      (16 buffers x 1,024 lines). Five alternating warm runs measured
+      serial 24-25 ms vs parallel 6-7 ms before fuzzy matching, then
+      serial 21-22 ms vs parallel 5-7 ms after it. The parallel hypothesis held.
 - [ ] **M16.4** IRCv3 Live Typing Notifications (`+typing`): render typing indicators above composer when participants type.
 
 ---

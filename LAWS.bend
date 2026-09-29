@@ -266,4 +266,10 @@ law server_time_extract:
 law tab_completion_slash:
   {Sess.comp_step_ok() == True{} : Bool}
 
+# LAW: an empty search query never matches a scrollback line.
+law search_empty_line:
+  for kind: Cl.LineKind
+  for ts: String
+  for text: String
+  {Feed.line_matches_query(Cl.Line{kind, ts, text}, "") == False{} : Bool}
 

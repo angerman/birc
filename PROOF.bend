@@ -648,4 +648,6 @@ def Laws.server_time_extract():
 def Laws.tab_completion_slash():
   {==}
 
+def Laws.search_empty_line(kind, ts, text):
+  {==}
 

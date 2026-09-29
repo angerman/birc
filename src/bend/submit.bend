@@ -936,6 +936,18 @@ def open_arg_from_input.pair(pair: String & String) -> String:
 def open_arg_from_input(+input: String) -> String:
   open_arg_from_input.pair(take_word(Irc.drop_spaces(String.drop(input, 1n))))
 
+# ---- /search ------------------------------------------------------------
+
+def submit_search.on(empty: Bool, +cl: Cl.Client, +query: String) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /search <query>"), empty_out())
+    case False{}:
+      (Feed.search_and_open(cl, query), empty_out())
+
+def submit_search(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_search.on(String.is_empty(rest), cl, rest)
+
 type Slash is Data:
   Join{}
   Part{}
@@ -953,6 +965,7 @@ type Slash is Data:
   MutesCmd{}
   LinksCmd{}
   OpenCmd{}
+  SearchCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -975,6 +988,7 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"mutes", MutesCmd{}}
     <> SlashRow{"links", LinksCmd{}}
     <> SlashRow{"open", OpenCmd{}}
+    <> SlashRow{"search", SearchCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1023,6 +1037,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_links(cl)
     case OpenCmd{}:
       submit_open_cmd(cl, rest)
+    case SearchCmd{}:
+      submit_search(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 
@@ -1038,8 +1054,15 @@ def submit_plain.on(+cl: Cl.Client, +input: String, on_server: Bool) -> Cl.Clien
       +bi = active_idx(cl)
       (echo_self(cl, bi, input), one_out(Irc.format_privmsg(tgt, input)))
 
+def submit_plain.virtual(virtual: Bool, +cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
+  match virtual:
+    case True{}:
+      (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}:
+      submit_plain.on(cl, input, Nat.is_eq(active_idx(cl), 0n))
+
 def submit_plain(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
-  submit_plain.on(cl, input, Nat.is_eq(active_idx(cl), 0n))
+  submit_plain.virtual(String.starts_with(active_name(cl), "*"), cl, input)
 
 def submit.verb(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:

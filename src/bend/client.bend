@@ -701,10 +701,44 @@ type SearchTree is Data:
   STOne{buf_name: String, line: Cl.Line}
   STNode{left: SearchTree, right: SearchTree}
 
+type FuzzyStep is Data:
+  FuzzyScan{hay: String, needle: String}
+  FuzzyDecide{hay: String, needle_head: Char, needle_tail: String, equal: Bool}
+
+# Fuel selects between Scan and Decide because Bend cannot match the computed
+# character equality in Scan. Each character uses at most two decreasing calls.
+def fuzzy_contains.go(fuel: Nat, step: FuzzyStep) -> Bool:
+  match fuel:
+    case 0n:
+      False{}
+    case 1n+p:
+      match step:
+        case FuzzyScan{hay, needle}:
+          match hay:
+            case SNil{}:
+              match needle:
+                case SNil{}:
+                  True{}
+                case SCon{_, _}:
+                  False{}
+            case SCon{hh, ht}:
+              match needle:
+                case SNil{}:
+                  True{}
+                case SCon{+nh, nt}:
+                  fuzzy_contains.go(p, FuzzyDecide{ht, nh, nt, Char.is_eq(hh, nh)})
+        case FuzzyDecide{hay, needle_head, needle_tail, equal}:
+          match equal:
+            case True{}:
+              fuzzy_contains.go(p, FuzzyScan{hay, needle_tail})
+            case False{}:
+              fuzzy_contains.go(p, FuzzyScan{hay, SCon{needle_head, needle_tail}})
+
+def fuzzy_contains(+hay: String, +needle: String) -> Bool:
+  fuzzy_contains.go(Nat.mul(2n, Nat.add(String.length(hay), 1n)), FuzzyScan{hay, needle})
+
 def search_text_matches(+text: String, +q: String) -> Bool:
-  +ht = Irc.rfc1459(text)
-  +nt = Irc.rfc1459(q)
-  Cl.str_contains(ht, nt)
+  fuzzy_contains(Irc.rfc1459(text), Irc.rfc1459(q))
 
 def search_line_matches(+text: String, +q: String, empty: Bool) -> Bool:
   match empty:
@@ -810,53 +844,29 @@ def bufs_to_tree(+bufs: List<&2, Cl.Buffer>) -> SearchTree:
   trees_to_tree(buf_collect_trees(bufs))
 
 def search_buf(+b: Cl.Buffer, +q: String) -> List<&2, Cl.Line>:
-  search_tree(buf_to_tree(b), q)
+  Cl.take_last(search_tree(buf_to_tree(b), q), Cl.SCROLL_CAP())
 
 def search_bufs(+bufs: List<&2, Cl.Buffer>, +q: String) -> List<&2, Cl.Line>:
-  search_tree(bufs_to_tree(bufs), q)
+  Cl.take_last(search_tree(bufs_to_tree(bufs), q), Cl.SCROLL_CAP())
 
 def search_and_open.at(+cl: Cl.Client, +bi: Nat, +q: String) -> Cl.Client:
   +matches = search_bufs(Cl.client_bufs(cl), q)
   +cl2 = Cl.buf_set_lines_at(cl, bi, matches)
   Cl.set_active(cl2, bi)
 
+def search_and_open.full(+cl: Cl.Client, server: Bool) -> Cl.Client:
+  match server:
+    case True{}:
+      cl
+    case False{}:
+      Cl.client_log(cl, Cl.active_of(cl), Cl.Error{}, "search unavailable: buffer limit reached")
+
 def search_and_open.got(pair: Cl.Client & Maybe<&2, Nat>, +q: String) -> Cl.Client:
   match pair:
-    case (cl2, None{}):
-      cl2
+    case (+cl2, None{}):
+      search_and_open.full(cl2, Nat.is_eq(Cl.active_of(cl2), 0n))
     case (cl2, Some{+bi}):
       search_and_open.at(cl2, bi, q)
 
 def search_and_open(+cl: Cl.Client, +q: String) -> Cl.Client:
   search_and_open.got(Cl.buf_get(cl, "*search*", False{}, True{}), q)
-
-def search_empty_query_ok() -> Bool:
-  +b = Cl.buf_log(Cl.empty_buf("#birc", True{}), Cl.Msg{}, "<alice> hello world")
-  List.is_empty(&2, Cl.Line, search_buf(b, ""))
-
-def search_empty_buf_ok() -> Bool:
-  List.is_empty(&2, Cl.Line, search_buf(Cl.empty_buf("#empty", True{}), "hello"))
-
-def match_first_text(xs: List<&2, Cl.Line>) -> String:
-  match xs:
-    case Nil{}: ""
-    case Con{Cl.Line{_, _, +text}, _}: text
-
-def match_first_ts(xs: List<&2, Cl.Line>) -> String:
-  match xs:
-    case Nil{}: ""
-    case Con{Cl.Line{_, +ts, _}, _}: ts
-
-def search_preserves_matches_ok() -> Bool:
-  +b0 = Cl.buf_log_ts(Cl.empty_buf("#birc", True{}), Cl.Msg{}, "12:00:00", "<alice> hello world")
-  +b1 = Cl.buf_log_ts(b0, Cl.Msg{}, "12:01:00", "<bob> goodbye friends")
-  +m_hello = search_buf(b1, "hello")
-  +m_alice = search_buf(b1, "alice")
-  +m_goodbye = search_buf(b1, "goodbye")
-  +m_miss = search_buf(b1, "nonexistent")
-  Nat.is_eq(List.length(&2, Cl.Line, m_hello), 1n)
-    && Nat.is_eq(List.length(&2, Cl.Line, m_alice), 1n)
-    && Nat.is_eq(List.length(&2, Cl.Line, m_goodbye), 1n)
-    && Nat.is_eq(List.length(&2, Cl.Line, m_miss), 0n)
-    && String.eq(match_first_text(m_hello), "[#birc] <alice> hello world")
-    && String.eq(match_first_ts(m_hello), "12:00:00")

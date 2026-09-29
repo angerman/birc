@@ -25,7 +25,7 @@ PROTO := tests/bend/proto_demo.bend
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
-        test test-proto test-ui test-feed test-submit test-frame test-net test-dns \
+        test test-proto test-ui test-feed test-submit test-search test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
@@ -35,7 +35,7 @@ check: export BIRC_HISTORY ?= none
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
         test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history \
         lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
-        test-perf-cpu test-perf-tickrate test-dns-live test-dns-timeout
+        test-perf-cpu test-perf-tickrate test-perf-search test-dns-live test-dns-timeout
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -91,6 +91,11 @@ test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
 	$(NIXRUN) ./$(BLDDIR)/submit_demo | grep -qx submit_demo=ok
+
+test-search: ## M16.3 parallel scrollback search goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
+	$(NIXRUN) ./$(BLDDIR)/search_demo | grep -qx search_demo=ok
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
@@ -263,7 +268,7 @@ test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and B
 
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history ## Pty loop tests.
 
-test: test-proto test-feed test-submit test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-proto test-feed test-submit test-search test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
@@ -304,6 +309,11 @@ test-perf-cpu: build-ui ## 15 s idle/flood CPU (not in check).
 
 test-perf-tickrate: build-ui ## 600-frame idle tickrate (not in check).
 	$(NIXRUN) python3 tests/perf/tickrate_pty.py ./$(BLDDIR)/birc 600 30 100
+
+test-perf-search: ## Profile serial/parallel search at 16 x 1024 lines (not in check).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/perf/search_profile.bend -o $(BLDDIR)/search_profile
+	$(NIXRUN) sh -c 'for mode in serial parallel parallel serial serial parallel parallel serial serial parallel; do BIRC_SEARCH_PROFILE=$$mode ./$(BLDDIR)/search_profile; done'
 
 check: proof test lint-ffi test-paste-harness ## Proofs + protocol tests + UI smoke + FFI lint + paste harness.
 

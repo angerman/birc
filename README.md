@@ -212,6 +212,7 @@ Type commands into the composer prompt:
 | `/part [reason]` | Leave the active channel |
 | `/close` | Close the active private query buffer tab |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
+| `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |

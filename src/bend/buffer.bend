@@ -420,10 +420,16 @@ def buf_clear_at(+cl: Client, +i: Nat) -> Client:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, buf_clear), active, now, stg}
 
-def buf_set_lines(lines: List<&2, Line>, b: Buffer) -> Buffer:
+def buf_set_lines(+lines: List<&2, Line>, b: Buffer) -> Buffer:
   match b:
     case Buffer{+name, is_channel, +topic, _, +nicks, _}:
-      Buffer{name, is_channel, topic, lines, nicks, 0n}
+      +kept = List.drop(
+        &2,
+        Line,
+        lines,
+        Nat.sub(List.length(&2, Line, lines), SCROLL_CAP())
+      )
+      Buffer{name, is_channel, topic, kept, nicks, 0n}
 
 def buf_set_lines_fn(lines: List<&2, Line>, b: Buffer) -> Buffer:
   buf_set_lines(lines, b)
@@ -1000,5 +1006,3 @@ def client_bufs(+cl: Client) -> List<&2, Buffer>:
   match cl:
     case Client{_, _, +bufs, _, _, _}:
       bufs
-
-

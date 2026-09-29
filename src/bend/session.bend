@@ -882,7 +882,7 @@ def comp_format(+pre: String, +nick: String) -> String:
 def slash_command_list() -> List<&2, String>:
   "/join" <> "/part" <> "/close" <> "/msg" <> "/query" <> "/nick" <> "/me"
     <> "/quit" <> "/settings" <> "/set" <> "/toggle" <> "/mute" <> "/unmute"
-    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> Nil{}
+    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> "/search" <> Nil{}
 
 def is_slash_word(+w: String) -> Bool:
   String.starts_with(w, "/")
@@ -1340,6 +1340,5 @@ def st_of_keys(t: Session & NetCmd & Bool) -> Session:
       match rest:
         case (_, _):
           st
-
 
 
