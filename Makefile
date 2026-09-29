@@ -34,7 +34,9 @@ check: export BIRC_HISTORY ?= none
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
         test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history \
-        lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
+        test-pty-hostile lint-ffi test-utf8-fit test-paste-harness proto-parity proof check \
+        test-asan test-ubsan test-sanitizers test-perf-gates check-hardening \
+        run run-demo clean \
         test-perf-cpu test-perf-tickrate test-perf-search test-perf-hardening \
         test-dns-live test-dns-timeout
 
@@ -69,10 +71,12 @@ build-proto: ## Build the Bend protocol self-test binary.
 # birc usage is --help-irc (args.bend).
 BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c
 
-$(BLDDIR)/birc: $(APP) $(BEND_UI_SRCS) src/ui/timui.h
+$(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) src/ui/timui.h
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend $(APP) -o $(BLDDIR)/birc_bend.c
-	$(NIXRUN) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
+	$(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c
+
+$(BLDDIR)/birc: $(BLDDIR)/birc_bend.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
 
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
@@ -267,7 +271,10 @@ test-pty-settings: build-ui ## Pty: /settings panel, /set, and /toggle commands.
 test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and BIRC_HISTORY.
 	$(NIXRUN) python3 tests/pty/history_pty.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history ## Pty loop tests.
+test-pty-hostile: build-ui ## M7.6: combined hostile wire, resize, cap, and recovery corpus.
+	$(NIXRUN) timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc
+
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history test-pty-hostile ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-search test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -318,6 +325,25 @@ test-perf-search: ## Profile serial/parallel search at 16 x 1024 lines (not in c
 
 test-perf-hardening: build-ui ## Profile production frame phases with scale replay (not in check).
 	$(NIXRUN) timeout 120 python3 tests/perf/hardening_profile.py ./$(BLDDIR)/birc
+
+SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
+
+$(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(SANITIZER_CFLAGS) -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc_ubsan'
+
+test-asan: ## M7.3: bounded ASan gate (explicit skip for broken runtimes).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 30 sh -c '$$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -fsanitize=address -fno-sanitize-recover=all -I src/ffi tests/utf8_fit_cap.c -o $(BLDDIR)/utf8_fit_cap_asan'
+	$(NIXRUN) timeout 15 python3 tests/sanitize/asan_gate.py ./$(BLDDIR)/utf8_fit_cap_asan
+
+test-ubsan: $(BLDDIR)/birc_ubsan ## M7.4: full-app UBSan through the hostile pty corpus.
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc_ubsan'
+
+test-sanitizers: test-asan test-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
+
+test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
+
+check-hardening: proof proto-parity test-pty-hostile test-sanitizers test-perf-gates ## M7.3-M7.6 hardening gates.
 
 check: proof test lint-ffi test-paste-harness ## Proofs + protocol tests + UI smoke + FFI lint + paste harness.
 

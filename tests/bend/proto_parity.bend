@@ -118,7 +118,14 @@ def check_odd(+xs: List<&2, String>) -> IO(Unit):
     check_nth("odd2", xs, 2n, "PRIVMSG:Nick!privmsg#0|#Birc|HeLLo")
 
 def check_adv(+xs: List<&2, String>) -> IO(Unit):
-  E.must("adv0", has_tag("JOIN:flood!JOIN#0|#c0", xs))
+  E.must(
+    "adv_corpus",
+    has_tag("JOIN:flood!JOIN#0|#c0", xs)
+      && has_tag("PRIVMSG:tagger!PRIVMSG#0|#c0|tagged payload", xs)
+      && has_tag("NOTICE:notice!NOTICE#0|#c0|empty trailing follows", xs)
+      && has_tag("PING:!PING#0|", xs)
+      && has_tag("NUM999:irc.example!999#999|me|unknown numeric", xs)
+  )
 
 def replay_file(+path: String) -> IO(List<&2, String>):
   do IO<List<&2, String>>:

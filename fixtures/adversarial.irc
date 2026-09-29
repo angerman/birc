@@ -4,3 +4,7 @@
 :flood!f@h JOIN #c0
 :flood!f@h JOIN #c1
 :flood!f@h JOIN #c2
+@time=2026-09-30T00:00:00.000Z :tagger!u@h PRIVMSG #c0 :tagged payload
+:notice!u@h NOTICE #c0 :empty trailing follows
+PING :
+:irc.example 999 me :unknown numeric
