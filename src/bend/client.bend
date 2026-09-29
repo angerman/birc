@@ -694,4 +694,169 @@ def feed_step(cl: Cl.Client, line: String) -> Cl.Client:
 def feed_all(+cl: Cl.Client, +xs: List<&2, String>) -> Cl.Client:
   List.foldl(~&2, ~String, ~Cl.Client, ~feed_step, xs, cl)
 
+# ---- scrollback search & fuzzy grep (M16.3) -----------------------------
 
+type SearchTree is Data:
+  STLeaf{}
+  STOne{buf_name: String, line: Cl.Line}
+  STNode{left: SearchTree, right: SearchTree}
+
+def search_text_matches(+text: String, +q: String) -> Bool:
+  +ht = Irc.rfc1459(text)
+  +nt = Irc.rfc1459(q)
+  Cl.str_contains(ht, nt)
+
+def search_line_matches(+text: String, +q: String, empty: Bool) -> Bool:
+  match empty:
+    case True{}:
+      False{}
+    case False{}:
+      search_text_matches(text, q)
+
+def line_matches_query(+ln: Cl.Line, +q: String) -> Bool:
+  match ln:
+    case Cl.Line{_, _, +text}:
+      search_line_matches(text, q, String.is_empty(q))
+
+def format_search_match(+buf_name: String, +ln: Cl.Line) -> Cl.Line:
+  match ln:
+    case Cl.Line{_, +ts, +text}:
+      Cl.Line{Cl.Msg{}, ts, "[" ++ buf_name ++ "] " ++ text}
+
+def search_match_line.on(+buf_name: String, +ln: Cl.Line, hit: Bool) -> List<&2, Cl.Line>:
+  match hit:
+    case True{}:
+      format_search_match(buf_name, ln) <> Nil{}
+    case False{}:
+      Nil{}
+
+def search_match_line(+buf_name: String, +ln: Cl.Line, +q: String) -> List<&2, Cl.Line>:
+  search_match_line.on(buf_name, ln, line_matches_query(ln, q))
+
+def search_tree(t: SearchTree, +q: String) -> List<&2, Cl.Line>:
+  match t:
+    case STLeaf{}:
+      Nil{}
+    case STOne{+buf_name, +ln}:
+      search_match_line(buf_name, ln, q)
+    case STNode{left, right}:
+      l r = search_tree(left, q) search_tree(right, q)
+      List.append(&2, Cl.Line, l, r)
+
+def lines_to_trees.go(fuel: Nat, +buf_name: String, xs: List<&2, Cl.Line>) -> List<&2, SearchTree>:
+  match fuel:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{+h, t}:
+          STOne{buf_name, h} <> lines_to_trees.go(p, buf_name, t)
+
+def lines_to_trees(+buf_name: String, +xs: List<&2, Cl.Line>) -> List<&2, SearchTree>:
+  lines_to_trees.go(Nat.add(1n, List.length(&2, Cl.Line, xs)), buf_name, xs)
+
+def pair_trees(xs: List<&2, SearchTree>) -> List<&2, SearchTree>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case t1 <> Nil{}:
+      t1 <> Nil{}
+    case t1 <> t2 <> rest:
+      STNode{t1, t2} <> pair_trees(rest)
+
+def trees_to_tree.go(fuel: Nat, xs: List<&2, SearchTree>) -> SearchTree:
+  match fuel:
+    case 0n:
+      STLeaf{}
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          STLeaf{}
+        case t <> Nil{}:
+          t
+        case _:
+          trees_to_tree.go(p, pair_trees(xs))
+
+def trees_to_tree(+xs: List<&2, SearchTree>) -> SearchTree:
+  trees_to_tree.go(Nat.add(2n, List.length(&2, SearchTree, xs)), xs)
+
+def buf_to_tree(+b: Cl.Buffer) -> SearchTree:
+  match b:
+    case Cl.Buffer{+name, _, _, +lines, _, _}:
+      trees_to_tree(lines_to_trees(name, lines))
+
+def is_search_buf(+name: String) -> Bool:
+  String.eq(name, "*search*")
+
+def buf_collect_trees.cons(tree: SearchTree, rest: List<&2, SearchTree>, is_search: Bool) -> List<&2, SearchTree>:
+  match is_search:
+    case True{}:
+      rest
+    case False{}:
+      tree <> rest
+
+def buf_collect_trees(xs: List<&2, Cl.Buffer>) -> List<&2, SearchTree>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{b, t}:
+      match b:
+        case Cl.Buffer{+name, _, _, _, _, _}:
+          buf_collect_trees.cons(buf_to_tree(b), buf_collect_trees(t), is_search_buf(name))
+
+def bufs_to_tree(+bufs: List<&2, Cl.Buffer>) -> SearchTree:
+  trees_to_tree(buf_collect_trees(bufs))
+
+def search_buf(+b: Cl.Buffer, +q: String) -> List<&2, Cl.Line>:
+  search_tree(buf_to_tree(b), q)
+
+def search_bufs(+bufs: List<&2, Cl.Buffer>, +q: String) -> List<&2, Cl.Line>:
+  search_tree(bufs_to_tree(bufs), q)
+
+def search_and_open.at(+cl: Cl.Client, +bi: Nat, +q: String) -> Cl.Client:
+  +matches = search_bufs(Cl.client_bufs(cl), q)
+  +cl2 = Cl.buf_set_lines_at(cl, bi, matches)
+  Cl.set_active(cl2, bi)
+
+def search_and_open.got(pair: Cl.Client & Maybe<&2, Nat>, +q: String) -> Cl.Client:
+  match pair:
+    case (cl2, None{}):
+      cl2
+    case (cl2, Some{+bi}):
+      search_and_open.at(cl2, bi, q)
+
+def search_and_open(+cl: Cl.Client, +q: String) -> Cl.Client:
+  search_and_open.got(Cl.buf_get(cl, "*search*", False{}, True{}), q)
+
+def search_empty_query_ok() -> Bool:
+  +b = Cl.buf_log(Cl.empty_buf("#birc", True{}), Cl.Msg{}, "<alice> hello world")
+  List.is_empty(&2, Cl.Line, search_buf(b, ""))
+
+def search_empty_buf_ok() -> Bool:
+  List.is_empty(&2, Cl.Line, search_buf(Cl.empty_buf("#empty", True{}), "hello"))
+
+def match_first_text(xs: List<&2, Cl.Line>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{Cl.Line{_, _, +text}, _}: text
+
+def match_first_ts(xs: List<&2, Cl.Line>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{Cl.Line{_, +ts, _}, _}: ts
+
+def search_preserves_matches_ok() -> Bool:
+  +b0 = Cl.buf_log_ts(Cl.empty_buf("#birc", True{}), Cl.Msg{}, "12:00:00", "<alice> hello world")
+  +b1 = Cl.buf_log_ts(b0, Cl.Msg{}, "12:01:00", "<bob> goodbye friends")
+  +m_hello = search_buf(b1, "hello")
+  +m_alice = search_buf(b1, "alice")
+  +m_goodbye = search_buf(b1, "goodbye")
+  +m_miss = search_buf(b1, "nonexistent")
+  Nat.is_eq(List.length(&2, Cl.Line, m_hello), 1n)
+    && Nat.is_eq(List.length(&2, Cl.Line, m_alice), 1n)
+    && Nat.is_eq(List.length(&2, Cl.Line, m_goodbye), 1n)
+    && Nat.is_eq(List.length(&2, Cl.Line, m_miss), 0n)
+    && String.eq(match_first_text(m_hello), "[#birc] <alice> hello world")
+    && String.eq(match_first_ts(m_hello), "12:00:00")

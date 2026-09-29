@@ -420,6 +420,19 @@ def buf_clear_at(+cl: Client, +i: Nat) -> Client:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, buf_clear), active, now, stg}
 
+def buf_set_lines(lines: List<&2, Line>, b: Buffer) -> Buffer:
+  match b:
+    case Buffer{+name, is_channel, +topic, _, +nicks, _}:
+      Buffer{name, is_channel, topic, lines, nicks, 0n}
+
+def buf_set_lines_fn(lines: List<&2, Line>, b: Buffer) -> Buffer:
+  buf_set_lines(lines, b)
+
+def buf_set_lines_at(+cl: Client, +i: Nat, lines: List<&2, Line>) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg}:
+      Client{nick, server, buf_modify(bufs, i, buf_set_lines_fn(lines)), active, now, stg}
+
 def mark_unread.tag(is_hl: Bool, +name: String) -> String:
   match is_hl:
     case True{}: "!" ++ name
@@ -498,7 +511,7 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
   match is_channel:
     case True{}: Nil{}
     case False{}:
-      empty_buf.nicks.server(String.eq(name, "server"), name)
+      empty_buf.nicks.server(String.eq(name, "server") || String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
   Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), 0n}
@@ -982,5 +995,10 @@ def active_buf_lines(+cl: Client) -> List<&2, Line>:
   match cl:
     case Client{_, _, +bufs, +active, _, _}:
       active_buf_lines.on(nth_buf(bufs, active))
+
+def client_bufs(+cl: Client) -> List<&2, Buffer>:
+  match cl:
+    case Client{_, _, +bufs, _, _, _}:
+      bufs
 
 
