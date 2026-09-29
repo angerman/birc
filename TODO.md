@@ -793,10 +793,12 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       The generated `track3-kitty` commit is not a candidate: its preview
       CID is absent from the real build, it performs blocking ambient-`curl`
       networking in C, and it bypasses TimUI image and write safety.
-- [ ] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
-      The generated `track4-split` commit and its uncommitted follow-up do
-      not compile. They also break pane-scoped mouse selection, discard the
-      Ctrl-W codepoint, and send through the primary pane when pane 2 is focused.
+- [x] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
+      `/split`, `/vsplit`, `/split-off`, `/unsplit`, and `/focus` use existing
+      buffers only. F6/Ctrl-W changes the focused pane; send, scroll, nick list,
+      status, page size, and mouse selection follow that focus. Bend owns split
+      state and absolute drawing geometry. C interprets `OpSplit` through TimUI
+      and keeps mouse selection within the selected pane.
 - [x] **M16.3** Parallel Scrollback Search / Fuzzy Grep: Bend parallel tree-search over message history across all buffers (`/search <query>`).
       `BIRC_SEARCH_PROFILE=serial|parallel tests/perf/search_profile.bend`
       times tree build and scan separately at the production maximum

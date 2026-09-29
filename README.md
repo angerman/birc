@@ -45,7 +45,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 |  |     (view.bend)     |                                               |
 |  +---------------------+                                               |
 |             |                                                          |
-|             | List<DrawOp> (OpBox, OpText, OpTabs, OpLine)             |
+|             | List<DrawOp> (includes OpSplit)                          |
 |             v                                                          |
 +-------------|----------------------------------------------------------+
               | Foreign Effect (Timui.frame)
@@ -191,6 +191,7 @@ Run `./build/birc --help-irc` for a full summary:
 | <kbd>Shift</kbd> + <kbd>&rarr;</kbd> | Switch to next buffer tab |
 | <kbd>Page Up</kbd> | Scroll active buffer view up |
 | <kbd>Page Down</kbd> | Scroll active buffer view down |
+| <kbd>F6</kbd> / <kbd>Ctrl</kbd> + <kbd>W</kbd> | Move focus to the other split pane |
 | <kbd>&uarr;</kbd> (Up Arrow) | Recall previous command from history |
 | <kbd>&darr;</kbd> (Down Arrow) | Recall next command from history |
 | <kbd>Enter</kbd> | Send typed message or slash command; snap scroll to latest |
@@ -200,6 +201,7 @@ Run `./build/birc --help-irc` for a full summary:
 
 - **Click Tab**: Directly switch to any visible buffer tab.
 - **Mouse Wheel**: Scroll buffer scrollback history up or down.
+- **Drag in a Pane**: Select and copy text within that pane.
 
 ### In-Client Commands
 
@@ -213,9 +215,16 @@ Type commands into the composer prompt:
 | `/close` | Close the active private query buffer tab |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
+| `/split [orientation] [buffer]` | Open a stacked split by default; orientation is `horizontal` or `vertical`, and the target must already be open |
+| `/vsplit [buffer]` | Open a side-by-side split with an existing buffer |
+| `/focus` | Move focus to the other split pane |
+| `/split-off` or `/unsplit` | Close the split without closing either buffer |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |
+
+Send, scroll, nick-list, and status actions use the focused pane. Split commands
+never join a channel or create a buffer.
 
 ---
 
