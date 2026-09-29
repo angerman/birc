@@ -1515,7 +1515,8 @@ def step_chunk_got(
 ) -> Session & List<&2, String>:
   match got:
     case (+cl2, rem2, drop2, outs, joined2):
-      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing}, outs)
+      +typing2 = Ty.retain_client(typing, cl2)
+      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing2}, outs)
 
 def step_on_chunk_pair(
   +cl: Cl.Client,

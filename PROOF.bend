@@ -665,3 +665,6 @@ def Laws.typing_active_boundary():
 
 def Laws.typing_message_clear():
   {==}
+
+def Laws.typing_stale_tick():
+  {==}

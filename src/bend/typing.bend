@@ -1,6 +1,7 @@
 # Pure transient IRCv3 +typing state. Session supplies monotonic milliseconds.
 import Base
 import ./irc.bend as Irc
+import ./buffer.bend as Cl
 
 def MAX_TYPERS() -> Nat:
   32n
@@ -141,10 +142,18 @@ def lifetime(status: Irc.TypingStatus) -> U32:
     case Irc.TypingPaused{}: PAUSED_MS()
     case Irc.TypingDone{}: 0
 
+def alive.elapsed(status: Irc.TypingStatus, +elapsed: U32, stale_tick: Bool) -> Bool:
+  match stale_tick:
+    case True{}:
+      True{}
+    case False{}:
+      U32.is_lt(elapsed, lifetime(status))
+
 def alive(+e: Entry, +now_ms: U32) -> Bool:
   match e:
     case Entry{_, _, status, seen_ms}:
-      U32.is_lt(U32.sub(now_ms, seen_ms), lifetime(status))
+      +elapsed = U32.sub(now_ms, seen_ms)
+      alive.elapsed(status, elapsed, U32.is_ge(elapsed, 2147483648))
 
 def expire.keep(+h: Entry, tail: List<&2, Entry>, keep: Bool) -> List<&2, Entry>:
   match keep:
@@ -162,6 +171,36 @@ def expire(+state: State, +now_ms: U32) -> State:
   match state:
     case State{+entries}:
       State{expire_entries(entries, now_ms)}
+
+def target_open.got(found: Maybe<&2, Nat>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def target_open(+cl: Cl.Client, +target: String) -> Bool:
+  target_open.got(Cl.buf_find(cl, target))
+
+def retain_open.pick(+h: Entry, tail: List<&2, Entry>, keep: Bool) -> List<&2, Entry>:
+  match keep:
+    case True{}: h <> tail
+    case False{}: tail
+
+def retain_open.keep(+h: Entry, tail: List<&2, Entry>, +cl: Cl.Client) -> List<&2, Entry>:
+  match h:
+    case Entry{+target, _, _, _}:
+      retain_open.pick(h, tail, target_open(cl, target))
+
+def retain_open_entries(xs: List<&2, Entry>, +cl: Cl.Client) -> List<&2, Entry>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      retain_open.keep(h, retain_open_entries(t, cl), cl)
+
+def retain_client(+state: State, +cl: Cl.Client) -> State:
+  match state:
+    case State{+entries}:
+      State{retain_open_entries(entries, cl)}
 
 def expire_changed(+state: State, +now_ms: U32) -> State & Bool:
   +before = count(state)
@@ -201,3 +240,7 @@ def message_clear_ok() -> Bool:
   +state = apply_line(empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1000)
   +cleared = apply_line(state, ":alice!a@h PRIVMSG #birc :hello", 1100)
   Bool.not(has(cleared, "#birc", "alice"))
+
+def stale_tick_ok() -> Bool:
+  +state = apply_line(empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1001)
+  has(expire(state, 1000), "#birc", "alice")

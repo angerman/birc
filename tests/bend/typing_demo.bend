@@ -64,6 +64,10 @@ def paused_expiry_ok() -> Bool:
   Ty.has(Ty.expire(s1, 30999), "#birc", "alice")
     && Bool.not(Ty.has(Ty.expire(s1, 31000), "#birc", "alice"))
 
+def stale_tick_ok() -> Bool:
+  +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1001)
+  Ty.has(Ty.expire(s0, 1000), "#birc", "alice")
+
 def done_and_message_ok() -> Bool:
   +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1000)
   +s1 = Ty.apply_line(s0, "@+typing=done :alice!a@h TAGMSG #birc", 1100)
@@ -124,16 +128,26 @@ def session_path_ok() -> Bool:
     && Bool.not(Ty.has(Sess.session_typing(s4), "#birc", "alice"))
     && expired_session(Sess.session_expire_typing(s3, 7000))
 
+def session_part_prunes_typing_ok() -> Bool:
+  +s0 = Sess.session_online(Sess.session0("me", "irc.example", "#birc"))
+  +s1 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s0, Fr.string_to_octets(":me!m@h JOIN #birc\r\n"), 900))
+  +s2 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s1, Fr.string_to_octets("@+typing=active :alice!a@h TAGMSG #birc\r\n"), 1000))
+  +s3 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s2, Fr.string_to_octets(":me!m@h PART #birc :bye\r\n"), 1100))
+  Ty.has(Sess.session_typing(s2), "#birc", "alice")
+    && Nat.is_eq(Ty.count(Sess.session_typing(s3)), 0n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("protocol", protocol_ok())
     Unit <- E.must("protocol_rejects_invalid", protocol_rejects_invalid())
     Unit <- E.must("active_expiry", active_expiry_ok())
     Unit <- E.must("paused_expiry", paused_expiry_ok())
+    Unit <- E.must("stale_tick", stale_tick_ok())
     Unit <- E.must("done_and_message", done_and_message_ok())
     Unit <- E.must("refresh_and_wrap", refresh_and_wrap_ok())
     Unit <- E.must("bound", bound_ok())
     Unit <- E.must("capability", capability_ok())
     Unit <- E.must("view", view_ok())
     Unit <- E.must("session_path", session_path_ok())
+    Unit <- E.must("session_part_prunes_typing", session_part_prunes_typing_ok())
     IO.print("typing_demo=ok")

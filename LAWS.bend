@@ -291,3 +291,7 @@ law typing_active_boundary:
 # LAW: a received message clears typing even when scrollback policy is separate.
 law typing_message_clear:
   {Ty.message_clear_ok() == True{} : Bool}
+
+# LAW: an older timer tick cannot expire a newer typing event.
+law typing_stale_tick:
+  {Ty.stale_tick_ok() == True{} : Bool}
