@@ -108,7 +108,24 @@ Current split (approx):
 
 - [x] **M7.1** LAWS for feed/submit/framer/view scroll (+ parse/pong)
 - [x] **M7.2** Adversarial: `Fr.overlong_drop_ok` + `Cl.flood_buffers_capped` (+ `fixtures/adversarial.irc`)
-- [ ] **M7.3**–**M7.6** Sanitizers / perf / broader adversarial corpus — **deferred** (out of scope for migration cutover; laws+fixtures cover the critical caps)
+- [x] **M7.3** Repeatable, bounded ASan gate for the project UTF-8 bounds helper. On
+      Darwin arm64, LLVM ASan hangs during interceptor startup (LLVM #58503), so
+      the gate reports an explicit unsupported skip; it does not claim coverage.
+- [x] **M7.4** Full generated application under UBSan with the hostile pty corpus.
+- [x] **M7.5** Default-off production frame phase profiler plus repeatable idle,
+      paint-wake, join-latency, and 8-buffer x 256-line scale gates. Measurement
+      found terminal backpressure in the profiler, not the product: continuous
+      drain reduced mean `timui_end` from 7.2-13.7 ms to 0.7-2.0 ms. Five final
+      scale runs reached first paint in 72-86 ms and completed in 1.18-1.21 s;
+      no product optimization was justified.
+- [x] **M7.6** Broader file and live pty adversarial corpus: tags, NOTICE, empty
+      trailing params, unknown numerics, IRC line boundaries, bare CR, Latin-1
+      fallback, C0 sanitizing, fragmented input, cap floods, bursts, resize,
+      PONG recovery, paint recovery, and tty restoration.
+
+The original history has only the combined M7.3-M7.6 label above. These four
+items reconstruct it in that label's category order; no older expanded list was
+found in reachable commits, reflogs, or repository documentation.
 
 ---
 
