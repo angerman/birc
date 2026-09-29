@@ -6,6 +6,16 @@ import Base
 def LINE_MAX() -> Nat:
   510n  # 512 including CRLF
 
+type TypingStatus is Data:
+  TypingActive{}
+  TypingPaused{}
+  TypingDone{}
+
+type TypingEvent is Data:
+  TypingSet{nick: String, target: String, status: TypingStatus}
+  TypingClear{nick: String, target: String}
+  TypingClearAll{nick: String}
+
 type Cmd is Data:
   Unknown{}
   Ping{}
@@ -22,6 +32,7 @@ type Cmd is Data:
   Names{}
   Error{}
   Cap{}
+  Tagmsg{}
   Numeric{code: U32}
 
 type Message is Data:
@@ -548,13 +559,80 @@ def sanitize_in(+s: String) -> String:
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
 
+# ---- IRCv3 client-only +typing tag -------------------------------------
+
+def typing_status.done(+value: String, done: Bool) -> Maybe<&2, TypingStatus>:
+  match done:
+    case True{}:
+      Some{TypingDone{}}
+    case False{}:
+      None{}
+
+def typing_status.paused(+value: String, paused: Bool) -> Maybe<&2, TypingStatus>:
+  match paused:
+    case True{}:
+      Some{TypingPaused{}}
+    case False{}:
+      typing_status.done(value, String.eq(value, "done"))
+
+def typing_status.active(+value: String, active: Bool) -> Maybe<&2, TypingStatus>:
+  match active:
+    case True{}:
+      Some{TypingActive{}}
+    case False{}:
+      typing_status.paused(value, String.eq(value, "paused"))
+
+def typing_status(+value: String) -> Maybe<&2, TypingStatus>:
+  typing_status.active(value, String.eq(value, "active"))
+
+def typing_tag.one(+tag: String, hit: Bool) -> Maybe<&2, TypingStatus>:
+  match hit:
+    case True{}:
+      typing_status(String.drop(tag, 8n))
+    case False{}:
+      None{}
+
+def typing_tags.go(xs: List<&2, String>, found: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingStatus>:
+  match xs found:
+    case _ Some{status}:
+      Some{status}
+    case Nil{} None{}:
+      None{}
+    case Con{+tag, rest} None{}:
+      typing_tags.go(rest, typing_tag.one(tag, String.starts_with(tag, "+typing=")))
+
+def typing_tag(+tags: String) -> Maybe<&2, TypingStatus>:
+  typing_tags.go(String.split(tags, Chr{59}), None{})
+
+def raw_tags.pair(pair: String & String) -> String:
+  match pair:
+    case (tags, _):
+      tags
+
+def raw_tags.at(+tail: String, at: Bool) -> String:
+  match at:
+    case True{}:
+      raw_tags.pair(take_until_space(tail))
+    case False{}:
+      ""
+
+def raw_tags.clean(+line: String) -> String:
+  match line:
+    case SNil{}:
+      ""
+    case SCon{+h, +tail}:
+      raw_tags.at(tail, code_is(h, 64))
+
+def raw_tags(+line: String) -> String:
+  raw_tags.clean(strip_cr(line))
+
 # ---- classify -----------------------------------------------------------
 
 type ClsRow is Data:
   ClsRow{name: String, cmd: Cmd}
 
 def cls_rows() -> List<&2, ClsRow>:
-  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> Nil{}
+  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> Nil{}
 
 def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
   match xs:
@@ -608,6 +686,81 @@ def msg_last(+m: Message) -> String:
   match m:
     case Message{_, _, _, _, ps}:
       msg_last_xs(ps)
+
+# Typing events are separate from normal client feed. This lets Session clear
+# typing state even when a message is muted and omitted from scrollback.
+def typing_target.pick(+nick: String, +target: String, channel: Bool) -> String:
+  match channel:
+    case True{}:
+      chan_target(target)
+    case False{}:
+      nick
+
+def typing_target(+nick: String, +target: String) -> String:
+  typing_target.pick(nick, target, starts_channel(target))
+
+def typing_set_event(+nick: String, +target: String, status: TypingStatus) -> TypingEvent:
+  match status:
+    case TypingDone{}:
+      TypingClear{nick, typing_target(nick, target)}
+    case TypingActive{}:
+      TypingSet{nick, typing_target(nick, target), TypingActive{}}
+    case TypingPaused{}:
+      TypingSet{nick, typing_target(nick, target), TypingPaused{}}
+
+def typing_tagmsg(+m: Message, status: TypingStatus) -> TypingEvent:
+  typing_set_event(msg_nick(m), msg_param(m, 0n), status)
+
+def typing_from_tagmsg(+m: Message, status: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingEvent>:
+  match status:
+    case Some{st}:
+      Some{typing_tagmsg(m, st)}
+    case None{}:
+      None{}
+
+def typing_from_kick(+m: Message) -> TypingEvent:
+  TypingClear{msg_param(m, 1n), chan_target(msg_param(m, 0n))}
+
+def typing_from_message(+m: Message) -> TypingEvent:
+  typing_set_event(msg_nick(m), msg_param(m, 0n), TypingDone{})
+
+def typing_from_untagged(+m: Message, status: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingEvent>:
+  match status:
+    case Some{_}: None{}
+    case None{}: Some{typing_from_message(m)}
+
+def typing_event_cmd(+m: Message, status: Maybe<&2, TypingStatus>, c: Cmd) -> Maybe<&2, TypingEvent>:
+  match c:
+    case Tagmsg{}:
+      typing_from_tagmsg(m, status)
+    case Privmsg{}:
+      typing_from_untagged(m, status)
+    case Notice{}:
+      typing_from_untagged(m, status)
+    case Part{}:
+      Some{TypingClear{msg_nick(m), chan_target(msg_param(m, 0n))}}
+    case Kick{}:
+      Some{typing_from_kick(m)}
+    case Quit{}:
+      Some{TypingClearAll{msg_nick(m)}}
+    case Nick{}:
+      Some{TypingClearAll{msg_nick(m)}}
+    case _:
+      None{}
+
+def typing_event_msg(+m: Message, status: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingEvent>:
+  typing_event_cmd(m, status, classify(m))
+
+def typing_event_parsed(m: Maybe<&2, Message>, status: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingEvent>:
+  match m:
+    case None{}:
+      None{}
+    case Some{msg}:
+      typing_event_msg(msg, status)
+
+def typing_event(+line: String) -> Maybe<&2, TypingEvent>:
+  +clean = strip_cr(line)
+  typing_event_parsed(parse(clean), typing_tag(raw_tags(clean)))
 
 # ---- format -------------------------------------------------------------
 
@@ -872,4 +1025,3 @@ def extract_pong_lag_line(+line: String) -> Maybe<&2, U32>:
 def server_time_sample_ok() -> Bool:
   String.eq(parse_server_time("time=2026-09-28T17:40:27.123Z"), "17:40:27")
     && String.eq(parse_server_time("account=u;time=2023-01-02T03:04:05Z;foo=1"), "03:04:05")
-

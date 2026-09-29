@@ -943,6 +943,28 @@ def status_of.buf(+b: Cl.Buffer) -> String:
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
 
+def typing_names(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2)
+
+def typing_notice(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h ++ " is typing..."
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2) ++ " are typing..."
+
 def view_input(+draft: String) -> String:
   draft
 

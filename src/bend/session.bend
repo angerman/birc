@@ -14,9 +14,9 @@ def register_lines(+nick: String) -> List<&2, String>:
 def handshake_lines(+nick: String, has_sasl: Bool) -> List<&2, String>:
   match has_sasl:
     case True{}:
-      "CAP LS 302" <> "CAP REQ :sasl server-time" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+      "CAP LS 302" <> "CAP REQ :sasl" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
     case False{}:
-      "CAP REQ :server-time" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+      "CAP LS 302" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
 
 type FoldAcc is Data:
   FoldAcc{cl: Cl.Client, pongs: List<&2, String>, now_ms: U32}
@@ -1340,5 +1340,4 @@ def st_of_keys(t: Session & NetCmd & Bool) -> Session:
       match rest:
         case (_, _):
           st
-
 

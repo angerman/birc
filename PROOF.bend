@@ -8,6 +8,7 @@ import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
 import ./src/bend/base64.bend as B64
+import ./src/bend/typing.bend as Ty
 import ./LAWS.bend as Laws
 
 def Laws.ping_classified():
@@ -651,3 +652,8 @@ def Laws.tab_completion_slash():
 def Laws.search_empty_line(kind, ts, text):
   {==}
 
+def Laws.typing_active_boundary():
+  {==}
+
+def Laws.typing_message_clear():
+  {==}

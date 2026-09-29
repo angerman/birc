@@ -74,18 +74,18 @@ def refresh_and_wrap_ok() -> Bool:
   +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 4294965000)
   +s1 = Ty.apply_line(s0, "@+typing=active :alice!a@h TAGMSG #birc", 4294966000)
   Nat.is_eq(Ty.count(s1), 1n)
-    && Ty.has(Ty.expire(s1, 5000), "#birc", "alice")
-    && Bool.not(Ty.has(Ty.expire(s1, 6000), "#birc", "alice"))
+    && Ty.has(Ty.expire(s1, 4000), "#birc", "alice")
+    && Bool.not(Ty.has(Ty.expire(s1, 4704), "#birc", "alice"))
 
-def fill.go(n: Nat, +s: Ty.State) -> Ty.State:
+def fill.go(n: Nat, +i: Nat, +s: Ty.State) -> Ty.State:
   match n:
     case 0n:
       s
     case 1n+p:
-      fill.go(p, Ty.apply(s, Irc.TypingSet{"nick" ++ Nat.show(n), "#birc", Irc.TypingActive{}}, 1000))
+      fill.go(p, Nat.add(i, 1n), Ty.apply(s, Irc.TypingSet{"nick" ++ Nat.show(i), "#birc", Irc.TypingActive{}}, 1000))
 
 def bound_ok() -> Bool:
-  Nat.is_eq(Ty.count(fill.go(40n, Ty.empty())), Ty.MAX_TYPERS())
+  Nat.is_eq(Ty.count(fill.go(40n, 0n, Ty.empty())), Ty.MAX_TYPERS())
 
 def list_has(+xs: List<&2, String>, +want: String) -> Bool:
   match xs:

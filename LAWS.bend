@@ -11,6 +11,7 @@ import ./src/bend/session.bend as Sess
 import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
 import ./src/bend/base64.bend as B64
+import ./src/bend/typing.bend as Ty
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -273,3 +274,10 @@ law search_empty_line:
   for text: String
   {Feed.line_matches_query(Cl.Line{kind, ts, text}, "") == False{} : Bool}
 
+# LAW: an active typing notice is present before 6 s and absent at 6 s.
+law typing_active_boundary:
+  {Ty.active_boundary_ok() == True{} : Bool}
+
+# LAW: a received message clears typing even when scrollback policy is separate.
+law typing_message_clear:
+  {Ty.message_clear_ok() == True{} : Bool}

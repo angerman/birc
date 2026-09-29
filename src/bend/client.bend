@@ -654,6 +654,8 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
       feed_numeric(cl, m)
     case Irc.Cap{}:
       cl
+    case Irc.Tagmsg{}:
+      cl
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
     case _:
