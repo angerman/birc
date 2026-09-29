@@ -8,6 +8,7 @@ import ./session.bend as Sess
 import ./clock.bend as Clock
 import ./actor.bend as Act
 import ./history.bend as Hist
+import ./typing.bend as Ty
 
 def shutdown_finish(ui: T.Ui) -> IO(Unit):
   do IO<Unit>:
@@ -82,16 +83,17 @@ def paint_go(
   +draft: String,
   +net: Sess.NetState,
   +seed: U32,
-  size: Sess.Size
+  size: Sess.Size,
+  +typers: List<&2, String>
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl))), seed)
+      paint_vm(ui, V.view_draft_typing(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _}:
-      paint_go(ui, cl, draft, net, seed, size)
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, +typing}:
+      paint_go(ui, cl, draft, net, seed, size, Ty.names(typing, Cl.active_buf_name(cl)))
 
 
 def outs_nil(+xs: List<&2, String>) -> Bool:
@@ -653,6 +655,39 @@ def on_resize(
 ) -> IO(Unit):
   on_resize.go(Sess.session_size(st), ui, st, evt, cmd, ack, gen, frames, k)
 
+def on_typing_tick.pick(
+  pair: Sess.Session & Bool,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match pair:
+    case (+st2, changed):
+      match changed:
+        case False{}:
+          k((ui, st2, gen, False{}))
+        case True{}:
+          do IO<Unit>:
+            got : T.Ui & T.UiKeys <- paint_session(ui, st2)
+            on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+
+def on_typing_tick(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +now_ms: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  on_typing_tick.pick(Sess.session_expire_typing(st, now_ms), ui, evt, cmd, ack, gen, frames, k)
+
 def on_msg_go(
   m: Sess.UiMsg,
   ui: T.Ui,
@@ -669,6 +704,8 @@ def on_msg_go(
       on_key(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.Resize{}:
       on_resize(ui, st, evt, cmd, ack, gen, frames, k)
+    case Sess.TypingTick{now_ms}:
+      on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
     case Sess.FromNet{+got, e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, frames, U32.is_eq(got, gen), k)
 
@@ -821,6 +858,16 @@ def winch_watch(w: T.Winch, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
     winch_watch.on(ok, w2, w3 => winch_watch(w3, evt))
 
+# A one-second Bend-owned clock tick expires transient typing notices. The UI
+# only paints when expiration changes state, so idle ticks do not redraw.
+@unsafe
+def typing_watch(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.sleep(1000)
+    now_ms : U32 <- Clock.millis()
+    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.TypingTick{now_ms})
+    typing_watch(evt)
+
 def watch_paint(
   packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
   +gen: U32,
@@ -849,6 +896,7 @@ def watch_paint(
                         Unit <- handle_more(more, False{}, evt, ack)
                         Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
                         Unit <- IO.spawn(Unit, winch_watch(w, evt))
+                        Unit <- IO.spawn(Unit, typing_watch(evt))
                         live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack, hist_path)
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):

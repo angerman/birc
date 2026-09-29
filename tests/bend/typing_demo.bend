@@ -5,6 +5,7 @@ import ../../src/bend/irc.bend as Irc
 import ../../src/bend/typing.bend as Ty
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/view.bend as V
+import ../../src/bend/frame.bend as Fr
 
 def event_is_set(e: Maybe<&2, Irc.TypingEvent>, +nick: String, +target: String, paused: Bool) -> Bool:
   match e:
@@ -107,6 +108,21 @@ def view_ok() -> Bool:
     && String.eq(V.typing_notice("alice" <> Nil{}), "alice is typing...")
     && String.eq(V.typing_notice("alice" <> "bob" <> Nil{}), "alice, bob are typing...")
 
+def expired_session(pair: Sess.Session & Bool) -> Bool:
+  match pair:
+    case (+st, changed):
+      changed && Bool.not(Ty.has(Sess.session_typing(st), "#birc", "alice"))
+
+def session_path_ok() -> Bool:
+  +s0 = Sess.session_online(Sess.session0("me", "irc.example", "#birc"))
+  +s1 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s0, Fr.string_to_octets(":me!m@h JOIN #birc\r\n"), 900))
+  +s2 = Sess.st_of_keys(Sess.step_enter(s1, "/mute alice"))
+  +s3 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s2, Fr.string_to_octets("@+typing=active :alice!a@h TAGMSG #birc\r\n"), 1000))
+  +s4 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s3, Fr.string_to_octets(":alice!a@h PRIVMSG #birc :hidden\r\n"), 1100))
+  Ty.has(Sess.session_typing(s3), "#birc", "alice")
+    && Bool.not(Ty.has(Sess.session_typing(s4), "#birc", "alice"))
+    && expired_session(Sess.session_expire_typing(s3, 7000))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("protocol", protocol_ok())
@@ -118,4 +134,5 @@ def main() -> IO(Unit):
     Unit <- E.must("bound", bound_ok())
     Unit <- E.must("capability", capability_ok())
     Unit <- E.must("view", view_ok())
+    Unit <- E.must("session_path", session_path_ok())
     IO.print("typing_demo=ok")
