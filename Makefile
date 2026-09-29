@@ -35,7 +35,8 @@ check: export BIRC_HISTORY ?= none
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
         test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history \
         lint-ffi test-utf8-fit test-paste-harness proto-parity proof check run run-demo clean \
-        test-perf-cpu test-perf-tickrate test-perf-search test-dns-live test-dns-timeout
+        test-perf-cpu test-perf-tickrate test-perf-search test-perf-hardening \
+        test-dns-live test-dns-timeout
 
 help: ## Show the public targets (default).
 	@awk 'BEGIN { FS = ":.*## " ; print "birc — IRC client (Bend 2 + timui.h)\n" } /^[a-zA-Z0-9_-]+:.*## / { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -314,6 +315,9 @@ test-perf-search: ## Profile serial/parallel search at 16 x 1024 lines (not in c
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/perf/search_profile.bend -o $(BLDDIR)/search_profile
 	$(NIXRUN) sh -c 'for mode in serial parallel parallel serial serial parallel parallel serial serial parallel; do BIRC_SEARCH_PROFILE=$$mode ./$(BLDDIR)/search_profile; done'
+
+test-perf-hardening: build-ui ## Profile production frame phases with scale replay (not in check).
+	$(NIXRUN) timeout 120 python3 tests/perf/hardening_profile.py ./$(BLDDIR)/birc
 
 check: proof test lint-ffi test-paste-harness ## Proofs + protocol tests + UI smoke + FFI lint + paste harness.
 

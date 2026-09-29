@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
@@ -72,12 +73,29 @@ typedef struct {
   TimuiRect body_inner;
   TimuiRect nicks_inner;
   BircSel sel;
+  int profile_enabled;
+  uint64_t profile_frames;
+  uint64_t profile_prepare_ns;
+  uint64_t profile_begin_ns;
+  uint64_t profile_draw_ns;
+  uint64_t profile_end_ns;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+
+static uint64_t birc_profile_now_ns(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+    return 0;
+  return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
+
+static uint64_t birc_profile_us(uint64_t ns, uint64_t frames) {
+  return frames > 0 ? ns / frames / 1000ULL : 0;
+}
 
 static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
@@ -116,6 +134,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
   st->last_tab = -1;
+  st->profile_enabled = getenv("BIRC_FRAME_PROFILE") != NULL;
   cfg.title = "birc";
   cfg.flags = TIMUI_FLAG_ALT_SCREEN | TIMUI_FLAG_RESTORE_ON_EXIT |
               TIMUI_FLAG_BRACKETED_PASTE | TIMUI_FLAG_MOUSE;
@@ -507,16 +526,21 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   Term ops = f[1];
   uint64_t n_in = 0;
-  char *input = io_cstr(e, f[2], &n_in);
+  char *input;
   u32 seed = (u32)f[3];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
+  uint64_t profile_t0 = bu && bu->profile_enabled ? birc_profile_now_ns() : 0;
+  uint64_t profile_t1 = 0;
+  uint64_t profile_t2 = 0;
+  uint64_t profile_t3 = 0;
   int enter = 0;
   uint32_t rows = 24;
   uint32_t cols = 80;
   uint32_t click = 0;
   size_t tlen = 0;
   (void)w;
+  input = io_cstr(e, f[2], &n_in);
   if (!ui) {
     free(input);
     birc_drop_ops(e, ops);
@@ -538,11 +562,15 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       }
     }
   }
+  if (bu && bu->profile_enabled)
+    profile_t1 = birc_profile_now_ns();
   if (!timui_begin(ui, &fr)) {
     free(input);
     birc_drop_ops(e, ops);
     return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0);
   }
+  if (bu && bu->profile_enabled)
+    profile_t2 = birc_profile_now_ns();
 
   {
     TimuiRect root = timui_root(fr);
@@ -621,6 +649,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       }
     }
   }
+  if (bu && bu->profile_enabled)
+    profile_t3 = birc_profile_now_ns();
   {
     TimuiTransportWrite saved = ui->transport.write;
     int wait_ms = 40;
@@ -655,6 +685,14 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     } else {
       birc_tty_stalled = 0;
     }
+  }
+  if (bu && bu->profile_enabled) {
+    uint64_t profile_t4 = birc_profile_now_ns();
+    bu->profile_frames += 1;
+    bu->profile_prepare_ns += profile_t1 - profile_t0;
+    bu->profile_begin_ns += profile_t2 - profile_t1;
+    bu->profile_draw_ns += profile_t3 - profile_t2;
+    bu->profile_end_ns += profile_t4 - profile_t3;
   }
   {
     const char *typed = bu ? bu->composer : "";
@@ -700,6 +738,20 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   (void)w;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
+  if (st && st->profile_enabled) {
+    fprintf(stderr,
+            "birc_profile frames=%llu prepare_us=%llu begin_us=%llu "
+            "draw_us=%llu end_us=%llu\n",
+            (unsigned long long)st->profile_frames,
+            (unsigned long long)birc_profile_us(st->profile_prepare_ns,
+                                                st->profile_frames),
+            (unsigned long long)birc_profile_us(st->profile_begin_ns,
+                                                st->profile_frames),
+            (unsigned long long)birc_profile_us(st->profile_draw_ns,
+                                                st->profile_frames),
+            (unsigned long long)birc_profile_us(st->profile_end_ns,
+                                                st->profile_frames));
+  }
   if (ui) {
     if (ui->fd.write_fd >= 0)
       (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
