@@ -3,27 +3,27 @@
     "bend-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789861503,
-        "narHash": "sha256-xiMdZ5cb6OkKEr5lPWyHIef5ELE5HAh558UUghLf4IM=",
+        "lastModified": 1790622527,
+        "narHash": "sha256-guHP+HhtJPoQ3N8lIyN7tu7xd/HA6fZyj4E3md+fNMo=",
         "owner": "bendlang",
         "repo": "bend",
-        "rev": "f38a7797a98e931ae99eb49881ff4bef127b34ca",
+        "rev": "3378e6237ed431d17629efd36d24c96241815b7e",
         "type": "github"
       },
       "original": {
         "owner": "bendlang",
         "repo": "bend",
-        "rev": "f38a7797a98e931ae99eb49881ff4bef127b34ca",
+        "rev": "3378e6237ed431d17629efd36d24c96241815b7e",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1789632929,
-        "narHash": "sha256-RjR8AyvGlWuw16XRj7C1YDEw4E27ciuyPeB2nDMzgTU=",
+        "lastModified": 1790570722,
+        "narHash": "sha256-Avcz96Q+8OkfUIUXipBBVsQn19L622BtKP7mk6M+uls=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "a32edd7654519351e48e80372a928df336394670",
+        "rev": "419fe0f449b3fbe3bdd53d9840288db4509ec32e",
         "type": "github"
       },
       "original": {

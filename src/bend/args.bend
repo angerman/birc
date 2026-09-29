@@ -322,8 +322,22 @@ def copy_args(src: List<&1, String>, acc: List<&2, String>) -> List<&2, String>:
     case Con{+h, t}:
       copy_args(t, h <> acc)
 
+def drop_prog.on(h: String, t: List<&1, String>, is_flag: Bool) -> List<&1, String>:
+  match is_flag:
+    case True{}:
+      h <> t
+    case False{}:
+      t
+
+def drop_prog(xs: List<&1, String>) -> List<&1, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      drop_prog.on(h, t, String.starts_with(h, "-"))
+
 def parse_raw(raw: List<&1, String>) -> Parsed:
-  parse(copy_args(raw, Nil{}))
+  parse(copy_args(drop_prog(raw), Nil{}))
 
 # Fail closed on leftover argv. Tests construct the remainder as List<&2>
 # without IO.args (copy_args itself has no cap; parse is 64 flags).

@@ -39,7 +39,7 @@ def tcp_listen_any(tries: Nat, +port: U32) -> IO(Listener & U32):
     case 1n+t:
       rest = tcp_listen_any(t, U32.add(port, 1))
       do IO<Listener & U32>:
-        r : Result<&1, &1, (U32 & String), Listener> <- TCP.listen(port)
+        r : Result<&1, &1, (U32 & String), Listener> <- TCP.listen("127.0.0.1", port)
         tcp_retry(port, r, rest)
 
 def first_line(+xs: List<&2, String>) -> String:

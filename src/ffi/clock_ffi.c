@@ -3,7 +3,14 @@
 #define BIRC_CLOCK_FFI_C
 #include <stdint.h>
 #include <time.h>
-#ifdef CID_LOCAL_SECS
+#ifndef CID_LOCAL_SECS
+#define CID_LOCAL_SECS CID(local_secs)
+#endif
+#ifndef CID_MILLIS
+#define CID_MILLIS CID(millis)
+#endif
+
+#if CID_LOCAL_SECS
 Term local_secs_run(Env e, Term *f, IoWork *w) {
   time_t t = time(NULL);
   struct tm lt;
@@ -19,7 +26,7 @@ static void __attribute__((constructor)) local_secs_use(void) {
   io_eff(CID_LOCAL_SECS, local_secs_run, 0);
 }
 #endif
-#ifdef CID_MILLIS
+#if CID_MILLIS
 Term millis_run(Env e, Term *f, IoWork *w) {
   struct timespec ts;
   (void)e;

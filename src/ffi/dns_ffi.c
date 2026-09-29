@@ -64,7 +64,23 @@ static Term recv_try(Env e, int fd, u32 max, IoWork *w, int park) {
 static Term recv_more(Env e, IoWork *w) {
   return recv_try(e, (int)w->hand, (u32)w->made, w, 1);
 }
-#ifdef CID_RECV_OCTETS
+#ifndef CID_RECV_OCTETS
+#define CID_RECV_OCTETS CID(recv_octets)
+#endif
+#ifndef CID_RECV_NB
+#define CID_RECV_NB CID(recv_nb)
+#endif
+#ifndef CID_SOCKET_DUP
+#define CID_SOCKET_DUP CID(Socket.dup)
+#endif
+#ifndef CID_SOCKET_SHUTDOWN
+#define CID_SOCKET_SHUTDOWN CID(Socket.shutdown)
+#endif
+#ifndef CID_SEND_OCTETS
+#define CID_SEND_OCTETS CID(send_octets)
+#endif
+
+#if CID_RECV_OCTETS
 Term recv_octets_run(Env e, Term *f, IoWork *w) {
   return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], w, 1);
 }
@@ -72,7 +88,7 @@ static void __attribute__((constructor)) recv_octets_use(void) {
   io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ);
 }
 #endif
-#ifdef CID_RECV_NB
+#if CID_RECV_NB
 Term recv_nb_run(Env e, Term *f, IoWork *w) {
   (void)w;
   return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], NULL, 0);
@@ -81,7 +97,7 @@ static void __attribute__((constructor)) recv_nb_use(void) {
   io_eff(CID_RECV_NB, recv_nb_run, 0);
 }
 #endif
-#ifdef CID_SOCKET_DUP
+#if CID_SOCKET_DUP
 Term socket_dup_run(Env e, Term *f, IoWork *w) {
   int fd = (int)io_hand_v(f[0]);
   int d;
@@ -95,7 +111,7 @@ static void __attribute__((constructor)) socket_dup_use(void) {
   io_eff(CID_SOCKET_DUP, socket_dup_run, 0);
 }
 #endif
-#ifdef CID_SOCKET_SHUTDOWN
+#if CID_SOCKET_SHUTDOWN
 Term socket_shutdown_run(Env e, Term *f, IoWork *w) {
   int fd = (int)io_hand_v(f[0]);
   (void)w;
@@ -107,7 +123,7 @@ static void __attribute__((constructor)) socket_shutdown_use(void) {
   io_eff(CID_SOCKET_SHUTDOWN, socket_shutdown_run, 0);
 }
 #endif
-#ifdef CID_SEND_OCTETS
+#if CID_SEND_OCTETS
 Term send_octets_run(Env e, Term *f, IoWork *w) {
   uint8_t buf[512];
   size_t n = 0;
@@ -122,7 +138,7 @@ Term send_octets_run(Env e, Term *f, IoWork *w) {
   dst.sin_family = AF_INET;
   dst.sin_port = htons((uint16_t)(u32)f[2]);
   while (term_aux(xs) == CID_CON) {
-    Loc sp = ctr_take(e, xs, 2, t);
+    u64 sp = ctr_take(e, xs, 2, t);
     if (n < sizeof buf)
       buf[n++] = (uint8_t)(u32)t[0];
     else

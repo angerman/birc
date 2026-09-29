@@ -270,7 +270,7 @@ type NetEvt is Data:
   Eof{}
   Tick{}
   Up{fd: U32}
-  Fail{msg: String}
+  NetFail{msg: String}
 
 # gen is the connection the UI bumped on this Dial. Stale FromNet is dropped.
 type NetCmd is Data:
@@ -282,7 +282,7 @@ type NetCmd is Data:
 # One UI channel. FromNet is ignored unless gen is the UI's current one.
 type UiMsg is Data:
   FromNet{gen: U32, e: NetEvt}
-  Key{}
+  UiKey{}
   Resize{}
 
 type NetState is Data:

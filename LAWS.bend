@@ -8,7 +8,7 @@ import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
-import ./src/bend/clock.bend as Clock
+import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
 import ./src/bend/base64.bend as B64
 

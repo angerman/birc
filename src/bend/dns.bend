@@ -396,7 +396,7 @@ def lookup_q(
       IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
     case Done{+q}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        br : Result<&1, &1, U32 & String, Socket> <- UDP.bind(0)
+        br : Result<&1, &1, U32 & String, Socket> <- UDP.bind("0.0.0.0", 0)
         r : Result<&1, &1, U32 & String, String> <- after_bind(br, q, id, host, ns)
         lookup_res(host, ns, id, q, r)
 

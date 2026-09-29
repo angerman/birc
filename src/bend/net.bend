@@ -192,7 +192,7 @@ def handle_more(
   match more:
     case True{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Key{})
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiKey{})
         return Unit{}
     case False{}:
       handle_more.done(is_key, ack)
@@ -374,7 +374,7 @@ def on_evt(
       on_up(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.Eof{}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected", k)
-    case Sess.Fail{+msg}:
+    case Sess.NetFail{+msg}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, msg, k)
     case Sess.Tick{}:
       k((ui, st, gen, False{}))
@@ -665,7 +665,7 @@ def on_msg_go(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match m:
-    case Sess.Key{}:
+    case Sess.UiKey{}:
       on_key(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.Resize{}:
       on_resize(ui, st, evt, cmd, ack, gen, frames, k)
@@ -804,7 +804,7 @@ def tty_watch.on(
 def tty_watch(tty: T.Tty, +evt: Chan(Sess.UiMsg), +ack: Chan(Unit)) -> IO(Unit):
   do IO<Unit>:
     tty2 : T.Tty <- T.Tty.ready(tty)
-    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Key{})
+    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiKey{})
     tty_watch.on(ok, tty2, ack, t => tty_watch(t, evt, ack))
 
 def winch_watch.on(ok: Bool, w: T.Winch, k: T.Winch -> IO(Unit)) -> IO(Unit):

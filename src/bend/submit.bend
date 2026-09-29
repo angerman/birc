@@ -939,7 +939,7 @@ def open_arg_from_input(+input: String) -> String:
 type Slash is Data:
   Join{}
   Part{}
-  Close{}
+  CloseCmd{}
   Msg{}
   QueryCmd{}
   Nick{}
@@ -961,7 +961,7 @@ type SlashRow is Data:
 def slash_rows() -> List<&2, SlashRow>:
   SlashRow{"join", Join{}}
     <> SlashRow{"part", Part{}}
-    <> SlashRow{"close", Close{}}
+    <> SlashRow{"close", CloseCmd{}}
     <> SlashRow{"msg", Msg{}}
     <> SlashRow{"query", QueryCmd{}}
     <> SlashRow{"nick", Nick{}}
@@ -995,7 +995,7 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_join(cl, rest)
     case Part{}:
       submit_part(cl, rest)
-    case Close{}:
+    case CloseCmd{}:
       submit_close(cl, rest)
     case Msg{}:
       submit_msg(cl, rest)

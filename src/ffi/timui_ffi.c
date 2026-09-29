@@ -16,6 +16,47 @@
 #endif
 #include "timui.h"
 
+#ifndef Loc
+typedef uint64_t Loc;
+#endif
+
+#ifndef CID_UIKEYS
+#define CID_UIKEYS CID(UiKeys)
+#endif
+#ifndef CID_TIMUI_OPEN
+#define CID_TIMUI_OPEN CID(Timui.open)
+#endif
+#ifndef CID_TIMUI_FRAME
+#define CID_TIMUI_FRAME CID(Timui.frame)
+#endif
+#ifndef CID_TIMUI_CLOSE
+#define CID_TIMUI_CLOSE CID(Timui.close)
+#endif
+#ifndef CID_TIMUI_ISATTY
+#define CID_TIMUI_ISATTY CID(Timui.isatty)
+#endif
+#ifndef CID_TIMUI_TTY
+#define CID_TIMUI_TTY CID(Timui.tty)
+#endif
+#ifndef CID_TTY_READY
+#define CID_TTY_READY CID(Tty.ready)
+#endif
+#ifndef CID_TTY_CLOSE
+#define CID_TTY_CLOSE CID(Tty.close)
+#endif
+#ifndef CID_WINCH_OPEN
+#define CID_WINCH_OPEN CID(Winch.open)
+#endif
+#ifndef CID_WINCH_READY
+#define CID_WINCH_READY CID(Winch.ready)
+#endif
+#ifndef CID_WINCH_CLOSE
+#define CID_WINCH_CLOSE CID(Winch.close)
+#endif
+#ifndef CID_SYS_OPEN_URL
+#define CID_SYS_OPEN_URL CID(Sys.open_url)
+#endif
+
 typedef struct {
   int active;       /* 1 if selection exists */
   int dragging;     /* 1 if left mouse button is pressed and held */

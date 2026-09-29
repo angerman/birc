@@ -127,7 +127,7 @@ type TokMode is Data:
 
 type TokJump is Data:
   Jump{mode: TokMode, s: String, acc: String, spans: List<&2, TextSpan>}
-  Done{spans: List<&2, TextSpan>}
+  TokDone{spans: List<&2, TextSpan>}
 
 def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
   match acc:
@@ -265,7 +265,7 @@ def tokenize.out_https(+s: String, +t: String, +acc: String, +h: Char, spans: Li
 def tokenize.next_out(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      Done{tokenize.emit_plain(acc, spans)}
+      TokDone{tokenize.emit_plain(acc, spans)}
     case SCon{+h, t}:
       tokenize.out_https(s, t, acc, h, spans, String.starts_with(s, HTTPS()))
 
@@ -279,7 +279,7 @@ def tokenize.close_bold(+t: String, +acc: String, +h: Char, spans: List<&2, Text
 def tokenize.next_bold(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      Done{Plain{String.reverse(SCon{STAR(), acc})} <> spans}
+      TokDone{Plain{String.reverse(SCon{STAR(), acc})} <> spans}
     case SCon{+h, t}:
       tokenize.close_bold(t, acc, h, spans, Char.is_eq(h, STAR()))
 
@@ -293,7 +293,7 @@ def tokenize.close_italic(+t: String, +acc: String, +h: Char, spans: List<&2, Te
 def tokenize.next_italic(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      Done{Plain{String.reverse(SCon{USCORE(), acc})} <> spans}
+      TokDone{Plain{String.reverse(SCon{USCORE(), acc})} <> spans}
     case SCon{+h, t}:
       tokenize.close_italic(t, acc, h, spans, Char.is_eq(h, USCORE()))
 
@@ -307,7 +307,7 @@ def tokenize.close_code(+t: String, +acc: String, +h: Char, spans: List<&2, Text
 def tokenize.next_code(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      Done{Plain{String.reverse(SCon{TICK(), acc})} <> spans}
+      TokDone{Plain{String.reverse(SCon{TICK(), acc})} <> spans}
     case SCon{+h, t}:
       tokenize.close_code(t, acc, h, spans, Char.is_eq(h, TICK()))
 
@@ -335,7 +335,7 @@ def tokenize.force_mode(mode: TokMode, +acc: String, spans: List<&2, TextSpan>) 
 
 def tokenize.force_done(j: TokJump) -> List<&2, TextSpan>:
   match j:
-    case Done{spans}:
+    case TokDone{spans}:
       List.reverse(&2, TextSpan, spans)
     case Jump{+mode, _, +acc, spans}:
       tokenize.force_mode(mode, acc, spans)
@@ -347,7 +347,7 @@ def tokenize.go(fuel: Nat, j: TokJump) -> List<&2, TextSpan>:
       tokenize.force_done(j)
     case 1n+p:
       match j:
-        case Done{spans}:
+        case TokDone{spans}:
           List.reverse(&2, TextSpan, spans)
         case Jump{+mode, +s, +acc, spans}:
           tokenize.go(p, tokenize.next(mode, s, acc, spans))

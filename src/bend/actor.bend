@@ -223,7 +223,7 @@ def writer_drop(sock: Socket) -> IO(Unit):
     writer_drop.r(pair)
 
 def writer_fail(+evt: Chan(Sess.UiMsg), +gen: U32, +msg: String) -> IO(Unit):
-  post(evt, gen, Sess.Fail{msg})
+  post(evt, gen, Sess.NetFail{msg})
 
 type Boot is Data:
   Ready{}

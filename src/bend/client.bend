@@ -521,22 +521,22 @@ def feed_num.other.skip(cl: Cl.Client, +num: U32, +text: String, err: Bool, skip
 def feed_num.other(+cl: Cl.Client, +num: U32, +text: String, err: Bool) -> Cl.Client:
   feed_num.other.skip(cl, num, text, err, is_motd_num(num) && Bool.not(Cl.settings_motd(Cl.get_settings(cl))))
 
-def feed_num.433.on(+cl: Cl.Client, +m: Irc.Message, +num: U32, +nick: String, retry: Bool) -> Cl.Client:
+def feed_num.n433.on(+cl: Cl.Client, +m: Irc.Message, +num: U32, +nick: String, retry: Bool) -> Cl.Client:
   match retry:
     case True{}:
       feed_num.other(Cl.set_nick(cl, nick ++ "_"), num, Irc.msg_last(m), True{})
     case False{}:
       feed_num.other(cl, num, Irc.msg_last(m), True{})
 
-def feed_num.433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
+def feed_num.n433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _}:
-      feed_num.433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
+      feed_num.n433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
 
 def is_353_sym(+s: String) -> Bool:
   String.eq(s, "=") || String.eq(s, "*") || String.eq(s, "@")
 
-def feed_num.353.body(+cl: Cl.Client, +m: Irc.Message, rfc2812: Bool) -> Cl.Client:
+def feed_num.n353.body(+cl: Cl.Client, +m: Irc.Message, rfc2812: Bool) -> Cl.Client:
   match rfc2812:
     case True{}:
       feed_num.names(cl, Irc.msg_param(m, 2n), Irc.msg_param(m, 3n))
@@ -573,11 +573,11 @@ def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Clien
     case N332{}:
       feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
     case N353{}:
-      feed_num.353.body(cl, m, is_353_sym(Irc.msg_param(m, 1n)))
+      feed_num.n353.body(cl, m, is_353_sym(Irc.msg_param(m, 1n)))
     case N366{}:
       cl
     case N433{}:
-      feed_num.433.cl(cl, m, num)
+      feed_num.n433.cl(cl, m, num)
     case NOther{}:
       feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
 

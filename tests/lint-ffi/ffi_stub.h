@@ -35,6 +35,10 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define IO_READ 1u
 #endif
 
+#ifndef CID
+#define CID(x) 1u
+#endif
+
 #define CID_UNIT 1u
 #define CID_NONE 2u
 #define CID_SOME 3u
