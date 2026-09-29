@@ -39,9 +39,10 @@ def drain(fd: int, timeout: float) -> bytes:
 
 def main() -> int:
     birc = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image:
-        image.write(PNG_1X1)
-        image_path = image.name
+    temp_dir = tempfile.mkdtemp(prefix="birc-preview-")
+    image_path = os.path.join(temp_dir, "retry.png")
+    fifo_path = os.path.join(temp_dir, "blocked.fifo")
+    os.mkfifo(fifo_path)
 
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
@@ -66,16 +67,30 @@ def main() -> int:
             return 1
 
         os.write(master, f"/preview file://{image_path}\r".encode())
+        missing = drain(master, 0.5)
+        if b"\x1b_Ga=t" in missing:
+            print("FAIL: missing image was transmitted", file=sys.stderr)
+            return 1
+
+        with open(image_path, "wb") as image:
+            image.write(PNG_1X1)
+        os.write(master, f"/preview file://{image_path}\r".encode())
         painted = drain(master, 2.0)
         if b"\x1b_Ga=t" not in painted:
-            print("FAIL: no Kitty image transmission", file=sys.stderr)
+            print("FAIL: failed local image was not retried", file=sys.stderr)
             return 1
         if b"\x1b_Ga=p" not in painted:
             print("FAIL: no Kitty image placement", file=sys.stderr)
             return 1
 
+        os.write(master, f"/preview {fifo_path}\r".encode())
+        drain(master, 0.5)
         os.write(master, b"/quit\r")
-        proc.wait(timeout=5)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print("FAIL: FIFO preview blocked the UI", file=sys.stderr)
+            return 1
         if proc.returncode != 0:
             print(f"FAIL: exit code {proc.returncode}", file=sys.stderr)
             return 1
@@ -86,7 +101,10 @@ def main() -> int:
             proc.kill()
             proc.wait()
         os.close(master)
-        os.unlink(image_path)
+        if os.path.exists(image_path):
+            os.unlink(image_path)
+        os.unlink(fifo_path)
+        os.rmdir(temp_dir)
 
 
 if __name__ == "__main__":

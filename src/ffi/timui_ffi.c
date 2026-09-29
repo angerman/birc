@@ -116,7 +116,7 @@ static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
   int fd;
   if (!ui || !path || path[0] == '\0')
     return NULL;
-  fd = open(path, O_RDONLY);
+  fd = open(path, O_RDONLY | O_NONBLOCK);
   if (fd < 0)
     return NULL;
   if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fstat(fd, &st) < 0 ||
@@ -153,7 +153,7 @@ static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
   if (!preview || !ui || !path || path_len == 0 ||
       path_len >= sizeof preview->path || memchr(path, '\0', path_len))
     return;
-  if (preview->path_len == path_len &&
+  if (preview->image && preview->path_len == path_len &&
       memcmp(preview->path, path, path_len) == 0)
     return;
   if (preview->image) {

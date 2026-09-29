@@ -806,7 +806,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ## Milestone 16 — Next-Gen Terminal Visuals & Advanced Capabilities
 
-- [x] **M16.1** Kitty Graphics Protocol Image Viewer: `/preview <path-or-file-url>` opens a local PNG overlay through TimUI's Kitty image transport.
+- [x] **M16.1** Kitty Graphics Protocol Image Viewer: `/preview <local-path>` opens a local PNG from a path or `file://`-prefixed local path through TimUI's Kitty image transport.
       The C edge accepts only bounded regular files, caches up to two images
       for split panes, and uses the existing frame deadline. HTTP(S) is rejected
       explicitly: plaintext birc has no TLS downloader, and C does not perform

@@ -220,7 +220,7 @@ Type commands into the composer prompt:
 | `/vsplit [buffer]` | Open a side-by-side split with an existing buffer |
 | `/focus` | Move focus to the other split pane |
 | `/split-off` or `/unsplit` | Close the split without closing either buffer |
-| `/preview <path-or-file-url>` | Preview one local PNG with the terminal image protocol; HTTP(S) is rejected |
+| `/preview <local-path>` | Preview one local PNG from a path or `file://`-prefixed local path; HTTP(S) is rejected |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |

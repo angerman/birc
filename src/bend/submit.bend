@@ -972,14 +972,14 @@ def submit_preview.open(pair: Cl.Client & Maybe<&2, Nat>, +path: String) -> Cl.C
 def submit_preview.local(+cl: Cl.Client, +path: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
-      (echo_err(cl, "usage: /preview <path-or-file-url>"), empty_out())
+      (echo_err(cl, "usage: /preview <local-path>"), empty_out())
     case False{}:
       submit_preview.open(Cl.buf_get(cl, "*preview*", False{}, True{}), path)
 
 def submit_preview.remote(+cl: Cl.Client, +arg: String, remote: Bool) -> Cl.Client & List<&2, String>:
   match remote:
     case True{}:
-      (echo_err(cl, "remote previews are unavailable; use a local path or file:// URL"), empty_out())
+      (echo_err(cl, "remote previews are unavailable; use a local path or file://-prefixed local path"), empty_out())
     case False{}:
       +path = preview_local_path(arg)
       submit_preview.local(cl, path, String.is_empty(path))
