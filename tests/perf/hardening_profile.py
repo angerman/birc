@@ -57,7 +57,7 @@ def drain(fd: int, output: bytearray) -> None:
         output.extend(chunk)
 
 
-def run(birc: str, replay: str, enabled: bool) -> tuple[float, bytes]:
+def run(birc: str, replay: str, enabled: bool) -> tuple[float, float, bytes]:
     env = dict(os.environ)
     if enabled:
         env["BIRC_FRAME_PROFILE"] = "1"
@@ -85,17 +85,21 @@ def run(birc: str, replay: str, enabled: bool) -> tuple[float, bytes]:
     os.close(slave)
     output = bytearray()
     deadline = time.monotonic() + 75.0
+    ready_ms = 0.0
     while time.monotonic() < deadline and proc.poll() is None:
         drain(master, output)
         if b"\x1b[?1049h" in output:
+            ready_ms = 1000.0 * (time.monotonic() - start)
             break
         time.sleep(0.02)
     for _ in range(FRAME_PULSES):
         if proc.poll() is not None:
             break
         os.write(master, b"x")
-        time.sleep(0.03)
-        drain(master, output)
+        pulse_end = time.monotonic() + 0.03
+        while time.monotonic() < pulse_end and proc.poll() is None:
+            drain(master, output)
+            time.sleep(0.002)
     if proc.poll() is None:
         os.write(master, b"\x1b")
     while time.monotonic() < deadline and proc.poll() is None:
@@ -109,7 +113,7 @@ def run(birc: str, replay: str, enabled: bool) -> tuple[float, bytes]:
     wall_ms = 1000.0 * (time.monotonic() - start)
     if proc.returncode != 0:
         raise RuntimeError(f"birc exited {proc.returncode}: {bytes(output)!r}")
-    return wall_ms, bytes(output)
+    return wall_ms, ready_ms, bytes(output)
 
 
 def main() -> int:
@@ -119,11 +123,11 @@ def main() -> int:
     with tempfile.NamedTemporaryFile(prefix="birc-m7-", suffix=".irc") as fixture:
         fixture.write(corpus())
         fixture.flush()
-        _, quiet = run(sys.argv[1], fixture.name, False)
+        _, _, quiet = run(sys.argv[1], fixture.name, False)
         if b"birc_profile" in quiet:
             print("hardening_profile: profiler is not default-off", file=sys.stderr)
             return 1
-        wall_ms, profiled = run(sys.argv[1], fixture.name, True)
+        wall_ms, ready_ms, profiled = run(sys.argv[1], fixture.name, True)
     match = PROFILE_RE.search(profiled)
     if not match:
         print(f"hardening_profile: missing profile: {profiled!r}", file=sys.stderr)
@@ -134,7 +138,8 @@ def main() -> int:
         return 1
     print(
         f"hardening_profile buffers={BUFFERS} lines={LINES} frames={frames} "
-        f"wall_ms={wall_ms:.1f} prepare_us={prepare} begin_us={begin} "
+        f"ready_ms={ready_ms:.1f} wall_ms={wall_ms:.1f} "
+        f"prepare_us={prepare} begin_us={begin} "
         f"draw_us={draw} end_us={end}"
     )
     return 0
