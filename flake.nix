@@ -10,7 +10,7 @@
 
   # Bend 2 (bendlang/bend), pinned to an immutable commit.
   inputs.bend-src = {
-    url = "github:bendlang/bend/3378e6237ed431d17629efd36d24c96241815b7e";
+    url = "github:bendlang/bend/7d8a3eb036042c6549461054d25a10f26d361c5c";
     flake = false;
   };
 
@@ -54,7 +54,7 @@
             ];
             BIRC_NIX_SHELL = "1";
             BIRC_BEND_SRC = "${bend-src}";
-            BIRC_BEND_REV = "3378e6237ed431d17629efd36d24c96241815b7e";
+            BIRC_BEND_REV = "7d8a3eb036042c6549461054d25a10f26d361c5c";
             CC = "${pkgs.clang}/bin/clang";
             shellHook = ''
               export PYTHONDONTWRITEBYTECODE=1
