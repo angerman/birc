@@ -64,6 +64,8 @@ def show_op(op: V.DrawOp) -> String:
       "T:" ++ U32.show(sel) ++ "|" ++ show_names(names)
     case V.OpLine{_, y, _, fg, spans}:
       "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ show_spanops(spans)
+    case V.OpImage{x, y, w, h, +path}:
+      "I:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "|" ++ path
 
 def show_ops.chunks(+xs: List<&2, V.DrawOp>) -> List<&2, String>:
   match xs:

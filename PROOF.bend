@@ -8,6 +8,7 @@ import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
 import ./src/bend/base64.bend as B64
+import ./src/bend/typing.bend as Ty
 import ./LAWS.bend as Laws
 
 def Laws.ping_classified():
@@ -655,3 +656,12 @@ def Laws.split_focus_involution(focus):
   match focus:
     case False{}: {==}
     case True{}: {==}
+
+def Laws.preview_file_url():
+  {==}
+
+def Laws.typing_active_boundary():
+  {==}
+
+def Laws.typing_message_clear():
+  {==}

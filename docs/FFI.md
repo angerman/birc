@@ -138,6 +138,7 @@ type DrawOp is Data:
   OpText{x, y, w, fg, attrs: U32, text: String}
   OpTabs{x, y, w, sel: U32, names: List String}
   OpLine{x, y, w, fg: U32, spans: List SpanOp}
+  OpImage{x, y, w, h: U32, path: String}
 ```
 
 - `OpBox` — rounded border; C clips `h` to the live root.
@@ -151,6 +152,10 @@ type DrawOp is Data:
   `OpText` of at most 8 columns (`FG_DIM`, `0xa0a0a0`), clipped to the line
   width, then the line `x` moves by 9. No C buffer, no 64-line cap, no
   bottom-align arithmetic. C does not draw a timestamp.
+- `OpImage` — a local PNG path and Bend-owned pane rectangle. C reads a
+  bounded regular file, caches one TimUI image per visible preview pane, and
+  draws it through TimUI's selected terminal image protocol. C does not fetch
+  URLs or choose layout.
 - C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
   `SpanOp`.
 - Wrapping: each IRC line is one paint line. C clips a span that would run

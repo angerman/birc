@@ -21,6 +21,7 @@ type DrawOp is Data:
   OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>}
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
+  OpImage{x: U32, y: U32, w: U32, h: U32, path: String}
 
 type Lay is Data:
   Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -941,9 +942,38 @@ def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, _, _, +nicks, _}:
-      "/connect /join /part /close /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
+      "/connect /join /part /close /msg /nick /me /preview /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
+
+def typing_names(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2)
+
+def typing_notice(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h ++ " is typing..."
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2) ++ " are typing..."
+
+def status_or_typing(+status: String, typers: List<&2, String>) -> String:
+  match typers:
+    case Nil{}:
+      status
+    case Con{+h, t}:
+      typing_notice(h <> t)
 
 def view_input(+draft: String) -> String:
   draft
@@ -1204,6 +1234,15 @@ def body_ops(r: Rect, +xs: List<&2, Cl.Line>, +show_ts: Bool) -> List<&2, DrawOp
       +n = U32.from_nat(List.length(&2, Cl.Line, xs))
       body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w), show_ts)
 
+def image_ops.on(+x: U32, +y: U32, +w: U32, +h: U32, +path: String, empty: Bool) -> List<&2, DrawOp>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: OpImage{inner_x(x), U32.add(y, 1), inner_w(w), inner_w(h), path} <> Nil{}
+
+def image_ops(r: Rect, +path: String) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, w, h}: image_ops.on(x, y, w, h, path, String.is_empty(path))
+
 def nick_ops.go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32) -> List<&2, DrawOp>:
   match xs:
     case Nil{}:
@@ -1235,10 +1274,11 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
     case Rect{x, y, +w, h}:
       nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
 
-def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, body_ops(br, bod, show_ts),
+def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
+  List.append(&2, DrawOp, image_ops(br, preview),
+    List.append(&2, DrawOp, body_ops(br, bod, show_ts),
     List.append(&2, DrawOp, nick_ops(nr, title, nicks),
-      op_text(sr, FG_DIM(), st) <> Nil{}))
+      op_text(sr, FG_DIM(), st) <> Nil{})))
 
 def view_ops(
   lay0: Lay,
@@ -1248,6 +1288,7 @@ def view_ops(
   +active: Nat,
   +names: List<&2, String>,
   +bod: List<&2, Cl.Line>,
+  +preview: String,
   +btitle: String,
   +ntitle: String,
   +nicks: List<&2, String>,
@@ -1259,7 +1300,17 @@ def view_ops(
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names)
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        view_ops.rest(br, bod, nr, ntitle, nicks, sr, st, show_ts))
+        view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st, show_ts))
+
+def preview_path_of.on(+topic: String, preview: Bool) -> String:
+  match preview:
+    case True{}: topic
+    case False{}: ""
+
+def preview_path_of(+b: Cl.Buffer) -> String:
+  match b:
+    case Cl.Buffer{+name, _, +topic, _, _, _}:
+      preview_path_of.on(topic, String.eq(name, "*preview*"))
 
 def rect_vis_h(r: Rect) -> Nat:
   match r:
@@ -1317,9 +1368,11 @@ def view_ops_split(
   +r1: Rect,
   +title1: String,
   +body1: List<&2, Cl.Line>,
+  +preview1: String,
   +r2: Rect,
   +title2: String,
   +body2: List<&2, Cl.Line>,
+  +preview2: String,
   +ntitle: String,
   +nicks: List<&2, String>,
   +status: String,
@@ -1332,8 +1385,10 @@ def view_ops_split(
           <> List.append(&2, DrawOp, user_header_ops(user, nick, server, net),
                op_split(body, axis)
                  <> List.append(&2, DrawOp, body_box(r1, title1),
-                      List.append(&2, DrawOp, body_ops(r1, body1, show_ts),
-                        List.append(&2, DrawOp, body_box(r2, title2), body_ops(r2, body2, show_ts))))),
+                      List.append(&2, DrawOp, image_ops(r1, preview1),
+                        List.append(&2, DrawOp, body_ops(r1, body1, show_ts),
+                          List.append(&2, DrawOp, body_box(r2, title2),
+                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(r2, body2, show_ts))))))),
         List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
           op_text(status_rect, FG_DIM(), status) <> Nil{}))
 
@@ -1353,12 +1408,13 @@ def view_split.rects(
   +ntitle: String,
   +nicks: List<&2, String>,
   +status: String,
+  +typers: List<&2, String>,
   +show_ts: Bool
 ) -> List<&2, DrawOp>:
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf(b1, rect_vis_h(r1), mutes, server) body_of.buf(b2, rect_vis_h(r2), mutes, server)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, r1, split_title(b1, focused, 0), body1, r2, split_title(b2, focused, 1), body2, ntitle, nicks, status, show_ts)
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, r1, split_title(b1, focused, 0), body1, preview_path_of(b1), r2, split_title(b2, focused, 1), body2, preview_path_of(b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def view_split(
   +cl: Cl.Client,
@@ -1369,7 +1425,8 @@ def view_split(
   +axis: Sp.Axis,
   +first: String,
   +second: String,
-  +focused: U32
+  +focused: U32,
+  +typers: List<&2, String>
 ) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
@@ -1382,9 +1439,9 @@ def view_split(
       +mutes = Cl.settings_mutes(stg)
       nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
       +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, b1, b2, focused, mutes, nt, ns, status, Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_split.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, b1, b2, focused, mutes, nt, ns, status, typers, Cl.settings_ts(stg)), view_input(draft)}
 
-def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
+def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
@@ -1392,17 +1449,23 @@ def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +n
       bod = body_of.buf(b, vis_h(rows), Cl.settings_mutes(stg), server)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, preview_path_of(b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
-def view_draft.state(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
+def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
   match split:
     case Sp.On{axis, +first, +second, focus}:
-      view_split(cl, rows, cols, draft, net, axis, first, second, focus)
+      view_split(cl, rows, cols, draft, net, axis, first, second, focus, typers)
     case Sp.Off{}:
-      view_draft.single(cl, rows, cols, draft, net)
+      view_draft.single(cl, rows, cols, draft, net, typers)
 
-def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
-  view_draft.state(cl, rows, cols, draft, net, split)
+def view_draft_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
+  view_draft.state_typing(cl, rows, cols, draft, net, typers, Sp.Off{})
+
+def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
+  view_draft_typing(cl, rows, cols, draft, net, Nil{})
+
+def view_draft_split(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
+  view_draft.state_typing(cl, rows, cols, draft, net, Nil{}, split)
 
 def split_test_cl.got(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
   match pair:
@@ -1427,7 +1490,7 @@ def split_ops_check(vm: ViewModel) -> Bool:
 
 def split_draw_ok() -> Bool:
   +cl = split_test_cl()
-  split_ops_check(view_draft(cl, 24, 80, "", "demo", Sp.On{Sp.Stacked{}, "#one", "server", 0}))
+  split_ops_check(view_draft_split(cl, 24, 80, "", "demo", Sp.On{Sp.Stacked{}, "#one", "server", 0}))
 
 
 def dummy_line(+i: Nat) -> Cl.Line:
@@ -1458,7 +1521,7 @@ def body_ys.of(vm: ViewModel) -> List<&2, U32>:
       body_line_ys.go(ops)
 
 def body_ys(+rows: U32, +nlines: Nat) -> List<&2, U32>:
-  body_ys.of(view_draft(dummy_cl(nlines), rows, 80, "", "demo", Sp.Off{}))
+  body_ys.of(view_draft(dummy_cl(nlines), rows, 80, "", "demo"))
 
 def ys_inc.go(xs: List<&2, U32>, +prev: U32) -> Bool:
   match xs:

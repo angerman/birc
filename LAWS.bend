@@ -12,6 +12,7 @@ import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
 import ./src/bend/base64.bend as B64
 import ./src/bend/split.bend as Sp
+import ./src/bend/typing.bend as Ty
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -278,3 +279,15 @@ law search_empty_line:
 law split_focus_involution:
   for focus: Bool
   {Sp.focus_twice_ok(focus) == True{} : Bool}
+
+# LAW: file:// preview URLs become local filesystem paths in Bend.
+law preview_file_url:
+  {Sub.preview_file_url_ok() == True{} : Bool}
+
+# LAW: an active typing notice is present before 6 s and absent at 6 s.
+law typing_active_boundary:
+  {Ty.active_boundary_ok() == True{} : Bool}
+
+# LAW: a received message clears typing even when scrollback policy is separate.
+law typing_message_clear:
+  {Ty.message_clear_ok() == True{} : Bool}

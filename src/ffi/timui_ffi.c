@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #ifndef TIMUI_IMPLEMENTATION
 #define TIMUI_IMPLEMENTATION
@@ -66,6 +67,12 @@ typedef struct {
 } BircSel;
 
 typedef struct {
+  TimuiImage *image;
+  char path[4096];
+  size_t path_len;
+} BircPreview;
+
+typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int last_tab;
@@ -73,12 +80,73 @@ typedef struct {
   int body_count;
   TimuiRect nicks_inner;
   BircSel sel;
+  BircPreview previews[2];
+  int preview_count;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+
+static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
+  unsigned char *data = NULL;
+  TimuiImage *img = NULL;
+  struct stat st;
+  size_t size;
+  size_t off = 0;
+  int fd;
+  if (!ui || !path || path[0] == '\0')
+    return NULL;
+  fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return NULL;
+  if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fstat(fd, &st) < 0 ||
+      !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+      (uintmax_t)st.st_size > (uintmax_t)TIMUI_IMAGE_PNG_MAX_BYTES) {
+    (void)close(fd);
+    return NULL;
+  }
+  size = (size_t)st.st_size;
+  data = (unsigned char *)malloc(size);
+  if (!data) {
+    (void)close(fd);
+    return NULL;
+  }
+  while (off < size) {
+    ssize_t got = read(fd, data + off, size - off);
+    if (got > 0) {
+      off += (size_t)got;
+    } else if (got < 0 && errno == EINTR) {
+      continue;
+    } else {
+      break;
+    }
+  }
+  (void)close(fd);
+  if (off == size)
+    img = timui_image_from_png(ui, data, size);
+  free(data);
+  return img;
+}
+
+static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
+                             size_t path_len) {
+  if (!preview || !ui || !path || path_len == 0 ||
+      path_len >= sizeof preview->path || memchr(path, '\0', path_len))
+    return;
+  if (preview->path_len == path_len &&
+      memcmp(preview->path, path, path_len) == 0)
+    return;
+  if (preview->image) {
+    timui_image_free(ui, preview->image);
+    preview->image = NULL;
+  }
+  memcpy(preview->path, path, path_len);
+  preview->path[path_len] = '\0';
+  preview->path_len = path_len;
+  preview->image = birc_preview_load(ui, preview->path);
+}
 
 static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
@@ -129,6 +197,9 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
     free(st);
     return io_fail(e, (u32)tr, "timui_open failed");
   }
+  if (getenv("BIRC_FORCE_IMAGE_PROTOCOL") &&
+      strcmp(getenv("BIRC_FORCE_IMAGE_PROTOCOL"), "kitty") == 0)
+    timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
   if (ui && ui->fd.write_fd >= 0)
     (void)write(ui->fd.write_fd, "\x1b[?1002h", 8);
   for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
@@ -369,6 +440,26 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     int y = (int)(uint32_t)f[1];
     int w = (int)(uint32_t)f[2];
     (void)birc_draw_spans(e, fr, x, y, x + w, (uint32_t)f[3], f[4]);
+    spare_free(e, cls_fit(5), loc);
+  } else if (cid == CID_VIEW_OPIMAGE) {
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    TimuiRect r;
+    u64 n = 0;
+    char *path = io_cstr(e, f[4], &n);
+    BircPreview *preview = NULL;
+    r.x = (int)(uint32_t)f[0];
+    r.y = (int)(uint32_t)f[1];
+    r.w = (int)(uint32_t)f[2];
+    r.h = (int)(uint32_t)f[3];
+    if (ly && ly->bu && ly->ui && ly->bu->preview_count < 2 &&
+        n <= (u64)SIZE_MAX) {
+      preview = &ly->bu->previews[ly->bu->preview_count++];
+      birc_preview_set(preview, ly->ui, path, (size_t)n);
+    }
+    if (fr && preview && preview->image && r.w > 0 && r.h > 0)
+      timui_image_draw_clipped(fr, preview->image, r, r);
+    free(path);
     spare_free(e, cls_fit(5), loc);
   }
 }
@@ -613,6 +704,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     ly.ui = ui;
     if (bu) {
       bu->body_count = 0;
+      bu->preview_count = 0;
       memset(bu->body_inner, 0, sizeof bu->body_inner);
       memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
     }
@@ -765,6 +857,13 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   if (ui) {
     if (ui->fd.write_fd >= 0)
       (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
+    if (st)
+      for (int i = 0; i < 2; i++) {
+        if (st->previews[i].image) {
+          timui_image_free(ui, st->previews[i].image);
+          st->previews[i].image = NULL;
+        }
+      }
     timui_close(ui);
   }
   free(st);

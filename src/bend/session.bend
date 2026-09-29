@@ -8,6 +8,7 @@ import ./frame.bend as Fr
 import ./submit.bend as Sub
 import ./base64.bend as B64
 import ./split.bend as Sp
+import ./typing.bend as Ty
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
@@ -15,9 +16,9 @@ def register_lines(+nick: String) -> List<&2, String>:
 def handshake_lines(+nick: String, has_sasl: Bool) -> List<&2, String>:
   match has_sasl:
     case True{}:
-      "CAP LS 302" <> "CAP REQ :sasl server-time" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+      "CAP LS 302" <> "CAP REQ :sasl" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
     case False{}:
-      "CAP REQ :server-time" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+      "CAP LS 302" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
 
 type FoldAcc is Data:
   FoldAcc{cl: Cl.Client, pongs: List<&2, String>, now_ms: U32}
@@ -285,6 +286,7 @@ type UiMsg is Data:
   FromNet{gen: U32, e: NetEvt}
   UiKey{}
   Resize{}
+  TypingTick{now_ms: U32}
 
 type NetState is Data:
   Demo{}
@@ -909,7 +911,8 @@ def comp_format(+pre: String, +nick: String) -> String:
 def slash_command_list() -> List<&2, String>:
   "/join" <> "/part" <> "/close" <> "/msg" <> "/query" <> "/nick" <> "/me"
     <> "/quit" <> "/settings" <> "/set" <> "/toggle" <> "/mute" <> "/unmute"
-    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> "/search" <> Nil{}
+    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> "/search" <> "/preview"
+    <> "/split" <> "/vsplit" <> "/split-off" <> "/unsplit" <> "/focus" <> Nil{}
 
 def is_slash_word(+w: String) -> Bool:
   String.starts_with(w, "/")
@@ -1010,34 +1013,35 @@ type Session is Data:
     size: Size,
     seed: U32,
     comp: Comp,
-    split: Sp.State
+    split: Sp.State,
+    typing: Ty.State
   }
 
 def SIZE0() -> Size:
   Size{24, 80}
 
 def session_with_client(+cl: Cl.Client, +chan: String) -> Session:
-  Session{cl, False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0()}
+  Session{cl, False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty()}
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
   session_with_client(Cl.init(nick, host), chan)
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
-  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0()}
+  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty()}
 
 def session_online(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split}:
-      Session{cl, drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing}:
+      Session{cl, drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing}
 
 def session_cl(+st: Session) -> Cl.Client:
   match st:
-    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _}:
       cl
 
 def session_split(+st: Session) -> Sp.State:
   match st:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, split}: split
+    case Session{_, _, _, _, _, _, _, _, _, _, _, split, _}: split
 
 def key_pol_for(+st: Session, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +rows: U32) -> KeyPol:
   key_pol_raw(key, mods, codepoint, wheel, Sp.page_height(rows, session_split(st)))
@@ -1049,7 +1053,7 @@ def split_key_ok() -> Bool:
 
 def session_was_offline(+st: Session) -> Bool:
   match st:
-    case Session{_, _, _, _, _, _, net, _, _, _, _, _}:
+    case Session{_, _, _, _, _, _, net, _, _, _, _, _, _}:
       match net:
         case Offline{}: True{}
         case _: False{}
@@ -1087,16 +1091,16 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
       session_online(st)
     case True{}:
       match st:
-        case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split}:
-          Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split}
+        case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing}:
+          Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
   session_reconnected.on(session_was_offline(st), st, now)
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
-    case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, +comp, split}:
-      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, joined, chan, Offline{}, hist, size, seed, comp, split}
+    case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _}:
+      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, joined, chan, Offline{}, hist, size, seed, comp, split, Ty.empty()}
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
@@ -1112,7 +1116,7 @@ def session_autoreconnect.st(
   split: Sp.State,
   +server: String
 ) -> Session:
-  Session{Sub.echo_sys(cl, "auto-reconnecting to " ++ server ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split}
+  Session{Sub.echo_sys(cl, "auto-reconnecting to " ++ server ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty()}
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -1120,7 +1124,7 @@ def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Sessi
       (st, Cont{Nil{}})
     case True{}:
       match st:
-        case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split}:
+        case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _}:
           (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server), Dial{server, 6667, 0})
 
 def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Session & NetCmd:
@@ -1137,17 +1141,17 @@ def session_autoreconnect(+st: Session) -> Session & NetCmd:
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split}:
-      Session{Cl.set_now(cl, ts), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing}:
+      Session{Cl.set_now(cl, ts), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing}
 
 def session_set_size(+st: Session, +rows: U32, +cols: U32) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, +comp, split}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, Size{rows, cols}, seed, comp, split}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, +comp, split, +typing}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, Size{rows, cols}, seed, comp, split, typing}
 
 def session_size(+st: Session) -> Size:
   match st:
-    case Session{_, _, _, _, _, _, _, _, size, _, _, _}:
+    case Session{_, _, _, _, _, _, _, _, size, _, _, _, _}:
       size
 
 def size_eq(a: Size, b: Size) -> Bool:
@@ -1159,12 +1163,12 @@ def size_eq(a: Size, b: Size) -> Bool:
 
 def session_net(+st: Session) -> NetState:
   match st:
-    case Session{_, _, _, _, _, _, net, _, _, _, _, _}:
+    case Session{_, _, _, _, _, _, net, _, _, _, _, _, _}:
       net
 
 def session_nick(+st: Session) -> String:
   match st:
-    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _}:
       Cl.nick_of(cl)
 
 def session_after.dial(
@@ -1178,7 +1182,7 @@ def session_after.dial(
   split: Sp.State,
   +host: String
 ) -> Session:
-  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split}
+  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty()}
 
 def session_after(
   +cl: Cl.Client,
@@ -1193,17 +1197,18 @@ def session_after(
   +seed: U32,
   +comp: Comp,
   split: Sp.State,
+  +typing: Ty.State,
   cmd: NetCmd
 ) -> Session:
   match cmd:
     case Dial{+host, _, _}:
       session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host)
     case Handoff{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing}
     case Cont{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing}
     case OpenUrl{_}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split}
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing}
 
 def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
   match c:
@@ -1237,12 +1242,12 @@ def seed_of(dir: HistDir) -> U32:
 
 def session_seed(+st: Session) -> U32:
   match st:
-    case Session{_, _, _, _, _, _, _, _, _, seed, _, _}:
+    case Session{_, _, _, _, _, _, _, _, _, seed, _, _, _}:
       seed
 
 def session_draft(+st: Session) -> String:
   match st:
-    case Session{_, _, _, draft, _, _, _, _, _, _, _, _}:
+    case Session{_, _, _, draft, _, _, _, _, _, _, _, _, _}:
       draft
 
 def split_apply.open.got(
@@ -1327,6 +1332,40 @@ def submit_or_split.enter(
 def submit_or_split(+cl: Cl.Client, split: Sp.State, net: NetState, +typed: String, enter: Bool) -> Cl.Client & String & NetCmd & Sp.State:
   submit_or_split.enter(enter, cl, split, net, typed)
 
+def session_typing(+st: Session) -> Ty.State:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, _, _, +typing}:
+      typing
+
+def session_typers(+st: Session) -> List<&2, String>:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, +typing}:
+      Ty.names(typing, Cl.active_buf_name(cl))
+
+def session_expire_typing.got(
+  +cl: Cl.Client,
+  drop: Bool,
+  rem: List<&2, U32>,
+  +draft: String,
+  joined: Bool,
+  +chan: String,
+  net: NetState,
+  +hist: Hist,
+  +size: Size,
+  +seed: U32,
+  +comp: Comp,
+  split: Sp.State,
+  pair: Ty.State & Bool
+) -> Session & Bool:
+  match pair:
+    case (typing, changed):
+      (Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing}, changed)
+
+def session_expire_typing(+st: Session, +now_ms: U32) -> Session & Bool:
+  match st:
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, +size, +seed, +comp, split, +typing}:
+      session_expire_typing.got(cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, Ty.expire_changed(typing, now_ms))
+
 def finish_hist(
   drop: Bool,
   rem: List<&2, U32>,
@@ -1340,11 +1379,12 @@ def finish_hist(
   +seed: U32,
   +comp: Comp,
   split: Sp.State,
+  +typing: Ty.State,
   pair: Hist & String
 ) -> Session & NetCmd & Bool:
   match pair:
     case (h2, draft3):
-      (session_after(cl3, drop, rem, draft3, joined, chan, net, h2, size, seed, comp, split, cmd), cmd, halt)
+      (session_after(cl3, drop, rem, draft3, joined, chan, net, h2, size, seed, comp, split, typing, cmd), cmd, halt)
 
 def finish_comp(
   drop: Bool,
@@ -1357,11 +1397,12 @@ def finish_comp(
   +hist: Hist,
   +size: Size,
   split: Sp.State,
+  +typing: Ty.State,
   trip: Comp & String & U32
 ) -> Session & NetCmd & Bool:
   match trip:
     case (comp2, draft3, seed):
-      (session_after(cl3, drop, rem, draft3, joined, chan, net, hist, size, seed, comp2, split, cmd), cmd, False{})
+      (session_after(cl3, drop, rem, draft3, joined, chan, net, hist, size, seed, comp2, split, typing, cmd), cmd, False{})
 
 def finish_keys.comp(
   is_comp: Bool,
@@ -1376,6 +1417,7 @@ def finish_keys.comp(
   +size: Size,
   +comp: Comp,
   split: Sp.State,
+  +typing: Ty.State,
   +typed: String,
   +draft2: String,
   +hdir: HistDir,
@@ -1384,9 +1426,9 @@ def finish_keys.comp(
 
   match is_comp:
     case True{}:
-      finish_comp(drop, rem, joined, chan, net, cl3, cmd, hist, size, split, comp_step(cl3, comp, typed))
+      finish_comp(drop, rem, joined, chan, net, cl3, cmd, hist, size, split, typing, comp_step(cl3, comp, typed))
     case False{}:
-      finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, typed), size, seed_of(hdir), CompNone{}, split, hist_move(hist, draft2, hdir))
+      finish_hist(drop, rem, joined, chan, net, cl3, cmd, halt_of(enter, typed), size, seed_of(hdir), CompNone{}, split, typing, hist_move(hist, draft2, hdir))
 
 def focus_after(on: Bool, +cl: Cl.Client, split: Sp.State) -> Cl.Client & Sp.State:
   match on:
@@ -1419,6 +1461,7 @@ def finish_keys.nav(
   +hist: Hist,
   +size: Size,
   +comp: Comp,
+  +typing: Ty.State,
   +typed: String,
   +draft2: String,
   +hdir: HistDir,
@@ -1427,7 +1470,7 @@ def finish_keys.nav(
   match pair:
     case (cl3, split3):
       +h2 = hist_after_enter(hist, typed, enter)
-      finish_keys.comp(is_comp, drop, rem, joined, chan, net, cl3, cmd, h2, size, comp, split3, typed, draft2, hdir, enter)
+      finish_keys.comp(is_comp, drop, rem, joined, chan, net, cl3, cmd, h2, size, comp, split3, typing, typed, draft2, hdir, enter)
 
 def finish_keys(
   drop: Bool,
@@ -1439,20 +1482,21 @@ def finish_keys(
   +hist: Hist,
   +size: Size,
   +comp: Comp,
+  +typing: Ty.State,
   quad: Cl.Client & String & NetCmd & Sp.State
 ) -> Session & NetCmd & Bool:
   match keys:
     case Keys{+typed, +enter, +tab, +click, +up, +dn, +hdir, is_comp, focus}:
       match quad:
         case (cl2, draft2, cmd, split2):
-          finish_keys.nav(nav_after(cl2, split2, enter, tab, click, up, dn, focus), is_comp, drop, rem, joined, chan, net, cmd, hist, size, comp, typed, draft2, hdir, enter)
+          finish_keys.nav(nav_after(cl2, split2, enter, tab, click, up, dn, focus), is_comp, drop, rem, joined, chan, net, cmd, hist, size, comp, typing, typed, draft2, hdir, enter)
 
 def step_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split}:
+    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
-          finish_keys(drop, rem, joined, chan, net, keys, hist, size, comp, submit_or_split(cl, split, net, typed, enter))
+          finish_keys(drop, rem, joined, chan, net, keys, hist, size, comp, typing, submit_or_split(cl, split, net, typed, enter))
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))
@@ -1466,23 +1510,47 @@ def step_chunk_got(
   +seed: U32,
   +comp: Comp,
   split: Sp.State,
+  +typing: Ty.State,
   got: Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool
 ) -> Session & List<&2, String>:
   match got:
     case (+cl2, rem2, drop2, outs, joined2):
-      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp, Sp.normalize(cl2, split)}, outs)
+      (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing}, outs)
+
+def step_on_chunk_pair(
+  +cl: Cl.Client,
+  +draft: String,
+  +chan: String,
+  net: NetState,
+  +hist: Hist,
+  +size: Size,
+  +seed: U32,
+  +comp: Comp,
+  split: Sp.State,
+  +typing: Ty.State,
+  +joined: Bool,
+  +now_ms: U32,
+  got: List<&2, String> & List<&2, U32> & Bool
+) -> Session & List<&2, String>:
+  match got:
+    case (+lines, rem2, drop2):
+      +typing2 = Ty.apply_lines(typing, lines, now_ms)
+      step_chunk_got(
+        draft, chan, net, hist, size, seed, comp, split, typing2,
+        push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
+      )
 
 def step_on_chunk_ms(+st: Session, chunk: List<&2, U32>, +now_ms: U32) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split}:
-      step_chunk_got(draft, chan, net, hist, size, seed, comp, split, step_chunk_ms(cl, drop, rem, chunk, joined, chan, now_ms))
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing}:
+      step_on_chunk_pair(cl, draft, chan, net, hist, size, seed, comp, split, typing, joined, now_ms, Fr.push_ex(drop, rem, chunk))
 
 def step_on_chunk(+st: Session, chunk: List<&2, U32>) -> Session & List<&2, String>:
   step_on_chunk_ms(st, chunk, 0)
 
 def sess_drop(+st: Session) -> Bool:
   match st:
-    case Session{_, drop, _, _, _, _, _, _, _, _, _, _}:
+    case Session{_, drop, _, _, _, _, _, _, _, _, _, _, _}:
       drop
 
 def sess_rem_nil.of(xs: List<&2, U32>) -> Bool:
@@ -1494,7 +1562,7 @@ def sess_rem_nil.of(xs: List<&2, U32>) -> Bool:
 
 def sess_rem_nil(+st: Session) -> Bool:
   match st:
-    case Session{_, _, rem, _, _, _, _, _, _, _, _, _}:
+    case Session{_, _, rem, _, _, _, _, _, _, _, _, _, _}:
       sess_rem_nil.of(rem)
 
 def st_of_chunk(p: Session & List<&2, String>) -> Session:
