@@ -273,3 +273,6 @@ law search_empty_line:
   for text: String
   {Feed.line_matches_query(Cl.Line{kind, ts, text}, "") == False{} : Bool}
 
+# LAW: file:// preview URLs become local filesystem paths in Bend.
+law preview_file_url:
+  {Sub.preview_file_url_ok() == True{} : Bool}

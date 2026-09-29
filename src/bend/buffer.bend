@@ -738,6 +738,14 @@ def set_topic(+b: Buffer, +topic: String) -> Buffer:
     case Buffer{+name, +ch, _, +lines, +nicks, +scroll}:
       Buffer{name, ch, topic, lines, nicks, scroll}
 
+def set_topic_fn(topic: String, b: Buffer) -> Buffer:
+  set_topic(b, topic)
+
+def set_topic_at(+cl: Client, +i: Nat, +topic: String) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg}:
+      Client{nick, server, buf_modify(bufs, i, set_topic_fn(topic)), active, now, stg}
+
 def set_active(+cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, _, +now, +stg}:

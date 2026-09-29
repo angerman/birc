@@ -213,6 +213,7 @@ Type commands into the composer prompt:
 | `/close` | Close the active private query buffer tab |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
+| `/preview <path-or-file-url>` | Preview one local PNG with the terminal image protocol; HTTP(S) is rejected |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |

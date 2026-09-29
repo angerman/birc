@@ -60,6 +60,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_VIEW_OPTEXT 14u
 #define CID_VIEW_OPTABS 15u
 #define CID_VIEW_OPLINE 16u
+#define CID_VIEW_OPIMAGE 38u
 #define CID_VIEW_SPN 19u
 #define CID_VIEW_LNK 20u
 #define CID_VIEW_COL 21u

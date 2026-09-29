@@ -651,3 +651,5 @@ def Laws.tab_completion_slash():
 def Laws.search_empty_line(kind, ts, text):
   {==}
 
+def Laws.preview_file_url():
+  {==}

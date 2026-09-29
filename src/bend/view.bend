@@ -19,6 +19,7 @@ type DrawOp is Data:
   OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>}
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
+  OpImage{x: U32, y: U32, w: U32, h: U32, path: String}
 
 type Lay is Data:
   Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -939,7 +940,7 @@ def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, _, _, +nicks, _}:
-      "/connect /join /part /close /msg /nick /me /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
+      "/connect /join /part /close /msg /nick /me /preview /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
 
@@ -1202,6 +1203,15 @@ def body_ops(r: Rect, +xs: List<&2, Cl.Line>, +show_ts: Bool) -> List<&2, DrawOp
       +n = U32.from_nat(List.length(&2, Cl.Line, xs))
       body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w), show_ts)
 
+def image_ops.on(+x: U32, +y: U32, +w: U32, +h: U32, +path: String, empty: Bool) -> List<&2, DrawOp>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: OpImage{inner_x(x), U32.add(y, 1), inner_w(w), inner_w(h), path} <> Nil{}
+
+def image_ops(r: Rect, +path: String) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, w, h}: image_ops.on(x, y, w, h, path, String.is_empty(path))
+
 def nick_ops.go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32) -> List<&2, DrawOp>:
   match xs:
     case Nil{}:
@@ -1233,10 +1243,11 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
     case Rect{x, y, +w, h}:
       nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
 
-def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, body_ops(br, bod, show_ts),
+def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
+  List.append(&2, DrawOp, image_ops(br, preview),
+    List.append(&2, DrawOp, body_ops(br, bod, show_ts),
     List.append(&2, DrawOp, nick_ops(nr, title, nicks),
-      op_text(sr, FG_DIM(), st) <> Nil{}))
+      op_text(sr, FG_DIM(), st) <> Nil{})))
 
 def view_ops(
   lay0: Lay,
@@ -1246,6 +1257,7 @@ def view_ops(
   +active: Nat,
   +names: List<&2, String>,
   +bod: List<&2, Cl.Line>,
+  +preview: String,
   +btitle: String,
   +ntitle: String,
   +nicks: List<&2, String>,
@@ -1257,7 +1269,17 @@ def view_ops(
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names)
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        view_ops.rest(br, bod, nr, ntitle, nicks, sr, st, show_ts))
+        view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st, show_ts))
+
+def preview_path_of.on(+topic: String, preview: Bool) -> String:
+  match preview:
+    case True{}: topic
+    case False{}: ""
+
+def preview_path_of(+b: Cl.Buffer) -> String:
+  match b:
+    case Cl.Buffer{+name, _, +topic, _, _, _}:
+      preview_path_of.on(topic, String.eq(name, "*preview*"))
 
 def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
@@ -1267,7 +1289,7 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
       bod = body_of.buf(b, vis_h(rows), Cl.settings_mutes(stg), server)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, preview_path_of(b), bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
 
 
 def dummy_line(+i: Nat) -> Cl.Line:

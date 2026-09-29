@@ -948,6 +948,46 @@ def submit_search.on(empty: Bool, +cl: Cl.Client, +query: String) -> Cl.Client &
 def submit_search(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_search.on(String.is_empty(rest), cl, rest)
 
+# ---- /preview -----------------------------------------------------------
+
+def preview_local_path.file(file_url: Bool, +arg: String) -> String:
+  match file_url:
+    case True{}: String.drop(arg, 7n)
+    case False{}: arg
+
+def preview_local_path(+arg: String) -> String:
+  preview_local_path.file(String.starts_with(arg, "file://"), arg)
+
+def preview_file_url_ok() -> Bool:
+  String.eq(preview_local_path("file:///tmp/image.png"), "/tmp/image.png")
+
+def submit_preview.open(pair: Cl.Client & Maybe<&2, Nat>, +path: String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+cl, None{}):
+      (echo_err(cl, "preview unavailable: buffer limit reached"), empty_out())
+    case (cl, Some{+i}):
+      +cl2 = Cl.set_topic_at(cl, i, path)
+      (Cl.set_active(cl2, i), empty_out())
+
+def submit_preview.local(+cl: Cl.Client, +path: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /preview <path-or-file-url>"), empty_out())
+    case False{}:
+      submit_preview.open(Cl.buf_get(cl, "*preview*", False{}, True{}), path)
+
+def submit_preview.remote(+cl: Cl.Client, +arg: String, remote: Bool) -> Cl.Client & List<&2, String>:
+  match remote:
+    case True{}:
+      (echo_err(cl, "remote previews are unavailable; use a local path or file:// URL"), empty_out())
+    case False{}:
+      +path = preview_local_path(arg)
+      submit_preview.local(cl, path, String.is_empty(path))
+
+def submit_preview(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  +arg = Irc.drop_spaces(rest)
+  submit_preview.remote(cl, arg, is_http_pfx(arg))
+
 type Slash is Data:
   Join{}
   Part{}
@@ -966,6 +1006,7 @@ type Slash is Data:
   LinksCmd{}
   OpenCmd{}
   SearchCmd{}
+  PreviewCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -989,6 +1030,7 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"links", LinksCmd{}}
     <> SlashRow{"open", OpenCmd{}}
     <> SlashRow{"search", SearchCmd{}}
+    <> SlashRow{"preview", PreviewCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1039,6 +1081,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_open_cmd(cl, rest)
     case SearchCmd{}:
       submit_search(cl, rest)
+    case PreviewCmd{}:
+      submit_preview(cl, rest)
     case Unknown{}:
       submit_unknown(cl, verb)
 

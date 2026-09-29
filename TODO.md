@@ -789,10 +789,10 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ## Milestone 16 — Next-Gen Terminal Visuals & Advanced Capabilities
 
-- [ ] **M16.1** Kitty Graphics Protocol Image Viewer: inline thumbnails and `/preview <url>` overlays for image links via Kitty graphics escapes.
-      The generated `track3-kitty` commit is not a candidate: its preview
-      CID is absent from the real build, it performs blocking ambient-`curl`
-      networking in C, and it bypasses TimUI image and write safety.
+- [x] **M16.1** Kitty Graphics Protocol Image Viewer: `/preview <path-or-file-url>` opens a local PNG overlay through TimUI's Kitty image transport.
+      The C edge accepts only bounded regular files, caches one image, and
+      uses the existing frame deadline. HTTP(S) is rejected explicitly:
+      plaintext birc has no TLS downloader, and C does not perform networking.
 - [ ] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
       The generated `track4-split` commit and its uncommitted follow-up do
       not compile. They also break pane-scoped mouse selection, discard the
