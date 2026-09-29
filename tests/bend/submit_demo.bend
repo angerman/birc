@@ -119,7 +119,7 @@ def trip_nbuf(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
           Nat.show(CL.nbuf(cl))
 
 def trip_has_me.on(+cl: Cl.Client, +who: String, got: Maybe<&2, Cl.Buffer>) -> String:
@@ -133,7 +133,7 @@ def trip_has_me(t: Sess.Session & Sess.NetCmd & Bool) -> String:
   match t:
     case (st, _):
       match st:
-        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _}:
+        case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _}:
           match cl:
             case Cl.Client{+nick, _, +bufs, +active, _, _}:
               trip_has_me.on(cl, nick, Cl.nth_buf(bufs, active))
@@ -143,22 +143,22 @@ def tab_test_cl(+cl1: Cl.Client) -> Cl.Client:
   Feed.feed(Feed.feed(cl1, ":alice!a@h JOIN #birc"), ":alex!a@h JOIN #birc")
 
 def tab_test_step1(+cl1: Cl.Client) -> Sess.Session:
-  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("al", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("al", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def tab_test_step2(+st1: Sess.Session) -> Sess.Session:
-  trip_st(Sess.step_keys(st1, Sess.keys_of("alice: ", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(st1, Sess.keys_of("alice: ", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def tab_test_step3(+st2: Sess.Session) -> Sess.Session:
-  trip_st(Sess.step_keys(st2, Sess.keys_of("alex: ", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(st2, Sess.keys_of("alex: ", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def tab_test_cmd1(+cl1: Cl.Client) -> Sess.Session:
-  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("/msg al", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("/msg al", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def tab_test_cmd2(+st4: Sess.Session) -> Sess.Session:
-  trip_st(Sess.step_keys(st4, Sess.keys_of("/msg alice ", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(st4, Sess.keys_of("/msg alice ", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def tab_test_own(+cl1: Cl.Client) -> Sess.Session:
-  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("me", False{}, 0, 0, 0, 0, 0, 1)))
+  trip_st(Sess.step_keys(Sess.session_demo(tab_test_cl(cl1), "#birc"), Sess.keys_of("me", False{}, 0, 0, 0, 0, 0, 1, 0)))
 
 def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Unit):
 
@@ -217,17 +217,17 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
 
     Unit <- E.must_eq(
       "hist_seed",
-      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2, 0))))),
+      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2, 0, 0))))),
       "1"
     )
     Unit <- E.must_eq(
       "hist_clear",
-      Sess.session_draft(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2, 0)))),
+      Sess.session_draft(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 2, 0, 0)))),
       ""
     )
     Unit <- E.must_eq(
       "type_seed",
-      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 0, 0))))),
+      U32.show(Sess.session_seed(trip_st(Sess.step_keys(Sess.session0("me", "s", "#birc"), Sess.keys_of("kept", False{}, 0, 0, 0, 0, 0, 0, 0))))),
       "0"
     )
     Unit <- E.must_eq("tab_start", Sess.session_draft(tab_test_step1(cl1)), "alice: ")

@@ -3,6 +3,7 @@ import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./session.bend as Sess
+import ./split.bend as Sp
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -16,6 +17,7 @@ type Rect is Data:
 
 type DrawOp is Data:
   OpBox{x: U32, y: U32, w: U32, h: U32}
+  OpSplit{x: U32, y: U32, w: U32, h: U32, axis: U32}
   OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>}
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
@@ -1259,7 +1261,130 @@ def view_ops(
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
         view_ops.rest(br, bod, nr, ntitle, nicks, sr, st, show_ts))
 
-def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
+def rect_vis_h(r: Rect) -> Nat:
+  match r:
+    case Rect{_, _, _, +h}: Sp.inner_extent(h)
+
+def split_rects.side(r: Rect) -> Rect & Rect:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      +w1 = Sp.first_extent(w)
+      (Rect{x, y, w1, h}, Rect{U32.add(x, w1), y, Sp.second_extent(w), h})
+
+def split_rects.stack(r: Rect) -> Rect & Rect:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      +h1 = Sp.first_extent(h)
+      (Rect{x, y, w, h1}, Rect{x, U32.add(y, h1), w, Sp.second_extent(h)})
+
+def split_rects(axis: Sp.Axis, r: Rect) -> Rect & Rect:
+  match axis:
+    case Sp.SideBySide{}: split_rects.side(r)
+    case Sp.Stacked{}: split_rects.stack(r)
+
+def lay_body_rect(l: Lay) -> Rect:
+  match l:
+    case Lay{_, _, +body, _, _}: body
+
+def split_axis_tag(axis: Sp.Axis) -> U32:
+  match axis:
+    case Sp.SideBySide{}: 0
+    case Sp.Stacked{}: 1
+
+def op_split(r: Rect, axis: Sp.Axis) -> DrawOp:
+  match r:
+    case Rect{x, y, w, h}: OpSplit{x, y, w, h, split_axis_tag(axis)}
+
+def split_title.base(+name: String, +topic: String) -> String:
+  match topic:
+    case SNil{}: name
+    case SCon{_, _}: name ++ " — " ++ topic
+
+def split_title(+b: Cl.Buffer, +focused: U32, +pane: U32) -> String:
+  match b:
+    case Cl.Buffer{+name, _, +topic, _, _, _}:
+      +base = split_title.base(name, topic)
+      Bool.pick(String, U32.is_eq(focused, pane), base ++ " [active]", base)
+
+def view_ops_split(
+  lay0: Lay,
+  +axis: Sp.Axis,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +names: List<&2, String>,
+  +r1: Rect,
+  +title1: String,
+  +body1: List<&2, Cl.Line>,
+  +r2: Rect,
+  +title2: String,
+  +body2: List<&2, Cl.Line>,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +status: String,
+  +show_ts: Bool
+) -> List<&2, DrawOp>:
+  match lay0:
+    case Lay{tabs, user, body, nicks_rect, status_rect}:
+      List.append(&2, DrawOp,
+        op_tabs(tabs, U32.from_nat(active), names)
+          <> List.append(&2, DrawOp, user_header_ops(user, nick, server, net),
+               op_split(body, axis)
+                 <> List.append(&2, DrawOp, body_box(r1, title1),
+                      List.append(&2, DrawOp, body_ops(r1, body1, show_ts),
+                        List.append(&2, DrawOp, body_box(r2, title2), body_ops(r2, body2, show_ts))))),
+        List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
+          op_text(status_rect, FG_DIM(), status) <> Nil{}))
+
+def view_split.rects(
+  pair: Rect & Rect,
+  lay0: Lay,
+  axis: Sp.Axis,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +tabs: List<&2, String>,
+  +b1: Cl.Buffer,
+  +b2: Cl.Buffer,
+  +focused: U32,
+  +mutes: List<&2, String>,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +status: String,
+  +show_ts: Bool
+) -> List<&2, DrawOp>:
+  match pair:
+    case (+r1, +r2):
+      body1 body2 = body_of.buf(b1, rect_vis_h(r1), mutes, server) body_of.buf(b2, rect_vis_h(r2), mutes, server)
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, r1, split_title(b1, focused, 0), body1, r2, split_title(b2, focused, 1), body2, ntitle, nicks, status, show_ts)
+
+def view_split(
+  +cl: Cl.Client,
+  +rows: U32,
+  +cols: U32,
+  +draft: String,
+  +net: String,
+  +axis: Sp.Axis,
+  +first: String,
+  +second: String,
+  +focused: U32
+) -> ViewModel:
+  match cl:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
+      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
+      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
+      +uh = user_host_label(nick, server, net)
+      +lay0 = lay(rows, cols, user_w(uh))
+      +body_rect = lay_body_rect(lay0)
+      +tabs = tab_names(bufs, Cl.settings_unreads(stg))
+      +mutes = Cl.settings_mutes(stg)
+      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
+      +ns = nicks_list_of(focused_buf)
+      ViewModel{view_split.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, b1, b2, focused, mutes, nt, ns, status, Cl.settings_ts(stg)), view_input(draft)}
+
+def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
@@ -1268,6 +1393,41 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
       ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+
+def view_draft.state(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
+  match split:
+    case Sp.On{axis, +first, +second, focus}:
+      view_split(cl, rows, cols, draft, net, axis, first, second, focus)
+    case Sp.Off{}:
+      view_draft.single(cl, rows, cols, draft, net)
+
+def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
+  view_draft.state(cl, rows, cols, draft, net, split)
+
+def split_test_cl.got(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
+  match pair:
+    case (cl, Some{+i}): Cl.set_active(cl, i)
+    case (cl, None{}): cl
+
+def split_test_cl() -> Cl.Client:
+  split_test_cl.got(Cl.buf_get(Cl.init("me", "s"), "#one", True{}, True{}))
+
+def split_ops_check.go(xs: List<&2, DrawOp>, split: Bool, first: Bool, second: Bool) -> Bool:
+  match xs:
+    case Nil{}: split && first && second
+    case Con{OpSplit{x, y, w, h, axis}, t}:
+      split_ops_check.go(t, U32.is_eq(x, 0) && U32.is_eq(y, 1) && U32.is_eq(w, 62) && U32.is_eq(h, 21) && U32.is_eq(axis, 1), first, second)
+    case Con{OpText{_, _, _, _, _, +text}, t}:
+      split_ops_check.go(t, split, first || String.eq(text, "#one [active]"), second || String.eq(text, "server"))
+    case Con{_, t}: split_ops_check.go(t, split, first, second)
+
+def split_ops_check(vm: ViewModel) -> Bool:
+  match vm:
+    case ViewModel{ops, _}: split_ops_check.go(ops, False{}, False{}, False{})
+
+def split_draw_ok() -> Bool:
+  +cl = split_test_cl()
+  split_ops_check(view_draft(cl, 24, 80, "", "demo", Sp.On{Sp.Stacked{}, "#one", "server", 0}))
 
 
 def dummy_line(+i: Nat) -> Cl.Line:
@@ -1298,7 +1458,7 @@ def body_ys.of(vm: ViewModel) -> List<&2, U32>:
       body_line_ys.go(ops)
 
 def body_ys(+rows: U32, +nlines: Nat) -> List<&2, U32>:
-  body_ys.of(view_draft(dummy_cl(nlines), rows, 80, "", "demo"))
+  body_ys.of(view_draft(dummy_cl(nlines), rows, 80, "", "demo", Sp.Off{}))
 
 def ys_inc.go(xs: List<&2, U32>, +prev: U32) -> Bool:
   match xs:

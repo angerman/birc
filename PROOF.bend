@@ -651,3 +651,7 @@ def Laws.tab_completion_slash():
 def Laws.search_empty_line(kind, ts, text):
   {==}
 
+def Laws.split_focus_involution(focus):
+  match focus:
+    case False{}: {==}
+    case True{}: {==}

@@ -57,6 +57,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_SOCKET_SHUTDOWN 26u
 #define CID_SEND_OCTETS 23u
 #define CID_VIEW_OPBOX 13u
+#define CID_VIEW_OPSPLIT 38u
 #define CID_VIEW_OPTEXT 14u
 #define CID_VIEW_OPTABS 15u
 #define CID_VIEW_OPLINE 16u

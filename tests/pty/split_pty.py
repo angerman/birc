@@ -6,6 +6,7 @@ import fcntl
 import os
 import pty
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -52,41 +53,54 @@ def main() -> int:
         split = send(master, b"/split server\r", 0.6)
         if b"server" not in split or b"#birc" not in split or b"[active]" not in split:
             raise AssertionError("split did not paint two named panes")
+        if b"\x1b[2;2H" not in split or b"\x1b[13;1H" not in split:
+            raise AssertionError("stacked panes do not have the expected 11/10 row geometry")
 
         # F6 focuses the other pane. The visible active marker must move.
         f6 = send(master, b"\x1b[17~", 0.5)
-        if b"[active]" not in f6:
-            raise AssertionError("F6 did not repaint focused pane")
+        if b"server [active]" not in f6:
+            raise AssertionError("F6 did not focus the server pane")
 
         # Ctrl-W must also focus without deleting the draft.
         send(master, b"kept", 0.2)
         ctrl_w = send(master, b"\x17", 0.5)
-        if b"kept" not in ctrl_w:
-            raise AssertionError("Ctrl-W changed the composer draft")
+        if b"kept" not in ctrl_w or b"[active]" not in ctrl_w:
+            raise AssertionError("Ctrl-W did not preserve the draft and change focus")
 
         # Both split body panes remain independently selectable.
-        top = send(master, b"\x1b[<0;5;5M\x1b[<32;15;5M\x1b[<0;15;5m", 0.4)
+        top = send(master, b"\x1b[<0;5;8M", 0.15)
+        top += send(master, b"\x1b[<32;15;8M", 0.15)
+        top += send(master, b"\x1b[<0;15;8m", 0.4)
         if b"\x1b[7m" not in top:
-            raise AssertionError("top/left split pane is not selectable")
+            raise AssertionError("top split pane is not selectable")
         send(master, b"\x1b", 0.2)
-        bottom = send(master, b"\x1b[<0;5;16M\x1b[<32;15;16M\x1b[<0;15;16m", 0.4)
+        bottom = send(master, b"\x1b[<0;5;21M", 0.15)
+        bottom += send(master, b"\x1b[<32;15;21M", 0.15)
+        bottom += send(master, b"\x1b[<0;15;21m", 0.4)
         if b"\x1b[7m" not in bottom:
-            raise AssertionError("bottom/right split pane is not selectable")
+            raise AssertionError("bottom split pane is not selectable")
         send(master, b"\x1b", 0.2)
+
+        # The horizontal spelling must use the same two buffers in two columns.
+        horizontal = send(master, b"\x7f\x7f\x7f\x7f/split horizontal server\r", 0.6)
+        if b"server" not in horizontal or b"#birc" not in horizontal:
+            raise AssertionError("side-by-side split did not paint two named panes")
+        if b"\x1b[2;31H" not in horizontal:
+            raise AssertionError("side-by-side panes do not have the expected 31/31 column geometry")
 
         # Tiny terminals must keep running and recover on resize.
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 4, 10, 0, 0))
-        os.kill(proc.pid, 28)  # SIGWINCH
+        os.kill(proc.pid, signal.SIGWINCH)
         drain(master, 0.3)
         if proc.poll() is not None:
             raise AssertionError("split view exited on tiny resize")
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        os.kill(proc.pid, 28)
+        os.kill(proc.pid, signal.SIGWINCH)
         recovered = drain(master, 0.5)
         if b"#birc" not in recovered:
             raise AssertionError("split view did not recover after resize")
 
-        send(master, b"\x15/unsplit\r", 0.4)  # Ctrl-U clears kept draft.
+        send(master, b"/unsplit\r", 0.4)
         send(master, b"/quit\r", 0.2)
         proc.wait(timeout=5)
         if proc.returncode != 0:

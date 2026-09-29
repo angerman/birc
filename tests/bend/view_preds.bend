@@ -56,6 +56,8 @@ def show_op(op: V.DrawOp) -> String:
   match op:
     case V.OpBox{x, y, w, h}:
       "X:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h)
+    case V.OpSplit{x, y, w, h, axis}:
+      "S:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ U32.show(axis)
     case V.OpText{_, y, _, _, _, +text}:
       "t:" ++ U32.show(y) ++ "|" ++ text
     case V.OpTabs{_, _, _, sel, names}:

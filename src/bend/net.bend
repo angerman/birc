@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./view.bend as V
 import ./timui.bend as T
 import ./session.bend as Sess
+import ./split.bend as Sp
 import ./clock.bend as Clock
 import ./actor.bend as Act
 import ./history.bend as Hist
@@ -82,16 +83,17 @@ def paint_go(
   +draft: String,
   +net: Sess.NetState,
   +seed: U32,
-  size: Sess.Size
+  size: Sess.Size,
+  split: Sp.State
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl))), seed)
+      paint_vm(ui, V.view_draft(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), split), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _}:
-      paint_go(ui, cl, draft, net, seed, size)
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split}:
+      paint_go(ui, cl, draft, net, seed, size, split)
 
 
 def outs_nil(+xs: List<&2, String>) -> Bool:
@@ -160,8 +162,8 @@ def apply_pol(
   pol: Sess.KeyPol
 ) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match pol:
-    case Sess.KeyPol{tab, up, dn, hist, quit, comp}:
-      apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp)), rows, cols), T.flag_on(quit), more)
+    case Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}:
+      apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp, focus)), rows, cols), T.flag_on(quit), more)
 
 
 def apply_frame(
@@ -171,8 +173,8 @@ def apply_frame(
   match got:
     case (ui, keys):
       match keys:
-        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, wheel, more}:
-          apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol(key, mods, wheel, rows))
+        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more}:
+          apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows))
 
 def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
   match is_key:
@@ -407,14 +409,15 @@ def apply_pack(
 ) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   (ui, st, cmd, halt, more)
 
-def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32) -> Bool:
+def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32) -> Bool:
   Bool.or(enter,
   Bool.or(Bool.not(U32.is_zero(tab)),
   Bool.or(Bool.not(U32.is_zero(click)),
   Bool.or(Bool.not(U32.is_zero(up)),
   Bool.or(Bool.not(U32.is_zero(dn)),
   Bool.or(Bool.not(U32.is_zero(hist)),
-          Bool.not(U32.is_zero(comp))))))))
+  Bool.or(Bool.not(U32.is_zero(comp)),
+          Bool.not(U32.is_zero(focus)))))))))
 
 # When keys or clicks alter the view (switching tabs, clicking channels,
 # scrolling, recalling history, or submitting lines), an immediate second
@@ -502,10 +505,10 @@ def on_key.pol(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pol:
-    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp}:
+    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
       on_key.check(
-        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp}),
-        pol_hot(tab, click, up, dn, hist, enter, comp),
+        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}),
+        pol_hot(tab, click, up, dn, hist, enter, comp, focus),
         evt, cmd, ack, gen, frames, k
       )
 
@@ -522,10 +525,10 @@ def on_key.keys(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, wheel, more}:
+    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more}:
       on_key.pol(
         ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more),
-        Sess.key_pol(key, mods, wheel, rows),
+        Sess.key_pol_for(st, key, mods, codepoint, wheel, rows),
         evt, cmd, ack, gen, frames, k
       )
 

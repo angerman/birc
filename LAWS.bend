@@ -11,6 +11,7 @@ import ./src/bend/session.bend as Sess
 import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
 import ./src/bend/base64.bend as B64
+import ./src/bend/split.bend as Sp
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -273,3 +274,7 @@ law search_empty_line:
   for text: String
   {Feed.line_matches_query(Cl.Line{kind, ts, text}, "") == False{} : Bool}
 
+# LAW: toggling focus twice restores either valid pane focus.
+law split_focus_involution:
+  for focus: Bool
+  {Sp.focus_twice_ok(focus) == True{} : Bool}
