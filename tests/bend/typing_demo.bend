@@ -120,6 +120,7 @@ def session_path_ok() -> Bool:
   +s3 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s2, Fr.string_to_octets("@+typing=active :alice!a@h TAGMSG #birc\r\n"), 1000))
   +s4 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s3, Fr.string_to_octets(":alice!a@h PRIVMSG #birc :hidden\r\n"), 1100))
   Ty.has(Sess.session_typing(s3), "#birc", "alice")
+    && list_has(Sess.session_typers(s3), "alice")
     && Bool.not(Ty.has(Sess.session_typing(s4), "#birc", "alice"))
     && expired_session(Sess.session_expire_typing(s3, 7000))
 

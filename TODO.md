@@ -803,10 +803,13 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       (16 buffers x 1,024 lines). Five alternating warm runs measured
       serial 24-25 ms vs parallel 6-7 ms before fuzzy matching, then
       serial 21-22 ms vs parallel 5-7 ms after it. The parallel hypothesis held.
-- [ ] **M16.4** IRCv3 Live Typing Notifications (`+typing`): render typing indicators above composer when participants type.
-      The generated `track2-typing` commit does not compile and is not
-      protocol-complete: it has no 6 s active / 30 s paused expiry, treats
-      `paused` as `done`, leaves typers unbounded, and has a vacuous PTY check.
+- [x] **M16.4** IRCv3 Live Typing Notifications (`+typing`): request
+      `message-tags`; parse `active`, `paused`, and `done` `TAGMSG` events;
+      render active participants above the composer; expire active state at
+      6 s and paused state at 30 s with wrap-safe Bend clock arithmetic; clear
+      on messages (including muted messages), PART, KICK, QUIT, and NICK; and
+      cap transient state at 32 participants. Pure boundary/lifecycle tests,
+      laws, and a non-vacuous loopback PTY test cover the live path.
 
 The generated `track5-wrap` branch contains no changes. Long-line wrapping
 also reverses the recorded M9 decision that C clips and Bend does not wrap, so
