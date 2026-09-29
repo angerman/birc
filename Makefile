@@ -25,7 +25,7 @@ PROTO := tests/bend/proto_demo.bend
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
-        test test-proto test-ui test-feed test-submit test-search test-frame test-net test-dns \
+        test test-proto test-ui test-feed test-submit test-search test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
@@ -96,6 +96,11 @@ test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
 	$(NIXRUN) ./$(BLDDIR)/search_demo | grep -qx search_demo=ok
+
+test-typing: ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
+	$(NIXRUN) ./$(BLDDIR)/typing_demo | grep -qx typing_demo=ok
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
@@ -268,7 +273,7 @@ test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and B
 
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-resize test-pty-settings test-pty-history ## Pty loop tests.
 
-test: test-proto test-feed test-submit test-search test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-proto test-feed test-submit test-search test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) bend PROOF.bend
