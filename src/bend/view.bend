@@ -944,6 +944,35 @@ def status_of.buf(+b: Cl.Buffer) -> String:
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
 
+def typing_names(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2)
+
+def typing_notice(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{+h, t}:
+      match t:
+        case Nil{}:
+          h ++ " is typing..."
+        case Con{+h2, t2}:
+          h ++ ", " ++ typing_names(h2 <> t2) ++ " are typing..."
+
+def status_or_typing(+status: String, typers: List<&2, String>) -> String:
+  match typers:
+    case Nil{}:
+      status
+    case Con{+h, t}:
+      typing_notice(h <> t)
+
 def view_input(+draft: String) -> String:
   draft
 
@@ -1281,7 +1310,7 @@ def preview_path_of(+b: Cl.Buffer) -> String:
     case Cl.Buffer{+name, _, +topic, _, _, _}:
       preview_path_of.on(topic, String.eq(name, "*preview*"))
 
-def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
+def view_draft_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
@@ -1289,7 +1318,10 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
       bod = body_of.buf(b, vis_h(rows), Cl.settings_mutes(stg), server)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, preview_path_of(b), bt, nt, ns, status_of.buf(b), Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), bod, preview_path_of(b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
+
+def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String) -> ViewModel:
+  view_draft_typing(cl, rows, cols, draft, net, Nil{})
 
 
 def dummy_line(+i: Nat) -> Cl.Line:
