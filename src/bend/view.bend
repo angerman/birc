@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./session.bend as Sess
 import ./split.bend as Sp
 import ./links.bend as Links
+import ./columns.bend as Cols
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -769,38 +770,95 @@ def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
 def line_ops(+ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at(0, 0, 40, ln)
 
-def wrap_cap(+w: U32) -> Nat:
-  Bool.pick(Nat, U32.is_zero(w), 1n, U32.to_nat(w))
+def wrap_cap(+w: U32) -> U32:
+  Bool.pick(U32, U32.is_zero(w), 1, w)
 
-def wrap_tail.go(fuel: Nat, s: String, +cap: Nat) -> List<&2, String>:
+def span_text(sp: SpanOp) -> String:
+  match sp:
+    case Spn{_, text}: text
+    case Lnk{_, text}: text
+    case Col{_, _, text}: text
+
+def span_text_as(sp: SpanOp, text: String) -> SpanOp:
+  match sp:
+    case Spn{attrs, _}: Spn{attrs, text}
+    case Lnk{url, _}: Lnk{url, text}
+    case Col{attrs, fg, _}: Col{attrs, fg, text}
+
+type SpanCut is Data:
+  SpanCut{head: List<&2, SpanOp>, tail: List<&2, SpanOp>}
+
+def span_cut_prepend(sp: SpanOp, cut: SpanCut) -> SpanCut:
+  match cut:
+    case SpanCut{head, tail}: SpanCut{sp <> head, tail}
+
+def span_cut_partial(empty: Bool, +sp: SpanOp, head: String, tail: String, rest: List<&2, SpanOp>) -> SpanCut:
+  match empty:
+    case True{}: SpanCut{Nil{}, span_text_as(sp, tail) <> rest}
+    case False{}: SpanCut{span_text_as(sp, head) <> Nil{}, span_text_as(sp, tail) <> rest}
+
+def span_cut_text(complete: Bool, +sp: SpanOp, +head: String, tail: String, +width: U32, +cap: U32, rest: List<&2, SpanOp>, k: U32 -> SpanCut) -> SpanCut:
+  match complete:
+    case True{}: span_cut_prepend(span_text_as(sp, head), k(U32.sub(cap, width)))
+    case False{}: span_cut_partial(String.is_empty(head), sp, head, tail, rest)
+
+def span_cut_taken(cut: Cols.Cut, +sp: SpanOp, +cap: U32, rest: List<&2, SpanOp>, k: U32 -> SpanCut) -> SpanCut:
+  match cut:
+    case Cols.Cut{+head, +tail, +width}:
+      span_cut_text(String.is_empty(tail), sp, head, tail, width, cap, rest, k)
+
+def take_spans(xs: List<&2, SpanOp>, +cap: U32) -> SpanCut:
+  match xs:
+    case Nil{}: SpanCut{Nil{}, Nil{}}
+    case Con{+sp, +rest}:
+      span_cut_taken(Cols.take(span_text(sp), cap), sp, cap, rest, w => take_spans(rest, w))
+
+def spans_length(xs: List<&2, SpanOp>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{sp, t}: Nat.add(Nat.add(1n, String.length(span_text(sp))), spans_length(t))
+
+# A one-column pane cannot paint a double-width glyph. Show a replacement
+# rather than discard it or leave an empty, non-progressing wrapping loop.
+def force_span_piece(piece: Cols.Cut, +sp: SpanOp, +rest: List<&2, SpanOp>) -> SpanCut:
+  match piece:
+    case Cols.Cut{_, +t, _}:
+      SpanCut{span_text_as(sp, "�") <> Nil{}, Bool.pick(List<&2, SpanOp>, String.is_empty(t), rest, span_text_as(sp, t) <> rest)}
+
+def force_span(xs: List<&2, SpanOp>) -> SpanCut:
+  match xs:
+    case Nil{}: SpanCut{Nil{}, Nil{}}
+    case Con{+sp, rest}: force_span_piece(Cols.cluster(span_text(sp)), sp, rest)
+
+def wrap_spans_more(cut: SpanCut, k: List<&2, SpanOp> -> List<&2, List<&2, SpanOp>>) -> List<&2, List<&2, SpanOp>>:
+  match cut:
+    case SpanCut{head, tail}:
+      match tail:
+        case Nil{}: head <> Nil{}
+        case Con{sp, rest}: head <> k(sp <> rest)
+
+def wrap_spans_cut(cut: SpanCut, k: List<&2, SpanOp> -> List<&2, List<&2, SpanOp>>) -> List<&2, List<&2, SpanOp>>:
+  match cut:
+    case SpanCut{head, +tail}:
+      match head:
+        case Nil{}: wrap_spans_more(force_span(tail), k)
+        case Con{sp, rest}: wrap_spans_more(SpanCut{sp <> rest, tail}, k)
+
+def wrap_spans_go(fuel: Nat, xs: List<&2, SpanOp>, +cap: U32, +cont_cap: U32) -> List<&2, List<&2, SpanOp>>:
   match fuel:
-    case 0n:
-      Nil{}
+    case 0n: Nil{}
     case 1n+p:
-      match s:
-        case SNil{}:
-          Nil{}
-        case SCon{+h, +t}:
-          +all = {SCon{h, t} : String}
-          String.take(all, cap) <> wrap_tail.go(p, String.drop(all, cap), cap)
+      wrap_spans_cut(take_spans(xs, cap), rest => wrap_spans_go(p, rest, cont_cap, cont_cap))
 
-def wrap_tail(+s: String, +cap: Nat) -> List<&2, String>:
-  wrap_tail.go(Nat.add(1n, String.length(s)), s, cap)
-
-def wrap_chunks(+s: String, +first_cap: Nat, +cont_cap: Nat) -> List<&2, String>:
-  match s:
-    case SNil{}:
-      "" <> Nil{}
-    case SCon{+h, +t}:
-      +all = {SCon{h, t} : String}
-      String.take(all, first_cap) <> wrap_tail(String.drop(all, first_cap), cont_cap)
+def wrap_spans(+xs: List<&2, SpanOp>, +first_cap: U32, +cont_cap: U32) -> List<&2, List<&2, SpanOp>>:
+  wrap_spans_go(Nat.add(1n, spans_length(xs)), xs, wrap_cap(first_cap), wrap_cap(cont_cap))
 
 def msg_prefix_w.parsed(pair: String & String) -> U32:
   match pair:
     case (+nick, +rest):
       Bool.pick(U32,
         String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)),
-        U32.from_nat(Nat.add(String.length(nick), 3n)),
+        U32.add(Cols.text_width(nick), 3),
         0)
 
 def msg_prefix_w.lt(+t: String, lt: Bool) -> U32:
@@ -827,17 +885,16 @@ def wrap_indent(+indent: U32, +content: U32) -> U32:
   +mx = wrap_indent.max(content)
   Bool.pick(U32, U32.is_gt(indent, mx), mx, indent)
 
-def continuation_rows(chunks: List<&2, String>, +off: U32, +w: U32, +fg: U32) -> List<&2, BodyRow>:
+def continuation_rows(chunks: List<&2, List<&2, SpanOp>>, +off: U32, +w: U32, +fg: U32) -> List<&2, BodyRow>:
   match chunks:
     case Nil{}:
       Nil{}
-    case Con{+h, t}:
-      BodyRow{"", 0, off, w, fg, span_ops(tokenize(h))}
+    case Con{h, t}:
+      BodyRow{"", 0, off, w, fg, h}
         <> continuation_rows(t, off, w, fg)
 
 def wrapped_rows.chunks(
-  chunks: List<&2, String>,
-  k: Cl.LineKind,
+  chunks: List<&2, List<&2, SpanOp>>,
   +ts: String,
   +stamp_w: U32,
   +first_off: U32,
@@ -849,8 +906,8 @@ def wrapped_rows.chunks(
   match chunks:
     case Nil{}:
       Nil{}
-    case Con{+h, t}:
-      BodyRow{ts, stamp_w, first_off, first_w, fg, line_spans_for(k, h)}
+    case Con{h, t}:
+      BodyRow{ts, stamp_w, first_off, first_w, fg, h}
         <> continuation_rows(t, cont_off, cont_w, fg)
 
 def wrapped_rows(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
@@ -860,8 +917,8 @@ def wrapped_rows(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: 
   +indent = wrap_indent(line_prefix_w(k, text), first_w)
   +cont_off = U32.add(first_off, indent)
   +cont_w = U32.sub(first_w, indent)
-  +chunks = wrap_chunks(text, wrap_cap(first_w), wrap_cap(cont_w))
-  wrapped_rows.chunks(chunks, k, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k))
+  +chunks = wrap_spans(line_spans_for(k, text), first_w, cont_w)
+  wrapped_rows.chunks(chunks, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k))
 
 def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> List<&2, BodyRow>:
   match recon:
