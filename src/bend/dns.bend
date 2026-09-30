@@ -62,6 +62,26 @@ law send_octets:
 def send_octets(sock, host, port, xs):
   import "../ffi/dns_ffi.c"
 
+# Bounded native operations own the wait and its deadline. IO.within alone
+# cannot cancel a parked connect/write and would leave its Socket alive.
+law TCP.connect_for:
+  String -> U32 -> U32 -> IO(Result<&1, &1, U32 & String, Socket>)
+
+def TCP.connect_for(host, port, timeout_ms):
+  import "../ffi/dns_ffi.c"
+
+law TCP.send_for:
+  Socket -> String -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
+
+def TCP.send_for(sock, text, timeout_ms):
+  import "../ffi/dns_ffi.c"
+
+law send_octets_for:
+  Socket -> String -> U32 -> List<&2, U32> -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
+
+def send_octets_for(sock, host, port, xs, timeout_ms):
+  import "../ffi/dns_ffi.c"
+
 def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     Unit <- Socket.close(sock)

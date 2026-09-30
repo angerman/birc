@@ -6,6 +6,7 @@
 #define BIRC_DNS_FFI_C
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <stdint.h>
@@ -78,6 +79,192 @@ static Term recv_more(Env e, IoWork *w) {
 #endif
 #ifndef CID_SEND_OCTETS
 #define CID_SEND_OCTETS CID(send_octets)
+#endif
+#ifndef CID_TCP_CONNECT_FOR
+#define CID_TCP_CONNECT_FOR CID(TCP.connect_for)
+#endif
+#ifndef CID_TCP_SEND_FOR
+#define CID_TCP_SEND_FOR CID(TCP.send_for)
+#endif
+#ifndef CID_SEND_OCTETS_FOR
+#define CID_SEND_OCTETS_FOR CID(send_octets_for)
+#endif
+
+#if CID_TCP_CONNECT_FOR
+/* Unlike a raced IO.within, this operation closes its own descriptor when
+ * its absolute deadline expires. The socket stays nonblocking for life. */
+static Term tcp_connect_for_more(Env e, IoWork *w) {
+  int fd = (int)w->hand;
+  int err = 0;
+  socklen_t len = (socklen_t)sizeof err;
+  if (io_tick() >= w->size)
+    err = ETIMEDOUT;
+  else if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0)
+    err = errno;
+  if (err != 0) {
+    (void)close(fd);
+    return io_fail(e, (u32)err, NULL);
+  }
+  return io_done(e, io_hand((u64)fd));
+}
+Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
+  struct sockaddr_in dst;
+  u64 len = 0;
+  char *host = io_cstr(e, f[0], &len);
+  int fd = -1;
+  int err = EINVAL;
+  memset(&dst, 0, sizeof dst);
+  dst.sin_family = AF_INET;
+  dst.sin_port = htons((uint16_t)(u32)f[1]);
+  if (host && strlen(host) == len && (u32)f[1] <= 65535u &&
+      (u32)f[2] != 0 && inet_pton(AF_INET, host, &dst.sin_addr) == 1) {
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    err = fd < 0 ? errno : 0;
+  }
+  free(host);
+  if (fd >= 0) {
+    int flags = fcntl(fd, F_GETFL);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+      err = errno;
+    else if (connect(fd, (struct sockaddr *)&dst, (socklen_t)sizeof dst) != 0)
+      err = errno;
+  }
+  if (err == EINPROGRESS || err == EWOULDBLOCK || err == EINTR) {
+    w->hand = (intptr_t)fd;
+    w->size = io_tick() + (u64)(u32)f[2] * 1000000ull;
+    return io_wait_on(w, fd, POLLOUT, w->size, tcp_connect_for_more);
+  }
+  if (err != 0 && fd >= 0)
+    (void)close(fd);
+  return err != 0 ? io_fail(e, (u32)err, NULL)
+                  : io_done(e, io_hand((u64)fd));
+}
+static void __attribute__((constructor)) tcp_connect_for_use(void) {
+  io_eff(CID_TCP_CONNECT_FOR, tcp_connect_for_run, 0);
+}
+#endif
+
+#if CID_TCP_SEND_FOR || CID_SEND_OCTETS_FOR
+typedef struct {
+  char *bytes;
+  size_t size;
+  size_t sent;
+  u64 deadline;
+  int datagram;
+  struct sockaddr_in dst;
+} BircWrite;
+
+static Term birc_write_end(Env e, IoWork *w, u32 code) {
+  BircWrite *out = (BircWrite *)w->data;
+  free(out->bytes);
+  free(out);
+  w->data = NULL;
+  return io_tup(e, io_hand((u64)w->hand),
+                code != 0 ? io_fail(e, code, NULL)
+                          : io_done(e, term_pak(CID_UNIT, 0)));
+}
+
+/* Retain the offset across short TCP writes. Datagrams go whole or fail.
+ * Each retry checks one absolute deadline; EAGAIN never extends it. */
+static Term birc_write_more(Env e, IoWork *w) {
+  BircWrite *out = (BircWrite *)w->data;
+  int fd = (int)w->hand;
+  while (out->sent < out->size) {
+    ssize_t n;
+    if (io_tick() >= out->deadline)
+      return birc_write_end(e, w, (u32)ETIMEDOUT);
+    if (out->datagram)
+      n = sendto(fd, out->bytes, out->size, 0,
+                 (struct sockaddr *)&out->dst, (socklen_t)sizeof out->dst);
+    else
+      n = send(fd, out->bytes + out->sent, out->size - out->sent, 0);
+    if (n < 0) {
+      int err = errno;
+      if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+        return io_wait_on(w, fd, POLLOUT, out->deadline, birc_write_more);
+      return birc_write_end(e, w, (u32)err);
+    }
+    if (n == 0 || (out->datagram && (size_t)n != out->size))
+      return birc_write_end(e, w, (u32)EIO);
+    out->sent += (size_t)n;
+  }
+  return birc_write_end(e, w, 0);
+}
+
+static BircWrite *birc_write_new(IoWork *w, u32 timeout_ms) {
+  BircWrite *out = (BircWrite *)calloc(1, sizeof *out);
+  if (!out)
+    return NULL;
+  out->deadline = io_tick() + (u64)timeout_ms * 1000000ull;
+  w->data = (char *)out;
+  return out;
+}
+#endif
+
+#if CID_TCP_SEND_FOR
+Term tcp_send_for_run(Env e, Term *f, IoWork *w) {
+  u64 len = 0;
+  BircWrite *out;
+  w->hand = (intptr_t)io_hand_v(f[0]);
+  if ((u32)f[2] == 0)
+    return io_tup(e, f[0], io_fail(e, EINVAL, NULL));
+  out = birc_write_new(w, (u32)f[2]);
+  if (!out)
+    return io_tup(e, f[0], io_fail(e, ENOMEM, NULL));
+  out->bytes = io_cstr(e, f[1], &len);
+  out->size = (size_t)len;
+  if (!out->bytes)
+    return birc_write_end(e, w, ENOMEM);
+  return birc_write_more(e, w);
+}
+static void __attribute__((constructor)) tcp_send_for_use(void) {
+  io_eff(CID_TCP_SEND_FOR, tcp_send_for_run, 0);
+}
+#endif
+
+#if CID_SEND_OCTETS_FOR
+Term send_octets_for_run(Env e, Term *f, IoWork *w) {
+  Term xs = f[3], t[2];
+  u64 hlen = 0;
+  char *host = io_cstr(e, f[1], &hlen);
+  BircWrite *out;
+  u32 err = 0;
+  w->hand = (intptr_t)io_hand_v(f[0]);
+  out = birc_write_new(w, (u32)f[4]);
+  if (!out) {
+    free(host);
+    term_sink(e, xs);
+    return io_tup(e, f[0], io_fail(e, ENOMEM, NULL));
+  }
+  out->bytes = (char *)malloc(512u);
+  if (!out->bytes)
+    err = ENOMEM;
+  while (term_aux(xs) == CID_CON) {
+    u64 sp = ctr_take(e, xs, 2, t);
+    if ((u32)t[0] > 255u)
+      err = EINVAL;
+    else if (out->size >= 512u)
+      err = EMSGSIZE;
+    else if (out->bytes)
+      out->bytes[out->size++] = (char)(uint8_t)(u32)t[0];
+    xs = t[1];
+    spare_free(e, cls_fit(2), sp);
+  }
+  if (!host || strlen(host) != hlen || (u32)f[2] > 65535u || (u32)f[4] == 0)
+    err = EINVAL;
+  else if (host[0] != '\0') {
+    out->datagram = 1;
+    out->dst.sin_family = AF_INET;
+    out->dst.sin_port = htons((uint16_t)(u32)f[2]);
+    if (inet_pton(AF_INET, host, &out->dst.sin_addr) != 1)
+      err = EINVAL;
+  }
+  free(host);
+  return err != 0 ? birc_write_end(e, w, err) : birc_write_more(e, w);
+}
+static void __attribute__((constructor)) send_octets_for_use(void) {
+  io_eff(CID_SEND_OCTETS_FOR, send_octets_for_run, 0);
+}
 #endif
 
 #if CID_RECV_OCTETS
