@@ -249,6 +249,7 @@ type NetCmd is Data:
 type UiMsg is Data:
   FromNet{gen: U32, e: NetEvt}
   UiKey{}
+  UiContinue{}
   Resize{}
   UiError{msg: String}
   TypingTick{now_ms: U32}

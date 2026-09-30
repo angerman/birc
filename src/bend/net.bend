@@ -243,7 +243,9 @@ def apply_pol(
       apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp, focus)), rows, cols), T.flag_on(quit), more)
 
 
-def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
+# Only the tty watcher's UiKey owns an acknowledgement. Native paste
+# continuations are UiContinue, not extra watcher keys.
+def ack_key(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
   match is_key:
     case True{}:
       do IO<Unit>:
@@ -252,19 +254,27 @@ def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
     case False{}:
       IO.pure(Unit, Unit{})
 
-def handle_more(
-  more: Bool,
-  is_key: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +ack: Chan(Unit)
-) -> IO(Unit):
-  match more:
+def more_pending(+scheduled: Bool, +consumed: Bool, +more: Bool) -> Bool:
+  (scheduled && Bool.not(consumed)) || more
+
+def more_enqueue(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  do IO<Unit>:
+    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiContinue{})
+    return Unit{}
+
+def more_schedule.go(enqueue: Bool, +pending: Bool, +evt: Chan(Sess.UiMsg)) -> IO(Bool):
+  match enqueue:
     case True{}:
-      do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiKey{})
-        return Unit{}
+      do IO<Bool>:
+        # Never send to the UI's own bounded channel from the UI. One
+        # scheduled flag bounds both queued and blocked continuations.
+        Unit <- IO.spawn(Unit, more_enqueue(evt))
+        return pending
     case False{}:
-      handle_more.done(is_key, ack)
+      IO.pure(Bool, pending)
+
+def more_schedule(+scheduled: Bool, +consumed: Bool, +more: Bool, +evt: Chan(Sess.UiMsg)) -> IO(Bool):
+  more_schedule.go(more && (Bool.not(scheduled) || consumed), more_pending(scheduled, consumed, more), evt)
 
 def after_emit(
   gen: U32,
@@ -274,6 +284,7 @@ def after_emit(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   halt: Bool,
+  more: Bool,
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
@@ -281,7 +292,7 @@ def after_emit(
     case True{}:
       shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
     case False{}:
-      k((ui, st, gen, False{}))
+      k((ui, st, gen, more))
 
 # timui_begin reads the tty on every frame, including a chunk or Eof
 # paint. Dropping those keys swallows /quit: the watcher is already back
@@ -306,8 +317,8 @@ def on_key_cmd(
                 case (halt, more):
                   do IO<Unit>:
                     gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
-                    Unit <- handle_more(more, is_key, evt, ack)
-                    after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
+                    Unit <- ack_key(is_key, ack)
+                    after_emit(gen2, ui, st, evt, cmd, ack, halt, more, frames, k)
 
 def apply_pack(
   ui: T.Ui,
@@ -765,6 +776,8 @@ def on_msg_go(
   match m:
     case Sess.UiKey{}:
       paint_input(ui, st, True{}, evt, cmd, ack, gen, frames, k)
+    case Sess.UiContinue{}:
+      paint_input(ui, st, False{}, evt, cmd, ack, gen, frames, k)
     case Sess.Resize{}:
       paint_input(ui, st, False{}, evt, cmd, ack, gen, frames, k)
     case Sess.UiError{+msg}:
@@ -791,7 +804,53 @@ def on_msg(
     ts : String <- Clock.hhmmss()
     on_msg_go(m, ui, Sess.session_set_now(st, ts), evt, cmd, ack, gen, frames, k)
 
-def on_recv(
+def live_step.reload(
+  changed: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +gen: U32,
+  +pending: Bool,
+  +hist_path: String,
+  +new_endpoint: String,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match changed:
+    case False{}:
+      k((ui, st, gen, pending))
+    case True{}:
+      do IO<Unit>:
+        loaded : Cl.Client <- Hist.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
+        k((ui, Sess.session_set_client(st, loaded), gen, pending))
+
+def live_step.next(
+  acc: T.Ui & Sess.Session & U32 & Bool,
+  +scheduled: Bool,
+  +consumed: Bool,
+  +old_cl: Cl.Client,
+  +old_endpoint: String,
+  +hist_path: String,
+  +evt: Chan(Sess.UiMsg),
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match acc:
+    case (ui, +new_st, gen, more):
+      +new_endpoint = session_endpoint(new_st)
+      do IO<Unit>:
+        # Save only the current event. Imported rows get fresh IDs and must
+        # become the next baseline, never part of this append comparison.
+        Unit <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
+        pending : Bool <- more_schedule(scheduled, consumed, more, evt)
+        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, pending, hist_path, new_endpoint, k)
+
+def is_continue(m: Sess.UiMsg) -> Bool:
+  match m:
+    case Sess.UiContinue{}: True{}
+    case _: False{}
+
+# Frame callbacks return `more`; the loop stores whether a single
+# continuation is outstanding. Other paints can consume input but cannot
+# add another continuation until that one reaches the head of the queue.
+def live_step.recv(
   g: Maybe<&1, Sess.UiMsg>,
   ui: T.Ui,
   +st: Sess.Session,
@@ -800,47 +859,15 @@ def on_recv(
   +ack: Chan(Unit),
   +gen: U32,
   +frames: U32,
+  +scheduled: Bool,
+  +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match g:
     case None{}:
       shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
-    case Some{m}:
-      on_msg(m, ui, st, evt, cmd, ack, gen, frames, k)
-
-def live_step.reload(
-  changed: Bool,
-  ui: T.Ui,
-  +st: Sess.Session,
-  +gen: U32,
-  +quit: Bool,
-  +hist_path: String,
-  +new_endpoint: String,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match changed:
-    case False{}:
-      k((ui, st, gen, quit))
-    case True{}:
-      do IO<Unit>:
-        loaded : Cl.Client <- Hist.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
-        k((ui, Sess.session_set_client(st, loaded), gen, quit))
-
-def live_step.next(
-  acc: T.Ui & Sess.Session & U32 & Bool,
-  +old_cl: Cl.Client,
-  +old_endpoint: String,
-  +hist_path: String,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match acc:
-    case (ui, +new_st, gen, quit):
-      +new_endpoint = session_endpoint(new_st)
-      do IO<Unit>:
-        # Save only the current event. Imported rows get fresh IDs and must
-        # become the next baseline, never part of this append comparison.
-        Unit <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
-        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, quit, hist_path, new_endpoint, k)
+    case Some{+m}:
+      on_msg(m, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), hist_path, evt, k))
 
 def live_step(
   ui: T.Ui,
@@ -850,17 +877,13 @@ def live_step(
   +ack: Chan(Unit),
   +gen: U32,
   +frames: U32,
-  quit: Bool,
+  +scheduled: Bool,
   +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  match quit:
-    case True{}:
-      shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
-    case False{}:
-      do IO<Unit>:
-        g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-        on_recv(g, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, Sess.session_cl(st), session_endpoint(st), hist_path, k))
+  do IO<Unit>:
+    g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
+    live_step.recv(g, ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, k)
 
 def live_go(
   fuel: Nat,
@@ -878,8 +901,8 @@ def live_go(
           shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
     case 1n+p:
       match acc:
-        case (ui, +st, gen, quit):
-          live_step(ui, st, evt, cmd, ack, gen, frames, quit, hist_path, nxt => live_go(p, nxt, evt, cmd, ack, frames, hist_path))
+        case (ui, +st, gen, scheduled):
+          live_step(ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, nxt => live_go(p, nxt, evt, cmd, ack, frames, hist_path))
 
 @unsafe
 def live_idle(
@@ -891,15 +914,15 @@ def live_idle(
   +hist_path: String
 ) -> IO(Unit):
   match acc:
-    case (ui, +st, gen, quit):
-      live_step(ui, st, evt, cmd, ack, gen, frames, quit, hist_path, nxt => live_idle(nxt, evt, cmd, ack, frames, hist_path))
+    case (ui, +st, gen, scheduled):
+      live_step(ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, nxt => live_idle(nxt, evt, cmd, ack, frames, hist_path))
 
-def live_boot(zero: Bool, +frames: U32, ui: T.Ui, +st: Sess.Session, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +hist_path: String) -> IO(Unit):
+def live_boot(zero: Bool, +frames: U32, ui: T.Ui, +st: Sess.Session, +gen: U32, +scheduled: Bool, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +hist_path: String) -> IO(Unit):
   match zero:
     case True{}:
-      live_idle((ui, st, gen, False{}), evt, cmd, ack, frames, hist_path)
+      live_idle((ui, st, gen, scheduled), evt, cmd, ack, frames, hist_path)
     case False{}:
-      live_go(Sess.ticks_of(frames), (ui, st, gen, False{}), evt, cmd, ack, frames, hist_path)
+      live_go(Sess.ticks_of(frames), (ui, st, gen, scheduled), evt, cmd, ack, frames, hist_path)
 
 def tty_watch.ack(
   g: Maybe<&1, Unit>,
@@ -968,12 +991,13 @@ def watch_start(
   +hist_path: String
 ) -> IO(Unit):
   match acc:
-    case (ui, +st, gen, _):
+    case (ui, +st, gen, more):
       do IO<Unit>:
         Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
         Unit <- IO.spawn(Unit, winch_watch(w, evt))
         Unit <- IO.spawn(Unit, typing_watch(evt))
-        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen, evt, cmd, ack, hist_path)
+        scheduled : Bool <- more_schedule(False{}, False{}, more, evt)
+        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen, scheduled, evt, cmd, ack, hist_path)
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:
