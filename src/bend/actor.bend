@@ -22,25 +22,39 @@ def send_line(sock: Socket, +line: String) -> IO(Socket & Bool):
     m : Socket & Result<&1, &1, (U32 & String), Unit> <- Dns.TCP.send_for(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n", 250)
     IO.pure(Socket & Bool, send_go(m))
 
-def send_lines_go(xs: List<&2, String>, pair: Socket & Bool) -> IO(Socket & Bool):
+type Sent is Data:
+  Sent{count: Nat, ok: Bool}
+
+def send_batch_go(xs: List<&2, String>, pair: Socket & Bool, +count: Nat) -> IO(Socket & Sent):
   match xs:
     case Nil{}:
       match pair:
         case (sock, ok):
-          IO.pure(Socket & Bool, (sock, ok))
+          IO.pure(Socket & Sent, (sock, Sent{count, ok}))
     case Con{+h, t}:
       match pair:
         case (sock, ok):
           match ok:
             case False{}:
-              IO.pure(Socket & Bool, (sock, False{}))
+              IO.pure(Socket & Sent, (sock, Sent{count, False{}}))
             case True{}:
-              do IO<Socket & Bool>:
+              do IO<Socket & Sent>:
                 nxt : Socket & Bool <- send_line(sock, h)
-                send_lines_go(t, nxt)
+                send_batch_go(t, nxt, Nat.add(count, 1n))
+
+# Count attempted lines. On failure the last attempt may have written only
+# part of its line, so neither that line nor the remainder may be replayed.
+def send_batch(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Sent):
+  send_batch_go(xs, (sock, True{}), 0n)
+
+def sent_ok(pair: Socket & Sent) -> Socket & Bool:
+  match pair:
+    case (sock, Sent{_, ok}): (sock, ok)
 
 def send_lines(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
-  send_lines_go(xs, (sock, True{}))
+  do IO<Socket & Bool>:
+    pair : Socket & Sent <- send_batch(sock, xs)
+    return sent_ok(pair)
 
 # JOIN is sent after 001 (live_go), not here.
 def register(sock: Socket, +nick: String, has_sasl: Bool) -> IO(Socket & Bool):
@@ -76,6 +90,59 @@ def split_at.go(n: Nat, xs: List<&2, String>, acc: List<&2, String>) -> List<&2,
 
 def split_at(+xs: List<&2, String>, +n: Nat) -> List<&2, String> & List<&2, String>:
   split_at.go(n, xs, Nil{})
+
+# Credits avoid multiplying a U32 frame count by eight (which can overflow),
+# or constructing a potentially huge unary Nat budget. Every refill grants
+# eight lines and consumes one frame's budget. Zero frames means unlimited.
+type Budget is Data:
+  Unlimited{}
+  Limited{turns: U32, credit: U32}
+
+type Batch is Data:
+  Batch{now: List<&2, String>, later: List<&2, String>, budget: Budget}
+
+def budget_frames.pick(unlimited: Bool, +frames: U32) -> Budget:
+  match unlimited:
+    case True{}: Unlimited{}
+    case False{}: Limited{frames, 0}
+
+def budget_frames(+frames: U32) -> Budget:
+  budget_frames.pick(U32.is_zero(frames), frames)
+
+def budget_refill(refill: Bool, +turns: U32, +credit: U32) -> Budget:
+  match refill:
+    case True{}: Limited{U32.sub(turns, 1), U32.from_nat(SEND_CAP())}
+    case False{}: Limited{turns, credit}
+
+def budget_ready(b: Budget) -> Budget:
+  match b:
+    case Unlimited{}: Unlimited{}
+    case Limited{+turns, +credit}: budget_refill(U32.is_zero(credit) && Bool.not(U32.is_zero(turns)), turns, credit)
+
+def budget_cap(b: Budget) -> Nat:
+  match b:
+    case Unlimited{}: SEND_CAP()
+    case Limited{_, +credit}: Bool.pick(Nat, U32.is_gt(credit, U32.from_nat(SEND_CAP())), SEND_CAP(), U32.to_nat(credit))
+
+def budget_after(b: Budget, used: Nat) -> Budget:
+  match b:
+    case Unlimited{}: Unlimited{}
+    case Limited{turns, credit}: Limited{turns, U32.sub(credit, U32.from_nat(used))}
+
+def budget_open(b: Budget) -> Bool:
+  match b:
+    case Unlimited{}: True{}
+    case Limited{+turns, +credit}: Bool.not(U32.is_zero(turns) && U32.is_zero(credit))
+
+def batch_parts(parts: List<&2, String> & List<&2, String>, b: Budget) -> Batch:
+  match parts:
+    case (+now, later): Batch{now, later, budget_after(b, List.length(&2, String, now))}
+
+def batch_ready(+b: Budget, xs: List<&2, String>) -> Batch:
+  batch_parts(split_at(xs, budget_cap(b)), b)
+
+def batch(xs: List<&2, String>, b: Budget) -> Batch:
+  batch_ready(budget_ready(b), xs)
 
 def post(+evt: Chan(Sess.UiMsg), +gen: U32, e: Sess.NetEvt) -> IO(Unit):
   do IO<Unit>:
@@ -174,51 +241,6 @@ def reader_start(dup: Socket, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
     Unit <- post(evt, gen, Sess.Up{0})
     reader_run(dup, evt, gen)
 
-def flush_next(
-  pair: Socket & Bool,
-  +later: List<&2, String>,
-  k: (Socket & List<&2, String>) -> IO(Socket & List<&2, String> & Bool)
-) -> IO(Socket & List<&2, String> & Bool):
-  match pair:
-    case (sock, ok):
-      match ok:
-        case False{}:
-          IO.pure(Socket & List<&2, String> & Bool, (sock, later, False{}))
-        case True{}:
-          k((sock, later))
-
-def flush_some(
-  sock: Socket,
-  parts: List<&2, String> & List<&2, String>,
-  k: (Socket & List<&2, String>) -> IO(Socket & List<&2, String> & Bool)
-) -> IO(Socket & List<&2, String> & Bool):
-  match parts:
-    case (+now, later):
-      do IO<Socket & List<&2, String> & Bool>:
-        sent : Socket & Bool <- send_lines(sock, now)
-        flush_next(sent, later, k)
-
-def flush_on(
-  sock: Socket,
-  +xs: List<&2, String>,
-  empty: Bool,
-  k: (Socket & List<&2, String>) -> IO(Socket & List<&2, String> & Bool)
-) -> IO(Socket & List<&2, String> & Bool):
-  match empty:
-    case True{}:
-      IO.pure(Socket & List<&2, String> & Bool, (sock, xs, True{}))
-    case False{}:
-      flush_some(sock, split_at(xs, SEND_CAP()), k)
-
-@unsafe
-def flush(pack: Socket & List<&2, String>) -> IO(Socket & List<&2, String> & Bool):
-  match pack:
-    case (sock, +xs):
-      flush_on(sock, xs, xs_nil(xs), p => flush(p))
-
-def flush_xs(sock: Socket, +xs: List<&2, String>) -> IO(Socket & List<&2, String> & Bool):
-  flush((sock, xs))
-
 def writer_drop.r(pair: Socket & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
   match pair:
     case (sock, _):
@@ -258,10 +280,8 @@ def arm_ready(live: Bool, +boot: Chan(Boot)) -> IO(Unit):
 
 def arm_fail(
   live: Bool,
-  +nick: String,
   +boot: Chan(Boot),
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +gen: U32,
   +msg: String,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
@@ -277,10 +297,8 @@ def arm_fail(
 def arm_ok(
   sock: Socket,
   dup: Socket,
-  +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
@@ -292,10 +310,8 @@ def arm_ok(
 
 def arm_dup(
   pair: Socket & Result<&1, &1, U32 & String, Socket>,
-  +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
@@ -306,16 +322,14 @@ def arm_dup(
         case Fail{e}:
           do IO<Unit>:
             Unit <- Socket.close(sock)
-            arm_fail(live, nick, boot, evt, cmd, gen, err_msg(e), k)
+            arm_fail(live, boot, evt, gen, err_msg(e), k)
         case Done{dup}:
-          arm_ok(sock, dup, nick, gen, evt, cmd, boot, live, k)
+          arm_ok(sock, dup, gen, evt, boot, live, k)
 
 def after_reg(
   pair: Socket & Bool,
-  +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
@@ -326,18 +340,17 @@ def after_reg(
         case False{}:
           do IO<Unit>:
             Unit <- Socket.close(sock)
-            arm_fail(live, nick, boot, evt, cmd, gen, "register send failed", k)
+            arm_fail(live, boot, evt, gen, "register send failed", k)
         case True{}:
           do IO<Unit>:
             d : Socket & Result<&1, &1, U32 & String, Socket> <- Dns.Socket.dup(sock)
-            arm_dup(d, nick, gen, evt, cmd, boot, live, k)
+            arm_dup(d, gen, evt, boot, live, k)
 
 def after_conn(
   r: Result<&1, &1, (U32 & String), Socket>,
   +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   has_sasl: Bool,
@@ -345,11 +358,11 @@ def after_conn(
 ) -> IO(Unit):
   match r:
     case Fail{e}:
-      arm_fail(live, nick, boot, evt, cmd, gen, err_msg(e), k)
+      arm_fail(live, boot, evt, gen, err_msg(e), k)
     case Done{sock}:
       do IO<Unit>:
         pair : Socket & Bool <- register(sock, nick, has_sasl)
-        after_reg(pair, nick, gen, evt, cmd, boot, live, k)
+        after_reg(pair, gen, evt, boot, live, k)
 
 def after_dns(
   r: Result<&1, &1, U32 & String, String>,
@@ -357,7 +370,6 @@ def after_dns(
   +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   has_sasl: Bool,
@@ -365,11 +377,11 @@ def after_dns(
 ) -> IO(Unit):
   match r:
     case Fail{e}:
-      arm_fail(live, nick, boot, evt, cmd, gen, err_msg(e), k)
+      arm_fail(live, boot, evt, gen, err_msg(e), k)
     case Done{+ip}:
       do IO<Unit>:
         cr : Result<&1, &1, (U32 & String), Socket> <- Dns.TCP.connect_for(ip, port, 1000)
-        after_conn(cr, nick, gen, evt, cmd, boot, live, has_sasl, k)
+        after_conn(cr, nick, gen, evt, boot, live, has_sasl, k)
 
 def dial_begin(
   +host: String,
@@ -377,7 +389,6 @@ def dial_begin(
   +nick: String,
   +gen: U32,
   +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Boot),
   live: Bool,
   has_sasl: Bool,
@@ -385,191 +396,128 @@ def dial_begin(
 ) -> IO(Unit):
   do IO<Unit>:
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    after_dns(r, port, nick, gen, evt, cmd, boot, live, has_sasl, k)
+    after_dns(r, port, nick, gen, evt, boot, live, has_sasl, k)
 
-def writer_end_go(
-  trip: Socket & List<&2, String> & Bool,
-  +evt: Chan(Sess.UiMsg),
-  +gen: U32
-) -> IO(Unit):
-  match trip:
-    case (sock, _, _):
+type Writer is Type:
+  Writer{socket: Maybe<&1, Socket>, gen: U32, pending: List<&2, String>, budget: Budget, scheduled: Bool}
+
+def writer_adopt(st: Maybe<&1, Socket> & U32 & List<&2, String>, budget: Budget) -> Writer:
+  match st:
+    case (sock, (gen, pending)): Writer{sock, gen, pending, budget, False{}}
+
+def close_socket(sock: Maybe<&1, Socket>) -> IO(Unit):
+  match sock:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{s}: writer_drop(s)
+
+def finish_sent(pair: Socket & Sent, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
+  match pair:
+    case (sock, _):
       do IO<Unit>:
         Unit <- writer_drop(sock)
         post(evt, gen, Sess.Eof{})
 
-# cmd closed: put leftover lines (QUIT) on the wire, then wake the reader.
-def writer_end(
-  sock: Socket,
-  +pending: List<&2, String>,
-  +evt: Chan(Sess.UiMsg),
-  +gen: U32
-) -> IO(Unit):
-  do IO<Unit>:
-    trip : Socket & List<&2, String> & Bool <- flush_xs(sock, pending)
-    writer_end_go(trip, evt, gen)
+# Closing cmd (including UI fuel exhaustion) flushes the healthy FIFO outside
+# the loop budget. A failed/partial write stops this flush without replay.
+def writer_finish(st: Writer, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match st:
+    case Writer{sock, +gen, pending, _, _}:
+      match sock:
+        case None{}: post(evt, gen, Sess.Eof{})
+        case Some{s}:
+          do IO<Unit>:
+            pair : Socket & Sent <- send_batch(s, pending)
+            finish_sent(pair, evt, gen)
 
-def writer_flushed(
-  trip: Socket & List<&2, String> & Bool,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match trip:
-    case (sock, _, ok):
+def pump_send(+cmd: Chan(Sess.NetCmd), gen: U32) -> IO(Unit):
+  do IO<Unit>:
+    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{gen})
+    return Unit{}
+
+# Never await a self-send on the socket-owning task: cmd may already be full.
+# One scheduled flag permits at most one outstanding pump for this generation.
+def writer_schedule(need: Bool, st: Writer, +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+  match need:
+    case False{}: k(st)
+    case True{}:
+      match st:
+        case Writer{sock, +gen, pending, budget, _}:
+          do IO<Unit>:
+            Unit <- IO.spawn(Unit, pump_send(cmd, gen))
+            k(Writer{sock, gen, pending, budget, True{}})
+
+def writer_sent(pair: Socket & Sent, +gen: U32, +later: List<&2, String>, +budget: Budget, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (sock, Sent{+count, ok}):
       match ok:
         case False{}:
           do IO<Unit>:
             Unit <- writer_drop(sock)
-            # The UI can be parked on a full cmd queue while evt is full.
-            # Post one failure task, then resume draining cmd immediately.
-            Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; queued output was not retried"))
-            k((None{}, gen, Nil{}))
+            Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; " ++ Nat.show(Nat.add(1n, Nat.sub(total, count))) ++ " queued/uncertain lines were discarded without retry"))
+            k(Writer{None{}, gen, Nil{}, budget, False{}})
         case True{}:
-          k((Some{sock}, gen, Nil{}))
+          writer_schedule(Bool.not(scheduled) && Bool.not(xs_nil(later)) && budget_open(budget), Writer{Some{sock}, gen, later, budget, scheduled}, cmd, k)
 
-def writer_cont(
-  sock: Socket,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +pending: List<&2, String>,
-  +outs: List<&2, String>,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  do IO<Unit>:
-    trip : Socket & List<&2, String> & Bool <- flush_xs(sock, List.append(&2, String, pending, outs))
-    writer_flushed(trip, gen, evt, k)
-
-def writer_cmd(
-  g: Maybe<&1, Sess.NetCmd>,
-  sock: Socket,
-  +nick: String,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +pending: List<&2, String>,
-  +boot: Chan(Boot),
-  has_sasl: Bool,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match g:
-    case None{}:
-      writer_end(sock, pending, evt, gen)
-    case Some{c}:
-      match c:
-        case Sess.Cont{outs}:
-          writer_cont(sock, gen, evt, pending, outs, k)
-        case Sess.Drop{}:
-          do IO<Unit>:
-            Unit <- writer_drop(sock)
-            k((None{}, gen, Nil{}))
-        case Sess.Dial{+host, port, dgen, +dial_nick}:
-          do IO<Unit>:
-            Unit <- writer_drop(sock)
-            dial_begin(host, port, dial_nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
-        case Sess.Handoff{_}:
-          k((Some{sock}, gen, pending))
-        case Sess.OpenUrl{_}:
-          k((Some{sock}, gen, pending))
-
-def wait_cmd(
-  g: Maybe<&1, Sess.NetCmd>,
-  +nick: String,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  +gen: U32,
-  has_sasl: Bool,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match g:
-    case None{}:
-      post(evt, gen, Sess.Eof{})
-    case Some{c}:
-      match c:
-        case Sess.Dial{+host, port, dgen, +dial_nick}:
-          dial_begin(host, port, dial_nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
-        case Sess.Cont{_}:
-          k((None{}, gen, Nil{}))
-        case Sess.Drop{}:
-          k((None{}, gen, Nil{}))
-        case Sess.Handoff{_}:
-          k((None{}, gen, Nil{}))
-        case Sess.OpenUrl{_}:
-          k((None{}, gen, Nil{}))
-
-def writer_go_s(
-  s: Maybe<&1, Socket>,
-  +gen: U32,
-  +pending: List<&2, String>,
-  +nick: String,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  has_sasl: Bool,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match s:
-    case None{}:
+def writer_batch(sock: Socket, +gen: U32, plan: Batch, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+  match plan:
+    case Batch{now, later, budget}:
       do IO<Unit>:
-        g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        wait_cmd(g, nick, evt, cmd, boot, gen, has_sasl, k)
-    case Some{sock}:
-      do IO<Unit>:
-        g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        writer_cmd(g, sock, nick, gen, evt, cmd, pending, boot, has_sasl, k)
+        pair : Socket & Sent <- send_batch(sock, now)
+        writer_sent(pair, gen, later, budget, scheduled, total, evt, cmd, k)
 
-def writer_go_rest(
-  rest: U32 & List<&2, String>,
-  s: Maybe<&1, Socket>,
-  +nick: String,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  has_sasl: Bool,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match rest:
-    case (gen, +pending):
-      writer_go_s(s, gen, pending, nick, evt, cmd, boot, has_sasl, k)
-
-def writer_go_st(
-  st: Maybe<&1, Socket> & U32 & List<&2, String>,
-  +nick: String,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  has_sasl: Bool,
-  k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
+def writer_queue(st: Writer, outs: List<&2, String>, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
   match st:
-    case (s, rest):
-      writer_go_rest(rest, s, nick, evt, cmd, boot, has_sasl, k)
+    case Writer{sock, +gen, pending, budget, +scheduled}:
+      match sock:
+        case None{}: k(Writer{None{}, gen, Nil{}, budget, False{}})
+        case Some{s}:
+          +all = List.append(&2, String, pending, outs)
+          writer_batch(s, gen, batch(all, budget), scheduled, List.length(&2, String, all), evt, cmd, k)
+
+def writer_pump(same: Bool, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+  match same:
+    case False{}: k(st)
+    case True{}:
+      match st:
+        case Writer{sock, gen, pending, budget, _}:
+          writer_queue(Writer{sock, gen, pending, budget, False{}}, Nil{}, evt, cmd, k)
+
+def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool, k: Writer -> IO(Unit)) -> IO(Unit):
+  match c:
+    case Sess.Cont{outs}: writer_queue(st, outs, evt, cmd, k)
+    case Sess.OpenUrl{_}: k(st)
+    case Sess.Pump{pgen}:
+      match st:
+        case Writer{sock, +gen, pending, budget, scheduled}:
+          writer_pump(U32.is_eq(pgen, gen), Writer{sock, gen, pending, budget, scheduled}, evt, cmd, k)
+    case Sess.Drop{}:
+      match st:
+        case Writer{sock, gen, _, budget, _}:
+          do IO<Unit>:
+            Unit <- close_socket(sock)
+            k(Writer{None{}, gen, Nil{}, budget, False{}})
+    case Sess.Dial{+host, port, gen, +nick}:
+      match st:
+        case Writer{sock, _, _, budget, _}:
+          do IO<Unit>:
+            Unit <- close_socket(sock)
+            dial_begin(host, port, nick, gen, evt, boot, False{}, has_sasl, pair => k(writer_adopt(pair, budget)))
+
+def writer_received(g: Maybe<&1, Sess.NetCmd>, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool, k: Writer -> IO(Unit)) -> IO(Unit):
+  match g:
+    case None{}: writer_finish(st, evt)
+    case Some{c}: writer_command(c, st, evt, cmd, boot, has_sasl, k)
 
 @unsafe
-def writer_go(
-  st: Maybe<&1, Socket> & U32 & List<&2, String>,
-  +nick: String,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  +has_sasl: Bool
-) -> IO(Unit):
-  writer_go_st(st, nick, evt, cmd, boot, has_sasl, p => writer_go(p, nick, evt, cmd, boot, has_sasl))
+def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool) -> IO(Unit):
+  do IO<Unit>:
+    g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+    writer_received(g, st, evt, cmd, boot, has_sasl, next => writer_go(next, evt, cmd, boot, has_sasl))
 
-def actor_boot(
-  +host: String,
-  +port: U32,
-  +nick: String,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Boot),
-  +has_sasl: Bool
-) -> IO(Unit):
-  dial_begin(host, port, nick, gen, evt, cmd, boot, True{}, has_sasl, st => writer_go(st, nick, evt, cmd, boot, has_sasl))
+def actor_boot(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool, frames: U32) -> IO(Unit):
+  dial_begin(host, port, nick, gen, evt, boot, True{}, has_sasl, st => writer_go(writer_adopt(st, budget_frames(frames)), evt, cmd, boot, has_sasl))
 
-def idle_start(+nick: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+def idle_start(+evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), frames: U32) -> IO(Unit):
   do IO<Unit>:
     boot : Chan(Boot) <- Chan.new(Boot, 1)
-    writer_go((None{}, 0, Nil{}), nick, evt, cmd, boot, False{})
+    writer_go(Writer{None{}, 0, Nil{}, budget_frames(frames), False{}}, evt, cmd, boot, False{})

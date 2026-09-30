@@ -93,8 +93,8 @@ def cmd_head(c: Sess.NetCmd) -> String:
       "dial:" ++ host ++ ":" ++ U32.show(port)
     case Sess.Drop{}:
       "drop"
-    case Sess.Handoff{take}:
-      "handoff:" ++ Bool.show(take)
+    case Sess.Pump{gen}:
+      "pump:" ++ U32.show(gen)
     case Sess.OpenUrl{+url}:
       "open:" ++ url
 
@@ -254,13 +254,13 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("hold_demo", cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:")
     Unit <- E.must_eq("hold_on", cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:JOIN #x")
     Unit <- E.must_eq(
-      "merge_cont",
-      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Cont{"JOIN #t" <> Nil{}})),
-      "cont:PONG :x"
+      "hold_pump",
+      cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Pump{42})),
+      "pump:42"
     )
     Unit <- E.must_eq(
-      "merge_dial",
-      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667, 0, "me"})),
+      "hold_dial",
+      cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Dial{"h", 6667, 0, "me"})),
       "dial:h:6667"
     )
     IO.print("submit_demo=ok")

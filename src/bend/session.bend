@@ -233,7 +233,6 @@ def step_chunk(
 type NetEvt is Data:
   Chunk{xs: List<&2, U32>}
   Eof{}
-  Tick{}
   Up{fd: U32}
   NetFail{msg: String}
 
@@ -242,7 +241,7 @@ type NetCmd is Data:
   Cont{outs: List<&2, String>}
   Dial{host: String, port: U32, gen: U32, nick: String}
   Drop{}
-  Handoff{take: Bool}
+  Pump{gen: U32}
   OpenUrl{url: String}
 
 # One UI channel. FromNet is ignored unless gen is the UI's current one.
@@ -293,8 +292,8 @@ def show_netcmd(c: NetCmd) -> String:
       String.concat("dial:" <> host <> ":" <> U32.show(port) <> Nil{})
     case Drop{}:
       "drop"
-    case Handoff{take}:
-      String.concat("handoff:" <> Bool.show(take) <> Nil{})
+    case Pump{_}:
+      "pump"
     case OpenUrl{+url}:
       "open:" ++ url
 
@@ -315,24 +314,10 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
       Dial{host, port, gen, nick}
     case Drop{}:
       Drop{}
-    case Handoff{take}:
-      Handoff{take}
+    case Pump{gen}:
+      Pump{gen}
     case Cont{outs}:
       hold_cmd.outs(net, outs)
-    case OpenUrl{+url}:
-      OpenUrl{url}
-
-# Kept for the submit goldens. The UI does not call these.
-def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
-  match cmd:
-    case Dial{+host, port, gen, +nick}:
-      Dial{host, port, gen, nick}
-    case Drop{}:
-      Drop{}
-    case Handoff{take}:
-      Handoff{take}
-    case Cont{outs}:
-      Cont{List.append(&2, String, pending, outs)}
     case OpenUrl{+url}:
       OpenUrl{url}
 
@@ -1220,7 +1205,7 @@ def session_after(
       session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port)
     case Drop{}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
-    case Handoff{_}:
+    case Pump{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
     case Cont{_}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
