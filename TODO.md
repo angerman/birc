@@ -900,7 +900,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       from equal capped snapshots. Preserve duplicate messages with identical
       timestamps at the cap, without replaying old records. Test duplicates,
       no-op paints, purges, and buffer renames.
-- [ ] **S04 — History endpoint identity (P2).** Prevent one server's history
+- [x] **S04 — History endpoint identity (P2).** Prevent one server's history
       from entering another server's buffers. Define and test legacy-file
       handling, distinct endpoints, and reconnect to the same endpoint.
 - [x] **S05 — Explicit reconnect marker (P2).** Give reconnect dividers a
@@ -1024,7 +1024,7 @@ Verification so far (all through the locked Nix shell, no pin updates):
   runs and fails against the old binary.
 - S02/S04 (`5ffb06e`): streaming tests retain the latest records beyond one
   MiB, including a UTF-8 record split across reads. Endpoint/port mismatch and
-  ambiguous legacy records are rejected. UI-edge reload remains in progress.
+  ambiguous legacy records are rejected. UI-edge reload is covered below.
 - U03 (`77b7e84`): repeated `/links` and `/open 1` do not amplify or reorder
   results. Listing/open echoes have explicit provenance and are not saved.
 - U02: `make test-scroll test-split test-history test-history-io
@@ -1095,6 +1095,12 @@ Verification so far (all through the locked Nix shell, no pin updates):
 - V06: `make lint-ffi proof` passed with `-Werror` enabled. README no longer
   claims a fixed FFI line count or PTY scenario count, and names the shared
   URL lexer, authentication state machine, and terminal-column module.
+- S04 UI-edge reload: the current event is saved under its endpoint, then the
+  new endpoint's history is loaded, then that loaded client becomes the next
+  checkpoint. Imported rows are never appended as new events. The endpoint
+  PTY passed three consecutive runs before commit: initial A/B isolation,
+  same-port restore, and in-process A→B→A reload before either new welcome.
+  Original chat/control rows remain single records; markers are not persisted.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
