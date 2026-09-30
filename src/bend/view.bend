@@ -4,6 +4,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./session.bend as Sess
 import ./split.bend as Sp
+import ./links.bend as Links
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -145,63 +146,11 @@ def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, Tex
     case SCon{_, _}:
       Plain{String.reverse(acc)} <> spans
 
-def url_stop.on(+c: U32) -> Bool:
-  U32.is_eq(c, 32) || U32.is_eq(c, 9) || U32.is_lt(c, 32)
-
-def url_stop(h: Char) -> Bool:
-  match h:
-    case Chr{c}:
-      url_stop.on(c)
-
-def take_url.cons(+h: Char, r: String & String) -> String & String:
-  match r:
-    case (tok, rest):
-      (SCon{h, tok}, rest)
-
-def take_url.fin(+h: Char, +t: String, r: String & String, stop: Bool) -> String & String:
-  match stop:
-    case True{}:
-      ("", SCon{h, t})
-    case False{}:
-      take_url.cons(h, r)
-
-def take_url.go(s: String) -> String & String:
-  match s:
-    case SNil{}:
-      ("", "")
-    case SCon{+h, +t}:
-      take_url.fin(h, t, take_url.go(t), url_stop(h))
-
-def url_trail(+c: U32) -> Bool:
-  U32.is_eq(c, 41) || U32.is_eq(c, 46) || U32.is_eq(c, 44) || U32.is_eq(c, 34)
-    || U32.is_eq(c, 93) || U32.is_eq(c, 59)
-
-def trim_url.keep(+h: Char, t: String, rec: String, trail: Bool) -> String:
-  match trail:
-    case True{}:
-      rec
-    case False{}:
-      String.reverse(SCon{h, t})
-
-def trim_url.go(+rev: String) -> String:
-  match rev:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, +t}:
-      match h:
-        case Chr{n}:
-          trim_url.keep(h, t, trim_url.go(t), url_trail(n))
-
 def trim_url(+url: String) -> String:
-  trim_url.go(String.reverse(url))
-
-def take_url.trim(pair: String & String) -> String & String:
-  match pair:
-    case (+url, rest):
-      (trim_url(url), rest)
+  Links.trim(url)
 
 def take_url(+s: String) -> String & String:
-  take_url.trim(take_url.go(s))
+  Links.take(s)
 
 def tokenize.emit_url(+acc: String, spans: List<&2, TextSpan>, pair: String & String) -> TokJump:
   match pair:
@@ -229,19 +178,8 @@ def tokenize.out_star(+s: String, +t: String, +acc: String, +h: Char, spans: Lis
     case False{}:
       tokenize.out_us(s, t, acc, h, spans, Char.is_eq(h, USCORE()))
 
-def is_alnum(+c: Char) -> Bool:
-  match c:
-    case Chr{n}:
-      (U32.is_ge(n, 48) && U32.is_le(n, 57))
-        || (U32.is_ge(n, 65) && U32.is_le(n, 90))
-        || (U32.is_ge(n, 97) && U32.is_le(n, 122))
-
 def url_bound(+acc: String) -> Bool:
-  match acc:
-    case SNil{}:
-      True{}
-    case SCon{+h, _}:
-      Bool.not(is_alnum(h))
+  Links.bound(acc)
 
 def tokenize.url_if(
   ok: Bool,
