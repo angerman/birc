@@ -116,9 +116,47 @@ static BircUi *birc_state(const Timui *ui) {
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+static int birc_output_failure;
+/* Only the single controlling UI's accepted output debt can outlive close. Keep
+ * its stream open independently of borrowed stdout/stderr descriptor numbers. */
+static TimuiClosedOutput birc_final_output;
+static struct stat birc_final_stream;
+static int birc_final_pending;
+
+static int birc_same_stream(const struct stat *a, const struct stat *b) {
+  return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
+         a->st_rdev == b->st_rdev && (a->st_mode & S_IFMT) == (b->st_mode & S_IFMT);
+}
+
+static int birc_fd_same_stream(int a, int b) {
+  struct stat sa, sb;
+  return fstat(a, &sa) == 0 && fstat(b, &sb) == 0 && birc_same_stream(&sa, &sb);
+}
+
+static void birc_final_disown(void) {
+  if (birc_final_pending && birc_final_output.fd.write_fd >= 0)
+    (void)close(birc_final_output.fd.write_fd);
+  birc_final_pending = 0;
+}
+
+static void birc_final_take(TimuiClosedOutput *pending) {
+  birc_final_disown();
+  if (pending->fd.write_utf8_tail_len == 0 && !pending->framing_debt && !pending->sync_open)
+    return;
+  birc_final_output = *pending;
+  if (fstat(pending->fd.write_fd, &birc_final_stream) != 0) {
+    /* Identity is unknown: suppress final output rather than bypass debt. */
+    memset(&birc_final_stream, 0, sizeof birc_final_stream);
+    birc_final_output.fd.write_fd = -1;
+    birc_final_pending = 2;
+  } else {
+    birc_final_output.fd.write_fd = fcntl(pending->fd.write_fd, F_DUPFD_CLOEXEC, 3);
+    birc_final_pending = 1;
+  }
+}
 
 /* Input and output can have separate descriptions. Make the write target
- * nonblocking for the whole budget, then restore exactly its saved flags. */
+ * nonblocking for the whole budget, then return the borrow's saved flags. */
 static void birc_write_bounded(TimuiFdCtx *ctx, int fd, const void *data, size_t size,
                                uint64_t deadline) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -127,8 +165,37 @@ static void birc_write_bounded(TimuiFdCtx *ctx, int fd, const void *data, size_t
       (void)timui_fd_write_(ctx, data, size, 1, deadline);
     else
       (void)timui_write_all_until_(fd, data, size, deadline);
-    (void)fcntl(fd, F_SETFL, flags);
+    timui_fd_flags_restore_(fd, flags);
   }
+}
+
+static int birc_settle_debt(TimuiFdCtx *ctx, int *framing_debt,
+                            volatile sig_atomic_t *sync_open, uint64_t deadline) {
+  int flags = fcntl(ctx->write_fd, F_GETFL, 0);
+  int settled;
+  if (flags < 0 || fcntl(ctx->write_fd, F_SETFL, flags | O_NONBLOCK) != 0)
+    return 0;
+  settled = timui_fd_settle_debt_(ctx, framing_debt, sync_open, deadline);
+  timui_fd_flags_restore_(ctx->write_fd, flags);
+  return settled;
+}
+
+static void birc_write_final(TimuiFdCtx *output, const void *data, size_t size,
+                             uint64_t deadline) {
+  struct stat stream;
+  int fd = output->write_fd;
+  if (birc_final_pending &&
+      (birc_final_output.fd.write_utf8_tail_len != 0 ||
+       birc_final_output.framing_debt || birc_final_output.sync_open) &&
+      (fstat(fd, &stream) != 0 || birc_final_pending == 2 ||
+       birc_same_stream(&stream, &birc_final_stream))) {
+    if (birc_final_output.fd.write_fd < 0)
+      return;
+    if (!birc_settle_debt(&birc_final_output.fd, &birc_final_output.framing_debt,
+                         &birc_final_output.sync_open, deadline))
+      return;
+  }
+  birc_write_bounded(output, fd, data, size, deadline);
 }
 
 static uint64_t birc_profile_now_ns(void) {
@@ -655,7 +722,7 @@ static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
                            int saved_flags) {
   ui->transport.write = saved;
   if (saved_flags >= 0 && !birc_frame_disabled)
-    (void)fcntl(ui->fd.write_fd, F_SETFL, saved_flags);
+    timui_fd_flags_restore_(ui->fd.write_fd, saved_flags);
 }
 
 static inline int birc_pt_in_rect(int x, int y, TimuiRect r) {
@@ -1030,7 +1097,7 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   if (st && st->profile_enabled) {
     char report[256];
     uint64_t deadline = timui_now_ms() + 40u;
-    int tty_report = isatty(STDERR_FILENO);
+    int same_report_stream = ui && birc_fd_same_stream(ui->fd.write_fd, STDERR_FILENO);
     int count = snprintf(report, sizeof report,
             "birc_profile frames=%llu prepare_us=%llu begin_us=%llu "
             "draw_us=%llu end_us=%llu\n",
@@ -1043,22 +1110,24 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
                                                 st->profile_frames),
             (unsigned long long)birc_profile_us(st->profile_end_ns,
                                                 st->profile_frames));
-    /* A tty stderr can alias the UI stream. Finish its accepted scalar before
-     * this report, within the report's existing budget. Redirected stderr is
-     * independent and does not need to wait for terminal output. */
-    if (ui && tty_report && ui->fd.write_utf8_tail_len != 0)
-      birc_write_bounded(&ui->fd, ui->fd.write_fd, "", 0, deadline);
+    /* stderr can alias the UI stream, including a redirected pipe. Finish
+     * its accepted scalar before the report within the existing budget.
+     * Unrelated stderr remains independent of terminal output. */
+    int report_ready = !same_report_stream ||
+        birc_settle_debt(&ui->fd, &ui->framing_debt, &ui->sync_open, deadline);
     if (count > 0 && (size_t)count < sizeof report &&
-        (!ui || !tty_report || ui->fd.write_utf8_tail_len == 0))
+        report_ready)
       birc_write_bounded(NULL, STDERR_FILENO, report, (size_t)count,
                          deadline);
   }
   if (ui) {
+    TimuiClosedOutput pending;
     if (ui->fd.write_fd >= 0)
       birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     /* TimUI retires and disowns image IDs under its one teardown budget.
      * Cached bitmaps can then be freed without further terminal IO. */
-    timui_close(ui);
+    timui_close_fd_(ui, &pending);
+    birc_final_take(&pending);
     if (st)
       for (int i = 0; i < 2; i++) {
         if (st->previews[i].image) {
@@ -1255,14 +1324,18 @@ static void __attribute__((constructor)) sys_clipboard_program_use(void) {
 #endif
 #if CID_SYS_EXIT_DONE
 Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
+  TimuiFdCtx output = {0};
+  output.write_fd = STDOUT_FILENO;
   (void)e;
   (void)f;
   (void)w;
   /* Timui.close restores blocking descriptor flags. Both IO.print and
    * IO.die (which always writes a stderr newline) can then hang. TimUI is
    * already closed; do not flush stdio or leave parked IO alive on success. */
-  birc_write_bounded(NULL, STDOUT_FILENO, "birc=ok\n", 8, timui_now_ms() + 250u);
-  _Exit(EXIT_SUCCESS);
+  const char *status = birc_output_failure ? "birc=failed\n" : "birc=ok\n";
+  birc_write_final(&output, status, strlen(status), timui_now_ms() + 250u);
+  birc_final_disown();
+  _Exit(birc_output_failure ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 static void __attribute__((constructor)) sys_exit_done_use(void) {
   io_eff(CID_SYS_EXIT_DONE, sys_exit_done_run, 0);
@@ -1270,14 +1343,17 @@ static void __attribute__((constructor)) sys_exit_done_use(void) {
 #endif
 #if CID_SYS_EXIT_FAIL
 Term sys_exit_fail_run(Env e, Term *f, IoWork *w) {
+  TimuiFdCtx output = {0};
   u64 len = 0;
   char *msg = io_cstr(e, f[0], &len);
   uint64_t deadline = timui_now_ms() + 250u;
+  output.write_fd = STDERR_FILENO;
   (void)w;
   /* Like successful shutdown, a restored tty must not block on stderr. */
   if (msg)
-    birc_write_bounded(NULL, STDERR_FILENO, msg, (size_t)len, deadline);
-  birc_write_bounded(NULL, STDERR_FILENO, "\n", 1, deadline);
+    birc_write_final(&output, msg, (size_t)len, deadline);
+  birc_write_final(&output, "\n", 1, deadline);
+  birc_final_disown();
   free(msg);
   _Exit(EXIT_FAILURE);
 }

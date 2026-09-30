@@ -1,5 +1,6 @@
 /* A bounded fd writer must finish an accepted UTF-8 scalar before new output. */
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -7,6 +8,13 @@
 static char captured[128];
 static size_t captured_len;
 static size_t allowance;
+static int interrupt_mode;
+static int interrupt_fd;
+static int interrupt_nonblock;
+static int interrupt_failed;
+static volatile sig_atomic_t interrupt_handled;
+
+static void interrupt_writer(void);
 
 static ssize_t test_write_syscall(int fd, const void *data, size_t size) {
   (void)fd;
@@ -23,6 +31,8 @@ static ssize_t test_write_syscall(int fd, const void *data, size_t size) {
   memcpy(captured + captured_len, data, size);
   captured_len += size;
   allowance -= size;
+  if (interrupt_mode)
+    interrupt_writer();
   return (ssize_t)size;
 }
 
@@ -159,6 +169,97 @@ static int signal_after_cut(size_t repair) {
   return 0;
 }
 
+static void returning_signal(int sig) {
+  (void)sig;
+  interrupt_handled++;
+}
+
+static void *signal_other_thread(void *arg) {
+  (void)arg;
+  if (raise(SIGTERM) != 0)
+    interrupt_failed = 1;
+  return NULL;
+}
+
+/* Stop inside the successful syscall, before the caller can account for its
+ * accepted prefix. A real handler sees a writable fd even though the normal
+ * writer will find it full again when this syscall returns. */
+static void interrupt_writer(void) {
+  int mode = interrupt_mode;
+  int flags;
+  interrupt_mode = 0;
+  allowance = sizeof captured - captured_len;
+  if (mode == 1) {
+    if (raise(SIGTERM) != 0)
+      interrupt_failed = 1;
+  } else {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, signal_other_thread, NULL) != 0)
+      interrupt_failed = 1;
+    else if (pthread_join(thread, NULL) != 0)
+      interrupt_failed = 1;
+  }
+  flags = fcntl(interrupt_fd, F_GETFL, 0);
+  interrupt_nonblock = flags >= 0 && (flags & O_NONBLOCK) != 0;
+  allowance = 0;
+}
+
+static int signal_during_write(int pending, int mode) {
+  Timui ui;
+  struct sigaction action, saved;
+  int fds[2], flags, result;
+  static const char scalar[] = "\xe2\x94\x80";
+  memset(&ui, 0, sizeof ui);
+  memset(&action, 0, sizeof action);
+  setup(&ui.fd, &ui.transport);
+  use_fd_writer(&ui.transport);
+  CHECK(pipe(fds) == 0);
+  flags = fcntl(fds[1], F_GETFL, 0);
+  CHECK(flags >= 0 && fcntl(fds[1], F_SETFL, flags | O_NONBLOCK) == 0);
+  ui.fd.read_fd = ui.fd.write_fd = fds[1];
+  ui.input_flags = flags;
+  ui.input_flags_saved = 1;
+  ui.have_transport = 1;
+  ui.screen_active = 1;
+  ui.screen.flags = TIMUI_FLAG_ALT_SCREEN;
+  ui.cfg.flags = TIMUI_FLAG_RESTORE_ON_EXIT;
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0);
+  timui_install_sig_handlers(&ui);
+  interrupt_handled = 0;
+  interrupt_failed = interrupt_nonblock = 0;
+  interrupt_fd = fds[1];
+  if (pending) {
+    allowance = 1;
+    CHECK(fd_write(&ui.transport, scalar, 3) == 3);
+    CHECK(ui.fd.write_utf8_tail_len == 2);
+    allowance = 1;
+  } else {
+    allowance = 2;
+  }
+  interrupt_mode = mode;
+  result = fd_write(&ui.transport, pending ? "X" : scalar, pending ? 1 : 3);
+  timui_remove_sig_handlers(&ui);
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0);
+  CHECK(!interrupt_failed && interrupt_handled == 1);
+  /* No handler escapes may split a not-yet-accounted scalar. It must also
+   * leave the borrowed fd nonblocking until that accounting is complete. */
+  CHECK(interrupt_nonblock);
+  CHECK(captured_len == 2 && memcmp(captured, scalar, 2) == 0);
+  CHECK(ui.fd.write_utf8_tail_len == 1);
+  CHECK(result == (pending ? -1 : 3));
+  CHECK(!ui.input_flags_saved && fcntl(fds[1], F_GETFL, 0) == flags);
+  allowance = sizeof captured - captured_len;
+  timui_restore_terminal(&ui);
+  CHECK(ui.fd.write_utf8_tail_len == 0 && captured_len > 3);
+  CHECK(memcmp(captured, scalar, 3) == 0 && captured[3] == '\x1b');
+  /* A canceled normal payload and its suffix must not be replayed. */
+  CHECK(fd_write(&ui.transport, "Z", 1) == 1 && captured[captured_len - 1] == 'Z');
+  CHECK(close(fds[0]) == 0 && close(fds[1]) == 0);
+  return 0;
+}
+
 static int cut_scalar(const char *scalar, size_t width, size_t cut, int cancel) {
   TimuiFdCtx ctx;
   TimuiTransport transport;
@@ -209,6 +310,10 @@ int main(void) {
   CHECK(signal_after_cut(1) == 0);
   CHECK(signal_after_cut(2) == 0);
   CHECK(signal_after_cut(sizeof captured) == 0);
+  CHECK(signal_during_write(0, 1) == 0);
+  CHECK(signal_during_write(1, 1) == 0);
+  CHECK(signal_during_write(0, 2) == 0);
+  CHECK(signal_during_write(1, 2) == 0);
   for (width = 2; width <= 4; width++)
     for (cut = 1; cut < width; cut++) {
       CHECK(cut_scalar(scalars[width - 2], width, cut, 0) == 0);

@@ -2985,7 +2985,26 @@ typedef struct {
    * including teardown; the transport owns these acknowledged bytes. */
   unsigned char write_utf8_tail[3];
   unsigned char write_utf8_tail_len;
+  /* 0 idle, 1 writer, 2 writer with input-flag debt, 3 signal output. Serialize
+   * normal output/accounting with best-effort signal output. A
+   * signal cannot guess what an interrupted write accepted. State 2 leaves
+   * input-fd flag restoration to that writer, so a shared output description
+   * cannot become blocking while its deadline still relies on O_NONBLOCK. */
+  volatile sig_atomic_t write_owner;
+  Timui *write_restore_ui;
 } TimuiFdCtx;
+
+/* This POSIX backend uses GCC/Clang. Keep its ownership word C99-compatible,
+ * and require inline lock-free operations:
+ * an atomic helper that takes a hidden lock is not signal-safe. */
+typedef char TimuiSignalWordLockFree_[
+    __atomic_always_lock_free(sizeof(sig_atomic_t), 0) ? 1 : -1];
+
+typedef struct {
+  TimuiFdCtx fd;
+  int framing_debt;
+  volatile sig_atomic_t sync_open;
+} TimuiClosedOutput;
 
 /* Private TimuiScreenMode.flags bit: enter() pushed the terminal's title stack
  * (XTPUSHTITLE) because it actually emitted an OSC 0 title, so exit() owes a
@@ -3844,9 +3863,16 @@ static int timui_write_all_until_(int fd, const void *d, size_t n,
                                   uint64_t deadline_ms) {
   const char *p = (const char *)d;
   size_t off = 0;
+  int attempted = 0;
   while (off < n) {
-    ssize_t w = write(fd, p + off, n - off);
+    ssize_t w;
     uint64_t now;
+    /* A zero-wait caller still gets one nonblocking attempt. Every retry,
+     * including a successful short write or EINTR, shares its deadline. */
+    if (attempted && timui_now_ms() >= deadline_ms)
+      break;
+    attempted = 1;
+    w = write(fd, p + off, n - off);
     if (w > 0) {
       off += (size_t)w;
       continue;
@@ -3881,8 +3907,16 @@ static int timui_write_all_until_(int fd, const void *d, size_t n,
  * bytes before acknowledging them, then complete that scalar before accepting
  * any subsequent payload. Abandoning the rest of a frame cannot lose/replay
  * this suffix. Every bounded retry uses the caller's unchanged deadline. */
-static int timui_fd_write_(TimuiFdCtx *c, const void *d, size_t n,
-                           int bounded, uint64_t deadline_ms) {
+static void timui_restore_input_flags(Timui *ui);
+/* A returning handler may have restored a shared fd description already.
+ * Never put an outer borrow's old O_NONBLOCK snapshot over that restore. */
+static void timui_fd_flags_restore_(int fd, int flags) {
+  int current = fcntl(fd, F_GETFL, 0);
+  if (current >= 0 && !(flags & O_NONBLOCK) && (current & O_NONBLOCK))
+    (void)fcntl(fd, F_SETFL, current & ~O_NONBLOCK);
+}
+static int timui_fd_write_owned_(TimuiFdCtx *c, const void *d, size_t n,
+                                 int bounded, uint64_t deadline_ms) {
   const unsigned char *bytes = (const unsigned char *)d;
   int written;
   if (n > (size_t)INT_MAX)
@@ -3919,10 +3953,61 @@ static int timui_fd_write_(TimuiFdCtx *c, const void *d, size_t n,
   }
   return written;
 }
+static int timui_fd_write_(TimuiFdCtx *c, const void *d, size_t n,
+                           int bounded, uint64_t deadline_ms) {
+  sig_atomic_t expected = 0;
+  int written, flags = -1;
+  if (!__atomic_compare_exchange_n(&c->write_owner, &expected, 1, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+    return -1;
+  /* A returning handler can restore shared input flags between two payloads
+   * or during CPU-only frame capture. Re-borrow for each later bounded call;
+   * POLLOUT alone cannot make a large blocking write safe. */
+  if (bounded && c->write_restore_ui &&
+      !c->write_restore_ui->input_flags_saved) {
+    flags = fcntl(c->write_fd, F_GETFL, 0);
+    written = flags < 0 ||
+        fcntl(c->write_fd, F_SETFL, flags | O_NONBLOCK) < 0
+        ? -1 : timui_fd_write_owned_(c, d, n, bounded, deadline_ms);
+  } else {
+    written = timui_fd_write_owned_(c, d, n, bounded, deadline_ms);
+  }
+  if (flags >= 0)
+    timui_fd_flags_restore_(c->write_fd, flags);
+  expected = 1;
+  if (!__atomic_compare_exchange_n(&c->write_owner, &expected, 0, 0,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+    /* Only the signal handler can change an owned writer's state to 2. */
+    timui_restore_input_flags(c->write_restore_ui);
+    __atomic_store_n(&c->write_owner, 0, __ATOMIC_RELEASE);
+  }
+  return written;
+}
 static int fd_write(TimuiTransport *t, const void *d, size_t n) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
   return timui_fd_write_(c, d, n, c->teardown_bounded,
                          c->teardown_deadline_ms);
+}
+/* The same retained obligations govern a live profile report and a final
+ * status after close. The caller owns one nonblocking fd/deadline window. */
+static inline int timui_fd_settle_debt_(TimuiFdCtx *fd, int *framing_debt,
+                                       volatile sig_atomic_t *sync_open,
+                                       uint64_t deadline) {
+  if (timui_fd_write_(fd, "", 0, 1, deadline) < 0)
+    return 0;
+  if (*framing_debt) {
+    if (timui_fd_write_(fd, TIMUI_FRAME_RESYNC_, sizeof(TIMUI_FRAME_RESYNC_) - 1,
+                        1, deadline) != (int)(sizeof(TIMUI_FRAME_RESYNC_) - 1))
+      return 0;
+    *framing_debt = 0;
+  }
+  if (*sync_open) {
+    static const char end[] = "\x1b[?2026l";
+    if (timui_fd_write_(fd, end, sizeof end - 1, 1, deadline) != (int)(sizeof end - 1))
+      return 0;
+    *sync_open = 0;
+  }
+  return 1;
 }
 static int fd_read(TimuiTransport *t, void *b, size_t cap) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
@@ -4071,9 +4156,11 @@ TIMUI_API void timui_open_fail_fsetfl_for_test(int on) {
  * disarm the first (which left a later signal running with a NULL context) nor
  * outlive it by leaking our handler over the application's own.
  *
- * The handler uses a bounded best-effort path: restore input fd flags and
- * termios first, then write teardown escapes directly with single write() calls
- * (no transport abstraction, no poll/retry loop that can hang in a handler).
+ * The handler uses a bounded best-effort path: when it owns output, write
+ * teardown bytes before restoring host state. If a writer owns output, skip
+ * those bytes and leave input-fd flag restoration with the writer; restoring
+ * a shared description here could make its bounded writes block. Termios is
+ * still restored immediately. No poll/retry loop can hang in the handler.
  *
  * C11 7.14.1.1p5 would have a handler touch static objects only through
  * volatile sig_atomic_t. The pointer is volatile-qualified so the load is not
@@ -4143,7 +4230,7 @@ static void timui_teardown_disarm_(Timui *ui) {
   if (!ui)
     return;
   if (ui->fd.teardown_flags_saved) {
-    (void)fcntl(ui->fd.write_fd, F_SETFL, ui->fd.teardown_saved_flags);
+    timui_fd_flags_restore_(ui->fd.write_fd, ui->fd.teardown_saved_flags);
     ui->fd.teardown_flags_saved = 0;
   }
   ui->fd.teardown_bounded = 0;
@@ -4216,6 +4303,7 @@ static void timui_signal_screen_exit_(Timui *ui) {
   if (flags & TIMUI_FLAG_BRACKETED_PASTE)
     TIMUI_SIG_EMIT(ui, "\x1b[?2004l");
   if (flags & TIMUI_FLAG_MOUSE) {
+    TIMUI_SIG_EMIT(ui, "\x1b[?1002l");
     TIMUI_SIG_EMIT(ui, "\x1b[?1006l");
     if (flags & TIMUI_FLAG_MOUSE_MOTION)
       TIMUI_SIG_EMIT(ui, "\x1b[?1003l");
@@ -4241,11 +4329,28 @@ static void timui_signal_restore_terminal_(Timui *ui) {
   int saved_errno;
   int fl = -1;
   int may_write;
+  int owns_output;
+  sig_atomic_t expected = 0;
   if (!ui)
     return;
   /* A handler must leave errno exactly as it found it: the interrupted code
    * may be about to read it. Every fcntl/write below can set it. */
   saved_errno = errno;
+  owns_output = __atomic_compare_exchange_n(&ui->fd.write_owner, &expected, 3,
+                                            0, __ATOMIC_ACQUIRE,
+                                            __ATOMIC_RELAXED);
+  if (!owns_output && expected == 1) {
+    expected = 1;
+    if (!__atomic_compare_exchange_n(&ui->fd.write_owner, &expected, 2, 0,
+                                     __ATOMIC_RELEASE, __ATOMIC_RELAXED) &&
+        expected == 0) {
+      /* A writer released between the two claims. Restore normally instead
+       * of losing the input-flag obligation in that short race. */
+      owns_output = __atomic_compare_exchange_n(&ui->fd.write_owner, &expected,
+                                                3, 0, __ATOMIC_ACQUIRE,
+                                                __ATOMIC_RELAXED);
+    }
+  }
   /* Same bound as the ordinary teardown, minus everything that is not
    * async-signal-safe. fcntl and write are on the POSIX async-signal-safe list;
    * poll, clock reads and retry loops are not used here at all, so each escape
@@ -4254,7 +4359,7 @@ static void timui_signal_restore_terminal_(Timui *ui) {
    * captured flags are put back before host state is touched. If either flag
    * operation fails, terminal writes are skipped rather than risking a handler
    * that never returns. */
-  may_write = ui->have_transport;
+  may_write = owns_output && ui->have_transport;
   if (may_write && ui->transport.write == fd_write) {
     if (ui->fd.write_fd < 0)
       may_write = 0;
@@ -4302,9 +4407,12 @@ static void timui_signal_restore_terminal_(Timui *ui) {
   }
   if (fl >= 0)
     (void)fcntl(ui->fd.write_fd, F_SETFL, fl);
-  timui_restore_input_flags(ui);
+  if (owns_output)
+    timui_restore_input_flags(ui);
   if (ui->termios_active)
     (void)timui_termios_restore(&ui->termios);
+  if (owns_output)
+    __atomic_store_n(&ui->fd.write_owner, 0, __ATOMIC_RELEASE);
   errno = saved_errno;
 }
 /* Hand back EVERY disposition we took over, not just the delivered signal's.
@@ -4373,6 +4481,7 @@ static void timui_install_sig_handlers(Timui *ui) {
   if (g_sig_restore_ui && g_sig_restore_ui != ui)
     return;
   g_sig_restore_ui = ui;
+  ui->fd.write_restore_ui = ui;
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = timui_sig_restore;
   /* Block the siblings while a restore is in flight: the handler runs
@@ -4598,7 +4707,9 @@ TIMUI_API TimuiResult timui_open(const TimuiConfig *cfg, Timui **out_ui) {
       ui); /* W6: restore the terminal on SIGINT/SIGTERM/SIGHUP/SIGQUIT */
   return TIMUI_OK;
 }
-TIMUI_API void timui_close(Timui *ui) {
+/* The FFI's final bounded status write outlives TimUI. It can take only the
+ * retained fd/scalar/framing obligations, never a pointer into the freed UI. */
+static void timui_close_fd_(Timui *ui, TimuiClosedOutput *pending) {
   TimuiAllocator al;
   int may_write;
   if (!ui)
@@ -4609,6 +4720,8 @@ TIMUI_API void timui_close(Timui *ui) {
    * framing repair, synchronized-update closure, placement deletion, and
    * screen exit all consume this one absolute teardown budget. */
   may_write = timui_teardown_arm_(ui);
+  if (may_write)
+    (void)timui_framing_settle_(ui);
   timui_images_release_ids_(ui, may_write);
   timui_restore_terminal_armed_(ui, may_write);
   timui_remove_sig_handlers(
@@ -4631,9 +4744,19 @@ TIMUI_API void timui_close(Timui *ui) {
     close(ui->trace_fd);
   if (ui->have_transport && ui->transport.close)
     ui->transport.close(&ui->transport);
+  if (pending) {
+    memset(pending, 0, sizeof *pending);
+    pending->fd.write_fd = ui->fd.write_fd;
+    pending->fd.write_utf8_tail_len = ui->fd.write_utf8_tail_len;
+    memcpy(pending->fd.write_utf8_tail, ui->fd.write_utf8_tail,
+           ui->fd.write_utf8_tail_len);
+    pending->framing_debt = ui->framing_debt;
+    pending->sync_open = ui->sync_open;
+  }
   al = ui->alloc;
   al.free(al.userdata, ui, sizeof *ui);
 }
+TIMUI_API void timui_close(Timui *ui) { timui_close_fd_(ui, NULL); }
 TIMUI_API uint64_t timui_now_ms(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
