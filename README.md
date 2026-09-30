@@ -186,6 +186,17 @@ Run `./build/birc --help-irc` for a full summary:
 | `--frames` | `<n>` | Run for `n` frames/ticks (headless batch test if stdin not a tty) |
 | `--help-irc` | — | Show birc client command-line options |
 
+### Stored history
+
+History records use `BIRC2` and include the server hostname and port. Different
+endpoints do not share buffers or history. The reader scans the file to its
+initial size, keeps only the configured recent records, and rejects malformed
+or overlong records. An incomplete final record is not loaded.
+
+Older records without an endpoint remain in the file but are not restored.
+Their server identity cannot be recovered safely. Reconnect dividers and
+`/links` output are display data and are not saved as chat.
+
 ---
 
 ## Navigation & Controls

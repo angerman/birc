@@ -11,6 +11,12 @@ import ./actor.bend as Act
 import ./history.bend as Hist
 import ./typing.bend as Ty
 
+def endpoint(+host: String, +port: U32) -> String:
+  host ++ ":" ++ U32.show(port)
+
+def session_endpoint(+st: Sess.Session) -> String:
+  endpoint(Cl.server_of(Sess.session_cl(st)), Sess.session_port(st))
+
 def shutdown_finish(ui: T.Ui) -> IO(Unit):
   do IO<Unit>:
     Unit <- T.Timui.close(ui)
@@ -870,7 +876,7 @@ def live_step.next(
   match acc:
     case (ui, +new_st, gen, quit):
       do IO<Unit>:
-        Unit <- Hist.maybe_save_history(hist_path, old_cl, Sess.session_cl(new_st))
+        Unit <- Hist.maybe_save_history(hist_path, session_endpoint(new_st), old_cl, Sess.session_cl(new_st))
         k((ui, new_st, gen, quit))
 
 def live_step(
@@ -1213,7 +1219,7 @@ def start_ui_load(
   +ack: Chan(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    cl : Cl.Client <- Hist.history_init_client(hist_path, hist_cap, nick, host, now)
+    cl : Cl.Client <- Hist.history_init_client(hist_path, endpoint(host, port), hist_cap, nick, host, now)
     start_ui_go(ui, Sess.session_with_client_at(live_client(cl, sasl_user, sasl_pass), chan, port), frames, evt, cmd, ack, hist_path)
 
 def start_ui(

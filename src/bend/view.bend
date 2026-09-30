@@ -2,7 +2,6 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
-import ./session.bend as Sess
 import ./split.bend as Sp
 import ./links.bend as Links
 import ./columns.bend as Cols
@@ -1041,10 +1040,103 @@ def visible_body_rows(+rows: List<&2, BodyRow>, +height: Nat, +scroll: Nat) -> L
   +start = visible_start(List.length(&2, BodyRow, rows), height, scroll)
   List.take(&2, BodyRow, List.drop(&2, BodyRow, rows, start), height)
 
+# The same wrapped rows drive navigation and painting. An anchor stores a
+# character position, not the current width-dependent row offset.
+type AnchoredRow is Data:
+  AnchoredRow{body: BodyRow, anchor: Cl.Scroll}
+
+def spans_chars(xs: List<&2, SpanOp>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{sp, t}: Nat.add(String.length(span_text(sp)), spans_chars(t))
+
+def row_chars(row: BodyRow) -> Nat:
+  match row:
+    case BodyRow{_, _, _, _, _, spans}: spans_chars(spans)
+    case BodyRecon{_, _}: 0n
+
+def rows_chars(rows: List<&2, BodyRow>) -> Nat:
+  match rows:
+    case Nil{}: 0n
+    case Con{h, t}: Nat.add(row_chars(h), rows_chars(t))
+
+def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat) -> List<&2, AnchoredRow>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      +tail = Nat.sub(chars, row_chars(h))
+      AnchoredRow{h, Cl.ScrollAt{after, tail}} <> anchored_rows(t, after, tail)
+
+def anchored_line(+rows: List<&2, BodyRow>, +after: Nat) -> List<&2, AnchoredRow>:
+  anchored_rows(rows, after, rows_chars(rows))
+
+def anchored_lines(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +left: Nat) -> List<&2, AnchoredRow>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      +after = Nat.sub(left, 1n)
+      +head = body_rows(body_of.lines(h <> Nil{}, mutes, name, server), name, w, show_ts)
+      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines(t, name, w, show_ts, mutes, server, after))
+
+def anchor_reached(row: Cl.Scroll, want: Cl.Scroll) -> Bool:
+  match row:
+    case Cl.ScrollAt{+ra, +rt}:
+      match want:
+        case Cl.ScrollAt{+wa, +wt}:
+          Nat.is_lt(ra, wa) || (Nat.is_eq(ra, wa) && Nat.is_le(rt, wt))
+
+def anchor_end.on(found: Bool, +i: Nat, k: Nat -> Nat) -> Nat:
+  match found:
+    case True{}: i
+    case False{}: k(i)
+
+def anchor_end(rows: List<&2, AnchoredRow>, +want: Cl.Scroll, +i: Nat) -> Nat:
+  match rows:
+    case Nil{}: i
+    case Con{AnchoredRow{_, anchor}, t}:
+      anchor_end.on(anchor_reached(anchor, want), 1n+i, n => anchor_end(t, want, n))
+
+def viewport_end(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> Nat:
+  match want:
+    case Cl.ScrollAt{+after, +tail}:
+      +count = List.length(&2, AnchoredRow, rows)
+      +end = Bool.pick(Nat, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), count, anchor_end(rows, Cl.ScrollAt{after, tail}, 0n))
+      Nat.sub(count, clamp_scroll(Nat.sub(count, end), count, height))
+
+def anchored_bodies(rows: List<&2, AnchoredRow>) -> List<&2, BodyRow>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{AnchoredRow{body, _}, t}: body <> anchored_bodies(t)
+
+def visible_anchored(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> List<&2, BodyRow>:
+  +end = viewport_end(rows, height, want)
+  anchored_bodies(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height))
+
 def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String) -> List<&2, BodyRow>:
   match b:
     case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
-      visible_body_rows(body_rows(body_of.lines(lines, mutes, name, server), name, w, show_ts), height, scroll)
+      visible_anchored(anchored_lines(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines)), height, scroll)
+
+def row_anchor_at(rows: List<&2, AnchoredRow>, i: Nat) -> Cl.Scroll:
+  match rows:
+    case Nil{}: Cl.ScrollAt{0n, 0n}
+    case Con{AnchoredRow{_, +anchor}, t}:
+      match i:
+        case 0n: anchor
+        case 1n+p: row_anchor_at(t, p)
+
+def moved_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat) -> Cl.Scroll:
+  +count = List.length(&2, AnchoredRow, rows)
+  +current = viewport_end(rows, height, want)
+  +target = Cl.clamp_nat(Nat.sub(Nat.add(current, dn), up), count)
+  +end = Nat.sub(count, clamp_scroll(Nat.sub(count, target), count, height))
+  Bool.pick(Cl.Scroll, Nat.is_eq(end, count), Cl.ScrollAt{0n, 0n}, row_anchor_at(rows, Nat.sub(end, 1n)))
+
+def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
+  match b:
+    case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
+      +rows = anchored_lines(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines))
+      Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -1162,7 +1254,7 @@ def tab_names_ok() -> Bool:
   tab_names_ok.on(Cl.init("me", "s"))
 
 def vis_h(+rows: U32) -> Nat:
-  Sess.body_h(rows)
+  Sp.page_height(rows, Sp.Off{})
 
 def mid_w.on(+cols: U32, wide: Bool) -> U32:
   match wide:
@@ -1497,6 +1589,30 @@ def lay_body_rect(l: Lay) -> Rect:
   match l:
     case Lay{_, _, +body, _, _}: body
 
+def focused_rect.pair(pair: Rect & Rect, focus: U32) -> Rect:
+  match pair:
+    case (+first, +second): Bool.pick(Rect, U32.is_zero(focus), first, second)
+
+def focused_rect.on(+body: Rect, split: Sp.State) -> Rect:
+  match split:
+    case Sp.Off{}: body
+    case Sp.On{axis, _, _, focus}: focused_rect.pair(split_rects(axis, body), focus)
+
+def focused_rect(+rows: U32, +cols: U32, split: Sp.State) -> Rect:
+  focused_rect.on(lay_body_rect(lay(rows, cols, 0)), split)
+
+def scroll_active.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
+  match move:
+    case False{}: cl
+    case True{}:
+      match cl:
+        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
+          +rect = focused_rect(rows, cols, split)
+          Cl.buf_modify_client(cl, active, b => scroll_buf(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, up, dn))
+
+def scroll_active(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
+  scroll_active.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn)
+
 def split_axis_tag(axis: Sp.Axis) -> U32:
   match axis:
     case Sp.SideBySide{}: 0
@@ -1672,7 +1788,7 @@ def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       dummy_line(i) <> dummy_lines.go(p, 1n+i)
 
 def dummy_cl(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
 
 def body_line_ys.go(ops: List<&2, DrawOp>) -> List<&2, U32>:
   match ops:
@@ -1720,7 +1836,7 @@ def ys_last(xs: List<&2, U32>) -> U32:
       ys_last.go(t, h)
 
 # Body-line y values are strictly increasing, end on the last inner body
-# row, and the count is min(lines, vis_h) = Sess.body_h(rows).
+# row, and the count is min(lines, vis_h).
 def body_ys_case(+rows: U32, +nlines: Nat) -> Bool:
   +ys = body_ys(rows, nlines)
   Nat.is_eq(List.length(&2, U32, ys), vis_n(nlines, vis_h(rows)))
@@ -1757,9 +1873,9 @@ def body_ys_ok() -> Bool:
     && ys_clear_chrome(6)
     && ys_clear_chrome(7)
     && ys_clear_chrome(8)
-    && Nat.is_eq(vis_h(24), Sess.body_h(24))
-    && Nat.is_eq(vis_h(6), Sess.body_h(6))
-    && Nat.is_eq(vis_h(7), Sess.body_h(7))
+    && Nat.is_eq(vis_h(24), Sp.page_height(24, Sp.Off{}))
+    && Nat.is_eq(vis_h(6), Sp.page_height(6, Sp.Off{}))
+    && Nat.is_eq(vis_h(7), Sp.page_height(7, Sp.Off{}))
 
 def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
   Nat.is_eq(c, clamp_scroll(c, count, height)) && Nat.is_le(c, m)

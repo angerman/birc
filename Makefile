@@ -186,6 +186,41 @@ test-history: ## Stable log identities, authored lines, and typed reconnect mark
 	$(NIXRUN) timeout 180 bend tests/bend/history_demo.bend -o $(BLDDIR)/history_demo
 	$(NIXRUN) sh scripts/check-golden.sh history_demo=ok ./$(BLDDIR)/history_demo
 
+test-history-io: ## Streaming history keeps the newest records beyond one MiB.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_io.bend -o $(BLDDIR)/history_io
+	$(NIXRUN) sh scripts/check-golden.sh history_io=ok ./$(BLDDIR)/history_io
+
+test-link-commands: ## Repeated link enumeration and opening preserve numbering.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/link_commands_demo.bend -o $(BLDDIR)/link_commands_demo
+	$(NIXRUN) sh scripts/check-golden.sh link_commands_demo=ok ./$(BLDDIR)/link_commands_demo
+
+test-wrap: ## Styled, linked, wide, and combining spans wrap without losing targets.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/wrap_demo.bend -o $(BLDDIR)/wrap_demo
+	$(NIXRUN) sh scripts/check-golden.sh wrap_demo=ok ./$(BLDDIR)/wrap_demo
+
+test-columns-width: ## Exhaustive scalar-width parity with the actual TimUI implementation.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/columns_width.bend -o $(BLDDIR)/columns_width
+	$(NIXRUN) timeout 60 python3 tests/columns_width.py ./$(BLDDIR)/columns_width
+
+test-scroll: ## Wrapped-row navigation and stable arrival/resize anchors.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/scroll_demo.bend -o $(BLDDIR)/scroll_demo
+	$(NIXRUN) sh scripts/check-golden.sh scroll_demo=ok ./$(BLDDIR)/scroll_demo
+
+test-actor: ## Outbound batch boundaries, finite budgets, and FIFO queue behavior.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/actor_demo.bend -o $(BLDDIR)/actor_demo
+	$(NIXRUN) sh scripts/check-golden.sh actor_demo=ok ./$(BLDDIR)/actor_demo
+
+test-actor-queue: ## Local sockets: per-turn caps, close flush, and self-pump safety.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/actor_queue.bend -o $(BLDDIR)/actor_queue
+	$(NIXRUN) timeout 120 python3 tests/net/actor_queue.py ./$(BLDDIR)/actor_queue
+
 test-links: ## Shared URL lexer: boundaries, punctuation, and code spans.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/links_demo.bend -o $(BLDDIR)/links_demo
@@ -310,6 +345,18 @@ test-pty-stall: build-ui ## Pty: PONG while the terminal is not read (F1).
 test-pty-output-stall: build-ui ## Pty: bounded bells/selection and nonblocking clipboard.
 	$(NIXRUN) timeout 40 python3 tests/pty/output_stall.py ./$(BLDDIR)/birc
 
+test-pty-send-stall: build-ui ## Pty: quit stays usable with a saturated non-reading IRC peer.
+	$(NIXRUN) timeout 40 python3 tests/pty/send_stall.py ./$(BLDDIR)/birc
+
+test-pty-wrapped-spans: build-ui ## Pty: wrapped links and wide styled text survive resize.
+	$(NIXRUN) timeout 40 python3 tests/pty/wrapped_spans.py ./$(BLDDIR)/birc
+
+test-pty-reconnect-nick: build-ui ## Pty: reconnect snapshots the acknowledged nickname.
+	$(NIXRUN) timeout 40 python3 tests/pty/reconnect_nick.py ./$(BLDDIR)/birc
+
+test-pty-scroll-wrap: build-ui ## Pty: PageUp reaches the first row of a wrapped message.
+	$(NIXRUN) timeout 40 python3 tests/pty/scroll_wrap.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -367,7 +414,13 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-links test-dns-tcp test-socket-deadline ## Adversarial review regression gates.
+test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap
+
+.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
+.PHONY: test-pty-scroll-wrap
+.PHONY: test-actor test-actor-queue
+
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline ## Adversarial review regression gates.
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

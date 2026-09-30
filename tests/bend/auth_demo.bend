@@ -21,6 +21,14 @@ def chat_kept(pair: Cl.Client & List<&2, String>) -> Bool:
     case (+cl, xs):
       Nat.is_eq(List.length(&2, String, xs), 0n) && String.contains(CL.buf_texts(cl, 1n), "AUTHENTICATE + 903 ")
 
+def reconnect_exchange(pair: Cl.Client & List<&2, String>, fail_first: Bool) -> String:
+  match pair:
+    case (cl, _):
+      +st = Sess.session_with_client(cl, "#t")
+      +before = Bool.pick(Sess.Session, fail_first, Sess.session_fail(st, "lost"), st)
+      +after = Sess.session_cl(Sess.session_reconnected(before, "12:00:00"))
+      outs(Sess.fold_lines(after, ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> Nil{}))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("parsed_ack", Irc.is_cap_ack_sasl(":s CAP me ACK :server-time sasl"))
@@ -38,6 +46,9 @@ def main() -> IO(Unit):
     Unit <- E.must("completed_no_restart", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> Nil{}), ":s CAP me ACK :sasl")))
     Unit <- E.must("registered_no_start", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), ":s CAP me ACK :sasl")))
     Unit <- E.must("registered_no_payload", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 001 me :welcome" <> Nil{}), "AUTHENTICATE +")))
+    Unit <- E.must("reconnected_auth_restarts", String.eq(reconnect_exchange(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), True{}), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw=="))
+    Unit <- E.must("initial_up_auth_restarts", String.eq(reconnect_exchange(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), False{}), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw=="))
+    Unit <- E.must("reconnected_no_credentials", String.is_empty(reconnect_exchange(Sess.fold_lines(Cl.init("me", "s"), ":s 001 me :welcome" <> Nil{}), True{})))
     Unit <- E.must("valid_rejection", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me NAK :sasl" <> Nil{})), "CAP END"))
     Unit <- E.must("valid_failure", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 904 me :failed" <> Nil{})), "AUTHENTICATE PLAINCAP END"))
     IO.print("auth_demo=ok")

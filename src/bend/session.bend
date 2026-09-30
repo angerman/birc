@@ -9,6 +9,7 @@ import ./submit.bend as Sub
 import ./auth.bend as Auth
 import ./split.bend as Sp
 import ./typing.bend as Ty
+import ./view.bend as View
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
@@ -137,15 +138,8 @@ def live_fuel(+frames: U32) -> Nat:
 def ticks_of(+frames: U32) -> Nat:
   live_fuel(frames)
 
-def body_h_on(+rows: U32, ge: Bool) -> Nat:
-  match ge:
-    case True{}:
-      U32.to_nat(U32.sub(rows, 5))
-    case False{}:
-      1n
-
 def body_h(+rows: U32) -> Nat:
-  body_h_on(rows, U32.is_ge(rows, 6))
+  Sp.page_height(rows, Sp.Off{})
 
 # Body lines and PageUp/PageDown share this height. Bend applies it
 # from the frame's row count (Sess.key_pol); C does not take a page.
@@ -1070,7 +1064,12 @@ def add_recon_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buffe
 def add_recon_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg, auth, log_seq}
+      Cl.stamp_logs(Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg, auth, log_seq})
+
+def session_reset_auth(st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}:
+      Session{Cl.set_auth(cl, Cl.auth_for_credentials(Cl.client_has_sasl(cl))), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
 
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
@@ -1082,7 +1081,7 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
           Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing, port}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
-  session_reconnected.on(session_was_offline(st), st, now)
+  session_reconnected.on(session_was_offline(st), session_reset_auth(st), now)
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
@@ -1462,6 +1461,7 @@ def focus_after(on: Bool, +cl: Cl.Client, split: Sp.State) -> Cl.Client & Sp.Sta
 def nav_after(
   +cl: Cl.Client,
   split: Sp.State,
+  size: Size,
   enter: Bool,
   tab: Cl.TabDir,
   click: Maybe<&2, Nat>,
@@ -1469,9 +1469,12 @@ def nav_after(
   +dn: Nat,
   +focus: U32
 ) -> Cl.Client & Sp.State:
-  +cl2 = snap_if(enter, Cl.apply_active_scroll(apply_click(Cl.cycle_tab(cl, tab), click), up, dn))
-  +split2 = Sp.follow_active(cl2, split)
-  focus_after(U32.is_eq(focus, 1), cl2, split2)
+  match size:
+    case Size{rows, cols}:
+      +cl2 = apply_click(Cl.cycle_tab(cl, tab), click)
+      +split2 = Sp.follow_active(cl2, split)
+      +cl3 = snap_if(enter, View.scroll_active(cl2, rows, cols, split2, up, dn))
+      focus_after(U32.is_eq(focus, 1), cl3, split2)
 
 def finish_keys.nav(
   pair: Cl.Client & Sp.State,
@@ -1515,7 +1518,7 @@ def finish_keys(
     case Keys{+typed, +enter, +tab, +click, +up, +dn, +hdir, is_comp, focus}:
       match quad:
         case (cl2, draft2, cmd, split2):
-          finish_keys.nav(nav_after(cl2, split2, enter, tab, click, up, dn, focus), is_comp, drop, rem, joined, chan, net, cmd, hist, size, comp, typing, port, typed, draft2, hdir, enter)
+          finish_keys.nav(nav_after(cl2, split2, size, enter, tab, click, up, dn, focus), is_comp, drop, rem, joined, chan, net, cmd, hist, size, comp, typing, port, typed, draft2, hdir, enter)
 
 def step_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match st:

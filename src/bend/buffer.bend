@@ -26,6 +26,12 @@ type LineKind is Data:
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String, author: String, id: Nat}
 
+# The viewport bottom is anchored to a message and rendered character.
+# `after` counts newer logical messages; `tail` counts characters after that
+# position within its message. Both zero means follow the live tail.
+type Scroll is Data:
+  ScrollAt{after: Nat, tail: Nat}
+
 type Buffer is Data:
   Buffer{
     name: String,
@@ -33,7 +39,7 @@ type Buffer is Data:
     topic: String,
     lines: List<&2, Line>,
     nicks: List<&2, String>,
-    scroll: Nat
+    scroll: Scroll
   }
 
 type AlertLevel is Data:
@@ -402,7 +408,7 @@ def del_mute_client(+cl: Client, +pat: String) -> Client:
 # ---- init ---------------------------------------------------------------
 
 def server_buf() -> Buffer:
-  Buffer{"server", False{}, "", Nil{}, Nil{}, 0n}
+  Buffer{"server", False{}, "", Nil{}, Nil{}, ScrollAt{0n, 0n}}
 
 def init(+nick: String, +server: String) -> Client:
   Client{nick, server, server_buf() <> Nil{}, 0n, "", settings0(), AuthIdle{}, 0n}
@@ -470,7 +476,7 @@ def buf_count(+bufs: List<&2, Buffer>) -> Nat:
 def buf_clear(b: Buffer) -> Buffer:
   match b:
     case Buffer{+name, is_channel, +topic, _, +nicks, _}:
-      Buffer{name, is_channel, topic, Nil{}, nicks, 0n}
+      Buffer{name, is_channel, topic, Nil{}, nicks, ScrollAt{0n, 0n}}
 
 def buf_clear_at(+cl: Client, +i: Nat) -> Client:
   match cl:
@@ -486,7 +492,7 @@ def buf_set_lines(+lines: List<&2, Line>, b: Buffer) -> Buffer:
         lines,
         Nat.sub(List.length(&2, Line, lines), SCROLL_CAP())
       )
-      Buffer{name, is_channel, topic, kept, nicks, 0n}
+      Buffer{name, is_channel, topic, kept, nicks, ScrollAt{0n, 0n}}
 
 def buf_set_lines_fn(lines: List<&2, Line>, b: Buffer) -> Buffer:
   buf_set_lines(lines, b)
@@ -578,21 +584,23 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
       empty_buf.nicks.server(String.eq(name, "server") || String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
-  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), 0n}
+  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), ScrollAt{0n, 0n}}
 
 # Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
   List.drop(&2, Line, xs, Nat.sub(List.length(&2, Line, xs), n))
 
-def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
+def buf_log.scroll.on(gt: Bool, +after: Nat, +tail: Nat) -> Scroll:
   match gt:
     case True{}:
-      1n+scroll
+      ScrollAt{1n+after, tail}
     case False{}:
-      0n
+      ScrollAt{0n, 0n}
 
-def buf_log.scroll(+scroll: Nat) -> Nat:
-  buf_log.scroll.on(Nat.is_gt(scroll, 0n), scroll)
+def buf_log.scroll(scroll: Scroll) -> Scroll:
+  match scroll:
+    case ScrollAt{+after, +tail}:
+      buf_log.scroll.on(Nat.is_gt(after, 0n) || Nat.is_gt(tail, 0n), after, tail)
 
 def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
   match b:
@@ -652,7 +660,7 @@ def stamp_lines(lines: List<&2, Line>, seq: Nat) -> List<&2, Line> & Nat:
 type StampBufs is Data:
   StampBufs{rev: List<&2, Buffer>, seq: Nat}
 
-def stamp_bufs.step.lines(pair: List<&2, Line> & Nat, name: String, channel: Bool, topic: String, nicks: List<&2, String>, scroll: Nat, rev: List<&2, Buffer>) -> StampBufs:
+def stamp_bufs.step.lines(pair: List<&2, Line> & Nat, name: String, channel: Bool, topic: String, nicks: List<&2, String>, scroll: Scroll, rev: List<&2, Buffer>) -> StampBufs:
   match pair:
     case (lines, seq): StampBufs{Buffer{name, channel, topic, lines, nicks, scroll} <> rev, seq}
 
@@ -913,10 +921,13 @@ def set_active_clamp(+cl: Client, +i: Nat) -> Client:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       set_active_clamp.on(cl, i, Nat.is_lt(i, buf_count(bufs)))
 
-def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
+def set_buf_anchor(+b: Buffer, +sc: Scroll) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, _}:
       Buffer{name, ch, topic, lines, nicks, sc}
+
+def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
+  set_buf_anchor(b, ScrollAt{sc, 0n})
 
 def set_buf_name(+b: Buffer, +name: String) -> Buffer:
   match b:
@@ -946,14 +957,14 @@ def clamp_nat(+n: Nat, +maxs: Nat) -> Nat:
 
 def apply_buf_scroll.on(+b: Buffer, +up: Nat, +dn: Nat) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, ScrollAt{+scroll, _}}:
       Buffer{
         name,
         ch,
         topic,
         lines,
         nicks,
-        clamp_nat(scroll_add_nat(scroll, up, dn), List.length(&2, Line, lines))
+        ScrollAt{clamp_nat(scroll_add_nat(scroll, up, dn), List.length(&2, Line, lines)), 0n}
       }
 
 def scroll_delta(+up: Nat, +dn: Nat, b: Buffer) -> Buffer:
@@ -970,7 +981,7 @@ def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
       0n
     case Some{b}:
       match b:
-        case Buffer{_, _, _, _, _, +scroll}:
+        case Buffer{_, _, _, _, _, ScrollAt{+scroll, _}}:
           scroll
 
 def buf_scroll_of(+cl: Client, +i: Nat) -> Nat:

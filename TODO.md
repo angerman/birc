@@ -851,7 +851,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 
 ### Runtime and shutdown
 
-- [ ] **R01 — Bounded, cancellable outbound work (P1).** Break the cycle
+- [x] **R01 — Bounded, cancellable outbound work (P1).** Break the cycle
       between a full command queue, a blocked TCP writer, and a full event
       queue. Keep `/quit` and disconnect usable when a peer stops reading.
       Test normal sends, a non-reading peer, queue saturation, and shutdown.
@@ -862,7 +862,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **R03 — One frame-result handler (P2).** Handle clicked URLs and keys
       from every paint, including resize, incoming chunks, EOF, and redraws.
       Test clicks with and without concurrent resize/inbound traffic.
-- [ ] **R04 — Reconnect registration identity (P2).** Carry the current nick
+- [x] **R04 — Reconnect registration identity (P2).** Carry the current nick
       into a new connection instead of the actor's startup nick. Test an
       acknowledged `/nick`, reconnect, and normal initial registration.
 - [ ] **R05 — Reap URL launcher children (P2).** Own launcher lifetimes and
@@ -893,7 +893,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **S01 — Canonical bounded logging (P1).** Route buffer-cap warnings
       through the same capped append as all other logs. Test more than 1,024
       rejected remote buffer creations and ordinary accepted creation.
-- [ ] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
+- [x] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
       state rather than stopping after the first MiB. Test a file above one
       MiB, its newest record, empty files, and malformed records.
 - [x] **S03 — Persist stable log events (P2).** Stop inferring events
@@ -915,14 +915,19 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
       identify queries after NICK changes; update nick lists and focus.
       Test an old query colliding with an existing query and normal rename.
-- [ ] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
+- [ ] **S09 — Legal nick `server` is not the control buffer (P2).** Keep
+      index zero's role separate from the query's display name during NICK,
+      QUIT, unread handling, and history serialization. Use the invalid IRC
+      nick `*server*` as the persisted control target. Test both buffer roles,
+      rename collisions, and history isolation without a new role framework.
+- [x] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
       line once; preserve complete URL targets and formatting across rows.
       Wrap using terminal column widths, including wide/combining text.
       Test split URLs, Markdown spans, CJK, narrow widths, and resize.
-- [ ] **U02 — One scroll coordinate system (P2).** Make clamping, view slicing,
+- [x] **U02 — One scroll coordinate system (P2).** Make clamping, view slicing,
       arrival anchoring, and resize use consistent coordinates. Test one long
       wrapped line, reaching its first row, new arrivals, and width changes.
-- [ ] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
+- [x] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
       punctuation boundaries.
@@ -944,7 +949,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **C04 — No wire targets for synthetic buffers (P2).** Use one sendable
       buffer predicate for plain chat and `/me`/related commands. Test settings
       and other synthetic buffers plus valid channels and queries.
-- [ ] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
+- [x] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
       guards and duplicate marker/URL/command operations as their canonical
       replacements land. Do not add abstractions without a second real use.
 
@@ -982,6 +987,39 @@ Verification so far (all through the locked Nix shell, no pin updates):
   The integrated `make test-pty-output-stall` also passed. Successful shutdown
   uses bounded output plus `_Exit` after terminal restoration; the old runtime
   `IO.die` writes an unbounded stderr newline.
+- R01 (`3e98e27`): normal and saturated-peer `send_stall.py` cases passed
+  three consecutive runs; the runtime worktree's full `make test-pty test-net`
+  also passed before the later history/wrapping integration.
+- R04 (`fe558b9`): unchanged and acknowledged-renamed nick reconnect cases
+  passed three consecutive runs. `make test-pty-autoreconnect test-pty-redial
+  test-submit proof` passed in the runtime worktree.
+- U01 (`692a659`): ten pure wrapping cases, exhaustive scalar-width parity,
+  and `wrapped_spans.py` passed. The new PTY test passed three consecutive
+  runs and fails against the old binary.
+- S02/S04 (`5ffb06e`): streaming tests retain the latest records beyond one
+  MiB, including a UTF-8 record split across reads. Endpoint/port mismatch and
+  ambiguous legacy records are rejected. UI-edge reload remains in progress.
+- U03 (`77b7e84`): repeated `/links` and `/open 1` do not amplify or reorder
+  results. Listing/open echoes have explicit provenance and are not saved.
+- U02: `make test-scroll test-split test-history test-history-io
+  test-link-commands test-auth proof` passed. The new first-wrapped-row case
+  failed against the old implementation. `make test-pty-scroll-wrap` passed
+  three consecutive runs. The character anchor also handles one-column views
+  and muted arrivals. Authentication is reset only on a new connection's Up.
+- C05: empty-arg guards, command parsing, URL recognition, body-height math,
+  and text-based marker/event inference now use their canonical operations.
+
+Pending approval: `tests/pty/history_pty.py` currently uses two different
+random ports but expects shared history. The endpoint fix deliberately stops
+that sharing. A proposed fixture correction reuses the original host:port and
+adds a distinct-port rejection case. Do not change that existing test without
+the user's approval.
+
+Pending approval: `tests/bend/view_preds.bend` expects no alert on a private
+query whose legal nick is `server`. That expectation confuses the query with
+the control buffer. The proposed correction expects `server!` and keeps a
+separate control/query regression. Do not change the existing expectation
+without the user's approval.
 
 Open integration work remains unchecked above. Checkmarks are not a claim that
 the final combined runtime/PTY/sanitizer gate has already passed.

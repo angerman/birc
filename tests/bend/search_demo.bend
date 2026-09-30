@@ -46,7 +46,7 @@ def repeat_hit(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       Cl.Line{Cl.Msg{}, "", "hit " ++ Nat.show(i), "", 0n} <> repeat_hit(p, Nat.add(i, 1n))
 
 def cap_fixture() -> Cl.Buffer:
-  Cl.Buffer{"#many", True{}, "", repeat_hit(Nat.add(Cl.SCROLL_CAP(), 1n), 0n), Nil{}, 0n}
+  Cl.Buffer{"#many", True{}, "", repeat_hit(Nat.add(Cl.SCROLL_CAP(), 1n), 0n), Nil{}, Cl.ScrollAt{0n, 0n}}
 
 def first_text(xs: List<&2, Cl.Line>) -> String:
   match xs:

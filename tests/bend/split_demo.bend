@@ -58,7 +58,7 @@ def invalid_preserves_split_ok() -> Bool:
 def lines(n: Nat) -> List<&2, Cl.Line>:
   match n:
     case 0n: Nil{}
-    case 1n+p: Cl.Line{Cl.Msg{}, "", "line", +author, +id} <> lines(p)
+    case 1n+p: Cl.Line{Cl.Msg{}, "", "line", "", 0n} <> lines(p)
 
 def focused_scroll_ok() -> Bool:
   +cl = Cl.buf_set_lines_at(test_client(), 2n, lines(30n))
