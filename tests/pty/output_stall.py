@@ -46,6 +46,60 @@ def receive(conn: socket.socket, needle: bytes, duration: float) -> bytes:
     return bytes(out)
 
 
+def startup_case(binary: str, mode: str) -> None:
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(3)
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+    if mode != "ordinary":
+        flags = fcntl.fcntl(slave, fcntl.F_GETFL)
+        fcntl.fcntl(slave, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        try:
+            for _ in range(4096):
+                os.write(slave, b"x" * 4096)
+            raise AssertionError("fixture could not fill the terminal output queue")
+        except BlockingIOError:
+            pass
+        finally:
+            fcntl.fcntl(slave, fcntl.F_SETFL, flags)
+    output = os.open(os.ttyname(slave), os.O_WRONLY | os.O_NOCTTY) if mode == "separate" else slave
+    proc = subprocess.Popen(
+        [binary, "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
+         "--nick", "probe", "--channel", "#t", "--frames", "0"],
+        stdin=slave, stdout=output, stderr=output,
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
+    )
+    if output != slave:
+        os.close(output)
+    os.close(slave)
+    conn = None
+    try:
+        conn, _ = listener.accept()
+        conn.sendall(b":irc 001 probe :Welcome\r\nPING :startup-output\r\n")
+        # Keep the terminal unread through startup and the PONG assertion.
+        # Both shared and independent output descriptions must be bounded.
+        got = receive(conn, b"PONG :startup-output", 1)
+        assert b"PONG :startup-output" in got, f"startup {mode}: unread terminal blocked PONG: {got!r}"
+        assert b"USER probe" in got, f"startup {mode}: missing registration: {got!r}"
+        assert not termios.tcgetattr(master)[3] & termios.ICANON, f"startup {mode}: terminal did not enter raw mode"
+        os.write(master, b"/quit\r")
+        proc.wait(timeout=3)
+        assert proc.returncode == 0, f"startup {mode}: exit={proc.returncode}"
+        attrs = termios.tcgetattr(master)
+        assert attrs[3] & termios.ICANON, f"startup {mode}: terminal remained raw"
+        print(f"output_stall startup {mode}=ok", flush=True)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if conn is not None:
+            conn.close()
+        listener.close()
+        os.close(master)
+
+
 def case(binary: str, mode: str, directory: str) -> None:
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -115,6 +169,8 @@ def case(binary: str, mode: str, directory: str) -> None:
 
 def main() -> None:
     binary = sys.argv[1] if len(sys.argv) > 1 else "./build/birc"
+    for mode in ("ordinary", "shared", "separate"):
+        startup_case(binary, mode)
     with tempfile.TemporaryDirectory(prefix="birc-output-stall-") as directory:
         # Consume input immediately, then remain alive long enough that a
         # synchronous pclose would fail the PONG latency assertion.

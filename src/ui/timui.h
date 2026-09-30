@@ -4513,9 +4513,16 @@ TIMUI_API TimuiResult timui_open(const TimuiConfig *cfg, Timui **out_ui) {
     ui->termios_active = 1;
   }
   if (output_is_tty) {
-    timui_screen_enter(&ui->transport, &ui->screen, cfg->flags,
-                       timui_str_from_cstr(cfg->title));
-    ui->screen_active = 1;
+    /* Startup uses the same borrowed-fd budget as teardown. The output
+     * queue can already be full before the first frame installs its writer,
+     * and input/output may have independent open file descriptions. */
+    int may_write = timui_teardown_arm_(ui);
+    if (may_write) {
+      timui_screen_enter(&ui->transport, &ui->screen, cfg->flags,
+                         timui_str_from_cstr(cfg->title));
+      ui->screen_active = 1;
+    }
+    timui_teardown_disarm_(ui);
   }
   r = timui_setup(ui, w, h);
   if (r != TIMUI_OK) {
@@ -30304,14 +30311,21 @@ TIMUI_API TimuiResult timui_termios_enter(TimuiTermios *t, int fd) {
   raw.c_cflag |= CS8;
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
-  /* short-circuit keeps the real tcsetattr un-called when the seam is armed */
-  if (g_tcsetattr_fail_for_test || tcsetattr(fd, TCSAFLUSH, &raw) != 0) {
-    free(orig);
-    t->saved = NULL;
-    t->have_saved = 0;
-    return TIMUI_ERR_OS;
+  /* Like restore, entry must not wait for an unread output queue to drain.
+   * Apply raw mode immediately, then discard the old typeahead separately.
+   * The short-circuit preserves the tcsetattr failure test seam. */
+  if (g_tcsetattr_fail_for_test || tcsetattr(fd, TCSANOW, &raw) != 0)
+    goto fail;
+  if (tcflush(fd, TCIFLUSH) != 0) {
+    (void)tcsetattr(fd, TCSANOW, orig);
+    goto fail;
   }
   return TIMUI_OK;
+fail:
+  free(orig);
+  t->saved = NULL;
+  t->have_saved = 0;
+  return TIMUI_ERR_OS;
 }
 TIMUI_API TimuiResult timui_termios_restore(TimuiTermios *t) {
   if (!t || !t->have_saved)
