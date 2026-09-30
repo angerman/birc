@@ -211,6 +211,7 @@ Type commands into the composer prompt:
 | Command | Description |
 |---|---|
 | `/connect <host> [port]` | Connect to an IRC server (from demo or offline mode) |
+| `/reconnect` | Reconnect to the saved server and port |
 | `/join <channel>` | Join an IRC channel (e.g. `/join #bend`) |
 | `/part [reason]` | Leave the active channel |
 | `/close` | Close the active private query buffer tab |
@@ -227,6 +228,9 @@ Type commands into the composer prompt:
 
 Send, scroll, nick-list, and status actions use the focused pane. Split commands
 never join a channel or create a buffer.
+
+Live connections automatically reconnect to the saved host and port after an
+unexpected disconnect. Use `/set autoreconn off` to disable this behavior.
 
 ---
 

@@ -668,3 +668,9 @@ def Laws.typing_message_clear():
 
 def Laws.typing_stale_tick():
   {==}
+
+def Laws.reconnect_endpoint():
+  {==}
+
+def Laws.disconnect_drop():
+  {==}

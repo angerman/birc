@@ -295,3 +295,11 @@ law typing_message_clear:
 # LAW: an older timer tick cannot expire a newer typing event.
 law typing_stale_tick:
   {Ty.stale_tick_ok() == True{} : Bool}
+
+# LAW: automatic reconnect preserves the selected server endpoint.
+law reconnect_endpoint:
+  {Sess.reconnect_endpoint_ok() == True{} : Bool}
+
+# LAW: reconnect-off disconnects explicitly release the network actor socket.
+law disconnect_drop:
+  {Sess.disconnect_drop_ok() == True{} : Bool}

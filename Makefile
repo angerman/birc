@@ -33,7 +33,7 @@ check: export BIRC_HISTORY ?= none
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
-        test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-split test-pty-typing \
+        test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing \
         test-pty-hostile lint-ffi test-utf8-fit test-paste-harness proto-parity proof check \
         test-asan test-ubsan test-sanitizers test-perf-gates check-hardening \
         run run-demo clean \
@@ -289,6 +289,12 @@ test-pty-settings: build-ui ## Pty: /settings panel, /set, and /toggle commands.
 test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and BIRC_HISTORY.
 	$(NIXRUN) python3 tests/pty/history_pty.py ./$(BLDDIR)/birc
 
+test-pty-autoreconnect: build-ui ## Pty: live disconnect reconnects on the saved host and port.
+	$(NIXRUN) python3 tests/pty/autoreconnect.py ./$(BLDDIR)/birc
+
+test-pty-disconnect-cleanup: build-ui ## Pty: reconnect-off disconnect releases the dead writer socket.
+	$(NIXRUN) python3 tests/pty/disconnect_cleanup.py ./$(BLDDIR)/birc
+
 test-pty-hostile: build-ui ## M7.6: combined hostile wire, resize, cap, and recovery corpus.
 	$(NIXRUN) timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc
 
@@ -298,7 +304,7 @@ test-pty-split: build-ui ## Pty: visible split geometry/content, focus keys, sel
 test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and muted clear.
 	$(NIXRUN) python3 tests/pty/typing.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
 test: test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

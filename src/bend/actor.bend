@@ -451,6 +451,10 @@ def writer_cmd(
       match c:
         case Sess.Cont{outs}:
           writer_cont(sock, gen, evt, pending, outs, k)
+        case Sess.Drop{}:
+          do IO<Unit>:
+            Unit <- writer_drop(sock)
+            k((None{}, gen, Nil{}))
         case Sess.Dial{+host, port, dgen}:
           do IO<Unit>:
             Unit <- writer_drop(sock)
@@ -478,6 +482,8 @@ def wait_cmd(
         case Sess.Dial{+host, port, dgen}:
           dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
         case Sess.Cont{_}:
+          k((None{}, gen, Nil{}))
+        case Sess.Drop{}:
           k((None{}, gen, Nil{}))
         case Sess.Handoff{_}:
           k((None{}, gen, Nil{}))

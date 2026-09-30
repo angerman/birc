@@ -94,7 +94,7 @@ def paint_go(
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _}:
       paint_go(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)))
 
 
@@ -120,6 +120,10 @@ def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
       do IO<U32>:
         ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Dial{host, port, U32.add(gen, 1)})
         return U32.add(gen, 1)
+    case Sess.Drop{}:
+      do IO<U32>:
+        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Drop{})
+        return gen
     case Sess.Cont{+outs}:
       emit_outs(chan, outs, gen, outs_nil(outs))
     case Sess.Handoff{_}:
@@ -1078,11 +1082,16 @@ def heartbeat_step(ok: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
 def heartbeat(+cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   heartbeat_step(True{}, cmd)
 
+def live_client(+cl: Cl.Client, +sasl_user: String, +sasl_pass: String) -> Cl.Client:
+  +cl1 = Cl.client_set_sasl(cl, sasl_user, sasl_pass)
+  Cl.set_settings(cl1, Cl.set_autoreconn(Cl.get_settings(cl1), True{}))
+
 def start_ui_load(
   +hist_path: String,
   +hist_cap: U32,
   +nick: String,
   +host: String,
+  +port: U32,
   +now: String,
   ui: T.Ui,
   +chan: String,
@@ -1095,7 +1104,7 @@ def start_ui_load(
 ) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- Hist.history_init_client(hist_path, hist_cap, nick, host, now)
-    start_ui_go(ui, Sess.session_with_client(Cl.client_set_sasl(cl, sasl_user, sasl_pass), chan), frames, evt, cmd, ack, hist_path)
+    start_ui_go(ui, Sess.session_with_client_at(live_client(cl, sasl_user, sasl_pass), chan, port), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   +frames: U32,
@@ -1103,6 +1112,7 @@ def start_ui(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
+  +port: U32,
   +chan: String,
   +sasl_user: String,
   +sasl_pass: String
@@ -1114,7 +1124,7 @@ def start_ui(
     hist_cap : U32 <- Hist.resolve_history_cap()
     now : String <- Clock.hhmmss()
     Unit <- IO.spawn(Unit, heartbeat(cmd))
-    start_ui_load(hist_path, hist_cap, nick, host, now, ui, chan, frames, sasl_user, sasl_pass, evt, cmd, ack)
+    start_ui_load(hist_path, hist_cap, nick, host, port, now, ui, chan, frames, sasl_user, sasl_pass, evt, cmd, ack)
 
 def boot_ui_on(
   e: Act.Boot,
@@ -1123,6 +1133,7 @@ def boot_ui_on(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
+  +port: U32,
   +chan: String,
   +sasl_user: String,
   +sasl_pass: String
@@ -1133,7 +1144,7 @@ def boot_ui_on(
     case Act.Down{+msg}:
       boot_die(cmd, msg)
     case Act.Ready{}:
-      start_ui(frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
+      start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
 
 def boot_ui(
   g: Maybe<&1, Act.Boot>,
@@ -1144,6 +1155,7 @@ def boot_ui(
   +cmd: Chan(Sess.NetCmd),
   +nick: String,
   +host: String,
+  +port: U32,
   +chan: String,
   +sasl_user: String,
   +sasl_pass: String
@@ -1155,7 +1167,7 @@ def boot_ui(
       do IO<Unit>:
         Unit <- Chan.close(Act.Boot, boot)
         Unit <- Chan.close(Unit, stop)
-        boot_ui_on(e, frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
+        boot_ui_on(e, frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
 
 def run_live_on(
   +frames: U32,
@@ -1175,7 +1187,7 @@ def run_live_on(
     Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl))
     Unit <- IO.spawn(Unit, boot_clock(boot, stop))
     g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
-    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, chan, sasl_user, sasl_pass)
+    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
 
 def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   do IO<Unit>:
