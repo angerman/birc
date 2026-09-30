@@ -3,6 +3,7 @@ import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./client.bend as Feed
+import ./links.bend as Links
 import ./args.bend as Args
 
 def empty_out() -> List<&2, String>:
@@ -745,85 +746,15 @@ def submit.is_slash(+s: String) -> Bool:
       False{}
 
 def is_http_pfx(+s: String) -> Bool:
-  String.starts_with(s, "http://") || String.starts_with(s, "https://")
-
-def is_url_end(c: Char) -> Bool:
-  match c:
-    case Chr{+n}:
-      U32.is_eq(n, 32) || U32.is_eq(n, 9) || U32.is_eq(n, 10) || U32.is_eq(n, 13)
-
-def take_url_tok.cons(+h: Char, r: String & String) -> String & String:
-  match r:
-    case (tok, rest):
-      (SCon{h, tok}, rest)
-
-def take_url_tok.fin(+h: Char, +t: String, r: String & String, stop: Bool) -> String & String:
-  match stop:
-    case True{}:
-      ("", SCon{h, t})
-    case False{}:
-      take_url_tok.cons(h, r)
-
-def take_url_tok.go(fuel: Nat, s: String) -> String & String:
-  match fuel:
-    case 0n: ("", "")
-    case 1n+p:
-      match s:
-        case SNil{}: ("", "")
-        case SCon{+h, +t}:
-          take_url_tok.fin(h, t, take_url_tok.go(p, t), is_url_end(h))
-
-def take_url_tok(+s: String) -> String & String:
-  take_url_tok.go(Nat.add(1n, String.length(s)), s)
-
-def is_url_punct(c: Char) -> Bool:
-  match c:
-    case Chr{+n}:
-      U32.is_eq(n, 41) || U32.is_eq(n, 46) || U32.is_eq(n, 44) || U32.is_eq(n, 34)
-        || U32.is_eq(n, 93) || U32.is_eq(n, 59)
-
-def trim_url_punct.keep(+h: Char, t: String, rec: String, trail: Bool) -> String:
-  match trail:
-    case True{}: rec
-    case False{}: String.reverse(SCon{h, t})
-
-def trim_url_punct.go(fuel: Nat, rev: String) -> String:
-  match fuel:
-    case 0n: ""
-    case 1n+p:
-      match rev:
-        case SNil{}: ""
-        case SCon{+h, +t}:
-          trim_url_punct.keep(h, t, trim_url_punct.go(p, t), is_url_punct(h))
-
-def trim_url_punct(+url: String) -> String:
-  trim_url_punct.go(Nat.add(1n, String.length(url)), String.reverse(url))
-
-def take_url_tok_url.pair(pair: String & String) -> String:
-  match pair:
-    case (+tok, _): tok
-
-def take_url_tok_url(+s: String) -> String:
-  take_url_tok_url.pair(take_url_tok(s))
-
-def extract_urls.step(is_http: Bool, +s: String, tail: List<&2, String>) -> List<&2, String>:
-  match is_http:
-    case True{}:
-      trim_url_punct(take_url_tok_url(s)) <> tail
-    case False{}:
-      tail
-
-def extract_urls.go(fuel: Nat, s: String) -> List<&2, String>:
-  match fuel:
-    case 0n: Nil{}
-    case 1n+p:
-      match s:
-        case SNil{}: Nil{}
-        case SCon{+h, +t}:
-          extract_urls.step(is_http_pfx(SCon{h, t}), SCon{h, t}, extract_urls.go(p, t))
+  Links.is_url_prefix(s)
 
 def extract_urls(+s: String) -> List<&2, String>:
-  extract_urls.go(Nat.add(1n, String.length(s)), s)
+  Links.extract(s)
+
+def lines_urls.line(skip: Bool, +text: String) -> List<&2, String>:
+  match skip:
+    case True{}: Nil{}
+    case False{}: Links.extract(text)
 
 def lines_urls.go(fuel: Nat, lines: List<&2, Cl.Line>) -> List<&2, String>:
   match fuel:
@@ -833,8 +764,8 @@ def lines_urls.go(fuel: Nat, lines: List<&2, Cl.Line>) -> List<&2, String>:
         case Nil{}: Nil{}
         case Con{ln, t}:
           match ln:
-            case Cl.Line{_, _, +text, +author, +id}:
-              List.append(&2, String, extract_urls(text), lines_urls.go(p, t))
+            case Cl.Line{+kind, _, +text, _, _}:
+              List.append(&2, String, lines_urls.line(Cl.is_link_result(kind) || Cl.is_reconnect(kind), text), lines_urls.go(p, t))
 
 def active_buf_urls(+cl: Cl.Client) -> List<&2, String>:
   +rev_lines = List.reverse(&2, Cl.Line, Cl.active_buf_lines(cl))
@@ -854,6 +785,30 @@ def nth_link.go(fuel: Nat, xs: List<&2, String>, n: Nat) -> Maybe<&2, String>:
 def nth_link(xs: List<&2, String>, +n: Nat) -> Maybe<&2, String>:
   nth_link.go(Nat.add(1n, n), xs, n)
 
+def echo_link_result(+cl: Cl.Client, +text: String) -> Cl.Client:
+  Cl.client_log(cl, active_idx(cl), Cl.LinkResult{}, text)
+
+def clear_link_results.keep(skip: Bool, line: Cl.Line, rest: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match skip:
+    case True{}: rest
+    case False{}: line <> rest
+
+def clear_link_results.lines(lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+line, t}:
+      match line:
+        case Cl.Line{kind, _, _, _, _}:
+          clear_link_results.keep(Cl.is_link_result(kind), line, clear_link_results.lines(t))
+
+def clear_link_results.buf(b: Cl.Buffer) -> Cl.Buffer:
+  match b:
+    case Cl.Buffer{name, channel, topic, lines, nicks, scroll}:
+      Cl.Buffer{name, channel, topic, clear_link_results.lines(lines), nicks, scroll}
+
+def clear_link_results(+cl: Cl.Client) -> Cl.Client:
+  Cl.buf_modify_client(cl, active_idx(cl), clear_link_results.buf)
+
 def echo_links.go(fuel: Nat, cl: Cl.Client, xs: List<&2, String>, +idx: Nat) -> Cl.Client:
   match fuel:
     case 0n: cl
@@ -862,18 +817,19 @@ def echo_links.go(fuel: Nat, cl: Cl.Client, xs: List<&2, String>, +idx: Nat) -> 
         case Nil{}: cl
         case Con{+h, t}:
           +msg = "[" ++ Nat.show(idx) ++ "] " ++ h
-          echo_links.go(p, echo_info(cl, msg), t, Nat.add(idx, 1n))
+          echo_links.go(p, echo_link_result(cl, msg), t, Nat.add(idx, 1n))
 
 def submit_links.on(+cl: Cl.Client, urls: List<&2, String>) -> Cl.Client & List<&2, String>:
   match urls:
     case Nil{}:
-      (echo_info(cl, "no links found in buffer"), empty_out())
+      (echo_link_result(cl, "no links found in buffer"), empty_out())
     case Con{+h, t}:
-      +cl2 = echo_info(cl, "recent links:")
-      (echo_links.go(100n, echo_info(cl2, "[1] " ++ h), t, 2n), empty_out())
+      +cl2 = echo_link_result(cl, "recent links:")
+      (echo_links.go(100n, cl2, h <> t, 1n), empty_out())
 
 def submit_links(+cl: Cl.Client) -> Cl.Client & List<&2, String>:
-  submit_links.on(cl, active_buf_urls(cl))
+  +source = clear_link_results(cl)
+  submit_links.on(source, active_buf_urls(source))
 
 def open_parse_arg.zero(is_zero: Bool, +cl: Cl.Client, n: U32) -> Maybe<&2, String>:
   match is_zero:
@@ -910,38 +866,10 @@ def submit_open_cmd.got(+cl: Cl.Client, mb: Maybe<&2, String>) -> Cl.Client & Li
     case None{}:
       (echo_err(cl, "no link found"), empty_out())
     case Some{+url}:
-      (echo_info(cl, "opening " ++ url), empty_out())
+      (echo_link_result(cl, "opening " ++ url), empty_out())
 
 def submit_open_cmd(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_open_cmd.got(cl, open_resolve_target(cl, Irc.drop_spaces(rest)))
-
-def submit_is_open.verb(is_open: Bool) -> Bool:
-  match is_open:
-    case True{}: True{}
-    case False{}: False{}
-
-def submit_is_open.pair(pair: String & String) -> Bool:
-  match pair:
-    case (+verb, _):
-      submit_is_open.verb(Irc.ieq(verb, "open"))
-
-def submit_is_open.slash(slash: Bool, +input: String) -> Bool:
-  match slash:
-    case True{}:
-      submit_is_open.pair(take_word(Irc.drop_spaces(String.drop(input, 1n))))
-    case False{}:
-      False{}
-
-def submit_is_open(+input: String) -> Bool:
-  submit_is_open.slash(submit.is_slash(input), input)
-
-def open_arg_from_input.pair(pair: String & String) -> String:
-  match pair:
-    case (_, +rest):
-      Irc.drop_spaces(rest)
-
-def open_arg_from_input(+input: String) -> String:
-  open_arg_from_input.pair(take_word(Irc.drop_spaces(String.drop(input, 1n))))
 
 # ---- /search ------------------------------------------------------------
 
@@ -1073,6 +1001,22 @@ def parse_input.empty(+input: String, empty: Bool) -> Input:
 
 def parse_input(+input: String) -> Input:
   parse_input.empty(input, String.is_empty(input))
+
+def submit_is_open.parsed(input: Input) -> Bool:
+  match input:
+    case CommandInput{OpenCmd{}, _, _}: True{}
+    case _: False{}
+
+def submit_is_open(+input: String) -> Bool:
+  submit_is_open.parsed(parse_input(input))
+
+def open_arg_from_input.parsed(input: Input) -> String:
+  match input:
+    case CommandInput{OpenCmd{}, _, rest}: rest
+    case _: ""
+
+def open_arg_from_input(+input: String) -> String:
+  open_arg_from_input.parsed(parse_input(input))
 
 def query_needs_connection(pair: String & String) -> Bool:
   match pair:
