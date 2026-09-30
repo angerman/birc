@@ -297,6 +297,11 @@ law typing_message_clear:
 law typing_stale_tick:
   {Ty.stale_tick_ok() == True{} : Bool}
 
+# LAW: each received mention advances the bell event sequence; ordinary
+# messages do not.
+law bell_mentions_advance:
+  {CL.bell_mentions_advance_ok() == True{} : Bool}
+
 # LAW: automatic reconnect preserves the selected server endpoint.
 law reconnect_endpoint:
   {Sess.reconnect_endpoint_ok() == True{} : Bool}

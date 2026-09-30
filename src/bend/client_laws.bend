@@ -302,3 +302,14 @@ def log_ts_ok.feed() -> Bool:
 def log_ts_ok() -> Bool:
   +b1 = Cl.buf_log_ts(Cl.server_buf(), Cl.Msg{}, "01:02:03", "old")
   log_ts_ok.buf(Cl.buf_log_ts(b1, Cl.Msg{}, "12:00:00", "new")) && log_ts_ok.feed()
+
+def bell_mentions_advance_ok() -> Bool:
+  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!m@h JOIN #birc")
+  +cl1 = Feed.feed(cl0, ":alice!a@h PRIVMSG #birc :ordinary")
+  +cl2 = Feed.feed(cl1, ":alice!a@h PRIVMSG #birc :hello me")
+  +cl3 = Feed.feed(cl2, ":alice!a@h PRIVMSG #birc :me again")
+  +cl4 = Feed.feed(cl3, ":bob!b@h PRIVMSG me :hello")
+  U32.is_eq(Cl.client_bell_seq(cl1), 0)
+    && U32.is_eq(Cl.client_bell_seq(cl2), 1)
+    && U32.is_eq(Cl.client_bell_seq(cl3), 2)
+    && U32.is_eq(Cl.client_bell_seq(cl4), 3)

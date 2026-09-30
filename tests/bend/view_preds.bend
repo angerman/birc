@@ -52,6 +52,25 @@ def show_spanops(+xs: List<&2, V.SpanOp>) -> String:
 def show_names(+xs: List<&2, String>) -> String:
   String.join(xs, ",")
 
+def show_u32s.chunks(xs: List<&2, U32>) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{h, t}: U32.show(h) <> show_u32s.chunks(t)
+
+def show_u32s(+xs: List<&2, U32>) -> String:
+  String.join(show_u32s.chunks(xs), ",")
+
+def u32s_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      match ys:
+        case Nil{}: True{}
+        case Con{_, _}: False{}
+    case Con{h, t}:
+      match ys:
+        case Nil{}: False{}
+        case Con{j, u}: U32.is_eq(h, j) && u32s_eq(t, u)
+
 def show_op(op: V.DrawOp) -> String:
   match op:
     case V.OpBox{x, y, w, h}:
@@ -60,8 +79,8 @@ def show_op(op: V.DrawOp) -> String:
       "S:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ U32.show(axis)
     case V.OpText{_, y, _, _, _, +text}:
       "t:" ++ U32.show(y) ++ "|" ++ text
-    case V.OpTabs{_, _, _, sel, names}:
-      "T:" ++ U32.show(sel) ++ "|" ++ show_names(names)
+    case V.OpTabs{_, _, _, sel, names, alerts, bell, bell_seq}:
+      "T:" ++ U32.show(sel) ++ "|" ++ show_names(names) ++ "|" ++ show_u32s(alerts) ++ "|" ++ U32.show(bell) ++ "|" ++ U32.show(bell_seq)
     case V.OpLine{_, y, _, fg, spans}:
       "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ show_spanops(spans)
     case V.OpImage{x, y, w, h, +path}:
@@ -106,9 +125,17 @@ def draw_hostile_ok() -> Bool:
 
 def draw_tabs_ok() -> Bool:
   String.eq(
-    show_op(V.OpTabs{0, 1, 10, 1, "server" <> "#birc" <> Nil{}}),
-    "T:1|server,#birc"
+    show_op(V.OpTabs{0, 1, 10, 1, "server" <> "#birc" <> Nil{}, 0 <> 2 <> Nil{}, 1, 7}),
+    "T:1|server,#birc|0,2|1|7"
   )
+
+def tab_alerts_ok.on(+cl: Cl.Client) -> Bool:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _, _}:
+      u32s_eq(V.tab_alerts(bufs, "#a" <> "!#b" <> Nil{}), 0 <> 1 <> 2 <> Nil{})
+
+def tab_alerts_ok() -> Bool:
+  tab_alerts_ok.on(Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #a" <> ":me!m@h JOIN #b" <> Nil{}))
 
 def tab_star_ok() -> Bool:
   V.tab_names_ok()

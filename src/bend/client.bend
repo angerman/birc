@@ -107,9 +107,14 @@ def feed_priv.write.msg(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, 
     case False{}:
       feed_priv.write.msg.body(cl, bi, from, body, ts, is_hl)
 
+def feed_priv.write.body.bell(+cl: Cl.Client, is_hl: Bool) -> Cl.Client:
+  match is_hl:
+    case True{}: Cl.advance_client_bell(cl)
+    case False{}: cl
+
 def feed_priv.write.body(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, act: Bool, +is_hl: Bool) -> Cl.Client:
   +cl2 = feed_priv.write.msg(cl, bi, from, body, ts, act, is_hl)
-  Cl.mark_unread_idx(cl2, bi, is_hl)
+  feed_priv.write.body.bell(Cl.mark_unread_idx(cl2, bi, is_hl), is_hl)
 
 def feed_priv.write.notice(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String) -> Cl.Client:
   +cl2 = Cl.client_log_ts(cl, bi, Cl.Notice{}, ts, fmt_msg(from, body))
@@ -154,6 +159,17 @@ def feed_priv.key(+cl: Cl.Client, +from: String, +target: String) -> String:
     case Cl.Client{+nick, _, _, _, _, _}:
       feed_priv.key.on(from, target, Irc.ieq(from, nick))
 
+def feed_priv.private_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
+  match pair:
+    case (+cl2, Some{+bi}):
+      match notice:
+        case True{}:
+          feed_priv.write.notice(cl2, bi, from, body, ts)
+        case False{}:
+          feed_priv.write.body(cl2, bi, from, body, ts, is_action(body), Bool.not(Irc.ieq(from, Cl.nick_of(cl2))))
+    case (cl2, None{}):
+      feed_priv.drop_log(cl2, from)
+
 def feed_priv.nonchan(
   +cl: Cl.Client,
   +from: String,
@@ -167,7 +183,7 @@ def feed_priv.nonchan(
     case True{}:
       feed_priv.write(cl, 0n, from, notice, body, ts)
     case False{}:
-      feed_priv.write_got(Cl.buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body, ts)
+      feed_priv.private_got(Cl.buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body, ts)
 
 def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
   match empty:

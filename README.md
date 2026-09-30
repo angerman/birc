@@ -12,7 +12,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 - **Formally Verified**: Core invariants—including control-character sanitization across all strings, CRLF framer buffer bounds, scroll clamping, and protocol classification—are formally proved using `bend PROOF.bend`.
 - **Zero-Poll / 0.0% Idle CPU**: The event loop parks on OS descriptors (terminal tty, `SIGWINCH` resize pipe, and socket dup) waking a single Bend `Chan(UiMsg)` channel. No polling, no busy-waiting.
 - **Native DNS Engine**: Full RFC 1035 UDP A-record DNS client implemented directly in Bend with wire-format packet cursors, CNAME chasing, and fault tolerance—independent of libc `getaddrinfo`.
-- **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, scrollback buffer, mouse wheel scrolling, tab clicking, IRCv3 live typing indicators, OSC 8 clickable links, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
+- **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, visual activity/mention alerts, configurable terminal bells, scrollback, mouse navigation, IRCv3 live typing indicators, OSC 8 links, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
 - **Hardened for Production**: Bounded memory, strict 512-byte IRC wire clamping, UTF-8 decoder with Latin-1 fallback, flood protection, and fail-closed error handling.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
@@ -224,6 +224,7 @@ Type commands into the composer prompt:
 | `/focus` | Move focus to the other split pane |
 | `/split-off` or `/unsplit` | Close the split without closing either buffer |
 | `/preview <local-path>` | Preview one local PNG from a path or `file://`-prefixed local path; HTTP(S) is rejected |
+| `/set bell on` / `/set bell off` | Enable or disable terminal bells for mentions and private messages |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
 | `/quit [reason]` | Disconnect from the server and exit `birc` |

@@ -669,6 +669,9 @@ def Laws.typing_message_clear():
 def Laws.typing_stale_tick():
   {==}
 
+def Laws.bell_mentions_advance():
+  {==}
+
 def Laws.reconnect_endpoint():
   {==}
 

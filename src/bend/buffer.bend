@@ -35,133 +35,143 @@ type Buffer is Data:
   }
 
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, String>, sasl_user: String, sasl_pass: String, lag: U32}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, String>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32}
 
 def settings0() -> Settings:
-  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0}
+  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0}
 
 def settings_with_cap(cap: U32) -> Settings:
-  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0}
+  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0}
 
 def settings_joins(+s: Settings) -> Bool:
   match s:
-    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _, _}:
       joins
 
 def settings_ts(+s: Settings) -> Bool:
   match s:
-    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _, _}:
       ts
 
 def settings_motd(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _, _}:
       motd
 
 def settings_history(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, history, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, history, _, _, _, _, _, _, _, _, _}:
       history
 
 def settings_hist_cap(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _, _}:
       cap
 
 def settings_autoreconn(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _, _}:
       auto
 
 def settings_bell(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _, _}:
       bell
+
+def settings_bell_seq(+s: Settings) -> U32:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, seq}:
+      seq
 
 def settings_mutes(+s: Settings) -> List<&2, String>:
   match s:
-    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _, _}:
       mutes
 
 def settings_unreads(+s: Settings) -> List<&2, String>:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _, _}:
       unreads
 
 def settings_sasl_user(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _}:
+    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _, _}:
       su
 
 def settings_sasl_pass(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _}:
+    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _, _}:
       sp
 
 def settings_lag(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag}:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag, _}:
       lag
 
 def set_joins(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_ts(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_motd(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_history(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_hist_cap(+s: Settings, val: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_autoreconn(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag, seq}
 
 def set_bell(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag, seq}
+
+def advance_bell(+s: Settings) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, U32.add(seq, 1)}
 
 def set_mutes(+s: Settings, +val: List<&2, String>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag}:
-      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag, seq}
 
 def set_unreads(+s: Settings, +val: List<&2, String>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag, seq}
 
 def set_sasl_user(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag, seq}
 
 def set_sasl_pass(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag, seq}
 
 def set_lag(+s: Settings, lag: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _, seq}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
 def mute_match(+m: String, +from: String, +chan: String, +server: String) -> Bool:
   Irc.ieq(m, from)
@@ -239,22 +249,38 @@ def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: S
     case Con{+ln, t}:
       filter_muted_lines.rest(filter_muted_lines(t, mutes, chan, server), ln, is_line_muted(mutes, ln, chan, server))
 
-def str_contains.step(hit: Bool, rest: Bool) -> Bool:
-  match hit:
-    case True{}: True{}
-    case False{}: rest
+def is_nick_char(+c: Char) -> Bool:
+  match c:
+    case Chr{n}:
+      (U32.is_ge(n, 48) && U32.is_le(n, 57))
+        || (U32.is_ge(n, 65) && U32.is_le(n, 90))
+        || (U32.is_ge(n, 97) && U32.is_le(n, 122))
+        || U32.is_eq(n, 45)
+        || (U32.is_ge(n, 91) && U32.is_le(n, 96))
+        || (U32.is_ge(n, 123) && U32.is_le(n, 125))
 
-def str_contains(haystack: String, +needle: String) -> Bool:
-  match haystack:
+def mention_right_bound(+s: String) -> Bool:
+  match s:
+    case SNil{}: True{}
+    case SCon{+h, _}: Bool.not(is_nick_char(h))
+
+def str_mentions.hit(+s: String, +needle: String, left_ok: Bool) -> Bool:
+  left_ok
+    && String.starts_with(s, needle)
+    && mention_right_bound(String.drop(s, String.length(needle)))
+
+def str_mentions(s: String, +needle: String, left_ok: Bool) -> Bool:
+  match s:
     case SNil{}: False{}
     case SCon{+h, +t}:
-      str_contains.step(String.starts_with(SCon{h, t}, needle), str_contains(t, needle))
+      str_mentions.hit(SCon{h, t}, needle, left_ok)
+        || str_mentions(t, needle, Bool.not(is_nick_char(h)))
 
 def is_mention.on(empty: Bool, +body: String, +nick: String) -> Bool:
   match empty:
     case True{}: False{}
     case False{}:
-      str_contains(Irc.rfc1459(body), Irc.rfc1459(nick))
+      str_mentions(Irc.rfc1459(body), Irc.rfc1459(nick), True{})
 
 def is_mention(+body: String, +nick: String) -> Bool:
   is_mention.on(String.is_empty(nick), body, nick)
@@ -383,6 +409,12 @@ def client_sasl_pass(+cl: Client) -> String:
 
 def client_lag(+cl: Client) -> U32:
   settings_lag(get_settings(cl))
+
+def client_bell_seq(+cl: Client) -> U32:
+  settings_bell_seq(get_settings(cl))
+
+def advance_client_bell(+cl: Client) -> Client:
+  set_settings(cl, advance_bell(get_settings(cl)))
 
 def client_set_lag(+cl: Client, lag: U32) -> Client:
   set_settings(cl, set_lag(get_settings(cl), lag))

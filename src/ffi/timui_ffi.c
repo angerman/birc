@@ -77,6 +77,9 @@ typedef struct {
   char composer[512];
   TimuiTextAreaState st;
   int last_tab;
+  uint32_t last_bell_seq;
+  int bell_seen;
+  int bell_pending;
   TimuiRect body_inner[2];
   int body_count;
   TimuiRect nicks_inner;
@@ -313,6 +316,52 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
   term_sink(e, xs);
   return n;
 }
+static int birc_u32_list(Env e, Term xs, uint32_t *vals, int max) {
+  int n = 0;
+  while (n < max && term_aux(xs) == CID_CON) {
+    Term tail;
+    Term head = birc_cons_head(e, xs, &tail);
+    xs = tail;
+    vals[n++] = (uint32_t)head;
+  }
+  term_sink(e, xs);
+  return n;
+}
+static void birc_bell_update(BircUi *bu, uint32_t enabled, uint32_t seq) {
+  if (!bu) return;
+  if (bu->bell_seen && enabled != 0 && seq != bu->last_bell_seq)
+    bu->bell_pending = 1;
+  bu->last_bell_seq = seq;
+  bu->bell_seen = 1;
+}
+static void birc_draw_tab_alerts(TimuiFrame *fr, TimuiRect r,
+                                 const char *const *labels, int ntabs,
+                                 const uint32_t *alerts, int nalerts, int sel) {
+  TimuiTabSpan spans[16];
+  int i, scroll;
+  if (!fr || !labels || !alerts || ntabs <= 0 || r.w <= 0)
+    return;
+  (void)timui_tabs_layout(labels, ntabs, 1, spans, 16);
+  scroll = timui_tabs_scroll(spans, ntabs, sel, r.w, 0);
+  timui_push_clip(fr, r);
+  for (i = 0; i < ntabs && i < nalerts; i++) {
+    TimuiStyle style;
+    TimuiRect box;
+    int sx;
+    if (i == sel || alerts[i] == 0 || !timui_tab_visible(spans[i], scroll, r.w))
+      continue;
+    sx = r.x + spans[i].x - scroll;
+    box = TIMUI_RECT(sx, r.y, spans[i].w, 1);
+    if (alerts[i] >= 2)
+      style = timui_style_make(0x1E1E2Eu, 0xFFD700u, TIMUI_ATTR_BOLD);
+    else
+      style = timui_style_make(TIMUI_COLOR_DEFAULT, TIMUI_COLOR_DEFAULT,
+                               TIMUI_ATTR_REVERSE);
+    timui_draw_fill(timui_frame_buffer(fr), box, style);
+    timui_label(fr, sx + 1, r.y, timui_str_from_cstr(labels[i]), style);
+  }
+  timui_pop_clip(fr);
+}
 static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
                            uint32_t fg, Term xs) {
   while (term_aux(xs) == CID_CON) {
@@ -425,17 +474,19 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     free(s);
     spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPTABS) {
-    Term f[5];
-    Loc loc = ctr_take(e, op, 5, f);
+    Term f[8];
+    Loc loc = ctr_take(e, op, 8, f);
     TimuiRect r;
     char store[16][64];
     const char *labs[16];
-    int ntabs, orig, sel;
+    uint32_t alerts[16] = {0};
+    int ntabs, nalerts, orig, sel;
     r.x = (int)(uint32_t)f[0];
     r.y = (int)(uint32_t)f[1];
     r.w = (int)(uint32_t)f[2];
     r.h = 1;
     ntabs = birc_str_list(e, f[4], store, labs, 16);
+    nalerts = birc_u32_list(e, f[5], alerts, 16);
     orig = (int)(uint32_t)f[3];
     sel = orig < 0 ? 0 : orig;
     if (ntabs > 0 && sel >= ntabs)
@@ -449,9 +500,12 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     }
     if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
+    birc_draw_tab_alerts(fr, r, labs, ntabs, alerts, nalerts, sel);
+    if (ly && ly->bu)
+      birc_bell_update(ly->bu, (uint32_t)f[6], (uint32_t)f[7]);
     if (ly && sel != orig && sel >= 0 && sel < ntabs)
       *ly->click = (uint32_t)sel + 1u;
-    spare_free(e, cls_fit(5), loc);
+    spare_free(e, cls_fit(8), loc);
   } else if (cid == CID_VIEW_OPLINE) {
     Term f[5];
     Loc loc = ctr_take(e, op, 5, f);
@@ -832,6 +886,11 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     timui_end(fr);
     ui->transport.write = saved;
+    if (bu && bu->bell_pending) {
+      bu->bell_pending = 0;
+      if (saved)
+        (void)saved(&ui->transport, "\a", 1);
+    }
     if (birc_frame_short) {
       birc_tty_stalled = 1;
       timui_full_redraw(ui);

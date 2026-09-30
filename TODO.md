@@ -830,6 +830,10 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       on messages (including muted messages), PART, KICK, QUIT, and NICK; and
       cap transient state at 32 participants. Pure boundary/lifecycle tests,
       laws, and a non-vacuous loopback PTY test cover the live path.
+- [x] **M16.5** Terminal notification alerts: background activity tabs use
+      reverse video; mentions and private messages use a gold tab; each
+      high-priority event advances a Bend-owned sequence that emits one BEL
+      when `bell` is enabled. Repaints never replay a bell.
 
 The generated `track5-wrap` branch contains no changes. Long-line wrapping
 also reverses the recorded M9 decision that C clips and Bend does not wrap, so

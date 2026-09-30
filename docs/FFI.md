@@ -136,7 +136,8 @@ type DrawOp is Data:
   OpBox{x, y, w, h: U32}
   OpSplit{x, y, w, h, axis: U32}
   OpText{x, y, w, fg, attrs: U32, text: String}
-  OpTabs{x, y, w, sel: U32, names: List String}
+  OpTabs{x, y, w, sel: U32, names: List String,
+         alerts: List U32, bell: U32, bell_seq: U32}
   OpLine{x, y, w, fg: U32, spans: List SpanOp}
   OpImage{x, y, w, h: U32, path: String}
 ```
@@ -148,6 +149,10 @@ type DrawOp is Data:
   Bend still emits the absolute child `OpBox`, `OpText`, and `OpLine` geometry.
 - `OpText` — label at `(x,y)`, clipped to `x+w`.
 - `OpTabs` — `timui_tabs`; click reports only when the widget changes `sel`.
+  Bend assigns one alert level per tab (`0` none, `1` activity, `2`
+  mention/private message). C draws background activity in reverse video and
+  high-priority alerts in gold. `bell` enables BEL output, and `bell_seq`
+  advances for each high-priority event so a repaint cannot replay a bell.
 - `OpLine` — spans at the Bend-assigned `y`. A timestamp is a separate
   `OpText` of at most 8 columns (`FG_DIM`, `0xa0a0a0`), clipped to the line
   width, then the line `x` moves by 9. No C buffer, no 64-line cap, no
