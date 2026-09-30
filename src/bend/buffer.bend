@@ -204,6 +204,22 @@ def is_muted_list(mutes: List<&2, String>, +from: String, +chan: String, +server
 def add_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   pat <> mutes
 
+# Scoped patterns use the same channel types as IRC routing. Extract the nick
+# once so restored-line filtering and /unmute agree on every supported scope.
+def is_mute_sep(+c: Char) -> Bool:
+  Irc.is_chan_type(c) || Char.is_eq(c, '*') || Char.is_eq(c, '@')
+
+def mute_pat_nick.fin(+h: Char, r: String, is_sep: Bool) -> String:
+  match is_sep:
+    case True{}: ""
+    case False{}: SCon{h, r}
+
+def mute_pat_nick(s: String) -> String:
+  match s:
+    case SNil{}: ""
+    case SCon{+h, +t}:
+      mute_pat_nick.fin(h, mute_pat_nick(t), is_mute_sep(h))
+
 def del_mute_list.rest(tail: List<&2, String>, +m: String, hit: Bool) -> List<&2, String>:
   match hit:
     case True{}:
@@ -215,7 +231,7 @@ def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   match mutes:
     case Nil{}: Nil{}
     case Con{+m, t}:
-      +hit = Irc.ieq(m, pat) || String.starts_with(m, pat ++ "#") || String.starts_with(m, pat ++ "*")
+      +hit = Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick(m), pat)
       del_mute_list.rest(del_mute_list(t, pat), m, hit)
 
 def line_from_nick(+ln: Line, +nick: String) -> Bool:
@@ -228,20 +244,6 @@ def line_from_nick(+ln: Line, +nick: String) -> Bool:
         case Notice{}: Irc.ieq(author, nick)
         case Highlight{}: Irc.ieq(author, nick)
         case _: False{}
-
-def is_mute_sep(+c: Char) -> Bool:
-  Char.is_eq(c, '#') || Char.is_eq(c, '*') || Char.is_eq(c, '@')
-
-def mute_pat_nick.fin(+h: Char, r: String, is_sep: Bool) -> String:
-  match is_sep:
-    case True{}: ""
-    case False{}: SCon{h, r}
-
-def mute_pat_nick(s: String) -> String:
-  match s:
-    case SNil{}: ""
-    case SCon{+h, +t}:
-      mute_pat_nick.fin(h, mute_pat_nick(t), is_mute_sep(h))
 
 def is_line_muted_pat(+m: String, +ln: Line, +chan: String, +server: String) -> Bool:
   +nick = mute_pat_nick(m)

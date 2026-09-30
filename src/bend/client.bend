@@ -207,11 +207,11 @@ def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: St
   match muted:
     case True{}: cl
     case False{}:
-      +tgt = Irc.chan_target(target)
-      feed_priv.route.on(cl, tgt, from, notice, body, ts, Irc.starts_channel(tgt))
+      feed_priv.route.on(cl, target, from, notice, body, ts, Irc.starts_channel(target))
 
 def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
-  feed_priv.route.mute(Cl.is_muted_client(cl, from, target), cl, target, from, notice, body, ts)
+  +tgt = Irc.chan_target(target)
+  feed_priv.route.mute(Cl.is_muted_client(cl, from, tgt), cl, tgt, from, notice, body, ts)
 
 def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
   match self:
