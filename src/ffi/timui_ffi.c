@@ -116,11 +116,14 @@ static Timui *birc_ui_live;
 
 /* Input and output can have separate descriptions. Make the write target
  * nonblocking for the whole budget, then restore exactly its saved flags. */
-static void birc_write_bounded(int fd, const void *data, size_t size,
+static void birc_write_bounded(TimuiFdCtx *ctx, int fd, const void *data, size_t size,
                                uint64_t deadline) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) {
-    (void)timui_write_all_until_(fd, data, size, deadline);
+    if (ctx)
+      (void)timui_fd_write_(ctx, data, size, 1, deadline);
+    else
+      (void)timui_write_all_until_(fd, data, size, deadline);
     (void)fcntl(fd, F_SETFL, flags);
   }
 }
@@ -201,7 +204,7 @@ static void birc_ui_atexit(void) {
   birc_ui_live = NULL;
   if (ui) {
     if (ui->fd.write_fd >= 0)
-      birc_write_bounded(ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
+      birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     timui_restore_terminal(ui);
   }
 }
@@ -252,7 +255,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
       strcmp(getenv("BIRC_FORCE_IMAGE_PROTOCOL"), "kitty") == 0)
     timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
   if (ui && ui->fd.write_fd >= 0)
-    birc_write_bounded(ui->fd.write_fd, "\x1b[?1002h", 8, timui_now_ms() + 40u);
+    birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002h", 8, timui_now_ms() + 40u);
   for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
     if (i != TIMUI_SLOT_SELECTION && i != TIMUI_SLOT_BUTTON_ACTIVE) {
       ui->theme.slots[i].bg = TIMUI_COLOR_DEFAULT;
@@ -599,8 +602,8 @@ static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
     birc_frame_short = 1;
     return -1;
   }
-  w = timui_write_all_until_(c->write_fd, data, n, birc_frame_deadline);
-  if (w < 0 || (size_t)w < n)
+  w = timui_fd_write_(c, data, n, 1, birc_frame_deadline);
+  if (w < 0 || (size_t)w < n || c->write_utf8_tail_len != 0)
     birc_frame_short = 1;
   return w;
 }
@@ -1006,6 +1009,8 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
     birc_ui_live = NULL;
   if (st && st->profile_enabled) {
     char report[256];
+    uint64_t deadline = timui_now_ms() + 40u;
+    int tty_report = isatty(STDERR_FILENO);
     int count = snprintf(report, sizeof report,
             "birc_profile frames=%llu prepare_us=%llu begin_us=%llu "
             "draw_us=%llu end_us=%llu\n",
@@ -1018,13 +1023,19 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
                                                 st->profile_frames),
             (unsigned long long)birc_profile_us(st->profile_end_ns,
                                                 st->profile_frames));
-    if (count > 0 && (size_t)count < sizeof report)
-      birc_write_bounded(STDERR_FILENO, report, (size_t)count,
-                         timui_now_ms() + 40u);
+    /* A tty stderr can alias the UI stream. Finish its accepted scalar before
+     * this report, within the report's existing budget. Redirected stderr is
+     * independent and does not need to wait for terminal output. */
+    if (ui && tty_report && ui->fd.write_utf8_tail_len != 0)
+      birc_write_bounded(&ui->fd, ui->fd.write_fd, "", 0, deadline);
+    if (count > 0 && (size_t)count < sizeof report &&
+        (!ui || !tty_report || ui->fd.write_utf8_tail_len == 0))
+      birc_write_bounded(NULL, STDERR_FILENO, report, (size_t)count,
+                         deadline);
   }
   if (ui) {
     if (ui->fd.write_fd >= 0)
-      birc_write_bounded(ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
+      birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     /* TimUI retires and disowns image IDs under its one teardown budget.
      * Cached bitmaps can then be freed without further terminal IO. */
     timui_close(ui);
@@ -1230,7 +1241,7 @@ Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
   /* Timui.close restores blocking descriptor flags. Both IO.print and
    * IO.die (which always writes a stderr newline) can then hang. TimUI is
    * already closed; do not flush stdio or leave parked IO alive on success. */
-  birc_write_bounded(STDOUT_FILENO, "birc=ok\n", 8, timui_now_ms() + 250u);
+  birc_write_bounded(NULL, STDOUT_FILENO, "birc=ok\n", 8, timui_now_ms() + 250u);
   _Exit(EXIT_SUCCESS);
 }
 static void __attribute__((constructor)) sys_exit_done_use(void) {
@@ -1245,8 +1256,8 @@ Term sys_exit_fail_run(Env e, Term *f, IoWork *w) {
   (void)w;
   /* Like successful shutdown, a restored tty must not block on stderr. */
   if (msg)
-    birc_write_bounded(STDERR_FILENO, msg, (size_t)len, deadline);
-  birc_write_bounded(STDERR_FILENO, "\n", 1, deadline);
+    birc_write_bounded(NULL, STDERR_FILENO, msg, (size_t)len, deadline);
+  birc_write_bounded(NULL, STDERR_FILENO, "\n", 1, deadline);
   free(msg);
   _Exit(EXIT_FAILURE);
 }

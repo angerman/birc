@@ -2980,6 +2980,10 @@ typedef struct {
   int teardown_flags_saved;
   int teardown_saved_flags;
   uint64_t teardown_deadline_ms;
+  /* At most one accepted scalar's suffix. It precedes every later write,
+   * including teardown; the transport owns these acknowledged bytes. */
+  unsigned char write_utf8_tail[3];
+  unsigned char write_utf8_tail_len;
 } TimuiFdCtx;
 
 /* Private TimuiScreenMode.flags bit: enter() pushed the terminal's title stack
@@ -3872,11 +3876,52 @@ static int timui_write_all_until_(int fd, const void *d, size_t n,
   }
   return (off == 0 && n > 0) ? -1 : (int)off;
 }
+/* A short write can leave a terminal inside a UTF-8 scalar. Own its missing
+ * bytes before acknowledging them, then complete that scalar before accepting
+ * any subsequent payload. Abandoning the rest of a frame cannot lose/replay
+ * this suffix. Every bounded retry uses the caller's unchanged deadline. */
+static int timui_fd_write_(TimuiFdCtx *c, const void *d, size_t n,
+                           int bounded, uint64_t deadline_ms) {
+  const unsigned char *bytes = (const unsigned char *)d;
+  int written;
+  if (n > (size_t)INT_MAX)
+    return -1;
+  if (c->write_utf8_tail_len != 0) {
+    size_t left = c->write_utf8_tail_len;
+    written = bounded
+        ? timui_write_all_until_(c->write_fd, c->write_utf8_tail, left, deadline_ms)
+        : timui_write_all_(c->write_fd, c->write_utf8_tail, left);
+    if (written > 0) {
+      left -= (size_t)written;
+      memmove(c->write_utf8_tail, c->write_utf8_tail + written, left);
+      c->write_utf8_tail_len = (unsigned char)left;
+    }
+    if (left != 0)
+      return -1;
+  }
+  written = bounded ? timui_write_all_until_(c->write_fd, d, n, deadline_ms)
+                    : timui_write_all_(c->write_fd, d, n);
+  if (written > 0 && (size_t)written < n) {
+    size_t end = (size_t)written;
+    size_t lead = end - 1;
+    size_t first = end > 4 ? end - 4 : 0;
+    int width;
+    while (lead > first && (bytes[lead] & 0xc0u) == 0x80u)
+      lead--;
+    width = timui_utf8_decode((const char *)bytes + lead, n - lead, NULL);
+    if (width > 1 && lead + (size_t)width > end) {
+      size_t tail = lead + (size_t)width - end;
+      memcpy(c->write_utf8_tail, bytes + end, tail);
+      c->write_utf8_tail_len = (unsigned char)tail;
+      written += (int)tail;
+    }
+  }
+  return written;
+}
 static int fd_write(TimuiTransport *t, const void *d, size_t n) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
-  if (c->teardown_bounded)
-    return timui_write_all_until_(c->write_fd, d, n, c->teardown_deadline_ms);
-  return timui_write_all_(c->write_fd, d, n);
+  return timui_fd_write_(c, d, n, c->teardown_bounded,
+                         c->teardown_deadline_ms);
 }
 static int fd_read(TimuiTransport *t, void *b, size_t cap) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
@@ -4222,6 +4267,22 @@ static void timui_signal_restore_terminal_(Timui *ui) {
         fl = -1;
       }
     }
+  }
+  /* A frame may have accepted a scalar without emitting its whole suffix.
+   * One nonblocking write may finish it; otherwise skip all escapes. Keep any
+   * unwritten suffix for a normal restore if the saved handler returns. */
+  if (may_write && ui->fd.write_utf8_tail_len != 0) {
+    size_t left = ui->fd.write_utf8_tail_len;
+    ssize_t written = write(ui->fd.write_fd, ui->fd.write_utf8_tail, left);
+    if (written > 0) {
+      size_t i;
+      left -= (size_t)written;
+      for (i = 0; i < left; i++)
+        ui->fd.write_utf8_tail[i] = ui->fd.write_utf8_tail[i + (size_t)written];
+      ui->fd.write_utf8_tail_len = (unsigned char)left;
+    }
+    if (left != 0)
+      may_write = 0;
   }
   /* Terminal bytes first, while raw mode still has OPOST cleared -- restoring
    * termios ahead of them would let the user's saved output processing rewrite

@@ -147,6 +147,11 @@ def main() -> int:
     )
     print("RESULT:", "PASS" if ok else "FAIL")
     if not ok:
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            start = max(0, error.start - 24)
+            print(f"utf8_error byte={error.start} context={raw[start:error.end + 24]!r}")
         print("tab_cut: tab label split inside a code point", file=sys.stderr)
         return 1
     print("tab_cut=ok")

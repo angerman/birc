@@ -513,6 +513,12 @@ test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	$(NIXRUN) sh scripts/check-golden.sh utf8_fit_cap=ok ./$(BLDDIR)/utf8_fit_cap
 	@grep -F 'birc_utf8_fit(s, (size_t)len < 63 ? (size_t)len : (size_t)63)' src/ffi/timui_ffi.c >/dev/null
 
+.PHONY: test-output-utf8
+test-output-utf8: ## Preserve partial UTF-8 scalars across bounded output retries.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/output_utf8 tests/output_utf8.c'
+	$(NIXRUN) sh scripts/check-golden.sh output_utf8=ok ./$(BLDDIR)/output_utf8
+
 test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c'
