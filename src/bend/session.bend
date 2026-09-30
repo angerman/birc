@@ -1013,6 +1013,12 @@ def session_cl(+st: Session) -> Cl.Client:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _}:
       cl
 
+# Install an IO-loaded client without changing connection or UI state.
+def session_set_client(st: Session, +cl: Cl.Client) -> Session:
+  match st:
+    case Session{_, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
+
 def session_split(+st: Session) -> Sp.State:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, split, _, _}: split

@@ -808,17 +808,39 @@ def on_recv(
     case Some{m}:
       on_msg(m, ui, st, evt, cmd, ack, gen, frames, k)
 
+def live_step.reload(
+  changed: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +gen: U32,
+  +quit: Bool,
+  +hist_path: String,
+  +new_endpoint: String,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match changed:
+    case False{}:
+      k((ui, st, gen, quit))
+    case True{}:
+      do IO<Unit>:
+        loaded : Cl.Client <- Hist.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
+        k((ui, Sess.session_set_client(st, loaded), gen, quit))
+
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
   +old_cl: Cl.Client,
+  +old_endpoint: String,
   +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match acc:
     case (ui, +new_st, gen, quit):
+      +new_endpoint = session_endpoint(new_st)
       do IO<Unit>:
-        Unit <- Hist.maybe_save_history(hist_path, session_endpoint(new_st), old_cl, Sess.session_cl(new_st))
-        k((ui, new_st, gen, quit))
+        # Save only the current event. Imported rows get fresh IDs and must
+        # become the next baseline, never part of this append comparison.
+        Unit <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
+        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, quit, hist_path, new_endpoint, k)
 
 def live_step(
   ui: T.Ui,
@@ -838,7 +860,7 @@ def live_step(
     case False{}:
       do IO<Unit>:
         g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-        on_recv(g, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, Sess.session_cl(st), hist_path, k))
+        on_recv(g, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, Sess.session_cl(st), session_endpoint(st), hist_path, k))
 
 def live_go(
   fuel: Nat,
