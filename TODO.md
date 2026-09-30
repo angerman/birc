@@ -784,7 +784,7 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 - [x] **M14.3** Configurable scrollback expansion: raise `SCROLL_CAP` to 1,000 lines and default `hist_cap` to 500 lines (~50–100 KB).
 - [x] **M14.4** `/reconnect` command: re-establish connection to the saved server and port with the saved nick/channel after disconnect.
 - [x] **M14.5** Status indicator colors: render "online" in green and "offline" in red in header bar.
-- [x] **M14.6** Auto-reconnect: live connections default to automatic reconnection on the saved server and port, with a configurable settings toggle (`autoreconn: ON|OFF`). Reconnect-off closes the actor's writer socket immediately, so the next heartbeat cannot produce a second `send failed` error.
+- [x] **M14.6** Auto-reconnect: live connections default to a cancellable two-second reconnect on the saved server and port, with a configurable settings toggle (`autoreconn: ON|OFF`). Reconnect-off closes the actor's writer socket immediately, so the next heartbeat cannot produce a second `send failed` error.
 - [x] **M14.7** Query / Private message buffers: `/query <nick> [text]` to initiate private 1-on-1 chats in dedicated tabs, send initial messages, and `/close` to dismiss.
 - [x] **M14.8** Mentions & highlights: highlight messages mentioning own nick in Gold (`#FFD700`), with configurable terminal bell (`bell: ON|OFF`) in `/settings`.
 - [x] **M14.9** Unread activity badges: visual activity (`*`) and mention (`!`) indicators on background tabs, automatically cleared upon switching to the tab.

@@ -320,6 +320,28 @@ def on_up(
     ts : String <- Clock.hhmmss()
     on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, frames, k)
 
+@unsafe
+def reconnect_watch(+evt: Chan(Sess.UiMsg), +host: String, +port: U32, +gen: U32) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.sleep(2000)
+    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Reconnect{host, port, gen})
+    return Unit{}
+
+def emit_fail_cmd(
+  c: Sess.NetCmd,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +gen: U32
+) -> IO(U32):
+  match c:
+    case Sess.Dial{+host, port, _}:
+      do IO<U32>:
+        dropped : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        Unit <- IO.spawn(Unit, reconnect_watch(evt, host, port, gen))
+        return gen
+    case other:
+      emit_cmd(cmd, other, gen)
+
 def on_fail_recon(
   recon: Sess.Session & Sess.NetCmd,
   ui: T.Ui,
@@ -333,7 +355,7 @@ def on_fail_recon(
   match recon:
     case (+st3, recon_cmd):
       do IO<Unit>:
-        gen2 : U32 <- emit_cmd(cmd, recon_cmd, gen)
+        gen2 : U32 <- emit_fail_cmd(recon_cmd, evt, cmd, gen)
         got : T.Ui & T.UiKeys <- paint_session(ui, st3)
         on_chunk.paint(got, st3, evt, cmd, ack, gen2, frames, k)
 
@@ -695,6 +717,64 @@ def on_typing_tick(
 ) -> IO(Unit):
   on_typing_tick.pick(Sess.session_expire_typing(st, now_ms), ui, evt, cmd, ack, gen, frames, k)
 
+def on_reconnect.enabled(
+  enabled: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +host: String,
+  +port: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match enabled:
+    case False{}:
+      +st2 = Sess.session_cancel_reconnect(st)
+      do IO<Unit>:
+        got : T.Ui & T.UiKeys <- paint_session(ui, st2)
+        on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+    case True{}:
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(cmd, Sess.Dial{host, port, 0}, gen)
+        k((ui, st, gen2, False{}))
+
+def on_reconnect.same(
+  same: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +host: String,
+  +port: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match same:
+    case False{}:
+      k((ui, st, gen, False{}))
+    case True{}:
+      on_reconnect.enabled(Sess.session_autoreconnect_on(st), ui, st, host, port, evt, cmd, ack, gen, frames, k)
+
+def on_reconnect(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +host: String,
+  +port: U32,
+  +scheduled_gen: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  on_reconnect.same(U32.is_eq(scheduled_gen, gen), ui, st, host, port, evt, cmd, ack, gen, frames, k)
+
 def on_msg_go(
   m: Sess.UiMsg,
   ui: T.Ui,
@@ -713,6 +793,8 @@ def on_msg_go(
       on_resize(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.TypingTick{now_ms}:
       on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
+    case Sess.Reconnect{+host, port, scheduled_gen}:
+      on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, frames, k)
     case Sess.FromNet{+got, e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, frames, U32.is_eq(got, gen), k)
 

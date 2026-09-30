@@ -288,6 +288,7 @@ type UiMsg is Data:
   UiKey{}
   Resize{}
   TypingTick{now_ms: U32}
+  Reconnect{host: String, port: U32, gen: U32}
 
 type NetState is Data:
   Demo{}
@@ -1128,7 +1129,7 @@ def session_autoreconnect.st(
   +server: String,
   +port: U32
 ) -> Session:
-  Session{Sub.echo_sys(cl, "auto-reconnecting to " ++ server ++ ":" ++ U32.show(port) ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port}
+  Session{Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port}
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -1150,6 +1151,14 @@ def session_autoreconnect(+st: Session) -> Session & NetCmd:
   +cl = session_cl(st)
   +stg = Cl.get_settings(cl)
   session_autoreconnect.chk(Cl.settings_autoreconn(stg), st, Cl.server_of(cl))
+
+def session_autoreconnect_on(+st: Session) -> Bool:
+  Cl.settings_autoreconn(Cl.get_settings(session_cl(st)))
+
+def session_cancel_reconnect(+st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port}:
+      Session{cl, drop, rem, draft, joined, chan, Offline{}, hist, size, seed, comp, split, typing, port}
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:

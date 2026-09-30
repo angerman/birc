@@ -229,8 +229,9 @@ Type commands into the composer prompt:
 Send, scroll, nick-list, and status actions use the focused pane. Split commands
 never join a channel or create a buffer.
 
-Live connections automatically reconnect to the saved host and port after an
-unexpected disconnect. Use `/set autoreconn off` to disable this behavior.
+Live connections automatically reconnect to the saved host and port two seconds
+after an unexpected disconnect. A manual `/connect` cancels the pending retry.
+Use `/set autoreconn off` to disable this behavior.
 
 ---
 
