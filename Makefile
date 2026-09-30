@@ -392,6 +392,9 @@ test-session-links: ## Session opening echoes cannot amplify links or persisted 
 test-pty-session-links: build-ui ## Pty: runtime open/list uses stable link sources and fake launchers.
 	$(NIXRUN) timeout 40 python3 tests/pty/session_links.py ./$(BLDDIR)/birc
 
+test-pty-split-identity: build-ui ## Pty: a query named server retains its pane and send identity.
+	$(NIXRUN) timeout 45 python3 tests/pty/split_identity.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -456,6 +459,7 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-pty-frame-links test-pty-launchers
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors
 .PHONY: test-actor test-actor-queue test-startup-actor test-session-links test-pty-session-links
+.PHONY: test-pty-split-identity
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor ## Adversarial review regression gates.
 
@@ -468,7 +472,7 @@ proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 proof-kernel: ## Independently check proofs with BendTT (requires Lean or BENDTT).
 	$(NIXRUN) timeout 300 bend PROOF.bend --verdict
 
-LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
+LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
 lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'

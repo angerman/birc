@@ -20,7 +20,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 
 ## Architecture
 
-`birc` enforces a strict division of responsibilities: **Bend 2 owns the application lifecycle, protocol, client state, networking, and the frame loop**. C is restricted to a thin (~760 line) FFI wrapper providing terminal rendering primitives and POSIX socket/clock calls.
+`birc` enforces a strict division of responsibilities: **Bend 2 owns the application lifecycle, protocol, client state, networking, and the frame loop**. C provides terminal rendering primitives and POSIX socket/clock calls; it does not parse IRC or own the frame loop.
 
 ```text
 +------------------------------------------------------------------------+
@@ -52,7 +52,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
               v
 +------------------------------------------------------------------------+
 |                       C99 TimUI FFI (src/ffi/)                         |
-|  - timui_ffi.c : Walks DrawOps, paints to terminal, polls input        |
+|  - timui_ffi.c : Walks DrawOps, paints to terminal, returns keys       |
 |  - dns_ffi.c   : POSIX socket dup, shutdown, octet send/recv           |
 |  - clock_ffi.c : Local clock seconds-of-day                            |
 +------------------------------------------------------------------------+
@@ -71,7 +71,10 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 | [`src/bend/frame.bend`](src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
 | [`src/bend/dns.bend`](src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
 | [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
-| [`src/bend/view.bend`](src/bend/view.bend) | Bend 2 | ViewModel generation, span tokenizer, and `List<DrawOp>` layout |
+| [`src/bend/view.bend`](src/bend/view.bend) | Bend 2 | ViewModel generation, token-aware wrapping, and `List<DrawOp>` layout |
+| [`src/bend/links.bend`](src/bend/links.bend) | Bend 2 | Shared URL/span lexer for rendering, listing, and opening |
+| [`src/bend/columns.bend`](src/bend/columns.bend) | Bend 2 | Terminal column widths and grapheme boundaries for wrapping |
+| [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
 | [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
 | [`src/bend/actor.bend`](src/bend/actor.bend) | Bend 2 | Background network actor: socket ownership and read/write loops |
@@ -254,7 +257,9 @@ Type commands into the composer prompt:
 | `/quit [reason]` | Disconnect from the server and exit `birc` |
 
 Send, scroll, nick-list, and status actions use the focused pane. Split commands
-never join a channel or create a buffer.
+never join a channel or create a buffer. Use `/split *server*` to select the
+control buffer explicitly. `/split server` selects a private query named
+`server` if it exists; otherwise it keeps the legacy control-buffer alias.
 
 Live connections automatically reconnect to the saved host and port two seconds
 after an unexpected disconnect. A manual `/connect` cancels the pending retry.
@@ -270,7 +275,7 @@ The project root [`Makefile`](Makefile) is the sole driver. Routine development 
 make shell                 # Enter the locked Nix development environment
 make check                 # Proofs + pure tests + FFI lints + UI smoke
 make proof                 # Run Bend formal proof checker (PROOF.bend)
-make test-pty              # Run comprehensive 28-scenario PTY integration suite
+make test-pty              # Run the PTY integration suite
 make test-live             # Run mock IRC socket handshake test
 make lint-ffi              # Strict syntax and compiler warning lint of C FFI
 make clean                 # Remove build artifacts
@@ -279,10 +284,10 @@ make clean                 # Remove build artifacts
 ### Testing Strategy
 
 `birc` employs a multi-tiered test harness:
-1. **Mathematical Proofs**: `PROOF.bend` proves core invariants at the language level.
+1. **Bend Proof Checks**: `PROOF.bend` checks quantified laws and concrete examples. `make proof-kernel` is the separate independent validity gate.
 2. **Pure Functional Unit Tests**: Fast tests in `tests/bend/` verifying protocol serialization, state transitions, client routing, and argument parsing.
-3. **PTY End-to-End Suite**: 28 automated pseudo-terminal tests in `tests/pty/` exercising real terminal behavior (terminal resizes, rapid pasting, channel switching latency, buffer flood, stalled I/O, TCP disconnects/reconnects, and signal handling).
-4. **C FFI Linting**: Clang `-Wall -Wextra -pedantic -Wshadow -Wconversion -Werror` linting of all foreign interfaces.
+3. **PTY End-to-End Suite**: Automated pseudo-terminal tests in `tests/pty/` exercise real terminal behavior (terminal resizes, rapid pasting, channel switching latency, buffer flood, stalled I/O, TCP disconnects/reconnects, and signal handling).
+4. **C FFI Linting**: The warning flags are defined by `LINT_FFI_CFLAGS` in the Makefile. Warnings fail the lint gate.
 
 ---
 
@@ -290,4 +295,4 @@ make clean                 # Remove build artifacts
 
 Licensed under the **Apache License, Version 2.0** ([`LICENSE`](LICENSE)).
 
-Copyright (c) Moritz Angermann <moritz.angermann@gmail.com>.
+Copyright (c) Moritz Angermann <moritz@zw3rk.com>, zw3rk pte. ltd.

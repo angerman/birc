@@ -987,6 +987,10 @@ implementations. Every changed PTY test must pass three consecutive runs.
       `make -n -W src/ffi/birc_utf8_fit.h build-ui` and changed build flags.
 - [x] **V05 — Portable source links.** Replace developer-specific `file:///`
       links in README with repository-relative paths. Check each target exists.
+- [x] **V06 — Current architecture and test claims.** Remove stale source/test
+      counts, name canonical URL/auth/column modules, and separate Bend checks
+      from the independent kernel gate. Make warning lint fail on warnings
+      rather than only claiming it does. Verify the documented lint flags.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
@@ -1087,6 +1091,9 @@ Verification so far (all through the locked Nix shell, no pin updates):
 - S12 red reproduction: `/query server` then `/vsplit #t` displays control
   history while still sending to the query. Two focus toggles then select
   control and reject chat. A canonical pane-key fix is in progress.
+- V06: `make lint-ffi proof` passed with `-Werror` enabled. README no longer
+  claims a fixed FFI line count or PTY scenario count, and names the shared
+  URL lexer, authentication state machine, and terminal-column module.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
