@@ -1,6 +1,6 @@
 import Base
 import ./expect.bend as E
-import ../../src/bend/actor.bend as Act
+import ../../src/bend/outbound.bend as Act
 
 def lines(+n: Nat) -> List<&2, String>:
   match n:

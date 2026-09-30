@@ -868,7 +868,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **R05 — Reap URL launcher children (P2).** Own launcher lifetimes and
       report launch failure without blocking painting. Test repeated opens,
       failed launches, and absence of zombie children.
-- [ ] **R06 — Real outbound cap and simpler actor (P2).** Enforce `SEND_CAP`
+- [x] **R06 — Real outbound cap and simpler actor (P2).** Enforce `SEND_CAP`
       per actor tick and preserve pending lines through close/fuel exhaustion.
       Remove dormant `Tick`/`Handoff` and obsolete merge paths if unused.
       Test exact cap boundaries, FIFO order, and delivery of `/quit`.
@@ -912,7 +912,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **S07 — Typed unread levels (P2).** Replace `!`-prefixed buffer-name
       encoding with explicit alert state. Test a real `!ABCDEroom` channel,
       mention escalation, and clearing only the selected buffer.
-- [ ] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
+- [x] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
       identify queries after NICK changes; update nick lists and focus.
       Test an old query colliding with an existing query and normal rename.
 - [ ] **S09 — Legal nick `server` is not the control buffer (P2).** Keep
@@ -920,6 +920,16 @@ implementations. Every changed PTY test must pass three consecutive runs.
       QUIT, unread handling, and history serialization. Use the invalid IRC
       nick `*server*` as the persisted control target. Test both buffer roles,
       rename collisions, and history isolation without a new role framework.
+- [ ] **S10 — Preserve anchors through edits (P2).** Purging newer messages
+      or merging queries must not move a retained viewport anchor. Recompute
+      its message position from stable IDs, preserve its character position,
+      and keep the active query's viewport. Test older/newer purge, both merge
+      directions, and removal of the anchor itself.
+- [ ] **S11 — Visible history IO failures (P2).** Keep an absent optional
+      history file silent, but report other open, size, and read failures.
+      Preserve completed records and close the handle before reporting.
+      Document the pinned size API's 4-GiB boundary. Test ordinary files,
+      metadata-only sparse overflow, read failure, and missing-file success.
 - [x] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
       line once; preserve complete URL targets and formatting across rows.
       Wrap using terminal column widths, including wide/combining text.
@@ -965,6 +975,8 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **V03 — Complete incremental dependencies.** Track FFI helper headers,
       the lock file, and effective compiler flags/toolchain identity. Test
       `make -n -W src/ffi/birc_utf8_fit.h build-ui` and changed build flags.
+- [x] **V05 — Portable source links.** Replace developer-specific `file:///`
+      links in README with repository-relative paths. Check each target exists.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
@@ -1008,6 +1020,27 @@ Verification so far (all through the locked Nix shell, no pin updates):
   and muted arrivals. Authentication is reset only on a new connection's Up.
 - C05: empty-arg guards, command parsing, URL recognition, body-height math,
   and text-based marker/event inference now use their canonical operations.
+- S08/S09 (`50ff73f`): query merges use global event order, retain IDs, keep
+  the 1,024-line cap, and preserve focus and typed alerts. The control buffer
+  is not renamed by a peer named `server`. Canonical history is sorted before
+  appending, so interleaved buffers retain arrival order after restart.
+  Integrated `make proof test-state` passed. `make test-feed` exits 2 at the
+  unchanged `tab_collide` expectation described below; S09 remains unchecked
+  until that existing regression guard has an approved correction.
+- R06 (`b674331`): all ten native queue cases and the PTY QUIT-cap test passed
+  three consecutive runs. The old implementation failed the one-frame
+  checkpoint by emitting nine lines. Integrated `make test-actor
+  test-actor-queue test-submit test-net proof` passed. Pending traffic is never
+  replayed on a different endpoint; finite credits survive Dial and Drop.
+  Pure queue rules now live in `outbound.bend`, shared by actor and proofs.
+  Two quantified laws prove that zero credit cannot emit or discard any queue.
+  `make proof test-actor test-actor-queue test-net` passed after that separation.
+- `make test-review-pure lint-ffi` passed after the initial state/history merge.
+  `make test-sanitizers` passed its UBSan hostile corpus. ASan explicitly reports
+  `unsupported` on Darwin arm64 because its runtime hangs before the probe;
+  this is not ASan coverage. These gates must run again on the final tree.
+- V05: all repository-relative README link targets exist; no developer-specific
+  `file:///` paths remain.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

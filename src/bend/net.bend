@@ -149,7 +149,7 @@ def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
         return gen
     case Sess.Cont{+outs}:
       emit_outs(chan, outs, gen, outs_nil(outs))
-    case Sess.Handoff{_}:
+    case Sess.Pump{_}:
       IO.pure(U32, gen)
     case Sess.OpenUrl{+url}:
       do IO<U32>:
@@ -441,8 +441,6 @@ def on_evt(
       on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected", k)
     case Sess.NetFail{+msg}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, msg, k)
-    case Sess.Tick{}:
-      k((ui, st, gen, False{}))
 
 def on_from(
   +got: U32,
@@ -1300,7 +1298,7 @@ def run_live_on(
 ) -> IO(Unit):
   +has_sasl = Bool.not(String.is_empty(sasl_user)) && Bool.not(String.is_empty(sasl_pass))
   do IO<Unit>:
-    Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl))
+    Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl, frames))
     Unit <- IO.spawn(Unit, boot_clock(boot, stop))
     g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
     boot_ui(g, boot, stop, frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
@@ -1326,7 +1324,7 @@ def run_demo_go(
   +evt = evt0
   +cmd = cmd0
   do IO<Unit>:
-    Unit <- IO.spawn(Unit, Act.idle_start(nick, evt, cmd))
+    Unit <- IO.spawn(Unit, Act.idle_start(evt, cmd, frames))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     open_watch(ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), 0, evt, cmd, ack, frames, "")
 

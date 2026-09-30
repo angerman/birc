@@ -45,6 +45,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/buffer.bend` | Buffer / Client container types (I15b) |
 | `src/bend/client_laws.bend` | Feed inspectors and `*_ok` predicates (I15a) |
 | `src/bend/auth.bend` | Parsed, phase-gated SASL exchange (pure) |
+| `src/bend/outbound.bend` | Pure send-cap batches and finite credits |
 | `src/bend/links.bend` | Shared URL lexical rules (pure) |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
@@ -68,6 +69,7 @@ silent flake/source pin updates. Routine Nix work uses
 - IRCv3 `+typing` state is Bend-owned, capped at 32 entries, and expires from a one-second `TypingTick`; active lasts 6 s and paused lasts 30 s. Only an expiry change repaints.
 - A new or changed pty test must pass three consecutive runs before its commit.
 - Prove laws; do not weaken them to make a candidate pass.
+- Keep proof-facing queue rules in `outbound.bend`, not the IO actor module. Importing the actor into `LAWS.bend` brings foreign/unsafe dependencies and the checker rejects the proof set.
 - Bend pitfalls: no `match f(x)`; `+T` is copyable; match binders in param order;
   self-recursion needs decreasing fuel as the first arg; no dotted forward refs;
   `match` cannot scrutinize a computed value, a local binder, or a destructuring let;

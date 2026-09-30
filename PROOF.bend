@@ -9,6 +9,7 @@ import ./src/bend/view.bend as V
 import ./src/bend/session.bend as Sess
 import ./src/bend/base64.bend as B64
 import ./src/bend/typing.bend as Ty
+import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
 def Laws.ping_classified():
@@ -695,4 +696,10 @@ def Laws.reconnect_endpoint():
   {==}
 
 def Laws.disconnect_drop():
+  {==}
+
+def Laws.actor_zero_split(xs):
+  {==}
+
+def Laws.actor_exhausted_keeps_pending(xs):
   {==}

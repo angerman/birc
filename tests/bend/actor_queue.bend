@@ -2,6 +2,7 @@
 # channel, then check that close flushes every remaining line exactly once.
 import Base
 import ../../src/bend/actor.bend as Act
+import ../../src/bend/outbound.bend as Out
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/dns.bend as Dns
 
@@ -44,7 +45,7 @@ def run_socket(sock: Socket, +port: U32, +frames: U32, +count: Nat, +mode: Strin
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
-    Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{Some{sock}, 1, Nil{}, Act.budget_frames(frames), False{}}, evt, cmd, boot, False{}))
+    Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{Some{sock}, 1, Nil{}, Out.budget_frames(frames), False{}}, evt, cmd, boot, False{}))
     _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{lines(count)})
     # A second producer command fills the capacity-one queue while an
     # internal Pump is scheduled. Awaiting a self-send would deadlock here.

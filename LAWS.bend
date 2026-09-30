@@ -14,6 +14,7 @@ import ./src/bend/base64.bend as B64
 import ./src/bend/split.bend as Sp
 import ./src/bend/typing.bend as Ty
 import ./src/bend/auth.bend as Auth
+import ./src/bend/outbound.bend as Act
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -256,6 +257,16 @@ law parse_id_bad:
 # LAW: --frames 3 is 3 live ticks (one event each).
 law live_fuel_small:
   {Nat.is_eq(Sess.live_fuel(3), 3n) == True{} : Bool}
+
+# LAW: a zero split keeps every pending line, for any queue.
+law actor_zero_split:
+  for xs: List<&2, String>
+  {Act.split_at(xs, 0n) == (Nil{}, xs) : List<&2, String> & List<&2, String>}
+
+# LAW: an exhausted writer neither emits nor discards pending lines.
+law actor_exhausted_keeps_pending:
+  for xs: List<&2, String>
+  {Act.batch(xs, Act.Limited{0, 0}) == Act.Batch{Nil{}, xs, Act.Limited{0, 0}} : Act.Batch}
 
 # LAW: SASL PLAIN Base64 encoding matches standard test vectors.
 law sasl_plain_golden:

@@ -4,6 +4,7 @@ import Base
 import ./irc.bend as Irc
 import ./session.bend as Sess
 import ./dns.bend as Dns
+import ./outbound.bend as Out
 
 def send_go_r(s: Socket, r: Result<&1, &1, (U32 & String), Unit>) -> Socket & Bool:
   match r:
@@ -60,9 +61,6 @@ def send_lines(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
 def register(sock: Socket, +nick: String, has_sasl: Bool) -> IO(Socket & Bool):
   send_lines(sock, Sess.handshake_lines(nick, has_sasl))
 
-def SEND_CAP() -> Nat:
-  8n
-
 def xs_nil(+xs: List<&2, String>) -> Bool:
   match xs:
     case Nil{}:
@@ -76,73 +74,6 @@ def oct_nil(+xs: List<&2, U32>) -> Bool:
       True{}
     case Con{_, _}:
       False{}
-
-def split_at.go(n: Nat, xs: List<&2, String>, acc: List<&2, String>) -> List<&2, String> & List<&2, String>:
-  match n:
-    case 0n:
-      (List.reverse(&2, String, acc), xs)
-    case 1n+p:
-      match xs:
-        case Nil{}:
-          (List.reverse(&2, String, acc), Nil{})
-        case Con{+h, t}:
-          split_at.go(p, t, h <> acc)
-
-def split_at(+xs: List<&2, String>, +n: Nat) -> List<&2, String> & List<&2, String>:
-  split_at.go(n, xs, Nil{})
-
-# Credits avoid multiplying a U32 frame count by eight (which can overflow),
-# or constructing a potentially huge unary Nat budget. Every refill grants
-# eight lines and consumes one frame's budget. Zero frames means unlimited.
-type Budget is Data:
-  Unlimited{}
-  Limited{turns: U32, credit: U32}
-
-type Batch is Data:
-  Batch{now: List<&2, String>, later: List<&2, String>, budget: Budget}
-
-def budget_frames.pick(unlimited: Bool, +frames: U32) -> Budget:
-  match unlimited:
-    case True{}: Unlimited{}
-    case False{}: Limited{frames, 0}
-
-def budget_frames(+frames: U32) -> Budget:
-  budget_frames.pick(U32.is_zero(frames), frames)
-
-def budget_refill(refill: Bool, +turns: U32, +credit: U32) -> Budget:
-  match refill:
-    case True{}: Limited{U32.sub(turns, 1), U32.from_nat(SEND_CAP())}
-    case False{}: Limited{turns, credit}
-
-def budget_ready(b: Budget) -> Budget:
-  match b:
-    case Unlimited{}: Unlimited{}
-    case Limited{+turns, +credit}: budget_refill(U32.is_zero(credit) && Bool.not(U32.is_zero(turns)), turns, credit)
-
-def budget_cap(b: Budget) -> Nat:
-  match b:
-    case Unlimited{}: SEND_CAP()
-    case Limited{_, +credit}: Bool.pick(Nat, U32.is_gt(credit, U32.from_nat(SEND_CAP())), SEND_CAP(), U32.to_nat(credit))
-
-def budget_after(b: Budget, used: Nat) -> Budget:
-  match b:
-    case Unlimited{}: Unlimited{}
-    case Limited{turns, credit}: Limited{turns, U32.sub(credit, U32.from_nat(used))}
-
-def budget_open(b: Budget) -> Bool:
-  match b:
-    case Unlimited{}: True{}
-    case Limited{+turns, +credit}: Bool.not(U32.is_zero(turns) && U32.is_zero(credit))
-
-def batch_parts(parts: List<&2, String> & List<&2, String>, b: Budget) -> Batch:
-  match parts:
-    case (+now, later): Batch{now, later, budget_after(b, List.length(&2, String, now))}
-
-def batch_ready(+b: Budget, xs: List<&2, String>) -> Batch:
-  batch_parts(split_at(xs, budget_cap(b)), b)
-
-def batch(xs: List<&2, String>, b: Budget) -> Batch:
-  batch_ready(budget_ready(b), xs)
 
 def post(+evt: Chan(Sess.UiMsg), +gen: U32, e: Sess.NetEvt) -> IO(Unit):
   do IO<Unit>:
@@ -399,9 +330,9 @@ def dial_begin(
     after_dns(r, port, nick, gen, evt, boot, live, has_sasl, k)
 
 type Writer is Type:
-  Writer{socket: Maybe<&1, Socket>, gen: U32, pending: List<&2, String>, budget: Budget, scheduled: Bool}
+  Writer{socket: Maybe<&1, Socket>, gen: U32, pending: List<&2, String>, budget: Out.Budget, scheduled: Bool}
 
-def writer_adopt(st: Maybe<&1, Socket> & U32 & List<&2, String>, budget: Budget) -> Writer:
+def writer_adopt(st: Maybe<&1, Socket> & U32 & List<&2, String>, budget: Out.Budget) -> Writer:
   match st:
     case (sock, (gen, pending)): Writer{sock, gen, pending, budget, False{}}
 
@@ -446,7 +377,7 @@ def writer_schedule(need: Bool, st: Writer, +cmd: Chan(Sess.NetCmd), k: Writer -
             Unit <- IO.spawn(Unit, pump_send(cmd, gen))
             k(Writer{sock, gen, pending, budget, True{}})
 
-def writer_sent(pair: Socket & Sent, +gen: U32, +later: List<&2, String>, +budget: Budget, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+def writer_sent(pair: Socket & Sent, +gen: U32, +later: List<&2, String>, +budget: Out.Budget, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
   match pair:
     case (sock, Sent{+count, ok}):
       match ok:
@@ -456,11 +387,11 @@ def writer_sent(pair: Socket & Sent, +gen: U32, +later: List<&2, String>, +budge
             Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; " ++ Nat.show(Nat.add(1n, Nat.sub(total, count))) ++ " queued/uncertain lines were discarded without retry"))
             k(Writer{None{}, gen, Nil{}, budget, False{}})
         case True{}:
-          writer_schedule(Bool.not(scheduled) && Bool.not(xs_nil(later)) && budget_open(budget), Writer{Some{sock}, gen, later, budget, scheduled}, cmd, k)
+          writer_schedule(Bool.not(scheduled) && Bool.not(xs_nil(later)) && Out.budget_open(budget), Writer{Some{sock}, gen, later, budget, scheduled}, cmd, k)
 
-def writer_batch(sock: Socket, +gen: U32, plan: Batch, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
+def writer_batch(sock: Socket, +gen: U32, plan: Out.Batch, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
   match plan:
-    case Batch{now, later, budget}:
+    case Out.Batch{now, later, budget}:
       do IO<Unit>:
         pair : Socket & Sent <- send_batch(sock, now)
         writer_sent(pair, gen, later, budget, scheduled, total, evt, cmd, k)
@@ -472,7 +403,7 @@ def writer_queue(st: Writer, outs: List<&2, String>, +evt: Chan(Sess.UiMsg), +cm
         case None{}: k(Writer{None{}, gen, Nil{}, budget, False{}})
         case Some{s}:
           +all = List.append(&2, String, pending, outs)
-          writer_batch(s, gen, batch(all, budget), scheduled, List.length(&2, String, all), evt, cmd, k)
+          writer_batch(s, gen, Out.batch(all, budget), scheduled, List.length(&2, String, all), evt, cmd, k)
 
 def writer_pump(same: Bool, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
   match same:
@@ -515,9 +446,9 @@ def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot
     writer_received(g, st, evt, cmd, boot, has_sasl, next => writer_go(next, evt, cmd, boot, has_sasl))
 
 def actor_boot(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool, frames: U32) -> IO(Unit):
-  dial_begin(host, port, nick, gen, evt, boot, True{}, has_sasl, st => writer_go(writer_adopt(st, budget_frames(frames)), evt, cmd, boot, has_sasl))
+  dial_begin(host, port, nick, gen, evt, boot, True{}, has_sasl, st => writer_go(writer_adopt(st, Out.budget_frames(frames)), evt, cmd, boot, has_sasl))
 
 def idle_start(+evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), frames: U32) -> IO(Unit):
   do IO<Unit>:
     boot : Chan(Boot) <- Chan.new(Boot, 1)
-    writer_go(Writer{None{}, 0, Nil{}, budget_frames(frames), False{}}, evt, cmd, boot, False{})
+    writer_go(Writer{None{}, 0, Nil{}, Out.budget_frames(frames), False{}}, evt, cmd, boot, False{})

@@ -62,33 +62,34 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 
 | Path | Language | Role |
 |---|---|---|
-| [`src/bend/app.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/app.bend) | Bend 2 | Application entrypoint, CLI dispatch, and lifecycle |
-| [`src/bend/irc.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/irc.bend) | Bend 2 | Pure RFC 1459/2812 parser, classifier, and wire formatter |
-| [`src/bend/client.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/client.bend) | Bend 2 | Incoming IRC event dispatcher (`feed`) and state transitions |
-| [`src/bend/buffer.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/buffer.bend) | Bend 2 | Channel/query buffer container and nick list data structures |
-| [`src/bend/client_laws.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/client_laws.bend) | Bend 2 | Feed inspectors, invariants, and client law predicates |
-| [`src/bend/submit.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/submit.bend) | Bend 2 | User slash-command parsing and outbound line formatting |
-| [`src/bend/frame.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
-| [`src/bend/dns.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
-| [`src/bend/dns_wire.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
-| [`src/bend/view.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/view.bend) | Bend 2 | ViewModel generation, span tokenizer, and `List<DrawOp>` layout |
-| [`src/bend/session.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
-| [`src/bend/typing.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
-| [`src/bend/actor.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/actor.bend) | Bend 2 | Background network actor: socket ownership and read/write loops |
-| [`src/bend/net.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
-| [`src/bend/args.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
-| [`src/bend/timui.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/timui.bend) | Bend 2 | Bend handles and effect declarations for TimUI FFI |
-| [`src/bend/clock.bend`](file:///Users/angerman/Projects/zw3rk/birc/src/bend/clock.bend) | Bend 2 | Timestamp formatting (`HH:MM:SS`) from seconds-of-day |
-| [`src/ffi/timui_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
-| [`src/ffi/dns_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
-| [`src/ffi/clock_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
-| [`LAWS.bend`](file:///Users/angerman/Projects/zw3rk/birc/LAWS.bend) / [`PROOF.bend`](file:///Users/angerman/Projects/zw3rk/birc/PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
+| [`src/bend/app.bend`](src/bend/app.bend) | Bend 2 | Application entrypoint, CLI dispatch, and lifecycle |
+| [`src/bend/irc.bend`](src/bend/irc.bend) | Bend 2 | Pure RFC 1459/2812 parser, classifier, and wire formatter |
+| [`src/bend/client.bend`](src/bend/client.bend) | Bend 2 | Incoming IRC event dispatcher (`feed`) and state transitions |
+| [`src/bend/buffer.bend`](src/bend/buffer.bend) | Bend 2 | Channel/query buffer container and nick list data structures |
+| [`src/bend/client_laws.bend`](src/bend/client_laws.bend) | Bend 2 | Feed inspectors, invariants, and client law predicates |
+| [`src/bend/submit.bend`](src/bend/submit.bend) | Bend 2 | User slash-command parsing and outbound line formatting |
+| [`src/bend/frame.bend`](src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
+| [`src/bend/dns.bend`](src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
+| [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
+| [`src/bend/view.bend`](src/bend/view.bend) | Bend 2 | ViewModel generation, span tokenizer, and `List<DrawOp>` layout |
+| [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
+| [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
+| [`src/bend/actor.bend`](src/bend/actor.bend) | Bend 2 | Background network actor: socket ownership and read/write loops |
+| [`src/bend/outbound.bend`](src/bend/outbound.bend) | Bend 2 | Pure outbound batches, FIFO splits, and finite send credits |
+| [`src/bend/net.bend`](src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
+| [`src/bend/args.bend`](src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
+| [`src/bend/timui.bend`](src/bend/timui.bend) | Bend 2 | Bend handles and effect declarations for TimUI FFI |
+| [`src/bend/clock.bend`](src/bend/clock.bend) | Bend 2 | Timestamp formatting (`HH:MM:SS`) from seconds-of-day |
+| [`src/ffi/timui_ffi.c`](src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
+| [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
+| [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
+| [`LAWS.bend`](LAWS.bend) / [`PROOF.bend`](PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
 
 ---
 
 ## Formal Verification
 
-`birc` uses Bend's interaction calculus proof checker to verify protocol properties and structural invariants before compilation. All proofs live in [`PROOF.bend`](file:///Users/angerman/Projects/zw3rk/birc/PROOF.bend) and correspond directly to declarations in [`LAWS.bend`](file:///Users/angerman/Projects/zw3rk/birc/LAWS.bend).
+`birc` uses Bend's interaction calculus proof checker to verify protocol properties and structural invariants before compilation. All proofs live in [`PROOF.bend`](PROOF.bend) and correspond directly to declarations in [`LAWS.bend`](LAWS.bend).
 
 Quantified laws apply to every input named in their declarations. Most other
 laws check concrete examples, not all possible inputs. Current coverage includes:
@@ -102,6 +103,7 @@ laws check concrete examples, not all possible inputs. Current coverage includes
 - **`search_empty_line`**, **`split_focus_involution`**: Quantified empty-query and two-focus-toggle properties.
 - **`sasl_idle_no_reply`**, **`sasl_done_no_reply`**: No control event can send credentials before authentication is enabled or restart a completed exchange.
 - **`auth_preserves_settings`**, **`timestamp_preserves_log_sequence`**: Authentication changes preserve settings; assigning timestamps preserves log identity.
+- **`actor_zero_split`**, **`actor_exhausted_keeps_pending`**: Zero credit cannot emit or discard pending lines, for any queue.
 - **`framer_roundtrip`**, **`flood_buffers`**, **`scroll_bounds`**, **`log_chrono`**, **`tokenize_*`**: Concrete framing, cap, scroll, ordering, and tokenization examples. `flood_server_clean` checks that rejected JOINs add server diagnostics; it does not prove general absence of corruption.
 
 Verify all proofs at any time:
@@ -257,7 +259,7 @@ Use `/set autoreconn off` to disable this behavior.
 
 ## Development & Verification
 
-The project root [`Makefile`](file:///Users/angerman/Projects/zw3rk/birc/Makefile) is the sole driver. Routine development uses `--no-update-lock-file` to ensure strict reproducibility.
+The project root [`Makefile`](Makefile) is the sole driver. Routine development uses `--no-update-lock-file` to ensure strict reproducibility.
 
 ```sh
 make shell                 # Enter the locked Nix development environment
@@ -281,6 +283,6 @@ make clean                 # Remove build artifacts
 
 ## License
 
-Licensed under the **Apache License, Version 2.0** ([`LICENSE`](file:///Users/angerman/Projects/zw3rk/birc/LICENSE)).
+Licensed under the **Apache License, Version 2.0** ([`LICENSE`](LICENSE)).
 
 Copyright (c) Moritz Angermann <moritz.angermann@gmail.com>.
