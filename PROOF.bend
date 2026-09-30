@@ -643,6 +643,12 @@ def Laws.live_fuel_small():
 def Laws.sasl_plain_golden():
   {==}
 
+def Laws.sasl_idle_no_reply(event, user, pass):
+  {==}
+
+def Laws.sasl_done_no_reply(event, user, pass):
+  {==}
+
 def Laws.server_time_extract():
   {==}
 

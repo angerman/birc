@@ -6,7 +6,7 @@ import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./frame.bend as Fr
 import ./submit.bend as Sub
-import ./base64.bend as B64
+import ./auth.bend as Auth
 import ./split.bend as Sp
 import ./typing.bend as Ty
 
@@ -49,56 +49,25 @@ def fold_step.lag_on(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: 
 def fold_step.lag(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
   fold_step.lag_on(cl, pongs, now_ms, h, Irc.extract_pong_lag_line(h))
 
-def fold_step.sasl_nak(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_nak: Bool) -> FoldAcc:
-  match is_nak:
-    case True{}:
-      +c1 = Feed.feed(cl, h)
-      +c2 = Cl.client_log(c1, 0n, Cl.Error{}, "SASL: capability rejected")
-      FoldAcc{c2, "CAP END" <> pongs, now_ms}
-    case False{}:
-      fold_step.lag(cl, pongs, now_ms, h)
+def fold_step.auth.fed(fed: FoldAcc, phase: Cl.AuthPhase, outs: List<&2, String>, notice: Auth.Notice) -> FoldAcc:
+  match fed:
+    case FoldAcc{+cl, pongs, +now_ms}:
+      FoldAcc{Auth.log_notice(Cl.set_auth(cl, phase), notice), List.append(&2, String, List.reverse(&2, String, outs), pongs), now_ms}
 
-def fold_step.sasl_fail(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_fail: Bool) -> FoldAcc:
-  match is_fail:
-    case True{}:
-      +c1 = Feed.feed(cl, h)
-      +c2 = Cl.client_log(c1, 0n, Cl.Error{}, "SASL: authentication failed")
-      FoldAcc{c2, "CAP END" <> pongs, now_ms}
-    case False{}:
-      fold_step.sasl_nak(cl, pongs, now_ms, h, Irc.is_cap_nak(h) && String.contains(h, "sasl"))
+def fold_step.auth(reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  match reply:
+    case Auth.Reply{phase, outs, notice}:
+      fold_step.auth.fed(fold_step.lag(cl, pongs, now_ms, h), phase, outs, notice)
 
-def fold_step.sasl_succ(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_succ: Bool) -> FoldAcc:
-  match is_succ:
-    case True{}:
-      +c1 = Feed.feed(cl, h)
-      +c2 = Cl.client_log(c1, 0n, Cl.System{}, "SASL: authentication successful")
-      FoldAcc{c2, "CAP END" <> pongs, now_ms}
-    case False{}:
-      fold_step.sasl_fail(cl, pongs, now_ms, h, Irc.is_sasl_fail(h))
-
-def fold_step.auth_plus(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_ap: Bool) -> FoldAcc:
-  match is_ap:
-    case True{}:
-      +payload = B64.sasl_plain(Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl))
-      FoldAcc{cl, ("AUTHENTICATE " ++ payload) <> pongs, now_ms}
-    case False{}:
-      fold_step.sasl_succ(cl, pongs, now_ms, h, Irc.is_sasl_success(h))
-
-def fold_step.cap_ack(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, is_ack: Bool) -> FoldAcc:
-  match is_ack:
-    case True{}:
-      +c1 = Feed.feed(cl, h)
-      +c2 = Cl.client_log(c1, 0n, Cl.System{}, "SASL: authenticating with PLAIN...")
-      FoldAcc{c2, "AUTHENTICATE PLAIN" <> pongs, now_ms}
-    case False{}:
-      fold_step.auth_plus(cl, pongs, now_ms, h, Irc.is_authenticate_plus(h))
+def fold_step.sasl(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  fold_step.auth(Auth.step(Cl.get_auth(cl), Irc.sasl_event.line(Irc.parse(h)), Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl)), cl, pongs, now_ms, h)
 
 def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool) -> FoldAcc:
   match ping:
     case True{}:
       FoldAcc{cl, Irc.pong_for(h) <> pongs, now_ms}
     case False{}:
-      fold_step.cap_ack(cl, pongs, now_ms, h, Irc.is_cap_ack_sasl(h))
+      fold_step.sasl(cl, pongs, now_ms, h)
 
 def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
   fold_step.ping(cl, pongs, now_ms, h, Irc.is_ping_line(h))
@@ -389,20 +358,6 @@ def can_send(net: NetState) -> Bool:
     case Offline{}:
       False{}
 
-def submit_offline(+cl: Cl.Client, +draft: String, quit: Bool) -> Cl.Client & String & NetCmd:
-  match quit:
-    case True{}:
-      wrap_outs(Sub.submit(cl, draft))
-    case False{}:
-      (Sub.echo_err_server(cl, "not connected"), "", Cont{Nil{}})
-
-def submit_send(+cl: Cl.Client, net: NetState, +draft: String, ok: Bool) -> Cl.Client & String & NetCmd:
-  match ok:
-    case True{}:
-      wrap_outs(Sub.submit(cl, draft))
-    case False{}:
-      submit_offline(cl, draft, Sub.submit_is_quit(draft))
-
 def connect_apply.busy(+cl: Cl.Client, online: Bool) -> Cl.Client & String & NetCmd:
   match online:
     case True{}:
@@ -447,26 +402,50 @@ def open_apply(+cl: Cl.Client, +draft: String) -> Cl.Client & String & NetCmd:
   +arg = Sub.open_arg_from_input(draft)
   open_apply.got(cl, Sub.open_resolve_target(cl, arg))
 
-def submit_pair.enter.on(+cl: Cl.Client, +net: NetState, +draft: String, is_open: Bool) -> Cl.Client & String & NetCmd:
-  match is_open:
-    case True{}:
-      open_apply(cl, draft)
-    case False{}:
-      submit_send(cl, net, draft, can_send(net))
+def wrap_local(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
+  match pair:
+    case (cl, _): (cl, "", Cont{Nil{}})
 
-def submit_pair.enter(+cl: Cl.Client, +net: NetState, +port: U32, +draft: String, conn: Bool) -> Cl.Client & String & NetCmd:
+def submit_local(input: Sub.Input, +cl: Cl.Client) -> Cl.Client & String & NetCmd:
+  match input:
+    case Sub.CommandInput{Sub.Quit{}, +verb, +rest}:
+      wrap_outs(Sub.submit_cmd.do(cl, verb, rest, Sub.Quit{}))
+    case _:
+      wrap_local(Sub.submit_parsed(cl, input))
+
+def submit_offline(+cl: Cl.Client, +input: Sub.Input, needs_wire: Bool) -> Cl.Client & String & NetCmd:
+  match needs_wire:
+    case True{}: (Sub.echo_err_server(cl, "not connected"), "", Cont{Nil{}})
+    case False{}: submit_local(input, cl)
+
+def submit_send(+cl: Cl.Client, +input: Sub.Input, online: Bool) -> Cl.Client & String & NetCmd:
+  match online:
+    case True{}: wrap_outs(Sub.submit_parsed(cl, input))
+    case False{}: submit_offline(cl, input, Sub.needs_connection(input))
+
+def submit_command(cmd: Sub.Slash, +cl: Cl.Client, +net: NetState, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
+  match cmd:
+    case Sub.OpenCmd{}: open_apply.got(cl, Sub.open_resolve_target(cl, rest))
+    case _: submit_send(cl, Sub.CommandInput{cmd, verb, rest}, can_send(net))
+
+def submit_command.connect(conn: Bool, +cl: Cl.Client, +net: NetState, +port: U32, cmd: Sub.Slash, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
   match conn:
-    case True{}:
-      connect_apply(cl, net, port, Sub.connect_from_input(draft))
-    case False{}:
-      submit_pair.enter.on(cl, net, draft, Sub.submit_is_open(draft))
+    case True{}: connect_apply(cl, net, port, Sub.connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest))
+    case False{}: submit_command(cmd, cl, net, verb, rest)
+
+def submit_input(input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32) -> Cl.Client & String & NetCmd:
+  match input:
+    case Sub.CommandInput{cmd, +verb, +rest}:
+      submit_command.connect(Irc.ieq(verb, "connect") || Irc.ieq(verb, "reconnect"), cl, net, port, cmd, verb, rest)
+    case _:
+      submit_send(cl, input, can_send(net))
 
 def submit_pair(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
   match enter:
     case False{}:
       (cl, draft, Cont{Nil{}})
     case True{}:
-      submit_pair.enter(cl, net, port, draft, Sub.submit_is_connect(draft))
+      submit_input(Sub.parse_input(draft), cl, net, port)
 
 def apply_keys(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool) -> Cl.Client & String & NetCmd:
   submit_pair(cl, net, port, draft, enter)

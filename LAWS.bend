@@ -13,6 +13,7 @@ import ./src/bend/dns_wire.bend as Wire
 import ./src/bend/base64.bend as B64
 import ./src/bend/split.bend as Sp
 import ./src/bend/typing.bend as Ty
+import ./src/bend/auth.bend as Auth
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -80,7 +81,7 @@ law submit_empty_ok:
 law framer_roundtrip:
   {Fr.roundtrip_ok("a" <> "b" <> Nil{}, Fr.string_to_octets("tail")) == True{} : Bool}
 
-# LAW: scroll clamp stays within bounds.
+# LAW: concrete scroll clamp sample stays within bounds (100, 10, 5).
 law scroll_bounds:
   {V.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
@@ -122,7 +123,7 @@ law overlong_drop:
 law flood_buffers:
   {CL.flood_buffers_capped() == True{} : Bool}
 
-# LAW: extra JOINs past the cap do not land on the server buffer.
+# LAW: the 24-JOIN sample adds rejection diagnostics to the server buffer.
 law flood_server_clean:
   {CL.flood_server_clean() == True{} : Bool}
 
@@ -259,6 +260,20 @@ law live_fuel_small:
 # LAW: SASL PLAIN Base64 encoding matches standard test vectors.
 law sasl_plain_golden:
   {B64.sasl_plain_ok() == True{} : Bool}
+
+# LAW: any control event is inert when credentials are disabled.
+law sasl_idle_no_reply:
+  for event: Irc.SaslEvent
+  for user: String
+  for pass: String
+  {Auth.step(Cl.AuthIdle{}, event, user, pass) == Auth.unchanged(Cl.AuthIdle{}) : Auth.Reply}
+
+# LAW: completed authentication cannot restart or release credentials again.
+law sasl_done_no_reply:
+  for event: Irc.SaslEvent
+  for user: String
+  for pass: String
+  {Auth.step(Cl.AuthDone{}, event, user, pass) == Auth.unchanged(Cl.AuthDone{}) : Auth.Reply}
 
 # LAW: server-time extracts HH:MM:SS from ISO-8601 message tags.
 law server_time_extract:

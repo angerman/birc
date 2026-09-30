@@ -9,7 +9,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 ## Highlights
 
 - **Pure Functional Core (>91% Bend 2)**: IRC protocol parsing, message dispatch, connection state, line framing, command submission, and UDP DNS resolution are implemented purely in Bend.
-- **Formally Verified**: Core invariants—including control-character sanitization across all strings, CRLF framer buffer bounds, scroll clamping, and protocol classification—are formally proved using `bend PROOF.bend`.
+- **Checked pure core**: `bend PROOF.bend` checks quantified sanitization, single-chunk framer bounds, and authentication-state laws, plus concrete protocol, scroll, and rendering examples. See the exact proof scope below.
 - **Zero-Poll / 0.0% Idle CPU**: The event loop parks on OS descriptors (terminal tty, `SIGWINCH` resize pipe, and socket dup) waking a single Bend `Chan(UiMsg)` channel. No polling, no busy-waiting.
 - **Native DNS Engine**: Full RFC 1035 UDP A-record DNS client implemented directly in Bend with wire-format packet cursors, CNAME chasing, and fault tolerance—independent of libc `getaddrinfo`.
 - **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, visual activity/mention alerts, configurable terminal bells, resize-safe soft wrapping, mouse navigation, clickable OSC 8 links, IRCv3 live typing indicators, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
@@ -82,7 +82,7 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 | [`src/ffi/timui_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
 | [`src/ffi/dns_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/ffi/clock_ffi.c`](file:///Users/angerman/Projects/zw3rk/birc/src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
-| [`LAWS.bend`](file:///Users/angerman/Projects/zw3rk/birc/LAWS.bend) / [`PROOF.bend`](file:///Users/angerman/Projects/zw3rk/birc/PROOF.bend) | Bend 2 | Formal specifications and inductive mathematical proofs |
+| [`LAWS.bend`](file:///Users/angerman/Projects/zw3rk/birc/LAWS.bend) / [`PROOF.bend`](file:///Users/angerman/Projects/zw3rk/birc/PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
 
 ---
 
@@ -90,24 +90,29 @@ A lean, formally verified terminal IRC client built with **Bend 2** and **timui.
 
 `birc` uses Bend's interaction calculus proof checker to verify protocol properties and structural invariants before compilation. All proofs live in [`PROOF.bend`](file:///Users/angerman/Projects/zw3rk/birc/PROOF.bend) and correspond directly to declarations in [`LAWS.bend`](file:///Users/angerman/Projects/zw3rk/birc/LAWS.bend).
 
-Key theorems verified include:
+Quantified laws apply to every input named in their declarations. Most other
+laws check concrete examples, not all possible inputs. Current coverage includes:
 - **`strip_ctl_clean`**: Inductive proof that `strip_ctl(s)` eliminates all CR and LF characters across **all** possible strings `s`:
   ```bend
   law strip_ctl_clean:
     for s: String
     {Irc.has_crlf(Irc.strip_ctl(s)) == False{} : Bool}
   ```
-- **`push_rem_bound`**: Inductive proof that the octet framer's remainder buffer is strictly bounded by `LINE_OCTET_MAX + 1` (preventing unbounded memory growth on fragmented streams).
-- **`framer_roundtrip`**: Proof that serializing and framing complete lines preserves data intact.
-- **`flood_buffers` & `flood_server_clean`**: Mathematical guarantee that buffer count cannot exceed `MAX_BUFFERS` under JOIN floods, and excess channel traffic never corrupts the server buffer.
-- **`scroll_bounds`**: Verification of scroll offset bounding arithmetic under all terminal row dimensions.
-- **`log_chrono`**: Verification that log ring buffers retain strict chronological ordering (oldest to newest).
-- **`tokenize_*`**: Verification that rich text markers (`*bold*`, `_italic_`, `` `code` ``, `https://...`) are correctly transformed into structured `TextSpan` tokens without leaking raw delimiters.
+- **`push_rem_bound`**: For every octet chunk, `push(Nil, chunk)` retains at most `LINE_OCTET_MAX + 1` octets. This statement starts with an empty remainder; it is not a quantified multi-chunk invariant.
+- **`search_empty_line`**, **`split_focus_involution`**: Quantified empty-query and two-focus-toggle properties.
+- **`sasl_idle_no_reply`**, **`sasl_done_no_reply`**: No control event can send credentials before authentication is enabled or restart a completed exchange.
+- **`framer_roundtrip`**, **`flood_buffers`**, **`scroll_bounds`**, **`log_chrono`**, **`tokenize_*`**: Concrete framing, cap, scroll, ordering, and tokenization examples. `flood_server_clean` checks that rejected JOINs add server diagnostics; it does not prove general absence of corruption.
 
 Verify all proofs at any time:
 ```sh
 make proof
 ```
+
+The normal gate uses Bend's checker. `make proof-kernel` also requests the
+independent BendTT kernel. It needs Lean v4.34.0 or a configured `BENDTT`;
+missing tools fail the target. Foreign effects and `@unsafe` live loops are
+outside these pure proof guarantees. Runtime, PTY, and sanitizer tests cover
+those paths separately.
 
 ---
 

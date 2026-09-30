@@ -954,20 +954,75 @@ def format_cap_end() -> String:
 def format_authenticate(+payload: String) -> String:
   "AUTHENTICATE " ++ payload
 
+type SaslEvent is Data:
+  SaslAck{}
+  SaslNak{}
+  SaslPlus{}
+  SaslSuccess{}
+  SaslFailure{}
+  SaslOther{}
+
+def has_sasl_cap(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, t}:
+      ieq(h, "sasl") || String.starts_with(h, "sasl=") || has_sasl_cap(t)
+
+def sasl_event.cap(+m: Message) -> SaslEvent:
+  Bool.pick(SaslEvent, has_sasl_cap(String.split(msg_param(m, 2n), Chr{32})),
+    Bool.pick(SaslEvent, ieq(msg_param(m, 1n), "ACK"), SaslAck{},
+      Bool.pick(SaslEvent, ieq(msg_param(m, 1n), "NAK"), SaslNak{}, SaslOther{})), SaslOther{})
+
+def sasl_event(+m: Message) -> SaslEvent:
+  Bool.pick(SaslEvent, ieq(msg_command(m), "CAP"), sasl_event.cap(m),
+    Bool.pick(SaslEvent, ieq(msg_command(m), "AUTHENTICATE") && String.eq(msg_param(m, 0n), "+") && Nat.is_eq(List.length(&2, String, msg_params(m)), 1n), SaslPlus{},
+      Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 903), SaslSuccess{},
+        Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 902) || (U32.is_ge(msg_num(m), 904) && U32.is_le(msg_num(m), 907)), SaslFailure{}, SaslOther{}))))
+
+def sasl_event.line(m: Maybe<&2, Message>) -> SaslEvent:
+  match m:
+    case None{}: SaslOther{}
+    case Some{msg}: sasl_event(msg)
+
+def is_cap_ack_sasl.event(e: SaslEvent) -> Bool:
+  match e:
+    case SaslAck{}: True{}
+    case _: False{}
+
 def is_cap_ack_sasl(+line: String) -> Bool:
-  String.contains(line, "CAP") && String.contains(line, "ACK") && String.contains(line, "sasl")
+  is_cap_ack_sasl.event(sasl_event.line(parse(line)))
+
+def is_authenticate_plus.event(e: SaslEvent) -> Bool:
+  match e:
+    case SaslPlus{}: True{}
+    case _: False{}
 
 def is_authenticate_plus(+line: String) -> Bool:
-  String.starts_with(line, "AUTHENTICATE +") || String.contains(line, " AUTHENTICATE +")
+  is_authenticate_plus.event(sasl_event.line(parse(line)))
+
+def is_sasl_success.event(e: SaslEvent) -> Bool:
+  match e:
+    case SaslSuccess{}: True{}
+    case _: False{}
 
 def is_sasl_success(+line: String) -> Bool:
-  String.contains(line, " 903 ")
+  is_sasl_success.event(sasl_event.line(parse(line)))
+
+def is_sasl_fail.event(e: SaslEvent) -> Bool:
+  match e:
+    case SaslFailure{}: True{}
+    case _: False{}
 
 def is_sasl_fail(+line: String) -> Bool:
-  String.contains(line, " 904 ") || String.contains(line, " 905 ") || String.contains(line, " 906 ")
+  is_sasl_fail.event(sasl_event.line(parse(line)))
+
+def is_cap_nak.event(e: SaslEvent) -> Bool:
+  match e:
+    case SaslNak{}: True{}
+    case _: False{}
 
 def is_cap_nak(+line: String) -> Bool:
-  String.contains(line, "CAP") && String.contains(line, "NAK")
+  is_cap_nak.event(sasl_event.line(parse(line)))
 
 def parse_u32_read.on(m: Maybe<&2, U32>) -> Maybe<&2, U32>:
   match m:

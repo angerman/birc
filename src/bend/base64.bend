@@ -1,5 +1,6 @@
 # Base64 encoding for SASL PLAIN (M14.10). Pure Bend 2.
 import Base
+import ./frame.bend as Fr
 
 def b64_char.upper(+idx: U32) -> Char:
   Chr{U32.add(65, idx)}
@@ -84,25 +85,33 @@ def encode_bytes.go(fuel: Nat, bytes: List<&2, U32>) -> String:
 def encode_bytes(+bytes: List<&2, U32>) -> String:
   encode_bytes.go(Nat.add(1n, List.length(&2, U32, bytes)), bytes)
 
-def str_to_bytes.go(fuel: Nat, s: String) -> List<&2, U32>:
-  match fuel:
-    case 0n:
-      Nil{}
-    case 1n+p:
-      match s:
-        case SNil{}:
-          Nil{}
-        case SCon{+h, +t}:
-          Char.to_u32(h) <> str_to_bytes.go(p, t)
-
-def str_to_bytes(+s: String) -> List<&2, U32>:
-  str_to_bytes.go(Nat.add(1n, String.length(s)), s)
-
 def sasl_plain_bytes(+user: String, +pass: String) -> List<&2, U32>:
-  0 <> List.append(&2, U32, str_to_bytes(user), 0 <> str_to_bytes(pass))
+  0 <> List.append(&2, U32, Fr.string_to_octets(user), 0 <> Fr.string_to_octets(pass))
 
 def sasl_plain(+user: String, +pass: String) -> String:
   encode_bytes(sasl_plain_bytes(user, pass))
+
+# IRCv3 SASL: 400-byte Base64 chunks; '+' terminates an exact multiple.
+# The payload is ASCII, so String.length is also its byte length here.
+def authenticate_chunks.go(fuel: Nat, +payload: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
+      "AUTHENTICATE +" <> Nil{}
+    case 1n+p:
+      Bool.pick(List<&2, String>, String.is_empty(payload), "AUTHENTICATE +" <> Nil{},
+        Bool.pick(List<&2, String>, Nat.is_lt(String.length(payload), 400n),
+          ("AUTHENTICATE " ++ payload) <> Nil{},
+          ("AUTHENTICATE " ++ String.take(payload, 400n)) <> authenticate_chunks.go(p, String.drop(payload, 400n))))
+
+def authenticate_chunks.empty(+payload: String, empty: Bool) -> List<&2, String>:
+  match empty:
+    case True{}:
+      "AUTHENTICATE +" <> Nil{}
+    case False{}:
+      authenticate_chunks.go(1n+Nat.div(String.length(payload), 400n), payload)
+
+def authenticate_chunks(+payload: String) -> List<&2, String>:
+  authenticate_chunks.empty(payload, String.is_empty(payload))
 
 def sasl_plain_ok() -> Bool:
   String.eq(sasl_plain("user", "pass"), "AHVzZXIAcGFzcw==")

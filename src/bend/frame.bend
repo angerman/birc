@@ -260,12 +260,34 @@ def line_from_octets(+xs: List<&2, U32>) -> String:
 def char_code(+c: Char) -> U32:
   Char.to_u32(c)
 
+def utf8_encode_four(+cp: U32, tail: List<&2, U32>) -> List<&2, U32>:
+  U32.or(240, U32.shrn(cp, 18n)) <>
+  U32.or(128, U32.and(U32.shrn(cp, 12n), 63)) <>
+  U32.or(128, U32.and(U32.shrn(cp, 6n), 63)) <>
+  U32.or(128, U32.and(cp, 63)) <> tail
+
+def utf8_encode_three(+cp: U32, tail: List<&2, U32>) -> List<&2, U32>:
+  U32.or(224, U32.shrn(cp, 12n)) <>
+  U32.or(128, U32.and(U32.shrn(cp, 6n), 63)) <>
+  U32.or(128, U32.and(cp, 63)) <> tail
+
+def utf8_encode_two(+cp: U32, tail: List<&2, U32>) -> List<&2, U32>:
+  U32.or(192, U32.shrn(cp, 6n)) <> U32.or(128, U32.and(cp, 63)) <> tail
+
+def utf8_encode_cp(+cp: U32, +tail: List<&2, U32>) -> List<&2, U32>:
+  Bool.pick(List<&2, U32>, U32.is_lt(cp, 128), cp <> tail,
+    Bool.pick(List<&2, U32>, U32.is_lt(cp, 2048), utf8_encode_two(cp, tail),
+      Bool.pick(List<&2, U32>, U32.is_lt(cp, 65536), utf8_encode_three(cp, tail), utf8_encode_four(cp, tail))))
+
+def utf8_encode_scalar(+cp: U32, tail: List<&2, U32>) -> List<&2, U32>:
+  utf8_encode_cp(Bool.pick(U32, U32.is_gt(cp, 1114111) || (U32.is_ge(cp, 55296) && U32.is_le(cp, 57343)), 65533, cp), tail)
+
 def string_to_octets(+s: String) -> List<&2, U32>:
   match s:
     case SNil{}:
       Nil{}
     case SCon{+h, t}:
-      char_code(h) <> string_to_octets(t)
+      utf8_encode_scalar(char_code(h), string_to_octets(t))
 
 def crlf(+s: String) -> List<&2, U32>:
   List.append(&2, U32, string_to_octets(s), CR() <> LF() <> Nil{})

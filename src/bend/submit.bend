@@ -306,12 +306,20 @@ def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client 
       +bi = active_idx(cl)
       (echo_action(cl, bi, rest), one_out(Irc.format_privmsg(tgt, ctcp_action(rest))))
 
+def active_is_synthetic(+cl: Cl.Client) -> Bool:
+  String.starts_with(active_name(cl), "*")
+
+def submit_me.target(+cl: Cl.Client, +rest: String, synthetic: Bool) -> Cl.Client & List<&2, String>:
+  match synthetic:
+    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}: submit_me.chan(cl, rest, Nat.is_eq(active_idx(cl), 0n))
+
 def submit_me.on(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       (echo_err(cl, "usage: /me action"), empty_out())
     case False{}:
-      submit_me.chan(cl, rest, Nat.is_eq(active_idx(cl), 0n))
+      submit_me.target(cl, rest, active_is_synthetic(cl))
 
 def submit_me(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_me.on(cl, rest, String.is_empty(rest))
@@ -1045,6 +1053,48 @@ def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
 def slash_of(+verb: String) -> Slash:
   slash_lookup(slash_rows(), verb)
 
+type Input is Data:
+  EmptyInput{}
+  PlainInput{text: String}
+  CommandInput{cmd: Slash, verb: String, rest: String}
+
+def parse_input.words(pair: String & String) -> Input:
+  match pair:
+    case (+verb, +rest): CommandInput{slash_of(verb), verb, Irc.drop_spaces(rest)}
+
+def parse_input.slash(+input: String, slash: Bool) -> Input:
+  match slash:
+    case True{}: parse_input.words(take_verb(skip_slash(input)))
+    case False{}: PlainInput{input}
+
+def parse_input.empty(+input: String, empty: Bool) -> Input:
+  match empty:
+    case True{}: EmptyInput{}
+    case False{}: parse_input.slash(input, submit.is_slash(input))
+
+def parse_input(+input: String) -> Input:
+  parse_input.empty(input, String.is_empty(input))
+
+def query_needs_connection(pair: String & String) -> Bool:
+  match pair:
+    case (_, +body): Bool.not(String.is_empty(body))
+
+def command_needs_connection(cmd: Slash, +rest: String) -> Bool:
+  match cmd:
+    case Join{}: True{}
+    case Part{}: True{}
+    case Msg{}: True{}
+    case Nick{}: True{}
+    case Me{}: True{}
+    case QueryCmd{}: query_needs_connection(take_word(rest))
+    case _: False{}
+
+def needs_connection(input: Input) -> Bool:
+  match input:
+    case PlainInput{_}: True{}
+    case CommandInput{cmd, _, +rest}: command_needs_connection(cmd, rest)
+    case EmptyInput{}: False{}
+
 def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:
     case Join{}:
@@ -1106,32 +1156,16 @@ def submit_plain.virtual(virtual: Bool, +cl: Cl.Client, +input: String) -> Cl.Cl
       submit_plain.on(cl, input, Nat.is_eq(active_idx(cl), 0n))
 
 def submit_plain(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
-  submit_plain.virtual(String.starts_with(active_name(cl), "*"), cl, input)
+  submit_plain.virtual(active_is_synthetic(cl), cl, input)
 
-def submit.verb(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (verb, rest):
-      submit_cmd(cl, verb, Irc.drop_spaces(rest))
-
-def submit.slash(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
-  submit.verb(cl, take_verb(skip_slash(input)))
-
-def submit.on(+cl: Cl.Client, +input: String, slash: Bool) -> Cl.Client & List<&2, String>:
-  match slash:
-    case True{}:
-      submit.slash(cl, input)
-    case False{}:
-      submit_plain(cl, input)
-
-def submit.empty(+cl: Cl.Client, empty: Bool, +input: String) -> Cl.Client & List<&2, String>:
-  match empty:
-    case True{}:
-      (cl, empty_out())
-    case False{}:
-      submit.on(cl, input, submit.is_slash(input))
+def submit_parsed(+cl: Cl.Client, input: Input) -> Cl.Client & List<&2, String>:
+  match input:
+    case EmptyInput{}: (cl, empty_out())
+    case PlainInput{+text}: submit_plain(cl, text)
+    case CommandInput{cmd, +verb, +rest}: submit_cmd.do(cl, verb, rest, cmd)
 
 def submit(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
-  submit.empty(cl, String.is_empty(input), input)
+  submit_parsed(cl, parse_input(input))
 
 def out_all_ok.go(+xs: List<&2, String>, ok: Bool) -> Bool:
   match xs:
