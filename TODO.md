@@ -879,7 +879,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       complete bounded payload across arbitrary receive boundaries. Reject
       false lengths, premature EOF, and trailing/malformed data. Test a split
       prefix, split body, valid packet, and bad length.
-- [ ] **D02 — DNS deadlines and one startup lookup (P1).** Bound DNS connect,
+- [x] **D02 — DNS deadlines and one startup lookup (P1).** Bound DNS connect,
       send, and receive; a silent peer must not park startup forever. Remove
       duplicate preflight resolution and show failure through normal session
       startup. Test silence, refusal, success, and UI responsiveness.
@@ -930,6 +930,11 @@ implementations. Every changed PTY test must pass three consecutive runs.
       Preserve completed records and close the handle before reporting.
       Document the pinned size API's 4-GiB boundary. Test ordinary files,
       metadata-only sparse overflow, read failure, and missing-file success.
+- [ ] **S12 — Split pane identity for legal nick `server` (P2).** Use the
+      invalid nick `*server*` as the internal control-pane key. Keep a private
+      query's pane contents, focus, and send target consistent. Retain the
+      `/split server` control alias only when no such query exists. Test
+      query/control panes, both focus directions, normal channels, and removal.
 - [x] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
       line once; preserve complete URL targets and formatting across rows.
       Wrap using terminal column widths, including wide/combining text.
@@ -1071,6 +1076,17 @@ Verification so far (all through the locked Nix shell, no pin updates):
 - U03 runtime follow-up: a fresh integration review found Session's `/open`
   echo still used System instead of LinkResult. Pure Submit tests missed that
   path. A runtime-path fix and non-duplication/history guards are in progress.
+- D02 (`c2902ef`): ordinary and blocked startup PTYs passed three consecutive
+  runs before commit. Queued-Dial actor tests cover initial success and refusal;
+  stale/fresh initial-failure messages are checked separately. Integrated
+  `make test-startup-actor test-actor test-net build-ui test-pty-startup-connect
+  test-pty-frame-links test-pty-launchers proof` passed. The UI opens before
+  connecting; initial refusal remains nonzero. Obsolete startup timer/stop
+  plumbing and dummy Up fd payload were removed. Setup-error teardown is
+  bounded after terminal restoration (`880d858`).
+- S12 red reproduction: `/query server` then `/vsplit #t` displays control
+  history while still sending to the query. Two focus toggles then select
+  control and reject chat. A canonical pane-key fix is in progress.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

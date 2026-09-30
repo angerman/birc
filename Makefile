@@ -384,6 +384,14 @@ test-startup-actor: ## Initial actor success/failure can continue to a queued di
 	$(NIXRUN) timeout 180 bend tests/bend/startup_actor.bend -o $(BLDDIR)/startup_actor
 	$(NIXRUN) timeout 15 python3 tests/net/startup_actor.py ./$(BLDDIR)/startup_actor
 
+test-session-links: ## Session opening echoes cannot amplify links or persisted history.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/session_links_demo.bend -o $(BLDDIR)/session_links_demo
+	$(NIXRUN) sh scripts/check-golden.sh session_links_demo=ok ./$(BLDDIR)/session_links_demo
+
+test-pty-session-links: build-ui ## Pty: runtime open/list uses stable link sources and fake launchers.
+	$(NIXRUN) timeout 40 python3 tests/pty/session_links.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -441,15 +449,15 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
-test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers
+test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
 .PHONY: test-pty-frame-links test-pty-launchers
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors
-.PHONY: test-actor test-actor-queue test-startup-actor
+.PHONY: test-actor test-actor-queue test-startup-actor test-session-links test-pty-session-links
 
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue ## Adversarial review regression gates.
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor ## Adversarial review regression gates.
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
