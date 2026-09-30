@@ -41,7 +41,9 @@ def protocol_ok() -> Bool:
     && event_is_set(Irc.typing_event("@time=x;+typing=paused :alice!a@h TAGMSG #birc"), "alice", "#birc", True{})
     && event_is_clear(Irc.typing_event("@+typing=done :alice!a@h TAGMSG #birc"), "alice", "#birc")
     && event_is_clear(Irc.typing_event(":alice!a@h PRIVMSG #birc :hello"), "alice", "#birc")
+    && event_is_clear(Irc.typing_event("@+typing=active :alice!a@h PRIVMSG #birc :hello"), "alice", "#birc")
     && event_is_clear(Irc.typing_event(":alice!a@h NOTICE me :hello"), "alice", "alice")
+    && event_is_clear(Irc.typing_event("@+typing=paused :alice!a@h NOTICE me :hello"), "alice", "alice")
     && event_is_clear(Irc.typing_event(":alice!a@h PART #birc :bye"), "alice", "#birc")
     && event_is_clear(Irc.typing_event(":op!o@h KICK #birc alice :bye"), "alice", "#birc")
     && event_is_clear_all(Irc.typing_event(":alice!a@h QUIT :bye"), "alice")
@@ -49,7 +51,6 @@ def protocol_ok() -> Bool:
 
 def protocol_rejects_invalid() -> Bool:
   Maybe.is_none(&2, Irc.TypingEvent, Irc.typing_event("@typing=active :alice!a@h TAGMSG #birc"))
-    && Maybe.is_none(&2, Irc.TypingEvent, Irc.typing_event("@+typing=active :alice!a@h PRIVMSG #birc :hello"))
     && Maybe.is_none(&2, Irc.TypingEvent, Irc.typing_event("@+typing=unknown :alice!a@h TAGMSG #birc"))
 
 def active_expiry_ok() -> Bool:

@@ -288,7 +288,8 @@ law preview_file_url:
 law typing_active_boundary:
   {Ty.active_boundary_ok() == True{} : Bool}
 
-# LAW: a received message clears typing even when scrollback policy is separate.
+# LAW: a received message, with or without tags, clears typing even when
+# scrollback policy is separate.
 law typing_message_clear:
   {Ty.message_clear_ok() == True{} : Bool}
 

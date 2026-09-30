@@ -724,19 +724,14 @@ def typing_from_kick(+m: Message) -> TypingEvent:
 def typing_from_message(+m: Message) -> TypingEvent:
   typing_set_event(msg_nick(m), msg_param(m, 0n), TypingDone{})
 
-def typing_from_untagged(+m: Message, status: Maybe<&2, TypingStatus>) -> Maybe<&2, TypingEvent>:
-  match status:
-    case Some{_}: None{}
-    case None{}: Some{typing_from_message(m)}
-
 def typing_event_cmd(+m: Message, status: Maybe<&2, TypingStatus>, c: Cmd) -> Maybe<&2, TypingEvent>:
   match c:
     case Tagmsg{}:
       typing_from_tagmsg(m, status)
     case Privmsg{}:
-      typing_from_untagged(m, status)
+      Some{typing_from_message(m)}
     case Notice{}:
-      typing_from_untagged(m, status)
+      Some{typing_from_message(m)}
     case Part{}:
       Some{TypingClear{msg_nick(m), chan_target(msg_param(m, 0n))}}
     case Kick{}:

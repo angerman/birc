@@ -237,9 +237,12 @@ def active_boundary_ok() -> Bool:
     && Bool.not(has(expire(state, 7000), "#birc", "alice"))
 
 def message_clear_ok() -> Bool:
-  +state = apply_line(empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1000)
-  +cleared = apply_line(state, ":alice!a@h PRIVMSG #birc :hello", 1100)
-  Bool.not(has(cleared, "#birc", "alice"))
+  +active = apply_line(empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1000)
+  +privmsg = apply_line(active, "@+typing=active :alice!a@h PRIVMSG #birc :hello", 1100)
+  +paused = apply_line(empty(), "@+typing=paused :alice!a@h TAGMSG me", 1000)
+  +notice = apply_line(paused, "@+typing=paused :alice!a@h NOTICE me :hello", 1100)
+  Bool.not(has(privmsg, "#birc", "alice"))
+    && Bool.not(has(notice, "alice", "alice"))
 
 def stale_tick_ok() -> Bool:
   +state = apply_line(empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1001)
