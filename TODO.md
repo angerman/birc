@@ -880,7 +880,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       pending continuation work and preserve paste/network fairness without
       adding Session fields. Test normal acknowledgement, two synthetic wakes,
       a full event queue, mixed incoming chunks/paste, PONG, and quit.
-- [x] **R08 — Recover refused terminal frames (P1).** A bounded write may
+- [ ] **R08 — Recover refused terminal frames (P1).** A bounded write may
       leave the display incomplete. Wake the UI when output can proceed;
       do not park forever or spin while output remains full. Keep typing
       expiry and network work independent. Test partial output, recovery,
@@ -952,6 +952,16 @@ implementations. Every changed PTY test must pass three consecutive runs.
       query's pane contents, focus, and send target consistent. Retain the
       `/split server` control alias only when no such query exists. Test
       query/control panes, both focus directions, normal channels, and removal.
+- [x] **S13 — Canonical mute targets and channel boundaries (P2).** Normalize
+      status-prefixed targets before mute lookup. Use the shared channel-type
+      rules for generated mute patterns, restored history, and removal. Test
+      muted/unmuted `#`, `&`, `+`, and `!` channels, `@#room`, unmute, and a
+      different nick that shares the muted nick's prefix.
+- [ ] **S14 — Preserve split panes through query rename (P2).** A remote NICK
+      renames a still-open query; it does not close that pane. Update pane keys
+      before normalization, preserve focus, and keep control identity distinct.
+      Test focused/unfocused panes, rename chains and IRC case folding, real
+      close, and rename collisions that coalesce two panes.
 - [x] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
       line once; preserve complete URL targets and formatting across rows.
       Wrap using terminal column widths, including wide/combining text.
@@ -973,6 +983,26 @@ implementations. Every changed PTY test must pass three consecutive runs.
       a later escape sequence or payload. Bound any retained transport suffix
       and share the rule with teardown. Test short writes at each byte boundary,
       blocked recovery, ordering, and the unchanged Unicode tab fixture.
+- [ ] **U06 — Signal-safe suffix ownership (P2).** A signal can arrive after
+      write accepts bytes but before accounting owns their missing suffix.
+      Prevent the handler and normal writer from claiming the same bytes or
+      emitting escapes past unknown debt. Keep handler work async-signal-safe
+      and bounded. Test staging, pending flush, returning handlers, concurrent
+      delivery, and preservation of nonblocking descriptor flags.
+- [ ] **U07 — Final status cannot bypass terminal debt (P2).** TimUI can close
+      with a retained suffix when its teardown budget expires. Final success
+      or error text must not follow that incomplete scalar after Ui is freed.
+      Preserve stream identity and the existing final-output budget; test
+      blocked/drained output, redirected output, and descriptor reuse.
+- [x] **U08 — Literal unmatched formatting markers (P2).** Preserve source
+      order when an unclosed `*`, `_`, or backtick falls back to plain text.
+      Test each opener, prefixed text, empty/trailing markers, and normal closed
+      formatting. Keep the documented literal fallback rather than copying
+      upstream's unterminated-style behavior.
+- [x] **U09 — Keep code-span dim styling (P2).** Recognizing backticks must
+      produce the dim attribute promised by M8.2.4 and upstream IRC parity.
+      Test tokenizer spans, wrapped DrawOps, and actual native style emission;
+      do not add a new theme or Markdown framework.
 
 ### Commands and authentication
 
@@ -998,6 +1028,11 @@ implementations. Every changed PTY test must pass three consecutive runs.
       hard-codes `me` and replaces the requested `--nick`. Generate demo data
       for the requested nick while retaining the default fixture for existing
       goldens. Test default and custom demo nicks and later registration.
+- [x] **C07 — Complete CTCP ACTION envelopes (P2).** Reserve the whole `/me`
+      envelope before fitting UTF-8 body bytes. Never clamp away the final SOH.
+      Echo only the transmitted body and reject a target whose empty envelope
+      already exceeds the line limit. Test short, exact, overlong, multibyte,
+      partial-scalar, control-stripped, and oversized-target cases.
 
 ### Verification and build driver
 
@@ -1221,6 +1256,51 @@ Verification so far (all through the locked Nix shell, no pin updates):
   now pass; native regression, custom demo identity, eight healthy headless
   registrations, refusal, and all four recovery modes also pass. Full combined
   verification and the two approval-blocked expectations remain open.
+- Second combined `make -k check` on `ad81bc4` exited 2; output is in
+  `build/review-check-final.log`. All review pure/native gates, feed benchmark,
+  initial four corrected fixtures, and every new review PTY passed. In addition
+  to the two approval-pending expectations, EOF, stalled-display, split-Escape,
+  tab-switch, and settings fixtures failed. EOF passed three isolated unchanged
+  reruns; its cause is unknown. The stalled-display failure repeated: PONG and
+  clean quit succeed, but STALLEND/WAKE do not paint at 50x200 after draining.
+  R08 is reopened until that existing recovery contract passes. Other failed
+  fixtures require bounded reruns and cause evidence, not expectation changes.
+- U06/U07 red evidence: isolated native probes interrupt successful short
+  writes before accounting, reproducing duplicated/misordered continuation
+  bytes with a returning SIGTERM handler. A separate actual-close/final-status
+  probe frees Ui with three bytes retained, then emits `birc=ok` after a lone
+  `f0` lead byte. No existing test assertion was changed.
+- U08/U09 red evidence: offline exact-span checks show `*unclosed` becomes
+  `unclosed*` (same for underscore/backtick), and Code becomes `Spn{0,text}`.
+  Existing no-Bold checks miss the source-order error. The documented plain
+  fallback and dim code style provide the intended behavior.
+- Fresh-context review at the 50-commit boundary verified S13: a muted sender's
+  normal `#room` message is suppressed, but `@#room` enters history and advances
+  BEL. Scoped `&room` muting hides new traffic but not restored authored rows,
+  and unmute leaves that generated pattern active. Isolated normalization
+  guards establish both failures; fixes are in progress.
+- Fresh-context review also verified C07: a valid 511-byte composer action
+  produces a clamped 510-byte wire line ending in `x`, not SOH. S14 reproduction
+  keeps the query open as `bob` after `alice` renames, but changes its split
+  state from `stacked:alice:#room:0` to `off`.
+- Root merged S13 (`d27081b`), C07 (`121b54b`), and U08/U09 (`de48675`). Worker
+  guards passed: 15 mute cases, nine action-budget cases, rich-text model and
+  actual native painter (three passes), strict lint, and proofs. Existing
+  state/command/submit/wrap/link/scroll controls also passed. No existing test
+  expectation changed. Root aggregate guard wiring is in progress.
+- Root `timeout 420 nix --extra-experimental-features 'nix-command flakes'
+  develop --no-update-lock-file . --command make proof test-mute-scope
+  test-action-budget test-richtext-model` exited 0. The merged proof set and
+  all three new focused model guards pass.
+- Bounded standalone reruns in `build/review-pty-isolated.log`: EOF passed
+  three more times; split-Escape still failed intermittently. Tab-switch and
+  settings consistently fail only their hard-coded `me` text assertions: they
+  do not specify a nick, while `Args.cfg0` correctly defaults to `birc` and
+  demo now preserves it. Approval was requested to add explicit `--nick me`
+  to those two fixtures without changing their assertions.
+- Rejected R08 candidate: removing FFI's extra full-redraw call did not restore
+  STALLEND/WAKE at 50x200. It remains only in an isolated experiment, not root.
+  Repair needs finite progress, not another timeout chosen from intuition.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
@@ -1234,8 +1314,74 @@ the control buffer. The proposed correction expects `server!` and keeps a
 separate control/query regression. Do not change the existing expectation
 without the user's approval.
 
+Pending approval: `tests/pty/tab_switch.py` and `tests/pty/settings.py` assert
+the demo nick `me` without specifying it. `Args.cfg0` defaults to `birc`; C06
+now correctly preserves that default. Proposed fixture-only correction: pass
+`--nick me` explicitly, preserving every existing assertion. No such edit has
+been made without approval.
+
 Open integration work remains unchecked above. Checkmarks are not a claim that
 the final combined runtime/PTY/sanitizer gate has already passed.
+
+## Milestone 18 — TimUI example parity audit
+
+Read-only reference: local `timui.h` master `2be19558`, `examples/irc.c` and
+`examples/chat.c` plus `chat_text.h`. The richer chat demo is not the IRC parity
+contract. No reference files were changed. No supplied image URL was fetched.
+Optional gaps below are not authorized feature implementation or M17 fixes.
+
+Already supported: plaintext IRC, tabs/topics/nicks, timestamps and line kinds,
+navigation/composer, single-marker `*bold*`, `_italic_`, backticks, exact HTTP(S)
+links, raw Unicode emoji/CJK, and explicit local-PNG `/preview`. U08/U09 track
+the two existing formatting defects. Birc adds history, wrapping, alerts,
+search, split panes, typing state, and bounded actor/shutdown behavior.
+
+- [ ] **P01 — Double-marker Markdown.** `**bold**` leaves its body plain in
+      birc and both reference examples; empty Bold spans are not evidence that
+      the body is styled. Decide double-marker and unmatched-marker rules
+      before implementing. Keep tokenization in Bend and source/history intact.
+- [ ] **P02 — Escapes and nested styles.** Neither reference implements
+      backslash escapes. Reference toggles can combine bold/italic; birc has
+      exclusive modes and opaque code spans. Select semantics and add literal,
+      nested, code, link, wrap, and source-anchor guards if this is desired.
+- [ ] **P03 — Emoji shortcodes.** IRC example and birc leave `:eyes:` literal.
+      Chat has a finite case-sensitive 22-alias table; unknown names remain
+      literal. Smallest option: view-only Bend replacement, preserving sent
+      and saved text. Decide behavior inside code/URLs, copy, width, and anchors.
+- [ ] **P04 — IRC wire formatting.** Current control sanitization removes
+      styling controls rather than interpreting them; the IRC example also
+      lacks a style decoder. Numeric color parameters are stripped; hex-color
+      digits remain after their control introducer is removed. Any decoder
+      needs an explicit safe style/reset model and hostile-control tests.
+- [ ] **P05 — Remote image previews.** Birc rejects HTTP(S) `/preview` and does
+      not fetch chat links. The supplied percent-encoded PNG URL is one exact
+      link, not an OpImage. Even chat routes bare image URLs through OpenGraph,
+      not direct extension detection. Its direct-image path is `![alt](URL)`.
+      Prefer explicit opt-in HTTPS PNG preview first, with a provisioned common
+      TLS client, bounded worker/cache/bytes/pixels/redirects/deadlines, safe
+      URL/address policy, private temporary storage, and stale-result guards.
+      Do not copy detached demo workers, fixed paths, or conversion helpers.
+- [ ] **P06 — Inline local images/fullscreen media.** Birc previews local PNG
+      only in `*preview*`; chat additionally has Markdown image badges, inline
+      images, and fullscreen viewing. These are separate layout/input features.
+- [ ] **P07 — Cards, fenced code, and composer styling.** OpenGraph cards,
+      fenced syntax highlighting, multiline rich composer, and RTL shaping
+      belong to chat, not IRC. Keep each independent; do not import a general
+      rich-document framework for simple IRC parity.
+- [ ] **P08 — Exact code foreground color.** DIM is restored by U09. The IRC
+      example additionally uses a code foreground color; matching that palette
+      is optional, not a reason to introduce a new theme model.
+
+Terminal limits: OSC 8 and italic/dim visibility depend on terminal/font support.
+Local image rendering uses detected Kitty/iTerm2/Sixel capabilities and bounded
+PNG input; unsupported data/protocols show `[img]`. Multiplexers can suppress
+image capabilities. The chat transcript's auto-inline path requires Kitty.
+Broader image APIs in the header do not imply automatic remote expansion.
+
+Parity evidence: an offline model fixture preserved the supplied encoded URL
+through tokenizer/link extraction, proved ordinary chat has no OpImage, rejected
+remote `/preview`, and accepted local `file://` preview. No networking, file
+loading, native UI, browser, or clipboard action was needed for those guards.
 
 ## Open decisions (resolve in M0/M4)
 

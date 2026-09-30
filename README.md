@@ -110,6 +110,7 @@ laws check concrete examples, not all possible inputs. Current coverage includes
 - **`actor_zero_split`**, **`actor_exhausted_keeps_pending`**: Zero credit cannot emit or discard pending lines, for any queue.
 - **`framer_roundtrip`**, **`flood_buffers`**, **`scroll_bounds`**, **`log_chrono`**, **`tokenize_*`**: Concrete framing, cap, scroll, ordering, and tokenization examples. `flood_server_clean` checks that rejected JOINs add server diagnostics; it does not prove general absence of corruption.
 - **`narrow_cluster_source_count`**, **`wide_cluster_source_count`**: Concrete source-length checks for a multi-codepoint emoji with and without a narrow-pane replacement.
+- **`tokenize_unclosed_source_order`**, **`code_span_dim`**: Concrete source-order checks for three unmatched markers and the live dim attribute for one code span.
 
 Verify all proofs at any time:
 ```sh
