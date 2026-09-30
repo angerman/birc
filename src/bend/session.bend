@@ -1573,8 +1573,9 @@ def step_on_chunk_pair(
   match got:
     case (+lines, rem2, drop2):
       +typing2 = Ty.apply_lines(typing, lines, now_ms)
+      +split2 = Sp.rename_queries(split, lines)
       step_chunk_got(
-        draft, chan, net, hist, size, seed, comp, split, typing2, port,
+        draft, chan, net, hist, size, seed, comp, split2, typing2, port,
         push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
       )
 

@@ -191,6 +191,34 @@ def found.got(got: Maybe<&2, Nat>) -> Bool:
 def found(+cl: Cl.Client, +name: String) -> Bool:
   found.got(named_idx(cl, name))
 
+# A query keeps its pane and focus when NICK changes its name. The internal
+# control key is not a query. Apply every parsed rename in arrival order before
+# normalizing against the final client (which may have coalesced two queries).
+def rename_query.key(+key: String, +from: String, +to: String) -> String:
+  Bool.pick(String, Cl.is_query_name(key) && Irc.ieq(key, from), to, key)
+
+def rename_query.names(st: State, +from: String, +to: String) -> State:
+  match st:
+    case Off{}: Off{}
+    case On{axis, +first, +second, focus}:
+      On{axis, rename_query.key(first, from, to), rename_query.key(second, from, to), focus}
+
+def rename_query.nick(nick: Bool, st: State, +m: Irc.Message) -> State:
+  match nick:
+    case False{}: st
+    case True{}: rename_query.names(st, Irc.msg_nick(m), Irc.msg_param(m, 0n))
+
+def rename_query.parsed(st: State, m: Maybe<&2, Irc.Message>) -> State:
+  match m:
+    case None{}: st
+    case Some{+msg}: rename_query.nick(Irc.ieq(Irc.msg_command(msg), "NICK"), st, msg)
+
+def rename_query.line(st: State, line: String) -> State:
+  rename_query.parsed(st, Irc.parse(line))
+
+def rename_queries(st: State, lines: List<&2, String>) -> State:
+  List.foldl(~&2, ~String, ~State, ~rename_query.line, lines, st)
+
 def normalize.on(ok: Bool, st: State) -> State:
   match ok:
     case True{}: st
