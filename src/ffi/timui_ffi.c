@@ -80,6 +80,7 @@ typedef struct {
   uint32_t last_bell_seq;
   int bell_seen;
   int bell_pending;
+  char link_url[256];
   TimuiRect body_inner[2];
   int body_count;
   TimuiRect nicks_inner;
@@ -182,8 +183,9 @@ static void birc_ui_atexit(void) {
 static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols,
                         uint32_t click, uint32_t key, uint32_t mods,
-                        uint32_t codepoint, uint32_t wheel, uint32_t more) {
-  Loc l = heap_alloc(e, cls_fit(10));
+                        uint32_t codepoint, uint32_t wheel, uint32_t more,
+                        const char *url) {
+  Loc l = heap_alloc(e, cls_fit(11));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, io_str(e, typed, tlen), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
@@ -194,6 +196,7 @@ static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
   e.mem[l + 7] = io_seal(e, (Term)(uint64_t)codepoint, CID_UIKEYS);
   e.mem[l + 8] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
   e.mem[l + 9] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
+  e.mem[l + 10] = io_seal(e, io_str(e, url, strlen(url)), CID_UIKEYS);
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui), term_ctr(CID_UIKEYS, l));
 }
 Term timui_open_run(Env e, Term *f, IoWork *w) {
@@ -280,12 +283,20 @@ static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
   char uri[256];
+  int end;
   if (!fr || tlen == 0 || x >= maxx) return x;
   if (ulen >= sizeof uri)
     return birc_put_span(fr, x, y, maxx, text, tlen, fg, 0, NULL);
   memcpy(uri, url, ulen);
   uri[ulen] = '\0';
-  return birc_put_span(fr, x, y, maxx, text, tlen, fg, TIMUI_ATTR_UNDERLINE, uri);
+  end = birc_put_span(fr, x, y, maxx, text, tlen, fg, TIMUI_ATTR_UNDERLINE, uri);
+  if (fr->ui && fr->ui->ia.mouse_released && fr->ui->ia.mouse_y == y &&
+      fr->ui->ia.mouse_x >= x && fr->ui->ia.mouse_x < end) {
+    BircUi *bu = birc_state(fr->ui);
+    if (bu)
+      memcpy(bu->link_url, uri, ulen + 1);
+  }
+  return end;
 }
 static Term birc_cons_head(Env e, Term xs, Term *tail) {
   Term fb[2];
@@ -739,7 +750,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (!ui) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0);
+    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "");
   }
   {
     int check_fd = -1;
@@ -762,7 +773,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (!timui_begin(ui, &fr)) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0);
+    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "");
   }
   if (bu && bu->profile_enabled)
     profile_t2 = birc_profile_now_ns();
@@ -787,6 +798,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     if (bu) {
       bu->body_count = 0;
       bu->preview_count = 0;
+      bu->link_url[0] = '\0';
       memset(bu->body_inner, 0, sizeof bu->body_inner);
       memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
     }
@@ -849,6 +861,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
         bu->sel.cur_y = birc_clamp(ui->ia.mouse_y, min_y, max_y);
         if (bu->sel.cur_x != bu->sel.start_x || bu->sel.cur_y != bu->sel.start_y) {
           bu->sel.active = 1;
+          bu->link_url[0] = '\0';
           birc_copy_selection(ui, buf, bu);
         } else {
           bu->sel.active = 0;
@@ -931,7 +944,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
       timui_quit(ui);
     out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
-                         codepoint, (uint32_t)wh, more);
+                         codepoint, (uint32_t)wh, more,
+                         bu ? bu->link_url : "");
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;

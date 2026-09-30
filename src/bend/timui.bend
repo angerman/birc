@@ -25,7 +25,8 @@ type UiKeys is Data:
     mods: U32,
     codepoint: U32,
     wheel: U32,
-    more: U32
+    more: U32,
+    url: String
   }
 
 def flag_on(+n: U32) -> Bool:

@@ -413,7 +413,8 @@ Work order: `build/review/HANDOVER.md`. Base `ac97be1`. Branch `review-fixes`. N
 - [x] **M14** Tabs: clamp `sel`, click only on change, cut on code point (ffi A8 A9 A10).
 - [x] **M15** Clip with one forward pass, O(n), code point safe (ffi A6 A7).
 - [x] **M16** Decide and document who wraps long lines (view#15).
-      C clips at `maxx`; Bend does not wrap. Documented in `docs/FFI.md`.
+      Bend expands logical chat lines into visible rows from the live pane
+      width. C still clips each emitted row at `maxx` as a final guard.
 - [x] **M17** Cap outbound lines per actor tick, carry the rest (net#12).
       `SEND_CAP` is 8. `reader_go`/`reader_idle` carry leftover lines.
       Pty: `tests/pty/paste50.py` (50 PRIVMSGs). X2: cmd close and fuel-0
@@ -834,10 +835,10 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
       reverse video; mentions and private messages use a gold tab; each
       high-priority event advances a Bend-owned sequence that emits one BEL
       when `bell` is enabled. Repaints never replay a bell.
-
-The generated `track5-wrap` branch contains no changes. Long-line wrapping
-also reverses the recorded M9 decision that C clips and Bend does not wrap, so
-it needs a new scoped work item and resize/scroll laws before implementation.
+- [x] **M16.6** Interaction and wrapping follow-up: activating a buffer clears
+      its `*`/`!` unread state; clicking a rendered chat link returns its exact
+      URL through `UiKeys` for Bend to open; and Bend soft-wraps visible chat
+      rows with a timestamp/nick hanging indent and resize-time reflow.
 
 ---
 

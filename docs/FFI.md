@@ -71,7 +71,8 @@ Timui.isatty : IO(U32)
 Timui.tty    : Ui -> IO(Ui & Result<&1,&1, U32 & String, Tty>)
 ```
 
-`UiKeys` is Data. `typed` is a `String` (the composer field). `rows` and `cols`
+`UiKeys` is Data. `typed` is a `String` (the composer field). `url` is the
+exact rendered link under a click release, or `""`. `rows` and `cols`
 are the live root size. `enter`, `click`, and `more` are U32 flags or
 counters. `key`, `mods`, `codepoint`, and `wheel` are the raw TimUI key,
 modifier bits, key codepoint, and wheel (wheel is a uint32 two's complement).
@@ -155,8 +156,10 @@ type DrawOp is Data:
   advances for each high-priority event so a repaint cannot replay a bell.
 - `OpLine` — spans at the Bend-assigned `y`. A timestamp is a separate
   `OpText` of at most 8 columns (`FG_DIM`, `0xa0a0a0`), clipped to the line
-  width, then the line `x` moves by 9. No C buffer, no 64-line cap, no
-  bottom-align arithmetic. C does not draw a timestamp.
+  width, then the first line `x` moves by 9. Bend expands long logical lines
+  into visible rows and gives continuation rows a hanging indent past the
+  message prefix. No C buffer, no 64-line cap, no bottom-align arithmetic.
+  C does not wrap or draw a timestamp.
 - `OpImage` — a local PNG path and Bend-owned pane rectangle. C reads a
   bounded regular file, caches one TimUI image per visible preview pane, and
   draws it through TimUI's selected terminal image protocol. C does not fetch

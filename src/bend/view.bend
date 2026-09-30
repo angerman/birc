@@ -30,6 +30,10 @@ type Lay is Data:
 type ViewModel is Data:
   ViewModel{ops: List<&2, DrawOp>, input: String}
 
+type BodyRow is Data:
+  BodyRow{ts: String, ts_w: U32, off: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
+  BodyRecon{text: String, w: U32}
+
 def scroll_max.on(+count: Nat, +height: Nat, ge: Bool) -> Nat:
   match ge:
     case True{}:
@@ -852,6 +856,148 @@ def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
 def line_ops(+ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at(0, 0, 40, ln)
 
+def wrap_cap(+w: U32) -> Nat:
+  Bool.pick(Nat, U32.is_zero(w), 1n, U32.to_nat(w))
+
+def wrap_tail.go(fuel: Nat, s: String, +cap: Nat) -> List<&2, String>:
+  match fuel:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      match s:
+        case SNil{}:
+          Nil{}
+        case SCon{+h, +t}:
+          +all = {SCon{h, t} : String}
+          String.take(all, cap) <> wrap_tail.go(p, String.drop(all, cap), cap)
+
+def wrap_tail(+s: String, +cap: Nat) -> List<&2, String>:
+  wrap_tail.go(Nat.add(1n, String.length(s)), s, cap)
+
+def wrap_chunks(+s: String, +first_cap: Nat, +cont_cap: Nat) -> List<&2, String>:
+  match s:
+    case SNil{}:
+      "" <> Nil{}
+    case SCon{+h, +t}:
+      +all = {SCon{h, t} : String}
+      String.take(all, first_cap) <> wrap_tail(String.drop(all, first_cap), cont_cap)
+
+def msg_prefix_w.parsed(pair: String & String) -> U32:
+  match pair:
+    case (+nick, +rest):
+      Bool.pick(U32,
+        String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)),
+        U32.from_nat(Nat.add(String.length(nick), 3n)),
+        0)
+
+def msg_prefix_w.lt(+t: String, lt: Bool) -> U32:
+  match lt:
+    case True{}: msg_prefix_w.parsed(take_until_gt(t))
+    case False{}: 0
+
+def msg_prefix_w(+s: String) -> U32:
+  match s:
+    case SNil{}: 0
+    case SCon{+h, +t}: msg_prefix_w.lt(t, Char.is_eq(h, '<'))
+
+def line_prefix_w(k: Cl.LineKind, +text: String) -> U32:
+  match k:
+    case Cl.Msg{}: msg_prefix_w(text)
+    case Cl.Self{}: msg_prefix_w(text)
+    case Cl.Highlight{}: msg_prefix_w(text)
+    case _: 0
+
+def wrap_indent.max(+content: U32) -> U32:
+  Bool.pick(U32, U32.is_zero(content), 0, U32.sub(content, 1))
+
+def wrap_indent(+indent: U32, +content: U32) -> U32:
+  +mx = wrap_indent.max(content)
+  Bool.pick(U32, U32.is_gt(indent, mx), mx, indent)
+
+def continuation_rows(chunks: List<&2, String>, +off: U32, +w: U32, +fg: U32) -> List<&2, BodyRow>:
+  match chunks:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      BodyRow{"", 0, off, w, fg, span_ops(tokenize(h))}
+        <> continuation_rows(t, off, w, fg)
+
+def wrapped_rows.chunks(
+  chunks: List<&2, String>,
+  k: Cl.LineKind,
+  +ts: String,
+  +stamp_w: U32,
+  +first_off: U32,
+  +first_w: U32,
+  +cont_off: U32,
+  +cont_w: U32,
+  +fg: U32
+) -> List<&2, BodyRow>:
+  match chunks:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      BodyRow{ts, stamp_w, first_off, first_w, fg, line_spans_for(k, h)}
+        <> continuation_rows(t, cont_off, cont_w, fg)
+
+def wrapped_rows(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
+  +shown = Bool.pick(String, show_ts, ts, "")
+  +first_off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
+  +first_w = U32.sub(w, first_off)
+  +indent = wrap_indent(line_prefix_w(k, text), first_w)
+  +cont_off = U32.add(first_off, indent)
+  +cont_w = U32.sub(first_w, indent)
+  +chunks = wrap_chunks(text, wrap_cap(first_w), wrap_cap(cont_w))
+  wrapped_rows.chunks(chunks, k, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k))
+
+def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> List<&2, BodyRow>:
+  match recon:
+    case True{}:
+      BodyRecon{text, w} <> Nil{}
+    case False{}:
+      wrapped_rows(k, ts, text, w, show_ts)
+
+def wrap_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
+  match ln:
+    case Cl.Line{+k, +ts, +text}:
+      wrap_line.on(k, ts, text, w, show_ts, is_recon_line(text))
+
+def wrap_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
+  match lines:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      List.append(&2, BodyRow, wrap_line(h, w, show_ts), wrap_lines(t, w, show_ts))
+
+def unwrapped_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> BodyRow:
+  match recon:
+    case True{}:
+      BodyRecon{text, w}
+    case False{}:
+      +shown = Bool.pick(String, show_ts, ts, "")
+      +off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
+      BodyRow{shown, ts_w(w), off, U32.sub(w, off), style_of(k), line_spans_for(k, text)}
+
+def unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> BodyRow:
+  match ln:
+    case Cl.Line{+k, +ts, +text}:
+      unwrapped_line.on(k, ts, text, w, show_ts, is_recon_line(text))
+
+def unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
+  match lines:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      unwrapped_line(h, w, show_ts) <> unwrapped_lines(t, w, show_ts)
+
+def body_rows.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, synthetic: Bool) -> List<&2, BodyRow>:
+  match synthetic:
+    case True{}: unwrapped_lines(lines, w, show_ts)
+    case False{}: wrap_lines(lines, w, show_ts)
+
+def body_rows(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
+  body_rows.on(lines, w, show_ts, String.eq(name, "*settings*"))
+
 def span_hello(spans: List<&2, SpanOp>) -> Bool:
   match spans:
     case Con{Spn{a, +text}, Nil{}}:
@@ -919,10 +1065,14 @@ def body_of.lines(lines: List<&2, Cl.Line>, mutes: List<&2, String>, +chan: Stri
     case Nil{}: lines
     case Con{_, _}: Cl.filter_muted_lines(lines, mutes, chan, server)
 
-def body_of.buf(+b: Cl.Buffer, +height: Nat, mutes: List<&2, String>, +server: String) -> List<&2, Cl.Line>:
+def visible_body_rows(+rows: List<&2, BodyRow>, +height: Nat, +scroll: Nat) -> List<&2, BodyRow>:
+  +start = visible_start(List.length(&2, BodyRow, rows), height, scroll)
+  List.take(&2, BodyRow, List.drop(&2, BodyRow, rows, start), height)
+
+def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String) -> List<&2, BodyRow>:
   match b:
     case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
-      visible_lines(body_of.lines(lines, mutes, name, server), height, scroll)
+      visible_body_rows(body_rows(body_of.lines(lines, mutes, name, server), name, w, show_ts), height, scroll)
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -1238,18 +1388,33 @@ def op_tabs(r: Rect, +sel: U32, +names: List<&2, String>, +alerts: List<&2, U32>
     case Rect{x, y, w, _}:
       OpTabs{x, y, w, sel, names, alerts, bell, bell_seq}
 
-def body_ops.go(xs: List<&2, Cl.Line>, +x: U32, +y: U32, +w: U32, +show_ts: Bool) -> List<&2, DrawOp>:
+def body_row_ops.normal(+x: U32, +y: U32, +ts: String, +stamp_w: U32, +off: U32, +w: U32, +fg: U32, +spans: List<&2, SpanOp>, empty: Bool) -> List<&2, DrawOp>:
+  match empty:
+    case True{}:
+      OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{}
+    case False{}:
+      OpText{x, y, stamp_w, FG_DIM(), 0, ts}
+        <> (OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{})
+
+def body_row_ops(+x: U32, +y: U32, row: BodyRow) -> List<&2, DrawOp>:
+  match row:
+    case BodyRow{+ts, stamp_w, off, w, fg, +spans}:
+      body_row_ops.normal(x, y, ts, stamp_w, off, w, fg, spans, String.is_empty(ts))
+    case BodyRecon{+text, +w}:
+      OpText{x, y, w, FG_DIM(), 0, recon_divider(text, w)} <> Nil{}
+
+def body_ops.go(xs: List<&2, BodyRow>, +x: U32, +y: U32) -> List<&2, DrawOp>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{+h, t}:
-      List.append(&2, DrawOp, line_ops_at_ts(x, y, w, h, show_ts), body_ops.go(t, x, U32.add(y, 1), w, show_ts))
+      List.append(&2, DrawOp, body_row_ops(x, y, h), body_ops.go(t, x, U32.add(y, 1)))
 
-def body_ops(r: Rect, +xs: List<&2, Cl.Line>, +show_ts: Bool) -> List<&2, DrawOp>:
+def body_ops(r: Rect, +xs: List<&2, BodyRow>) -> List<&2, DrawOp>:
   match r:
     case Rect{x, y, w, h}:
-      +n = U32.from_nat(List.length(&2, Cl.Line, xs))
-      body_ops.go(xs, inner_x(x), body_y0(y, h, n), inner_w(w), show_ts)
+      +n = U32.from_nat(List.length(&2, BodyRow, xs))
+      body_ops.go(xs, inner_x(x), body_y0(y, h, n))
 
 def image_ops.on(+x: U32, +y: U32, +w: U32, +h: U32, +path: String, empty: Bool) -> List<&2, DrawOp>:
   match empty:
@@ -1291,9 +1456,9 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
     case Rect{x, y, +w, h}:
       nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
 
-def view_ops.rest(+br: Rect, +bod: List<&2, Cl.Line>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +show_ts: Bool) -> List<&2, DrawOp>:
+def view_ops.rest(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
   List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, body_ops(br, bod, show_ts),
+    List.append(&2, DrawOp, body_ops(br, bod),
     List.append(&2, DrawOp, nick_ops(nr, title, nicks),
       op_text(sr, FG_DIM(), st) <> Nil{})))
 
@@ -1307,20 +1472,19 @@ def view_ops(
   +alerts: List<&2, U32>,
   +bell: U32,
   +bell_seq: U32,
-  +bod: List<&2, Cl.Line>,
+  +bod: List<&2, BodyRow>,
   +preview: String,
   +btitle: String,
   +ntitle: String,
   +nicks: List<&2, String>,
-  +st: String,
-  +show_ts: Bool
+  +st: String
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tr, ur, +br, nr, sr}:
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st, show_ts))
+        view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st))
 
 def preview_path_of.on(+topic: String, preview: Bool) -> String:
   match preview:
@@ -1335,6 +1499,10 @@ def preview_path_of(+b: Cl.Buffer) -> String:
 def rect_vis_h(r: Rect) -> Nat:
   match r:
     case Rect{_, _, _, +h}: Sp.inner_extent(h)
+
+def rect_vis_w(r: Rect) -> U32:
+  match r:
+    case Rect{_, _, +w, _}: inner_w(w)
 
 def split_rects.side(r: Rect) -> Rect & Rect:
   match r:
@@ -1390,16 +1558,15 @@ def view_ops_split(
   +bell_seq: U32,
   +r1: Rect,
   +title1: String,
-  +body1: List<&2, Cl.Line>,
+  +body1: List<&2, BodyRow>,
   +preview1: String,
   +r2: Rect,
   +title2: String,
-  +body2: List<&2, Cl.Line>,
+  +body2: List<&2, BodyRow>,
   +preview2: String,
   +ntitle: String,
   +nicks: List<&2, String>,
-  +status: String,
-  +show_ts: Bool
+  +status: String
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tabs, user, body, nicks_rect, status_rect}:
@@ -1409,9 +1576,9 @@ def view_ops_split(
                op_split(body, axis)
                  <> List.append(&2, DrawOp, body_box(r1, title1),
                       List.append(&2, DrawOp, image_ops(r1, preview1),
-                        List.append(&2, DrawOp, body_ops(r1, body1, show_ts),
+                        List.append(&2, DrawOp, body_ops(r1, body1),
                           List.append(&2, DrawOp, body_box(r2, title2),
-                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(r2, body2, show_ts))))))),
+                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(r2, body2))))))),
         List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
           op_text(status_rect, FG_DIM(), status) <> Nil{}))
 
@@ -1439,8 +1606,8 @@ def view_split.rects(
 ) -> List<&2, DrawOp>:
   match pair:
     case (+r1, +r2):
-      body1 body2 = body_of.buf(b1, rect_vis_h(r1), mutes, server) body_of.buf(b2, rect_vis_h(r2), mutes, server)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_of(b1), r2, split_title(b2, focused, 1), body2, preview_path_of(b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
+      body1 body2 = body_of.buf(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, server) body_of.buf(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, server)
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_of(b1), r2, split_title(b2, focused, 1), body2, preview_path_of(b2), ntitle, nicks, status_or_typing(status, typers))
 
 def view_split(
   +cl: Cl.Client,
@@ -1473,10 +1640,12 @@ def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +n
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
-      bod = body_of.buf(b, vis_h(rows), Cl.settings_mutes(stg), server)
+      +lay0 = lay(rows, cols, user_w(uh))
+      +br = lay_body_rect(lay0)
+      bod = body_of.buf(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), server)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay(rows, cols, user_w(uh)), nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_of(b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_of(b), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
 
 def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
   match split:

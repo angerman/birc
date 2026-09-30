@@ -133,6 +133,18 @@ def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
         code : U32 <- T.Sys.open_url(url)
         return gen
 
+def open_clicked.go(+url: String, empty: Bool) -> IO(Unit):
+  match empty:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      do IO<Unit>:
+        code : U32 <- T.Sys.open_url(url)
+        return Unit{}
+
+def open_clicked(+url: String) -> IO(Unit):
+  open_clicked.go(url, String.is_empty(url))
+
 def step_size(
   triple: Sess.Session & Sess.NetCmd & Bool,
   +rows: U32,
@@ -179,7 +191,7 @@ def apply_frame(
   match got:
     case (ui, keys):
       match keys:
-        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more}:
+        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, _}:
           apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows))
 
 def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
@@ -553,12 +565,14 @@ def on_key.keys(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more}:
-      on_key.pol(
-        ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more),
-        Sess.key_pol_for(st, key, mods, codepoint, wheel, rows),
-        evt, cmd, ack, gen, frames, k
-      )
+    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url}:
+      do IO<Unit>:
+        open_clicked(url)
+        on_key.pol(
+          ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more),
+          Sess.key_pol_for(st, key, mods, codepoint, wheel, rows),
+          evt, cmd, ack, gen, frames, k
+        )
 
 def on_key.got(
   got: T.Ui & T.UiKeys,

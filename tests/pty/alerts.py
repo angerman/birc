@@ -151,6 +151,12 @@ def main() -> int:
         if BEL in quiet:
             raise AssertionError("bell-off mention emitted BEL")
 
+        # Activating an alerted buffer clears both its label marker and style.
+        os.write(master, b"\x1b[1;2C")
+        cleared = drain(master, 0.8)
+        if b"#b" not in cleared or b"#b!" in cleared or b"#b*" in cleared:
+            raise AssertionError(f"active tab retained its alert: {cleared[-1000:]!r}")
+
         os.write(master, b"/quit\r")
         proc.wait(timeout=8)
         if proc.returncode != 0:

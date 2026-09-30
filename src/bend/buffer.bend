@@ -778,10 +778,20 @@ def set_topic_at(+cl: Client, +i: Nat, +topic: String) -> Client:
     case Client{+nick, +server, +bufs, +active, +now, +stg}:
       Client{nick, server, buf_modify(bufs, i, set_topic_fn(topic)), active, now, stg}
 
+def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+  match got:
+    case None{}:
+      stg
+    case Some{b}:
+      match b:
+        case Buffer{+name, _, _, _, _, _}:
+          set_unreads(stg, del_unread_items(settings_unreads(stg), name))
+
 def set_active(+cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, _, +now, +stg}:
-      Client{nick, server, bufs, i, now, stg}
+      +stg2 = set_active.unread(stg, nth_buf(bufs, i))
+      Client{nick, server, bufs, i, now, stg2}
 
 def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
   match ok:

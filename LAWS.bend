@@ -302,6 +302,11 @@ law typing_stale_tick:
 law bell_mentions_advance:
   {CL.bell_mentions_advance_ok() == True{} : Bool}
 
+# LAW: selecting an alerted buffer clears its ordinary and highlight unread
+# state.
+law active_clears_unread:
+  {CL.active_clears_unread_ok() == True{} : Bool}
+
 # LAW: automatic reconnect preserves the selected server endpoint.
 law reconnect_endpoint:
   {Sess.reconnect_endpoint_ok() == True{} : Bool}

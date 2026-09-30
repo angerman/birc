@@ -672,6 +672,9 @@ def Laws.typing_stale_tick():
 def Laws.bell_mentions_advance():
   {==}
 
+def Laws.active_clears_unread():
+  {==}
+
 def Laws.reconnect_endpoint():
   {==}
 

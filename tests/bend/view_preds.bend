@@ -108,6 +108,32 @@ def draw_link_ok() -> Bool:
     "L:0|13158600|see [https://timui.dev]https://timui.dev x"
   )
 
+def wrap_rows_ok.rows(rows: List<&2, V.BodyRow>) -> Bool:
+  match rows:
+    case Con{V.BodyRow{+ts1, sw1, off1, w1, _, spans1}, Con{V.BodyRow{+ts2, _, off2, w2, _, spans2}, Con{V.BodyRow{+ts3, _, off3, w3, _, spans3}, Nil{}}}}:
+      String.eq(ts1, "12:00:00")
+        && U32.is_eq(sw1, 8)
+        && U32.is_eq(off1, 9)
+        && U32.is_eq(w1, 12)
+        && String.eq(show_spanops(spans1), "<*alice*> abcd")
+        && String.is_empty(ts2)
+        && U32.is_eq(off2, 17)
+        && U32.is_eq(w2, 4)
+        && String.eq(show_spanops(spans2), "efgh")
+        && String.is_empty(ts3)
+        && U32.is_eq(off3, 17)
+        && U32.is_eq(w3, 4)
+        && String.eq(show_spanops(spans3), "ij")
+    case _:
+      False{}
+
+def wrap_rows_ok() -> Bool:
+  wrap_rows_ok.rows(V.wrap_line(Cl.Line{Cl.Msg{}, "12:00:00", "<alice> abcdefghij"}, 21, True{}))
+
+def wrap_resize_ok() -> Bool:
+  Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij"}, 12, False{})), 3n)
+    && Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij"}, 16, False{})), 2n)
+
 def hostile_body() -> String:
   "look "
     ++ SCon{Chr{31}, "Lhttps://evil.example"}

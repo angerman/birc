@@ -313,3 +313,16 @@ def bell_mentions_advance_ok() -> Bool:
     && U32.is_eq(Cl.client_bell_seq(cl2), 1)
     && U32.is_eq(Cl.client_bell_seq(cl3), 2)
     && U32.is_eq(Cl.client_bell_seq(cl4), 3)
+
+def active_clears_unread.status(+cl: Cl.Client) -> U32:
+  match cl:
+    case Cl.Client{_, _, _, _, _, +stg}:
+      Cl.buf_unread_status(Cl.settings_unreads(stg), "#b")
+
+def active_clears_unread_ok() -> Bool:
+  +cl0 = Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #a" <> ":me!m@h JOIN #b" <> Nil{})
+  +cl1 = Cl.set_active_clamp(cl0, 1n)
+  +cl2 = Feed.feed(cl1, ":alice!a@h PRIVMSG #b :hello me")
+  +cl3 = Cl.set_active_clamp(cl2, 2n)
+  U32.is_eq(active_clears_unread.status(cl2), 2)
+    && U32.is_eq(active_clears_unread.status(cl3), 0)
