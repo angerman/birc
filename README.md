@@ -195,6 +195,11 @@ endpoints do not share buffers or history. The reader scans the file to its
 initial size, keeps only the configured recent records, and rejects malformed
 or overlong records. An incomplete final record is not loaded.
 
+The pinned file-size API supports at most 4,294,967,295 bytes. Larger files
+produce a visible history error instead of an empty restore. Other size/read
+errors are also visible. A failed read retains only completed records from
+the prefix already read. A missing optional history file is normal.
+
 Older records without an endpoint remain in the file but are not restored.
 Their server identity cannot be recovered safely. Reconnect dividers and
 `/links` output are display data and are not saved as chat.

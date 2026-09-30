@@ -363,6 +363,22 @@ test-pty-frame-links: build-ui ## Pty: every paint returns exact clicked URLs an
 test-pty-launchers: build-ui ## Pty: owned launchers are reaped and cannot block network/UI work.
 	$(NIXRUN) timeout 40 python3 tests/pty/launchers.py ./$(BLDDIR)/birc
 
+test-pty-startup-connect: build-ui ## Pty: pending initial connects paint and keep the UI usable.
+	$(NIXRUN) timeout 25 python3 tests/pty/startup_connect.py ./$(BLDDIR)/birc
+
+test-pty-history-endpoints: build-ui ## Pty: server/port histories and reload checkpoints stay isolated.
+	$(NIXRUN) timeout 120 python3 tests/pty/history_endpoints.py ./$(BLDDIR)/birc
+
+test-scroll-edits: ## Purge, query merge, and link-list edits preserve scroll identity.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/scroll_edits_demo.bend -o $(BLDDIR)/scroll_edits_demo
+	$(NIXRUN) sh scripts/check-golden.sh scroll_edits_demo=ok ./$(BLDDIR)/scroll_edits_demo
+
+test-history-errors: ## History IO errors are visible; sparse size probes never scan large files.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_errors.bend -o $(BLDDIR)/history_errors
+	$(NIXRUN) timeout 60 python3 tests/history_errors.py ./$(BLDDIR)/history_errors
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -425,6 +441,7 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
 .PHONY: test-pty-frame-links test-pty-launchers
+.PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors
 .PHONY: test-actor test-actor-queue
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-actor test-actor-queue ## Adversarial review regression gates.

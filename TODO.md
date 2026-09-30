@@ -920,12 +920,12 @@ implementations. Every changed PTY test must pass three consecutive runs.
       QUIT, unread handling, and history serialization. Use the invalid IRC
       nick `*server*` as the persisted control target. Test both buffer roles,
       rename collisions, and history isolation without a new role framework.
-- [ ] **S10 — Preserve anchors through edits (P2).** Purging newer messages
+- [x] **S10 — Preserve anchors through edits (P2).** Purging newer messages
       or merging queries must not move a retained viewport anchor. Recompute
       its message position from stable IDs, preserve its character position,
       and keep the active query's viewport. Test older/newer purge, both merge
       directions, and removal of the anchor itself.
-- [ ] **S11 — Visible history IO failures (P2).** Keep an absent optional
+- [x] **S11 — Visible history IO failures (P2).** Keep an absent optional
       history file silent, but report other open, size, and read failures.
       Preserve completed records and close the handle before reporting.
       Document the pinned size API's 4-GiB boundary. Test ordinary files,
@@ -937,6 +937,11 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **U02 — One scroll coordinate system (P2).** Make clamping, view slicing,
       arrival anchoring, and resize use consistent coordinates. Test one long
       wrapped line, reaching its first row, new arrivals, and width changes.
+- [ ] **U04 — Source-length anchors for replaced clusters (P2).** A one-column
+      placeholder can represent several source codepoints. Keep source length
+      separate from rendered length so widening a paused view does not move
+      into a later emoji cluster. Test one-column replacement, unchanged-width
+      navigation, and widening with the preceding character anchored.
 - [x] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
@@ -1041,6 +1046,21 @@ Verification so far (all through the locked Nix shell, no pin updates):
   this is not ASan coverage. These gates must run again on the final tree.
 - V05: all repository-relative README link targets exist; no developer-specific
   `file:///` paths remain.
+- R03/R05 (`6b4d0f4`): one frame handler replaces duplicated key/resize paths.
+  The worker's five frame cases and five launcher cases passed three times,
+  including an exact 879-byte URL decoded from a legal Latin-1 IRC record.
+  Launcher completion is owned/reaped while the client runs; a helper already
+  launched may outlive client quit. There is no kill/join-on-quit guarantee.
+  Integrated `test-pty-frame-links` currently fails its ordinary demo fixture
+  before clicking; investigate the combined-tree fixture, do not relax it.
+- S10 (`9fc22e2`): `make test-scroll-edits` passes retained/removal/all/live
+  anchors, both query-merge directions, and repeated `/links`. Purging a newer
+  message and replacing link results both failed before the canonical
+  reanchor operation was added. No Buffer fields were added.
+- S11 (`a2f7985`): `make test-history-errors test-history-io test-state proof`
+  passed. Sparse metadata probes accept 4,294,967,295 bytes and reject
+  4,294,967,296 without reading gigabytes. Open/read errors are visible; a
+  missing optional file remains silent and retained prefix IDs survive errors.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
