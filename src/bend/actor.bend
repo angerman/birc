@@ -19,7 +19,7 @@ def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> Socket & Bool:
 
 def send_line(sock: Socket, +line: String) -> IO(Socket & Bool):
   do IO<Socket & Bool>:
-    m : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n")
+    m : Socket & Result<&1, &1, (U32 & String), Unit> <- Dns.TCP.send_for(sock, Irc.clamp_line(Irc.strip_ctl(line)) ++ "\r\n", 250)
     IO.pure(Socket & Bool, send_go(m))
 
 def send_lines_go(xs: List<&2, String>, pair: Socket & Bool) -> IO(Socket & Bool):
@@ -167,6 +167,13 @@ def reader_run(dup: Socket, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
     m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- Dns.recv_octets(dup, 4096)
     reader_pair(m, evt, gen, d => reader_run(d, evt, gen))
 
+# Announce Up before any data or EOF. This reader task may park on evt;
+# the socket-owning writer must remain free to consume cmd and shut down.
+def reader_start(dup: Socket, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- post(evt, gen, Sess.Up{0})
+    reader_run(dup, evt, gen)
+
 def flush_next(
   pair: Socket & Bool,
   +later: List<&2, String>,
@@ -264,7 +271,7 @@ def arm_fail(
       boot_down(boot, msg)
     case False{}:
       do IO<Unit>:
-        Unit <- writer_fail(evt, gen, msg)
+        Unit <- IO.spawn(Unit, writer_fail(evt, gen, msg))
         k((None{}, gen, Nil{}))
 
 def arm_ok(
@@ -279,9 +286,8 @@ def arm_ok(
   k: (Maybe<&1, Socket> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    Unit <- IO.spawn(Unit, reader_run(dup, evt, gen))
     Unit <- arm_ready(live, boot)
-    Unit <- post(evt, gen, Sess.Up{0})
+    Unit <- IO.spawn(Unit, reader_start(dup, evt, gen))
     k((Some{sock}, gen, Nil{}))
 
 def arm_dup(
@@ -362,7 +368,7 @@ def after_dns(
       arm_fail(live, nick, boot, evt, cmd, gen, err_msg(e), k)
     case Done{+ip}:
       do IO<Unit>:
-        cr : Result<&1, &1, (U32 & String), Socket> <- TCP.connect(ip, port)
+        cr : Result<&1, &1, (U32 & String), Socket> <- Dns.TCP.connect_for(ip, port, 1000)
         after_conn(cr, nick, gen, evt, cmd, boot, live, has_sasl, k)
 
 def dial_begin(
@@ -415,7 +421,9 @@ def writer_flushed(
         case False{}:
           do IO<Unit>:
             Unit <- writer_drop(sock)
-            Unit <- writer_fail(evt, gen, "send failed")
+            # The UI can be parked on a full cmd queue while evt is full.
+            # Post one failure task, then resume draining cmd immediately.
+            Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; queued output was not retried"))
             k((None{}, gen, Nil{}))
         case True{}:
           k((Some{sock}, gen, Nil{}))
