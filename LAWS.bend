@@ -275,6 +275,18 @@ law sasl_done_no_reply:
   for pass: String
   {Auth.step(Cl.AuthDone{}, event, user, pass) == Auth.unchanged(Cl.AuthDone{}) : Auth.Reply}
 
+# LAW: changing authentication phase preserves configuration and alert state.
+law auth_preserves_settings:
+  for cl: Cl.Client
+  for phase: Cl.AuthPhase
+  {Cl.get_settings(Cl.set_auth(cl, phase)) == Cl.get_settings(cl) : Cl.Settings}
+
+# LAW: applying an IO timestamp cannot reuse or reset a log event ID.
+law timestamp_preserves_log_sequence:
+  for cl: Cl.Client
+  for ts: String
+  {Cl.log_seq_of(Cl.set_now(cl, ts)) == Cl.log_seq_of(cl) : Nat}
+
 # LAW: server-time extracts HH:MM:SS from ISO-8601 message tags.
 law server_time_extract:
   {Irc.server_time_sample_ok() == True{} : Bool}

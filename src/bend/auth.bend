@@ -24,6 +24,7 @@ def step.cap(e: Irc.SaslEvent) -> Reply:
       Reply{Cl.AuthChallenge{}, "AUTHENTICATE PLAIN" <> Nil{}, Started{}}
     case Irc.SaslNak{}:
       Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Rejected{}}
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthCap{})
 
@@ -33,6 +34,7 @@ def step.challenge(e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
       Reply{Cl.AuthResult{}, B64.authenticate_chunks(B64.sasl_plain(user, pass)), Quiet{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Failed{}}
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthChallenge{})
 
@@ -42,6 +44,7 @@ def step.result(e: Irc.SaslEvent) -> Reply:
       Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Succeeded{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Failed{}}
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthResult{})
 

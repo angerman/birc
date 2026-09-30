@@ -36,6 +36,8 @@ def main() -> IO(Unit):
     Unit <- E.must("phase_survives_chunk", String.eq(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> Nil{}), "AUTHENTICATE +"), "AUTHENTICATE AHVzZXIAcGFzcw=="))
     Unit <- E.must("no_credentials", String.is_empty(outs(Sess.fold_lines(Cl.init("me", "s"), ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> Nil{}))))
     Unit <- E.must("completed_no_restart", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> Nil{}), ":s CAP me ACK :sasl")))
+    Unit <- E.must("registered_no_start", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), ":s CAP me ACK :sasl")))
+    Unit <- E.must("registered_no_payload", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 001 me :welcome" <> Nil{}), "AUTHENTICATE +")))
     Unit <- E.must("valid_rejection", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me NAK :sasl" <> Nil{})), "CAP END"))
     Unit <- E.must("valid_failure", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 904 me :failed" <> Nil{})), "AUTHENTICATE PLAINCAP END"))
     IO.print("auth_demo=ok")

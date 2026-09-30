@@ -337,8 +337,7 @@ def submit_quit(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 def submit_unknown(+cl: Cl.Client, +verb: String) -> Cl.Client & List<&2, String>:
   (echo_err(cl, "unknown command: /" ++ verb), empty_out())
 
-# /connect is not a submit arm. Session intercepts via submit_is_connect
-# and connect_apply (Dial). connect_parse stays for that path.
+# Session handles connection commands as Dial, not IRC wire output.
 
 type Conn is Data:
   ConnBad{}
@@ -1136,9 +1135,6 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
     case Unknown{}:
       submit_unknown(cl, verb)
 
-def submit_cmd(+cl: Cl.Client, +verb: String, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_cmd.do(cl, verb, rest, slash_of(verb))
-
 def submit_plain.on(+cl: Cl.Client, +input: String, on_server: Bool) -> Cl.Client & List<&2, String>:
   match on_server:
     case True{}:
@@ -1192,56 +1188,24 @@ def submit_ok.pair(pair: Cl.Client & List<&2, String>) -> Bool:
 def submit_ok(+cl: Cl.Client, +input: String) -> Bool:
   submit_ok.pair(submit(cl, input))
 
-def quit_verb.on(hit: Bool) -> Bool:
-  match hit:
-    case True{}:
-      True{}
-    case False{}:
-      False{}
-
-def quit_verb(pair: String & String) -> Bool:
-  match pair:
-    case (+verb, _):
-      quit_verb.on(Irc.ieq(verb, "quit"))
-
-def submit_is_quit.on(+input: String, slash: Bool) -> Bool:
-  match slash:
-    case True{}:
-      quit_verb(take_verb(skip_slash(input)))
-    case False{}:
-      False{}
+def submit_is_quit.parsed(input: Input) -> Bool:
+  match input:
+    case CommandInput{Quit{}, _, _}: True{}
+    case _: False{}
 
 def submit_is_quit(+input: String) -> Bool:
-  submit_is_quit.on(input, submit.is_slash(input))
+  submit_is_quit.parsed(parse_input(input))
 
 def submit_halt_ok() -> Bool:
   submit_is_quit("/quit") && submit_is_quit("/quit bye") && Bool.not(submit_is_quit("hello")) && Bool.not(submit_is_quit("/join #x"))
 
-def connect_verb.on(is_conn: Bool, is_recon: Bool) -> Bool:
-  match is_conn:
-    case True{}:
-      True{}
-    case False{}:
-      match is_recon:
-        case True{}:
-          True{}
-        case False{}:
-          False{}
-
-def connect_verb(pair: String & String) -> Bool:
-  match pair:
-    case (+verb, _):
-      connect_verb.on(Irc.ieq(verb, "connect"), Irc.ieq(verb, "reconnect"))
-
-def submit_is_connect.on(+input: String, slash: Bool) -> Bool:
-  match slash:
-    case True{}:
-      connect_verb(take_verb(skip_slash(input)))
-    case False{}:
-      False{}
+def submit_is_connect.parsed(input: Input) -> Bool:
+  match input:
+    case CommandInput{_, +verb, _}: Irc.ieq(verb, "connect") || Irc.ieq(verb, "reconnect")
+    case _: False{}
 
 def submit_is_connect(+input: String) -> Bool:
-  submit_is_connect.on(input, submit.is_slash(input))
+  submit_is_connect.parsed(parse_input(input))
 
 def connect_from_input.verb(is_recon: Bool, +rest: String) -> Conn:
   match is_recon:
@@ -1250,20 +1214,14 @@ def connect_from_input.verb(is_recon: Bool, +rest: String) -> Conn:
     case False{}:
       connect_parse(Irc.drop_spaces(rest))
 
-def connect_from_input.on(pair: String & String) -> Conn:
-  match pair:
-    case (+verb, +rest):
+def connect_from_input.parsed(input: Input) -> Conn:
+  match input:
+    case CommandInput{_, +verb, +rest}:
       connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest)
-
-def connect_from_input.slash(+input: String, slash: Bool) -> Conn:
-  match slash:
-    case True{}:
-      connect_from_input.on(take_verb(skip_slash(input)))
-    case False{}:
-      ConnBad{}
+    case _: ConnBad{}
 
 def connect_from_input(+input: String) -> Conn:
-  connect_from_input.slash(input, submit.is_slash(input))
+  connect_from_input.parsed(parse_input(input))
 
 def connect_parse_ok.on(c: Conn) -> Bool:
   match c:

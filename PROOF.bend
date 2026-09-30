@@ -649,6 +649,16 @@ def Laws.sasl_idle_no_reply(event, user, pass):
 def Laws.sasl_done_no_reply(event, user, pass):
   {==}
 
+def Laws.auth_preserves_settings(cl, phase):
+  match cl:
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
+      {==}
+
+def Laws.timestamp_preserves_log_sequence(cl, ts):
+  match cl:
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
+      {==}
+
 def Laws.server_time_extract():
   {==}
 

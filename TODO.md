@@ -875,7 +875,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 
 ### DNS and startup
 
-- [ ] **D01 — DNS-over-TCP framing (P1).** Read the two-byte length and the
+- [x] **D01 — DNS-over-TCP framing (P1).** Read the two-byte length and the
       complete bounded payload across arbitrary receive boundaries. Reject
       false lengths, premature EOF, and trailing/malformed data. Test a split
       prefix, split body, valid packet, and bad length.
@@ -883,7 +883,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       send, and receive; a silent peer must not park startup forever. Remove
       duplicate preflight resolution and show failure through normal session
       startup. Test silence, refusal, success, and UI responsiveness.
-- [ ] **D03 — Truncation fallback and CNAME bounds (P2).** Fall back to TCP
+- [x] **D03 — Truncation fallback and CNAME bounds (P2).** Fall back to TCP
       when a truncated UDP answer has no usable A record. Keep compressed
       CNAME reads within their declared RDATA. Test complete A answers,
       truncated CNAME-only answers, zero-length and overrun RDATA.
@@ -896,17 +896,17 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
       state rather than stopping after the first MiB. Test a file above one
       MiB, its newest record, empty files, and malformed records.
-- [ ] **S03 — Persist explicit log additions (P2).** Stop inferring events
+- [x] **S03 — Persist explicit log additions (P2).** Stop inferring events
       from equal capped snapshots. Preserve duplicate messages with identical
       timestamps at the cap, without replaying old records. Test duplicates,
       no-op paints, purges, and buffer renames.
 - [ ] **S04 — History endpoint identity (P2).** Prevent one server's history
       from entering another server's buffers. Define and test legacy-file
       handling, distinct endpoints, and reconnect to the same endpoint.
-- [ ] **S05 — Explicit reconnect marker (P2).** Give reconnect dividers a
+- [x] **S05 — Explicit reconnect marker (P2).** Give reconnect dividers a
       distinct kind instead of recognizing arbitrary `Reconnected:` text.
       Test real markers and ordinary chat containing that text.
-- [ ] **S06 — Structured line authors (P2).** Store author identity instead
+- [x] **S06 — Structured line authors (P2).** Store author identity instead
       of reparsing display prefixes. Use IRC case folding for mute/purge.
       Test messages, notices, actions, mixed case, and unrelated authors.
 - [ ] **S07 — Typed unread levels (P2).** Replace `!`-prefixed buffer-name
@@ -963,6 +963,23 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
+
+Verification so far (all through the locked Nix shell, no pin updates):
+
+- `make test-auth test-commands test-submit test-base64 test-frame test-args`
+  passed, including red-before-fix credential and offline-command cases.
+- `make test-dns test-dns-timeout test-dns-tcp test-socket-deadline` passed.
+  DNS fixes: `eed535e`, `5b8ad51`.
+- `make test-history test-state test-links test-auth test-commands test-net proof`
+  passed. State/history foundations: `b1f0d6f`, `778f04a`, `900f2fb`.
+- `make test-golden-runner test-build-config` passed. Exit 42, absent token,
+  and timeout are rejected. Unchanged flags preserve the dependency timestamp.
+- `make proof` reports `ALL PROOFS CHECK`. The separate kernel check is not
+  available in the current shell: Bend requires Lean v4.34.0, while the locked
+  nixpkgs offers v4.30.0. No dependency pins were moved.
+
+Open integration work remains unchecked above. Checkmarks are not a claim that
+the final combined runtime/PTY/sanitizer gate has already passed.
 
 ## Open decisions (resolve in M0/M4)
 

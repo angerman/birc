@@ -960,6 +960,7 @@ type SaslEvent is Data:
   SaslPlus{}
   SaslSuccess{}
   SaslFailure{}
+  SaslRegistered{}
   SaslOther{}
 
 def has_sasl_cap(xs: List<&2, String>) -> Bool:
@@ -977,7 +978,8 @@ def sasl_event(+m: Message) -> SaslEvent:
   Bool.pick(SaslEvent, ieq(msg_command(m), "CAP"), sasl_event.cap(m),
     Bool.pick(SaslEvent, ieq(msg_command(m), "AUTHENTICATE") && String.eq(msg_param(m, 0n), "+") && Nat.is_eq(List.length(&2, String, msg_params(m)), 1n), SaslPlus{},
       Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 903), SaslSuccess{},
-        Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 902) || (U32.is_ge(msg_num(m), 904) && U32.is_le(msg_num(m), 907)), SaslFailure{}, SaslOther{}))))
+        Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 902) || (U32.is_ge(msg_num(m), 904) && U32.is_le(msg_num(m), 907)), SaslFailure{},
+          Bool.pick(SaslEvent, U32.is_eq(msg_num(m), 1), SaslRegistered{}, SaslOther{})))))
 
 def sasl_event.line(m: Maybe<&2, Message>) -> SaslEvent:
   match m:

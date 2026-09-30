@@ -398,10 +398,6 @@ def open_apply.got(+cl: Cl.Client, mb: Maybe<&2, String>) -> Cl.Client & String 
     case Some{+url}:
       (Sub.echo_info(cl, "opening " ++ url), "", OpenUrl{url})
 
-def open_apply(+cl: Cl.Client, +draft: String) -> Cl.Client & String & NetCmd:
-  +arg = Sub.open_arg_from_input(draft)
-  open_apply.got(cl, Sub.open_resolve_target(cl, arg))
-
 def wrap_local(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
   match pair:
     case (cl, _): (cl, "", Cont{Nil{}})
