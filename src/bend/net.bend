@@ -955,18 +955,18 @@ def watch_start(
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:
-    case (code, +msg):
+    case (_, +msg):
       do IO<Unit>:
         Unit <- T.Timui.close(ui)
-        IO.die(Unit, code, msg)
+        T.Sys.exit_fail(msg)
 
 def watch_die_tty(e: U32 & String, tty: T.Tty, ui: T.Ui) -> IO(Unit):
   match e:
-    case (code, +msg):
+    case (_, +msg):
       do IO<Unit>:
         Unit <- T.Tty.close(tty)
         Unit <- T.Timui.close(ui)
-        IO.die(Unit, code, msg)
+        T.Sys.exit_fail(msg)
 
 def watch_win(
   wr: Result<&1, &1, U32 & String, T.Winch>,
