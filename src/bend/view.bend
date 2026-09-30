@@ -480,14 +480,14 @@ def vis_chrono_ok.pair(+t0: String, rest: List<&2, Cl.Line>) -> Bool:
   match rest:
     case Nil{}:
       False{}
-    case Con{Cl.Line{_, _, +t1}, _}:
+    case Con{Cl.Line{_, _, +t1, +author, +id}, _}:
       String.eq(t0, "one") && String.eq(t1, "two")
 
 def vis_chrono_ok.vis(xs: List<&2, Cl.Line>) -> Bool:
   match xs:
     case Nil{}:
       False{}
-    case Con{Cl.Line{_, _, +t0}, rest}:
+    case Con{Cl.Line{_, _, +t0, +author, +id}, rest}:
       vis_chrono_ok.pair(t0, rest)
 
 def vis_chrono_ok.buf(b: Cl.Buffer) -> Bool:
@@ -847,7 +847,7 @@ def line_ops_at_ts.chk(is_rec: Bool, +x: U32, +y: U32, +w: U32, +k: Cl.LineKind,
 
 def line_ops_at_ts(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool) -> List<&2, DrawOp>:
   match ln:
-    case Cl.Line{+k, +ts, +text}:
+    case Cl.Line{+k, +ts, +text, +author, +id}:
       line_ops_at_ts.chk(is_recon_line(text), x, y, w, k, ts, text, show_ts)
 
 def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
@@ -959,7 +959,7 @@ def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: 
 
 def wrap_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
   match ln:
-    case Cl.Line{+k, +ts, +text}:
+    case Cl.Line{+k, +ts, +text, +author, +id}:
       wrap_line.on(k, ts, text, w, show_ts, is_recon_line(text))
 
 def wrap_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
@@ -980,7 +980,7 @@ def unwrapped_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show
 
 def unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> BodyRow:
   match ln:
-    case Cl.Line{+k, +ts, +text}:
+    case Cl.Line{+k, +ts, +text, +author, +id}:
       unwrapped_line.on(k, ts, text, w, show_ts, is_recon_line(text))
 
 def unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
@@ -1055,10 +1055,10 @@ def line_ts_long.ops(ops: List<&2, DrawOp>) -> Bool:
       False{}
 
 def line_ts_ok() -> Bool:
-  line_ts_wide.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00", "hello"}))
-    && line_ts_narrow.ops(line_ops_at(0, 0, 4, Cl.Line{Cl.Msg{}, "12:00:00", "hello"}))
-    && line_ts_empty.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "", "hello"}))
-    && line_ts_long.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00.extra", "hello"}))
+  line_ts_wide.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00", "hello", "", 0n}))
+    && line_ts_narrow.ops(line_ops_at(0, 0, 4, Cl.Line{Cl.Msg{}, "12:00:00", "hello", "", 0n}))
+    && line_ts_empty.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "", "hello", "", 0n}))
+    && line_ts_long.ops(line_ops_at(0, 0, 40, Cl.Line{Cl.Msg{}, "12:00:00.extra", "hello", "", 0n}))
 
 def body_of.lines(lines: List<&2, Cl.Line>, mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Cl.Line>:
   match mutes:
@@ -1183,7 +1183,7 @@ def tab_names_ok.head(xs: List<&2, String>) -> Bool:
 
 def tab_names_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, +stg}:
+    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq}:
       tab_names_ok.head(tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_names_ok() -> Bool:
@@ -1622,7 +1622,7 @@ def view_split(
   +typers: List<&2, String>
 ) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
       b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
       +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
@@ -1637,7 +1637,7 @@ def view_split(
 
 def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
       +lay0 = lay(rows, cols, user_w(uh))
@@ -1690,7 +1690,7 @@ def split_draw_ok() -> Bool:
 
 
 def dummy_line(+i: Nat) -> Cl.Line:
-  Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i)}
+  Cl.Line{Cl.Msg{}, "", "L" ++ Nat.show(i), "", 0n}
 
 def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
   match n:
@@ -1700,7 +1700,7 @@ def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       dummy_line(i) <> dummy_lines.go(p, 1n+i)
 
 def dummy_cl(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, "", Cl.settings0()}
+  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, 0n} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
 
 def body_line_ys.go(ops: List<&2, DrawOp>) -> List<&2, U32>:
   match ops:

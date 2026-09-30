@@ -48,7 +48,7 @@ def skip_slash(+s: String) -> String:
 
 def active_idx(+cl: Cl.Client) -> Nat:
   match cl:
-    case Cl.Client{_, _, _, +active, _, _}:
+    case Cl.Client{_, _, _, +active, _, _, +auth, +log_seq}:
       active
 
 def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
@@ -62,17 +62,17 @@ def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
 
 def active_name(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, +active, _, _}:
+    case Cl.Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
       active_name.on(Cl.nth_buf(bufs, active))
 
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
       Cl.client_log(cl, bi, Cl.Self{}, Feed.fmt_msg(nick, body))
 
 def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
       Cl.client_log(cl, bi, Cl.Action{}, Feed.fmt_action(nick, body))
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
@@ -94,7 +94,7 @@ def submit_join.got.on(+cl2: Cl.Client, +bi: Nat, +rest: String, +nick: String) 
 
 def submit_join.got.cl(+cl2: Cl.Client, +bi: Nat, +rest: String) -> Cl.Client & List<&2, String>:
   match cl2:
-    case Cl.Client{+nick, _, _, _, _, _}:
+    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
       submit_join.got.on(cl2, bi, rest, nick)
 
 def submit_join.got(pair: Cl.Client & Maybe<&2, Nat>, +rest: String) -> Cl.Client & List<&2, String>:
@@ -826,7 +826,7 @@ def lines_urls.go(fuel: Nat, lines: List<&2, Cl.Line>) -> List<&2, String>:
         case Nil{}: Nil{}
         case Con{ln, t}:
           match ln:
-            case Cl.Line{_, _, +text}:
+            case Cl.Line{_, _, +text, +author, +id}:
               List.append(&2, String, extract_urls(text), lines_urls.go(p, t))
 
 def active_buf_urls(+cl: Cl.Client) -> List<&2, String>:

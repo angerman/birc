@@ -49,7 +49,7 @@ def show_bufs(+xs: List<&2, Cl.Buffer>) -> String:
 
 def show_client(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, _}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, _, +auth, +log_seq}:
       String.concat(
         nick
           <> "@"
@@ -63,7 +63,7 @@ def show_client(+cl: Cl.Client) -> String:
 
 def nbuf(+cl: Cl.Client) -> Nat:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       Cl.buf_count(bufs)
 
 def buf_nlines.on(got: Maybe<&2, Cl.Buffer>) -> Nat:
@@ -77,7 +77,7 @@ def buf_nlines.on(got: Maybe<&2, Cl.Buffer>) -> Nat:
 
 def buf_nlines(+cl: Cl.Client, +i: Nat) -> Nat:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_nlines.on(Cl.nth_buf(bufs, i))
 
 def has_buf.on(found: Maybe<&2, Nat>) -> Bool:
@@ -104,7 +104,7 @@ def buf_nicks.got(got: Maybe<&2, Cl.Buffer>) -> String:
 
 def buf_nicks.idx(+cl: Cl.Client, +i: Nat) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_nicks.got(Cl.nth_buf(bufs, i))
 
 def buf_nicks.at(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
@@ -157,7 +157,7 @@ def lines_pipe.chunks(+xs: List<&2, Cl.Line>) -> List<&2, String>:
   match xs:
     case Nil{}:
       Nil{}
-    case Con{Cl.Line{_, _, +text}, t}:
+    case Con{Cl.Line{_, _, +text, +author, +id}, t}:
       (text ++ "|") <> lines_pipe.chunks(t)
 
 def lines_pipe(+xs: List<&2, Cl.Line>) -> String:
@@ -174,7 +174,7 @@ def buf_texts.on(got: Maybe<&2, Cl.Buffer>) -> String:
 
 def buf_texts(+cl: Cl.Client, +i: Nat) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_texts.on(Cl.nth_buf(bufs, i))
 
 # Self JOIN focuses #birc (index 1); next wraps to server (0), next again to 1.
@@ -261,14 +261,14 @@ def self_part_drops() -> Bool:
 
 def log_ts_ok.pair(+ts0: String, rest: List<&2, Cl.Line>) -> Bool:
   match rest:
-    case Con{Cl.Line{_, +ts1, _}, _}:
+    case Con{Cl.Line{_, +ts1, _, +author, +id}, _}:
       String.eq(ts0, "01:02:03") && String.eq(ts1, "12:00:00")
     case _:
       False{}
 
 def log_ts_ok.lines(+xs: List<&2, Cl.Line>) -> Bool:
   match xs:
-    case Con{Cl.Line{_, +ts0, _}, rest}:
+    case Con{Cl.Line{_, +ts0, _, +author, +id}, rest}:
       log_ts_ok.pair(ts0, rest)
     case _:
       False{}
@@ -284,7 +284,7 @@ def log_ts_ok.feed.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
       match b:
         case Cl.Buffer{_, _, _, +lines, _, _}:
           match lines:
-            case Con{Cl.Line{_, +ts, _}, _}:
+            case Con{Cl.Line{_, +ts, _, +author, +id}, _}:
               String.eq(ts, "12:00:00")
             case _:
               False{}
@@ -293,7 +293,7 @@ def log_ts_ok.feed.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
 
 def log_ts_ok.feed.on(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       log_ts_ok.feed.got(Cl.nth_buf(bufs, 0n))
 
 def log_ts_ok.feed() -> Bool:
@@ -316,7 +316,7 @@ def bell_mentions_advance_ok() -> Bool:
 
 def active_clears_unread.status(+cl: Cl.Client) -> U32:
   match cl:
-    case Cl.Client{_, _, _, _, _, +stg}:
+    case Cl.Client{_, _, _, _, _, +stg, +auth, +log_seq}:
       Cl.buf_unread_status(Cl.settings_unreads(stg), "#b")
 
 def active_clears_unread_ok() -> Bool:

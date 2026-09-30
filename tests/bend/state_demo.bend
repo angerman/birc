@@ -28,8 +28,25 @@ def accepted_remote_ok() -> Bool:
     && Nat.is_eq(CL.buf_nlines(cl, 0n), 0n)
     && String.eq(CL.buf_texts(cl, 1n), "<ordinary> hello|")
 
+def auth_cap(phase: Cl.AuthPhase) -> Bool:
+  match phase:
+    case Cl.AuthCap{}: True{}
+    case _: False{}
+
+def auth_idle(phase: Cl.AuthPhase) -> Bool:
+  match phase:
+    case Cl.AuthIdle{}: True{}
+    case _: False{}
+
+def auth_phase_ok() -> Bool:
+  +cl = Cl.client_set_sasl(Cl.init("me", "s"), "user", "pass")
+  auth_cap(Cl.get_auth(cl))
+    && auth_cap(Cl.get_auth(Feed.feed(cl, ":me!m@h JOIN #t")))
+    && auth_idle(Cl.get_auth(Cl.client_set_sasl(cl, "user", "")))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("accepted_remote", accepted_remote_ok())
     Unit <- E.must("bounded_rejections", cap_rejections_ok())
+    Unit <- E.must("auth_phase", auth_phase_ok())
     IO.print("state_demo=ok")

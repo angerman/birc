@@ -137,7 +137,7 @@ def trip_has_me(t: Sess.Session & Sess.NetCmd & Bool) -> String:
       match st:
         case Sess.Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _}:
           match cl:
-            case Cl.Client{+nick, _, +bufs, +active, _, _}:
+            case Cl.Client{+nick, _, +bufs, +active, _, _, +auth, +log_seq}:
               trip_has_me.on(cl, nick, Cl.nth_buf(bufs, active))
 
 

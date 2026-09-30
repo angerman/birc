@@ -273,7 +273,7 @@ law search_empty_line:
   for kind: Cl.LineKind
   for ts: String
   for text: String
-  {Feed.line_matches_query(Cl.Line{kind, ts, text}, "") == False{} : Bool}
+  {Feed.line_matches_query(Cl.Line{kind, ts, text, "", 0n}, "") == False{} : Bool}
 
 # LAW: toggling focus twice restores either valid pane focus.
 law split_focus_involution:

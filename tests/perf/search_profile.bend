@@ -10,7 +10,7 @@ def bench_lines(+n: Nat, +i: Nat) -> List<&2, Cl.Line>:
     case 0n:
       Nil{}
     case 1n+p:
-      Cl.Line{Cl.Msg{}, "", "needle line " ++ Nat.show(i)}
+      Cl.Line{Cl.Msg{}, "", "needle line " ++ Nat.show(i), "", 0n}
         <> bench_lines(p, Nat.add(i, 1n))
 
 def bench_bufs(+n: Nat, +i: Nat) -> List<&2, Cl.Buffer>:

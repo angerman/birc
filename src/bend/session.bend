@@ -1094,8 +1094,8 @@ def add_recon_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buffe
 
 def add_recon_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg}:
-      Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg}
+    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
+      Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg, auth, log_seq}
 
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:

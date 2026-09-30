@@ -55,7 +55,7 @@ def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts
 
 def serialize_line(+target: String, +ln: Cl.Line) -> String:
   match ln:
-    case Cl.Line{kind, +ts, +text}:
+    case Cl.Line{kind, +ts, +text, +author, +id}:
       serialize_line.recon(is_reconnect_marker(text), target, kind, ts, text)
 
 def serialize_lines.go(+target: String, lines: List<&2, Cl.Line>, +acc: String) -> String:
@@ -87,7 +87,7 @@ def parse_line_tokens(+tokens: List<&2, String>) -> Maybe<&2, HistEntry>:
         case Con{+kstr, rest2}:
           match rest2:
             case Con{+ts, rest3}:
-              Some{Entry{target, Cl.Line{parse_kind(kstr), ts, join_tokens(rest3)}}}
+              Some{Entry{target, Cl.Line{parse_kind(kstr), ts, join_tokens(rest3), "", 0n}}}
             case Nil{}: None{}
         case Nil{}: None{}
     case Nil{}: None{}
@@ -151,9 +151,9 @@ def kind_eq(k1: Cl.LineKind, k2: Cl.LineKind) -> Bool:
 
 def line_eq(l1: Cl.Line, l2: Cl.Line) -> Bool:
   match l1:
-    case Cl.Line{k1, +ts1, +t1}:
+    case Cl.Line{k1, +ts1, +t1, +author, +id}:
       match l2:
-        case Cl.Line{k2, +ts2, +t2}:
+        case Cl.Line{k2, +ts2, +t2, +author, +id}:
           kind_eq(k1, k2) && String.eq(ts1, ts2) && String.eq(t1, t2)
 
 def take_last_lines(+xs: List<&2, Cl.Line>, n: Nat) -> List<&2, Cl.Line>:
@@ -232,16 +232,16 @@ def extract_new_bufs(+old_bufs: List<&2, Cl.Buffer>, new_bufs: List<&2, Cl.Buffe
 
 def extract_new_history(old_cl: Cl.Client, new_cl: Cl.Client) -> String:
   match old_cl:
-    case Cl.Client{_, _, +old_bufs, _, _, _}:
+    case Cl.Client{_, _, +old_bufs, _, _, _, +auth, +log_seq}:
       match new_cl:
-        case Cl.Client{_, _, new_bufs, _, _, _}:
+        case Cl.Client{_, _, new_bufs, _, _, _, +auth, +log_seq}:
           extract_new_bufs(old_bufs, new_bufs)
 
 # ---- applying history on load ---------------------------------------------
 
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:
-    case Cl.Line{kind, +ts, +text}:
+    case Cl.Line{kind, +ts, +text, +author, +id}:
       Cl.buf_modify_client(cl, bi, b => Cl.buf_log_ts(b, kind, ts, text))
 
 def apply_entry.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line) -> Cl.Client:
@@ -289,8 +289,8 @@ def add_markers_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buf
 
 def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg}:
-      Cl.Client{nick, server, add_markers_bufs(bufs, now), active, now_old, stg}
+    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
+      Cl.Client{nick, server, add_markers_bufs(bufs, now), active, now_old, stg, auth, log_seq}
 
 def cap_buf_history(b: Cl.Buffer, cap: U32) -> Cl.Buffer:
   match b:
@@ -305,8 +305,8 @@ def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer
 
 def apply_history.cap(cl: Cl.Client, +now: String, +cap: U32) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg}:
-      add_markers_cl(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg}, now)
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
+      add_markers_cl(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq}, now)
 
 def apply_history(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32) -> Cl.Client:
   apply_history.cap(apply_entries(entries, cl), now, cap)

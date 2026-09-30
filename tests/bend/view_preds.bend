@@ -98,13 +98,13 @@ def show_ops(+xs: List<&2, V.DrawOp>) -> String:
 
 def draw_line_ok() -> Bool:
   String.eq(
-    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "12:00:00", "hello"})),
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "12:00:00", "hello", "", 0n})),
     "t:0|12:00:00;L:0|13158600|hello"
   )
 
 def draw_link_ok() -> Bool:
   String.eq(
-    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x"})),
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", "see https://timui.dev x", "", 0n})),
     "L:0|13158600|see [https://timui.dev]https://timui.dev x"
   )
 
@@ -128,11 +128,11 @@ def wrap_rows_ok.rows(rows: List<&2, V.BodyRow>) -> Bool:
       False{}
 
 def wrap_rows_ok() -> Bool:
-  wrap_rows_ok.rows(V.wrap_line(Cl.Line{Cl.Msg{}, "12:00:00", "<alice> abcdefghij"}, 21, True{}))
+  wrap_rows_ok.rows(V.wrap_line(Cl.Line{Cl.Msg{}, "12:00:00", "<alice> abcdefghij", "", 0n}, 21, True{}))
 
 def wrap_resize_ok() -> Bool:
-  Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij"}, 12, False{})), 3n)
-    && Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij"}, 16, False{})), 2n)
+  Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij", "", 0n}, 12, False{})), 3n)
+    && Nat.is_eq(List.length(&2, V.BodyRow, V.wrap_line(Cl.Line{Cl.Msg{}, "", "<alice> abcdefghij", "", 0n}, 16, False{})), 2n)
 
 def hostile_body() -> String:
   "look "
@@ -142,7 +142,7 @@ def hostile_body() -> String:
 
 def draw_hostile_ok() -> Bool:
   String.eq(
-    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", hostile_body()})),
+    show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", hostile_body(), "", 0n})),
     "L:0|13158600|look "
       ++ SCon{Chr{31}, "Lhttps://evil.example"}
       ++ SCon{Chr{29}, "[https://github.com/zw3rk/birc]https://github.com/zw3rk/birc"}
@@ -157,7 +157,7 @@ def draw_tabs_ok() -> Bool:
 
 def tab_alerts_ok.on(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       u32s_eq(V.tab_alerts(bufs, "#a" <> "!#b" <> Nil{}), 0 <> 1 <> 2 <> Nil{})
 
 def tab_alerts_ok() -> Bool:
@@ -177,7 +177,7 @@ def tab_collide.labs(xs: List<&2, String>) -> Bool:
 
 def tab_collide_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, +stg}:
+    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq}:
       tab_collide.labs(V.tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_collide_ok() -> Bool:
