@@ -32,7 +32,7 @@ type ViewModel is Data:
   ViewModel{ops: List<&2, DrawOp>, input: String}
 
 type BodyRow is Data:
-  BodyRow{ts: String, ts_w: U32, off: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
+  BodyRow{ts: String, ts_w: U32, off: U32, w: U32, fg: U32, spans: List<&2, SpanOp>, source_chars: Nat}
   BodyRecon{text: String, w: U32}
 
 def scroll_max.on(+count: Nat, +height: Nat, ge: Bool) -> Nat:
@@ -786,8 +786,19 @@ def span_text_as(sp: SpanOp, text: String) -> SpanOp:
     case Lnk{url, _}: Lnk{url, text}
     case Col{attrs, fg, _}: Col{attrs, fg, text}
 
+def spans_chars(xs: List<&2, SpanOp>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{sp, t}: Nat.add(String.length(span_text(sp)), spans_chars(t))
+
 type SpanCut is Data:
   SpanCut{head: List<&2, SpanOp>, tail: List<&2, SpanOp>}
+
+# A narrow pane may replace one whole cluster with a single glyph. Keep the
+# number of consumed source characters separate from the painted text so
+# resize-safe anchors still refer to the same source position.
+type WrapChunk is Data:
+  WrapChunk{shown: List<&2, SpanOp>, source_chars: Nat}
 
 def span_cut_prepend(sp: SpanOp, cut: SpanCut) -> SpanCut:
   match cut:
@@ -831,27 +842,29 @@ def force_span(xs: List<&2, SpanOp>) -> SpanCut:
     case Nil{}: SpanCut{Nil{}, Nil{}}
     case Con{+sp, rest}: force_span_piece(Cols.cluster(span_text(sp)), sp, rest)
 
-def wrap_spans_more(cut: SpanCut, k: List<&2, SpanOp> -> List<&2, List<&2, SpanOp>>) -> List<&2, List<&2, SpanOp>>:
-  match cut:
-    case SpanCut{head, tail}:
-      match tail:
-        case Nil{}: head <> Nil{}
-        case Con{sp, rest}: head <> k(sp <> rest)
+def wrap_chunks_tail(tail: List<&2, SpanOp>, head: List<&2, SpanOp>, consumed: Nat, k: List<&2, SpanOp> -> List<&2, WrapChunk>) -> List<&2, WrapChunk>:
+  match tail:
+    case Nil{}: WrapChunk{head, consumed} <> Nil{}
+    case Con{sp, rest}: WrapChunk{head, consumed} <> k(sp <> rest)
 
-def wrap_spans_cut(cut: SpanCut, k: List<&2, SpanOp> -> List<&2, List<&2, SpanOp>>) -> List<&2, List<&2, SpanOp>>:
+def wrap_spans_more(cut: SpanCut, +before: Nat, k: List<&2, SpanOp> -> List<&2, WrapChunk>) -> List<&2, WrapChunk>:
+  match cut:
+    case SpanCut{head, +tail}: wrap_chunks_tail(tail, head, Nat.sub(before, spans_chars(tail)), k)
+
+def wrap_spans_cut(cut: SpanCut, +before: Nat, k: List<&2, SpanOp> -> List<&2, WrapChunk>) -> List<&2, WrapChunk>:
   match cut:
     case SpanCut{head, +tail}:
       match head:
-        case Nil{}: wrap_spans_more(force_span(tail), k)
-        case Con{sp, rest}: wrap_spans_more(SpanCut{sp <> rest, tail}, k)
+        case Nil{}: wrap_spans_more(force_span(tail), before, k)
+        case Con{sp, rest}: wrap_spans_more(SpanCut{sp <> rest, tail}, before, k)
 
-def wrap_spans_go(fuel: Nat, xs: List<&2, SpanOp>, +cap: U32, +cont_cap: U32) -> List<&2, List<&2, SpanOp>>:
+def wrap_spans_go(fuel: Nat, +xs: List<&2, SpanOp>, +cap: U32, +cont_cap: U32) -> List<&2, WrapChunk>:
   match fuel:
     case 0n: Nil{}
     case 1n+p:
-      wrap_spans_cut(take_spans(xs, cap), rest => wrap_spans_go(p, rest, cont_cap, cont_cap))
+      wrap_spans_cut(take_spans(xs, cap), spans_chars(xs), rest => wrap_spans_go(p, rest, cont_cap, cont_cap))
 
-def wrap_spans(+xs: List<&2, SpanOp>, +first_cap: U32, +cont_cap: U32) -> List<&2, List<&2, SpanOp>>:
+def wrap_spans(+xs: List<&2, SpanOp>, +first_cap: U32, +cont_cap: U32) -> List<&2, WrapChunk>:
   wrap_spans_go(Nat.add(1n, spans_length(xs)), xs, wrap_cap(first_cap), wrap_cap(cont_cap))
 
 def msg_prefix_w.parsed(pair: String & String) -> U32:
@@ -886,16 +899,16 @@ def wrap_indent(+indent: U32, +content: U32) -> U32:
   +mx = wrap_indent.max(content)
   Bool.pick(U32, U32.is_gt(indent, mx), mx, indent)
 
-def continuation_rows(chunks: List<&2, List<&2, SpanOp>>, +off: U32, +w: U32, +fg: U32) -> List<&2, BodyRow>:
+def continuation_rows(chunks: List<&2, WrapChunk>, +off: U32, +w: U32, +fg: U32) -> List<&2, BodyRow>:
   match chunks:
     case Nil{}:
       Nil{}
-    case Con{h, t}:
-      BodyRow{"", 0, off, w, fg, h}
+    case Con{WrapChunk{h, source_chars}, t}:
+      BodyRow{"", 0, off, w, fg, h, source_chars}
         <> continuation_rows(t, off, w, fg)
 
 def wrapped_rows.chunks(
-  chunks: List<&2, List<&2, SpanOp>>,
+  chunks: List<&2, WrapChunk>,
   +ts: String,
   +stamp_w: U32,
   +first_off: U32,
@@ -907,8 +920,8 @@ def wrapped_rows.chunks(
   match chunks:
     case Nil{}:
       Nil{}
-    case Con{h, t}:
-      BodyRow{ts, stamp_w, first_off, first_w, fg, h}
+    case Con{WrapChunk{h, source_chars}, t}:
+      BodyRow{ts, stamp_w, first_off, first_w, fg, h, source_chars}
         <> continuation_rows(t, cont_off, cont_w, fg)
 
 def wrapped_rows(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
@@ -947,7 +960,8 @@ def unwrapped_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show
     case False{}:
       +shown = Bool.pick(String, show_ts, ts, "")
       +off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
-      BodyRow{shown, ts_w(w), off, U32.sub(w, off), style_of(k), line_spans_for(k, text)}
+      +spans = line_spans_for(k, text)
+      BodyRow{shown, ts_w(w), off, U32.sub(w, off), style_of(k), spans, spans_chars(spans)}
 
 def unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> BodyRow:
   match ln:
@@ -1045,14 +1059,9 @@ def visible_body_rows(+rows: List<&2, BodyRow>, +height: Nat, +scroll: Nat) -> L
 type AnchoredRow is Data:
   AnchoredRow{body: BodyRow, anchor: Cl.Scroll}
 
-def spans_chars(xs: List<&2, SpanOp>) -> Nat:
-  match xs:
-    case Nil{}: 0n
-    case Con{sp, t}: Nat.add(String.length(span_text(sp)), spans_chars(t))
-
 def row_chars(row: BodyRow) -> Nat:
   match row:
-    case BodyRow{_, _, _, _, _, spans}: spans_chars(spans)
+    case BodyRow{_, _, _, _, _, _, source_chars}: source_chars
     case BodyRecon{_, _}: 0n
 
 def rows_chars(rows: List<&2, BodyRow>) -> Nat:
@@ -1462,7 +1471,7 @@ def body_row_ops.normal(+x: U32, +y: U32, +ts: String, +stamp_w: U32, +off: U32,
 
 def body_row_ops(+x: U32, +y: U32, row: BodyRow) -> List<&2, DrawOp>:
   match row:
-    case BodyRow{+ts, stamp_w, off, w, fg, +spans}:
+    case BodyRow{+ts, stamp_w, off, w, fg, +spans, _}:
       body_row_ops.normal(x, y, ts, stamp_w, off, w, fg, spans, String.is_empty(ts))
     case BodyRecon{+text, +w}:
       OpText{x, y, w, FG_DIM(), 0, recon_divider(text, w)} <> Nil{}

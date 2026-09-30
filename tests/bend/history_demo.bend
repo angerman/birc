@@ -30,7 +30,7 @@ def ordinary_marker_text_ok() -> Bool:
 
 def ordinary_row(rows: List<&2, V.BodyRow>) -> Bool:
   match rows:
-    case Con{V.BodyRow{_, _, _, _, _, _}, Nil{}}: True{}
+    case Con{V.BodyRow{_, _, _, _, _, _, _}, Nil{}}: True{}
     case _: False{}
 
 def reconnect_row(rows: List<&2, V.BodyRow>) -> Bool:

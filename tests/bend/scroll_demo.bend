@@ -21,7 +21,7 @@ def span_step(acc: String, sp: V.SpanOp) -> String:
 
 def row_text(row: V.BodyRow) -> String:
   match row:
-    case V.BodyRow{_, _, _, _, _, spans}:
+    case V.BodyRow{_, _, _, _, _, spans, _}:
       List.foldl(~&2, ~V.SpanOp, ~String, ~span_step, spans, "")
     case V.BodyRecon{text, _}: text
 
@@ -65,6 +65,12 @@ def muted_arrival() -> Bool:
   +b = V.active_buf.on(Cl.nth_buf(Cl.client_bufs(after), 0n))
   String.eq(row_texts(rows(cl, 8)), row_texts(V.body_of.buf(b, 3n, 8, False{}, "muted" <> Nil{}, "s")))
 
+def replacement_anchor() -> Bool:
+  +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "abc👩‍💻uvwxyz", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
+  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, "s", 7n, 0n)
+  String.eq(last(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, "s")), "c")
+    && String.eq(last(V.body_of.buf(scrolled, 1n, 4, False{}, Nil{}, "s")), "abc")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("first_row_of_one_wrapped_line", reaches_first())
@@ -72,6 +78,7 @@ def main() -> IO(Unit):
     Unit <- E.must("resize_keeps_character_anchor", resize_anchor())
     Unit <- E.must("one_column_reaches_first", narrow_first())
     Unit <- E.must("muted_arrival_keeps_anchor", muted_arrival())
+    Unit <- E.must("forced_cluster_resize_keeps_source_anchor", replacement_anchor())
     Unit <- E.must("down_snaps_to_tail", String.eq(last(rows(moved(moved(long_client(), 100n, 0n), 0n, 100n), 8)), "456789"))
     Unit <- E.must("live_arrival_follows_tail", String.eq(last(rows(Cl.client_log(long_client(), 0n, Cl.Msg{}, "NEW"), 8)), "NEW"))
     IO.print("scroll_demo=ok")

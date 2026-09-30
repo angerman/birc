@@ -110,7 +110,7 @@ def draw_link_ok() -> Bool:
 
 def wrap_rows_ok.rows(rows: List<&2, V.BodyRow>) -> Bool:
   match rows:
-    case Con{V.BodyRow{+ts1, sw1, off1, w1, _, spans1}, Con{V.BodyRow{+ts2, _, off2, w2, _, spans2}, Con{V.BodyRow{+ts3, _, off3, w3, _, spans3}, Nil{}}}}:
+    case Con{V.BodyRow{+ts1, sw1, off1, w1, _, spans1, _}, Con{V.BodyRow{+ts2, _, off2, w2, _, spans2, _}, Con{V.BodyRow{+ts3, _, off3, w3, _, spans3, _}, Nil{}}}}:
       String.eq(ts1, "12:00:00")
         && U32.is_eq(sw1, 8)
         && U32.is_eq(off1, 9)
