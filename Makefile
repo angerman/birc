@@ -198,7 +198,7 @@ test-pty-tall: build-ui ## Pty: newest line on 40- and 90-row terminals (R6).
 test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
 	$(NIXRUN) python3 tests/pty/restore.py ./$(BLDDIR)/birc
 
-test-pty-composer: build-ui ## Pty: composer length + history Down clears (C8).
+test-pty-composer: build-ui ## Pty: composer length, history clear, and Ctrl-A/Ctrl-K.
 	$(NIXRUN) python3 tests/pty/composer_pty.py ./$(BLDDIR)/birc
 
 test-pty-eof: build-ui ## Pty: server close keeps the UI alive (H3).

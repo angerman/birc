@@ -5,6 +5,8 @@ usage: composer_pty.py ./build/birc
 Case A: 300 x 'a' + Enter  -> server must get PRIVMSG with 300 a's (was 255).
 Case B: "hello" Enter, Up (recall), Down (clear), "x" Enter
         -> server must get "PRIVMSG #t :x", not "...:hellox" / ":hello".
+Case C: "discard-me", Ctrl-A, Ctrl-K, "kept" Enter
+        -> server must get "PRIVMSG #t :kept".
 """
 from __future__ import annotations
 
@@ -82,6 +84,12 @@ def main() -> int:
     typ(b"\x1b[B", 0.3)   # Down: past newest -> must clear
     typ(b"x")
     typ(b"\r", 0.6)
+    # Case C
+    typ(b"discard-me")
+    typ(b"\x01", 0.2)   # Ctrl-A: move to the beginning
+    typ(b"\x0b", 0.2)   # Ctrl-K: delete from cursor to end
+    typ(b"kept")
+    typ(b"\r", 0.6)
     typ(b"/quit\r", 1.0)
     try:
         proc.wait(timeout=15)
@@ -95,8 +103,9 @@ def main() -> int:
     print(f"exit={proc.returncode} privmsgs={len(msgs)}")
     print(f"case A: a-count={alen} (want 300; bug gave 255)")
     tail = [m for m in msgs if not m.startswith("PRIVMSG #t :aaa")]
-    print(f"case B: lines after A = {tail} (want ['PRIVMSG #t :hello', 'PRIVMSG #t :x'])")
-    ok = alen == 300 and tail == ["PRIVMSG #t :hello", "PRIVMSG #t :x"]
+    want = ["PRIVMSG #t :hello", "PRIVMSG #t :x", "PRIVMSG #t :kept"]
+    print(f"cases B/C: lines after A = {tail} (want {want})")
+    ok = alen == 300 and tail == want
     print("RESULT:", "PASS" if ok else "FAIL")
     if not ok:
         print("composer_pty: composer protocol mismatch", file=sys.stderr)

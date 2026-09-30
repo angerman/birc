@@ -195,6 +195,8 @@ Run `./build/birc --help-irc` for a full summary:
 | <kbd>F6</kbd> / <kbd>Ctrl</kbd> + <kbd>W</kbd> | Move focus to the other split pane |
 | <kbd>&uarr;</kbd> (Up Arrow) | Recall previous command from history |
 | <kbd>&darr;</kbd> (Down Arrow) | Recall next command from history |
+| <kbd>Ctrl</kbd> + <kbd>A</kbd> | Move the composer cursor to the start of the line |
+| <kbd>Ctrl</kbd> + <kbd>K</kbd> | Delete from the composer cursor to the end of the line |
 | <kbd>Enter</kbd> | Send typed message or slash command; snap scroll to latest |
 | <kbd>Esc</kbd> / <kbd>F10</kbd> | Cleanly disconnect and quit |
 

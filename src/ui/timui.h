@@ -31072,6 +31072,13 @@ static void text_area_apply_key_(TimuiTextAreaState *st, unsigned key,
       res->changed = 1;
     }
   }
+  if (key == TIMUI_KEYIN_KILL_EOL) {
+    size_t end = line_end_(st->text, st->cursor);
+    if (end > st->cursor) {
+      (void)text_erase_(st->text, st->cursor, end);
+      res->changed = 1;
+    }
+  }
 }
 static void text_area_process_edit_ops_(Timui *ui, TimuiTextAreaState *st,
                                         uint32_t flags,
