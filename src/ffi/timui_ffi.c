@@ -31,6 +31,9 @@ typedef uint64_t Loc;
 #ifndef CID_TIMUI_FRAME
 #define CID_TIMUI_FRAME CID(Timui.frame)
 #endif
+#ifndef CID_TIMUI_REDRAW_READY
+#define CID_TIMUI_REDRAW_READY CID(Timui.redraw_ready)
+#endif
 #ifndef CID_TIMUI_CLOSE
 #define CID_TIMUI_CLOSE CID(Timui.close)
 #endif
@@ -595,6 +598,28 @@ static int birc_frame_short;
 static int birc_tty_stalled;
 static int birc_frame_disabled;
 
+static int birc_output_ready(const Timui *ui) {
+  struct pollfd pfd;
+  if (!ui || ui->fd.write_fd < 0)
+    return 0;
+  pfd.fd = ui->fd.write_fd;
+  pfd.events = POLLOUT;
+  pfd.revents = 0;
+  return poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT) != 0;
+}
+
+#if CID_TIMUI_REDRAW_READY
+Term timui_redraw_ready_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  uint32_t ready = birc_tty_stalled && birc_output_ready(ui) ? 1u : 0u;
+  (void)w;
+  return io_tup(e, f[0], (Term)(uint64_t)ready);
+}
+static void __attribute__((constructor)) timui_redraw_ready_use(void) {
+  io_eff(CID_TIMUI_REDRAW_READY, timui_redraw_ready_run, 0);
+}
+#endif
+
 static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
   int w;
@@ -617,15 +642,10 @@ static TimuiTransportWrite birc_output_begin(Timui *ui, int *saved_flags) {
   *saved_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
   birc_frame_disabled = *saved_flags < 0 ||
       fcntl(ui->fd.write_fd, F_SETFL, *saved_flags | O_NONBLOCK) < 0;
-  if (birc_tty_stalled) {
-    struct pollfd pfd;
-    wait_ms = 0;
-    pfd.fd = ui->fd.write_fd;
-    pfd.events = POLLOUT;
-    pfd.revents = 0;
-    if (pfd.fd >= 0 && poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT))
-      wait_ms = 2000;
-  }
+  /* Writable means some bytes fit, not that a complete repaint will fit.
+   * A repair gets bounded headroom, never the former two-second UI stall. */
+  if (birc_tty_stalled)
+    wait_ms = birc_output_ready(ui) ? 200 : 0;
   birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
   ui->transport.write = birc_frame_write;
   return saved;

@@ -52,8 +52,19 @@ def coalesce(fuel: Nat, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
         Unit <- E.must("another paint cannot forget a queued continuation", queued2)
         coalesce(p, evt)
 
+def tick_changed(pair: Sess.Session & Bool) -> Bool:
+  match pair:
+    case (_, changed): changed
+
+def tick_needs_paint(expired: Bool, ready: Bool) -> Bool:
+  tick_changed(Net.on_typing_tick.retry((Sess.session0("me", "s", "#t"), expired), ready))
+
 def run() -> IO(Unit):
   do IO<Unit>:
+    Unit <- E.must("normal idle ticks do not repaint", Bool.not(tick_needs_paint(False{}, False{})))
+    Unit <- E.must("writable short frames repaint unchanged typing", tick_needs_paint(False{}, True{}))
+    Unit <- E.must("typing expiry still repaints", tick_needs_paint(True{}, False{}))
+    Unit <- E.must("repair and expiry share one paint", tick_needs_paint(True{}, True{}))
     Unit <- E.must("watcher key is not a continuation", Bool.not(Net.is_continue(Sess.UiKey{})))
     Unit <- E.must("synthetic input is a continuation", Net.is_continue(Sess.UiContinue{}))
     Unit <- E.must("idle needs no continuation", Bool.not(Net.more_pending(False{}, False{}, False{})))

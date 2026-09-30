@@ -691,6 +691,25 @@ def on_typing_tick.pick(
             got : T.Ui & T.UiKeys <- paint_session(ui, st2)
             on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
 
+def on_typing_tick.retry(pair: Sess.Session & Bool, retry: Bool) -> Sess.Session & Bool:
+  match pair:
+    case (st, changed): (st, changed || retry)
+
+def on_typing_tick.ready(
+  got: T.Ui & U32,
+  +st: Sess.Session,
+  +now_ms: U32,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match got:
+    case (ui, ready):
+      on_typing_tick.pick(on_typing_tick.retry(Sess.session_expire_typing(st, now_ms), T.flag_on(ready)), ui, evt, cmd, ack, gen, frames, k)
+
 def on_typing_tick(
   ui: T.Ui,
   +st: Sess.Session,
@@ -702,7 +721,9 @@ def on_typing_tick(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_typing_tick.pick(Sess.session_expire_typing(st, now_ms), ui, evt, cmd, ack, gen, frames, k)
+  do IO<Unit>:
+    got : T.Ui & U32 <- T.Timui.redraw_ready(ui)
+    on_typing_tick.ready(got, st, now_ms, evt, cmd, ack, gen, frames, k)
 
 def on_reconnect.enabled(
   enabled: Bool,
@@ -970,8 +991,9 @@ def winch_watch(w: T.Winch, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
     winch_watch.on(ok, w2, w3 => winch_watch(w3, evt))
 
-# A one-second Bend-owned clock tick expires transient typing notices. The UI
-# only paints when expiration changes state, so idle ticks do not redraw.
+# A one-second Bend-owned clock tick expires typing and repairs short frames.
+# Failed output waits for a writable tick, never a hot input continuation.
+# Normal idle ticks do not repaint.
 @unsafe
 def typing_watch(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:

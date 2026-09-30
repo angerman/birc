@@ -76,6 +76,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_SYS_CLIPBOARD_PROGRAM 40u
 #define CID_SYS_EXIT_DONE 41u
 #define CID_SYS_EXIT_FAIL 42u
+#define CID_TIMUI_REDRAW_READY 43u
 #ifndef THR
 #define THR
 #endif
