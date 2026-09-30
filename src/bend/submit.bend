@@ -298,14 +298,28 @@ def submit_nick(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 def ctcp_action(+rest: String) -> String:
   SCon{Chr{1}, "ACTION " ++ rest ++ SCon{Chr{1}, SNil{}}}
 
+# Reserve the complete CTCP envelope before fitting its text. Clamping the
+# assembled line can delete the closing SOH and echo text that was not sent.
+def ctcp_action_body(+rest: String, budget: Nat) -> String:
+  +body = Irc.strip_ctl(rest)
+  Irc.clamp_line.go(Nat.add(1n, Nat.mul(2n, String.length(body))), Irc.ClStr{}, budget, body, "")
+
+def submit_me.budget(+cl: Cl.Client, +tgt: String, +rest: String, +overhead: Nat, fits: Bool) -> Cl.Client & List<&2, String>:
+  match fits:
+    case False{}:
+      (echo_err(cl, "action target exceeds IRC line limit"), empty_out())
+    case True{}:
+      +body = ctcp_action_body(rest, Nat.sub(Irc.LINE_MAX(), overhead))
+      (echo_action(cl, active_idx(cl), body), one_out(Irc.format_privmsg(tgt, ctcp_action(body))))
+
 def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client & List<&2, String>:
   match on_server:
     case True{}:
       (echo_err(cl, "not in a channel — /join #chan first"), empty_out())
     case False{}:
-      +tgt = active_name(cl)
-      +bi = active_idx(cl)
-      (echo_action(cl, bi, rest), one_out(Irc.format_privmsg(tgt, ctcp_action(rest))))
+      +tgt = Irc.strip_ctl(active_name(cl))
+      +overhead = Irc.utf8_len(Irc.format_privmsg(tgt, ctcp_action("")))
+      submit_me.budget(cl, tgt, rest, overhead, Nat.is_le(overhead, Irc.LINE_MAX()))
 
 def active_is_synthetic(+cl: Cl.Client) -> Bool:
   String.starts_with(active_name(cl), "*")
