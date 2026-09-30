@@ -947,7 +947,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       separate from rendered length so widening a paused view does not move
       into a later emoji cluster. Test one-column replacement, unchanged-width
       navigation, and widening with the preceding character anchored.
-- [ ] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
+- [x] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
       punctuation boundaries.
@@ -1079,7 +1079,8 @@ Verification so far (all through the locked Nix shell, no pin updates):
   anchors the preceding `abc` row after widening past a three-codepoint emoji.
 - U03 runtime follow-up: a fresh integration review found Session's `/open`
   echo still used System instead of LinkResult. Pure Submit tests missed that
-  path. A runtime-path fix and non-duplication/history guards are in progress.
+  path. The one-line runtime fix and Session-path non-duplication/history guards
+  passed. The fake-launcher PTY passed three consecutive runs before commit.
 - D02 (`c2902ef`): ordinary and blocked startup PTYs passed three consecutive
   runs before commit. Queued-Dial actor tests cover initial success and refusal;
   stale/fresh initial-failure messages are checked separately. Integrated
