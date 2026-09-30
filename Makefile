@@ -65,17 +65,24 @@ BEND_CORE_CFLAGS ?= -std=c11 -O2 -pthread -w
 
 build-proto: ## Build the Bend protocol self-test binary.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend $(PROTO) -o $(BLDDIR)/birc-proto
+	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
 
 # Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
 # birc usage is --help-irc (args.bend).
-BEND_UI_SRCS := $(wildcard src/bend/*.bend) src/ffi/timui_ffi.c src/ffi/dns_ffi.c src/ffi/clock_ffi.c
+BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
+BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
 
-$(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) src/ui/timui.h
+.PHONY: FORCE test-golden-runner test-build-config test-dns-tcp test-socket-deadline test-state test-auth test-commands test-pty-output-stall
+FORCE:
+
+$(BLDDIR)/build-config: FORCE scripts/build-config.sh
+	$(NIXRUN) sh scripts/build-config.sh $@ '$(BEND_CORE_CFLAGS)' '$(SANITIZER_CFLAGS)'
+
+$(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) $(BUILD_INPUTS) $(BLDDIR)/build-config
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c
 
-$(BLDDIR)/birc: $(BLDDIR)/birc_bend.c
+$(BLDDIR)/birc: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
 	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
 
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
@@ -83,75 +90,106 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
 test-proto: build-proto ## Run Bend protocol golden harness.
-	$(NIXRUN) ./$(BLDDIR)/birc-proto | grep -qx proto_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh proto_demo=ok ./$(BLDDIR)/birc-proto
+
+test-golden-runner: ## Reject failing, missing-token, and timed-out golden programs.
+	$(NIXRUN) sh tests/golden_runner.sh
+
+test-build-config: ## Verify header dependencies and changed/unchanged compiler flags.
+	$(NIXRUN) timeout 30 python3 tests/build_config.py
 
 test-feed: ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
-	$(NIXRUN) ./$(BLDDIR)/feed_demo | grep -qx feed_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh feed_demo=ok ./$(BLDDIR)/feed_demo
 	$(NIXRUN) bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
-	$(NIXRUN) timeout 2 ./$(BLDDIR)/feed_bench | grep -qx feed_bench=ok
+	$(NIXRUN) sh scripts/check-golden.sh feed_bench=ok timeout 2 ./$(BLDDIR)/feed_bench
 
 test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
-	$(NIXRUN) ./$(BLDDIR)/submit_demo | grep -qx submit_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
 
 test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
-	$(NIXRUN) ./$(BLDDIR)/search_demo | grep -qx search_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh search_demo=ok ./$(BLDDIR)/search_demo
 
 test-split: ## M16.2 split-view state, focus, geometry, and routing goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/split_demo.bend -o $(BLDDIR)/split_demo
-	$(NIXRUN) ./$(BLDDIR)/split_demo | grep -qx split_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh split_demo=ok ./$(BLDDIR)/split_demo
 
 test-preview: ## M16.1 local PNG preview command and DrawOp goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/preview_demo.bend -o $(BLDDIR)/preview_demo
-	$(NIXRUN) ./$(BLDDIR)/preview_demo | grep -qx preview_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh preview_demo=ok ./$(BLDDIR)/preview_demo
 
 test-typing: ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
-	$(NIXRUN) ./$(BLDDIR)/typing_demo | grep -qx typing_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh typing_demo=ok ./$(BLDDIR)/typing_demo
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/frame_demo.bend -o $(BLDDIR)/frame_demo
-	$(NIXRUN) ./$(BLDDIR)/frame_demo | grep -qx frame_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh frame_demo=ok ./$(BLDDIR)/frame_demo
 
 test-net: ## M4 loopback TCP.send/recv + register/pong goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
-	$(NIXRUN) ./$(BLDDIR)/net_demo | grep -qx net_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh net_demo=ok ./$(BLDDIR)/net_demo
 
 test-dns: ## UDP A lookup identity + parse edges (no network).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
-	$(NIXRUN) ./$(BLDDIR)/dns_demo | grep -qx dns_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh dns_demo=ok ./$(BLDDIR)/dns_demo
 	@! grep -F 'Dns.resolve("one.one.one.one")' tests/bend/dns_demo.bend
 
 test-dns-live: ## Live A lookup of one.one.one.one (not in check).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
-	$(NIXRUN) ./$(BLDDIR)/dns_live | grep -qx dns_live=ok
+	$(NIXRUN) sh scripts/check-golden.sh dns_live=ok ./$(BLDDIR)/dns_live
 
 test-dns-timeout: ## K3: blackhole nameserver returns timeout, does not park.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
-	$(NIXRUN) timeout 15 ./$(BLDDIR)/dns_timeout | grep -qx dns_timeout=ok
+	$(NIXRUN) sh scripts/check-golden.sh dns_timeout=ok timeout 15 ./$(BLDDIR)/dns_timeout
+
+test-dns-tcp: ## DNS TCP segmentation, length validation, and deadlines.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/dns_tcp.bend -o $(BLDDIR)/dns_tcp
+	$(NIXRUN) timeout 60 python3 tests/dns/tcp.py ./$(BLDDIR)/dns_tcp
+
+test-socket-deadline: ## Socket deadlines: exact writes, stalled peers, refused connects.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/socket_deadline.bend -o $(BLDDIR)/socket_deadline
+	$(NIXRUN) timeout 60 python3 tests/dns/socket_deadline.py ./$(BLDDIR)/socket_deadline
 
 test-base64: ## Base64 and SASL PLAIN golden tests.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/base64_demo.bend -o $(BLDDIR)/base64_demo
-	$(NIXRUN) ./$(BLDDIR)/base64_demo | grep -qx base64_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh base64_demo=ok ./$(BLDDIR)/base64_demo
+
+test-auth: ## Parsed SASL exchange, phase gating, and forged chat regression.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/auth_demo.bend -o $(BLDDIR)/auth_demo
+	$(NIXRUN) sh scripts/check-golden.sh auth_demo=ok ./$(BLDDIR)/auth_demo
+
+test-state: ## Bounded logging and structural state regressions.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/state_demo.bend -o $(BLDDIR)/state_demo
+	$(NIXRUN) sh scripts/check-golden.sh state_demo=ok ./$(BLDDIR)/state_demo
+
+test-commands: ## Local commands offline/connecting and read-only wire target guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/command_demo.bend -o $(BLDDIR)/command_demo
+	$(NIXRUN) sh scripts/check-golden.sh command_demo=ok ./$(BLDDIR)/command_demo
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
-	$(NIXRUN) ./$(BLDDIR)/args_demo | grep -qx args_demo=ok
+	$(NIXRUN) sh scripts/check-golden.sh args_demo=ok ./$(BLDDIR)/args_demo
 	@! grep -F 'def seed_bit' src/bend/session.bend
 	@! grep -F 'CopyMany' src/bend/args.bend
 	@! grep -F 'def is_433_line' src/bend/irc.bend
@@ -169,7 +207,7 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	@python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc missing CTCP SOH' >&2; exit 2; }
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
-	$(NIXRUN) ./$(BLDDIR)/proto_parity | grep -qx proto_parity=ok
+	$(NIXRUN) sh scripts/check-golden.sh proto_parity=ok ./$(BLDDIR)/proto_parity
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
 	$(NIXRUN) ./$(BLDDIR)/birc --demo --frames 3 </dev/null
@@ -259,6 +297,9 @@ test-pty-closequit: build-ui ## Pty: server close then /quit exits (12 runs).
 test-pty-stall: build-ui ## Pty: PONG while the terminal is not read (F1).
 	$(NIXRUN) python3 tests/pty/stall.py ./$(BLDDIR)/birc
 
+test-pty-output-stall: build-ui ## Pty: bounded bells/selection and nonblocking clipboard.
+	$(NIXRUN) timeout 40 python3 tests/pty/output_stall.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -315,10 +356,17 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
-test: test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+.PHONY: test-review-pure
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-dns-tcp test-socket-deadline ## Adversarial review regression gates.
+
+test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
-	$(NIXRUN) bend PROOF.bend
+	$(NIXRUN) timeout 180 bend PROOF.bend
+
+.PHONY: proof-kernel
+proof-kernel: ## Independently check proofs with BendTT (requires Lean or BENDTT).
+	$(NIXRUN) timeout 300 bend PROOF.bend --verdict
 
 LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
 lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
@@ -344,12 +392,14 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 
 test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ffi -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c && ./$(BLDDIR)/utf8_fit_cap | grep -qx utf8_fit_cap=ok'
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ffi -o $(BLDDIR)/utf8_fit_cap tests/utf8_fit_cap.c'
+	$(NIXRUN) sh scripts/check-golden.sh utf8_fit_cap=ok ./$(BLDDIR)/utf8_fit_cap
 	@grep -F 'birc_utf8_fit(s, (size_t)len < 63 ? (size_t)len : (size_t)63)' src/ffi/timui_ffi.c >/dev/null
 
 test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c && ./$(BLDDIR)/paste_harness | grep -qx paste_harness=ok'
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c'
+	$(NIXRUN) sh scripts/check-golden.sh paste_harness=ok ./$(BLDDIR)/paste_harness
 
 test-perf-cpu: build-ui ## 15 s idle/flood CPU (not in check).
 	$(NIXRUN) python3 tests/perf/cpu_pty.py ./$(BLDDIR)/birc
@@ -367,7 +417,7 @@ test-perf-hardening: build-ui ## Profile production frame phases with scale repl
 
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 
-$(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c
+$(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
 	$(NIXRUN) timeout 300 sh -c '$$CC $(SANITIZER_CFLAGS) -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc_ubsan'
 
 test-asan: ## M7.3: bounded ASan gate (explicit skip for broken runtimes).

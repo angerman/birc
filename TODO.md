@@ -890,7 +890,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 
 ### State, history, and rendering
 
-- [ ] **S01 — Canonical bounded logging (P1).** Route buffer-cap warnings
+- [x] **S01 — Canonical bounded logging (P1).** Route buffer-cap warnings
       through the same capped append as all other logs. Test more than 1,024
       rejected remote buffer creations and ordinary accepted creation.
 - [ ] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
@@ -929,19 +929,19 @@ implementations. Every changed PTY test must pass three consecutive runs.
 
 ### Commands and authentication
 
-- [ ] **C01 — Parsed, stateful SASL (P1).** Recognize CAP/AUTHENTICATE/numerics
+- [x] **C01 — Parsed, stateful SASL (P1).** Recognize CAP/AUTHENTICATE/numerics
       from parsed IRC messages and only in the expected authentication phase.
       Test protocol success/failure plus chat containing `AUTHENTICATE +` or
       ` 903 `; chat must remain chat and cannot trigger credentials.
-- [ ] **C02 — UTF-8 and SASL chunks (P2).** Encode PLAIN credentials as UTF-8
+- [x] **C02 — UTF-8 and SASL chunks (P2).** Encode PLAIN credentials as UTF-8
       bytes with the existing encoder. Send at most 400 Base64 characters per
       AUTHENTICATE line and a final `+` for an exact multiple. Test ASCII,
       non-ASCII, 399/400/401 boundaries, and IRC line limits.
-- [ ] **C03 — Local commands while offline (P2).** Classify commands once by
+- [x] **C03 — Local commands while offline (P2).** Classify commands once by
       whether they need a connection. Allow settings, search, preview, buffer
       controls, and disabling auto-reconnect while offline/connecting. Test
       both states and reject actual wire commands there.
-- [ ] **C04 — No wire targets for synthetic buffers (P2).** Use one sendable
+- [x] **C04 — No wire targets for synthetic buffers (P2).** Use one sendable
       buffer predicate for plain chat and `/me`/related commands. Test settings
       and other synthetic buffers plus valid channels and queries.
 - [ ] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
@@ -950,14 +950,14 @@ implementations. Every changed PTY test must pass three consecutive runs.
 
 ### Verification and build driver
 
-- [ ] **V01 — Honest proof scope and preservation laws.** Separate concrete
+- [x] **V01 — Honest proof scope and preservation laws.** Separate concrete
       examples from quantified guarantees in README/law comments. Strengthen
       useful preservation/boundary laws without weakening existing laws.
       Run `bend PROOF.bend`; report the independent kernel gate separately.
-- [ ] **V02 — Golden tests check process status.** Replace `binary | grep`
+- [x] **V02 — Golden tests check process status.** Replace `binary | grep`
       checks with a common bounded runner that checks both exit status and
       the expected token. Test token+exit-42 rejection and token+exit-0 success.
-- [ ] **V03 — Complete incremental dependencies.** Track FFI helper headers,
+- [x] **V03 — Complete incremental dependencies.** Track FFI helper headers,
       the lock file, and effective compiler flags/toolchain identity. Test
       `make -n -W src/ffi/birc_utf8_fit.h build-ui` and changed build flags.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
