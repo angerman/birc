@@ -2267,6 +2267,7 @@ typedef struct TimuiImage {
   size_t len;
   unsigned char *rgba;
   size_t rgba_len;
+  int png_decode_failed; /* immutable PNG was malformed; allocation denial retries */
   /* Slot zero's terminal-local Kitty id and dirty bit. Library-owned; tests
    * needing a deterministic id must use timui_set_image_id_for_test. */
   uint32_t id;
@@ -18733,6 +18734,7 @@ typedef struct
    void *io_user_data;
 
    int read_from_callbacks;
+   int allocation_failed; // per-load PNG failure classification, independent of strings
    int buflen;
    stbi_uc buffer_start[128];
    int callback_already_read;
@@ -18749,6 +18751,7 @@ static void stbi__start_mem(stbi__context *s, stbi_uc const *buffer, int len)
 {
    s->io.read = NULL;
    s->read_from_callbacks = 0;
+   s->allocation_failed = 0;
    s->callback_already_read = 0;
    s->img_buffer = s->img_buffer_original = (stbi_uc *) buffer;
    s->img_buffer_end = s->img_buffer_original_end = (stbi_uc *) buffer+len;
@@ -18761,6 +18764,7 @@ static void stbi__start_callbacks(stbi__context *s, stbi_io_callbacks *c, void *
    s->io_user_data = user;
    s->buflen = sizeof(s->buffer_start);
    s->read_from_callbacks = 1;
+   s->allocation_failed = 0;
    s->callback_already_read = 0;
    s->img_buffer = s->img_buffer_original = s->buffer_start;
    stbi__refill_buffer(s);
@@ -19116,7 +19120,10 @@ static stbi_uc *stbi__convert_16_to_8(stbi__uint16 *orig, int w, int h, int chan
    stbi_uc *reduced;
 
    reduced = (stbi_uc *) stbi__malloc(img_len);
-   if (reduced == NULL) return stbi__errpuc("outofmem", "Out of memory");
+   if (reduced == NULL) {
+      STBI_FREE(orig);
+      return stbi__errpuc("outofmem", "Out of memory");
+   }
 
    for (i = 0; i < img_len; ++i)
       reduced[i] = (stbi_uc)((orig[i] >> 8) & 0xFF); // top half of each byte is sufficient approx of 16->8 bit scaling
@@ -19192,6 +19199,10 @@ static unsigned char *stbi__load_and_postprocess_8bit(stbi__context *s, int *x, 
 
    if (ri.bits_per_channel != 8) {
       result = stbi__convert_16_to_8((stbi__uint16 *) result, *x, *y, req_comp == 0 ? *comp : req_comp);
+      if (result == NULL) {
+         s->allocation_failed = 1;
+         return NULL;
+      }
       ri.bits_per_channel = 8;
    }
 
@@ -22348,8 +22359,8 @@ static int stbi__parse_uncompressed_block(stbi__zbuf *a)
    len  = header[1] * 256 + header[0];
    nlen = header[3] * 256 + header[2];
    if (nlen != (len ^ 0xffff)) return stbi__err("zlib corrupt","Corrupt PNG");
-   if (a->zbuffer + len > a->zbuffer_end) return stbi__err("read past buffer","Corrupt PNG");
-   if (a->zout + len > a->zout_end)
+   if (len > a->zbuffer_end - a->zbuffer) return stbi__err("read past buffer","Corrupt PNG");
+   if (len > a->zout_end - a->zout)
       if (!stbi__zexpand(a, a->zout, len)) return 0;
    memcpy(a->zout, a->zbuffer, len);
    a->zbuffer += len;
@@ -22556,6 +22567,12 @@ typedef struct
    int depth;
 } stbi__png;
 
+static int stbi__png_oom(stbi__png *a)
+{
+   a->s->allocation_failed = 1;
+   return stbi__err("outofmem", "Out of memory");
+}
+
 
 enum {
    STBI__F_none=0,
@@ -22632,7 +22649,7 @@ static int stbi__create_png_image_raw(stbi__png *a, stbi_uc *raw, stbi__uint32 r
 
    STBI_ASSERT(out_n == s->img_n || out_n == s->img_n+1);
    a->out = (stbi_uc *) stbi__malloc_mad3(x, y, output_bytes, 0); // extra bytes to write off the end into
-   if (!a->out) return stbi__err("outofmem", "Out of memory");
+   if (!a->out) return stbi__png_oom(a);
 
    // note: error exits here don't need to clean up a->out individually,
    // stbi__do_png always does on error.
@@ -22648,7 +22665,7 @@ static int stbi__create_png_image_raw(stbi__png *a, stbi_uc *raw, stbi__uint32 r
 
    // Allocate two scan lines worth of filter workspace buffer.
    filter_buf = (stbi_uc *) stbi__malloc_mad2(img_width_bytes, 2, 0);
-   if (!filter_buf) return stbi__err("outofmem", "Out of memory");
+   if (!filter_buf) return stbi__png_oom(a);
 
    // Filtering for low-bit-depth images
    if (depth < 8) {
@@ -22791,7 +22808,7 @@ static int stbi__create_png_image(stbi__png *a, stbi_uc *image_data, stbi__uint3
 
    // de-interlacing
    final = (stbi_uc *) stbi__malloc_mad3(a->s->img_x, a->s->img_y, out_bytes, 0);
-   if (!final) return stbi__err("outofmem", "Out of memory");
+   if (!final) return stbi__png_oom(a);
    for (p=0; p < 7; ++p) {
       int xorig[] = { 0,4,0,2,0,1,0 };
       int yorig[] = { 0,0,4,0,2,0,1 };
@@ -22881,7 +22898,7 @@ static int stbi__expand_png_palette(stbi__png *a, stbi_uc *palette, int len, int
    stbi_uc *p, *temp_out, *orig = a->out;
 
    p = (stbi_uc *) stbi__malloc_mad2(pixel_count, pal_img_n, 0);
-   if (p == NULL) return stbi__err("outofmem", "Out of memory");
+   if (p == NULL) return stbi__png_oom(a);
 
    // between here and free(out) below, exitting would leak
    temp_out = p;
@@ -22997,6 +23014,28 @@ static void stbi__de_iphone(stbi__png *z)
 
 #define STBI__PNG_TYPE(a,b,c,d)  (((unsigned) (a) << 24) + ((unsigned) (b) << 16) + ((unsigned) (c) << 8) + (unsigned) (d))
 
+// Exact PNG scanline budget, including packed samples and each Adam7 filter row.
+static int stbi__png_raw_size(stbi__png *z, int interlace)
+{
+   static const unsigned pass[7][4] = {
+      {0,0,8,8}, {4,0,8,8}, {0,4,4,8}, {2,0,4,4},
+      {0,2,2,4}, {1,0,2,2}, {0,1,1,2}
+   };
+   uint64_t total = 0;
+   int p;
+   for (p = 0; p < (interlace ? 7 : 1); ++p) {
+      uint64_t x = z->s->img_x, y = z->s->img_y;
+      if (interlace) {
+         if (x <= pass[p][0] || y <= pass[p][1]) continue;
+         x = (x - pass[p][0] + pass[p][2] - 1) / pass[p][2];
+         y = (y - pass[p][1] + pass[p][3] - 1) / pass[p][3];
+      }
+      total += (((x * (unsigned)z->s->img_n * (unsigned)z->depth + 7) / 8) + 1) * y;
+      if (total > INT_MAX) return 0;
+   }
+   return (int)total;
+}
+
 static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
 {
    stbi_uc palette[1024], pal_img_n=0;
@@ -23016,6 +23055,13 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
 
    for (;;) {
       stbi__pngchunk c = stbi__get_chunk_header(s);
+      // Memory-backed PNGs must contain the declared payload and CRC before
+      // any chunk can allocate from its length. Callback IO retains stb policy.
+      if (!s->read_from_callbacks) {
+         size_t remaining = (size_t)(s->img_buffer_end - s->img_buffer);
+         if (remaining < 4 || c.length > remaining - 4)
+            return stbi__err("outofdata", "Corrupt PNG");
+      }
       switch (c.type) {
          case STBI__PNG_TYPE('C','g','B','I'):
             is_iphone = 1;
@@ -23110,7 +23156,7 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
                while (ioff + c.length > idata_limit)
                   idata_limit *= 2;
                STBI_NOTUSED(idata_limit_old);
-               p = (stbi_uc *) STBI_REALLOC_SIZED(z->idata, idata_limit_old, idata_limit); if (p == NULL) return stbi__err("outofmem", "Out of memory");
+               p = (stbi_uc *) STBI_REALLOC_SIZED(z->idata, idata_limit_old, idata_limit); if (p == NULL) return stbi__png_oom(z);
                z->idata = p;
             }
             if (!stbi__getn(s, z->idata+ioff,c.length)) return stbi__err("outofdata","Corrupt PNG");
@@ -23119,21 +23165,25 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
          }
 
          case STBI__PNG_TYPE('I','E','N','D'): {
-            stbi__uint32 raw_len, bpl;
+            int raw_len, raw_limit;
             if (first) return stbi__err("first not IHDR", "Corrupt PNG");
             if (scan != STBI__SCAN_load) return 1;
             if (z->idata == NULL) return stbi__err("no IDAT","Corrupt PNG");
-            // initial guess for decoded data size to avoid unnecessary reallocs
-            bpl = (s->img_x * z->depth + 7) / 8; // bytes per line, per component
-            raw_len = bpl * s->img_y * s->img_n /* pixels */ + s->img_y /* filter mode per row */;
-            z->expanded = (stbi_uc *) stbi_zlib_decode_malloc_guesssize_headerflag((char *) z->idata, ioff, raw_len, (int *) &raw_len, !is_iphone);
-            if (z->expanded == NULL) return 0; // zlib should set error
+            raw_limit = stbi__png_raw_size(z, interlace);
+            if (!raw_limit) return stbi__err("too large", "Corrupt PNG");
+            z->expanded = (stbi_uc *) stbi__malloc((size_t)raw_limit);
+            if (z->expanded == NULL) return stbi__png_oom(z);
+            // Refuse excess output while inflating, not after a growing buffer.
+            raw_len = is_iphone
+               ? stbi_zlib_decode_noheader_buffer((char *)z->expanded, raw_limit, (char *)z->idata, (int)ioff)
+               : stbi_zlib_decode_buffer((char *)z->expanded, raw_limit, (char *)z->idata, (int)ioff);
+            if (raw_len < 0) return 0;
             STBI_FREE(z->idata); z->idata = NULL;
             if ((req_comp == s->img_n+1 && req_comp != 3 && !pal_img_n) || has_trans)
                s->img_out_n = s->img_n+1;
             else
                s->img_out_n = s->img_n;
-            if (!stbi__create_png_image(z, z->expanded, raw_len, s->img_out_n, z->depth, color, interlace)) return 0;
+            if (!stbi__create_png_image(z, z->expanded, (stbi__uint32)raw_len, s->img_out_n, z->depth, color, interlace)) return 0;
             if (has_trans) {
                if (z->depth == 16) {
                   if (!stbi__compute_transparency16(z, tc16, s->img_out_n)) return 0;
@@ -23201,7 +23251,10 @@ static void *stbi__do_png(stbi__png *p, int *x, int *y, int *n, int req_comp, st
          else
             result = stbi__convert_format16((stbi__uint16 *) result, p->s->img_out_n, req_comp, p->s->img_x, p->s->img_y);
          p->s->img_out_n = req_comp;
-         if (result == NULL) return result;
+         if (result == NULL) {
+            p->s->allocation_failed = 1;
+            return result;
+         }
       }
       *x = p->s->img_x;
       *y = p->s->img_y;
@@ -26239,21 +26292,32 @@ static int image_decode_png_rgba_(TimuiImage *img) {
   int want_w = 0, want_h = 0, w = 0, h = 0, comp = 0;
   size_t row = 0, total = 0;
   unsigned char *rgba;
+  stbi__context decoder;
   if (!img)
     return 0;
   if (img->rgba)
     return 1;
+  if (img->png_decode_failed)
+    return 0;
   if (img->kind != TIMUI_IMAGE_KIND_PNG)
     return 0;
-  if (!image_png_preflight_(img, &want_w, &want_h))
+  if (!image_png_preflight_(img, &want_w, &want_h)) {
+    img->png_decode_failed = 1;
     return 0;
-  rgba = stbi_load_from_memory(img->data, (int)img->len, &w, &h, &comp, 4);
+  }
+  // Same pinned entry path as stbi_load_from_memory: RGBA plus 16-to-8 and
+  // optional flip postprocessing. Keep its per-load allocation status local.
+  stbi__start_mem(&decoder, img->data, (int)img->len);
+  rgba = stbi__load_and_postprocess_8bit(&decoder, &w, &h, &comp, 4);
   (void)comp;
-  if (!rgba)
+  if (!rgba) {
+    img->png_decode_failed = !decoder.allocation_failed;
     return 0;
+  }
   if (w != want_w || h != want_h ||
       !image_rgba_size_(w, h, w * 4, &row, &total)) {
     stbi_image_free(rgba);
+    img->png_decode_failed = 1;
     return 0;
   }
   /* stb's transient decoder buffer uses consumer-configured STBI allocation.
