@@ -64,6 +64,9 @@ typedef uint64_t Loc;
 #ifndef CID_SYS_EXIT_DONE
 #define CID_SYS_EXIT_DONE CID(Sys.exit_done)
 #endif
+#ifndef CID_SYS_EXIT_FAIL
+#define CID_SYS_EXIT_FAIL CID(Sys.exit_fail)
+#endif
 
 /* An IRC record is at most 512 octets, but Latin-1 fallback can expand
  * every octet to two UTF-8 bytes. Never truncate a decoded click target. */
@@ -1232,6 +1235,23 @@ Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) sys_exit_done_use(void) {
   io_eff(CID_SYS_EXIT_DONE, sys_exit_done_run, 0);
+}
+#endif
+#if CID_SYS_EXIT_FAIL
+Term sys_exit_fail_run(Env e, Term *f, IoWork *w) {
+  u64 len = 0;
+  char *msg = io_cstr(e, f[0], &len);
+  uint64_t deadline = timui_now_ms() + 250u;
+  (void)w;
+  /* Like successful shutdown, a restored tty must not block on stderr. */
+  if (msg)
+    birc_write_bounded(STDERR_FILENO, msg, (size_t)len, deadline);
+  birc_write_bounded(STDERR_FILENO, "\n", 1, deadline);
+  free(msg);
+  _Exit(EXIT_FAILURE);
+}
+static void __attribute__((constructor)) sys_exit_fail_use(void) {
+  io_eff(CID_SYS_EXIT_FAIL, sys_exit_fail_run, 0);
 }
 #endif
 #endif /* BIRC_TIMUI_FFI_C */

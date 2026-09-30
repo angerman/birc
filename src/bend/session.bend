@@ -233,8 +233,9 @@ def step_chunk(
 type NetEvt is Data:
   Chunk{xs: List<&2, U32>}
   Eof{}
-  Up{fd: U32}
+  Up{}
   NetFail{msg: String}
+  InitialFail{msg: String}
 
 # gen is the connection the UI bumped on this Dial. Stale FromNet is dropped.
 type NetCmd is Data:
@@ -252,6 +253,12 @@ type UiMsg is Data:
   UiError{msg: String}
   TypingTick{now_ms: U32}
   Reconnect{host: String, port: U32, gen: U32}
+
+# All socket events, including an initial dial failure, share this guard.
+def event_current(m: UiMsg, +gen: U32) -> Bool:
+  match m:
+    case FromNet{got, _}: U32.is_eq(got, gen)
+    case _: True{}
 
 type NetState is Data:
   Demo{}

@@ -169,7 +169,7 @@ def reader_run(dup: Socket, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
 # the socket-owning writer must remain free to consume cmd and shut down.
 def reader_start(dup: Socket, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   do IO<Unit>:
-    Unit <- post(evt, gen, Sess.Up{0})
+    Unit <- post(evt, gen, Sess.Up{})
     reader_run(dup, evt, gen)
 
 def writer_drop.r(pair: Socket & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
@@ -188,7 +188,6 @@ def writer_fail(+evt: Chan(Sess.UiMsg), +gen: U32, +msg: String) -> IO(Unit):
 type Boot is Data:
   Ready{}
   Down{msg: String}
-  Timeout{}
 
 def boot_down(+boot: Chan(Boot), +msg: String) -> IO(Unit):
   do IO<Unit>:
@@ -219,7 +218,9 @@ def arm_fail(
 ) -> IO(Unit):
   match live:
     case True{}:
-      boot_down(boot, msg)
+      do IO<Unit>:
+        Unit <- boot_down(boot, msg)
+        k((None{}, gen, Nil{}))
     case False{}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, writer_fail(evt, gen, msg))

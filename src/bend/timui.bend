@@ -128,6 +128,12 @@ law Sys.exit_done:
 def Sys.exit_done():
   import "../ffi/timui_ffi.c"
 
+law Sys.exit_fail:
+  String -> IO(Unit)
+
+def Sys.exit_fail(msg):
+  import "../ffi/timui_ffi.c"
+
 def Sys.copy_clipboard.on(+program: String, +text: String, empty: Bool) -> IO(Unit):
   match empty:
     case True{}:

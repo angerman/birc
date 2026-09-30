@@ -22,6 +22,13 @@ def shutdown_finish(ui: T.Ui) -> IO(Unit):
     Unit <- T.Timui.close(ui)
     T.Sys.exit_done()
 
+def shutdown_failed(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +msg: String) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- Chan.close(Unit, ack)
+    Unit <- T.Timui.close(ui)
+    T.Sys.exit_fail(msg)
+
 def shutdown_eof(same: Bool, ui: T.Ui, k: T.Ui -> IO(Unit)) -> IO(Unit):
   match same:
     case True{}:
@@ -43,7 +50,7 @@ def shutdown_on(
         case Sess.FromNet{got, e}:
           match e:
             case Sess.Eof{}:
-              shutdown_eof(U32.is_eq(got, gen), ui, k)
+              shutdown_eof(Sess.event_current(Sess.FromNet{got, Sess.Eof{}}, gen), ui, k)
             case _:
               k(ui)
         case _:
@@ -624,12 +631,14 @@ def on_evt(
   match e:
     case Sess.Chunk{xs}:
       on_chunk(ui, st, evt, cmd, ack, gen, frames, xs, k)
-    case Sess.Up{_}:
+    case Sess.Up{}:
       on_up(ui, st, evt, cmd, ack, gen, frames, k)
     case Sess.Eof{}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected", k)
     case Sess.NetFail{+msg}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, msg, k)
+    case Sess.InitialFail{+msg}:
+      shutdown_failed(ui, cmd, ack, msg)
 
 def on_from(
   +got: U32,
@@ -764,8 +773,8 @@ def on_msg_go(
       on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
     case Sess.Reconnect{+host, port, scheduled_gen}:
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, frames, k)
-    case Sess.FromNet{+got, e}:
-      on_from(got, e, ui, st, evt, cmd, ack, gen, frames, U32.is_eq(got, gen), k)
+    case Sess.FromNet{+got, +e}:
+      on_from(got, e, ui, st, evt, cmd, ack, gen, frames, Sess.event_current(Sess.FromNet{got, e}, gen), k)
 
 def on_msg(
   m: Sess.UiMsg,
@@ -1066,34 +1075,6 @@ def smoke(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     smoke_go(Sess.ticks_of(frames), ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts))
 
-def boot_clock.step(n: Nat, ok: Bool, +boot: Chan(Act.Boot), +stop: Chan(Unit)) -> IO(Unit):
-  match n:
-    case 0n:
-      match ok:
-        case False{}:
-          IO.pure(Unit, Unit{})
-        case True{}:
-          do IO<Unit>:
-            t : Bool <- Chan.send(Act.Boot, boot, Act.Timeout{})
-            return Unit{}
-    case 1n+p:
-      match ok:
-        case False{}:
-          IO.pure(Unit, Unit{})
-        case True{}:
-          do IO<Unit>:
-            Unit <- IO.sleep(100)
-            nxt : Bool <- Chan.send(Unit, stop, Unit{})
-            boot_clock.step(p, nxt, boot, stop)
-
-def boot_clock(+boot: Chan(Act.Boot), +stop: Chan(Unit)) -> IO(Unit):
-  boot_clock.step(80n, True{}, boot, stop)
-
-def boot_die(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- Chan.close(Sess.NetCmd, cmd)
-    IO.die(Unit, 1, msg)
-
 def start_ui_go(
   ui: T.Ui,
   +st: Sess.Session,
@@ -1164,48 +1145,27 @@ def start_ui(
     Unit <- IO.spawn(Unit, heartbeat(cmd))
     start_ui_load(hist_path, hist_cap, nick, host, port, now, ui, chan, frames, sasl_user, sasl_pass, evt, cmd, ack)
 
-def boot_ui_on(
-  e: Act.Boot,
-  +frames: U32,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +nick: String,
-  +host: String,
-  +port: U32,
-  +chan: String,
-  +sasl_user: String,
-  +sasl_pass: String
-) -> IO(Unit):
+def boot_watch.event(e: Act.Boot, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   match e:
-    case Act.Timeout{}:
-      boot_die(cmd, "connect timeout")
     case Act.Down{+msg}:
-      boot_die(cmd, msg)
+      Act.post(evt, gen, Sess.InitialFail{msg})
     case Act.Ready{}:
-      start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
+      IO.pure(Unit, Unit{})
 
-def boot_ui(
-  g: Maybe<&1, Act.Boot>,
-  +boot: Chan(Act.Boot),
-  +stop: Chan(Unit),
-  +frames: U32,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +nick: String,
-  +host: String,
-  +port: U32,
-  +chan: String,
-  +sasl_user: String,
-  +sasl_pass: String
-) -> IO(Unit):
+def boot_watch.got(g: Maybe<&1, Act.Boot>, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   match g:
     case None{}:
-      boot_die(cmd, "connect failed")
+      Act.post(evt, gen, Sess.InitialFail{"connect failed"})
     case Some{e}:
-      do IO<Unit>:
-        Unit <- Chan.close(Act.Boot, boot)
-        Unit <- Chan.close(Unit, stop)
-        boot_ui_on(e, frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
+      boot_watch.event(e, evt, gen)
+
+# Boot reports only the initial failure policy. Connection progress and
+# input use the ordinary UI channel; DNS/connect never gate the first paint.
+def boot_watch(+boot: Chan(Act.Boot), +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
+  do IO<Unit>:
+    g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
+    Unit <- Chan.close(Act.Boot, boot)
+    boot_watch.got(g, evt, gen)
 
 def run_live_on(
   +frames: U32,
@@ -1217,23 +1177,20 @@ def run_live_on(
   +sasl_pass: String,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
-  +boot: Chan(Act.Boot),
-  +stop: Chan(Unit)
+  +boot: Chan(Act.Boot)
 ) -> IO(Unit):
   +has_sasl = Bool.not(String.is_empty(sasl_user)) && Bool.not(String.is_empty(sasl_pass))
   do IO<Unit>:
     Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl, frames))
-    Unit <- IO.spawn(Unit, boot_clock(boot, stop))
-    g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
-    boot_ui(g, boot, stop, frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
+    Unit <- IO.spawn(Unit, boot_watch(boot, evt, 1))
+    start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
 
 def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   do IO<Unit>:
     evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
-    stop : Chan(Unit) <- Chan.new(Unit, 80)
-    run_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, evt, cmd, boot, stop)
+    run_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, evt, cmd, boot)
 
 def run_demo_go(
   evt0: Chan(Sess.UiMsg),
