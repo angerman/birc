@@ -98,12 +98,12 @@ def feed_priv.write.msg.kind(is_hl: Bool) -> Cl.LineKind:
     case False{}: Cl.Msg{}
 
 def feed_priv.write.msg.body(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, is_hl: Bool) -> Cl.Client:
-  Cl.client_log_ts(cl, bi, feed_priv.write.msg.kind(is_hl), ts, fmt_msg(from, body))
+  Cl.client_log_author_ts(cl, bi, feed_priv.write.msg.kind(is_hl), ts, fmt_msg(from, body), from)
 
 def feed_priv.write.msg(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String, act: Bool, is_hl: Bool) -> Cl.Client:
   match act:
     case True{}:
-      Cl.client_log_ts(cl, bi, Cl.Action{}, ts, fmt_action(from, action_text(body)))
+      Cl.client_log_author_ts(cl, bi, Cl.Action{}, ts, fmt_action(from, action_text(body)), from)
     case False{}:
       feed_priv.write.msg.body(cl, bi, from, body, ts, is_hl)
 
@@ -117,7 +117,7 @@ def feed_priv.write.body(+cl: Cl.Client, +bi: Nat, +from: String, +body: String,
   feed_priv.write.body.bell(Cl.mark_unread_idx(cl2, bi, is_hl), is_hl)
 
 def feed_priv.write.notice(+cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String) -> Cl.Client:
-  +cl2 = Cl.client_log_ts(cl, bi, Cl.Notice{}, ts, fmt_msg(from, body))
+  +cl2 = Cl.client_log_author_ts(cl, bi, Cl.Notice{}, ts, fmt_msg(from, body), from)
   Cl.mark_unread_idx(cl2, bi, False{})
 
 def feed_priv.write.route(notice: Bool, +cl: Cl.Client, +bi: Nat, +from: String, +body: String, +ts: String) -> Cl.Client:
@@ -691,7 +691,7 @@ def feed.on(+cl: Cl.Client, m: Maybe<&2, Irc.Message>) -> Cl.Client:
       feed_msg(cl, msg)
 
 def feed(+cl: Cl.Client, +line: String) -> Cl.Client:
-  feed.on(cl, Irc.parse(line))
+  Cl.stamp_logs(feed.on(cl, Irc.parse(line)))
 
 # ---- demo / show --------------------------------------------------------
 

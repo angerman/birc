@@ -20,6 +20,7 @@ type LineKind is Data:
   Notice{}
   Error{}
   Highlight{}
+  Reconnect{}
 
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String, author: String, id: Nat}
@@ -205,13 +206,13 @@ def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
 
 def line_from_nick(+ln: Line, +nick: String) -> Bool:
   match ln:
-    case Line{kind, _, +text, +author, +id}:
+    case Line{kind, _, _, +author, _}:
       match kind:
-        case Msg{}: String.starts_with(text, "<" ++ nick ++ ">")
-        case Self{}: String.starts_with(text, "<" ++ nick ++ ">")
-        case Action{}: String.starts_with(text, "* " ++ nick ++ " ")
-        case Notice{}: String.starts_with(text, "-" ++ nick ++ "-")
-        case Highlight{}: String.starts_with(text, "<" ++ nick ++ ">")
+        case Msg{}: Irc.ieq(author, nick)
+        case Self{}: Irc.ieq(author, nick)
+        case Action{}: Irc.ieq(author, nick)
+        case Notice{}: Irc.ieq(author, nick)
+        case Highlight{}: Irc.ieq(author, nick)
         case _: False{}
 
 def is_mute_sep(+c: Char) -> Bool:
@@ -596,11 +597,85 @@ def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
 def buf_log.scroll(+scroll: Nat) -> Nat:
   buf_log.scroll.on(Nat.is_gt(scroll, 0n), scroll)
 
-def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
+def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text), "", 0n} <> Nil{}), SCROLL_CAP())
+      +lines2 = take_last(List.append(&2, Line, lines, line <> Nil{}), SCROLL_CAP())
       Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
+
+def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
+  buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text), "", 0n})
+
+def buf_reconnect(+b: Buffer, +now: String) -> Buffer:
+  buf_log_ts(b, Reconnect{}, "", now)
+
+def is_reconnect(kind: LineKind) -> Bool:
+  match kind:
+    case Reconnect{}: True{}
+    case _: False{}
+
+# A zero ID is an unassigned buffer-local log. Feed maps may append to several
+# buffers; stamp them once at the event boundary. IDs never change on moves,
+# purges, clears, or query merges. The client sequence survives those edits.
+def stamp_line.on(assign: Bool, kind: LineKind, +ts: String, +text: String, +author: String, +id: Nat, +seq: Nat) -> Line & Nat:
+  match assign:
+    case False{}: (Line{kind, ts, text, author, id}, seq)
+    case True{}:
+      +next: Nat = 1n+seq
+      (Line{kind, ts, text, author, next}, next)
+
+def stamp_line(line: Line, +seq: Nat) -> Line & Nat:
+  match line:
+    case Line{+kind, +ts, +text, +author, +id}:
+      stamp_line.on(Nat.is_eq(id, 0n) && Bool.not(is_reconnect(kind)), kind, ts, text, author, id, seq)
+
+type StampLines is Data:
+  StampLines{rev: List<&2, Line>, seq: Nat}
+
+def stamp_lines.step.got(pair: Line & Nat, rev: List<&2, Line>) -> StampLines:
+  match pair:
+    case (line, seq): StampLines{line <> rev, seq}
+
+def stamp_lines.step(acc: StampLines, line: Line) -> StampLines:
+  match acc:
+    case StampLines{rev, seq}: stamp_lines.step.got(stamp_line(line, seq), rev)
+
+def stamp_lines.fin(acc: StampLines) -> List<&2, Line> & Nat:
+  match acc:
+    case StampLines{rev, seq}: (List.reverse(&2, Line, rev), seq)
+
+def stamp_lines(lines: List<&2, Line>, seq: Nat) -> List<&2, Line> & Nat:
+  stamp_lines.fin(List.foldl(~&2, ~Line, ~StampLines, ~stamp_lines.step, lines, StampLines{Nil{}, seq}))
+
+type StampBufs is Data:
+  StampBufs{rev: List<&2, Buffer>, seq: Nat}
+
+def stamp_bufs.step.lines(pair: List<&2, Line> & Nat, name: String, channel: Bool, topic: String, nicks: List<&2, String>, scroll: Nat, rev: List<&2, Buffer>) -> StampBufs:
+  match pair:
+    case (lines, seq): StampBufs{Buffer{name, channel, topic, lines, nicks, scroll} <> rev, seq}
+
+def stamp_bufs.step(acc: StampBufs, b: Buffer) -> StampBufs:
+  match acc:
+    case StampBufs{rev, seq}:
+      match b:
+        case Buffer{name, channel, topic, lines, nicks, scroll}:
+          stamp_bufs.step.lines(stamp_lines(lines, seq), name, channel, topic, nicks, scroll, rev)
+
+def stamp_bufs.fin(acc: StampBufs) -> List<&2, Buffer> & Nat:
+  match acc:
+    case StampBufs{rev, seq}: (List.reverse(&2, Buffer, rev), seq)
+
+def stamp_bufs(bufs: List<&2, Buffer>, seq: Nat) -> List<&2, Buffer> & Nat:
+  stamp_bufs.fin(List.foldl(~&2, ~Buffer, ~StampBufs, ~stamp_bufs.step, bufs, StampBufs{Nil{}, seq}))
+
+def stamp_logs.got(pair: List<&2, Buffer> & Nat, nick: String, server: String, active: Nat, now: String, stg: Settings, auth: AuthPhase) -> Client:
+  match pair:
+    case (bufs, seq): Client{nick, server, bufs, active, now, stg, auth, seq}
+
+def stamp_logs(cl: Client) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth)
 
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   buf_log_ts(b, Error{}, now, "buffer limit reached")
@@ -667,11 +742,16 @@ def client_log_ts.pick(empty: Bool, +ts: String, +now: String) -> String:
     case False{}:
       ts
 
-def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
+def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
-      Client{nick, server, buf_modify(bufs, i, buf_log_at(kind, ts_use, text)), active, now, stg, auth, log_seq}
+      +next: Nat = 1n+log_seq
+      +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_in(text), Irc.sanitize_in(author), next}
+      Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, next}
+
+def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
+  client_log_author_ts(cl, i, kind, ts, text, "")
 
 def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
   client_log_ts(cl, i, kind, "", text)

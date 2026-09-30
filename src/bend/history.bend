@@ -14,6 +14,7 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.Notice{}: "NOT"
     case Cl.Error{}: "ERR"
     case Cl.Highlight{}: "HL"
+    case Cl.Reconnect{}: "REC"
 
 def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool) -> Cl.LineKind:
   match is_msg:
@@ -45,9 +46,6 @@ def parse_kind(+s: String) -> Cl.LineKind:
     String.eq(s, "HL")
   )
 
-def is_reconnect_marker(+text: String) -> Bool:
-  String.contains(text, "Reconnected:")
-
 def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> String:
   match is_recon:
     case True{}: ""
@@ -55,8 +53,8 @@ def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts
 
 def serialize_line(+target: String, +ln: Cl.Line) -> String:
   match ln:
-    case Cl.Line{kind, +ts, +text, +author, +id}:
-      serialize_line.recon(is_reconnect_marker(text), target, kind, ts, text)
+    case Cl.Line{+kind, +ts, +text, _, _}:
+      serialize_line.recon(Cl.is_reconnect(kind), target, kind, ts, text)
 
 def serialize_lines.go(+target: String, lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
@@ -118,131 +116,41 @@ def parse_history_text(+text: String) -> List<&2, HistEntry>:
 
 # ---- history diff extraction ----------------------------------------------
 
-def kind_eq(k1: Cl.LineKind, k2: Cl.LineKind) -> Bool:
-  match k1:
-    case Cl.Msg{}:
-      match k2:
-        case Cl.Msg{}: True{}
-        case _: False{}
-    case Cl.Self{}:
-      match k2:
-        case Cl.Self{}: True{}
-        case _: False{}
-    case Cl.System{}:
-      match k2:
-        case Cl.System{}: True{}
-        case _: False{}
-    case Cl.Action{}:
-      match k2:
-        case Cl.Action{}: True{}
-        case _: False{}
-    case Cl.Notice{}:
-      match k2:
-        case Cl.Notice{}: True{}
-        case _: False{}
-    case Cl.Error{}:
-      match k2:
-        case Cl.Error{}: True{}
-        case _: False{}
-    case Cl.Highlight{}:
-      match k2:
-        case Cl.Highlight{}: True{}
-        case _: False{}
+def lines_after.keep(new: Bool, +line: Cl.Line, rest: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match new:
+    case True{}: line <> rest
+    case False{}: rest
 
-def line_eq(l1: Cl.Line, l2: Cl.Line) -> Bool:
-  match l1:
-    case Cl.Line{k1, +ts1, +t1, +author, +id}:
-      match l2:
-        case Cl.Line{k2, +ts2, +t2, +author, +id}:
-          kind_eq(k1, k2) && String.eq(ts1, ts2) && String.eq(t1, t2)
-
-def take_last_lines(+xs: List<&2, Cl.Line>, n: Nat) -> List<&2, Cl.Line>:
-  List.drop(&2, Cl.Line, xs, Nat.sub(List.length(&2, Cl.Line, xs), n))
-
-def take_until_last.step(same: Bool, +h: Cl.Line, +cont: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  match same:
-    case True{}: Nil{}
-    case False{}: h <> cont
-
-def take_until_last(rev_new: List<&2, Cl.Line>, +last_old: Cl.Line) -> List<&2, Cl.Line>:
-  match rev_new:
+# Event identity, not text equality: two equal messages are distinct additions.
+def lines_after(lines: List<&2, Cl.Line>, +seq: Nat) -> List<&2, Cl.Line>:
+  match lines:
     case Nil{}: Nil{}
-    case Con{+h, t}:
-      take_until_last.step(line_eq(h, last_old), h, take_until_last(t, last_old))
+    case Con{+line, t}:
+      match line:
+        case Cl.Line{_, _, _, _, +id}:
+          lines_after.keep(Nat.is_gt(id, seq), line, lines_after(t, seq))
 
-def lines_added.check_rev(rev_old: List<&2, Cl.Line>, +new_lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  match rev_old:
-    case Nil{}: new_lines
-    case Con{+last_old, _}:
-      List.reverse(&2, Cl.Line, take_until_last(List.reverse(&2, Cl.Line, new_lines), last_old))
-
-def lines_added.check_cap(+old_lines: List<&2, Cl.Line>, +new_lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  lines_added.check_rev(List.reverse(&2, Cl.Line, old_lines), new_lines)
-
-def lines_added.lens(diff: Nat, +old_lines: List<&2, Cl.Line>, +new_lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  match diff:
-    case 0n: lines_added.check_cap(old_lines, new_lines)
-    case 1n+p: take_last_lines(new_lines, diff)
-
-def lines_added(+old_lines: List<&2, Cl.Line>, +new_lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  lines_added.lens(
-    Nat.sub(List.length(&2, Cl.Line, new_lines), List.length(&2, Cl.Line, old_lines)),
-    old_lines,
-    new_lines
-  )
-
-def find_buf_lines.rest(lines: List<&2, Cl.Line>, cont: Maybe<&2, List<&2, Cl.Line>>, hit: Bool) -> Maybe<&2, List<&2, Cl.Line>>:
-  match hit:
-    case True{}: Some{lines}
-    case False{}: cont
-
-def find_buf_lines(bufs: List<&2, Cl.Buffer>, +name: String) -> Maybe<&2, List<&2, Cl.Line>>:
-  match bufs:
-    case Nil{}: None{}
-    case Con{h, t}:
-      match h:
-        case Cl.Buffer{+bname, _, _, lines, _, _}:
-          find_buf_lines.rest(lines, find_buf_lines(t, name), String.eq(bname, name))
-
-def extract_lines_against_old(old_m: Maybe<&2, List<&2, Cl.Line>>, lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  match old_m:
-    case None{}: lines
-    case Some{old_lines}:
-      lines_added(old_lines, lines)
-
-def extract_new_buf.named(is_special: Bool, old_bufs: List<&2, Cl.Buffer>, +name: String, lines: List<&2, Cl.Line>) -> String:
-  match is_special:
-    case True{}: ""
-    case False{}:
-      serialize_lines(name, extract_lines_against_old(find_buf_lines(old_bufs, name), lines))
-
-def extract_new_buf(old_bufs: List<&2, Cl.Buffer>, +new_b: Cl.Buffer) -> String:
-  match new_b:
+def extract_new_buf(+seq: Nat, b: Cl.Buffer) -> String:
+  match b:
     case Cl.Buffer{+name, _, _, lines, _, _}:
-      extract_new_buf.named(String.starts_with(name, "*"), old_bufs, name, lines)
+      Bool.pick(String, String.starts_with(name, "*"), "", serialize_lines(name, lines_after(lines, seq)))
 
-def extract_new_bufs.go(new_bufs: List<&2, Cl.Buffer>, +old_bufs: List<&2, Cl.Buffer>, +acc: String) -> String:
-  match new_bufs:
-    case Nil{}: acc
-    case Con{+b, t}:
-      extract_new_bufs.go(t, old_bufs, acc ++ extract_new_buf(old_bufs, b))
+def extract_new_bufs(bufs: List<&2, Cl.Buffer>, +seq: Nat) -> String:
+  match bufs:
+    case Nil{}: ""
+    case Con{b, t}: extract_new_buf(seq, b) ++ extract_new_bufs(t, seq)
 
-def extract_new_bufs(+old_bufs: List<&2, Cl.Buffer>, new_bufs: List<&2, Cl.Buffer>) -> String:
-  extract_new_bufs.go(new_bufs, old_bufs, "")
-
-def extract_new_history(old_cl: Cl.Client, new_cl: Cl.Client) -> String:
-  match old_cl:
-    case Cl.Client{_, _, +old_bufs, _, _, _, +auth, +log_seq}:
-      match new_cl:
-        case Cl.Client{_, _, new_bufs, _, _, _, +auth, +log_seq}:
-          extract_new_bufs(old_bufs, new_bufs)
+def extract_new_history(+old_cl: Cl.Client, new_cl: Cl.Client) -> String:
+  match new_cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _}:
+      extract_new_bufs(bufs, Cl.log_seq_of(old_cl))
 
 # ---- applying history on load ---------------------------------------------
 
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:
-    case Cl.Line{kind, +ts, +text, +author, +id}:
-      Cl.buf_modify_client(cl, bi, b => Cl.buf_log_ts(b, kind, ts, text))
+    case Cl.Line{kind, +ts, +text, +author, _}:
+      Cl.client_log_author_ts(cl, bi, kind, ts, text, author)
 
 def apply_entry.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line) -> Cl.Client:
   match pair:
@@ -276,7 +184,7 @@ def add_reconnect_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffe
   match has:
     case False{}: b
     case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
+      Cl.buf_reconnect(b, now)
 
 def add_reconnect_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
   add_reconnect_marker.has(buf_has_lines(b), b, now)

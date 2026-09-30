@@ -1060,7 +1060,7 @@ def add_recon_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffer:
   match has:
     case False{}: b
     case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, "", "--- Reconnected: " ++ now ++ " ---")
+      Cl.buf_reconnect(b, now)
 
 def add_recon_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
   add_recon_marker.has(buf_has_lines(b), b, now)

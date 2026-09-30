@@ -68,12 +68,12 @@ def active_name(+cl: Cl.Client) -> String:
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
-      Cl.client_log(cl, bi, Cl.Self{}, Feed.fmt_msg(nick, body))
+      Cl.client_log_author_ts(cl, bi, Cl.Self{}, "", Feed.fmt_msg(nick, body), nick)
 
 def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
-      Cl.client_log(cl, bi, Cl.Action{}, Feed.fmt_action(nick, body))
+      Cl.client_log_author_ts(cl, bi, Cl.Action{}, "", Feed.fmt_action(nick, body), nick)
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, active_idx(cl), Cl.Error{}, msg)

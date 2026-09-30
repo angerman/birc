@@ -104,6 +104,8 @@ def style_of(k: Cl.LineKind) -> U32:
       16223340
     case Cl.Highlight{}:
       16766720
+    case Cl.Reconnect{}:
+      10526880
 
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
@@ -785,37 +787,13 @@ def repeat_dash.go(fuel: Nat, acc: String) -> String:
 def repeat_dash(n: Nat) -> String:
   repeat_dash.go(n, "")
 
-def take_recon_after(pair: String & String) -> String:
-  match pair:
-    case (+word, _): word
-
-def take_recon_ts.step(sw: Bool, +s: String, +rest: String) -> String:
-  match sw:
-    case True{}:
-      take_recon_after(Irc.take_until_space(String.drop(s, 13n)))
-    case False{}:
-      rest
-
-def take_recon_ts.find(fuel: Nat, s: String) -> String:
-  match fuel:
-    case 0n: ""
-    case 1n+p:
-      match s:
-        case SNil{}: ""
-        case SCon{+h, +t}:
-          take_recon_ts.step(String.starts_with(SCon{h, t}, "Reconnected: "), SCon{h, t}, take_recon_ts.find(p, t))
-
-def take_recon_ts(+s: String) -> String:
-  take_recon_ts.find(Nat.add(1n, String.length(s)), s)
-
 def recon_label.ts(empty: Bool, +ts: String) -> String:
   match empty:
     case True{}: " Reconnected "
     case False{}: " Reconnected: " ++ ts ++ " "
 
 def recon_label(+text: String) -> String:
-  +ts = take_recon_ts(text)
-  recon_label.ts(String.is_empty(ts), ts)
+  recon_label.ts(String.is_empty(text), text)
 
 def recon_divider.gt(gt: Bool, +lbl: String, +lbl_w: U32, +w: U32) -> String:
   match gt:
@@ -832,9 +810,6 @@ def recon_divider(+text: String, +w: U32) -> String:
   +lbl_w = U32.from_nat(String.length(lbl))
   recon_divider.gt(U32.is_gt(w, lbl_w), lbl, lbl_w, w)
 
-def is_recon_line(+text: String) -> Bool:
-  String.contains(text, "Reconnected:")
-
 def line_ops_at_ts.recon(+x: U32, +y: U32, +w: U32, +text: String) -> List<&2, DrawOp>:
   OpText{x, y, w, FG_DIM(), 0, recon_divider(text, w)} <> Nil{}
 
@@ -848,7 +823,7 @@ def line_ops_at_ts.chk(is_rec: Bool, +x: U32, +y: U32, +w: U32, +k: Cl.LineKind,
 def line_ops_at_ts(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool) -> List<&2, DrawOp>:
   match ln:
     case Cl.Line{+k, +ts, +text, +author, +id}:
-      line_ops_at_ts.chk(is_recon_line(text), x, y, w, k, ts, text, show_ts)
+      line_ops_at_ts.chk(Cl.is_reconnect(k), x, y, w, k, ts, text, show_ts)
 
 def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at_ts(x, y, w, ln, True{})
@@ -960,7 +935,7 @@ def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: 
 def wrap_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
   match ln:
     case Cl.Line{+k, +ts, +text, +author, +id}:
-      wrap_line.on(k, ts, text, w, show_ts, is_recon_line(text))
+      wrap_line.on(k, ts, text, w, show_ts, Cl.is_reconnect(k))
 
 def wrap_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
   match lines:
@@ -981,7 +956,7 @@ def unwrapped_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show
 def unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> BodyRow:
   match ln:
     case Cl.Line{+k, +ts, +text, +author, +id}:
-      unwrapped_line.on(k, ts, text, w, show_ts, is_recon_line(text))
+      unwrapped_line.on(k, ts, text, w, show_ts, Cl.is_reconnect(k))
 
 def unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
   match lines:
