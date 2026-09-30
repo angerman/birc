@@ -383,7 +383,7 @@ def open_apply.got(+cl: Cl.Client, mb: Maybe<&2, String>) -> Cl.Client & String 
     case None{}:
       (Sub.echo_err(cl, "no link found"), "", Cont{Nil{}})
     case Some{+url}:
-      (Sub.echo_info(cl, "opening " ++ url), "", OpenUrl{url})
+      (Sub.echo_link_result(cl, "opening " ++ url), "", OpenUrl{url})
 
 def wrap_local(pair: Cl.Client & List<&2, String>) -> Cl.Client & String & NetCmd:
   match pair:
