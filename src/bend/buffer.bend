@@ -554,10 +554,28 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
   Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), 0n}
 
-def cap_note(+b: Buffer, +now: String) -> Buffer:
+# Keep the last n lines in original order (oldest → newest).
+def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
+  List.drop(&2, Line, xs, Nat.sub(List.length(&2, Line, xs), n))
+
+def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
+  match gt:
+    case True{}:
+      1n+scroll
+    case False{}:
+      0n
+
+def buf_log.scroll(+scroll: Nat) -> Nat:
+  buf_log.scroll.on(Nat.is_gt(scroll, 0n), scroll)
+
+def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, List.append(&2, Line, lines, Line{Error{}, Irc.sanitize_in(now), "buffer limit reached"} <> Nil{}), nicks, scroll}
+      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text)} <> Nil{}), SCROLL_CAP())
+      Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
+
+def cap_note(+b: Buffer, +now: String) -> Buffer:
+  buf_log_ts(b, Error{}, now, "buffer limit reached")
 
 def cap_at(+now: String, b: Buffer) -> Buffer:
   cap_note(b, now)
@@ -605,26 +623,6 @@ def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Clien
   buf_get.fin(cl, name, is_channel, create, buf_find(cl, name))
 
 # ---- scrollback ---------------------------------------------------------
-
-# Keep the last n lines in original order (oldest → newest).
-def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
-  List.drop(&2, Line, xs, Nat.sub(List.length(&2, Line, xs), n))
-
-def buf_log.scroll.on(gt: Bool, +scroll: Nat) -> Nat:
-  match gt:
-    case True{}:
-      1n+scroll
-    case False{}:
-      0n
-
-def buf_log.scroll(+scroll: Nat) -> Nat:
-  buf_log.scroll.on(Nat.is_gt(scroll, 0n), scroll)
-
-def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +lines2 = take_last(List.append(&2, Line, lines, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text)} <> Nil{}), SCROLL_CAP())
-      Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
 
 # Tests pass ts="" (init.now is empty). Live/demo set Client.now at the IO
 # edge before feed/submit so buf_log_ts stores HH:MM:SS at log time.
