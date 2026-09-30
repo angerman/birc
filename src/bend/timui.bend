@@ -26,7 +26,8 @@ type UiKeys is Data:
     codepoint: U32,
     wheel: U32,
     more: U32,
-    url: String
+    url: String,
+    clipboard: String
   }
 
 def flag_on(+n: U32) -> Bool:
@@ -114,3 +115,33 @@ law Sys.open_url:
 
 def Sys.open_url(url):
   import "../ffi/timui_ffi.c"
+
+law Sys.clipboard_program:
+  IO(String)
+
+def Sys.clipboard_program():
+  import "../ffi/timui_ffi.c"
+
+law Sys.exit_done:
+  IO(Unit)
+
+def Sys.exit_done():
+  import "../ffi/timui_ffi.c"
+
+def Sys.copy_clipboard.on(+program: String, +text: String, empty: Bool) -> IO(Unit):
+  match empty:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      do IO<Unit>:
+        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, Nil{}, text, 4096, 1000)
+        return Unit{}
+
+# Process.run waits/reaps on an IO helper thread; the caller spawns this work.
+def Sys.copy_clipboard.program(+program: String, +text: String) -> IO(Unit):
+  Sys.copy_clipboard.on(program, text, String.is_empty(program))
+
+def Sys.copy_clipboard(+text: String) -> IO(Unit):
+  do IO<Unit>:
+    program : String <- Sys.clipboard_program()
+    Sys.copy_clipboard.program(program, text)

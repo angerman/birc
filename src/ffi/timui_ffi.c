@@ -58,6 +58,12 @@ typedef uint64_t Loc;
 #ifndef CID_SYS_OPEN_URL
 #define CID_SYS_OPEN_URL CID(Sys.open_url)
 #endif
+#ifndef CID_SYS_CLIPBOARD_PROGRAM
+#define CID_SYS_CLIPBOARD_PROGRAM CID(Sys.clipboard_program)
+#endif
+#ifndef CID_SYS_EXIT_DONE
+#define CID_SYS_EXIT_DONE CID(Sys.exit_done)
+#endif
 
 typedef struct {
   int active;       /* 1 if selection exists */
@@ -81,6 +87,7 @@ typedef struct {
   int bell_seen;
   int bell_pending;
   char link_url[256];
+  char *clipboard;
   TimuiRect body_inner[2];
   int body_count;
   TimuiRect nicks_inner;
@@ -99,6 +106,17 @@ static BircUi *birc_state(const Timui *ui) {
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+
+/* Input and output can have separate descriptions. Make the write target
+ * nonblocking for the whole budget, then restore exactly its saved flags. */
+static void birc_write_bounded(int fd, const void *data, size_t size,
+                               uint64_t deadline) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) {
+    (void)timui_write_all_until_(fd, data, size, deadline);
+    (void)fcntl(fd, F_SETFL, flags);
+  }
+}
 
 static uint64_t birc_profile_now_ns(void) {
   struct timespec ts;
@@ -176,7 +194,7 @@ static void birc_ui_atexit(void) {
   birc_ui_live = NULL;
   if (ui) {
     if (ui->fd.write_fd >= 0)
-      (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
+      birc_write_bounded(ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     timui_restore_terminal(ui);
   }
 }
@@ -184,8 +202,8 @@ static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
                         size_t tlen, uint32_t rows, uint32_t cols,
                         uint32_t click, uint32_t key, uint32_t mods,
                         uint32_t codepoint, uint32_t wheel, uint32_t more,
-                        const char *url) {
-  Loc l = heap_alloc(e, cls_fit(11));
+                        const char *url, const char *clipboard) {
+  Loc l = heap_alloc(e, cls_fit(12));
   e.mem[l + 0] = io_seal(e, (Term)(uint64_t)(enter ? 1u : 0u), CID_UIKEYS);
   e.mem[l + 1] = io_seal(e, io_str(e, typed, tlen), CID_UIKEYS);
   e.mem[l + 2] = io_seal(e, (Term)(uint64_t)rows, CID_UIKEYS);
@@ -197,6 +215,7 @@ static Term birc_uikeys(Env e, Timui *ui, int enter, const char *typed,
   e.mem[l + 8] = io_seal(e, (Term)(uint64_t)wheel, CID_UIKEYS);
   e.mem[l + 9] = io_seal(e, (Term)(uint64_t)more, CID_UIKEYS);
   e.mem[l + 10] = io_seal(e, io_str(e, url, strlen(url)), CID_UIKEYS);
+  e.mem[l + 11] = io_seal(e, io_str(e, clipboard, strlen(clipboard)), CID_UIKEYS);
   return io_tup(e, io_hand((uint64_t)(uintptr_t)ui), term_ctr(CID_UIKEYS, l));
 }
 Term timui_open_run(Env e, Term *f, IoWork *w) {
@@ -226,7 +245,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
       strcmp(getenv("BIRC_FORCE_IMAGE_PROTOCOL"), "kitty") == 0)
     timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
   if (ui && ui->fd.write_fd >= 0)
-    (void)write(ui->fd.write_fd, "\x1b[?1002h", 8);
+    birc_write_bounded(ui->fd.write_fd, "\x1b[?1002h", 8, timui_now_ms() + 40u);
   for (int i = 0; i < TIMUI_SLOT_COUNT; i++) {
     if (i != TIMUI_SLOT_SELECTION && i != TIMUI_SLOT_BUTTON_ACTIVE) {
       ui->theme.slots[i].bg = TIMUI_COLOR_DEFAULT;
@@ -564,16 +583,49 @@ static void birc_drop_ops(Env e, Term xs) {
 static uint64_t birc_frame_deadline;
 static int birc_frame_short;
 static int birc_tty_stalled;
+static int birc_frame_disabled;
 
 static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
   TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
   int w;
-  if (!c || n > 0x7fffffff)
+  if (birc_frame_disabled || !c || n > 0x7fffffff) {
+    birc_frame_short = 1;
     return -1;
+  }
   w = timui_write_all_until_(c->write_fd, data, n, birc_frame_deadline);
   if (w < 0 || (size_t)w < n)
     birc_frame_short = 1;
   return w;
+}
+
+/* One budget covers every write performed by a frame, including image
+ * retirement, OSC 52, and BEL. A short write forces a later full redraw. */
+static TimuiTransportWrite birc_output_begin(Timui *ui, int *saved_flags) {
+  TimuiTransportWrite saved = ui->transport.write;
+  int wait_ms = 40;
+  birc_frame_short = 0;
+  *saved_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
+  birc_frame_disabled = *saved_flags < 0 ||
+      fcntl(ui->fd.write_fd, F_SETFL, *saved_flags | O_NONBLOCK) < 0;
+  if (birc_tty_stalled) {
+    struct pollfd pfd;
+    wait_ms = 0;
+    pfd.fd = ui->fd.write_fd;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+    if (pfd.fd >= 0 && poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT))
+      wait_ms = 2000;
+  }
+  birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
+  ui->transport.write = birc_frame_write;
+  return saved;
+}
+
+static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
+                           int saved_flags) {
+  ui->transport.write = saved;
+  if (saved_flags >= 0 && !birc_frame_disabled)
+    (void)fcntl(ui->fd.write_fd, F_SETFL, saved_flags);
 }
 
 static inline int birc_pt_in_rect(int x, int y, TimuiRect r) {
@@ -663,15 +715,10 @@ static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
   }
   if (len > 0) {
     timui_clipboard_set(&ui->transport, (TimuiStr){out, len});
-#ifdef __APPLE__
-    {
-      FILE *p = popen("pbcopy", "w");
-      if (p) {
-        (void)fwrite(out, 1, len, p);
-        pclose(p);
-      }
-    }
-#endif
+    /* Bend owns the external clipboard process outside this frame effect. */
+    free(bu->clipboard);
+    bu->clipboard = out;
+    out = NULL;
   }
   free(out);
 }
@@ -745,12 +792,14 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint32_t cols = 80;
   uint32_t click = 0;
   size_t tlen = 0;
+  TimuiTransportWrite saved_write;
+  int saved_write_flags;
   (void)w;
   input = io_cstr(e, f[2], &n_in);
   if (!ui) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "");
+    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "", "");
   }
   {
     int check_fd = -1;
@@ -770,10 +819,12 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   }
   if (bu && bu->profile_enabled)
     profile_t1 = birc_profile_now_ns();
+  saved_write = birc_output_begin(ui, &saved_write_flags);
   if (!timui_begin(ui, &fr)) {
+    birc_output_end(ui, saved_write, saved_write_flags);
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "");
+    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "", "");
   }
   if (bu && bu->profile_enabled)
     profile_t2 = birc_profile_now_ns();
@@ -872,38 +923,15 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (bu && bu->profile_enabled)
     profile_t3 = birc_profile_now_ns();
   {
-    TimuiTransportWrite saved = ui->transport.write;
-    int wait_ms = 40;
-    struct pollfd pfd;
-    birc_frame_short = 0;
-    /* While the tty is stalled, fail at once so the net loop runs.
-     * If the buffer already has room, spend longer: a full redraw is
-     * larger than the pty buffer and needs the reader to drain it. */
-    if (birc_tty_stalled) {
-      int room = 0;
-      wait_ms = 0;
-      if (ui->fd.write_fd >= 0) {
-        pfd.fd = ui->fd.write_fd;
-        pfd.events = POLLOUT;
-        pfd.revents = 0;
-        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT))
-          room = 1;
-      }
-      if (room)
-        wait_ms = 2000;
-    }
-    birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
-    ui->transport.write = birc_frame_write;
     if (bu && bu->sel.active) {
       birc_render_selection(timui_frame_buffer(fr), bu);
     }
     timui_end(fr);
-    ui->transport.write = saved;
     if (bu && bu->bell_pending) {
-      bu->bell_pending = 0;
-      if (saved)
-        (void)saved(&ui->transport, "\a", 1);
+      if (birc_frame_write(&ui->transport, "\a", 1) == 1)
+        bu->bell_pending = 0;
     }
+    birc_output_end(ui, saved_write, saved_write_flags);
     if (birc_frame_short) {
       birc_tty_stalled = 1;
       timui_full_redraw(ui);
@@ -945,7 +973,11 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       timui_quit(ui);
     out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
                          codepoint, (uint32_t)wh, more,
-                         bu ? bu->link_url : "");
+                         bu ? bu->link_url : "", bu && bu->clipboard ? bu->clipboard : "");
+    if (bu) {
+      free(bu->clipboard);
+      bu->clipboard = NULL;
+    }
     if (enter && bu) {
       bu->composer[0] = '\0';
       bu->st.cursor = 0;
@@ -966,7 +998,8 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
   if (st && st->profile_enabled) {
-    fprintf(stderr,
+    char report[256];
+    int count = snprintf(report, sizeof report,
             "birc_profile frames=%llu prepare_us=%llu begin_us=%llu "
             "draw_us=%llu end_us=%llu\n",
             (unsigned long long)st->profile_frames,
@@ -978,19 +1011,26 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
                                                 st->profile_frames),
             (unsigned long long)birc_profile_us(st->profile_end_ns,
                                                 st->profile_frames));
+    if (count > 0 && (size_t)count < sizeof report)
+      birc_write_bounded(STDERR_FILENO, report, (size_t)count,
+                         timui_now_ms() + 40u);
   }
   if (ui) {
     if (ui->fd.write_fd >= 0)
-      (void)write(ui->fd.write_fd, "\x1b[?1002l", 8);
+      birc_write_bounded(ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
+    /* TimUI retires and disowns image IDs under its one teardown budget.
+     * Cached bitmaps can then be freed without further terminal IO. */
+    timui_close(ui);
     if (st)
       for (int i = 0; i < 2; i++) {
         if (st->previews[i].image) {
-          timui_image_free(ui, st->previews[i].image);
+          timui_image_free(NULL, st->previews[i].image);
           st->previews[i].image = NULL;
         }
       }
-    timui_close(ui);
   }
+  if (st)
+    free(st->clipboard);
   free(st);
   return term_pak(CID_UNIT, 0);
 }
@@ -1176,6 +1216,35 @@ Term sys_open_url_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) sys_open_url_use(void) {
   io_eff(CID_SYS_OPEN_URL, sys_open_url_run, 0);
+}
+#endif
+#if CID_SYS_CLIPBOARD_PROGRAM
+Term sys_clipboard_program_run(Env e, Term *f, IoWork *w) {
+  (void)f;
+  (void)w;
+#ifdef __APPLE__
+  return io_str(e, "pbcopy", 6);
+#else
+  return io_str(e, "", 0);
+#endif
+}
+static void __attribute__((constructor)) sys_clipboard_program_use(void) {
+  io_eff(CID_SYS_CLIPBOARD_PROGRAM, sys_clipboard_program_run, 0);
+}
+#endif
+#if CID_SYS_EXIT_DONE
+Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
+  (void)e;
+  (void)f;
+  (void)w;
+  /* Timui.close restores blocking descriptor flags. Both IO.print and
+   * IO.die (which always writes a stderr newline) can then hang. TimUI is
+   * already closed; do not flush stdio or leave parked IO alive on success. */
+  birc_write_bounded(STDOUT_FILENO, "birc=ok\n", 8, timui_now_ms() + 250u);
+  _Exit(EXIT_SUCCESS);
+}
+static void __attribute__((constructor)) sys_exit_done_use(void) {
+  io_eff(CID_SYS_EXIT_DONE, sys_exit_done_run, 0);
 }
 #endif
 #endif /* BIRC_TIMUI_FFI_C */

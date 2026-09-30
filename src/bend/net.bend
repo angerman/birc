@@ -14,8 +14,7 @@ import ./typing.bend as Ty
 def shutdown_finish(ui: T.Ui) -> IO(Unit):
   do IO<Unit>:
     Unit <- T.Timui.close(ui)
-    Unit <- IO.print("birc=ok")
-    IO.die(Unit, 0, "")
+    T.Sys.exit_done()
 
 def shutdown_eof(same: Bool, ui: T.Ui, k: T.Ui -> IO(Unit)) -> IO(Unit):
   match same:
@@ -73,10 +72,28 @@ def shutdown(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +evt: Chan(Ses
     Unit <- Chan.close(Unit, ack)
     shutdown_pick(wait, ui, evt, gen)
 
+def frame_clipboard.on(ui: T.Ui, +keys: T.UiKeys, +text: String, empty: Bool) -> IO(T.Ui & T.UiKeys):
+  match empty:
+    case True{}:
+      IO.pure(T.Ui & T.UiKeys, (ui, keys))
+    case False{}:
+      do IO<T.Ui & T.UiKeys>:
+        Unit <- IO.spawn(Unit, T.Sys.copy_clipboard(text))
+        return (ui, keys)
+
+def frame_clipboard(got: T.Ui & T.UiKeys) -> IO(T.Ui & T.UiKeys):
+  match got:
+    case (ui, +keys):
+      match keys:
+        case T.UiKeys{_, _, _, _, _, _, _, _, _, _, _, +text}:
+          frame_clipboard.on(ui, keys, text, String.is_empty(text))
+
 def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
     case V.ViewModel{+ops, +inp}:
-      T.Timui.frame(ui, ops, inp, seed)
+      do IO<T.Ui & T.UiKeys>:
+        got : T.Ui & T.UiKeys <- T.Timui.frame(ui, ops, inp, seed)
+        frame_clipboard(got)
 
 def paint_go(
   ui: T.Ui,
@@ -191,7 +208,7 @@ def apply_frame(
   match got:
     case (ui, keys):
       match keys:
-        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, _}:
+        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, _, _}:
           apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows))
 
 def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
@@ -565,7 +582,7 @@ def on_key.keys(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url}:
+    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url, _}:
       do IO<Unit>:
         open_clicked(url)
         on_key.pol(
@@ -1110,10 +1127,7 @@ def smoke_painted(
 def smoke_go(n: Nat, ui: T.Ui, +st: Sess.Session) -> IO(Unit):
   match n:
     case 0n:
-      do IO<Unit>:
-        Unit <- T.Timui.close(ui)
-        Unit <- IO.print("birc=ok")
-        IO.die(Unit, 0, "")
+      shutdown_finish(ui)
     case 1n+p:
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st)

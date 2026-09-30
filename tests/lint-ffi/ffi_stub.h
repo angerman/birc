@@ -73,6 +73,8 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_WINCH_READY 35u
 #define CID_WINCH_CLOSE 36u
 #define CID_SYS_OPEN_URL 37u
+#define CID_SYS_CLIPBOARD_PROGRAM 40u
+#define CID_SYS_EXIT_DONE 41u
 #ifndef THR
 #define THR
 #endif
