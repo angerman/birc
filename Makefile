@@ -418,6 +418,11 @@ test-mute-scope: ## Scoped mutes filter status targets and all supported channel
 	$(NIXRUN) timeout 180 bend tests/bend/mute_scope_demo.bend -o $(BLDDIR)/mute_scope_demo
 	$(NIXRUN) sh scripts/check-golden.sh mute_scope_demo=ok timeout 15 ./$(BLDDIR)/mute_scope_demo
 
+test-split-rename: ## Query NICK changes preserve pane identity and focus.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/split_rename_demo.bend -o $(BLDDIR)/split_rename_demo
+	$(NIXRUN) sh scripts/check-golden.sh split_rename_demo=ok timeout 15 ./$(BLDDIR)/split_rename_demo
+
 test-action-budget: ## CTCP ACTION retains its envelope and echoes the transmitted UTF-8 body.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/action_budget_demo.bend -o $(BLDDIR)/action_budget_demo
@@ -505,8 +510,9 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-ui-input-queue test-pty-input-fairness
 .PHONY: test-demo-identity test-headless-startup test-pty-output-recovery
 .PHONY: test-mute-scope test-action-budget test-richtext-model test-richtext-painter
+.PHONY: test-split-rename
 
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-mute-scope test-action-budget test-richtext-model ## Adversarial review regression gates.
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-mute-scope test-action-budget test-richtext-model test-split-rename ## Adversarial review regression gates.
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 

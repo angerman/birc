@@ -957,7 +957,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       rules for generated mute patterns, restored history, and removal. Test
       muted/unmuted `#`, `&`, `+`, and `!` channels, `@#room`, unmute, and a
       different nick that shares the muted nick's prefix.
-- [ ] **S14 — Preserve split panes through query rename (P2).** A remote NICK
+- [x] **S14 — Preserve split panes through query rename (P2).** A remote NICK
       renames a still-open query; it does not close that pane. Update pane keys
       before normalization, preserve focus, and keep control identity distinct.
       Test focused/unfocused panes, rename chains and IRC case folding, real
@@ -1301,6 +1301,13 @@ Verification so far (all through the locked Nix shell, no pin updates):
 - Rejected R08 candidate: removing FFI's extra full-redraw call did not restore
   STALLEND/WAKE at 50x200. It remains only in an isolated experiment, not root.
   Repair needs finite progress, not another timeout chosen from intuition.
+- S14 (`e6f2f77`): parsed arrival-order NICK operations update pane keys before
+  client-based normalization. Control identity, focus, actual close, duplicate
+  pane coalescing, partial input, and rename chains are guarded. Worker proof,
+  compiled 15-case guard, and existing split/state tests passed. Root
+  `timeout 240 nix --extra-experimental-features 'nix-command flakes' develop
+  --no-update-lock-file . --command make proof test-split-rename test-split
+  test-state` exited 0. No existing assertions or PTY tests changed.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
