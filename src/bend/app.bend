@@ -7,8 +7,8 @@ import ./net.bend as Net
 import ./args.bend as Args
 import ./clock.bend as Clock
 
-def run_demo(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String) -> IO(Unit):
-  Net.run_offline(frames, cl, nick, chan)
+def run_demo(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
+  Net.run_offline(frames, cl, chan)
 
 def replay_die(+path: String, +msg: String) -> IO(Cl.Client):
   IO.die(Cl.Client, 1, "birc: cannot read replay " ++ path ++ ": " ++ msg)
@@ -89,15 +89,15 @@ def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: Str
 def demo_client(+nick: String) -> IO(Cl.Client):
   do IO<Cl.Client>:
     ts : String <- Clock.hhmmss()
-    return Feed.feed_all(Cl.set_now(Cl.init(nick, "irc.birc.dev"), ts), Feed.demo_lines())
+    return Feed.feed_all(Cl.set_now(Cl.init(nick, "irc.birc.dev"), ts), Feed.demo_lines_for(nick))
 
-def main_offline(+frames: U32, +nick: String, +chan: String, +cl: Cl.Client) -> IO(Unit):
-  run_demo(frames, cl, nick, chan)
+def main_offline(+frames: U32, +chan: String, +cl: Cl.Client) -> IO(Unit):
+  run_demo(frames, cl, chan)
 
 def main_replay(+frames: U32, +nick: String, +chan: String, +path: String) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- load_replay(path, nick, "replay")
-    main_offline(frames, nick, chan, cl)
+    main_offline(frames, chan, cl)
 
 def main_dispatch.demo(
   +frames: U32,
@@ -113,7 +113,7 @@ def main_dispatch.demo(
     case True{}:
       do IO<Unit>:
         cl : Cl.Client <- demo_client(nick)
-        main_offline(frames, nick, chan, cl)
+        main_offline(frames, chan, cl)
     case False{}:
       main_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
 

@@ -1213,6 +1213,37 @@ def boot_watch(+boot: Chan(Act.Boot), +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(U
     Unit <- Chan.close(Act.Boot, boot)
     boot_watch.got(g, evt, gen)
 
+def boot_headless.fail(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    T.Sys.exit_fail(msg)
+
+def boot_headless(g: Maybe<&1, Act.Boot>, +cmd: Chan(Sess.NetCmd), start: Unit -> IO(Unit)) -> IO(Unit):
+  match g:
+    case None{}:
+      boot_headless.fail(cmd, "connect failed")
+    case Some{e}:
+      match e:
+        case Act.Down{+msg}:
+          boot_headless.fail(cmd, msg)
+        case Act.Ready{}:
+          start(Unit{})
+
+# Interactive startup paints immediately. Headless EOF instead waits for
+# the bounded boot result: it must not report success before registration
+# or suppress an initial connection failure.
+def run_live_start(headless: Bool, +boot: Chan(Act.Boot), +cmd: Chan(Sess.NetCmd), +evt: Chan(Sess.UiMsg), start: Unit -> IO(Unit)) -> IO(Unit):
+  match headless:
+    case True{}:
+      do IO<Unit>:
+        g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
+        Unit <- Chan.close(Act.Boot, boot)
+        boot_headless(g, cmd, start)
+    case False{}:
+      do IO<Unit>:
+        Unit <- IO.spawn(Unit, boot_watch(boot, evt, 1))
+        start(Unit{})
+
 def run_live_on(
   +frames: U32,
   +host: String,
@@ -1228,8 +1259,8 @@ def run_live_on(
   +has_sasl = Bool.not(String.is_empty(sasl_user)) && Bool.not(String.is_empty(sasl_pass))
   do IO<Unit>:
     Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl, frames))
-    Unit <- IO.spawn(Unit, boot_watch(boot, evt, 1))
-    start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass)
+    tty : U32 <- T.Timui.isatty()
+    run_live_start(U32.is_eq(tty, 0), boot, cmd, evt, _ => start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass))
 
 def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   do IO<Unit>:
@@ -1244,7 +1275,6 @@ def run_demo_go(
   ack: Chan(Unit),
   +frames: U32,
   +cl: Cl.Client,
-  +nick: String,
   +chan: String,
   +ts: String
 ) -> IO(Unit):
@@ -1255,22 +1285,22 @@ def run_demo_go(
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     open_watch(ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), 0, evt, cmd, ack, frames, "")
 
-def run_demo_tty(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String, +ts: String) -> IO(Unit):
+def run_demo_tty(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
   do IO<Unit>:
     evt0 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     ack : Chan(Unit) <- Chan.new(Unit, 1)
-    run_demo_go(evt0, cmd0, ack, frames, cl, nick, chan, ts)
+    run_demo_go(evt0, cmd0, ack, frames, cl, chan, ts)
 
-def run_offline_pick(headless: Bool, +frames: U32, +cl: Cl.Client, +nick: String, +chan: String, +ts: String) -> IO(Unit):
+def run_offline_pick(headless: Bool, +frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
   match headless:
     case True{}:
       smoke(frames, cl, chan, ts)
     case False{}:
-      run_demo_tty(frames, cl, nick, chan, ts)
+      run_demo_tty(frames, cl, chan, ts)
 
-def run_offline(+frames: U32, +cl: Cl.Client, +nick: String, +chan: String) -> IO(Unit):
+def run_offline(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
     t : U32 <- T.Timui.isatty()
-    run_offline_pick(U32.is_eq(t, 0), frames, cl, nick, chan, ts)
+    run_offline_pick(U32.is_eq(t, 0), frames, cl, chan, ts)

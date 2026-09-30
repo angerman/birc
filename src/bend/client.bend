@@ -722,16 +722,19 @@ def feed(+cl: Cl.Client, +line: String) -> Cl.Client:
 
 # ---- demo / show --------------------------------------------------------
 
-def demo_lines() -> List<&2, String>:
-  ":irc.birc.dev 001 me :Welcome to the birc IRC Network me"
-    <> ":me!me@localhost JOIN #birc"
-    <> ":irc.birc.dev 353 me = #birc :me @alice bob carol"
-    <> ":irc.birc.dev 366 me #birc :End of /NAMES list."
-    <> ":irc.birc.dev 332 me #birc :birc — Bend 2 + timui.h IRC"
+def demo_lines_for(+nick: String) -> List<&2, String>:
+  (":irc.birc.dev 001 " ++ nick ++ " :Welcome to the birc IRC Network " ++ nick)
+    <> (":" ++ nick ++ "!me@localhost JOIN #birc")
+    <> (":irc.birc.dev 353 " ++ nick ++ " = #birc :" ++ nick ++ " @alice bob carol")
+    <> (":irc.birc.dev 366 " ++ nick ++ " #birc :End of /NAMES list.")
+    <> (":irc.birc.dev 332 " ++ nick ++ " #birc :birc — Bend 2 + timui.h IRC")
     <> ":alice!a@host PRIVMSG #birc :hi everyone"
     <> ":bob!b@host PRIVMSG #birc :morning — *bold* _em_ and `code`"
     <> ":carol!c@host PRIVMSG #birc :see https://timui.dev docs"
     <> Nil{}
+
+def demo_lines() -> List<&2, String>:
+  demo_lines_for("me")
 
 def feed_step(cl: Cl.Client, line: String) -> Cl.Client:
   feed(cl, line)
