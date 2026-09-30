@@ -4,7 +4,6 @@ import Base
 import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./net.bend as Net
-import ./dns.bend as Dns
 import ./args.bend as Args
 import ./clock.bend as Clock
 
@@ -49,11 +48,6 @@ def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
     r : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     replay_open(path, nick, server, r)
 
-def dns_die(e: U32 & String) -> IO(Unit):
-  match e:
-    case (code, +msg):
-      IO.die(Unit, code, "cannot resolve: " ++ msg)
-
 def resolve_sasl_user.env(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
     case Done{+v}: v
@@ -88,26 +82,8 @@ def resolve_sasl_pass.empty(empty: Bool, +sp: String) -> IO(String):
 def resolve_sasl_pass(+sp: String) -> IO(String):
   resolve_sasl_pass.empty(String.is_empty(sp), sp)
 
-def main_live_on(
-  +frames: U32,
-  +host: String,
-  +port: U32,
-  +nick: String,
-  +chan: String,
-  +sasl_user: String,
-  +sasl_pass: String,
-  r: Result<&1, &1, U32 & String, String>
-) -> IO(Unit):
-  match r:
-    case Done{_}:
-      Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
-    case Fail{e}:
-      dns_die(e)
-
 def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
-  do IO<Unit>:
-    r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    main_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, r)
+  Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
 
 
 def demo_client(+nick: String) -> IO(Cl.Client):

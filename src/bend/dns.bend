@@ -4,12 +4,16 @@
 # nameserver in /etc/resolv.conf, else fails closed. Transaction ids are 16-bit.
 import Base
 import ./dns_wire.bend as Wire
+import ./clock.bend as Clock
 
 def DNS_PORT() -> U32:
   53
 
 def WAIT() -> Nat:
   80n
+
+def TCP_TIMEOUT_MS() -> U32:
+  3000
 
 def tick_ms_on(fast: Bool) -> U32:
   match fast:
@@ -55,13 +59,6 @@ law Socket.shutdown:
 def Socket.shutdown(sock):
   import "../ffi/dns_ffi.c"
 
-# Twin of recv_octets: build a UDP datagram from octets (0..255).
-law send_octets:
-  Socket -> String -> U32 -> List<&2, U32> -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
-
-def send_octets(sock, host, port, xs):
-  import "../ffi/dns_ffi.c"
-
 # Bounded native operations own the wait and its deadline. IO.within alone
 # cannot cancel a parked connect/write and would leave its Socket alive.
 law TCP.connect_for:
@@ -81,6 +78,10 @@ law send_octets_for:
 
 def send_octets_for(sock, host, port, xs, timeout_ms):
   import "../ffi/dns_ffi.c"
+
+# UDP and TCP share the same checked, deadline-owned byte sender.
+def send_octets(sock: Socket, +host: String, port: U32, xs: List<&2, U32>) -> IO(Socket & Result<&1, &1, U32 & String, Unit>):
+  send_octets_for(sock, host, port, xs, TCP_TIMEOUT_MS())
 
 def fail_close(sock: Socket, +msg: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
@@ -275,56 +276,54 @@ def after_bind(
         sent : Socket & Result<&1, &1, U32 & String, Unit> <- send_octets(sock, ns, DNS_PORT(), q)
         after_send(sent, id, host, ns, q)
 
-def lookup_tcp_xs(
-  +id: U32,
-  +host: String,
-  rest: U32 & List<&2, U32>
-) -> Result<&1, &1, U32 & String, String>:
-  match rest:
-    case (_, xs):
-      Wire.parse_q(id, host, Wire.tcp_strip(xs))
+def tcp_idle(sock: Socket, acc: List<&2, U32>, k: Socket -> List<&2, U32> -> IO(Result<&1, &1, U32 & String, String>)) -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    Unit <- IO.sleep(10)
+    k(sock, acc)
 
-def lookup_tcp_peer(
-  +id: U32,
-  +host: String,
-  p: String & (U32 & List<&2, U32>)
-) -> Result<&1, &1, U32 & String, String>:
-  match p:
-    case (_, rest):
-      lookup_tcp_xs(id, host, rest)
-
-def lookup_tcp_got(
-  +id: U32,
-  +host: String,
-  got: Maybe<&1, String & (U32 & List<&2, U32>)>
-) -> Result<&1, &1, U32 & String, String>:
-  match got:
-    case None{}:
-      Wire.err("tcp eof")
-    case Some{p}:
-      lookup_tcp_peer(id, host, p)
-
-def lookup_tcp_r(
-  +id: U32,
-  +host: String,
-  r: Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>
-) -> Result<&1, &1, U32 & String, String>:
-  match r:
-    case Fail{e}:
-      Fail{e}
-    case Done{got}:
-      lookup_tcp_got(id, host, got)
-
-def lookup_tcp_read(
-  +id: U32,
-  +host: String,
-  pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>
-) -> IO(Result<&1, &1, U32 & String, String>):
-  match pair:
-    case (s, r):
+def tcp_frame(sock: Socket, +id: U32, +host: String, +acc: List<&2, U32>, frame: Wire.TcpFrame, k: Socket -> List<&2, U32> -> IO(Result<&1, &1, U32 & String, String>)) -> IO(Result<&1, &1, U32 & String, String>):
+  match frame:
+    case Wire.TcpInvalid{}: fail_close(sock, "tcp length")
+    case Wire.TcpMore{}: k(sock, acc)
+    case Wire.TcpPayload{+xs}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        Unit <- Socket.close(s)
-        return lookup_tcp_r(id, host, r)
+        Unit <- Socket.close(sock)
+        return Wire.parse_q(id, host, xs)
+
+def tcp_chunk(sock: Socket, +id: U32, +host: String, acc: List<&2, U32>, xs: List<&2, U32>, k: Socket -> List<&2, U32> -> IO(Result<&1, &1, U32 & String, String>)) -> IO(Result<&1, &1, U32 & String, String>):
+  match xs:
+    case Nil{}: fail_close(sock, "tcp eof")
+    case Con{h, t}:
+      +all = List.append(&2, U32, acc, h <> t)
+      tcp_frame(sock, id, host, all, Wire.tcp_packet(all), k)
+
+def tcp_poll(pair: Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>>, +id: U32, +host: String, acc: List<&2, U32>, k: Socket -> List<&2, U32> -> IO(Result<&1, &1, U32 & String, String>)) -> IO(Result<&1, &1, U32 & String, String>):
+  match pair:
+    case (sock, r):
+      match r:
+        case Fail{_}: fail_close(sock, "tcp recv")
+        case Done{got}:
+          match got:
+            case None{}: tcp_idle(sock, acc, k)
+            case Some{(_, (_, xs))}: tcp_chunk(sock, id, host, acc, xs, k)
+
+def tcp_deadline(expired: Bool, sock: Socket, +id: U32, +host: String, acc: List<&2, U32>, k: Socket -> List<&2, U32> -> IO(Result<&1, &1, U32 & String, String>)) -> IO(Result<&1, &1, U32 & String, String>):
+  match expired:
+    case True{}: fail_close(sock, "tcp timeout")
+    case False{}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        got : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_nb(sock, 4096)
+        tcp_poll(got, id, host, acc, k)
+
+# The monotonic deadline is shared by every chunk, so slow/trickling peers
+# cannot extend it. Fuel is only a second, structural guardrail.
+def tcp_wait(fuel: Nat, sock: Socket, +id: U32, +host: String, +start: U32, acc: List<&2, U32>) -> IO(Result<&1, &1, U32 & String, String>):
+  match fuel:
+    case 0n: fail_close(sock, "tcp timeout")
+    case 1n+p:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        now : U32 <- Clock.millis()
+        tcp_deadline(U32.is_ge(U32.sub(now, start), TCP_TIMEOUT_MS()), sock, id, host, acc, s2 => buf => tcp_wait(p, s2, id, host, start, buf))
 
 def lookup_tcp_sent(
   sock: Socket,
@@ -337,8 +336,8 @@ def lookup_tcp_sent(
       fail_close(sock, "tcp send")
     case Done{_}:
       do IO<Result<&1, &1, U32 & String, String>>:
-        m : Socket & Result<&1, &1, U32 & String, Maybe<&1, String & (U32 & List<&2, U32>)>> <- recv_octets(sock, 4096)
-        lookup_tcp_read(id, host, m)
+        start : U32 <- Clock.millis()
+        tcp_wait(U32.to_nat(65538), sock, id, host, start, Nil{})
 
 def lookup_tcp_send(
   pair: Socket & Result<&1, &1, U32 & String, Unit>,
@@ -373,7 +372,7 @@ def lookup_tcp_conn(
 
 def lookup_tcp(+host: String, +ns: String, +id: U32, +q: List<&2, U32>) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
-    cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect(ns, DNS_PORT())
+    cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ns, DNS_PORT(), TCP_TIMEOUT_MS())
     lookup_tcp_conn(cr, id, host, q)
 
 def lookup_fallback(

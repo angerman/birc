@@ -219,6 +219,21 @@ def pkt_cname_rev() -> List<&2, U32>:
 def pkt_cname_loop() -> List<&2, U32>:
   0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 97 <> 0 <> Nil{}
 
+# Review D03: incomplete TC answers must request TCP, not return "no A".
+def pkt_tc_cname() -> List<&2, U32>:
+  0 <> 1 <> 131 <> 128 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 3 <> 1 <> 98 <> 0 <> Nil{}
+
+# A malformed CNAME cannot borrow its name from the following record.
+def pkt_cname_zero() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
+
+def pkt_cname_short() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 1 <> 1 <> 98 <> 0 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> Nil{}
+
+# Compressed RDATA consumes two bytes even though its target is longer.
+def pkt_cname_compressed() -> List<&2, U32>:
+  0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 1 <> 98 <> 0 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 9 <> 9 <> 9 <> 9 <> 192 <> 12 <> 0 <> 5 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 2 <> 192 <> 19 <> Nil{}
+
 # + dns#1: TXT then A, both in ANSWER (rdlen skip).
 def pkt_txt_an() -> List<&2, U32>:
   List.append(&2, U32, 0 <> 1 <> 129 <> 128 <> 0 <> 1 <> 0 <> 2 <> 0 <> 0 <> 0 <> 0 <> 1 <> 97 <> 0 <> 0 <> 1 <> 0 <> 1 <> 192 <> 12 <> 0 <> 16 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 3 <> 32 <> Nil{}, List.append(&2, U32, txt_pad(800n, Nil{}), 192 <> 12 <> 0 <> 1 <> 0 <> 1 <> 0 <> 0 <> 0 <> 1 <> 0 <> 4 <> 8 <> 8 <> 8 <> 8 <> Nil{}))
@@ -359,6 +374,10 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("cname_an", show_res(Wire.parse_id(1, pkt_cname_an())), "ok:9.9.9.9")
     Unit <- E.must_eq("cname_rev", show_res(Wire.parse_id(1, pkt_cname_rev())), "ok:9.9.9.9")
     Unit <- E.must_eq("cname_loop", show_res(Wire.parse_id(1, pkt_cname_loop())), "fail:bad dns")
+    Unit <- E.must_eq("tc_cname", show_res(Wire.parse_id(1, pkt_tc_cname())), "fail:tc")
+    Unit <- E.must_eq("cname_zero", show_res(Wire.parse_id(1, pkt_cname_zero())), "fail:bad dns")
+    Unit <- E.must_eq("cname_short", show_res(Wire.parse_id(1, pkt_cname_short())), "fail:bad dns")
+    Unit <- E.must_eq("cname_compressed", show_res(Wire.parse_id(1, pkt_cname_compressed())), "ok:9.9.9.9")
     Unit <- E.must_eq("txt_an", show_res(Wire.parse_id(1, pkt_txt_an())), "ok:8.8.8.8")
     Unit <- E.must_eq("liar", show_res(Wire.parse_id(1, pkt_liar())), "fail:bad dns")
     Unit <- E.must_eq("trunc_rd", show_res(Wire.parse_id(1, pkt_trunc_rd())), "fail:bad dns")

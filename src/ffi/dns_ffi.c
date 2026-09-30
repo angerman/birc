@@ -77,9 +77,6 @@ static Term recv_more(Env e, IoWork *w) {
 #ifndef CID_SOCKET_SHUTDOWN
 #define CID_SOCKET_SHUTDOWN CID(Socket.shutdown)
 #endif
-#ifndef CID_SEND_OCTETS
-#define CID_SEND_OCTETS CID(send_octets)
-#endif
 #ifndef CID_TCP_CONNECT_FOR
 #define CID_TCP_CONNECT_FOR CID(TCP.connect_for)
 #endif
@@ -308,52 +305,6 @@ Term socket_shutdown_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) socket_shutdown_use(void) {
   io_eff(CID_SOCKET_SHUTDOWN, socket_shutdown_run, 0);
-}
-#endif
-#if CID_SEND_OCTETS
-Term send_octets_run(Env e, Term *f, IoWork *w) {
-  uint8_t buf[512];
-  size_t n = 0;
-  int over = 0;
-  Term xs = f[3], t[2];
-  struct sockaddr_in dst;
-  u64 hlen = 0;
-  char *host = io_cstr(e, f[1], &hlen);
-  ssize_t wr = -1;
-  (void)w;
-  memset(&dst, 0, sizeof dst);
-  dst.sin_family = AF_INET;
-  dst.sin_port = htons((uint16_t)(u32)f[2]);
-  while (term_aux(xs) == CID_CON) {
-    u64 sp = ctr_take(e, xs, 2, t);
-    if (n < sizeof buf)
-      buf[n++] = (uint8_t)(u32)t[0];
-    else
-      over = 1;
-    xs = t[1];
-    spare_free(e, cls_fit(2), sp);
-  }
-  int err = 0;
-  if (over)
-    err = EMSGSIZE;
-  else if (!host || (host[0] != '\0' && inet_pton(AF_INET, host, &dst.sin_addr) != 1))
-    err = EINVAL;
-  else if (host[0] == '\0') {
-    wr = send((int)io_hand_v(f[0]), buf, n, 0);
-    if (wr < 0)
-      err = errno ? errno : 1;
-  } else {
-    wr = sendto((int)io_hand_v(f[0]), buf, n, 0, (struct sockaddr *)&dst,
-                (socklen_t)sizeof dst);
-    if (wr < 0)
-      err = errno ? errno : 1;
-  }
-  free(host);
-  return io_tup(e, f[0], err != 0 ? io_fail(e, (u32)err, NULL)
-                                  : io_done(e, term_pak(CID_UNIT, 0)));
-}
-static void __attribute__((constructor)) send_octets_use(void) {
-  io_eff(CID_SEND_OCTETS, send_octets_run, 0);
 }
 #endif
 #endif /* BIRC_DNS_FFI_C */

@@ -317,8 +317,31 @@ def tcp_frame(+q: List<&2, U32>) -> List<&2, U32>:
   +n = U32.from_nat(List.length(&2, U32, q))
   u8(U32.shrn(n, 8n)) <> u8(n) <> q
 
-def tcp_strip(xs: List<&2, U32>) -> List<&2, U32>:
-  List.drop(&2, U32, xs, 2n)
+type TcpFrame is Data:
+  TcpMore{}
+  TcpInvalid{}
+  TcpPayload{xs: List<&2, U32>}
+
+def tcp_body_size(order: Cmp, +body: List<&2, U32>) -> TcpFrame:
+  match order:
+    case LT{}: TcpMore{}
+    case EQ{}: TcpPayload{body}
+    case GT{}: TcpInvalid{}
+
+def tcp_length(valid: Bool, +n: U32, +body: List<&2, U32>) -> TcpFrame:
+  match valid:
+    case False{}: TcpInvalid{}
+    case True{}:
+      tcp_body_size(Nat.cmp(List.length(&2, U32, body), U32.to_nat(n)), body)
+
+# A DNS header needs twelve bytes. A TCP length is at most 65535 bytes;
+# never parse a partial body or ignore a length/trailing-byte mismatch.
+def tcp_packet(xs: List<&2, U32>) -> TcpFrame:
+  match xs:
+    case Con{+hi, Con{+lo, +body}}:
+      +n = u16_of(hi, lo)
+      tcp_length(U32.is_le(hi, 255) && U32.is_le(lo, 255) && U32.is_ge(n, 12), n, body)
+    case _: TcpMore{}
 
 # ---- Data cursor (copyable). Pairs are affine; a do-block needs Data. --
 
@@ -631,6 +654,11 @@ def ip4_at(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, String>:
     +g3 : Got <- take8(got_cur(g2))
     return U32.show(got_v(g0)) ++ "." ++ U32.show(got_v(g1)) ++ "." ++ U32.show(got_v(g2)) ++ "." ++ U32.show(got_v(g3))
 
+def rr_bounds(ok: Bool) -> Maybe<&2, Unit>:
+  match ok:
+    case True{}: Some{Unit{}}
+    case False{}: None{}
+
 def read_rr(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, RR>:
   do Maybe<&2, RR>:
     +nm : Nm <- read_name(pkt, off)
@@ -639,7 +667,18 @@ def read_rr(+pkt: List<&2, U32>, +off: U32) -> Maybe<&2, RR>:
     +t0 : Got <- take16(got_cur(gc))
     +t1 : Got <- take16(got_cur(t0))
     +gr : Got <- take16(got_cur(t1))
+    +bound : Unit <- rr_bounds(U32.is_le(U32.add(cur_off(got_cur(gr)), got_v(gr)), U32.from_nat(List.length(&2, U32, pkt))))
     return RR{nm_name(nm), got_v(gt), got_v(gc), got_v(gr), cur_off(got_cur(gr)), U32.add(cur_off(got_cur(gr)), got_v(gr))}
+
+def cname_bound(ok: Bool, n: Nm) -> Maybe<&2, Nm>:
+  match ok:
+    case True{}: Some{n}
+    case False{}: None{}
+
+def cname_read(+r: RR, m: Maybe<&2, Nm>) -> Maybe<&2, Nm>:
+  match m:
+    case None{}: None{}
+    case Some{+n}: cname_bound(U32.is_eq(nm_off(n), rr_next(r)), n)
 
 def rr0() -> RR:
   RR{"", 0, 0, 0, 0, 0}
@@ -717,7 +756,7 @@ def walk_an_go(
         case AwOwnCn{}:
           match flag:
             case True{}:
-              walk_an_go(p, AwCn{}, pkt, base_off, an_total, off, left, sought, rec, None{}, read_name(pkt, rr_rd(rec)), None{}, False{})
+              walk_an_go(p, AwCn{}, pkt, base_off, an_total, off, left, sought, rec, None{}, cname_read(rec, read_name(pkt, rr_rd(rec))), None{}, False{})
             case False{}:
               walk_an_go(p, AwSkip{}, pkt, base_off, an_total, off, left, sought, rec, None{}, None{}, None{}, False{})
         case AwA{}:
@@ -797,34 +836,45 @@ def tc_ok(+fb: U32, +an: U32) -> Bool:
 def hdr_chks(+want: U32, +h: Hdr) -> List<&2, Chk>:
   Chk{U32.is_eq(hdr_id(h), want), "bad id"} <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"} <> Chk{tc_ok(hdr_fb(h), hdr_an(h)), "tc"} <> Chk{rcode_ok(hdr_sb(h)), "rcode"} <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
 
+# A usable complete A can be accepted even when the server sets TC. An
+# incomplete answer to the validated question needs TCP regardless of ANCOUNT.
+def parse_q_truncated(r: Result<&1, &1, U32 & String, String>, tc: Bool) -> Result<&1, &1, U32 & String, String>:
+  match r:
+    case Done{ip}: Done{ip}
+    case Fail{e}:
+      match tc:
+        case True{}: err("tc")
+        case False{}: Fail{e}
+
 def parse_q_qs_ok(
   +host: String,
   +pkt: List<&2, U32>,
   +an: U32,
   +off: U32,
+  tc: Bool,
   ok: Bool
 ) -> Result<&1, &1, U32 & String, String>:
   match ok:
     case False{}:
       err("bad dns")
     case True{}:
-      walk_an(pkt, off, an, host)
+      parse_q_truncated(walk_an(pkt, off, an, host), tc)
 
-def parse_q_qs(+host: String, +an: U32, +pkt: List<&2, U32>, m: Maybe<&2, Qsec>) -> Result<&1, &1, U32 & String, String>:
+def parse_q_qs(+host: String, +an: U32, +pkt: List<&2, U32>, tc: Bool, m: Maybe<&2, Qsec>) -> Result<&1, &1, U32 & String, String>:
   match m:
     case None{}:
       err("bad dns")
     case Some{q}:
       match q:
         case Qsec{qname, ty, cls, off}:
-          parse_q_qs_ok(host, pkt, an, off, U32.is_eq(ty, 1) && U32.is_eq(cls, 1) && String.eq(qname, host))
+          parse_q_qs_ok(host, pkt, an, off, tc, U32.is_eq(ty, 1) && U32.is_eq(cls, 1) && String.eq(qname, host))
 
 def parse_q_chk(fail: Maybe<&2, String>, +host: String, +h: Hdr) -> Result<&1, &1, U32 & String, String>:
   match fail:
     case Some{+msg}:
       err(msg)
     case None{}:
-      parse_q_qs(host, hdr_an(h), hdr_pkt(h), read_qsec(hdr_pkt(h)))
+      parse_q_qs(host, hdr_an(h), hdr_pkt(h), Bool.not(U32.is_zero(U32.and(hdr_fb(h), 2))), read_qsec(hdr_pkt(h)))
 
 def parse_q_h(+want: U32, +host: String, m: Maybe<&2, Hdr>) -> Result<&1, &1, U32 & String, String>:
   match m:
