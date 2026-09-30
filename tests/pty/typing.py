@@ -170,8 +170,10 @@ def main() -> int:
         conn.sendall(b":irc.example 001 probe :Welcome\r\n")
         recv_until(conn, master, b"JOIN #t\r\n", 3.0)
         conn.setblocking(True)
+        # The self-JOIN and typing tag share one ordered TCP stream. Do not
+        # wait for the unchanged footer here: recv_until may already have
+        # drained that paint, and TimUI does not repaint unchanged cells.
         conn.sendall(b":probe!p@h JOIN #t\r\n")
-        wait_for(master, STATUS, 3.0)
 
         conn.sendall(b"@+typing=active :alice!a@h TAGMSG #t\r\n")
         wait_for(master, TYPING, 2.0)
