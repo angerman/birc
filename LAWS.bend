@@ -116,6 +116,14 @@ law tokenize_has_link:
 law tokenize_unclosed:
   {V.unclosed_star_plain() == True{} : Bool}
 
+# LAW: unmatched markup remains plain with the opener in its source position.
+law tokenize_unclosed_source_order:
+  {V.tokenize_roundtrip("*foo") && V.tokenize_roundtrip("_foo") && V.tokenize_roundtrip("`foo") == True{} : Bool}
+
+# LAW: the live operation for inline code retains the dim attribute.
+law code_span_dim:
+  {V.span_op(V.Code{"code"}) == V.Spn{2, "code"} : V.SpanOp}
+
 # LAW: M7.2 overlong framer input yields no lines.
 law overlong_drop:
   {Fr.overlong_drop_ok() == True{} : Bool}

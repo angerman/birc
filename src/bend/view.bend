@@ -228,7 +228,7 @@ def tokenize.close_bold(+t: String, +acc: String, +h: Char, spans: List<&2, Text
 def tokenize.next_bold(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      TokDone{Plain{String.reverse(SCon{STAR(), acc})} <> spans}
+      TokDone{Plain{SCon{STAR(), String.reverse(acc)}} <> spans}
     case SCon{+h, t}:
       tokenize.close_bold(t, acc, h, spans, Char.is_eq(h, STAR()))
 
@@ -242,7 +242,7 @@ def tokenize.close_italic(+t: String, +acc: String, +h: Char, spans: List<&2, Te
 def tokenize.next_italic(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      TokDone{Plain{String.reverse(SCon{USCORE(), acc})} <> spans}
+      TokDone{Plain{SCon{USCORE(), String.reverse(acc)}} <> spans}
     case SCon{+h, t}:
       tokenize.close_italic(t, acc, h, spans, Char.is_eq(h, USCORE()))
 
@@ -256,7 +256,7 @@ def tokenize.close_code(+t: String, +acc: String, +h: Char, spans: List<&2, Text
 def tokenize.next_code(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
   match s:
     case SNil{}:
-      TokDone{Plain{String.reverse(SCon{TICK(), acc})} <> spans}
+      TokDone{Plain{SCon{TICK(), String.reverse(acc)}} <> spans}
     case SCon{+h, t}:
       tokenize.close_code(t, acc, h, spans, Char.is_eq(h, TICK()))
 
@@ -276,11 +276,11 @@ def tokenize.force_mode(mode: TokMode, +acc: String, spans: List<&2, TextSpan>) 
     case MdOut{}:
       List.reverse(&2, TextSpan, tokenize.emit_plain(acc, spans))
     case MdBold{}:
-      List.reverse(&2, TextSpan, Plain{String.reverse(SCon{STAR(), acc})} <> spans)
+      List.reverse(&2, TextSpan, Plain{SCon{STAR(), String.reverse(acc)}} <> spans)
     case MdItalic{}:
-      List.reverse(&2, TextSpan, Plain{String.reverse(SCon{USCORE(), acc})} <> spans)
+      List.reverse(&2, TextSpan, Plain{SCon{USCORE(), String.reverse(acc)}} <> spans)
     case MdCode{}:
-      List.reverse(&2, TextSpan, Plain{String.reverse(SCon{TICK(), acc})} <> spans)
+      List.reverse(&2, TextSpan, Plain{SCon{TICK(), String.reverse(acc)}} <> spans)
 
 def tokenize.force_done(j: TokJump) -> List<&2, TextSpan>:
   match j:
@@ -486,7 +486,7 @@ def span_op(sp: TextSpan) -> SpanOp:
     case Italic{+tx}:
       Spn{4, tx}
     case Code{+tx}:
-      Spn{0, tx}
+      Spn{2, tx}
     case Link{+url, +text}:
       Lnk{url, text}
 

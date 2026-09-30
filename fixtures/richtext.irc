@@ -1,0 +1,8 @@
+:irc.example.test 001 me :Welcome me
+:me!me@localhost JOIN #richtext
+:irc.example.test 353 me = #richtext :me
+:irc.example.test 366 me #richtext :End of /NAMES list.
+:a!a@h PRIVMSG #richtext :*BOLD* _ITALIC_ `CODE` PLAIN
+:a!a@h PRIVMSG #richtext :*UNCLOSED_STAR
+:a!a@h PRIVMSG #richtext :_UNCLOSEDUNDERSCORE
+:a!a@h PRIVMSG #richtext :`UNCLOSED_TICK

@@ -110,6 +110,12 @@ def Laws.tokenize_has_link():
 def Laws.tokenize_unclosed():
   {==}
 
+def Laws.tokenize_unclosed_source_order():
+  {==}
+
+def Laws.code_span_dim():
+  {==}
+
 def Laws.overlong_drop():
   {==}
 
