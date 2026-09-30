@@ -880,6 +880,11 @@ implementations. Every changed PTY test must pass three consecutive runs.
       pending continuation work and preserve paste/network fairness without
       adding Session fields. Test normal acknowledgement, two synthetic wakes,
       a full event queue, mixed incoming chunks/paste, PONG, and quit.
+- [ ] **R08 — Recover refused terminal frames (P1).** A bounded write may
+      leave the display incomplete. Wake the UI when output can proceed;
+      do not park forever or spin while output remains full. Keep typing
+      expiry and network work independent. Test partial output, recovery,
+      unchanged typing lifecycle, PONG, and shutdown under backpressure.
 
 ### DNS and startup
 
@@ -895,6 +900,10 @@ implementations. Every changed PTY test must pass three consecutive runs.
       when a truncated UDP answer has no usable A record. Keep compressed
       CNAME reads within their declared RDATA. Test complete A answers,
       truncated CNAME-only answers, zero-length and overrun RDATA.
+- [ ] **D04 — Await the headless startup result (P1).** Non-tty input EOF
+      must not turn a pending or refused connection into exit-zero success.
+      Keep tty startup responsive. Test healthy registration, refusal,
+      pending startup, and the existing headless termination fixture.
 
 ### State, history, and rendering
 
@@ -959,6 +968,11 @@ implementations. Every changed PTY test must pass three consecutive runs.
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
       punctuation boundaries.
+- [ ] **U05 — Preserve UTF-8 across partial terminal writes (P2).** A frame
+      deadline can stop inside a scalar. Finish that scalar before accepting
+      a later escape sequence or payload. Bound any retained transport suffix
+      and share the rule with teardown. Test short writes at each byte boundary,
+      blocked recovery, ordering, and the unchanged Unicode tab fixture.
 
 ### Commands and authentication
 
@@ -980,6 +994,10 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
       guards and duplicate marker/URL/command operations as their canonical
       replacements land. Do not add abstractions without a second real use.
+- [ ] **C06 — Keep the requested demo identity (P2).** Demo welcome data
+      hard-codes `me` and replaces the requested `--nick`. Generate demo data
+      for the requested nick while retaining the default fixture for existing
+      goldens. Test default and custom demo nicks and later registration.
 
 ### Verification and build driver
 
@@ -1146,6 +1164,30 @@ Verification so far (all through the locked Nix shell, no pin updates):
   input checks passed. Each changed existing PTY passed three consecutive
   Make runs; their assertions were not changed. Other link/launcher/stall
   fixtures already isolate their helper paths.
+- First combined run: `timeout 1800 nix --extra-experimental-features
+  'nix-command flakes' develop --no-update-lock-file . --command make -k check`
+  exited 2. Full output is in `build/review-check.log`. Proof, pure/native
+  review gates, warning lint, and all new review PTYs passed. The two
+  approval-blocked expectations below failed. Four additional failures were
+  `test-pty-demo-nick`, `test-pty-linger`, `test-pty-tabcut`, and
+  `test-pty-typing`; their existing assertions remain unchanged.
+- C06 red evidence: `--demo --nick bob` connects with `NICK me`. The demo's
+  numeric 001 replaces Client.nick before Dial correctly snapshots it.
+- D04 red evidence: the linger accept timeout did not repeat in three isolated
+  runs. A deterministic refused-port headless case nevertheless exits zero
+  with `birc=ok`: input EOF shuts down before the actor's startup result.
+- U05 red evidence: TabCut detects the prefix `e2 94` of a box-border scalar
+  immediately followed by a new cursor escape. Its label-width checks pass;
+  the bounded terminal transport, not label fitting, tears the UTF-8 scalar.
+- R08 red evidence: typing state is retained after a partial frame, but the
+  loop parks without an output recovery event. Sending only SIGWINCH paints
+  that same state and lets the unchanged typing lifecycle pass. Three isolated
+  failures occur at the first active TAGMSG, not at its expiry calculation.
+- The unchanged feed benchmark now has a separate `test-feed-bench` target.
+  A failing feed golden must not prevent that existing bound from running.
+  `timeout 300 nix --extra-experimental-features 'nix-command flakes' develop
+  --no-update-lock-file . --command make proof test-feed-bench` exited 0:
+  `ALL PROOFS CHECK` and `feed_bench=ok`.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

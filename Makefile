@@ -25,7 +25,7 @@ PROTO := tests/bend/proto_demo.bend
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
-        test test-proto test-ui test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
+        test test-proto test-ui test-feed test-feed-bench test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
         test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
@@ -98,11 +98,14 @@ test-golden-runner: ## Reject failing, missing-token, and timed-out golden progr
 test-build-config: ## Verify header dependencies and changed/unchanged compiler flags.
 	$(NIXRUN) timeout 30 python3 tests/build_config.py
 
-test-feed: ## M1 feed goldens + X1 buf_find linear bound.
+test-feed: test-feed-bench ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
 	$(NIXRUN) sh scripts/check-golden.sh feed_demo=ok ./$(BLDDIR)/feed_demo
-	$(NIXRUN) bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
+
+test-feed-bench: ## Run the existing feed bound independently of feed goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
 	$(NIXRUN) sh scripts/check-golden.sh feed_bench=ok timeout 2 ./$(BLDDIR)/feed_bench
 
 test-submit: ## M2 submit goldens.
