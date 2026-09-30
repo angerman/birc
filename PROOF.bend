@@ -703,3 +703,9 @@ def Laws.actor_zero_split(xs):
 
 def Laws.actor_exhausted_keeps_pending(xs):
   {==}
+
+def Laws.narrow_cluster_source_count():
+  {==}
+
+def Laws.wide_cluster_source_count():
+  {==}

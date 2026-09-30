@@ -268,6 +268,15 @@ law actor_exhausted_keeps_pending:
   for xs: List<&2, String>
   {Act.batch(xs, Act.Limited{0, 0}) == Act.Batch{Nil{}, xs, Act.Limited{0, 0}} : Act.Batch}
 
+# LAW: this multi-codepoint cluster keeps its source length when a one-column
+# pane substitutes a single visible glyph. This is a concrete regression law.
+law narrow_cluster_source_count:
+  {V.rows_chars(V.wrap_line(Cl.Line{Cl.Msg{}, "", "👩‍💻x", "", 0n}, 1, False{})) == 4n : Nat}
+
+# LAW: widening the same concrete line preserves its source length.
+law wide_cluster_source_count:
+  {V.rows_chars(V.wrap_line(Cl.Line{Cl.Msg{}, "", "👩‍💻x", "", 0n}, 4, False{})) == 4n : Nat}
+
 # LAW: SASL PLAIN Base64 encoding matches standard test vectors.
 law sasl_plain_golden:
   {B64.sasl_plain_ok() == True{} : Bool}

@@ -859,13 +859,13 @@ implementations. Every changed PTY test must pass three consecutive runs.
       transport to BEL and OSC 52 as well as ordinary painting. Move blocking
       clipboard work outside the shared IO loop. Test an unread full PTY with
       alerts and selection; network PONG and shutdown must still proceed.
-- [ ] **R03 — One frame-result handler (P2).** Handle clicked URLs and keys
+- [x] **R03 — One frame-result handler (P2).** Handle clicked URLs and keys
       from every paint, including resize, incoming chunks, EOF, and redraws.
       Test clicks with and without concurrent resize/inbound traffic.
 - [x] **R04 — Reconnect registration identity (P2).** Carry the current nick
       into a new connection instead of the actor's startup nick. Test an
       acknowledged `/nick`, reconnect, and normal initial registration.
-- [ ] **R05 — Reap URL launcher children (P2).** Own launcher lifetimes and
+- [x] **R05 — Reap URL launcher children (P2).** Own launcher lifetimes and
       report launch failure without blocking painting. Test repeated opens,
       failed launches, and absence of zombie children.
 - [x] **R06 — Real outbound cap and simpler actor (P2).** Enforce `SEND_CAP`
@@ -937,12 +937,12 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **U02 — One scroll coordinate system (P2).** Make clamping, view slicing,
       arrival anchoring, and resize use consistent coordinates. Test one long
       wrapped line, reaching its first row, new arrivals, and width changes.
-- [ ] **U04 — Source-length anchors for replaced clusters (P2).** A one-column
+- [x] **U04 — Source-length anchors for replaced clusters (P2).** A one-column
       placeholder can represent several source codepoints. Keep source length
       separate from rendered length so widening a paused view does not move
       into a later emoji cluster. Test one-column replacement, unchanged-width
       navigation, and widening with the preceding character anchored.
-- [x] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
+- [ ] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
       punctuation boundaries.
@@ -1051,8 +1051,10 @@ Verification so far (all through the locked Nix shell, no pin updates):
   including an exact 879-byte URL decoded from a legal Latin-1 IRC record.
   Launcher completion is owned/reaped while the client runs; a helper already
   launched may outlive client quit. There is no kill/join-on-quit guarantee.
-  Integrated `test-pty-frame-links` currently fails its ordinary demo fixture
-  before clicking; investigate the combined-tree fixture, do not relax it.
+  The integrated fixture's first-paint race was reproduced and fixed with
+  bounded render polling, without changing click assertions. All five frame
+  cases passed three consecutive runs against the integrated root binary.
+  Frame/link/clipboard tests now use fixture-only launcher paths.
 - S10 (`9fc22e2`): `make test-scroll-edits` passes retained/removal/all/live
   anchors, both query-merge directions, and repeated `/links`. Purging a newer
   message and replacing link results both failed before the canonical
@@ -1061,6 +1063,14 @@ Verification so far (all through the locked Nix shell, no pin updates):
   passed. Sparse metadata probes accept 4,294,967,295 bytes and reject
   4,294,967,296 without reading gigabytes. Open/read errors are visible; a
   missing optional file remains silent and retained prefix IDs survive errors.
+- U04 (`95c8fee`): source characters are counted separately from replacement
+  glyphs. `make test-wrap test-scroll test-history build-ui proof` passed;
+  wrapped-spans passed three consecutive runs, and scroll-wrap/softwrap/linkclick
+  passed. A focused resize case anchors `c` in a one-column view and still
+  anchors the preceding `abc` row after widening past a three-codepoint emoji.
+- U03 runtime follow-up: a fresh integration review found Session's `/open`
+  echo still used System instead of LinkResult. Pure Submit tests missed that
+  path. A runtime-path fix and non-duplication/history guards are in progress.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
