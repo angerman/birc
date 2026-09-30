@@ -19,6 +19,7 @@ import subprocess
 import sys
 import termios
 import time
+from pathlib import Path
 
 
 def drain(fd: int, timeout: float = 0.5) -> bytes:
@@ -47,7 +48,8 @@ def main() -> int:
         stdout=slave,
         stderr=slave,
         close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color"},
+        env={**os.environ, "TERM": "xterm-256color",
+             "PATH": str(Path(__file__).resolve().parent / "fake-bin")},
     )
     os.close(slave)
 

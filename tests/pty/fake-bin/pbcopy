@@ -1,0 +1,5 @@
+#!/bin/sh
+# Consume test selections without invoking the desktop clipboard.
+while IFS= read -r line; do
+    :
+done
