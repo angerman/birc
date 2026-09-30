@@ -110,10 +110,10 @@ law Winch.close:
 def Winch.close(w):
   import "../ffi/timui_ffi.c"
 
-law Sys.open_url:
-  String -> IO(U32)
+law Sys.open_program:
+  IO(String)
 
-def Sys.open_url(url):
+def Sys.open_program():
   import "../ffi/timui_ffi.c"
 
 law Sys.clipboard_program:

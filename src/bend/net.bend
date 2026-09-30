@@ -78,28 +78,22 @@ def shutdown(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +evt: Chan(Ses
     Unit <- Chan.close(Unit, ack)
     shutdown_pick(wait, ui, evt, gen)
 
-def frame_clipboard.on(ui: T.Ui, +keys: T.UiKeys, +text: String, empty: Bool) -> IO(T.Ui & T.UiKeys):
+def frame_clipboard.on(+text: String, empty: Bool) -> IO(Unit):
   match empty:
     case True{}:
-      IO.pure(T.Ui & T.UiKeys, (ui, keys))
+      IO.pure(Unit, Unit{})
     case False{}:
-      do IO<T.Ui & T.UiKeys>:
+      do IO<Unit>:
         Unit <- IO.spawn(Unit, T.Sys.copy_clipboard(text))
-        return (ui, keys)
+        return Unit{}
 
-def frame_clipboard(got: T.Ui & T.UiKeys) -> IO(T.Ui & T.UiKeys):
-  match got:
-    case (ui, +keys):
-      match keys:
-        case T.UiKeys{_, _, _, _, _, _, _, _, _, _, _, +text}:
-          frame_clipboard.on(ui, keys, text, String.is_empty(text))
+def frame_clipboard(+text: String) -> IO(Unit):
+  frame_clipboard.on(text, String.is_empty(text))
 
 def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
     case V.ViewModel{+ops, +inp}:
-      do IO<T.Ui & T.UiKeys>:
-        got : T.Ui & T.UiKeys <- T.Timui.frame(ui, ops, inp, seed)
-        frame_clipboard(got)
+      T.Timui.frame(ui, ops, inp, seed)
 
 def paint_go(
   ui: T.Ui,
@@ -137,7 +131,54 @@ def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty
         ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Cont{outs})
         return gen
 
-def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
+def launch_fail(notice: Maybe<&2, Chan(Sess.UiMsg)>, +msg: String) -> IO(Unit):
+  match notice:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{+evt}:
+      do IO<Unit>:
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiError{msg})
+        return Unit{}
+
+def launch_exit(ok: Bool, +notice: Maybe<&2, Chan(Sess.UiMsg)>, +code: U32) -> IO(Unit):
+  match ok:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      launch_fail(notice, "cannot open link: opener exited " ++ U32.show(code))
+
+def launch_result(r: Result<&1, &1, U32 & String, U32 & (String & String)>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      match e:
+        case (_, +msg):
+          launch_fail(notice, "cannot open link: " ++ msg)
+    case Done{out}:
+      match out:
+        case (+code, _):
+          launch_exit(U32.is_eq(code, 0), notice, code)
+
+# Process.run owns and reaps the helper on its worker thread. Only the
+# completion message touches the UI; neither spawn nor wait parks painting.
+# Quit does not cancel external applications; an active helper is then
+# adopted by the OS. Process.run has no cancellation handle.
+def launch_run(+notice: Maybe<&2, Chan(Sess.UiMsg)>, +url: String) -> IO(Unit):
+  do IO<Unit>:
+    program : String <- T.Sys.open_program()
+    result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, url <> Nil{}, "", 4096, 2000)
+    launch_result(result, notice)
+
+def open_clicked.go(+notice: Maybe<&2, Chan(Sess.UiMsg)>, +url: String, empty: Bool) -> IO(Unit):
+  match empty:
+    case True{}:
+      IO.pure(Unit, Unit{})
+    case False{}:
+      IO.spawn(Unit, launch_run(notice, url))
+
+def open_clicked(+notice: Maybe<&2, Chan(Sess.UiMsg)>, +url: String) -> IO(Unit):
+  open_clicked.go(notice, url, String.is_empty(url))
+
+def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
   match c:
     case Sess.Dial{+host, port, _, +nick}:
       do IO<U32>:
@@ -153,20 +194,8 @@ def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
       IO.pure(U32, gen)
     case Sess.OpenUrl{+url}:
       do IO<U32>:
-        code : U32 <- T.Sys.open_url(url)
+        Unit <- open_clicked(Some{evt}, url)
         return gen
-
-def open_clicked.go(+url: String, empty: Bool) -> IO(Unit):
-  match empty:
-    case True{}:
-      IO.pure(Unit, Unit{})
-    case False{}:
-      do IO<Unit>:
-        code : U32 <- T.Sys.open_url(url)
-        return Unit{}
-
-def open_clicked(+url: String) -> IO(Unit):
-  open_clicked.go(url, String.is_empty(url))
 
 def step_size(
   triple: Sess.Session & Sess.NetCmd & Bool,
@@ -206,16 +235,6 @@ def apply_pol(
     case Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}:
       apply_frame.go(ui, step_size(Sess.step_keys(st, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp, focus)), rows, cols), T.flag_on(quit), more)
 
-
-def apply_frame(
-  got: T.Ui & T.UiKeys,
-  +st: Sess.Session
-) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
-  match got:
-    case (ui, keys):
-      match keys:
-        case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, _, _}:
-          apply_pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows))
 
 def handle_more.done(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
   match is_key:
@@ -279,9 +298,179 @@ def on_key_cmd(
               match rest3:
                 case (halt, more):
                   do IO<Unit>:
-                    gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
+                    gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
                     Unit <- handle_more(more, is_key, evt, ack)
                     after_emit(gen2, ui, st, evt, cmd, ack, halt, frames, k)
+
+def apply_pack(
+  ui: T.Ui,
+  +st: Sess.Session,
+  cmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool
+) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  (ui, st, cmd, halt, more)
+
+def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32) -> Bool:
+  Bool.or(enter,
+  Bool.or(Bool.not(U32.is_zero(tab)),
+  Bool.or(Bool.not(U32.is_zero(click)),
+  Bool.or(Bool.not(U32.is_zero(up)),
+  Bool.or(Bool.not(U32.is_zero(dn)),
+  Bool.or(Bool.not(U32.is_zero(hist)),
+  Bool.or(Bool.not(U32.is_zero(comp)),
+          Bool.not(U32.is_zero(focus)))))))))
+
+# A frame always consumes input, regardless of what woke the UI. This is
+# the single path for URLs, clipboard work, key policy, and updated size.
+def frame_result.pol(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +enter: Bool,
+  +typed: String,
+  +rows: U32,
+  +cols: U32,
+  +click: U32,
+  +more: Bool,
+  pol: Sess.KeyPol,
+  +url: String,
+  +clipboard: String,
+  +notice: Maybe<&2, Chan(Sess.UiMsg)>
+) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match pol:
+    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        Unit <- open_clicked(notice, url)
+        Unit <- frame_clipboard(clipboard)
+        return (
+          apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}),
+          pol_hot(tab, click, up, dn, hist, enter, comp, focus) || Bool.not(Sess.size_eq(Sess.session_size(st), Sess.Size{rows, cols}))
+        )
+
+def frame_result.keys(ui: T.Ui, +st: Sess.Session, keys: T.UiKeys, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match keys:
+    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url, +clipboard}:
+      frame_result.pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows), url, clipboard, notice)
+
+def frame_result(got: T.Ui & T.UiKeys, +st: Sess.Session, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match got:
+    case (ui, keys):
+      frame_result.keys(ui, st, keys, notice)
+
+def on_frame.final(
+  result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,
+  +is_key: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match result:
+    case (packed, _):
+      on_key_cmd(is_key, packed, evt, cmd, ack, gen, frames, k)
+
+# At most one immediate redraw. It too passes through frame_result, so
+# a click or key consumed by that redraw is not lost.
+def on_frame.redo(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +is_key: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match halt:
+    case True{}:
+      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case False{}:
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
+        got : T.Ui & T.UiKeys <- paint_session(ui, st)
+        result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, Some{evt})
+        on_frame.final(result, is_key, evt, cmd, ack, gen2, frames, k)
+
+def on_frame.pick(
+  redo: Bool,
+  ui: T.Ui,
+  +st: Sess.Session,
+  +ncmd: Sess.NetCmd,
+  halt: Bool,
+  more: Bool,
+  +is_key: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match redo:
+    case False{}:
+      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+    case True{}:
+      on_frame.redo(ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, frames, k)
+
+def on_frame.check(
+  result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,
+  +is_key: Bool,
+  +redraw: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match result:
+    case (packed, hot):
+      match packed:
+        case (ui, rest):
+          match rest:
+            case (+st, rest2):
+              match rest2:
+                case (+ncmd, rest3):
+                  match rest3:
+                    case (halt, more):
+                      on_frame.pick(redraw && hot, ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, frames, k)
+
+def on_frame(
+  got: T.Ui & T.UiKeys,
+  +st: Sess.Session,
+  +is_key: Bool,
+  +redraw: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, Some{evt})
+    on_frame.check(result, is_key, redraw, evt, cmd, ack, gen, frames, k)
+
+def paint_input(
+  ui: T.Ui,
+  +st: Sess.Session,
+  +is_key: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +frames: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    got : T.Ui & T.UiKeys <- paint_session(ui, st)
+    on_frame(got, st, is_key, True{}, evt, cmd, ack, gen, frames, k)
 
 def on_chunk.paint(
   got: T.Ui & T.UiKeys,
@@ -293,7 +482,7 @@ def on_chunk.paint(
   +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_key_cmd(False{}, apply_frame(got, st), evt, cmd, ack, gen, frames, k)
+  on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, frames, k)
 
 def on_chunk_go(
   pair: Sess.Session & List<&2, String>,
@@ -375,7 +564,7 @@ def emit_fail_cmd(
         Unit <- IO.spawn(Unit, reconnect_watch(evt, host, port, gen))
         return gen
     case other:
-      emit_cmd(cmd, other, gen)
+      emit_cmd(evt, cmd, other, gen)
 
 def on_fail_recon(
   recon: Sess.Session & Sess.NetCmd,
@@ -461,263 +650,6 @@ def on_from(
     case True{}:
       on_evt(e, ui, st, evt, cmd, ack, gen, frames, k)
 
-def apply_pack(
-  ui: T.Ui,
-  +st: Sess.Session,
-  cmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool
-) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
-  (ui, st, cmd, halt, more)
-
-def pol_hot(+tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32) -> Bool:
-  Bool.or(enter,
-  Bool.or(Bool.not(U32.is_zero(tab)),
-  Bool.or(Bool.not(U32.is_zero(click)),
-  Bool.or(Bool.not(U32.is_zero(up)),
-  Bool.or(Bool.not(U32.is_zero(dn)),
-  Bool.or(Bool.not(U32.is_zero(hist)),
-  Bool.or(Bool.not(U32.is_zero(comp)),
-          Bool.not(U32.is_zero(focus)))))))))
-
-# When keys or clicks alter the view (switching tabs, clicking channels,
-# scrolling, recalling history, or submitting lines), an immediate second
-# redraw with the updated session state prevents stale viewport rendering (V-06).
-def on_key.redo(
-  ui2: T.Ui,
-  +st2: Sess.Session,
-  +ncmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match halt:
-    case True{}:
-      on_key_cmd(True{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
-    case False{}:
-      do IO<Unit>:
-        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-        got2 : T.Ui & T.UiKeys <- paint_session(ui2, st2)
-        on_key_cmd(True{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
-
-def on_key.pick(
-  hot: Bool,
-  ui2: T.Ui,
-  +st2: Sess.Session,
-  +ncmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match hot:
-    case False{}:
-      on_key_cmd(True{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
-    case True{}:
-      on_key.redo(ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k)
-
-def on_key.check(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
-  hot: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match packed:
-    case (ui2, rest):
-      match rest:
-        case (+st2, rest2):
-          match rest2:
-            case (+ncmd, rest3):
-              match rest3:
-                case (halt, more):
-                  on_key.pick(
-                    hot,
-                    ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k
-                  )
-
-def on_key.pol(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +enter: Bool,
-  +typed: String,
-  +rows: U32,
-  +cols: U32,
-  +click: U32,
-  more: Bool,
-  pol: Sess.KeyPol,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match pol:
-    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
-      on_key.check(
-        apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}),
-        pol_hot(tab, click, up, dn, hist, enter, comp, focus),
-        evt, cmd, ack, gen, frames, k
-      )
-
-
-def on_key.keys(
-  ui: T.Ui,
-  +st: Sess.Session,
-  keys: T.UiKeys,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url, _}:
-      do IO<Unit>:
-        open_clicked(url)
-        on_key.pol(
-          ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more),
-          Sess.key_pol_for(st, key, mods, codepoint, wheel, rows),
-          evt, cmd, ack, gen, frames, k
-        )
-
-def on_key.got(
-  got: T.Ui & T.UiKeys,
-  +st: Sess.Session,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match got:
-    case (ui, keys):
-      on_key.keys(ui, st, keys, evt, cmd, ack, gen, frames, k)
-
-def on_key(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_key.got(got, st, evt, cmd, ack, gen, frames, k)
-
-def on_resize.redo(
-  ui2: T.Ui,
-  +st2: Sess.Session,
-  +ncmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match halt:
-    case True{}:
-      on_key_cmd(False{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
-    case False{}:
-      do IO<Unit>:
-        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-        Unit <- handle_more(more, False{}, evt, ack)
-        got2 : T.Ui & T.UiKeys <- paint_session(ui2, st2)
-        on_key_cmd(False{}, apply_frame(got2, st2), evt, cmd, ack, gen2, frames, k)
-
-def on_resize.pick(
-  same: Bool,
-  ui2: T.Ui,
-  +st2: Sess.Session,
-  +ncmd: Sess.NetCmd,
-  halt: Bool,
-  more: Bool,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match same:
-    case True{}:
-      on_key_cmd(False{}, apply_pack(ui2, st2, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
-    case False{}:
-      on_resize.redo(ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k)
-
-def on_resize.check(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
-  old_sz: Sess.Size,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  match packed:
-    case (ui2, rest):
-      match rest:
-        case (+st2, rest2):
-          match rest2:
-            case (+ncmd, rest3):
-              match rest3:
-                case (halt, more):
-                  on_resize.pick(
-                    Sess.size_eq(old_sz, Sess.session_size(st2)),
-                    ui2, st2, ncmd, halt, more, evt, cmd, ack, gen, frames, k
-                  )
-
-# Resize paints the new size and applies whatever the frame read. When
-# terminal dimensions change, an immediate second redraw with the updated
-# session size prevents stale viewport rendering (V-06).
-def on_resize.go(
-  old_sz: Sess.Size,
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_resize.check(apply_frame(got, st), old_sz, evt, cmd, ack, gen, frames, k)
-
-def on_resize(
-  ui: T.Ui,
-  +st: Sess.Session,
-  +evt: Chan(Sess.UiMsg),
-  +cmd: Chan(Sess.NetCmd),
-  +ack: Chan(Unit),
-  +gen: U32,
-  +frames: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
-) -> IO(Unit):
-  on_resize.go(Sess.session_size(st), ui, st, evt, cmd, ack, gen, frames, k)
 
 def on_typing_tick.pick(
   pair: Sess.Session & Bool,
@@ -773,7 +705,7 @@ def on_reconnect.enabled(
         on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
     case True{}:
       do IO<Unit>:
-        gen2 : U32 <- emit_cmd(cmd, Sess.Dial{host, port, 0, Cl.nick_of(Sess.session_cl(st))}, gen)
+        gen2 : U32 <- emit_cmd(evt, cmd, Sess.Dial{host, port, 0, Cl.nick_of(Sess.session_cl(st))}, gen)
         k((ui, st, gen2, False{}))
 
 def on_reconnect.same(
@@ -823,9 +755,11 @@ def on_msg_go(
 ) -> IO(Unit):
   match m:
     case Sess.UiKey{}:
-      on_key(ui, st, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, st, True{}, evt, cmd, ack, gen, frames, k)
     case Sess.Resize{}:
-      on_resize(ui, st, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, st, False{}, evt, cmd, ack, gen, frames, k)
+    case Sess.UiError{+msg}:
+      paint_input(ui, Sess.session_error(st, msg), False{}, evt, cmd, ack, gen, frames, k)
     case Sess.TypingTick{now_ms}:
       on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
     case Sess.Reconnect{+host, port, scheduled_gen}:
@@ -992,9 +926,8 @@ def typing_watch(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
     _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.TypingTick{now_ms})
     typing_watch(evt)
 
-def watch_paint(
-  packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool,
-  +gen: U32,
+def watch_start(
+  acc: T.Ui & Sess.Session & U32 & Bool,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
@@ -1003,25 +936,13 @@ def watch_paint(
   w: T.Winch,
   +hist_path: String
 ) -> IO(Unit):
-  match packed:
-    case (ui, rest):
-      match rest:
-        case (+st, rest2):
-          match rest2:
-            case (+ncmd, rest3):
-              match rest3:
-                case (halt, more):
-                  match halt:
-                    case True{}:
-                      shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
-                    case False{}:
-                      do IO<Unit>:
-                        gen2 : U32 <- emit_cmd(cmd, ncmd, gen)
-                        Unit <- handle_more(more, False{}, evt, ack)
-                        Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
-                        Unit <- IO.spawn(Unit, winch_watch(w, evt))
-                        Unit <- IO.spawn(Unit, typing_watch(evt))
-                        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen2, evt, cmd, ack, hist_path)
+  match acc:
+    case (ui, +st, gen, _):
+      do IO<Unit>:
+        Unit <- IO.spawn(Unit, tty_watch(tty, evt, ack))
+        Unit <- IO.spawn(Unit, winch_watch(w, evt))
+        Unit <- IO.spawn(Unit, typing_watch(evt))
+        live_boot(U32.is_eq(frames, 0), frames, ui, st, gen, evt, cmd, ack, hist_path)
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:
@@ -1056,7 +977,7 @@ def watch_win(
     case Done{w}:
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
-        watch_paint(apply_frame(got, st), gen, evt, cmd, ack, frames, tty, w, hist_path)
+        on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, frames, acc => watch_start(acc, evt, cmd, ack, frames, tty, w, hist_path))
 
 def watch_die_win(
   wr: Result<&1, &1, U32 & String, T.Winch>,
@@ -1120,12 +1041,14 @@ def open_watch(
     open_tty(pair, st, gen, evt, cmd, ack, frames, wr, hist_path)
 
 def smoke_painted(
-  got: T.Ui & T.UiKeys,
-  k: T.Ui -> IO(Unit)
+  result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,
+  k: T.Ui -> Sess.Session -> IO(Unit)
 ) -> IO(Unit):
-  match got:
-    case (ui, _):
-      k(ui)
+  match result:
+    case (packed, _):
+      match packed:
+        case (ui, +st, _, _, _):
+          k(ui, st)
 
 @unsafe
 def smoke_go(n: Nat, ui: T.Ui, +st: Sess.Session) -> IO(Unit):
@@ -1135,7 +1058,8 @@ def smoke_go(n: Nat, ui: T.Ui, +st: Sess.Session) -> IO(Unit):
     case 1n+p:
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
-        smoke_painted(got, u => smoke_go(p, u, st))
+        result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, None{})
+        smoke_painted(result, u => s => smoke_go(p, u, s))
 
 def smoke(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
   do IO<Unit>:

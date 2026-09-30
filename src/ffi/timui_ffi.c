@@ -55,8 +55,8 @@ typedef uint64_t Loc;
 #ifndef CID_WINCH_CLOSE
 #define CID_WINCH_CLOSE CID(Winch.close)
 #endif
-#ifndef CID_SYS_OPEN_URL
-#define CID_SYS_OPEN_URL CID(Sys.open_url)
+#ifndef CID_SYS_OPEN_PROGRAM
+#define CID_SYS_OPEN_PROGRAM CID(Sys.open_program)
 #endif
 #ifndef CID_SYS_CLIPBOARD_PROGRAM
 #define CID_SYS_CLIPBOARD_PROGRAM CID(Sys.clipboard_program)
@@ -64,6 +64,10 @@ typedef uint64_t Loc;
 #ifndef CID_SYS_EXIT_DONE
 #define CID_SYS_EXIT_DONE CID(Sys.exit_done)
 #endif
+
+/* An IRC record is at most 512 octets, but Latin-1 fallback can expand
+ * every octet to two UTF-8 bytes. Never truncate a decoded click target. */
+enum { BIRC_URL_CAP = 1025 };
 
 typedef struct {
   int active;       /* 1 if selection exists */
@@ -86,7 +90,7 @@ typedef struct {
   uint32_t last_bell_seq;
   int bell_seen;
   int bell_pending;
-  char link_url[256];
+  char link_url[BIRC_URL_CAP];
   char *clipboard;
   TimuiRect body_inner[2];
   int body_count;
@@ -301,7 +305,7 @@ static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
 static int birc_put_link(TimuiFrame *fr, int x, int y, int maxx, const char *url,
                          size_t ulen, const char *text, size_t tlen,
                          uint32_t fg) {
-  char uri[256];
+  char uri[BIRC_URL_CAP];
   int end;
   if (!fr || tlen == 0 || x >= maxx) return x;
   if (ulen >= sizeof uri)
@@ -1187,35 +1191,18 @@ static void __attribute__((constructor)) winch_close_use(void) {
   io_eff(CID_WINCH_CLOSE, winch_close_run, 0);
 }
 #endif
-#ifdef CID_SYS_OPEN_URL
-Term sys_open_url_run(Env e, Term *f, IoWork *w) {
-  u64 ulen = 0;
-  char *url = io_cstr(e, f[0], &ulen);
+#if CID_SYS_OPEN_PROGRAM
+Term sys_open_program_run(Env e, Term *f, IoWork *w) {
+  (void)f;
   (void)w;
-  if (url) {
-    pid_t pid = fork();
-    if (pid == 0) {
-      int devnull = open("/dev/null", O_RDWR);
-      if (devnull >= 0) {
-        dup2(devnull, STDIN_FILENO);
-        dup2(devnull, STDOUT_FILENO);
-        dup2(devnull, STDERR_FILENO);
-        close(devnull);
-      }
 #if defined(__APPLE__)
-      char *argv[] = {"open", url, NULL};
+  return io_str(e, "open", 4);
 #else
-      char *argv[] = {"xdg-open", url, NULL};
+  return io_str(e, "xdg-open", 8);
 #endif
-      execvp(argv[0], argv);
-      _exit(1);
-    }
-    free(url);
-  }
-  return (Term)0;
 }
-static void __attribute__((constructor)) sys_open_url_use(void) {
-  io_eff(CID_SYS_OPEN_URL, sys_open_url_run, 0);
+static void __attribute__((constructor)) sys_open_program_use(void) {
+  io_eff(CID_SYS_OPEN_PROGRAM, sys_open_program_run, 0);
 }
 #endif
 #if CID_SYS_CLIPBOARD_PROGRAM

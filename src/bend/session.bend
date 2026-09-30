@@ -249,6 +249,7 @@ type UiMsg is Data:
   FromNet{gen: U32, e: NetEvt}
   UiKey{}
   Resize{}
+  UiError{msg: String}
   TypingTick{now_ms: U32}
   Reconnect{host: String, port: U32, gen: U32}
 
@@ -1075,6 +1076,12 @@ def session_fail.got(+msg: String, +st: Session) -> Session:
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
+
+# A failed local helper does not change the connection or framer state.
+def session_error(+st: Session, +msg: String) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port}:
+      Session{Sub.echo_err(cl, msg), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
 
 def session_autoreconnect.st(
   +cl: Cl.Client,
