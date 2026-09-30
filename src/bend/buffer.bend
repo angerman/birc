@@ -363,10 +363,56 @@ def purge_nick_lines(lines: List<&2, Line>, +nick: String) -> List<&2, Line>:
     case Con{+h, t}:
       purge_nick_lines.rest(purge_nick_lines(t, nick), h, line_from_nick(h, nick))
 
+# Edits change the count of newer messages, not the identity of the retained
+# viewport bottom. If that message is removed, use the nearest older message.
+def reanchor_lines.id(lines: List<&2, Line>, index: Nat) -> Maybe<&2, Nat>:
+  match lines:
+    case Nil{}: None{}
+    case Con{Line{_, _, _, _, id}, t}:
+      match index:
+        case 0n: Some{id}
+        case 1n+p: reanchor_lines.id(t, p)
+
+def reanchor_lines.find.hit(hit: Bool, +id: Nat, +target: Nat, tail: Nat, after: Nat, rest: Maybe<&2, Scroll>) -> Maybe<&2, Scroll>:
+  match hit:
+    case False{}: rest
+    case True{}: Some{ScrollAt{after, Bool.pick(Nat, Nat.is_eq(id, target), tail, 0n)}}
+
+def reanchor_lines.find(lines: List<&2, Line>, +target: Nat, +tail: Nat, +after: Nat) -> Maybe<&2, Scroll>:
+  match lines:
+    case Nil{}: None{}
+    case Con{Line{_, _, _, _, +id}, t}:
+      reanchor_lines.find.hit(Nat.is_gt(id, 0n) && Nat.is_le(id, target), id, target, tail, after,
+        reanchor_lines.find(t, target, tail, Nat.add(after, 1n)))
+
+def reanchor_lines.identified(zero: Bool, +lines: List<&2, Line>, id: Nat, +scroll: Scroll) -> Scroll:
+  match zero:
+    # Unassigned fixture lines have no stable identity yet.
+    case True{}: scroll
+    case False{}:
+      match scroll:
+        case ScrollAt{_, tail}:
+          Maybe.default(&2, Scroll,
+            reanchor_lines.find(List.reverse(&2, Line, lines), id, tail, 0n),
+            ScrollAt{Nat.sub(List.length(&2, Line, lines), 1n), 0n})
+
+def reanchor_lines.got(lines: List<&2, Line>, scroll: Scroll, got: Maybe<&2, Nat>) -> Scroll:
+  match got:
+    case None{}: ScrollAt{0n, 0n}
+    case Some{+id}: reanchor_lines.identified(Nat.is_eq(id, 0n), lines, id, scroll)
+
+def reanchor_lines(+old: List<&2, Line>, lines: List<&2, Line>, scroll: Scroll) -> Scroll:
+  match scroll:
+    case ScrollAt{0n, 0n}: ScrollAt{0n, 0n}
+    case ScrollAt{+after, +tail}:
+      +index = Nat.sub(List.length(&2, Line, old), Nat.add(1n, after))
+      reanchor_lines.got(lines, ScrollAt{after, tail}, reanchor_lines.id(old, index))
+
 def purge_nick_buf(b: Buffer, +nick: String) -> Buffer:
   match b:
-    case Buffer{+name, is_ch, +topic, lines, +nicks, scroll}:
-      Buffer{name, is_ch, topic, purge_nick_lines(lines, nick), nicks, scroll}
+    case Buffer{name, is_ch, topic, +lines, nicks, scroll}:
+      +kept = purge_nick_lines(lines, nick)
+      Buffer{name, is_ch, topic, kept, nicks, reanchor_lines(lines, kept, scroll)}
 
 type AuthPhase is Data:
   AuthIdle{}
@@ -975,40 +1021,59 @@ def line_id_le(a: Line, b: Line) -> Bool:
       match b:
         case Line{_, _, _, _, id_b}: Nat.is_le(id_a, id_b)
 
-def coalesce_queries.keep(hit: Bool, seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, rest: List<&2, Buffer>) -> List<&2, Buffer>:
+def coalesce_queries.choose(hit: Bool, preferred: Buffer, fallback: Buffer) -> Buffer:
+  match hit:
+    case True{}: preferred
+    case False{}: fallback
+
+def coalesce_queries.base(got: Maybe<&2, Buffer>, b: Buffer, +target: String) -> Buffer:
+  match got:
+    case None{}: b
+    case Some{+preferred}: coalesce_queries.choose(query_target(preferred, target), preferred, b)
+
+def coalesce_queries.buffer(b: Buffer, target: String, +merged: List<&2, Line>) -> Buffer:
+  match b:
+    case Buffer{_, channel, topic, lines, nicks, scroll}:
+      Buffer{target, channel, topic, merged, nicks, reanchor_lines(lines, merged, scroll)}
+
+def coalesce_queries.keep(hit: Bool, seen: Bool, b: Buffer, +target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, rest: List<&2, Buffer>) -> List<&2, Buffer>:
   match hit:
     case False{}: b <> rest
     case True{}:
       match seen:
         case True{}: rest
         case False{}:
-          match b:
-            case Buffer{_, channel, topic, _, nicks, scroll}:
-              Buffer{target, channel, topic, merged, nicks, scroll} <> rest
+          coalesce_queries.buffer(coalesce_queries.base(preferred, b, target), target, merged) <> rest
 
-def coalesce_queries.step(+hit: Bool, +seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, next: Bool -> List<&2, Buffer>) -> List<&2, Buffer>:
-  coalesce_queries.keep(hit, seen, b, target, merged, next(seen || hit))
+def coalesce_queries.step(+hit: Bool, +seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, next: Bool -> List<&2, Buffer>) -> List<&2, Buffer>:
+  coalesce_queries.keep(hit, seen, b, target, merged, preferred, next(seen || hit))
 
-def coalesce_queries.go(bufs: List<&2, Buffer>, +target: String, +merged: List<&2, Line>, seen: Bool) -> List<&2, Buffer>:
+def coalesce_queries.go(bufs: List<&2, Buffer>, +target: String, +merged: List<&2, Line>, +preferred: Maybe<&2, Buffer>, seen: Bool) -> List<&2, Buffer>:
   match bufs:
     case Nil{}: Nil{}
     case Con{+b, t}:
-      coalesce_queries.step(query_target(b, target), seen, b, target, merged,
-        found => coalesce_queries.go(t, target, merged, found))
+      coalesce_queries.step(query_target(b, target), seen, b, target, merged, preferred,
+        found => coalesce_queries.go(t, target, merged, preferred, found))
 
 # Global event IDs let query collisions merge in arrival order without
 # renumbering old events (and therefore without saving them a second time).
-def coalesce_queries.bufs(bufs: List<&2, Buffer>, +target: String) -> List<&2, Buffer>:
+def coalesce_queries.bufs(bufs: List<&2, Buffer>, +target: String, preferred: Maybe<&2, Buffer>) -> List<&2, Buffer>:
   match bufs:
     case Nil{}: Nil{}
     case Con{server, +tail}:
       +merged = take_last(List.sort(~Line, ~line_id_le, query_lines(tail, target)), SCROLL_CAP())
-      server <> coalesce_queries.go(tail, target, merged, False{})
+      server <> coalesce_queries.go(tail, target, merged, preferred, False{})
+
+def coalesce_queries.preferred(control: Bool, got: Maybe<&2, Buffer>) -> Maybe<&2, Buffer>:
+  match control:
+    case True{}: None{}
+    case False{}: got
 
 def coalesce_queries(+cl: Client, target: String) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      Client{nick, server, coalesce_queries.bufs(bufs, target), active, now, stg, auth, seq}
+    case Client{nick, server, +bufs, +active, now, stg, auth, seq}:
+      +preferred = coalesce_queries.preferred(Nat.is_eq(active, 0n), nth_buf(bufs, active))
+      Client{nick, server, coalesce_queries.bufs(bufs, target, preferred), active, now, stg, auth, seq}
 
 def scroll_zero(b: Buffer) -> Buffer:
   set_buf_scroll(b, 0n)

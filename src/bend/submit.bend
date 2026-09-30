@@ -803,8 +803,9 @@ def clear_link_results.lines(lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
 
 def clear_link_results.buf(b: Cl.Buffer) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{name, channel, topic, lines, nicks, scroll}:
-      Cl.Buffer{name, channel, topic, clear_link_results.lines(lines), nicks, scroll}
+    case Cl.Buffer{name, channel, topic, +lines, nicks, scroll}:
+      +kept = clear_link_results.lines(lines)
+      Cl.Buffer{name, channel, topic, kept, nicks, Cl.reanchor_lines(lines, kept, scroll)}
 
 def clear_link_results(+cl: Cl.Client) -> Cl.Client:
   Cl.buf_modify_client(cl, active_idx(cl), clear_link_results.buf)
