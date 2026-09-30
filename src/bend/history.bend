@@ -359,6 +359,17 @@ def read_finish(f: File, state: ReadState, now: String) -> IO(Cl.Client):
         Unit <- File.close(f)
         return add_markers_cl(cl, now)
 
+def read_failure_text(error: U32 & String, +stage: String) -> String:
+  match error:
+    case (code, +msg): "history " ++ stage ++ " (" ++ U32.show(code) ++ "): " ++ msg
+
+# A failed load does not replace the current client or lose completed records.
+# Close the descriptor before adding its visible, credential-free diagnostic.
+def read_failure(f: File, state: ReadState, now: String, error: U32 & String, stage: String) -> IO(Cl.Client):
+  do IO<Cl.Client>:
+    cl : Cl.Client <- read_finish(f, state, now)
+    return Cl.client_log(cl, 0n, Cl.Error{}, read_failure_text(error, stage))
+
 def read_loop.empty(empty: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
     case True{}: read_finish(f, state, now)
@@ -366,7 +377,7 @@ def read_loop.empty(empty: Bool, f: File, +bytes: List<&2, U32>, state: ReadStat
 
 def read_loop.got(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:
-    case (f, Fail{_}): read_finish(f, state, now)
+    case (f, Fail{error}): read_failure(f, state, now, error, "read failed; only completed records were restored")
     case (f, Done{+bytes}): read_loop.empty(Nat.is_eq(List.length(&2, U32, bytes), 0n), f, bytes, state, endpoint, cap, now, remaining, next)
 
 def read_loop.read(done: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
@@ -389,12 +400,23 @@ def read_loop(fuel: Nat, f: File, state: ReadState, +endpoint: String, +cap: U32
 
 def read_size(pair: File & Result<&1, &1, U32 & String, U32>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
   match pair:
-    case (f, Fail{_}): read_finish(f, ReadState{cl, Nil{}, 0n, False{}}, now)
+    case (f, Fail{error}): read_failure(f, ReadState{cl, Nil{}, 0n, False{}}, now, error, "size unavailable")
     case (f, Done{+size}): read_loop(1n+U32.to_nat(size), f, ReadState{cl, Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
+
+# ENOENT is the normal first-run case on this POSIX runtime. Other open
+# failures must be visible; an inaccessible history file is not an empty one.
+def read_open.error(missing: Bool, cl: Cl.Client, error: U32 & String) -> IO(Cl.Client):
+  match missing:
+    case True{}: IO.pure(Cl.Client, cl)
+    case False{}: IO.pure(Cl.Client, Cl.client_log(cl, 0n, Cl.Error{}, read_failure_text(error, "open failed")))
+
+def read_open.failed(error: U32 & String, cl: Cl.Client) -> IO(Cl.Client):
+  match error:
+    case (+code, +msg): read_open.error(U32.is_eq(code, 2), cl, (code, msg))
 
 def read_open(result: Result<&1, &1, U32 & String, File>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
   match result:
-    case Fail{_}: IO.pure(Cl.Client, cl)
+    case Fail{error}: read_open.failed(error, cl)
     case Done{f}:
       do IO<Cl.Client>:
         pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
