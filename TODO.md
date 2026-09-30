@@ -855,7 +855,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       between a full command queue, a blocked TCP writer, and a full event
       queue. Keep `/quit` and disconnect usable when a peer stops reading.
       Test normal sends, a non-reading peer, queue saturation, and shutdown.
-- [ ] **R02 — One terminal output deadline (P1).** Apply the bounded frame
+- [x] **R02 — One terminal output deadline (P1).** Apply the bounded frame
       transport to BEL and OSC 52 as well as ordinary painting. Move blocking
       clipboard work outside the shared IO loop. Test an unread full PTY with
       alerts and selection; network PONG and shutdown must still proceed.
@@ -874,6 +874,12 @@ implementations. Every changed PTY test must pass three consecutive runs.
       per actor tick and preserve pending lines through close/fuel exhaustion.
       Remove dormant `Tick`/`Handoff` and obsolete merge paths if unused.
       Test exact cap boundaries, FIFO order, and delivery of `/quit`.
+- [ ] **R07 — Coalesced UI continuation wakes (P1).** Keep synthetic input
+      continuation wakes separate from real tty-watcher acknowledgements.
+      The UI must not synchronously send to its own full event queue. Coalesce
+      pending continuation work and preserve paste/network fairness without
+      adding Session fields. Test normal acknowledgement, two synthetic wakes,
+      a full event queue, mixed incoming chunks/paste, PONG, and quit.
 
 ### DNS and startup
 
@@ -993,6 +999,10 @@ implementations. Every changed PTY test must pass three consecutive runs.
       counts, name canonical URL/auth/column modules, and separate Bend checks
       from the independent kernel gate. Make warning lint fail on warnings
       rather than only claiming it does. Verify the documented lint flags.
+- [ ] **V07 — Isolate desktop helpers in selection tests.** Existing mouse
+      and split-selection tests inherit PATH and can call the desktop
+      clipboard helper. Use a fixture-only helper path without changing test
+      expectations. Run each changed PTY three times before commit.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
@@ -1108,9 +1118,21 @@ Verification so far (all through the locked Nix shell, no pin updates):
   same-port restore, and in-process A→B→A reload before either new welcome.
   Original chat/control rows remain single records; markers are not persisted.
 - R02 startup follow-up: native final review found that TimUI screen entry
-  still calls its default unbounded fd writer before the first frame. A new
-  prefilled-terminal regression and reuse of the existing deadline mechanism
-  are in progress. R02 stays unchecked until this boundary passes.
+  still calls its default unbounded fd writer before the first frame. The
+  normal startup control passed, but an unread terminal filled before launch
+  prevented even the loopback listener accept. A deadline-only candidate also
+  failed: raw-mode entry's `TCSAFLUSH` drains output first. The final fix uses
+  TimUI's existing `TCSANOW` + `TCIFLUSH` pattern with rollback, and the existing
+  output arm/disarm pair around screen entry. All seven startup/runtime cases
+  passed three consecutive runs, including independently reopened stdout,
+  PONG before draining, clean quit while full, and restored ICANON. Existing
+  headless UI, terminal-restore, warning lint, and proof gates passed.
+- R07 red evidence: a deterministic fixture importing the actual
+  `Net.handle_more` passes the ordinary acknowledgement control. Two synthetic
+  completions fill the one-slot ack channel and then fail with Bend's deadlock
+  diagnostic. Posting a continuation to an already-full 64-message event queue
+  fails with the same diagnostic. The fix reuses the otherwise redundant
+  live-loop Bool for one scheduled continuation instead of adding Session state.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

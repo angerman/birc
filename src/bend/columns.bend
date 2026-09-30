@@ -1,6 +1,6 @@
 # Terminal columns follow the vendored timui_utf8_width contract. Bend uses
 # these widths for layout; C only paints the prepared rows. Keep the ranges
-# in step with TimUI (tests/columns_width.c compares every scalar value).
+# in step with TimUI (tests/columns_width.py compares every scalar value).
 import Base
 
 def between(+c: U32, lo: U32, hi: U32) -> Bool:
