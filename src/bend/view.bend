@@ -1051,7 +1051,7 @@ def tab_lab(+name: String, first: Bool, unread: U32) -> String:
         case 1: name ++ "*"
         case _: name
 
-def tab_names.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>, first: Bool) -> List<&2, String>:
+def tab_names.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>, first: Bool) -> List<&2, String>:
   match bufs:
     case Nil{}:
       Nil{}
@@ -1060,10 +1060,10 @@ def tab_names.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>, first: B
 
 # Server buffer keeps the name "server" internally; the tab strip uses
 # *server* so a nick or channel named server cannot collide.
-def tab_names(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>) -> List<&2, String>:
+def tab_names(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, String>:
   tab_names.go(bufs, unreads, True{})
 
-def tab_alerts.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>, first: Bool) -> List<&2, U32>:
+def tab_alerts.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>, first: Bool) -> List<&2, U32>:
   match bufs:
     case Nil{}:
       Nil{}
@@ -1072,7 +1072,7 @@ def tab_alerts.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>, first: 
         case True{}: 0 <> tab_alerts.go(t, unreads, False{})
         case False{}: Cl.buf_unread_status(unreads, name) <> tab_alerts.go(t, unreads, False{})
 
-def tab_alerts(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, String>) -> List<&2, U32>:
+def tab_alerts(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, U32>:
   tab_alerts.go(bufs, unreads, True{})
 
 def bool_bit(b: Bool) -> U32:

@@ -158,7 +158,7 @@ def draw_tabs_ok() -> Bool:
 def tab_alerts_ok.on(+cl: Cl.Client) -> Bool:
   match cl:
     case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
-      u32s_eq(V.tab_alerts(bufs, "#a" <> "!#b" <> Nil{}), 0 <> 1 <> 2 <> Nil{})
+      u32s_eq(V.tab_alerts(bufs, Cl.Alert{"#a", Cl.Activity{}} <> Cl.Alert{"#b", Cl.Mention{}} <> Nil{}), 0 <> 1 <> 2 <> Nil{})
 
 def tab_alerts_ok() -> Bool:
   tab_alerts_ok.on(Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #a" <> ":me!m@h JOIN #b" <> Nil{}))

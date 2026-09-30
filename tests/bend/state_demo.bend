@@ -44,9 +44,26 @@ def auth_phase_ok() -> Bool:
     && auth_cap(Cl.get_auth(Feed.feed(cl, ":me!m@h JOIN #t")))
     && auth_idle(Cl.get_auth(Cl.client_set_sasl(cl, "user", "")))
 
+def alerts_isolated_ok() -> Bool:
+  +alerts: List<&2, Cl.Alert> = Cl.Alert{"!ABCDEroom", Cl.Activity{}} <> Cl.Alert{"query", Cl.Mention{}} <> Nil{}
+  U32.is_eq(Cl.buf_unread_status(alerts, "!ABCDEroom"), 1)
+    && U32.is_eq(Cl.buf_unread_status(alerts, "ABCDEroom"), 0)
+    && U32.is_eq(Cl.buf_unread_status(Cl.del_unread_items(alerts, "ABCDEroom"), "!ABCDEroom"), 1)
+    && U32.is_eq(Cl.buf_unread_status(Cl.del_unread_items(alerts, "QUERY"), "query"), 0)
+
+def alerts_escalate_ok() -> Bool:
+  +stg = Cl.mark_unread.check(False{}, False{}, "#T", Cl.settings0())
+  +hl = Cl.mark_unread.check(False{}, True{}, "#t", stg)
+  +later = Cl.mark_unread.check(False{}, False{}, "#T", hl)
+  U32.is_eq(Cl.buf_unread_status(Cl.settings_unreads(stg), "#t"), 1)
+    && U32.is_eq(Cl.buf_unread_status(Cl.settings_unreads(later), "#t"), 2)
+    && Nat.is_eq(List.length(&2, Cl.Alert, Cl.settings_unreads(later)), 1n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("accepted_remote", accepted_remote_ok())
     Unit <- E.must("bounded_rejections", cap_rejections_ok())
     Unit <- E.must("auth_phase", auth_phase_ok())
+    Unit <- E.must("alerts_isolated", alerts_isolated_ok())
+    Unit <- E.must("alerts_escalate", alerts_escalate_ok())
     IO.print("state_demo=ok")

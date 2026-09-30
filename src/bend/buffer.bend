@@ -35,8 +35,15 @@ type Buffer is Data:
     scroll: Nat
   }
 
+type AlertLevel is Data:
+  Activity{}
+  Mention{}
+
+type Alert is Data:
+  Alert{name: String, level: AlertLevel}
+
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, String>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, Alert>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32}
 
 def settings0() -> Settings:
   Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0}
@@ -89,7 +96,7 @@ def settings_mutes(+s: Settings) -> List<&2, String>:
     case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _, _}:
       mutes
 
-def settings_unreads(+s: Settings) -> List<&2, String>:
+def settings_unreads(+s: Settings) -> List<&2, Alert>:
   match s:
     case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _, _}:
       unreads
@@ -154,7 +161,7 @@ def set_mutes(+s: Settings, +val: List<&2, String>) -> Settings:
     case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag, seq}:
       Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag, seq}
 
-def set_unreads(+s: Settings, +val: List<&2, String>) -> Settings:
+def set_unreads(+s: Settings, +val: List<&2, Alert>) -> Settings:
   match s:
     case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag, seq}:
       Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag, seq}
@@ -286,18 +293,15 @@ def is_mention.on(empty: Bool, +body: String, +nick: String) -> Bool:
 def is_mention(+body: String, +nick: String) -> Bool:
   is_mention.on(String.is_empty(nick), body, nick)
 
-def buf_unread_status.norm(is_norm: Bool) -> U32:
-  match is_norm:
-    case True{}: 1
+def alert_status(level: AlertLevel) -> U32:
+  match level:
+    case Activity{}: 1
+    case Mention{}: 2
+
+def buf_unread_status.item(hit: Bool, level: AlertLevel) -> U32:
+  match hit:
+    case True{}: alert_status(level)
     case False{}: 0
-
-def buf_unread_status.hl(is_hl: Bool, is_norm: Bool) -> U32:
-  match is_hl:
-    case True{}: 2
-    case False{}: buf_unread_status.norm(is_norm)
-
-def buf_unread_status.item(+u: String, +name: String) -> U32:
-  buf_unread_status.hl(String.eq(u, "!" ++ name), String.eq(u, name))
 
 def buf_unread_status.pick(ge: Bool, +s1: U32, +s2: U32) -> U32:
   match ge:
@@ -307,36 +311,27 @@ def buf_unread_status.pick(ge: Bool, +s1: U32, +s2: U32) -> U32:
 def buf_unread_status.max(+s1: U32, +s2: U32) -> U32:
   buf_unread_status.pick(U32.is_ge(s1, s2), s1, s2)
 
-def buf_unread_status(unreads: List<&2, String>, +name: String) -> U32:
+def buf_unread_status(unreads: List<&2, Alert>, +name: String) -> U32:
   match unreads:
     case Nil{}: 0
-    case Con{+u, t}:
-      buf_unread_status.max(buf_unread_status.item(u, name), buf_unread_status(t, name))
+    case Con{Alert{+target, level}, t}:
+      buf_unread_status.max(buf_unread_status.item(Irc.ieq(target, name), level), buf_unread_status(t, name))
 
-def has_unread_item(unreads: List<&2, String>, +item: String) -> Bool:
-  match unreads:
-    case Nil{}: False{}
-    case Con{+u, t}:
-      String.eq(u, item) || has_unread_item(t, item)
-
-def add_unread_item.on(has: Bool, unreads: List<&2, String>, +item: String) -> List<&2, String>:
-  match has:
-    case True{}: unreads
-    case False{}: item <> unreads
-
-def add_unread_item(+unreads: List<&2, String>, +item: String) -> List<&2, String>:
-  add_unread_item.on(has_unread_item(unreads, item), unreads, item)
-
-def del_unread_items.hit(tail: List<&2, String>, +u: String, hit: Bool) -> List<&2, String>:
+def del_unread_items.hit(tail: List<&2, Alert>, +u: Alert, hit: Bool) -> List<&2, Alert>:
   match hit:
     case True{}: tail
     case False{}: u <> tail
 
-def del_unread_items(unreads: List<&2, String>, +name: String) -> List<&2, String>:
+def del_unread_items(unreads: List<&2, Alert>, +name: String) -> List<&2, Alert>:
   match unreads:
     case Nil{}: Nil{}
     case Con{+u, t}:
-      del_unread_items.hit(del_unread_items(t, name), u, String.eq(u, name) || String.eq(u, "!" ++ name))
+      match u:
+        case Alert{+target, _}:
+          del_unread_items.hit(del_unread_items(t, name), u, Irc.ieq(target, name))
+
+def add_unread_item(+unreads: List<&2, Alert>, +name: String, level: AlertLevel) -> List<&2, Alert>:
+  Alert{name, level} <> del_unread_items(unreads, name)
 
 def purge_nick_lines.rest(tail: List<&2, Line>, +h: Line, hit: Bool) -> List<&2, Line>:
   match hit:
@@ -500,16 +495,17 @@ def buf_set_lines_at(+cl: Client, +i: Nat, lines: List<&2, Line>) -> Client:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       Client{nick, server, buf_modify(bufs, i, buf_set_lines_fn(lines)), active, now, stg, auth, log_seq}
 
-def mark_unread.tag(is_hl: Bool, +name: String) -> String:
+def mark_unread.level(is_hl: Bool) -> AlertLevel:
   match is_hl:
-    case True{}: "!" ++ name
-    case False{}: name
+    case True{}: Mention{}
+    case False{}: Activity{}
 
 def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
   match is_server:
     case True{}: stg
     case False{}:
-      set_unreads(stg, add_unread_item(settings_unreads(stg), mark_unread.tag(is_hl, name)))
+      +unreads = settings_unreads(stg)
+      set_unreads(stg, add_unread_item(unreads, name, mark_unread.level(is_hl || U32.is_eq(buf_unread_status(unreads, name), 2))))
 
 def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
   match got:
@@ -688,7 +684,7 @@ def buf_get.full(got: Maybe<&2, Buffer>, +nick: String, +server: String, +bufs: 
     case None{}:
       (Client{nick, server, bufs, active, now, stg, auth, log_seq}, None{})
     case Some{_}:
-      (Client{nick, server, buf_modify(bufs, 0n, cap_at(now)), active, now, stg, auth, log_seq}, None{})
+      (stamp_logs(Client{nick, server, buf_modify(bufs, 0n, cap_at(now)), active, now, stg, auth, log_seq}), None{})
 
 def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, full: Bool) -> Client & Maybe<&2, Nat>:
   match full:
