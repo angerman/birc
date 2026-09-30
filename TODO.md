@@ -855,7 +855,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       between a full command queue, a blocked TCP writer, and a full event
       queue. Keep `/quit` and disconnect usable when a peer stops reading.
       Test normal sends, a non-reading peer, queue saturation, and shutdown.
-- [ ] **R02 — One terminal output deadline (P1).** Apply the bounded frame
+- [x] **R02 — One terminal output deadline (P1).** Apply the bounded frame
       transport to BEL and OSC 52 as well as ordinary painting. Move blocking
       clipboard work outside the shared IO loop. Test an unread full PTY with
       alerts and selection; network PONG and shutdown must still proceed.
@@ -896,7 +896,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [ ] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
       state rather than stopping after the first MiB. Test a file above one
       MiB, its newest record, empty files, and malformed records.
-- [x] **S03 — Persist explicit log additions (P2).** Stop inferring events
+- [x] **S03 — Persist stable log events (P2).** Stop inferring events
       from equal capped snapshots. Preserve duplicate messages with identical
       timestamps at the cap, without replaying old records. Test duplicates,
       no-op paints, purges, and buffer renames.
@@ -909,7 +909,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **S06 — Structured line authors (P2).** Store author identity instead
       of reparsing display prefixes. Use IRC case folding for mute/purge.
       Test messages, notices, actions, mixed case, and unrelated authors.
-- [ ] **S07 — Typed unread levels (P2).** Replace `!`-prefixed buffer-name
+- [x] **S07 — Typed unread levels (P2).** Replace `!`-prefixed buffer-name
       encoding with explicit alert state. Test a real `!ABCDEroom` channel,
       mention escalation, and clearing only the selected buffer.
 - [ ] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
@@ -977,6 +977,11 @@ Verification so far (all through the locked Nix shell, no pin updates):
 - `make proof` reports `ALL PROOFS CHECK`. The separate kernel check is not
   available in the current shell: Bend requires Lean v4.34.0, while the locked
   nixpkgs offers v4.30.0. No dependency pins were moved.
+- R02 (`2515445`): `tests/pty/output_stall.py` passed three consecutive runs
+  before commit (ordinary, bell, slow clipboard, independent stdout fd).
+  The integrated `make test-pty-output-stall` also passed. Successful shutdown
+  uses bounded output plus `_Exit` after terminal restoration; the old runtime
+  `IO.die` writes an unbounded stderr newline.
 
 Open integration work remains unchecked above. Checkmarks are not a claim that
 the final combined runtime/PTY/sanitizer gate has already passed.

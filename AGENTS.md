@@ -44,8 +44,10 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/*.bend` | Protocol, client, submit, frame, session (pure), dns_wire, actor, net (IO), view, app |
 | `src/bend/buffer.bend` | Buffer / Client container types (I15b) |
 | `src/bend/client_laws.bend` | Feed inspectors and `*_ok` predicates (I15a) |
+| `src/bend/auth.bend` | Parsed, phase-gated SASL exchange (pure) |
+| `src/bend/links.bend` | Shared URL lexical rules (pure) |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
-| `src/ffi/dns_ffi.c` | `recv_octets`, `recv_nb`, `send_octets`, `Socket.dup`, `Socket.shutdown` |
+| `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
@@ -56,7 +58,10 @@ silent flake/source pin updates. Routine Nix work uses
 - Keep IRC lines ≤ 512 bytes including CRLF.
 - Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop and the frame does not poll. Live paint is `List<DrawOp>` (`OpBox` / `OpText` / `OpTabs` / `OpLine`); C walks and paints, and does not tokenize, classify, or wrap IRC. Bend expands logical chat lines into resize-safe visible rows with hanging indents. `OpTabs` carries Bend-owned alert levels plus the bell enable flag and event sequence. C renders activity with reverse video, mentions/private messages with gold, and emits one BEL when the sequence advances. Keys are Data on the frame return; a clicked chat link returns its exact URL for Bend to open. C reports the raw key, mods, and wheel; Bend maps Shift-arrows, PageUp/PageDown (`Sess.body_h`), history, and Esc/F10. A tty watcher and a `SIGWINCH` pipe wake one `Chan(UiMsg)`. The UI parks on that channel. Every paint applies the keys the frame read, including a chunk or Eof paint.
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` is `File.read` → `feed_all`, fail closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
-- Shutdown (P5): `Socket.close` then `Timui.close`, then `IO.die` so parked IO cannot linger.
+- Shutdown (P5): `Socket.close` then `Timui.close`, then bounded status output and `Sys.exit_done` so parked IO cannot linger. Do not use `IO.die` for successful UI shutdown: the pinned runtime writes an unbounded stderr newline even for an empty message. TimUI teardown restores terminal state before the final `_Exit`.
+- All terminal writes, including BEL and OSC 52, use the frame deadline. Clipboard process work runs through Bend `Process.run` outside the frame, not synchronous `popen` in C.
+- Log lines carry author identity and stable global IDs. Never infer new events by comparing rendered text/timestamps. Reconnect dividers are `Reconnect`, not a substring test. Unread names and alert levels are separate fields.
+- SASL uses parsed control events and a persistent authentication phase. Credentials are UTF-8 octets; Base64 AUTHENTICATE payloads use 400-character chunks. Registration and completion disable further authentication responses.
 - Headless (stdin is not a tty) paints `--frames N` and exits. On a tty, `N` is a message cap and the loop parks; loop tests need a pty (`make test-pty`).
 - IRCv3 `+typing` state is Bend-owned, capped at 32 entries, and expires from a one-second `TypingTick`; active lasts 6 s and paused lasts 30 s. Only an expiry change repaints.
 - A new or changed pty test must pass three consecutive runs before its commit.

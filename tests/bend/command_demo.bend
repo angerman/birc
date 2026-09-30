@@ -35,6 +35,17 @@ def local_commands(+net: Sess.NetState) -> Bool:
 def channel() -> Cl.Client:
   client(Sub.submit(Cl.init("me", "s"), "/join #x"))
 
+def endpoint_switch_ok() -> Bool:
+  +cl = channel()
+  +same = Sess.endpoint_client(cl, "s", 6667, 6667)
+  +host = Sess.endpoint_client(cl, "other", 6667, 6667)
+  +port = Sess.endpoint_client(cl, "s", 6667, 6668)
+  Nat.is_eq(Cl.buf_count(Cl.client_bufs(same)), 2n)
+    && Nat.is_eq(Cl.buf_count(Cl.client_bufs(host)), 1n)
+    && Nat.is_eq(Cl.buf_count(Cl.client_bufs(port)), 1n)
+    && String.eq(Cl.server_of(host), "other")
+    && Nat.is_eq(Cl.log_seq_of(host), Cl.log_seq_of(cl))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("offline_local", local_commands(Sess.Offline{}))
@@ -45,4 +56,5 @@ def main() -> IO(Unit):
     Unit <- E.must("synthetic_me_rejected", submit_no_wire(Sub.submit(client(Sub.submit(Cl.init("me", "s"), "/settings")), "/me waves")))
     Unit <- E.must("channel_me_allowed", Bool.not(submit_no_wire(Sub.submit(channel(), "/me waves"))))
     Unit <- E.must("query_me_allowed", Bool.not(submit_no_wire(Sub.submit(client(Sub.submit(Cl.init("me", "s"), "/query alice")), "/me waves"))))
+    Unit <- E.must("endpoint_switch", endpoint_switch_ok())
     IO.print("command_demo=ok")

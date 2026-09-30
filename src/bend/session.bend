@@ -1167,6 +1167,22 @@ def session_nick(+st: Session) -> String:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _}:
       Cl.nick_of(cl)
 
+def session_port(+st: Session) -> U32:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, port}: port
+
+def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client:
+  match same:
+    case True{}: Cl.set_server(cl, host)
+    case False{}:
+      match cl:
+        case Cl.Client{+nick, _, _, _, +now, +stg, +auth, +seq}:
+          +clean = Cl.set_unreads(stg, Nil{})
+          Cl.client_set_lag(Cl.Client{nick, host, Cl.empty_buf("server", False{}) <> Nil{}, 0n, now, clean, auth, seq}, 0)
+
+def endpoint_client(+cl: Cl.Client, +host: String, +old_port: U32, +new_port: U32) -> Cl.Client:
+  endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), cl, host)
+
 def session_after.dial(
   +cl: Cl.Client,
   +draft: String,
@@ -1177,9 +1193,11 @@ def session_after.dial(
   +comp: Comp,
   split: Sp.State,
   +host: String,
-  +port: U32
+  +port: U32,
+  +old_port: U32
 ) -> Session:
-  Session{Cl.set_server(cl, host), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port}
+  +cl2 = endpoint_client(cl, host, old_port, port)
+  Session{cl2, False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port}
 
 def session_after(
   +cl: Cl.Client,
@@ -1200,7 +1218,7 @@ def session_after(
 ) -> Session:
   match cmd:
     case Dial{+host, dial_port, _}:
-      session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port)
+      session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port)
     case Drop{}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
     case Handoff{_}:
