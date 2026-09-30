@@ -1783,7 +1783,7 @@ def split_ops_check(vm: ViewModel) -> Bool:
 
 def split_draw_ok() -> Bool:
   +cl = split_test_cl()
-  split_ops_check(view_draft_split(cl, 24, 80, "", "demo", Sp.On{Sp.Stacked{}, "#one", "server", 0}))
+  split_ops_check(view_draft_split(cl, 24, 80, "", "demo", Sp.On{Sp.Stacked{}, "#one", "*server*", 0}))
 
 
 def dummy_line(+i: Nat) -> Cl.Line:

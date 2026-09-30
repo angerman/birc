@@ -674,6 +674,15 @@ def Laws.split_focus_involution(focus):
     case False{}: {==}
     case True{}: {==}
 
+def Laws.split_control_key(cl):
+  {==}
+
+def Laws.split_control_lookup(cl):
+  {==}
+
+def Laws.split_server_query_lookup(cl):
+  {==}
+
 def Laws.preview_file_url():
   {==}
 

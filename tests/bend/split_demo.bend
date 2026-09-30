@@ -8,6 +8,7 @@ import ../../src/bend/view.bend as V
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/typing.bend as Ty
 import ../../src/bend/frame.bend as Fr
+import ../../src/bend/client.bend as Feed
 
 def add_buf(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
   match pair:
@@ -97,6 +98,84 @@ def typing_preserves_split_ok() -> Bool:
   +st1 = Sess.st_of_chunk(Sess.step_on_chunk_ms(st0, Fr.string_to_octets("@+typing=active :alice!a@h TAGMSG #one\r\n"), 1000))
   Sp.is_on(Sess.session_split(st1)) && Ty.has(Sess.session_typing(st1), "#one", "alice")
 
+def server_query_client() -> Cl.Client:
+  +control = Cl.client_log(test_client(), 0n, Cl.System{}, "CONTROL-WELCOME")
+  Cl.set_active(Feed.feed(control, ":server!u@h PRIVMSG me :PRIVATE-SERVER-QUERY"), 3n)
+
+def idx_is(idx: Maybe<&2, Nat>, expected: Nat) -> Bool:
+  match idx:
+    case None{}: False{}
+    case Some{i}: Nat.is_eq(i, expected)
+
+def split_identity_ok() -> Bool:
+  +cl = server_query_client()
+  String.eq(Sp.name_at(cl, 0n), "*server*")
+    && String.eq(Sp.name_at(cl, 3n), "server")
+    && idx_is(Sp.named_idx(cl, "*server*"), 0n)
+    && idx_is(Sp.named_idx(cl, "server"), 3n)
+    && idx_is(Sp.target_idx(cl, "server"), 3n)
+    && idx_is(Sp.target_idx(test_client(), "server"), 0n)
+    && idx_is(Sp.target_idx(cl, "*server*"), 0n)
+    && Bool.not(Sp.found(test_client(), "server"))
+
+def spans_text(spans: List<&2, V.SpanOp>) -> String:
+  match spans:
+    case Nil{}: ""
+    case Con{h, t}: V.span_text(h) ++ spans_text(t)
+
+def ops_contain(ops: List<&2, V.DrawOp>, +text: String) -> Bool:
+  match ops:
+    case Nil{}: False{}
+    case Con{V.OpLine{_, _, _, _, spans}, t}:
+      String.contains(spans_text(spans), text) || ops_contain(t, text)
+    case Con{_, t}: ops_contain(t, text)
+
+def view_contains(vm: V.ViewModel, text: String) -> Bool:
+  match vm:
+    case V.ViewModel{ops, _}: ops_contain(ops, text)
+
+def split_server_view_ok() -> Bool:
+  +st0 = Sess.session_demo(server_query_client(), "#one")
+  +st = trip_state(Sess.step_enter(st0, "/vsplit #one"))
+  +vm = V.view_draft_split(Sess.session_cl(st), 30, 120, "", "demo", Sess.session_split(st))
+  view_contains(vm, "PRIVATE-SERVER-QUERY") && Bool.not(view_contains(vm, "CONTROL-WELCOME"))
+
+def split_server_focus_ok() -> Bool:
+  +st0 = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/vsplit #one"))
+  +st1 = trip_state(Sess.step_keys(st0, Sess.keys_focus()))
+  +st2 = trip_state(Sess.step_keys(st1, Sess.keys_focus()))
+  Nat.is_eq(Cl.active_of(Sess.session_cl(st1)), 1n)
+    && Nat.is_eq(Cl.active_of(Sess.session_cl(st2)), 3n)
+    && String.eq(cmd_first(trip_cmd(Sess.step_enter(st0, "before"))), "PRIVMSG server :before")
+    && String.eq(cmd_first(trip_cmd(Sess.step_enter(st2, "after"))), "PRIVMSG server :after")
+
+def removed_query_split_ok() -> Bool:
+  +st = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/vsplit #one"))
+  +closed = Cl.drop_buf(Sess.session_cl(st), 3n)
+  Bool.not(Sp.is_on(Sp.normalize(closed, Sess.session_split(st))))
+    && Bool.not(Sp.found(closed, "server"))
+
+def split_control_query_ok() -> Bool:
+  +cl = Cl.set_active(server_query_client(), 0n)
+  +st = trip_state(Sess.step_enter(Sess.session_demo(cl, "#one"), "/split server"))
+  +focused = trip_state(Sess.step_keys(st, Sess.keys_focus()))
+  Sp.is_on(Sess.session_split(st))
+    && String.eq(Sp.show_state(Sess.session_split(st)), "stacked:server:server:0")
+    && Nat.is_eq(Cl.active_of(Sess.session_cl(focused)), 3n)
+    && String.eq(cmd_first(trip_cmd(Sess.step_enter(focused, "hello"))), "PRIVMSG server :hello")
+
+def split_explicit_control_ok() -> Bool:
+  +st = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/split *server*"))
+  +control = trip_state(Sess.step_keys(st, Sess.keys_focus()))
+  +query = trip_state(Sess.step_keys(control, Sess.keys_focus()))
+  +vm = V.view_draft_split(Sess.session_cl(st), 30, 120, "", "demo", Sess.session_split(st))
+  Sp.is_on(Sess.session_split(st)) && view_contains(vm, "CONTROL-WELCOME")
+    && view_contains(vm, "PRIVATE-SERVER-QUERY")
+    && Nat.is_eq(Cl.active_of(Sess.session_cl(control)), 0n)
+    && Nat.is_eq(Cl.active_of(Sess.session_cl(query)), 3n)
+    && String.is_empty(cmd_first(trip_cmd(Sess.step_enter(control, "local"))))
+    && String.eq(cmd_first(trip_cmd(Sess.step_enter(query, "hello"))), "PRIVMSG server :hello")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("parse", Sp.parse_ok())
@@ -109,5 +188,11 @@ def main() -> IO(Unit):
     Unit <- E.must("draw", V.split_draw_ok())
     Unit <- E.must("preview_typing_view", preview_typing_view_ok())
     Unit <- E.must("typing_preserves_split", typing_preserves_split_ok())
+    Unit <- E.must("split_control_query_identity", split_identity_ok())
+    Unit <- E.must("split_server_view", split_server_view_ok())
+    Unit <- E.must("split_server_focus_send", split_server_focus_ok())
+    Unit <- E.must("removed_query_closes_split", removed_query_split_ok())
+    Unit <- E.must("split_control_query", split_control_query_ok())
+    Unit <- E.must("split_explicit_control", split_explicit_control_ok())
     Unit <- E.must("ctrl_w", Sess.split_key_ok())
     IO.print("split_demo=ok")

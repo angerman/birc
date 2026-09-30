@@ -9,6 +9,7 @@ type Axis is Data:
 
 type State is Data:
   Off{}
+  # Pane keys use *server* for index zero and actual names for other buffers.
   On{axis: Axis, first: String, second: String, focus: U32}
 
 type Command is Data:
@@ -26,11 +27,14 @@ def show_axis(axis: Axis) -> String:
     case SideBySide{}: "side-by-side"
     case Stacked{}: "stacked"
 
+def show_name(+name: String) -> String:
+  Bool.pick(String, String.eq(name, "*server*"), "server", name)
+
 def show_state(st: State) -> String:
   match st:
     case Off{}: "off"
     case On{axis, +first, +second, focus}:
-      show_axis(axis) ++ ":" ++ first ++ ":" ++ second ++ ":" ++ U32.show(focus)
+      show_axis(axis) ++ ":" ++ show_name(first) ++ ":" ++ show_name(second) ++ ":" ++ U32.show(focus)
 
 def is_on(st: State) -> Bool:
   match st:
@@ -124,7 +128,7 @@ def name_at.got(got: Maybe<&2, Cl.Buffer>) -> String:
         case Cl.Buffer{+name, _, _, _, _, _}: name
 
 def name_at(+cl: Cl.Client, +i: Nat) -> String:
-  name_at.got(Cl.nth_buf(Cl.client_bufs(cl), i))
+  Bool.pick(String, Nat.is_eq(i, 0n), "*server*", name_at.got(Cl.nth_buf(Cl.client_bufs(cl), i)))
 
 def default_target.active(+active: Nat) -> Maybe<&2, Nat>:
   match active:
@@ -146,18 +150,28 @@ def named_idx.server(is_server: Bool, +cl: Cl.Client, +target: String) -> Maybe<
     case False{}: Cl.buf_find(cl, target)
 
 def named_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
-  named_idx.server(Irc.ieq(target, "server"), cl, target)
+  named_idx.server(String.eq(target, "*server*"), cl, target)
+
+# Internal pane keys never guess a role from the display name. Only command
+# input accepts the old "server" alias, and only while that query is absent.
+def command_idx.got(got: Maybe<&2, Nat>, +target: String) -> Maybe<&2, Nat>:
+  match got:
+    case Some{i}: Some{i}
+    case None{}: Bool.pick(Maybe<&2, Nat>, Irc.ieq(target, "server"), Some{0n}, None{})
+
+def command_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+  command_idx.got(named_idx(cl, target), target)
 
 def target_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
   match target:
     case SNil{}: default_target(cl)
-    case SCon{_, _}: named_idx(cl, target)
+    case SCon{_, _}: command_idx(cl, target)
 
 def activate.idx(same: Bool, +cl: Cl.Client, axis: Axis, +i: Nat) -> Cl.Client & State & Bool:
   match same:
     case True{}: (cl, Off{}, False{})
     case False{}:
-      +first = Cl.active_buf_name(cl)
+      +first = name_at(cl, Cl.active_of(cl))
       +second = name_at(cl, i)
       (cl, On{axis, first, second, 0}, True{})
 
@@ -197,7 +211,7 @@ def follow_active(+cl: Cl.Client, st: State) -> State:
   match st:
     case Off{}: Off{}
     case On{axis, +first, +second, focus}:
-      follow_active.on(cl, axis, first, second, focus, Cl.active_buf_name(cl))
+      follow_active.on(cl, axis, first, second, focus, name_at(cl, Cl.active_of(cl)))
 
 def focus_name(+first: String, +second: String, +focus: U32) -> String:
   match focus:

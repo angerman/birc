@@ -327,6 +327,19 @@ law split_focus_involution:
   for focus: Bool
   {Sp.focus_twice_ok(focus) == True{} : Bool}
 
+# LAW: the control pane's internal key is independent of every query name.
+law split_control_key:
+  for cl: Cl.Client
+  {Sp.name_at(cl, 0n) == "*server*" : String}
+
+law split_control_lookup:
+  for cl: Cl.Client
+  {Sp.named_idx(cl, "*server*") == Some{0n} : Maybe<&2, Nat>}
+
+law split_server_query_lookup:
+  for cl: Cl.Client
+  {Sp.named_idx(cl, "server") == Cl.buf_find(cl, "server") : Maybe<&2, Nat>}
+
 # LAW: file:// preview URLs become local filesystem paths in Bend.
 law preview_file_url:
   {Sub.preview_file_url_ok() == True{} : Bool}
