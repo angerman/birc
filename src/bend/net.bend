@@ -133,9 +133,9 @@ def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty
 
 def emit_cmd(chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
   match c:
-    case Sess.Dial{+host, port, _}:
+    case Sess.Dial{+host, port, _, +nick}:
       do IO<U32>:
-        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Dial{host, port, U32.add(gen, 1)})
+        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Dial{host, port, U32.add(gen, 1), nick})
         return U32.add(gen, 1)
     case Sess.Drop{}:
       do IO<U32>:
@@ -363,7 +363,7 @@ def emit_fail_cmd(
   +gen: U32
 ) -> IO(U32):
   match c:
-    case Sess.Dial{+host, port, _}:
+    case Sess.Dial{+host, port, _, _}:
       do IO<U32>:
         dropped : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
         Unit <- IO.spawn(Unit, reconnect_watch(evt, host, port, gen))
@@ -769,7 +769,7 @@ def on_reconnect.enabled(
         on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
     case True{}:
       do IO<Unit>:
-        gen2 : U32 <- emit_cmd(cmd, Sess.Dial{host, port, 0}, gen)
+        gen2 : U32 <- emit_cmd(cmd, Sess.Dial{host, port, 0, Cl.nick_of(Sess.session_cl(st))}, gen)
         k((ui, st, gen2, False{}))
 
 def on_reconnect.same(

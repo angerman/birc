@@ -89,7 +89,7 @@ def cmd_head(c: Sess.NetCmd) -> String:
   match c:
     case Sess.Cont{xs}:
       "cont:" ++ first_out(xs)
-    case Sess.Dial{+host, port, _}:
+    case Sess.Dial{+host, port, _, _}:
       "dial:" ++ host ++ ":" ++ U32.show(port)
     case Sess.Drop{}:
       "drop"
@@ -260,7 +260,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     )
     Unit <- E.must_eq(
       "merge_dial",
-      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667, 0})),
+      cmd_head(Sess.merge_cmd("PONG :x" <> Nil{}, Sess.Dial{"h", 6667, 0, "me"})),
       "dial:h:6667"
     )
     IO.print("submit_demo=ok")

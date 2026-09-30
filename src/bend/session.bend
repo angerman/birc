@@ -246,7 +246,7 @@ type NetEvt is Data:
 # gen is the connection the UI bumped on this Dial. Stale FromNet is dropped.
 type NetCmd is Data:
   Cont{outs: List<&2, String>}
-  Dial{host: String, port: U32, gen: U32}
+  Dial{host: String, port: U32, gen: U32, nick: String}
   Drop{}
   Handoff{take: Bool}
   OpenUrl{url: String}
@@ -295,7 +295,7 @@ def show_netcmd(c: NetCmd) -> String:
   match c:
     case Cont{_}:
       "cont"
-    case Dial{+host, port, _}:
+    case Dial{+host, port, _, _}:
       String.concat("dial:" <> host <> ":" <> U32.show(port) <> Nil{})
     case Drop{}:
       "drop"
@@ -317,8 +317,8 @@ def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
 
 def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
   match cmd:
-    case Dial{+host, port, gen}:
-      Dial{host, port, gen}
+    case Dial{+host, port, gen, +nick}:
+      Dial{host, port, gen, nick}
     case Drop{}:
       Drop{}
     case Handoff{take}:
@@ -331,8 +331,8 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
 # Kept for the submit goldens. The UI does not call these.
 def merge_cmd(+pending: List<&2, String>, cmd: NetCmd) -> NetCmd:
   match cmd:
-    case Dial{+host, port, gen}:
-      Dial{host, port, gen}
+    case Dial{+host, port, gen, +nick}:
+      Dial{host, port, gen, nick}
     case Drop{}:
       Drop{}
     case Handoff{take}:
@@ -370,7 +370,7 @@ def connect_apply.st(+cl: Cl.Client, +host: String, +port: U32, net: NetState) -
     case Connecting{}:
       connect_apply.busy(cl, False{})
     case _:
-      (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port, 0})
+      (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port, 0, Cl.nick_of(cl)})
 
 def connect_apply.recon_ok(ok: Bool, +cl: Cl.Client, net: NetState, +server: String, +port: U32) -> Cl.Client & String & NetCmd:
   match ok:
@@ -1113,7 +1113,7 @@ def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Sessi
     case True{}:
       match st:
         case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port}:
-          (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server, port), Dial{server, port, 0})
+          (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server, port), Dial{server, port, 0, Cl.nick_of(cl)})
 
 def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match auto:
@@ -1217,7 +1217,7 @@ def session_after(
   cmd: NetCmd
 ) -> Session:
   match cmd:
-    case Dial{+host, dial_port, _}:
+    case Dial{+host, dial_port, _, _}:
       session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port)
     case Drop{}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port}
@@ -1608,7 +1608,7 @@ def st_of_keys(t: Session & NetCmd & Bool) -> Session:
 
 def reconnect_endpoint.got(pair: Session & NetCmd) -> Bool:
   match pair:
-    case (_, Dial{+host, port, _}):
+    case (_, Dial{+host, port, _, _}):
       String.eq(host, "127.0.0.1") && U32.is_eq(port, 16668)
     case _:
       False{}

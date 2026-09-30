@@ -463,10 +463,10 @@ def writer_cmd(
           do IO<Unit>:
             Unit <- writer_drop(sock)
             k((None{}, gen, Nil{}))
-        case Sess.Dial{+host, port, dgen}:
+        case Sess.Dial{+host, port, dgen, +dial_nick}:
           do IO<Unit>:
             Unit <- writer_drop(sock)
-            dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
+            dial_begin(host, port, dial_nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
         case Sess.Handoff{_}:
           k((Some{sock}, gen, pending))
         case Sess.OpenUrl{_}:
@@ -487,8 +487,8 @@ def wait_cmd(
       post(evt, gen, Sess.Eof{})
     case Some{c}:
       match c:
-        case Sess.Dial{+host, port, dgen}:
-          dial_begin(host, port, nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
+        case Sess.Dial{+host, port, dgen, +dial_nick}:
+          dial_begin(host, port, dial_nick, dgen, evt, cmd, boot, False{}, has_sasl, k)
         case Sess.Cont{_}:
           k((None{}, gen, Nil{}))
         case Sess.Drop{}:

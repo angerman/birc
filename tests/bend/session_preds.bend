@@ -25,7 +25,7 @@ def drop_cleared_ok() -> Bool:
 
 def reconnect_cmd_port(c: Sess.NetCmd, +want: U32) -> Bool:
   match c:
-    case Sess.Dial{_, port, _}:
+    case Sess.Dial{_, port, _, _}:
       U32.is_eq(port, want)
     case _:
       False{}
