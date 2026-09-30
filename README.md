@@ -1,19 +1,21 @@
 # birc
 
-A lean, formally verified terminal IRC client built with **Bend 2** and **timui.h**.
+A terminal IRC client built with **Bend 2** and **timui.h**.
 
-`birc` demonstrates that a concurrent, network-driven interactive application can be written in Bend's interaction-calculus model with formal mathematical proofs, ultra-low resource usage, and minimal foreign effects.
+Bend owns the protocol, client state, networking, and frame loop. Pure laws and
+runtime tests check different parts of the application; neither proves the
+whole client correct.
 
 ---
 
 ## Highlights
 
-- **Pure Functional Core (>91% Bend 2)**: IRC protocol parsing, message dispatch, connection state, line framing, command submission, and UDP DNS resolution are implemented purely in Bend.
+- **Bend core**: IRC parsing, message dispatch, connection state, line framing, command submission, and DNS packet handling live in Bend. IO drivers use Bend effects and thin POSIX FFI.
 - **Checked pure core**: `bend PROOF.bend` checks quantified sanitization, single-chunk framer bounds, and authentication-state laws, plus concrete protocol, scroll, and rendering examples. See the exact proof scope below.
-- **Zero-Poll / 0.0% Idle CPU**: The event loop parks on OS descriptors (terminal tty, `SIGWINCH` resize pipe, and socket dup) waking a single Bend `Chan(UiMsg)` channel. No polling, no busy-waiting.
-- **Native DNS Engine**: Full RFC 1035 UDP A-record DNS client implemented directly in Bend with wire-format packet cursors, CNAME chasing, and fault tolerance—independent of libc `getaddrinfo`.
-- **Modern Terminal Experience**: Rendered via a clean C99 single-header library ([`timui.h`](https://timui.dev)). Supports multi-channel tabs, visual activity/mention alerts, configurable terminal bells, resize-safe soft wrapping, mouse navigation, clickable OSC 8 links, IRCv3 live typing indicators, bracketed paste, and markdown formatting (`*bold*`, `_italic_`, `` `code` ``).
-- **Hardened for Production**: Bounded memory, strict 512-byte IRC wire clamping, UTF-8 decoder with Latin-1 fallback, flood protection, and fail-closed error handling.
+- **Parked event loop**: Descriptor watchers wake one Bend `Chan(UiMsg)`. A one-second maintenance tick expires typing state and checks whether refused terminal output can resume; a full output queue does not cause a busy retry loop.
+- **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
+- **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, and single-marker formatting (`*bold*`, `_italic_`, `` `code` ``). This is not a general Markdown renderer.
+- **Explicit bounds**: 512-byte IRC lines, capped buffers, bounded terminal writes, and UTF-8 decoding with Latin-1 fallback. Foreign effects and malformed inputs still need runtime tests.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
 ---

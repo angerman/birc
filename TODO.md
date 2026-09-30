@@ -1003,6 +1003,14 @@ implementations. Every changed PTY test must pass three consecutive runs.
       produce the dim attribute promised by M8.2.4 and upstream IRC parity.
       Test tokenizer spans, wrapped DrawOps, and actual native style emission;
       do not add a new theme or Markdown framework.
+- [ ] **U10 — Bound local PNG decoding before allocation (P2).** File size
+      and IHDR dimensions do not bound declared IDAT allocations or zlib
+      expansion. Check chunk availability before allocation and cap inflated
+      data using supported PNG depth, channels, filters, and Adam7 geometry.
+      Avoid repeated work for permanently malformed data. Test normal and
+      interlaced images, malformed chunks, expansion beyond the declared
+      image, allocation failure, cache behavior, and cleanup. Scope is explicit
+      local Sixel preview, not remote fetching or a measured frame-time breach.
 
 ### Commands and authentication
 
@@ -1051,7 +1059,9 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **V06 — Current architecture and test claims.** Remove stale source/test
       counts, name canonical URL/auth/column modules, and separate Bend checks
       from the independent kernel gate. Make warning lint fail on warnings
-      rather than only claiming it does. Verify the documented lint flags.
+      rather than only claiming it does. Replace unsupported whole-client,
+      zero-poll, and production-hardening claims with the actual bounds and
+      one-second maintenance behavior. Verify the documented lint flags.
 - [x] **V07 — Isolate desktop helpers in selection tests.** Existing mouse
       and split-selection tests inherit PATH and can call the desktop
       clipboard helper. Use a fixture-only helper path without changing test
@@ -1329,6 +1339,17 @@ been made without approval.
 
 Open integration work remains unchecked above. Checkmarks are not a claim that
 the final combined runtime/PTY/sanitizer gate has already passed.
+
+- U10 red evidence: a reachable fake-transport Sixel draw of a 3,132-byte,
+  1x1 PNG expands to 3 MiB and requests a 5,242,880-byte inflater buffer.
+  An invalid filter repeats all 20 allocation requests on the next draw.
+  A 70-byte truncated PNG declaring a 32-MiB IDAT requests that allocation
+  before checking source availability; the counting allocator denies it.
+  Normal 1x1 PNG decoding caches successfully, all tracked memory is freed,
+  and signature/dimension rejection allocates nothing. Seven bounded synthetic
+  cases passed. No large actual allocation or private URL fetch occurred.
+  The 3-MiB case took 624 microseconds here; this is a prevalidation-bounds
+  finding, not evidence of a 40-ms frame-time breach.
 
 ## Milestone 18 — TimUI example parity audit
 
