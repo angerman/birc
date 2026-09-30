@@ -842,6 +842,128 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ---
 
+## Milestone 17 — Adversarial review remediation
+
+Review baseline: `a0a8941`. A checked item means the fix and its regression
+tests passed. Work is local; no upstream push is authorized. Keep existing
+laws and test expectations. Prefer one canonical operation over parallel
+implementations. Every changed PTY test must pass three consecutive runs.
+
+### Runtime and shutdown
+
+- [ ] **R01 — Bounded, cancellable outbound work (P1).** Break the cycle
+      between a full command queue, a blocked TCP writer, and a full event
+      queue. Keep `/quit` and disconnect usable when a peer stops reading.
+      Test normal sends, a non-reading peer, queue saturation, and shutdown.
+- [ ] **R02 — One terminal output deadline (P1).** Apply the bounded frame
+      transport to BEL and OSC 52 as well as ordinary painting. Move blocking
+      clipboard work outside the shared IO loop. Test an unread full PTY with
+      alerts and selection; network PONG and shutdown must still proceed.
+- [ ] **R03 — One frame-result handler (P2).** Handle clicked URLs and keys
+      from every paint, including resize, incoming chunks, EOF, and redraws.
+      Test clicks with and without concurrent resize/inbound traffic.
+- [ ] **R04 — Reconnect registration identity (P2).** Carry the current nick
+      into a new connection instead of the actor's startup nick. Test an
+      acknowledged `/nick`, reconnect, and normal initial registration.
+- [ ] **R05 — Reap URL launcher children (P2).** Own launcher lifetimes and
+      report launch failure without blocking painting. Test repeated opens,
+      failed launches, and absence of zombie children.
+- [ ] **R06 — Real outbound cap and simpler actor (P2).** Enforce `SEND_CAP`
+      per actor tick and preserve pending lines through close/fuel exhaustion.
+      Remove dormant `Tick`/`Handoff` and obsolete merge paths if unused.
+      Test exact cap boundaries, FIFO order, and delivery of `/quit`.
+
+### DNS and startup
+
+- [ ] **D01 — DNS-over-TCP framing (P1).** Read the two-byte length and the
+      complete bounded payload across arbitrary receive boundaries. Reject
+      false lengths, premature EOF, and trailing/malformed data. Test a split
+      prefix, split body, valid packet, and bad length.
+- [ ] **D02 — DNS deadlines and one startup lookup (P1).** Bound DNS connect,
+      send, and receive; a silent peer must not park startup forever. Remove
+      duplicate preflight resolution and show failure through normal session
+      startup. Test silence, refusal, success, and UI responsiveness.
+- [ ] **D03 — Truncation fallback and CNAME bounds (P2).** Fall back to TCP
+      when a truncated UDP answer has no usable A record. Keep compressed
+      CNAME reads within their declared RDATA. Test complete A answers,
+      truncated CNAME-only answers, zero-length and overrun RDATA.
+
+### State, history, and rendering
+
+- [ ] **S01 — Canonical bounded logging (P1).** Route buffer-cap warnings
+      through the same capped append as all other logs. Test more than 1,024
+      rejected remote buffer creations and ordinary accepted creation.
+- [ ] **S02 — Read the latest history (P2).** Read to EOF with bounded retained
+      state rather than stopping after the first MiB. Test a file above one
+      MiB, its newest record, empty files, and malformed records.
+- [ ] **S03 — Persist explicit log additions (P2).** Stop inferring events
+      from equal capped snapshots. Preserve duplicate messages with identical
+      timestamps at the cap, without replaying old records. Test duplicates,
+      no-op paints, purges, and buffer renames.
+- [ ] **S04 — History endpoint identity (P2).** Prevent one server's history
+      from entering another server's buffers. Define and test legacy-file
+      handling, distinct endpoints, and reconnect to the same endpoint.
+- [ ] **S05 — Explicit reconnect marker (P2).** Give reconnect dividers a
+      distinct kind instead of recognizing arbitrary `Reconnected:` text.
+      Test real markers and ordinary chat containing that text.
+- [ ] **S06 — Structured line authors (P2).** Store author identity instead
+      of reparsing display prefixes. Use IRC case folding for mute/purge.
+      Test messages, notices, actions, mixed case, and unrelated authors.
+- [ ] **S07 — Typed unread levels (P2).** Replace `!`-prefixed buffer-name
+      encoding with explicit alert state. Test a real `!ABCDEroom` channel,
+      mention escalation, and clearing only the selected buffer.
+- [ ] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
+      identify queries after NICK changes; update nick lists and focus.
+      Test an old query colliding with an existing query and normal rename.
+- [ ] **U01 — Token-aware, column-aware wrapping (P2).** Tokenize a logical
+      line once; preserve complete URL targets and formatting across rows.
+      Wrap using terminal column widths, including wide/combining text.
+      Test split URLs, Markdown spans, CJK, narrow widths, and resize.
+- [ ] **U02 — One scroll coordinate system (P2).** Make clamping, view slicing,
+      arrival anchoring, and resize use consistent coordinates. Test one long
+      wrapped line, reaching its first row, new arrivals, and width changes.
+- [ ] **U03 — Stable URL enumeration (P2).** Use one URL tokenizer for links
+      and opening. Keep `/links` output out of its own source collection and
+      preserve numbering. Test repeated listing, `/open 1`, code spans, and
+      punctuation boundaries.
+
+### Commands and authentication
+
+- [ ] **C01 — Parsed, stateful SASL (P1).** Recognize CAP/AUTHENTICATE/numerics
+      from parsed IRC messages and only in the expected authentication phase.
+      Test protocol success/failure plus chat containing `AUTHENTICATE +` or
+      ` 903 `; chat must remain chat and cannot trigger credentials.
+- [ ] **C02 — UTF-8 and SASL chunks (P2).** Encode PLAIN credentials as UTF-8
+      bytes with the existing encoder. Send at most 400 Base64 characters per
+      AUTHENTICATE line and a final `+` for an exact multiple. Test ASCII,
+      non-ASCII, 399/400/401 boundaries, and IRC line limits.
+- [ ] **C03 — Local commands while offline (P2).** Classify commands once by
+      whether they need a connection. Allow settings, search, preview, buffer
+      controls, and disabling auto-reconnect while offline/connecting. Test
+      both states and reject actual wire commands there.
+- [ ] **C04 — No wire targets for synthetic buffers (P2).** Use one sendable
+      buffer predicate for plain chat and `/me`/related commands. Test settings
+      and other synthetic buffers plus valid channels and queries.
+- [ ] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
+      guards and duplicate marker/URL/command operations as their canonical
+      replacements land. Do not add abstractions without a second real use.
+
+### Verification and build driver
+
+- [ ] **V01 — Honest proof scope and preservation laws.** Separate concrete
+      examples from quantified guarantees in README/law comments. Strengthen
+      useful preservation/boundary laws without weakening existing laws.
+      Run `bend PROOF.bend`; report the independent kernel gate separately.
+- [ ] **V02 — Golden tests check process status.** Replace `binary | grep`
+      checks with a common bounded runner that checks both exit status and
+      the expected token. Test token+exit-42 rejection and token+exit-0 success.
+- [ ] **V03 — Complete incremental dependencies.** Track FFI helper headers,
+      the lock file, and effective compiler flags/toolchain identity. Test
+      `make -n -W src/ffi/birc_utf8_fit.h build-ui` and changed build flags.
+- [ ] **V04 — Integrated verification and handoff.** Run the full pinned
+      `make check`, sanitizer checks, and three runs of every changed PTY test.
+      Record exact commands, outcomes, limits, and local commit IDs here.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
