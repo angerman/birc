@@ -874,7 +874,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       per actor tick and preserve pending lines through close/fuel exhaustion.
       Remove dormant `Tick`/`Handoff` and obsolete merge paths if unused.
       Test exact cap boundaries, FIFO order, and delivery of `/quit`.
-- [ ] **R07 — Coalesced UI continuation wakes (P1).** Keep synthetic input
+- [x] **R07 — Coalesced UI continuation wakes (P1).** Keep synthetic input
       continuation wakes separate from real tty-watcher acknowledgements.
       The UI must not synchronously send to its own full event queue. Coalesce
       pending continuation work and preserve paste/network fairness without
@@ -1133,6 +1133,14 @@ Verification so far (all through the locked Nix shell, no pin updates):
   diagnostic. Posting a continuation to an already-full 64-message event queue
   fails with the same diagnostic. The fix reuses the otherwise redundant
   live-loop Bool for one scheduled continuation instead of adding Session state.
+- R07 green: the actual-Net fixture covers a full 64-message queue, 100
+  coalesced requests, exactly one continuation, FIFO tail order, and one real
+  ACK with no synthetic ACK. The new mixed-traffic PTY passed three consecutive
+  runs: 300 submitted lines, concurrent inbound/resize, bounded PONG, one QUIT,
+  and exit zero. Its baseline did not reliably reproduce the deadlock; the
+  deterministic channel fixture is the red evidence. Existing paste50,
+  mixburst, bracketed-paste, endpoint-history, startup, and headless UI gates
+  passed. No new Session field or FFI ownership was introduced.
 - V07: mouse and split-selection tests now use a fixture-only PATH and one
   builtin-only fake `pbcopy`. Empty, unterminated, multiline, and UTF-8 helper
   input checks passed. Each changed existing PTY passed three consecutive
