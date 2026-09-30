@@ -2,6 +2,7 @@
 import Base
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
+import ./frame.bend as Fr
 
 # ---- line serialization & parsing -----------------------------------------
 
@@ -15,6 +16,7 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.Error{}: "ERR"
     case Cl.Highlight{}: "HL"
     case Cl.Reconnect{}: "REC"
+    case Cl.LinkResult{}: "LINK"
 
 def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool) -> Cl.LineKind:
   match is_msg:
@@ -54,7 +56,7 @@ def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts
 def serialize_line(+target: String, +ln: Cl.Line) -> String:
   match ln:
     case Cl.Line{+kind, +ts, +text, _, _}:
-      serialize_line.recon(Cl.is_reconnect(kind), target, kind, ts, text)
+      serialize_line.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind), target, kind, ts, text)
 
 def serialize_lines.go(+target: String, lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
@@ -64,6 +66,27 @@ def serialize_lines.go(+target: String, lines: List<&2, Cl.Line>, +acc: String) 
 
 def serialize_lines(+target: String, lines: List<&2, Cl.Line>) -> String:
   serialize_lines.go(target, lines, "")
+
+# Version 2 has an explicit endpoint and author. Legacy records have no server
+# identity and are not loaded by the IO path: guessing could disclose one
+# server's private conversation on another server.
+def serialize_line_for.recon(marker: Bool, +endpoint: String, +target: String, kind: Cl.LineKind, +ts: String, +text: String, +author: String) -> String:
+  match marker:
+    case True{}: ""
+    case False{}:
+      "BIRC2\t" ++ Irc.sanitize_in(endpoint) ++ "\t" ++ Irc.sanitize_in(target) ++ "\t"
+        ++ serialize_kind(kind) ++ "\t" ++ Irc.sanitize_in(ts) ++ "\t"
+        ++ Irc.sanitize_in(author) ++ "\t" ++ Irc.sanitize_in(text) ++ "\n"
+
+def serialize_line_for(+endpoint: String, +target: String, line: Cl.Line) -> String:
+  match line:
+    case Cl.Line{+kind, +ts, +text, +author, _}:
+      serialize_line_for.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind), endpoint, target, kind, ts, text, author)
+
+def serialize_lines_for(lines: List<&2, Cl.Line>, +endpoint: String, +target: String) -> String:
+  match lines:
+    case Nil{}: ""
+    case Con{line, t}: serialize_line_for(endpoint, target, line) ++ serialize_lines_for(t, endpoint, target)
 
 def join_tokens.go(+xs: List<&2, String>, +acc: String) -> String:
   match xs:
@@ -97,6 +120,25 @@ def parse_line.empty(empty: Bool, +raw: String) -> Maybe<&2, HistEntry>:
 
 def parse_line(+raw: String) -> Maybe<&2, HistEntry>:
   parse_line.empty(String.is_empty(raw), raw)
+
+def valid_kind(+kind: String) -> Bool:
+  String.eq(kind, "MSG") || String.eq(kind, "SELF") || String.eq(kind, "SYS")
+    || String.eq(kind, "ACT") || String.eq(kind, "NOT") || String.eq(kind, "ERR") || String.eq(kind, "HL")
+
+def parse_line_for.valid(ok: Bool, +target: String, +kind: String, +ts: String, +author: String, +text: String) -> Maybe<&2, HistEntry>:
+  match ok:
+    case False{}: None{}
+    case True{}: Some{Entry{target, Cl.Line{parse_kind(kind), ts, text, author, 0n}}}
+
+def parse_line_for.tokens(tokens: List<&2, String>, +endpoint: String) -> Maybe<&2, HistEntry>:
+  match tokens:
+    case Con{+version, Con{+server, Con{+target, Con{+kind, Con{+ts, Con{+author, Con{+text, Nil{}}}}}}}}:
+      parse_line_for.valid(String.eq(version, "BIRC2") && Irc.ieq(server, endpoint)
+        && Bool.not(String.is_empty(target)) && valid_kind(kind), target, kind, ts, author, text)
+    case _: None{}
+
+def parse_line_for(+endpoint: String, +raw: String) -> Maybe<&2, HistEntry>:
+  parse_line_for.tokens(String.split(raw, Chr{9}), endpoint)
 
 def parse_entries.on(m: Maybe<&2, HistEntry>, acc: List<&2, HistEntry>) -> List<&2, HistEntry>:
   match m:
@@ -144,6 +186,18 @@ def extract_new_history(+old_cl: Cl.Client, new_cl: Cl.Client) -> String:
   match new_cl:
     case Cl.Client{_, _, bufs, _, _, _, _, _}:
       extract_new_bufs(bufs, Cl.log_seq_of(old_cl))
+
+def extract_new_bufs_for(bufs: List<&2, Cl.Buffer>, +endpoint: String, +seq: Nat) -> String:
+  match bufs:
+    case Nil{}: ""
+    case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
+      Bool.pick(String, String.starts_with(name, "*"), "", serialize_lines_for(lines_after(lines, seq), endpoint, name))
+        ++ extract_new_bufs_for(t, endpoint, seq)
+
+def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Client) -> String:
+  match new_cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _}:
+      extract_new_bufs_for(bufs, endpoint, Cl.log_seq_of(old_cl))
 
 # ---- applying history on load ---------------------------------------------
 
@@ -221,38 +275,98 @@ def apply_history(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +c
 
 # ---- file IO --------------------------------------------------------------
 
-def history_read_file.result(r: Result<&1, &1, U32 & String, String>) -> String:
-  match r:
-    case Fail{_}: ""
-    case Done{+s}: s
+# Read complete UTF-8 records, not decoded chunks. A character may straddle a
+# read boundary. The record bound also rejects a corrupt unterminated line.
+type ReadState is Data:
+  ReadState{cl: Cl.Client, rev: List<&2, U32>, count: Nat, dropping: Bool}
 
-def history_read_file.got(pair: File & Result<&1, &1, U32 & String, String>) -> IO(String):
-  match pair:
-    case (f, r):
-      do IO<String>:
+def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
+  match cl:
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
+      Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq}
+
+def read_record.entry(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
+  match entry:
+    case None{}: cl
+    case Some{Entry{target, line}}: cap_client_history(apply_entry(cl, target, line), cap)
+
+def read_record.utf8(text: Maybe<&2, String>, cl: Cl.Client, +endpoint: String, cap: U32) -> Cl.Client:
+  match text:
+    case None{}: cl
+    case Some{raw}: read_record.entry(parse_line_for(endpoint, raw), cl, cap)
+
+def read_record(drop: Bool, cl: Cl.Client, rev: List<&2, U32>, +endpoint: String, cap: U32) -> Cl.Client:
+  match drop:
+    case True{}: cl
+    case False{}: read_record.utf8(Fr.utf8_decode(List.reverse(&2, U32, rev)), cl, endpoint, cap)
+
+def read_step.store(drop: Bool, cl: Cl.Client, rev: List<&2, U32>, count: Nat, byte: U32) -> ReadState:
+  match drop:
+    case True{}: ReadState{cl, Nil{}, 0n, True{}}
+    case False{}: ReadState{cl, byte <> rev, 1n+count, False{}}
+
+def read_step.newline(nl: Bool, +endpoint: String, cap: U32, cl: Cl.Client, rev: List<&2, U32>, +count: Nat, dropping: Bool, byte: U32) -> ReadState:
+  match nl:
+    case True{}: ReadState{read_record(dropping, cl, rev, endpoint, cap), Nil{}, 0n, False{}}
+    case False{}: read_step.store(dropping || Nat.is_ge(count, 8192n), cl, rev, count, byte)
+
+def read_step(+endpoint: String, cap: U32, state: ReadState, +byte: U32) -> ReadState:
+  match state:
+    case ReadState{cl, rev, count, dropping}:
+      read_step.newline(U32.is_eq(byte, 10), endpoint, cap, cl, rev, count, dropping, byte)
+
+def read_chunk(bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState:
+  match bytes:
+    case Nil{}: state
+    case Con{byte, t}: read_chunk(t, read_step(endpoint, cap, state, byte), endpoint, cap)
+
+def read_finish(f: File, state: ReadState, now: String) -> IO(Cl.Client):
+  match state:
+    case ReadState{cl, _, _, _}:
+      do IO<Cl.Client>:
         Unit <- File.close(f)
-        IO.pure(String, history_read_file.result(r))
+        return add_markers_cl(cl, now)
 
-def history_read_file.open(r: Result<&1, &1, U32 & String, File>) -> IO(String):
-  match r:
-    case Fail{_}:
-      IO.pure(String, "")
-    case Done{f}:
-      do IO<String>:
-        pair : File & Result<&1, &1, U32 & String, String> <- File.read(f, 1048576)
-        history_read_file.got(pair)
-
-def history_read_file.check(empty: Bool, +path: String) -> IO(String):
+def read_loop.empty(empty: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
-    case True{}:
-      IO.pure(String, "")
-    case False{}:
-      do IO<String>:
-        r : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-        history_read_file.open(r)
+    case True{}: read_finish(f, state, now)
+    case False{}: next(f, read_chunk(bytes, state, endpoint, cap), Nat.sub(remaining, List.length(&2, U32, bytes)))
 
-def history_read_file(+path: String) -> IO(String):
-  history_read_file.check(String.is_empty(path), path)
+def read_loop.got(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match pair:
+    case (f, Fail{_}): read_finish(f, state, now)
+    case (f, Done{+bytes}): read_loop.empty(Nat.is_eq(List.length(&2, U32, bytes), 0n), f, bytes, state, endpoint, cap, now, remaining, next)
+
+def read_loop.read(done: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match done:
+    case True{}: read_finish(f, state, now)
+    case False{}:
+      do IO<Cl.Client>:
+        pair : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, U32.from_nat(Cl.clamp_nat(remaining, 4096n)))
+        read_loop.got(pair, state, endpoint, cap, now, remaining, next)
+
+# The file's initial size bounds the loop. Appends during loading cannot keep it
+# alive forever. Short reads still consume the full snapshot; state holds at most 8192 bytes and
+# MAX_BUFFERS * min(cap, SCROLL_CAP) lines, regardless of file size.
+def read_loop(fuel: Nat, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat) -> IO(Cl.Client):
+  match fuel:
+    case 0n: read_finish(f, state, now)
+    case 1n+p:
+      read_loop.read(Nat.is_eq(remaining, 0n), f, state, endpoint, cap, now, remaining,
+        f2 => st2 => rest => read_loop(p, f2, st2, endpoint, cap, now, rest))
+
+def read_size(pair: File & Result<&1, &1, U32 & String, U32>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+  match pair:
+    case (f, Fail{_}): read_finish(f, ReadState{cl, Nil{}, 0n, False{}}, now)
+    case (f, Done{+size}): read_loop(1n+U32.to_nat(size), f, ReadState{cl, Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
+
+def read_open(result: Result<&1, &1, U32 & String, File>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+  match result:
+    case Fail{_}: IO.pure(Cl.Client, cl)
+    case Done{f}:
+      do IO<Cl.Client>:
+        pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
+        read_size(pair, cl, endpoint, cap, now)
 
 def history_append_file.done(pair: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
   match pair:
@@ -331,27 +445,27 @@ def history_init_client.has(empty: Bool, +content: String, +nick: String, +host:
 def history_init_client.content(+content: String, +nick: String, +host: String, +now: String, +cap: U32) -> Cl.Client:
   history_init_client.has(String.is_empty(content), content, nick, host, now, cap)
 
-def history_init_client.pick(empty: Bool, +path: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
+def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   match empty:
     case True{}:
       IO.pure(Cl.Client, Cl.init_with_cap(nick, host, cap))
     case False{}:
       do IO<Cl.Client>:
-        content : String <- history_read_file(path)
-        return history_init_client.content(content, nick, host, now, cap)
+        result : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+        read_open(result, Cl.init_with_cap(nick, host, cap), endpoint, cap, now)
 
-def history_init_client(+path: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
-  history_init_client.pick(String.is_empty(path), path, cap, nick, host, now)
+def history_init_client(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
+  history_init_client.pick(String.is_empty(path), path, endpoint, cap, nick, host, now)
 
-def maybe_save_history.check(enabled: Bool, +path: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
+def maybe_save_history.check(enabled: Bool, +path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
   match enabled:
     case False{}:
       IO.pure(Unit, Unit{})
     case True{}:
-      history_append_file(path, extract_new_history(old_cl, new_cl))
+      history_append_file(path, extract_new_history_for(endpoint, old_cl, new_cl))
 
-def maybe_save_history(+path: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
+def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
   maybe_save_history.check(
     Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(new_cl)),
-    path, old_cl, new_cl
+    path, endpoint, old_cl, new_cl
   )

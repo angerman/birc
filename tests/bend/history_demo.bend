@@ -5,6 +5,9 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/history.bend as H
 import ../../src/bend/view.bend as V
+import ../../src/bend/submit.bend as Sub
+import ../../src/bend/client_laws.bend as CL
+import ../../src/bend/frame.bend as Fr
 
 def fill(n: Nat, cl: Cl.Client) -> Cl.Client:
   match n:
@@ -63,6 +66,50 @@ def loaded_identity_ok() -> Bool:
   +new = Feed.feed(old, "PING :server")
   String.is_empty(H.extract_new_history(old, new))
 
+def rejected_local.got(pair: Cl.Client & List<&2, String>, +old: Cl.Client) -> Bool:
+  match pair:
+    case (+new, _):
+      String.eq(H.extract_new_history(old, new), "server\tERR\t\tbuffer limit reached\n")
+        && String.is_empty(H.extract_new_history(new, new))
+
+def fill_channels(+n: Nat, cl: Cl.Client) -> Cl.Client:
+  match n:
+    case 0n: cl
+    case 1n+p: fill_channels(p, Feed.feed(cl, ":me!u@h JOIN #" ++ Nat.show(n)))
+
+def rejected_local_ok() -> Bool:
+  +old = fill_channels(15n, Cl.init("me", "s"))
+  rejected_local.got(Sub.submit(old, "/join #overflow"), old)
+
+def no_entry(entry: Maybe<&2, H.HistEntry>) -> Bool:
+  match entry:
+    case None{}: True{}
+    case Some{_}: False{}
+
+def authored_entry(entry: Maybe<&2, H.HistEntry>) -> Bool:
+  match entry:
+    case Some{H.Entry{+target, Cl.Line{Cl.Notice{}, +ts, +text, +author, _}}}:
+      String.eq(target, "#t") && String.eq(ts, "12:00:00") && String.eq(text, "notice") && String.eq(author, "alice")
+    case _: False{}
+
+def endpoint_ok() -> Bool:
+  +record: String = "BIRC2\ta:6667\t#t\tNOT\t12:00:00\talice\tnotice"
+  authored_entry(H.parse_line_for("A:6667", record))
+    && no_entry(H.parse_line_for("b:6667", record))
+    && no_entry(H.parse_line_for("a:6668", record))
+    && no_entry(H.parse_line_for("a:6667", "#t\tMSG\t\tlegacy"))
+    && no_entry(H.parse_line_for("a:6667", "BIRC2\ta:6667\t#t\tWRONG\t\ta\tx"))
+
+def utf8_chunk.final(state: H.ReadState) -> Bool:
+  match state:
+    case H.ReadState{cl, _, +n, _}:
+      String.eq(CL.buf_texts(cl, 0n), "é|") && Nat.is_eq(n, 0n)
+
+def utf8_chunk_ok() -> Bool:
+  +start: H.ReadState = H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}
+  +first = H.read_chunk(List.append(&2, U32, Fr.string_to_octets("BIRC2\ta:6667\tserver\tMSG\t\ta\t"), 195 <> Nil{}), start, "a:6667", 2)
+  utf8_chunk.final(H.read_chunk(169 <> 10 <> Nil{}, first, "a:6667", 2))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("no_op", no_op_ok())
@@ -75,4 +122,7 @@ def main() -> IO(Unit):
     Unit <- E.must("edit_identity", edit_identity_ok())
     Unit <- E.must("feed_identity", feed_identity_ok())
     Unit <- E.must("loaded_identity", loaded_identity_ok())
+    Unit <- E.must("rejected_local", rejected_local_ok())
+    Unit <- E.must("endpoint", endpoint_ok())
+    Unit <- E.must("utf8_chunk", utf8_chunk_ok())
     IO.print("history_demo=ok")

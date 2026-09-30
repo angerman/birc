@@ -21,6 +21,7 @@ type LineKind is Data:
   Error{}
   Highlight{}
   Reconnect{}
+  LinkResult{}
 
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String, author: String, id: Nat}
@@ -608,6 +609,11 @@ def buf_reconnect(+b: Buffer, +now: String) -> Buffer:
 def is_reconnect(kind: LineKind) -> Bool:
   match kind:
     case Reconnect{}: True{}
+    case _: False{}
+
+def is_link_result(kind: LineKind) -> Bool:
+  match kind:
+    case LinkResult{}: True{}
     case _: False{}
 
 # A zero ID is an unassigned buffer-local log. Feed maps may append to several

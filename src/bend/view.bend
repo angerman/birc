@@ -108,6 +108,8 @@ def style_of(k: Cl.LineKind) -> U32:
       16766720
     case Cl.Reconnect{}:
       10526880
+    case Cl.LinkResult{}:
+      10526880
 
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(style_of(Cl.Self{}), style_of(Cl.Msg{})))
