@@ -395,6 +395,15 @@ test-pty-session-links: build-ui ## Pty: runtime open/list uses stable link sour
 test-pty-split-identity: build-ui ## Pty: a query named server retains its pane and send identity.
 	$(NIXRUN) timeout 45 python3 tests/pty/split_identity.py ./$(BLDDIR)/birc
 
+test-ui-input-queue: ## Synthetic wakes cannot block acknowledgement or a full event queue.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ui_input_queue.bend -o $(BLDDIR)/ui_input_queue.c
+	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/ui_input_queue.c -o $(BLDDIR)/ui_input_queue'
+	$(NIXRUN) sh scripts/check-golden.sh ui_input_queue=ok timeout 15 ./$(BLDDIR)/ui_input_queue
+
+test-pty-input-fairness: build-ui ## Pty: mixed input/inbound traffic keeps PONG and quit responsive.
+	$(NIXRUN) timeout 45 python3 tests/pty/input_fairness.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -460,6 +469,7 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors
 .PHONY: test-actor test-actor-queue test-startup-actor test-session-links test-pty-session-links
 .PHONY: test-pty-split-identity
+.PHONY: test-ui-input-queue test-pty-input-fairness
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor ## Adversarial review regression gates.
 

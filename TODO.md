@@ -999,7 +999,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       counts, name canonical URL/auth/column modules, and separate Bend checks
       from the independent kernel gate. Make warning lint fail on warnings
       rather than only claiming it does. Verify the documented lint flags.
-- [ ] **V07 — Isolate desktop helpers in selection tests.** Existing mouse
+- [x] **V07 — Isolate desktop helpers in selection tests.** Existing mouse
       and split-selection tests inherit PATH and can call the desktop
       clipboard helper. Use a fixture-only helper path without changing test
       expectations. Run each changed PTY three times before commit.
@@ -1133,6 +1133,11 @@ Verification so far (all through the locked Nix shell, no pin updates):
   diagnostic. Posting a continuation to an already-full 64-message event queue
   fails with the same diagnostic. The fix reuses the otherwise redundant
   live-loop Bool for one scheduled continuation instead of adding Session state.
+- V07: mouse and split-selection tests now use a fixture-only PATH and one
+  builtin-only fake `pbcopy`. Empty, unterminated, multiline, and UTF-8 helper
+  input checks passed. Each changed existing PTY passed three consecutive
+  Make runs; their assertions were not changed. Other link/launcher/stall
+  fixtures already isolate their helper paths.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops
