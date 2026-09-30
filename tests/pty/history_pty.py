@@ -164,7 +164,9 @@ def main() -> int:
         # =====================================================================
         srv2 = socket.socket()
         srv2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv2.bind(("127.0.0.1", 0))
+        # Restore history from the same endpoint; distinct-port isolation is
+        # covered by history_endpoints.py.
+        srv2.bind(("127.0.0.1", port1))
         srv2.listen(1)
         port2 = srv2.getsockname()[1]
         srv2.settimeout(10)

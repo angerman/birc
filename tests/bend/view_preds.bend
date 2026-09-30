@@ -169,7 +169,7 @@ def tab_star_ok() -> Bool:
 def tab_collide.labs(xs: List<&2, String>) -> Bool:
   match xs:
     case Con{+a, Con{+b, t}}:
-      String.eq(a, "*server*") && String.eq(b, "server")
+      String.eq(a, "*server*") && String.eq(b, "server!")
     case Nil{}:
       False{}
     case Con{_, Nil{}}:
