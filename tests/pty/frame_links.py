@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
 from pathlib import Path
 
 from output_stall import drain, receive
@@ -85,7 +86,7 @@ def case(binary: str, mode: str, directory: str) -> None:
     proc = subprocess.Popen(
         [binary, *args, "--frames", "0"], stdin=slave, stdout=slave, stderr=slave,
         env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
-             "BIRC_LINK_LOG": str(log), "PATH": directory + os.pathsep + os.environ["PATH"]},
+             "BIRC_LINK_LOG": str(log), "PATH": directory},
     )
     os.close(slave)
     conn = None
@@ -103,7 +104,10 @@ def case(binary: str, mode: str, directory: str) -> None:
             drain(master, 0.4)
             assert b"JOIN #t" in receive(conn, b"JOIN #t", 2)
             conn.sendall(message)
-        painted = drain(master, 0.6)
+        painted = bytearray()
+        deadline = time.monotonic() + 3
+        while url[:20].encode() not in painted and time.monotonic() < deadline:
+            painted.extend(drain(master, 0.05))
         assert url[:20].encode() in painted, f"{mode}: link fixture was not painted"
         col, row = link_point(painted, url)
         click = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()

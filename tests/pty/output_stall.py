@@ -10,6 +10,8 @@ import fcntl
 import os
 import pty
 import select
+import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -52,7 +54,7 @@ def case(binary: str, mode: str, directory: str) -> None:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 200, 0, 0))
     env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
-           "PATH": directory + os.pathsep + os.environ["PATH"],
+           "PATH": directory,
            "BIRC_CLIPBOARD_LOG": os.path.join(directory, "copied")}
     # A reopened output has independent fd flags. Nonblocking input alone
     # does not bound writes to it.
@@ -117,7 +119,11 @@ def main() -> None:
         # Consume input immediately, then remain alive long enough that a
         # synchronous pclose would fail the PONG latency assertion.
         opener = Path(directory, "pbcopy")
-        opener.write_text('#!/bin/sh\ncat > "$BIRC_CLIPBOARD_LOG"\nsleep 3\n')
+        cat = shutil.which("cat")
+        sleep = shutil.which("sleep")
+        assert cat and sleep, "fixture tools are missing"
+        opener.write_text('#!/bin/sh\n' + shlex.quote(cat) +
+                          ' > "$BIRC_CLIPBOARD_LOG"\n' + shlex.quote(sleep) + ' 3\n')
         opener.chmod(0o755)
         for mode in ("ordinary", "bell", "selection", "separate"):
             case(binary, mode, directory)

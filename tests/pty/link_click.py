@@ -71,7 +71,7 @@ def main() -> int:
                 "TERM": "xterm-256color",
                 "BIRC_HISTORY": "none",
                 "BIRC_LINK_LOG": log,
-                "PATH": tmp + os.pathsep + os.environ.get("PATH", ""),
+                "PATH": tmp,
             },
         )
         os.close(slave)
