@@ -340,6 +340,16 @@ def del_unread_items(unreads: List<&2, Alert>, +name: String) -> List<&2, Alert>
 def add_unread_item(+unreads: List<&2, Alert>, +name: String, level: AlertLevel) -> List<&2, Alert>:
   Alert{name, level} <> del_unread_items(unreads, name)
 
+def rename_unreads.put(has: Bool, unreads: List<&2, Alert>, name: String, level: AlertLevel) -> List<&2, Alert>:
+  match has:
+    case False{}: unreads
+    case True{}: Alert{name, level} <> unreads
+
+def rename_unreads(+unreads: List<&2, Alert>, +from: String, +to: String) -> List<&2, Alert>:
+  +level = buf_unread_status.max(buf_unread_status(unreads, from), buf_unread_status(unreads, to))
+  rename_unreads.put(U32.is_gt(level, 0), del_unread_items(del_unread_items(unreads, from), to), to,
+    Bool.pick(AlertLevel, U32.is_eq(level, 2), Mention{}, Activity{}))
+
 def purge_nick_lines.rest(tail: List<&2, Line>, +h: Line, hit: Bool) -> List<&2, Line>:
   match hit:
     case True{}:
@@ -520,7 +530,7 @@ def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Sett
     case Some{b}:
       match b:
         case Buffer{+name, _, _, _, _, _}:
-          mark_unread.check(String.eq(name, "server"), is_hl, name, stg)
+          mark_unread.check(False{}, is_hl, name, stg)
 
 def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
   match is_active:
@@ -530,7 +540,7 @@ def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +st
 def mark_unread_idx(+cl: Client, +i: Nat, is_hl: Bool) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +act, +now, +stg, +auth, +log_seq}:
-      +stg2 = mark_unread_idx.on(Nat.is_eq(i, act), nth_buf(bufs, i), is_hl, stg)
+      +stg2 = mark_unread_idx.on(Nat.is_eq(i, act) || Nat.is_eq(i, 0n), nth_buf(bufs, i), is_hl, stg)
       Client{nick, server, bufs, act, now, stg2, auth, log_seq}
 
 def clear_unread(+cl: Client, +name: String) -> Client:
@@ -637,7 +647,7 @@ def stamp_line.on(assign: Bool, kind: LineKind, +ts: String, +text: String, +aut
 def stamp_line(line: Line, +seq: Nat) -> Line & Nat:
   match line:
     case Line{+kind, +ts, +text, +author, +id}:
-      stamp_line.on(Nat.is_eq(id, 0n) && Bool.not(is_reconnect(kind)), kind, ts, text, author, id, seq)
+      stamp_line.on(Nat.is_eq(id, 0n), kind, ts, text, author, id, seq)
 
 type StampLines is Data:
   StampLines{rev: List<&2, Line>, seq: Nat}
@@ -903,10 +913,15 @@ def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
         case Buffer{+name, _, _, _, _, _}:
           set_unreads(stg, del_unread_items(settings_unreads(stg), name))
 
+def set_active.unread_index(control: Bool, stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+  match control:
+    case True{}: stg
+    case False{}: set_active.unread(stg, got)
+
 def set_active(+cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, _, +now, +stg, +auth, +log_seq}:
-      +stg2 = set_active.unread(stg, nth_buf(bufs, i))
+      +stg2 = set_active.unread_index(Nat.is_eq(i, 0n), stg, nth_buf(bufs, i))
       Client{nick, server, bufs, i, now, stg2, auth, log_seq}
 
 def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
@@ -933,6 +948,67 @@ def set_buf_name(+b: Buffer, +name: String) -> Buffer:
   match b:
     case Buffer{_, +ch, +topic, +lines, +nicks, +scroll}:
       Buffer{name, ch, topic, lines, nicks, scroll}
+
+def is_query_name(+name: String) -> Bool:
+  Bool.not(String.starts_with(name, "*") || Irc.starts_channel(name))
+
+def query_target(+b: Buffer, +target: String) -> Bool:
+  match b:
+    case Buffer{+name, ch, _, _, _, _}:
+      Bool.not(ch) && is_query_name(name) && Irc.ieq(name, target)
+
+def query_lines.keep(hit: Bool, b: Buffer, rest: List<&2, Line>) -> List<&2, Line>:
+  match hit:
+    case False{}: rest
+    case True{}:
+      match b:
+        case Buffer{_, _, _, lines, _, _}: List.append(&2, Line, lines, rest)
+
+def query_lines(bufs: List<&2, Buffer>, +target: String) -> List<&2, Line>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, t}: query_lines.keep(query_target(b, target), b, query_lines(t, target))
+
+def line_id_le(a: Line, b: Line) -> Bool:
+  match a:
+    case Line{_, _, _, _, id_a}:
+      match b:
+        case Line{_, _, _, _, id_b}: Nat.is_le(id_a, id_b)
+
+def coalesce_queries.keep(hit: Bool, seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, rest: List<&2, Buffer>) -> List<&2, Buffer>:
+  match hit:
+    case False{}: b <> rest
+    case True{}:
+      match seen:
+        case True{}: rest
+        case False{}:
+          match b:
+            case Buffer{_, channel, topic, _, nicks, scroll}:
+              Buffer{target, channel, topic, merged, nicks, scroll} <> rest
+
+def coalesce_queries.step(+hit: Bool, +seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, next: Bool -> List<&2, Buffer>) -> List<&2, Buffer>:
+  coalesce_queries.keep(hit, seen, b, target, merged, next(seen || hit))
+
+def coalesce_queries.go(bufs: List<&2, Buffer>, +target: String, +merged: List<&2, Line>, seen: Bool) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, t}:
+      coalesce_queries.step(query_target(b, target), seen, b, target, merged,
+        found => coalesce_queries.go(t, target, merged, found))
+
+# Global event IDs let query collisions merge in arrival order without
+# renumbering old events (and therefore without saving them a second time).
+def coalesce_queries.bufs(bufs: List<&2, Buffer>, +target: String) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{server, +tail}:
+      +merged = take_last(List.sort(~Line, ~line_id_le, query_lines(tail, target)), SCROLL_CAP())
+      server <> coalesce_queries.go(tail, target, merged, False{})
+
+def coalesce_queries(+cl: Client, target: String) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      Client{nick, server, coalesce_queries.bufs(bufs, target), active, now, stg, auth, seq}
 
 def scroll_zero(b: Buffer) -> Buffer:
   set_buf_scroll(b, 0n)
@@ -1094,7 +1170,8 @@ def drop_buf.act(+active: Nat, +bi: Nat, +nbufs2: Nat, shift: Bool) -> Nat:
 
 def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +bi: Nat) -> Client:
   +bufs2 = remove_buf(bufs, bi)
-  Client{nick, server, bufs2, drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi)), now, stg, auth, log_seq}
+  +stg2 = set_active.unread(stg, nth_buf(bufs, bi))
+  Client{nick, server, bufs2, drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi)), now, stg2, auth, log_seq}
 
 def drop_buf.body(+cl: Client, +bi: Nat) -> Client:
   match cl:

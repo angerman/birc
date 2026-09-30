@@ -107,8 +107,32 @@ def utf8_chunk.final(state: H.ReadState) -> Bool:
 
 def utf8_chunk_ok() -> Bool:
   +start: H.ReadState = H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}
-  +first = H.read_chunk(List.append(&2, U32, Fr.string_to_octets("BIRC2\ta:6667\tserver\tMSG\t\ta\t"), 195 <> Nil{}), start, "a:6667", 2)
+  +first = H.read_chunk(List.append(&2, U32, Fr.string_to_octets("BIRC2\ta:6667\t*server*\tMSG\t\ta\t"), 195 <> Nil{}), start, "a:6667", 2)
   utf8_chunk.final(H.read_chunk(169 <> 10 <> Nil{}, first, "a:6667", 2))
+
+def server_roles_ok() -> Bool:
+  +old = Cl.init("me", "a")
+  +query = Feed.feed(old, ":server!u@h PRIVMSG me :private")
+  +new = Cl.client_log(query, 0n, Cl.System{}, "control")
+  +restored = H.apply_hist_entry(H.ServerEntry{Cl.Line{Cl.System{}, "", "control", "", 0n}},
+    H.apply_hist_entry(H.Entry{"server", Cl.Line{Cl.Msg{}, "", "<server> private", "server", 0n}}, Cl.init("me", "a")))
+  String.eq(H.extract_new_history_for("a:6667", old, new),
+    "BIRC2\ta:6667\tserver\tHL\t\tserver\t<server> private\nBIRC2\ta:6667\t*server*\tSYS\t\t\tcontrol\n")
+    && String.eq(CL.buf_texts(restored, 0n), "control|")
+    && String.eq(CL.buf_texts(restored, 1n), "<server> private|")
+
+def interleaved.restored(state: H.ReadState) -> Bool:
+  match state:
+    case H.ReadState{cl, _, _, _}:
+      String.eq(CL.buf_texts(Feed.feed(cl, ":a!u@h NICK :b"), 1n), "<a> first|<b> second|<a> third|a is now known as b|")
+
+def interleaved_history_ok() -> Bool:
+  +old = Cl.init("me", "a")
+  +a = Feed.feed(old, ":a!u@h PRIVMSG me :first")
+  +b = Feed.feed(a, ":b!u@h PRIVMSG me :second")
+  +new = Feed.feed(b, ":a!u@h PRIVMSG me :third")
+  interleaved.restored(H.read_chunk(Fr.string_to_octets(H.extract_new_history_for("a:6667", old, new)),
+    H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}, "a:6667", 100))
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -125,4 +149,6 @@ def main() -> IO(Unit):
     Unit <- E.must("rejected_local", rejected_local_ok())
     Unit <- E.must("endpoint", endpoint_ok())
     Unit <- E.must("utf8_chunk", utf8_chunk_ok())
+    Unit <- E.must("server_roles", server_roles_ok())
+    Unit <- E.must("interleaved_history_order", interleaved_history_ok())
     IO.print("history_demo=ok")

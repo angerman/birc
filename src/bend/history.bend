@@ -100,6 +100,12 @@ def join_tokens(+xs: List<&2, String>) -> String:
 
 type HistEntry is Data:
   Entry{target: String, line: Cl.Line}
+  ServerEntry{line: Cl.Line}
+
+def parse_entry.control(control: Bool, target: String, line: Cl.Line) -> HistEntry:
+  match control:
+    case True{}: ServerEntry{line}
+    case False{}: Entry{target, line}
 
 def parse_line_tokens(+tokens: List<&2, String>) -> Maybe<&2, HistEntry>:
   match tokens:
@@ -108,7 +114,7 @@ def parse_line_tokens(+tokens: List<&2, String>) -> Maybe<&2, HistEntry>:
         case Con{+kstr, rest2}:
           match rest2:
             case Con{+ts, rest3}:
-              Some{Entry{target, Cl.Line{parse_kind(kstr), ts, join_tokens(rest3), "", 0n}}}
+              Some{parse_entry.control(Irc.ieq(target, "server"), target, Cl.Line{parse_kind(kstr), ts, join_tokens(rest3), "", 0n})}
             case Nil{}: None{}
         case Nil{}: None{}
     case Nil{}: None{}
@@ -128,13 +134,14 @@ def valid_kind(+kind: String) -> Bool:
 def parse_line_for.valid(ok: Bool, +target: String, +kind: String, +ts: String, +author: String, +text: String) -> Maybe<&2, HistEntry>:
   match ok:
     case False{}: None{}
-    case True{}: Some{Entry{target, Cl.Line{parse_kind(kind), ts, text, author, 0n}}}
+    case True{}: Some{parse_entry.control(String.eq(target, "*server*"), target, Cl.Line{parse_kind(kind), ts, text, author, 0n})}
 
 def parse_line_for.tokens(tokens: List<&2, String>, +endpoint: String) -> Maybe<&2, HistEntry>:
   match tokens:
     case Con{+version, Con{+server, Con{+target, Con{+kind, Con{+ts, Con{+author, Con{+text, Nil{}}}}}}}}:
       parse_line_for.valid(String.eq(version, "BIRC2") && Irc.ieq(server, endpoint)
-        && Bool.not(String.is_empty(target)) && valid_kind(kind), target, kind, ts, author, text)
+        && Bool.not(String.is_empty(target)) && (String.eq(target, "*server*") || Bool.not(String.starts_with(target, "*")))
+        && valid_kind(kind), target, kind, ts, author, text)
     case _: None{}
 
 def parse_line_for(+endpoint: String, +raw: String) -> Maybe<&2, HistEntry>:
@@ -187,17 +194,39 @@ def extract_new_history(+old_cl: Cl.Client, new_cl: Cl.Client) -> String:
     case Cl.Client{_, _, bufs, _, _, _, _, _}:
       extract_new_bufs(bufs, Cl.log_seq_of(old_cl))
 
-def extract_new_bufs_for(bufs: List<&2, Cl.Buffer>, +endpoint: String, +seq: Nat) -> String:
+def new_entries.lines(lines: List<&2, Cl.Line>, +target: String, +control: Bool) -> List<&2, HistEntry>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{line, t}: parse_entry.control(control, target, line) <> new_entries.lines(t, target, control)
+
+def new_entries(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool) -> List<&2, HistEntry>:
   match bufs:
-    case Nil{}: ""
+    case Nil{}: Nil{}
     case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
-      Bool.pick(String, String.starts_with(name, "*"), "", serialize_lines_for(lines_after(lines, seq), endpoint, name))
-        ++ extract_new_bufs_for(t, endpoint, seq)
+      List.append(&2, HistEntry,
+        Bool.pick(List<&2, HistEntry>, String.starts_with(name, "*"), Nil{}, new_entries.lines(lines_after(lines, seq), name, first)),
+        new_entries(t, seq, False{}))
+
+def entry_line(entry: HistEntry) -> Cl.Line:
+  match entry:
+    case Entry{_, line}: line
+    case ServerEntry{line}: line
+
+def entry_id_le(a: HistEntry, b: HistEntry) -> Bool:
+  Cl.line_id_le(entry_line(a), entry_line(b))
+
+def serialize_entries(entries: List<&2, HistEntry>, +endpoint: String) -> String:
+  match entries:
+    case Nil{}: ""
+    case Con{entry, t}:
+      match entry:
+        case Entry{target, line}: serialize_line_for(endpoint, target, line) ++ serialize_entries(t, endpoint)
+        case ServerEntry{line}: serialize_line_for(endpoint, "*server*", line) ++ serialize_entries(t, endpoint)
 
 def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Client) -> String:
   match new_cl:
     case Cl.Client{_, _, bufs, _, _, _, _, _}:
-      extract_new_bufs_for(bufs, endpoint, Cl.log_seq_of(old_cl))
+      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
 
 # ---- applying history on load ---------------------------------------------
 
@@ -219,13 +248,16 @@ def apply_entry.target(is_srv: Bool, +cl: Cl.Client, +target: String, ln: Cl.Lin
 def apply_entry(+cl: Cl.Client, +target: String, ln: Cl.Line) -> Cl.Client:
   apply_entry.target(Irc.ieq(target, "server"), cl, target, ln)
 
+def apply_hist_entry(entry: HistEntry, cl: Cl.Client) -> Cl.Client:
+  match entry:
+    case ServerEntry{line}: apply_entry.bi(cl, 0n, line)
+    case Entry{+target, line}: apply_entry.got(Cl.buf_get(cl, target, Irc.starts_channel(target), True{}), line)
+
 def apply_entries(entries: List<&2, HistEntry>, cl: Cl.Client) -> Cl.Client:
   match entries:
     case Nil{}: cl
     case Con{+e, t}:
-      match e:
-        case Entry{+target, ln}:
-          apply_entries(t, apply_entry(cl, target, ln))
+      apply_entries(t, apply_hist_entry(e, cl))
 
 def buf_has_lines(+b: Cl.Buffer) -> Bool:
   match b:
@@ -252,7 +284,7 @@ def add_markers_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buf
 def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, add_markers_bufs(bufs, now), active, now_old, stg, auth, log_seq}
+      Cl.stamp_logs(Cl.Client{nick, server, add_markers_bufs(bufs, now), active, now_old, stg, auth, log_seq})
 
 def cap_buf_history(b: Cl.Buffer, cap: U32) -> Cl.Buffer:
   match b:
@@ -288,7 +320,7 @@ def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
 def read_record.entry(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
   match entry:
     case None{}: cl
-    case Some{Entry{target, line}}: cap_client_history(apply_entry(cl, target, line), cap)
+    case Some{entry}: cap_client_history(apply_hist_entry(entry, cl), cap)
 
 def read_record.utf8(text: Maybe<&2, String>, cl: Cl.Client, +endpoint: String, cap: U32) -> Cl.Client:
   match text:
@@ -445,14 +477,27 @@ def history_init_client.has(empty: Bool, +content: String, +nick: String, +host:
 def history_init_client.content(+content: String, +nick: String, +host: String, +now: String, +cap: U32) -> Cl.Client:
   history_init_client.has(String.is_empty(content), content, nick, host, now, cap)
 
+def history_load_client.pick(skip: Bool, +path: String, +endpoint: String, +cap: U32, +cl: Cl.Client, +now: String) -> IO(Cl.Client):
+  match skip:
+    case True{}: IO.pure(Cl.Client, cl)
+    case False{}:
+      do IO<Cl.Client>:
+        result : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+        read_open(result, cl, endpoint, cap, now)
+
+# Endpoint switches reset the buffers before this call. Load into that client,
+# not a fresh init: settings, authentication, and global event IDs must survive.
+def history_load_client(+path: String, +endpoint: String, +cap: U32, +cl: Cl.Client) -> IO(Cl.Client):
+  match cl:
+    case Cl.Client{_, _, _, _, +now, _, _, _}:
+      history_load_client.pick(String.is_empty(path) || Bool.not(Cl.settings_history(Cl.get_settings(cl))), path, endpoint, cap, cl, now)
+
 def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   match empty:
     case True{}:
       IO.pure(Cl.Client, Cl.init_with_cap(nick, host, cap))
     case False{}:
-      do IO<Cl.Client>:
-        result : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-        read_open(result, Cl.init_with_cap(nick, host, cap), endpoint, cap, now)
+      history_load_client(path, endpoint, cap, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
 
 def history_init_client(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   history_init_client.pick(String.is_empty(path), path, endpoint, cap, nick, host, now)

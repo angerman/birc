@@ -364,7 +364,7 @@ def feed_quit.query(+h: Cl.Buffer, +from: String, +reason: String, +ts: String) 
         from,
         reason,
         ts,
-        Irc.ieq(name, from)
+        Irc.ieq(name, from) && Cl.is_query_name(name)
       )
 
 def feed_quit.apply.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool, ch: Bool) -> Cl.Buffer:
@@ -377,12 +377,17 @@ def feed_quit.apply.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: Strin
 def feed_quit.apply(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool) -> Cl.Buffer:
   feed_quit.apply.on(h, from, reason, ts, joins, is_channel_buf(h))
 
-def feed_quit.map(xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String, +joins: Bool) -> List<&2, Cl.Buffer>:
+def feed_quit.map.go(xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String, +joins: Bool) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, t}:
-      feed_quit.apply(h, from, reason, ts, joins) <> feed_quit.map(t, from, reason, ts, joins)
+      feed_quit.apply(h, from, reason, ts, joins) <> feed_quit.map.go(t, from, reason, ts, joins)
+
+def feed_quit.map(xs: List<&2, Cl.Buffer>, from: String, reason: String, ts: String, joins: Bool) -> List<&2, Cl.Buffer>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{server, t}: server <> feed_quit.map.go(t, from, reason, ts, joins)
 
 def feed_quit.with(+cl: Cl.Client, +from: String, +reason: String) -> Cl.Client:
   match cl:
@@ -405,7 +410,7 @@ def feed_nick.one(+b: Cl.Buffer, +from: String, +to: String, +ts: String) -> Cl.
 def feed_nick.query.on(+h: Cl.Buffer, +from: String, +to: String, +ts: String, hit: Bool) -> Cl.Buffer:
   match hit:
     case True{}:
-      Cl.buf_log_ts(Cl.set_buf_name(h, to), Cl.System{}, ts, fmt_nick_chg(from, to))
+      Cl.buf_log_ts(Cl.nick_rename(Cl.set_buf_name(h, to), from, to), Cl.System{}, ts, fmt_nick_chg(from, to))
     case False{}:
       h
 
@@ -417,7 +422,7 @@ def feed_nick.query(+h: Cl.Buffer, +from: String, +to: String, +ts: String) -> C
         from,
         to,
         ts,
-        Irc.ieq(name, from)
+        Irc.ieq(name, from) && Cl.is_query_name(name)
       )
 
 def feed_nick.apply.on(+h: Cl.Buffer, +from: String, +to: String, +ts: String, ch: Bool) -> Cl.Buffer:
@@ -430,12 +435,17 @@ def feed_nick.apply.on(+h: Cl.Buffer, +from: String, +to: String, +ts: String, c
 def feed_nick.apply(+h: Cl.Buffer, +from: String, +to: String, +ts: String) -> Cl.Buffer:
   feed_nick.apply.on(h, from, to, ts, is_channel_buf(h))
 
-def feed_nick.map(xs: List<&2, Cl.Buffer>, +from: String, +to: String, +ts: String) -> List<&2, Cl.Buffer>:
+def feed_nick.map.go(xs: List<&2, Cl.Buffer>, +from: String, +to: String, +ts: String) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, t}:
-      feed_nick.apply(h, from, to, ts) <> feed_nick.map(t, from, to, ts)
+      feed_nick.apply(h, from, to, ts) <> feed_nick.map.go(t, from, to, ts)
+
+def feed_nick.map(xs: List<&2, Cl.Buffer>, from: String, to: String, ts: String) -> List<&2, Cl.Buffer>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{server, t}: server <> feed_nick.map.go(t, from, to, ts)
 
 def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
   match self:
@@ -444,10 +454,27 @@ def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
     case False{}:
       cl
 
+def feed_nick.focused(index: Maybe<&2, Nat>, +cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
+  match index:
+    case None{}: feed_nick.fin(Cl.set_active(cl, 0n), to, self)
+    case Some{i}: feed_nick.fin(Cl.set_active(cl, i), to, self)
+
+def feed_nick.focus_control(control: Bool, +cl: Cl.Client, name: String, +to: String, self: Bool) -> Cl.Client:
+  match control:
+    case True{}: feed_nick.fin(Cl.set_active(cl, 0n), to, self)
+    case False{}: feed_nick.focused(Cl.buf_find(cl, name), cl, to, self)
+
+def feed_nick.coalesced(+cl: Cl.Client, +from: String, +to: String, +focus: String, self: Bool, control: Bool) -> Cl.Client:
+  +stg = Cl.get_settings(cl)
+  +stg2 = Cl.set_unreads(stg, Cl.rename_unreads(Cl.settings_unreads(stg), from, to))
+  +merged = Cl.coalesce_queries(Cl.set_settings(cl, stg2), to)
+  +name = Bool.pick(String, Irc.ieq(focus, from) && Cl.is_query_name(focus), to, focus)
+  feed_nick.focus_control(control, merged, name, to, self)
+
 def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      feed_nick.fin(Cl.Client{nick, server, feed_nick.map(bufs, from, to, now), active, now, stg, auth, log_seq}, to, self)
+      feed_nick.coalesced(Cl.stamp_logs(Cl.Client{nick, server, feed_nick.map(bufs, from, to, now), active, now, stg, auth, log_seq}), from, to, Cl.active_buf_name(cl), self, Nat.is_eq(active, 0n))
 
 def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)

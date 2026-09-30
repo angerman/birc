@@ -4,6 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history.bend as H
+import ../../src/bend/client.bend as Feed
 
 def repeat(n: Nat, +text: String) -> String:
   match n:
@@ -41,16 +42,35 @@ def loaded_ok(+cl: Cl.Client) -> Bool:
         && String.ends_with(CL.buf_texts(cl, 0n), "last-2|last-1|last-é|12:00:00|")
     case _: False{}
 
+def preserved_ok(cl: Cl.Client) -> Bool:
+  match cl:
+    case Cl.Client{+nick, +server, _, _, +now, +settings, Cl.AuthCap{}, seq}:
+      String.eq(nick, "configured") && String.eq(server, "a") && String.eq(now, "14:00:00")
+        && Bool.not(Cl.settings_ts(settings)) && String.eq(Cl.settings_sasl_user(settings), "user")
+        && Nat.is_gt(seq, 50n)
+    case _: False{}
+
+def configured() -> Cl.Client:
+  +cl = Cl.client_set_sasl(Cl.init_with_cap("configured", "a", 3), "user", "pass")
+  +stg = Cl.set_ts(Cl.get_settings(cl), False{})
+  Cl.Client{"configured", "a", Cl.empty_buf("server", False{}) <> Nil{}, 0n, "14:00:00", stg, Cl.AuthCap{}, 50n}
+
+def loaded_checkpoint_ok(+cl: Cl.Client) -> Bool:
+  preserved_ok(cl) && String.is_empty(H.extract_new_history_for("a:6667", cl, Feed.feed(cl, "PING :x")))
+
+def empty_ok(+cl: Cl.Client) -> Bool:
+  Nat.is_eq(CL.buf_nlines(cl, 0n), 0n) && Nat.is_eq(Cl.log_seq_of(cl), 50n)
+
 def main() -> IO(Unit):
   +path: String = "build/history_io.fixture"
-  +old = "BIRC2\ta:6667\tserver\tMSG\t\ta\t" ++ repeat(300n, "x") ++ "\n"
+  +old = "BIRC2\ta:6667\t*server*\tMSG\t\ta\t" ++ repeat(300n, "x") ++ "\n"
   +end = "server\tMSG\t\tambiguous-legacy\n"
     ++ "BIRC2\tb:6667\tprivate\tMSG\t\ta\tother-server\n"
-    ++ "BIRC2\ta:6667\tserver\tMSG\t\ta\tlast-2\n"
-    ++ "BIRC2\ta:6667\tserver\tMSG\t\ta\tlast-1\n"
-    ++ "BIRC2\ta:6667\tserver\tMSG\t\ta\tlast-é\n"
+    ++ "BIRC2\ta:6667\t*server*\tMSG\t\ta\tlast-2\n"
+    ++ "BIRC2\ta:6667\t*server*\tMSG\t\ta\tlast-1\n"
+    ++ "BIRC2\ta:6667\t*server*\tMSG\t\ta\tlast-é\n"
     ++ repeat(9000n, "z") ++ "\n"
-    ++ "BIRC2\ta:6667\tserver\tMSG\t\ta\tunterminated"
+    ++ "BIRC2\ta:6667\t*server*\tMSG\t\ta\tunterminated"
   do IO<Unit>:
     f : File <- IO.try(File, File.open(path, "w"))
     f : File <- write_many(20n, f, repeat(200n, old))
@@ -61,4 +81,10 @@ def main() -> IO(Unit):
     Unit <- E.must("latest_after_one_mib", loaded_ok(cl))
     missing : Cl.Client <- H.history_init_client("build/history_io.absent", "a:6667", 3, "me", "a", "12:00:00")
     Unit <- E.must("missing_file", Nat.is_eq(CL.buf_nlines(missing, 0n), 0n))
+    loaded : Cl.Client <- H.history_load_client(path, "a:6667", 3, configured())
+    Unit <- E.must("load_preserves_configuration_and_checkpoint", loaded_checkpoint_ok(loaded))
+    empty_file : File <- IO.try(File, File.open("build/history_io.empty", "w"))
+    Unit <- File.close(empty_file)
+    empty : Cl.Client <- H.history_load_client("build/history_io.empty", "a:6667", 3, configured())
+    Unit <- E.must("empty_file", empty_ok(empty))
     IO.print("history_io=ok")
