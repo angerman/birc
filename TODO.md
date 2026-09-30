@@ -880,7 +880,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       pending continuation work and preserve paste/network fairness without
       adding Session fields. Test normal acknowledgement, two synthetic wakes,
       a full event queue, mixed incoming chunks/paste, PONG, and quit.
-- [ ] **R08 — Recover refused terminal frames (P1).** A bounded write may
+- [x] **R08 — Recover refused terminal frames (P1).** A bounded write may
       leave the display incomplete. Wake the UI when output can proceed;
       do not park forever or spin while output remains full. Keep typing
       expiry and network work independent. Test partial output, recovery,
@@ -900,7 +900,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       when a truncated UDP answer has no usable A record. Keep compressed
       CNAME reads within their declared RDATA. Test complete A answers,
       truncated CNAME-only answers, zero-length and overrun RDATA.
-- [ ] **D04 — Await the headless startup result (P1).** Non-tty input EOF
+- [x] **D04 — Await the headless startup result (P1).** Non-tty input EOF
       must not turn a pending or refused connection into exit-zero success.
       Keep tty startup responsive. Test healthy registration, refusal,
       pending startup, and the existing headless termination fixture.
@@ -968,7 +968,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       and opening. Keep `/links` output out of its own source collection and
       preserve numbering. Test repeated listing, `/open 1`, code spans, and
       punctuation boundaries.
-- [ ] **U05 — Preserve UTF-8 across partial terminal writes (P2).** A frame
+- [x] **U05 — Preserve UTF-8 across partial terminal writes (P2).** A frame
       deadline can stop inside a scalar. Finish that scalar before accepting
       a later escape sequence or payload. Bound any retained transport suffix
       and share the rule with teardown. Test short writes at each byte boundary,
@@ -994,7 +994,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **C05 — Remove proven redundant plumbing.** Remove repeated empty-arg
       guards and duplicate marker/URL/command operations as their canonical
       replacements land. Do not add abstractions without a second real use.
-- [ ] **C06 — Keep the requested demo identity (P2).** Demo welcome data
+- [x] **C06 — Keep the requested demo identity (P2).** Demo welcome data
       hard-codes `me` and replaces the requested `--nick`. Generate demo data
       for the requested nick while retaining the default fixture for existing
       goldens. Test default and custom demo nicks and later registration.
@@ -1188,6 +1188,39 @@ Verification so far (all through the locked Nix shell, no pin updates):
   `timeout 300 nix --extra-experimental-features 'nix-command flakes' develop
   --no-update-lock-file . --command make proof test-feed-bench` exited 0:
   `ALL PROOFS CHECK` and `feed_bench=ok`.
+- C06/D04 (`001e051`): demo data uses the requested nick; existing default
+  goldens still use the exact `me` wrapper. Client is the only offline identity,
+  with unused nick plumbing removed. Headless startup awaits actor Boot;
+  tty startup still paints immediately. Existing demo-nick and linger fixtures
+  passed three consecutive worker runs. New headless checks passed three runs
+  (refusal plus eight healthy registrations each); the actual App demo-identity
+  guard passed and fails against the baseline. No existing assertion changed.
+- U05 (`cbfa541`): native transport owns at most three accepted suffix bytes,
+  completes them before later output, and does not replay canceled payloads.
+  Native short-write/cancel/restore/signal tests, strict lint, proof, headless
+  smoke, and terminal restore passed. Unchanged TabCut plus all seven output
+  stall cases passed three consecutive worker runs.
+- R08 (`510351c`): maintenance ticks retry a short frame only when output is
+  writable. `UiKeys.more` remains input-only. A slow reader proved that the
+  former two-second repair blocked PONG. An always-40-ms repair candidate was
+  rejected because unchanged typing status could still remain incomplete.
+  The final writable repair allows 200 ms, ordinary frames 40 ms, and still-full
+  repairs zero waiting. Unchanged typing and new ordinary/unread/slow-reader/
+  quit-during-repair cases passed three consecutive worker runs; output-stall,
+  strict lint, proof, and maintenance-paint guards passed.
+- Combined U05/R08 worker check: native gate, lint, proof, TabCut and typing
+  passed. One first TabCut run lacked `full39` body text despite valid UTF-8;
+  its cause remains unknown. Six subsequent TabCut runs passed, including three
+  consecutive paired with typing. Root must verify the final combined tree.
+- Root follow-up gate on the merged source exited 0: `timeout 600 nix
+  --extra-experimental-features 'nix-command flakes' develop
+  --no-update-lock-file . --command make proof build-ui test-output-utf8
+  test-demo-identity test-headless-startup test-pty-demo-nick test-pty-linger
+  test-pty-tabcut test-pty-typing test-pty-output-recovery lint-ffi`.
+  Full output is in `build/review-followup.log`. The four first-run failures
+  now pass; native regression, custom demo identity, eight healthy headless
+  registrations, refusal, and all four recovery modes also pass. Full combined
+  verification and the two approval-blocked expectations remain open.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

@@ -407,6 +407,18 @@ test-ui-input-queue: ## Synthetic wakes cannot block acknowledgement or a full e
 test-pty-input-fairness: build-ui ## Pty: mixed input/inbound traffic keeps PONG and quit responsive.
 	$(NIXRUN) timeout 45 python3 tests/pty/input_fairness.py ./$(BLDDIR)/birc
 
+test-demo-identity: ## Demo data preserves the requested nick and current Dial identity.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/demo_identity.bend -o $(BLDDIR)/demo_identity.c
+	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/demo_identity.c -o $(BLDDIR)/demo_identity'
+	$(NIXRUN) sh scripts/check-golden.sh demo_identity=ok ./$(BLDDIR)/demo_identity
+
+test-headless-startup: build-ui ## Headless startup fails closed and completes healthy registration.
+	$(NIXRUN) timeout 30 python3 tests/net/headless_startup.py ./$(BLDDIR)/birc
+
+test-pty-output-recovery: build-ui ## Pty: short frames recover without blocking PONG or quit.
+	$(NIXRUN) timeout 40 python3 tests/pty/output_recovery.py ./$(BLDDIR)/birc
+
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
 	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
@@ -464,7 +476,7 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
-test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness
+test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -473,10 +485,11 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-actor test-actor-queue test-startup-actor test-session-links test-pty-session-links
 .PHONY: test-pty-split-identity
 .PHONY: test-ui-input-queue test-pty-input-fairness
+.PHONY: test-demo-identity test-headless-startup test-pty-output-recovery
 
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue ## Adversarial review regression gates.
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 ## Adversarial review regression gates.
 
-test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) timeout 180 bend PROOF.bend

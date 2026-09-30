@@ -122,6 +122,13 @@ missing tools fail the target. Foreign effects and `@unsafe` live loops are
 outside these pure proof guarantees. Runtime, PTY, and sanitizer tests cover
 those paths separately.
 
+Terminal writes have a shared frame deadline. Partial UTF-8 scalars retain at
+most three suffix bytes, which must precede later output. A short frame retries
+on a writable one-second maintenance tick; a full output queue does not cause
+a busy retry loop. Ordinary frames have 40 ms, writable repairs have 200 ms.
+Headless live startup awaits the bounded registration result and reports
+initial connection failure with a nonzero exit.
+
 ---
 
 ## Quick Start
