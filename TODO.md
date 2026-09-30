@@ -855,10 +855,12 @@ implementations. Every changed PTY test must pass three consecutive runs.
       between a full command queue, a blocked TCP writer, and a full event
       queue. Keep `/quit` and disconnect usable when a peer stops reading.
       Test normal sends, a non-reading peer, queue saturation, and shutdown.
-- [x] **R02 — One terminal output deadline (P1).** Apply the bounded frame
+- [ ] **R02 — One terminal output deadline (P1).** Apply the bounded frame
       transport to BEL and OSC 52 as well as ordinary painting. Move blocking
       clipboard work outside the shared IO loop. Test an unread full PTY with
       alerts and selection; network PONG and shutdown must still proceed.
+      Include an already-full PTY before TimUI opens, with shared and
+      independent output descriptions; initial screen writes must be bounded.
 - [x] **R03 — One frame-result handler (P2).** Handle clicked URLs and keys
       from every paint, including resize, incoming chunks, EOF, and redraws.
       Test clicks with and without concurrent resize/inbound traffic.
@@ -930,7 +932,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       Preserve completed records and close the handle before reporting.
       Document the pinned size API's 4-GiB boundary. Test ordinary files,
       metadata-only sparse overflow, read failure, and missing-file success.
-- [ ] **S12 — Split pane identity for legal nick `server` (P2).** Use the
+- [x] **S12 — Split pane identity for legal nick `server` (P2).** Use the
       invalid nick `*server*` as the internal control-pane key. Keep a private
       query's pane contents, focus, and send target consistent. Retain the
       `/split server` control alias only when no such query exists. Test
@@ -1091,7 +1093,11 @@ Verification so far (all through the locked Nix shell, no pin updates):
   bounded after terminal restoration (`880d858`).
 - S12 red reproduction: `/query server` then `/vsplit #t` displays control
   history while still sending to the query. Two focus toggles then select
-  control and reject chat. A canonical pane-key fix is in progress.
+  control and reject chat. The canonical pane-key fix is `5d8904e`; pure
+  split tests and three quantified pane-key laws passed, with existing display
+  expectations unchanged. The new PTY passed three consecutive runs and the
+  existing split PTY passed. Internal lookup never falls back from a missing
+  query to control; only the user command supports the legacy alias.
 - V06: `make lint-ffi proof` passed with `-Werror` enabled. README no longer
   claims a fixed FFI line count or PTY scenario count, and names the shared
   URL lexer, authentication state machine, and terminal-column module.
@@ -1101,6 +1107,10 @@ Verification so far (all through the locked Nix shell, no pin updates):
   PTY passed three consecutive runs before commit: initial A/B isolation,
   same-port restore, and in-process A→B→A reload before either new welcome.
   Original chat/control rows remain single records; markers are not persisted.
+- R02 startup follow-up: native final review found that TimUI screen entry
+  still calls its default unbounded fd writer before the first frame. A new
+  prefilled-terminal regression and reuse of the existing deadline mechanism
+  are in progress. R02 stays unchecked until this boundary passes.
 
 Pending approval: `tests/pty/history_pty.py` currently uses two different
 random ports but expects shared history. The endpoint fix deliberately stops

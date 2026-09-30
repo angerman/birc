@@ -104,10 +104,12 @@ laws check concrete examples, not all possible inputs. Current coverage includes
   ```
 - **`push_rem_bound`**: For every octet chunk, `push(Nil, chunk)` retains at most `LINE_OCTET_MAX + 1` octets. This statement starts with an empty remainder; it is not a quantified multi-chunk invariant.
 - **`search_empty_line`**, **`split_focus_involution`**: Quantified empty-query and two-focus-toggle properties.
+- **`split_control_key`**, **`split_control_lookup`**, **`split_server_query_lookup`**: Internal pane keys distinguish control from a query named `server` for every client value.
 - **`sasl_idle_no_reply`**, **`sasl_done_no_reply`**: No control event can send credentials before authentication is enabled or restart a completed exchange.
 - **`auth_preserves_settings`**, **`timestamp_preserves_log_sequence`**: Authentication changes preserve settings; assigning timestamps preserves log identity.
 - **`actor_zero_split`**, **`actor_exhausted_keeps_pending`**: Zero credit cannot emit or discard pending lines, for any queue.
 - **`framer_roundtrip`**, **`flood_buffers`**, **`scroll_bounds`**, **`log_chrono`**, **`tokenize_*`**: Concrete framing, cap, scroll, ordering, and tokenization examples. `flood_server_clean` checks that rejected JOINs add server diagnostics; it does not prove general absence of corruption.
+- **`narrow_cluster_source_count`**, **`wide_cluster_source_count`**: Concrete source-length checks for a multi-codepoint emoji with and without a narrow-pane replacement.
 
 Verify all proofs at any time:
 ```sh
