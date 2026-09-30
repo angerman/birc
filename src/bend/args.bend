@@ -79,13 +79,6 @@ type Step is Data:
   Go{xs: List<&2, String>, cfg: Cfg}
   Stop{got: Parsed}
 
-def args_need(+xs: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{_, _}:
-      False{}
-
 def FRAMES_MAX() -> U32:
   65535
 
@@ -135,15 +128,8 @@ def args_take_con(+xs: List<&2, String>, +cfg: Cfg, frames: Bool) -> Step:
     case Con{+h, t}:
       args_num(t, cfg, h, frames)
 
-def args_take_on(+xs: List<&2, String>, +cfg: Cfg, frames: Bool, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_take_con(xs, cfg, frames)
-
 def args_take(+xs: List<&2, String>, +cfg: Cfg, frames: Bool) -> Step:
-  args_take_on(xs, cfg, frames, args_need(xs))
+  args_take_con(xs, cfg, frames)
 
 def args_word_set(+t: List<&2, String>, +cfg: Cfg, +h: String, host: Bool) -> Step:
   match host:
@@ -159,15 +145,8 @@ def args_word_con(+xs: List<&2, String>, +cfg: Cfg, host: Bool) -> Step:
     case Con{+h, t}:
       args_word_set(t, cfg, h, host)
 
-def args_word_on(+xs: List<&2, String>, +cfg: Cfg, host: Bool, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_word_con(xs, cfg, host)
-
 def args_word(+xs: List<&2, String>, +cfg: Cfg, host: Bool) -> Step:
-  args_word_on(xs, cfg, host, args_need(xs))
+  args_word_con(xs, cfg, host)
 
 def args_chan_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
@@ -176,15 +155,8 @@ def args_chan_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       Go{ t, set_chan(cfg, h)}
 
-def args_chan_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_chan_con(xs, cfg)
-
 def args_chan(+xs: List<&2, String>, +cfg: Cfg) -> Step:
-  args_chan_on(xs, cfg, args_need(xs))
+  args_chan_con(xs, cfg)
 
 def args_replay_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
@@ -193,15 +165,8 @@ def args_replay_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       Go{ t, set_replay(cfg, h)}
 
-def args_replay_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_replay_con(xs, cfg)
-
 def args_replay(+xs: List<&2, String>, +cfg: Cfg) -> Step:
-  args_replay_on(xs, cfg, args_need(xs))
+  args_replay_con(xs, cfg)
 
 def args_sasl_user_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
@@ -210,15 +175,8 @@ def args_sasl_user_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       Go{ t, set_sasl_user(cfg, h)}
 
-def args_sasl_user_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_sasl_user_con(xs, cfg)
-
 def args_sasl_user(+xs: List<&2, String>, +cfg: Cfg) -> Step:
-  args_sasl_user_on(xs, cfg, args_need(xs))
+  args_sasl_user_con(xs, cfg)
 
 def args_sasl_pass_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
@@ -227,15 +185,8 @@ def args_sasl_pass_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       Go{ t, set_sasl_pass(cfg, h)}
 
-def args_sasl_pass_on(+xs: List<&2, String>, +cfg: Cfg, need: Bool) -> Step:
-  match need:
-    case True{}:
-      Stop{Bad{"birc: missing value"}}
-    case False{}:
-      args_sasl_pass_con(xs, cfg)
-
 def args_sasl_pass(+xs: List<&2, String>, +cfg: Cfg) -> Step:
-  args_sasl_pass_on(xs, cfg, args_need(xs))
+  args_sasl_pass_con(xs, cfg)
 
 def USAGE() -> String:
   "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--demo] [--help-irc]"
