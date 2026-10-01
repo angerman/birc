@@ -15,7 +15,9 @@ When using timui.h:
 
 `birc` is an IRC client: **Bend 2 owns main, protocol, client, submit, framer,
 networking, and the frame loop**; C is thin TimUI FFI under `src/ffi/`. Plaintext IRC only (host:6667). No crypto, no ncurses, no curl-pipe
-installers.
+installers. Remote image previews may use the provisioned Python/Pillow helper
+with standard-library HTTPS certificate verification; IRC remains plaintext.
+Never fetch supplied private chat URLs during tests.
 
 Original material: Apache-2.0; author Moritz Angermann <moritz@zw3rk.com>.
 Preserve upstream licenses. Do not add model attribution.
@@ -50,6 +52,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
+| `src/media/image.py` | Bounded HTTP(S) image helper; normalized frames, no temporary files |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
 

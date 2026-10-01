@@ -44,10 +44,11 @@
         let
           pkgs = import nixpkgs { inherit system; };
           bend = self.packages.${system}.bend;
+          media = pkgs.callPackage ./nix/media.nix {};
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              bend bun clang python3
+              bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media
               bashInteractive gnumake git
               coreutils findutils gnugrep gnused gawk
               diffutils file which cacert
