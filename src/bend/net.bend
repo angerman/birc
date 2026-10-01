@@ -10,6 +10,7 @@ import ./split.bend as Sp
 import ./clock.bend as Clock
 import ./actor.bend as Act
 import ./history.bend as Hist
+import ./history_io.bend as HistIO
 import ./typing.bend as Ty
 import ./media.bend as M
 import ./links.bend as Links
@@ -141,13 +142,6 @@ def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
       paint_go(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)), media)
 
 
-def outs_nil(+xs: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{_, _}:
-      False{}
-
 def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty: Bool) -> IO(U32):
   match empty:
     case True{}:
@@ -191,7 +185,7 @@ def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +g
         ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Drop{})
         return gen
     case Sess.Cont{+outs}:
-      emit_outs(chan, outs, gen, outs_nil(outs))
+      emit_outs(chan, outs, gen, List.is_empty(&2, String, outs))
     case Sess.Pump{_}:
       IO.pure(U32, gen)
     case Sess.OpenUrl{+url}:
@@ -500,7 +494,7 @@ def on_chunk_go(
   match pair:
     case (+st2, +outs):
       do IO<Unit>:
-        gen2 : U32 <- emit_outs(cmd, outs, gen, outs_nil(outs))
+        gen2 : U32 <- emit_outs(cmd, outs, gen, List.is_empty(&2, String, outs))
         got : T.Ui & T.UiKeys <- paint_session(ui, st2)
         on_chunk.paint(got, st2, evt, cmd, ack, gen2, k)
 
@@ -932,7 +926,7 @@ def live_step.next(
       do IO<Unit>:
         # Save only the current event. Imported rows get fresh IDs and must
         # become the next baseline, never part of this append comparison.
-        notice : Maybe<&2, String> <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
+        notice : Maybe<&2, String> <- HistIO.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
         # A save failure belongs only in the non-persisted diagnostic buffer.
         # Repaint through the existing coalesced continuation, never UiError:
         # saving an Error chat row would recursively fail and notify again.

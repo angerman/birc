@@ -431,6 +431,72 @@ test-wrap: ## Styled, linked, wide, and combining spans wrap without losing targ
 	$(NIXRUN) timeout 180 bend tests/bend/wrap_demo.bend -o $(BLDDIR)/wrap_demo
 	$(NIXRUN) sh scripts/check-golden.sh wrap_demo=ok ./$(BLDDIR)/wrap_demo
 
+.PHONY: test-m21-view
+test-m21-view: ## Word boundaries, styled clusters, safe headers, and history display fallbacks.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m21_view.bend -o $(BLDDIR)/m21_view
+	$(NIXRUN) sh scripts/check-golden.sh m21_view=ok timeout 15 ./$(BLDDIR)/m21_view
+
+.PHONY: test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-native-clusters-ubsan test-m21-clusters-output test-nix-preflight
+test-m21-runtime: ## DNS reply identity and terminated/unterminated replay equivalence.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m21_runtime.bend -o $(BLDDIR)/m21_runtime
+	$(NIXRUN) sh scripts/check-golden.sh m21_runtime=ok timeout 15 ./$(BLDDIR)/m21_runtime
+
+test-m21-sasl-env: ## SASL environment fallback and explicit CLI precedence.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m21_sasl_env.bend -o $(BLDDIR)/m21_sasl_env
+	$(NIXRUN) timeout 50 python3 tests/sasl_env.py ./$(BLDDIR)/m21_sasl_env
+
+test-media-image-bounds: ## Synthetic expanding GIF limits and APNG fallback decode accounting.
+	$(NIXRUN) timeout 30 python3 tests/media_image_bounds.py
+
+test-m21-native-clusters: ## Actual FFI: complete-cluster tab caps, painting, and click indices.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/m21_native_clusters.c -o $(BLDDIR)/m21_native_clusters'
+	$(NIXRUN) sh scripts/check-golden.sh m21_native_clusters=ok timeout 15 ./$(BLDDIR)/m21_native_clusters
+
+test-m21-native-clusters-ubsan: ## UBSan: actual FFI cluster clipping and painting.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -Werror=vla -pedantic -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/m21_native_clusters.c -o $(BLDDIR)/m21_native_clusters_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh m21_native_clusters=ok timeout 15 ./$(BLDDIR)/m21_native_clusters_ubsan'
+
+test-m21-clusters-output: build-ui ## Synthetic replay: actual terminal paint across source style boundaries.
+	$(NIXRUN) timeout 30 python3 tests/m21_clusters_output.py ./$(BLDDIR)/birc
+
+test-nix-preflight: ## Fixture guard uses provisioned Python, not the host interpreter.
+	$(NIXRUN) timeout 30 python3 tests/nix_preflight.py
+
+.PHONY: test-m21-targets test-m21-session test-m21-color test-m21-history-private
+test-m21-targets test-m21-session test-m21-color:
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+
+test-m21-history-private: ## Private history modes, owned-file repair, path safety, and disabled controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m21_history_private.bend -o $(BLDDIR)/m21_history_private
+	$(NIXRUN) timeout 30 python3 tests/history_private.py ./$(BLDDIR)/m21_history_private
+
+.PHONY: test-m21-history-native test-m21-history-native-ubsan
+M21_HISTORY_CFLAGS := -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wcast-qual
+test-m21-history-native: ## Actual history FFI ownership, permission checks, and partial/error writes.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC $(M21_HISTORY_CFLAGS) tests/m21_history_native.c -o $(BLDDIR)/m21_history_native'
+	$(NIXRUN) sh scripts/check-golden.sh m21_history_native=ok timeout 15 ./$(BLDDIR)/m21_history_native
+
+test-m21-history-native-ubsan: ## UBSan: history allocation ownership, descriptor policy, and write failures.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC $(M21_HISTORY_CFLAGS) -g -fno-omit-frame-pointer -fsanitize=undefined -fno-sanitize-recover=undefined tests/m21_history_native.c -o $(BLDDIR)/m21_history_native_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh m21_history_native=ok timeout 15 ./$(BLDDIR)/m21_history_native_ubsan'
+
+.PHONY: test-m21
+test-m21: test-m21-view test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-clusters-output test-nix-preflight test-m21-targets test-m21-session test-m21-color test-m21-history-private ## Review fixes: routing, private history, DNS, replay, clusters, and word wrapping.
+
+test-review-pure: test-m21
+test-m21: test-m21-history-native
+test-sanitizers: test-m21-native-clusters-ubsan test-m21-history-native-ubsan
+
 test-columns-width: ## Exhaustive scalar-width parity with the actual TimUI implementation.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/columns_width.bend -o $(BLDDIR)/columns_width
@@ -479,7 +545,7 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	@grep -F -x ':irc.birc.dev 001 me :Welcome' fixtures/demo.irc >/dev/null || { printf '%s\n' 'BLOCKED: fixtures/demo.irc drifted' >&2; exit 2; }
 	@grep -F -x ':irc.example.net 001 me :Welcome to the network' fixtures/welcome.irc >/dev/null || { printf '%s\n' 'BLOCKED: fixtures/welcome.irc drifted' >&2; exit 2; }
 	@grep -F 'PiNg :xyz' fixtures/odd_casing.irc >/dev/null || { printf '%s\n' 'BLOCKED: fixtures/odd_casing.irc drifted' >&2; exit 2; }
-	@python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc missing CTCP SOH' >&2; exit 2; }
+	@$(NIXRUN) python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc CTCP validation failed' >&2; exit 2; }
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
 	$(NIXRUN) sh scripts/check-golden.sh proto_parity=ok ./$(BLDDIR)/proto_parity
@@ -764,6 +830,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_uikeys/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_uikeys/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
 	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Socket.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend

@@ -1,6 +1,6 @@
 # Save errors return one bounded diagnostic after closing the descriptor.
 import Base
-import ../../src/bend/history.bend as H
+import ../../src/bend/history_io.bend as H
 import ../../src/bend/buffer.bend as Cl
 
 def report(result: Maybe<&2, String>) -> IO(Unit):

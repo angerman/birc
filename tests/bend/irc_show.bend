@@ -69,5 +69,5 @@ def sanitize_in_ok() -> Bool:
     && String.eq(Irc.sanitize_in("x" ++ SCon{Chr{3}, "04y"}), "xy")
     && String.eq(Irc.sanitize_in(SCon{Chr{1}, "ACTION"}), SCon{Chr{1}, "ACTION"})
     && String.eq(Irc.sanitize_in(SCon{Chr{3}, ",hello"}), ",hello")
-    && String.eq(Irc.sanitize_in(SCon{Chr{3}, "4,hello"}), "hello")
+    && String.eq(Irc.sanitize_in(SCon{Chr{3}, "4,hello"}), ",hello")
     && String.eq(Irc.sanitize_in(SCon{Chr{3}, "04,02hello"}), "hello")

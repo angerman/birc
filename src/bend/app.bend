@@ -14,39 +14,28 @@ def run_demo(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
 def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
   Replay.load(path, nick, server)
 
-def resolve_sasl_user.env(r: Result<&1, &1, U32 & String, String>) -> String:
+def resolve_sasl.env(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
     case Done{+v}: v
     case Fail{_}: ""
 
-def resolve_sasl_user.empty(empty: Bool, +su: String) -> IO(String):
+def resolve_sasl.empty(empty: Bool, +value: String, +name: String) -> IO(String):
   match empty:
     case True{}:
       do IO<String>:
-        r : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_SASL_USER")
-        return resolve_sasl_user.env(r)
+        r : Result<&1, &1, U32 & String, String> <- IO.get_env(name)
+        return resolve_sasl.env(r)
     case False{}:
-      IO.pure(String, su)
+      IO.pure(String, value)
+
+def resolve_sasl(+value: String, +name: String) -> IO(String):
+  resolve_sasl.empty(String.is_empty(value), value, name)
 
 def resolve_sasl_user(+su: String) -> IO(String):
-  resolve_sasl_user.empty(String.is_empty(su), su)
-
-def resolve_sasl_pass.env(r: Result<&1, &1, U32 & String, String>) -> String:
-  match r:
-    case Done{+v}: v
-    case Fail{_}: ""
-
-def resolve_sasl_pass.empty(empty: Bool, +sp: String) -> IO(String):
-  match empty:
-    case True{}:
-      do IO<String>:
-        r : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_SASL_PASS")
-        return resolve_sasl_pass.env(r)
-    case False{}:
-      IO.pure(String, sp)
+  resolve_sasl(su, "BIRC_SASL_USER")
 
 def resolve_sasl_pass(+sp: String) -> IO(String):
-  resolve_sasl_pass.empty(String.is_empty(sp), sp)
+  resolve_sasl(sp, "BIRC_SASL_PASS")
 
 def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
   Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass)

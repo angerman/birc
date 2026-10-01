@@ -3,6 +3,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 import ../../src/bend/links.bend as Links
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
@@ -17,7 +18,7 @@ def show(ops: List<&2, V.SpanOp>) -> String:
     case Con{V.Col{attrs, _, +text}, t}: U32.show(attrs) ++ "[" ++ text ++ "]" ++ show(t)
 
 def rendered(text: String) -> String:
-  show(V.span_ops(V.tokenize(text)))
+  show(VL.span_ops(VL.tokenize(text)))
 
 def spans_text(spans: List<&2, V.SpanOp>) -> String:
   match spans:

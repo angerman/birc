@@ -387,8 +387,15 @@ def connect_apply.recon_ok(ok: Bool, +cl: Cl.Client, net: NetState, +server: Str
     case False{}:
       (Sub.echo_err(cl, "cannot reconnect: no server configured"), "", Cont{Nil{}})
 
-def connect_apply.reconnect(+cl: Cl.Client, net: NetState, +server: String, +port: U32) -> Cl.Client & String & NetCmd:
-  connect_apply.recon_ok(Bool.not(String.is_empty(server) || String.eq(server, "demo") || String.eq(server, "s")), cl, net, server, port)
+# Demo is a fixture state, not a hostname sentinel. A saved single-label
+# endpoint (including "s" or "demo") is valid after an explicit connection.
+def reconnect_configured(net: NetState, +server: String) -> Bool:
+  match net:
+    case Demo{}: False{}
+    case _: Bool.not(String.is_empty(server))
+
+def connect_apply.reconnect(+cl: Cl.Client, +net: NetState, +server: String, +port: U32) -> Cl.Client & String & NetCmd:
+  connect_apply.recon_ok(reconnect_configured(net, server), cl, net, server, port)
 
 def connect_apply(+cl: Cl.Client, net: NetState, +port: U32, c: Sub.Conn) -> Cl.Client & String & NetCmd:
   match c:
@@ -1037,6 +1044,11 @@ def session_cl(+st: Session) -> Cl.Client:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _}:
       cl
 
+def session_net(+st: Session) -> NetState:
+  match st:
+    case Session{_, _, _, _, _, _, net, _, _, _, _, _, _, _, _}:
+      net
+
 # Install an IO-loaded client without changing connection or UI state.
 def session_set_client(st: Session, +cl: Cl.Client) -> Session:
   match st:
@@ -1127,7 +1139,7 @@ def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Sess
     case False{}:
       (st, Drop{})
     case True{}:
-      session_autoreconnect.dial(Bool.not(String.is_empty(server) || String.eq(server, "demo") || String.eq(server, "s")), st, server)
+      session_autoreconnect.dial(reconnect_configured(session_net(st), server), st, server)
 
 def session_autoreconnect(+st: Session) -> Session & NetCmd:
   +cl = session_cl(st)
@@ -1163,11 +1175,6 @@ def size_eq(a: Size, b: Size) -> Bool:
       match b:
         case Size{br, bc}:
           U32.is_eq(ar, br) && U32.is_eq(ac, bc)
-
-def session_net(+st: Session) -> NetState:
-  match st:
-    case Session{_, _, _, _, _, _, net, _, _, _, _, _, _, _, _}:
-      net
 
 def session_nick(+st: Session) -> String:
   match st:
@@ -1577,10 +1584,13 @@ def online_media(net: NetState) -> Bool:
 def session_observe_media(+st: Session, after: Nat) -> Session:
   session_set_media(st, M.observe(session_media(st), session_cl(st), after, online_media(session_net(st))))
 
+def images_intent.parsed(+st: Session, intent: Maybe<&2, Bool>) -> Session:
+  match intent:
+    case None{}: st
+    case Some{on}: session_set_media(st, M.set_enabled(session_media(st), on))
+
 def images_intent(+st: Session, +arg: String) -> Session:
-  +media = session_media(st)
-  session_set_media(st, Bool.pick(M.State, String.eq(arg, "on"), M.set_enabled(media, True{}),
-    Bool.pick(M.State, String.eq(arg, "off"), M.set_enabled(media, False{}), media)))
+  images_intent.parsed(st, Sub.images_arg(arg))
 
 def media_intent.parsed(+st: Session, input: Sub.Input) -> Session:
   match input:

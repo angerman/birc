@@ -11,6 +11,7 @@ import ./src/bend/view_laws.bend as VL
 import ./src/bend/session.bend as Sess
 import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
+import ./tests/bend/m21_dns_preds.bend as DnsIdentity
 import ./src/bend/base64.bend as B64
 import ./src/bend/split.bend as Sp
 import ./src/bend/typing.bend as Ty
@@ -184,35 +185,35 @@ law body_h_fits:
 
 # LAW: M5.3 tokenize roundtrips *bold* markup.
 law tokenize_bold:
-  {V.tokenize_roundtrip("hello *bold* text") == True{} : Bool}
+  {VL.tokenize_roundtrip("hello *bold* text") == True{} : Bool}
 
 # LAW: *bold* is a Bold span, not an identity echo.
 law tokenize_has_bold:
-  {V.tokenize_has_bold("hello *bold* text") == True{} : Bool}
+  {VL.tokenize_has_bold("hello *bold* text") == True{} : Bool}
 
 # LAW: _em_ is an Italic span.
 law tokenize_has_italic:
-  {V.tokenize_has_italic("_em_") == True{} : Bool}
+  {VL.tokenize_has_italic("_em_") == True{} : Bool}
 
 # LAW: `code` is a Code span.
 law tokenize_has_code:
-  {V.tokenize_has_code("`code`") == True{} : Bool}
+  {VL.tokenize_has_code("`code`") == True{} : Bool}
 
 # LAW: https URL becomes a Link span.
 law tokenize_has_link:
-  {V.tokenize_has_link("see https://timui.dev x") == True{} : Bool}
+  {VL.tokenize_has_link("see https://timui.dev x") == True{} : Bool}
 
 # LAW: unclosed *foo stays plain (no Bold).
 law tokenize_unclosed:
-  {V.unclosed_star_plain() == True{} : Bool}
+  {VL.unclosed_star_plain() == True{} : Bool}
 
 # LAW: unmatched markup remains plain with the opener in its source position.
 law tokenize_unclosed_source_order:
-  {V.tokenize_roundtrip("*foo") && V.tokenize_roundtrip("_foo") && V.tokenize_roundtrip("`foo") == True{} : Bool}
+  {VL.tokenize_roundtrip("*foo") && VL.tokenize_roundtrip("_foo") && VL.tokenize_roundtrip("`foo") == True{} : Bool}
 
 # LAW: the live operation for inline code retains the dim attribute.
 law code_span_dim:
-  {V.span_op(V.Code{"code"}) == V.Spn{2, "code"} : V.SpanOp}
+  {VL.span_op(VL.Code{"code"}) == V.Spn{2, "code"} : V.SpanOp}
 
 # LAW: M7.2 overlong framer input yields no lines.
 law overlong_drop:
@@ -475,31 +476,31 @@ law disconnect_drop:
 
 # LAW: double bold and nested italic compose independent attribute bits.
 law formatting_nested_bits:
-  {V.span_ops(V.tokenize("**B _BI_ B**")) == [V.Spn{1, "B "}, V.Spn{5, "BI"}, V.Spn{1, " B"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("**B _BI_ B**")) == [V.Spn{1, "B "}, V.Spn{5, "BI"}, V.Spn{1, " B"}] : List<&2, V.SpanOp>}
 
 # LAW: escaped markers remain literal, without becoming style delimiters.
 law formatting_escaped_literal:
-  {V.span_ops(V.tokenize("\\*literal\\*")) == [V.Spn{0, "*literal*"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("\\*literal\\*")) == [V.Spn{0, "*literal*"}] : List<&2, V.SpanOp>}
 
 # LAW: bold + opaque dim code is not interpreted as a URL tag.
 law formatting_code_identity:
-  {V.span_ops(V.tokenize("*`:eyes:`*")) == [V.Spn{3, ":eyes:"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("*`:eyes:`*")) == [V.Spn{3, ":eyes:"}] : List<&2, V.SpanOp>}
 
 # LAW: aliases are view-only and case sensitive; unknown names remain literal.
 law formatting_alias_literals:
-  {V.span_ops(V.tokenize(":eyes: :Eyes: :unknown:")) == [V.Spn{0, "👀 :Eyes: :unknown:"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize(":eyes: :Eyes: :unknown:")) == [V.Spn{0, "👀 :Eyes: :unknown:"}] : List<&2, V.SpanOp>}
 
 # LAW: alias-like and markup-like URL bytes remain exact and opaque.
 law formatting_url_identity:
-  {V.span_ops(V.tokenize("https://x.test/a_b/:eyes:?q=**z**,")) == [V.Lnk{"https://x.test/a_b/:eyes:?q=**z**", "https://x.test/a_b/:eyes:?q=**z**"}, V.Spn{0, ","}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("https://x.test/a_b/:eyes:?q=**z**,")) == [V.Lnk{"https://x.test/a_b/:eyes:?q=**z**", "https://x.test/a_b/:eyes:?q=**z**"}, V.Spn{0, ","}] : List<&2, V.SpanOp>}
 
 # LAW: a greedy unmatched double opener retains both source characters.
 law formatting_unmatched_double:
-  {V.span_ops(V.tokenize("**one*")) == [V.Spn{0, "**one*"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("**one*")) == [V.Spn{0, "**one*"}] : List<&2, V.SpanOp>}
 
 # LAW: nested style closers do not split or rewrite a URL's internal bytes.
 law formatting_styled_url_identity:
-  {V.span_ops(V.tokenize("_**https://x.test/a_b/:eyes:**_")) == [V.Spn{5, "https://x.test/a_b/:eyes:"}] : List<&2, V.SpanOp>}
+  {VL.span_ops(VL.tokenize("_**https://x.test/a_b/:eyes:**_")) == [V.Spn{5, "https://x.test/a_b/:eyes:"}] : List<&2, V.SpanOp>}
 
 # LAW: diagnostic copies redact URLs inside opaque code and styled text.
 law diagnostic_opaque_urls_private:
@@ -583,3 +584,51 @@ law same_endpoint_dial_preserves_reconnect_intent:
 law new_endpoint_dial_has_no_reconnect_intent:
   for net: Sess.NetState
   {Sess.dialing_state(False{}, net) == Sess.Connecting{} : Sess.NetState}
+
+law dns_labels_do_not_alias_dotted_names:
+  {DnsIdentity.label_identity_ok() == True{} : Bool}
+
+law dns_error_requires_matching_question:
+  {DnsIdentity.error_identity_ok() == True{} : Bool}
+
+law view_style_boundaries_keep_clusters:
+  {VL.styled_cluster_ok() == True{} : Bool}
+
+law view_words_keep_clusters_and_source:
+  {VL.word_wrap_ok() == True{} : Bool}
+
+law view_hidden_header_does_not_paint:
+  {VL.hidden_header_ok() == True{} : Bool}
+
+law view_header_uses_columns:
+  {VL.header_columns_ok() == True{} : Bool}
+
+law view_prefix_fallback_preserves_text:
+  {VL.prefix_fallback_ok() == True{} : Bool}
+
+law color_without_background_preserves_literal_comma:
+  {Irc.sanitize_in(SCon{Chr{3}, "4,hello"}) == ",hello" : String}
+
+law status_audience_keeps_local_channel_identity:
+  {Cl.target_key("@#room") == "#room" : String}
+
+law local_channel_prefix_is_not_status_audience:
+  {Cl.target_key("+local") == "+local" : String}
+
+law saved_single_label_hosts_can_reconnect:
+  {Sess.reconnect_configured(Sess.Offline{}, "s") && Sess.reconnect_configured(Sess.Offline{}, "demo") == True{} : Bool}
+
+law unconfigured_demo_cannot_reconnect:
+  {Sess.reconnect_configured(Sess.Demo{}, "s") == False{} : Bool}
+
+law user_notice_prefix_is_not_server:
+  {Irc.source_is_server("server!u@h", "server") == False{} : Bool}
+
+law join_lists_accept_masked_channels:
+  {Sub.join_channels(["#room:*.fi", "#b"]) == True{} : Bool}
+
+law join_lists_reject_nonchannel_targets:
+  {Sub.join_channels(["#a", "alice"]) == False{} : Bool}
+
+law image_switch_keeps_exact_argument_policy:
+  {Sub.images_arg("on") == Some{True{}} : Maybe<&2, Bool>}

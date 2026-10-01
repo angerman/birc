@@ -61,20 +61,6 @@ def send_lines(sock: Socket, +xs: List<&2, String>) -> IO(Socket & Bool):
 def register(sock: Socket, +nick: String, has_sasl: Bool) -> IO(Socket & Bool):
   send_lines(sock, Sess.handshake_lines(nick, has_sasl))
 
-def xs_nil(+xs: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{_, _}:
-      False{}
-
-def oct_nil(+xs: List<&2, U32>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{_, _}:
-      False{}
-
 def post(+evt: Chan(Sess.UiMsg), +gen: U32, e: Sess.NetEvt) -> IO(Unit):
   do IO<Unit>:
     ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.FromNet{gen, e})
@@ -108,7 +94,7 @@ def reader_xs(
   +xs: List<&2, U32>,
   k: Socket -> IO(Unit)
 ) -> IO(Unit):
-  reader_xs.on(dup, evt, gen, xs, oct_nil(xs), k)
+  reader_xs.on(dup, evt, gen, xs, List.is_empty(&2, U32, xs), k)
 
 def reader_peer(
   dup: Socket,
@@ -397,7 +383,7 @@ def writer_sent(pair: Socket & Sent, +gen: U32, +later: List<&2, String>, +budge
             Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; " ++ Nat.show(Nat.add(1n, Nat.sub(total, count))) ++ " queued/uncertain lines were discarded without retry"))
             k(Writer{None{}, gen, Nil{}, budget, False{}})
         case True{}:
-          writer_schedule(Bool.not(scheduled) && Bool.not(xs_nil(later)) && Out.budget_open(budget), Writer{Some{sock}, gen, later, budget, scheduled}, cmd, k)
+          writer_schedule(Bool.not(scheduled) && Bool.not(List.is_empty(&2, String, later)) && Out.budget_open(budget), Writer{Some{sock}, gen, later, budget, scheduled}, cmd, k)
 
 def writer_batch(sock: Socket, +gen: U32, plan: Out.Batch, +scheduled: Bool, +total: Nat, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: Writer -> IO(Unit)) -> IO(Unit):
   match plan:

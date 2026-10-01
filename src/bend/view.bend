@@ -14,6 +14,82 @@ type SpanOp is Data:
   Lnk{url: String, text: String}
   Col{attrs: U32, fg: U32, text: String}
 
+def span_text(sp: SpanOp) -> String:
+  match sp:
+    case Spn{_, text}: text
+    case Lnk{_, text}: text
+    case Col{_, _, text}: text
+
+def span_text_as(sp: SpanOp, text: String) -> SpanOp:
+  match sp:
+    case Spn{attrs, _}: Spn{attrs, text}
+    case Lnk{url, _}: Lnk{url, text}
+    case Col{attrs, fg, _}: Col{attrs, fg, text}
+
+def spans_chars(xs: List<&2, SpanOp>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{sp, t}: Nat.add(String.length(span_text(sp)), spans_chars(t))
+
+def spans_text(xs: List<&2, SpanOp>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{sp, t}: span_text(sp) ++ spans_text(t)
+
+def span_style_eq(a: SpanOp, b: SpanOp) -> Bool:
+  match a b:
+    case Spn{attrs, _} Spn{other, _}: U32.is_eq(attrs, other)
+    case Col{attrs, fg, _} Col{other, color, _}: U32.is_eq(attrs, other) && U32.is_eq(fg, color)
+    case Lnk{url, _} Lnk{other, _}: String.eq(url, other)
+    case _ _: False{}
+
+def spans_drop.on(whole: Bool, +sp: SpanOp, rest: List<&2, SpanOp>, +n: Nat, len: Nat, k: Nat -> List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match whole:
+    case True{}: k(Nat.sub(n, len))
+    case False{}: span_text_as(sp, String.drop(span_text(sp), n)) <> rest
+
+def spans_drop(xs: List<&2, SpanOp>, +n: Nat) -> List<&2, SpanOp>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+sp, +rest}:
+      +len = String.length(span_text(sp))
+      spans_drop.on(Nat.is_ge(n, len), sp, rest, n, len, remaining => spans_drop(rest, remaining))
+
+# The accumulator stores reversed text and runs. A cluster has the style of
+# its leading scalar, even when source formatting changes inside that cluster.
+def cluster_push.same(same: Bool, +sp: SpanOp, text: String, +prev: SpanOp, rest: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match same:
+    case True{}: span_text_as(prev, text ++ span_text(prev)) <> rest
+    case False{}: span_text_as(sp, text) <> (prev <> rest)
+
+def cluster_push(+sp: SpanOp, text: String, rev: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match rev:
+    case Nil{}: span_text_as(sp, text) <> Nil{}
+    case Con{+prev, rest}: cluster_push.same(span_style_eq(sp, prev), sp, text, prev, rest)
+
+def cluster_finish(xs: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+sp, t}: span_text_as(sp, String.reverse(span_text(sp))) <> cluster_finish(t)
+
+def cluster_spans.piece(piece: Cols.Cut, xs: List<&2, SpanOp>, rev: List<&2, SpanOp>, k: String -> List<&2, SpanOp> -> List<&2, SpanOp> -> List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match piece xs:
+    case Cols.Cut{+head, tail, _} Con{+sp, +rest}:
+      k(tail, spans_drop(sp <> rest, String.length(head)), cluster_push(sp, String.reverse(head), rev))
+    case _ _: cluster_finish(List.reverse(&2, SpanOp, rev))
+
+def cluster_spans.go(fuel: Nat, +text: String, xs: List<&2, SpanOp>, rev: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match fuel:
+    case 0n: cluster_finish(List.reverse(&2, SpanOp, rev))
+    case 1n+p:
+      match text:
+        case SNil{}: cluster_finish(List.reverse(&2, SpanOp, rev))
+        case SCon{_, _}: cluster_spans.piece(Cols.cluster(text), xs, rev, remaining => rest => acc => cluster_spans.go(p, remaining, rest, acc))
+
+def cluster_spans(+xs: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  +text = spans_text(xs)
+  cluster_spans.go(Nat.add(1n, String.length(text)), text, spans_drop(xs, 0n), Nil{})
+
 type Rect is Data:
   Rect{x: U32, y: U32, w: U32, h: U32}
 
@@ -81,15 +157,6 @@ def visible_lines(+lines: List<&2, Cl.Line>, +height: Nat, +scroll: Nat) -> List
     height
   )
 
-# TextSpan is the tokenize law type. Live paint uses SpanOp / DrawOp.
-type TextSpan is Data:
-  Plain{text: String}
-  Bold{text: String}
-  Italic{text: String}
-  Code{text: String}
-  Link{url: String, text: String}
-  Styled{attrs: U32, text: String}
-
 def TS_WIDTH() -> Nat:
   8n
 
@@ -113,186 +180,6 @@ def style_of(k: Cl.LineKind) -> U32:
       10526880
     case Cl.LinkResult{}:
       10526880
-
-def STAR() -> Char:
-  Chr{42}
-
-def USCORE() -> Char:
-  Chr{95}
-
-def TICK() -> Char:
-  Chr{96}
-
-type TokMode is Data:
-  MdOut{}
-  MdBold{}
-  MdItalic{}
-  MdCode{}
-
-# Retain the public fallback seam used by the original tokenizer guards.
-def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
-  match acc:
-    case SNil{}: spans
-    case SCon{_, _}: Plain{String.reverse(acc)} <> spans
-
-def tokenize.force_mode(mode: TokMode, +acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
-  match mode:
-    case MdOut{}: List.reverse(&2, TextSpan, tokenize.emit_plain(acc, spans))
-    case MdBold{}: List.reverse(&2, TextSpan, Plain{SCon{STAR(), String.reverse(acc)}} <> spans)
-    case MdItalic{}: List.reverse(&2, TextSpan, Plain{SCon{USCORE(), String.reverse(acc)}} <> spans)
-    case MdCode{}: List.reverse(&2, TextSpan, Plain{SCon{TICK(), String.reverse(acc)}} <> spans)
-
-def tokenize.styled(attrs: U32, text: String) -> TextSpan:
-  match attrs:
-    case 0: Plain{text}
-    case 1: Bold{text}
-    case 2: Code{text}
-    case 4: Italic{text}
-    case _: Styled{attrs, text}
-
-def tokenize.run(run: Links.Run) -> TextSpan:
-  match run:
-    case Links.Run{attrs, text, url}:
-      match url:
-        case None{}: tokenize.styled(attrs, text)
-        case Some{link}: Link{link, text}
-
-def tokenize.runs(runs: List<&2, Links.Run>) -> List<&2, TextSpan>:
-  match runs:
-    case Nil{}: Nil{}
-    case Con{h, t}: tokenize.run(h) <> tokenize.runs(t)
-
-def tokenize(+s: String) -> List<&2, TextSpan>:
-  tokenize.runs(Links.render(s))
-
-# Reconstruct the legacy single-style spelling for the tokenizer laws.
-# Emoji and escaped source remain in Client; display spans are not source text.
-def show_spans.styled(+attrs: U32, text: String) -> String:
-  +bold = Bool.pick(String, U32.is_ne(U32.and(attrs, 1), 0), "*", "")
-  +italic = Bool.pick(String, U32.is_ne(U32.and(attrs, 4), 0), "_", "")
-  +code = Bool.pick(String, U32.is_ne(U32.and(attrs, 2), 0), "`", "")
-  bold ++ italic ++ code ++ text ++ code ++ italic ++ bold
-
-def show_spans.chunk(sp: TextSpan) -> String:
-  match sp:
-    case Plain{+tx}:
-      tx
-    case Bold{+tx}:
-      "*" ++ tx ++ "*"
-    case Italic{+tx}:
-      "_" ++ tx ++ "_"
-    case Code{+tx}:
-      "`" ++ tx ++ "`"
-    case Link{_, +text}:
-      text
-    case Styled{attrs, text}:
-      show_spans.styled(attrs, text)
-
-def show_spans.chunks(+xs: List<&2, TextSpan>) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{h, t}:
-      show_spans.chunk(h) <> show_spans.chunks(t)
-
-def show_spans(+xs: List<&2, TextSpan>) -> String:
-  String.concat(show_spans.chunks(xs))
-
-def tokenize_roundtrip(+s: String) -> Bool:
-  String.eq(show_spans(tokenize(s)), s)
-
-type SpanKind is Data:
-  WantBold{}
-  WantItalic{}
-  WantCode{}
-  WantLink{}
-
-def span_hit(k: SpanKind, h: TextSpan) -> Bool:
-  match k:
-    case WantBold{}:
-      match h:
-        case Bold{_}:
-          True{}
-        case Styled{attrs, _}:
-          U32.is_ne(U32.and(attrs, 1), 0)
-        case _:
-          False{}
-    case WantItalic{}:
-      match h:
-        case Italic{_}:
-          True{}
-        case Styled{attrs, _}:
-          U32.is_ne(U32.and(attrs, 4), 0)
-        case _:
-          False{}
-    case WantCode{}:
-      match h:
-        case Code{_}:
-          True{}
-        case Styled{attrs, _}:
-          U32.is_ne(U32.and(attrs, 2), 0)
-        case _:
-          False{}
-    case WantLink{}:
-      match h:
-        case Link{_, _}:
-          True{}
-        case _:
-          False{}
-
-def has_kind.go(+k: SpanKind, xs: List<&2, TextSpan>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case Con{h, t}:
-      Bool.pick(Bool, span_hit(k, h), True{}, has_kind.go(k, t))
-
-def has_kind(+k: SpanKind, +s: String) -> Bool:
-  has_kind.go(k, tokenize(s))
-
-def tokenize_has_bold(+s: String) -> Bool:
-  has_kind(WantBold{}, s)
-
-def tokenize_has_italic(+s: String) -> Bool:
-  has_kind(WantItalic{}, s)
-
-def tokenize_has_code(+s: String) -> Bool:
-  has_kind(WantCode{}, s)
-
-def tokenize_has_link(+s: String) -> Bool:
-  has_kind(WantLink{}, s)
-
-def first_link.go(+xs: List<&2, TextSpan>) -> String:
-  match xs:
-    case Nil{}:
-      ""
-    case Con{h, t}:
-      match h:
-        case Link{+url, _}:
-          url
-        case _:
-          first_link.go(t)
-
-def tokenize_no_embed() -> Bool:
-  Bool.not(tokenize_has_link("notahttp://x"))
-
-def tokenize_trim_dot() -> Bool:
-  String.eq(first_link.go(tokenize("see http://x.com.")), "http://x.com")
-
-def tokenize_trim_semi() -> Bool:
-  String.eq(first_link.go(tokenize("see http://x.com;")), "http://x.com")
-
-def tokenize_trim_brack() -> Bool:
-  String.eq(first_link.go(tokenize("see http://x.com]")), "http://x.com")
-
-# − https://evil2.exampleclick]8;; was one link including the OSC-8 closer.
-# Trailing ] and ; strip; a digit stops the trim, so ]8 remains.
-def tokenize_trim_osc() -> Bool:
-  String.eq(first_link.go(tokenize("see https://evil2.exampleclick];; x")), "https://evil2.exampleclick")
-    && String.eq(first_link.go(tokenize("see https://evil2.exampleclick]8;; x")), "https://evil2.exampleclick]8")
-
-def unclosed_star_plain() -> Bool:
-  Bool.not(tokenize_has_bold("*foo"))
 
 def active_buf.on(+got: Maybe<&2, Cl.Buffer>) -> Cl.Buffer:
   match got:
@@ -331,30 +218,8 @@ def status_color(+net: String) -> U32:
   status_color.on(net, String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
 
 
-def span_op(sp: TextSpan) -> SpanOp:
-  match sp:
-    case Plain{+tx}:
-      Spn{0, tx}
-    case Bold{+tx}:
-      Spn{1, tx}
-    case Italic{+tx}:
-      Spn{4, tx}
-    case Code{+tx}:
-      Spn{2, tx}
-    case Link{+url, +text}:
-      Lnk{url, text}
-    case Styled{attrs, text}:
-      Spn{attrs, text}
-
-def span_ops(xs: List<&2, TextSpan>) -> List<&2, SpanOp>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      span_op(h) <> span_ops(t)
-
-# Live rendering maps the shared lexical runs directly. TextSpan above is
-# only the legacy tokenizer-law adapter, not an intermediate paint format.
+# Live rendering maps lexical runs directly. The proof-only tokenizer adapter
+# lives in view_laws.bend, not in the production paint path.
 def render_run(run: Links.Run) -> SpanOp:
   match run:
     case Links.Run{attrs, text, url}:
@@ -376,21 +241,31 @@ def FG_TEXT() -> U32:
 def FG_DIM() -> U32:
   10526880
 
+def bounded_width(+w: U32, +cap: U32) -> U32:
+  Bool.pick(U32, U32.is_le(w, cap), w, cap)
+
 def user_header_ops.split(r: Rect, +base: String, +net: String, empty: Bool) -> List<&2, DrawOp>:
   match r:
-    case Rect{+x, +y, w, _}:
+    case Rect{+x, +y, +w, _}:
       match empty:
         case True{}:
           OpText{x, y, w, FG_DIM(), 0, base} <> Nil{}
         case False{}:
           +pfx = base ++ " · "
-          +pw = U32.from_nat(String.length(pfx))
-          +nw = U32.from_nat(String.length(net))
+          +pw = bounded_width(Cols.text_width(pfx), w)
+          +nw = bounded_width(Cols.text_width(net), U32.sub(w, pw))
           OpText{x, y, pw, FG_DIM(), 0, pfx}
             <> (OpText{U32.add(x, pw), y, nw, status_color(net), 1, net} <> Nil{})
 
+def user_header_ops.visible(hidden: Bool, r: Rect, +base: String, +net: String) -> List<&2, DrawOp>:
+  match hidden:
+    case True{}: Nil{}
+    case False{}: user_header_ops.split(r, base, net, String.is_empty(net))
+
 def user_header_ops(r: Rect, +nick: String, +server: String, +net: String) -> List<&2, DrawOp>:
-  user_header_ops.split(r, nick ++ "@" ++ server, net, String.is_empty(net))
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      user_header_ops.visible(U32.is_zero(w) || U32.is_zero(h), Rect{x, y, w, h}, nick ++ "@" ++ server, net)
 
 # Timestamp is an OpText of at most 8 columns, then one space, then the
 # line. A narrow body clips the stamp to w so it cannot spill past the line.
@@ -481,22 +356,22 @@ def parse_nick_msg.body(+rest: String, +nick: String) -> List<&2, SpanOp>:
         <> (Spn{0, "> "}
         <> render_spans(body)))
 
-def parse_nick_msg.ok(ok: Bool, +rest: String, +nick: String) -> List<&2, SpanOp>:
+def parse_nick_msg.ok(ok: Bool, +rest: String, +nick: String, original: String) -> List<&2, SpanOp>:
   match ok:
     case True{}:
       parse_nick_msg.body(rest, nick)
     case False{}:
-      render_spans("<" ++ nick ++ rest)
+      render_spans(original)
 
-def parse_nick_msg.parsed(pair: String & String) -> List<&2, SpanOp>:
+def parse_nick_msg.parsed(pair: String & String, original: String) -> List<&2, SpanOp>:
   match pair:
     case (+nick, +rest):
-      parse_nick_msg.ok(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick)
+      parse_nick_msg.ok(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick, original)
 
 def parse_nick_msg.head(is_lt: Bool, +t: String, +s: String) -> List<&2, SpanOp>:
   match is_lt:
     case True{}:
-      parse_nick_msg.parsed(take_until_gt(t))
+      parse_nick_msg.parsed(take_until_gt(t), s)
     case False{}:
       render_spans(s)
 
@@ -563,7 +438,7 @@ def parse_nick_act(s: String) -> List<&2, SpanOp>:
     case SCon{+c1, +t1}:
       parse_nick_act.star(Char.is_eq(c1, '*'), t1, s)
 
-def line_spans_for(k: Cl.LineKind, +text: String) -> List<&2, SpanOp>:
+def line_spans_raw(k: Cl.LineKind, +text: String) -> List<&2, SpanOp>:
   match k:
     case Cl.Msg{}:
       parse_nick_msg(text)
@@ -575,6 +450,9 @@ def line_spans_for(k: Cl.LineKind, +text: String) -> List<&2, SpanOp>:
       parse_nick_act(text)
     case _:
       render_spans(text)
+
+def line_spans_for(k: Cl.LineKind, text: String) -> List<&2, SpanOp>:
+  cluster_spans(line_spans_raw(k, text))
 
 def line_ops_go(
   +x: U32,
@@ -647,23 +525,6 @@ def line_ops(+ln: Cl.Line) -> List<&2, DrawOp>:
 def wrap_cap(+w: U32) -> U32:
   Bool.pick(U32, U32.is_zero(w), 1, w)
 
-def span_text(sp: SpanOp) -> String:
-  match sp:
-    case Spn{_, text}: text
-    case Lnk{_, text}: text
-    case Col{_, _, text}: text
-
-def span_text_as(sp: SpanOp, text: String) -> SpanOp:
-  match sp:
-    case Spn{attrs, _}: Spn{attrs, text}
-    case Lnk{url, _}: Lnk{url, text}
-    case Col{attrs, fg, _}: Col{attrs, fg, text}
-
-def spans_chars(xs: List<&2, SpanOp>) -> Nat:
-  match xs:
-    case Nil{}: 0n
-    case Con{sp, t}: Nat.add(String.length(span_text(sp)), spans_chars(t))
-
 type SpanCut is Data:
   SpanCut{head: List<&2, SpanOp>, tail: List<&2, SpanOp>}
 
@@ -697,6 +558,90 @@ def take_spans(xs: List<&2, SpanOp>, +cap: U32) -> SpanCut:
     case Nil{}: SpanCut{Nil{}, Nil{}}
     case Con{+sp, +rest}:
       span_cut_taken(Cols.take(span_text(sp), cap), sp, cap, rest, w => take_spans(rest, w))
+
+def spans_split.on(whole: Bool, +sp: SpanOp, +rest: List<&2, SpanOp>, +n: Nat, len: Nat, k: Nat -> SpanCut) -> SpanCut:
+  match whole:
+    case True{}: span_cut_prepend(sp, k(Nat.sub(n, len)))
+    case False{}: span_cut_partial(Nat.is_eq(n, 0n), sp, String.take(span_text(sp), n), String.drop(span_text(sp), n), rest)
+
+def spans_split(xs: List<&2, SpanOp>, +n: Nat) -> SpanCut:
+  match xs:
+    case Nil{}: SpanCut{Nil{}, Nil{}}
+    case Con{+sp, +rest}:
+      +len = String.length(span_text(sp))
+      spans_split.on(Nat.is_ge(n, len), sp, rest, n, len, remaining => spans_split(rest, remaining))
+
+# Break only at complete IRC spaces, not a space with attached combining marks.
+# Keep the start of the last space run, so all its boundary padding is hidden.
+def word_break.piece(piece: Cols.Cut, +pos: Nat, last: Maybe<&2, Nat>, +in_space: Bool, k: String -> Nat -> Maybe<&2, Nat> -> Bool -> Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match piece:
+    case Cols.Cut{+head, tail, _}:
+      +space = String.eq(head, " ")
+      k(tail, Nat.add(pos, String.length(head)), Bool.pick(Maybe<&2, Nat>, space && Bool.not(in_space), Some{pos}, last), space)
+
+def word_break.go(fuel: Nat, +s: String, pos: Nat, last: Maybe<&2, Nat>, in_space: Bool) -> Maybe<&2, Nat>:
+  match fuel:
+    case 0n: last
+    case 1n+p:
+      match s:
+        case SNil{}: last
+        case SCon{_, _}: word_break.piece(Cols.cluster(s), pos, last, in_space, rest => n => boundary => space => word_break.go(p, rest, n, boundary, space))
+
+def spans_drop_spaces.piece(space: Bool, +sp: SpanOp, +rest: List<&2, SpanOp>, +tail: String, k: List<&2, SpanOp> -> List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match space:
+    case False{}: sp <> rest
+    case True{}: k(Bool.pick(List<&2, SpanOp>, String.is_empty(tail), rest, span_text_as(sp, tail) <> rest))
+
+def spans_drop_spaces.cut(piece: Cols.Cut, +sp: SpanOp, rest: List<&2, SpanOp>, k: List<&2, SpanOp> -> List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match piece:
+    case Cols.Cut{head, tail, _}: spans_drop_spaces.piece(String.eq(head, " "), sp, rest, tail, k)
+
+def spans_drop_spaces.go(fuel: Nat, xs: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  match fuel:
+    case 0n: xs
+    case 1n+p:
+      match xs:
+        case Nil{}: Nil{}
+        case Con{+sp, rest}: spans_drop_spaces.cut(Cols.cluster(span_text(sp)), sp, rest, tail => spans_drop_spaces.go(p, tail))
+
+def spans_drop_spaces(+xs: List<&2, SpanOp>) -> List<&2, SpanOp>:
+  spans_drop_spaces.go(Nat.add(1n, spans_chars(xs)), xs)
+
+def word_cut.split(cut: SpanCut) -> SpanCut:
+  match cut:
+    case SpanCut{head, tail}: SpanCut{head, spans_drop_spaces(tail)}
+
+def word_cut.allowed(ok: Bool, original: SpanCut, xs: List<&2, SpanOp>, n: Nat) -> SpanCut:
+  match ok:
+    case False{}: original
+    case True{}: word_cut.split(spans_split(xs, n))
+
+def word_cut.boundary(boundary: Maybe<&2, Nat>, original: SpanCut, xs: List<&2, SpanOp>, +shown: String, protected: U32) -> SpanCut:
+  match boundary:
+    case None{}: original
+    case Some{+n}: word_cut.allowed(U32.is_gt(Cols.text_width(String.take(shown, n)), protected), original, xs, n)
+
+def word_cut.scan(+head: List<&2, SpanOp>, tail: List<&2, SpanOp>, xs: List<&2, SpanOp>, protected: U32) -> SpanCut:
+  +shown = spans_text(head)
+  word_cut.boundary(word_break.go(Nat.add(1n, String.length(shown)), shown, 0n, None{}, False{}), SpanCut{head, tail}, xs, shown, protected)
+
+def word_cut.exact(exact: Bool, head: List<&2, SpanOp>, tail: List<&2, SpanOp>, xs: List<&2, SpanOp>, protected: U32) -> SpanCut:
+  match exact:
+    case True{}: SpanCut{head, spans_drop_spaces(tail)}
+    case False{}: word_cut.scan(head, tail, xs, protected)
+
+def word_cut.tail_space(space: Bool, +head: List<&2, SpanOp>, tail: List<&2, SpanOp>, xs: List<&2, SpanOp>, protected: U32) -> SpanCut:
+  word_cut.exact(space && Bool.not(String.ends_with(spans_text(head), " ")), head, tail, xs, protected)
+
+def word_cut.first(piece: Cols.Cut, head: List<&2, SpanOp>, tail: List<&2, SpanOp>, xs: List<&2, SpanOp>, protected: U32) -> SpanCut:
+  match piece:
+    case Cols.Cut{text, _, _}: word_cut.tail_space(String.eq(text, " "), head, tail, xs, protected)
+
+def word_cut(cut: SpanCut, +xs: List<&2, SpanOp>, protected: U32) -> SpanCut:
+  match cut:
+    case SpanCut{head, Nil{}}: SpanCut{head, Nil{}}
+    case SpanCut{head, Con{+sp, +rest}}:
+      word_cut.first(Cols.cluster(span_text(sp)), head, sp <> rest, xs, protected)
 
 def spans_length(xs: List<&2, SpanOp>) -> Nat:
   match xs:
@@ -735,7 +680,7 @@ def wrap_spans_go(fuel: Nat, +xs: List<&2, SpanOp>, +cap: U32, +cont_cap: U32) -
   match fuel:
     case 0n: Nil{}
     case 1n+p:
-      wrap_spans_cut(take_spans(xs, cap), spans_chars(xs), rest => wrap_spans_go(p, rest, cont_cap, cont_cap))
+      wrap_spans_cut(word_cut(take_spans(xs, cap), xs, U32.sub(cap, bounded_width(cont_cap, cap))), spans_chars(xs), rest => wrap_spans_go(p, rest, cont_cap, cont_cap))
 
 def wrap_spans(+xs: List<&2, SpanOp>, +first_cap: U32, +cont_cap: U32) -> List<&2, WrapChunk>:
   wrap_spans_go(Nat.add(1n, spans_length(xs)), xs, wrap_cap(first_cap), wrap_cap(cont_cap))
@@ -1251,7 +1196,7 @@ def nick_w(+cols: U32, +mid: U32) -> U32:
   nick_w.on(cols, mid, U32.is_ge(cols, mid))
 
 def user_w(+s: String) -> U32:
-  U32.from_nat(String.length(s))
+  Cols.text_width(s)
 
 def tabs_w.on(+cols: U32, +uw: U32, room: Bool) -> U32:
   match room:

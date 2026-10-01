@@ -159,6 +159,13 @@ def fetch(url, deadline, resolver=socket.getaddrinfo, connection=PinnedHTTP):
     raise ImageError("too many image redirects")
 
 
+def checked_source_pixels(size):
+    width, height = size
+    if width <= 0 or height <= 0 or width > 4096 or height > 4096 or width * height > MAX_PIXELS:
+        raise ImageError("image dimensions are too large")
+    return width * height
+
+
 def encode(data):
     """Bound decode work; emit normalized PNG frames and predecoded first RGBA.
 
@@ -170,24 +177,28 @@ def encode(data):
     with warnings.catch_warnings():
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         with Image.open(io.BytesIO(data), formats=FORMATS) as image:
-            width, height = image.size
-            if width <= 0 or height <= 0 or width > 4096 or height > 4096 or width * height > MAX_PIXELS:
-                raise ImageError("image dimensions are too large")
+            initial_pixels = checked_source_pixels(image.size)
             animated = image.format in ("GIF", "PNG", "WEBP") and getattr(image, "is_animated", False)
             # APNG's static fallback is not animated, but still counts toward
             # source decode work when seeking to the actual first frame.
             start = 1 if animated and image.format == "PNG" and image.info.get("default_image", False) else 0
             count = (getattr(image, "n_frames", 1) if animated else 1) - start
-            if count > MAX_FRAMES or width * height * (count + start) > MAX_SOURCE_FRAME_PIXELS:
+            if count > MAX_FRAMES or initial_pixels * (count + start) > MAX_SOURCE_FRAME_PIXELS:
                 raise ImageError("image animation is too large")
             loops = image.info.get("loop") if animated else None
             # GIF stores repeat count; APNG and WebP store total plays.
             iterations = 1 if loops is None else (0 if loops == 0 else min(int(loops) + (image.format == "GIF"), 65535))
             frames, durations, pngs = [], [], []
             frame_pixels = 0
+            source_pixels = initial_pixels if start else 0
             encoded_size = 32
             for index in range(count):
                 image.seek(index + start)
+                # GIF can expand its canvas on a later seek. Charge its actual
+                # size before conversion/thumbnailing, not the initial estimate.
+                source_pixels += checked_source_pixels(image.size)
+                if source_pixels > MAX_SOURCE_FRAME_PIXELS:
+                    raise ImageError("image animation is too large")
                 frame = ImageOps.exif_transpose(image).convert("RGBA")
                 frame.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
                 if frames and frame.size != frames[0].size:

@@ -895,3 +895,51 @@ def Laws.same_endpoint_dial_preserves_reconnect_intent():
 
 def Laws.new_endpoint_dial_has_no_reconnect_intent(net):
   {==}
+
+def Laws.dns_labels_do_not_alias_dotted_names():
+  {==}
+
+def Laws.dns_error_requires_matching_question():
+  {==}
+
+def Laws.view_style_boundaries_keep_clusters():
+  {==}
+
+def Laws.view_words_keep_clusters_and_source():
+  {==}
+
+def Laws.view_hidden_header_does_not_paint():
+  {==}
+
+def Laws.view_header_uses_columns():
+  {==}
+
+def Laws.view_prefix_fallback_preserves_text():
+  {==}
+
+def Laws.color_without_background_preserves_literal_comma():
+  {==}
+
+def Laws.status_audience_keeps_local_channel_identity():
+  {==}
+
+def Laws.local_channel_prefix_is_not_status_audience():
+  {==}
+
+def Laws.saved_single_label_hosts_can_reconnect():
+  {==}
+
+def Laws.unconfigured_demo_cannot_reconnect():
+  {==}
+
+def Laws.user_notice_prefix_is_not_server():
+  {==}
+
+def Laws.join_lists_accept_masked_channels():
+  {==}
+
+def Laws.join_lists_reject_nonchannel_targets():
+  {==}
+
+def Laws.image_switch_keeps_exact_argument_policy():
+  {==}

@@ -8,6 +8,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 
 def soh() -> String:
   SCon{Chr{1}, SNil{}}
@@ -151,8 +152,8 @@ def main() -> IO(Unit):
     Unit <- E.must("clamp_samples", Irc.clamp_samples_ok())
     Unit <- E.must("strip_nocr", Irc.strip_ctl_nocr_ok())
     Unit <- E.must("flood_cap", CL.flood_buffers_capped())
-    Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
-    Unit <- E.must("tok_plain", V.tokenize_roundtrip("no stars here"))
+    Unit <- E.must("tok_rt", VL.tokenize_roundtrip("hello *bold* text"))
+    Unit <- E.must("tok_plain", VL.tokenize_roundtrip("no stars here"))
     Unit <- E.must("params16", params_n_ok(16n))
     Unit <- E.must("params20", params_n_ok(20n))
     IO.print("proto_parity=ok")

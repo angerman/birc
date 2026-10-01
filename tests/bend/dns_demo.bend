@@ -332,7 +332,7 @@ def main() -> IO(Unit):
     Unit <- check_enc_hi_r(Wire.encode_id(Wire.txid_of(65535), "example.com"))
     Unit <- E.must("pack_len", Nat.is_eq(String.length(pack(sample())), List.length(&2, U32, sample())))
     Unit <- E.must_eq("parse", show_res(Wire.parse_id(1, sample())), "ok:1.2.3.4")
-    Unit <- E.must_eq("parse_fffd", show_res(parse_pack(sample_fffd())), "fail:rcode")
+    Unit <- E.must_eq("parse_fffd", show_res(parse_pack(sample_fffd())), "fail:bad dns")
     Unit <- E.must_eq("parse_id", show_res(Wire.parse_id(1, sample_bad_id())), "fail:bad id")
     Unit <- E.must_eq("parse_id2", show_res(Wire.parse_id(2, sample_bad_id())), "ok:1.2.3.4")
     Unit <- E.must_eq("parse_rcode", show_res(Wire.parse_id(1, sample_rcode())), "fail:rcode")

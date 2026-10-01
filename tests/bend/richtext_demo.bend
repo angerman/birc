@@ -4,6 +4,7 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 
 def show_op(op: V.SpanOp) -> String:
   match op:
@@ -17,7 +18,7 @@ def show_ops(ops: List<&2, V.SpanOp>) -> String:
     case Con{h, t}: show_op(h) ++ show_ops(t)
 
 def styled(+text: String) -> String:
-  show_ops(V.span_ops(V.tokenize(text)))
+  show_ops(VL.span_ops(VL.tokenize(text)))
 
 def spans_text(spans: List<&2, V.SpanOp>) -> String:
   match spans:
@@ -53,14 +54,14 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("double marker bold", styled("**bold**"), "S1[bold]")
     Unit <- E.must_eq("nested bold italic", styled("*bold _italic_*"), "S1[bold ]S5[italic]")
     Unit <- E.must_eq("link positive", styled("https://example.test"), "L[https://example.test][https://example.test]")
-    Unit <- E.must_eq("unclosed star source order", V.show_spans(V.tokenize("before *unclosed")), "before *unclosed")
-    Unit <- E.must_eq("unclosed underscore source order", V.show_spans(V.tokenize("before _unclosed")), "before _unclosed")
-    Unit <- E.must_eq("unclosed tick source order", V.show_spans(V.tokenize("before `unclosed")), "before `unclosed")
+    Unit <- E.must_eq("unclosed star source order", VL.show_spans(VL.tokenize("before *unclosed")), "before *unclosed")
+    Unit <- E.must_eq("unclosed underscore source order", VL.show_spans(VL.tokenize("before _unclosed")), "before _unclosed")
+    Unit <- E.must_eq("unclosed tick source order", VL.show_spans(VL.tokenize("before `unclosed")), "before `unclosed")
     Unit <- E.must_eq("empty unmatched marker positive", styled("*"), "S0[*]")
     Unit <- E.must_eq("unclosed Unicode source order", styled("*漢字"), "S0[*漢字]")
-    Unit <- E.must_eq("forced bold fallback", V.show_spans(V.tokenize.force_mode(V.MdBold{}, String.reverse("abc"), Nil{})), "*abc")
-    Unit <- E.must_eq("forced italic fallback", V.show_spans(V.tokenize.force_mode(V.MdItalic{}, String.reverse("abc"), Nil{})), "_abc")
-    Unit <- E.must_eq("forced code fallback", V.show_spans(V.tokenize.force_mode(V.MdCode{}, String.reverse("abc"), Nil{})), "`abc")
+    Unit <- E.must_eq("forced bold fallback", VL.show_spans(VL.tokenize.force_mode(VL.MdBold{}, String.reverse("abc"), Nil{})), "*abc")
+    Unit <- E.must_eq("forced italic fallback", VL.show_spans(VL.tokenize.force_mode(VL.MdItalic{}, String.reverse("abc"), Nil{})), "_abc")
+    Unit <- E.must_eq("forced code fallback", VL.show_spans(VL.tokenize.force_mode(VL.MdCode{}, String.reverse("abc"), Nil{})), "`abc")
     Unit <- E.must_eq("closed code dim", styled("`code`"), "S2[code]")
     Unit <- E.must_eq("code remains opaque", styled("`*bold* _italic_ https://example.test`"), "S2[*bold* _italic_ https://example.test]")
     Unit <- E.must_eq("unclosed code plain", styled("`code"), "S0[`code]")

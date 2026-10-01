@@ -18,11 +18,16 @@ def target_name(+raw: String) -> String:
   +clean = Irc.sanitize_in(raw)
   target_name.known(clean, Irc.rfc1459(clean))
 
+# STATUSMSG changes the wire audience, not the resident channel identity.
+# Generic buf_find deliberately does not apply this creation/routing policy.
+def target_key(+raw: String) -> String:
+  Irc.chan_target(target_name(raw))
+
 def target_is_synthetic(+raw: String) -> Bool:
   String.starts_with(target_name(raw), "*")
 
 def target_channel(+raw: String) -> Bool:
-  Irc.starts_channel(target_name(raw))
+  Irc.starts_channel(target_key(raw))
 
 def target_wire(+raw: String) -> Bool:
   Bool.not(target_is_synthetic(raw))
@@ -676,7 +681,7 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
       empty_buf.nicks.server(String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
-  +canonical = target_name(name)
+  +canonical = target_key(name)
   +channel = is_channel || target_channel(canonical)
   Buffer{canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
 
@@ -1023,7 +1028,7 @@ def buf_get.fin(+cl: Client, +name: String, is_channel: Bool, create: Bool, foun
       buf_get.found(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create, found)
 
 def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
-  +canonical = target_name(name)
+  +canonical = target_key(name)
   buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
 # ---- scrollback ---------------------------------------------------------

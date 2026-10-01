@@ -30,7 +30,7 @@ def naive_body() -> String:
   "na" ++ SCon{Chr{239}, "ve latin1"}
 
 def naive_pack() -> String:
-  V.show_spans(V.tokenize("<a> " ++ naive_body()))
+  VL.show_spans(VL.tokenize("<a> " ++ naive_body()))
 
 def main_on(+demo: Cl.Client) -> IO(Unit):
   do IO<Unit>:
@@ -85,11 +85,11 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("body_ys", VL.body_ys_ok())
     Unit <- E.must("tsw", VL.ts_width_ok())
     Unit <- E.must("vchrono", VL.vis_chrono_ok())
-    Unit <- E.must("tok_italic", V.tokenize_has_italic("_em_"))
-    Unit <- E.must("tok_code", V.tokenize_has_code("`code`"))
-    Unit <- E.must("tok_link", V.tokenize_has_link("see https://timui.dev x"))
-    Unit <- E.must("tok_unclosed", V.unclosed_star_plain())
-    Unit <- E.must("tok_no_italic", Bool.not(V.tokenize_has_italic("no marks")))
+    Unit <- E.must("tok_italic", VL.tokenize_has_italic("_em_"))
+    Unit <- E.must("tok_code", VL.tokenize_has_code("`code`"))
+    Unit <- E.must("tok_link", VL.tokenize_has_link("see https://timui.dev x"))
+    Unit <- E.must("tok_unclosed", VL.unclosed_star_plain())
+    Unit <- E.must("tok_no_italic", Bool.not(VL.tokenize_has_italic("no marks")))
     Unit <- E.must("page", CL.scroll_page_ok())
     Unit <- E.must("scroll_clamp", Pred.scroll_clamp_ok())
     Unit <- E.must("nick_query", CL.nick_query_renames())
@@ -100,17 +100,17 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("ieq1459", Pred.ieq_rfc1459_ok())
     Unit <- E.must("self_priv", CL.self_priv_query())
     Unit <- E.must("bare_join", Pred.bare_join_ok())
-    Unit <- E.must("tok_no_embed", V.tokenize_no_embed())
-    Unit <- E.must("tok_trim_dot", V.tokenize_trim_dot())
-    Unit <- E.must("tok_trim_semi", V.tokenize_trim_semi())
-    Unit <- E.must("tok_trim_brack", V.tokenize_trim_brack())
-    Unit <- E.must("tok_trim_osc", V.tokenize_trim_osc())
+    Unit <- E.must("tok_no_embed", VL.tokenize_no_embed())
+    Unit <- E.must("tok_trim_dot", VL.tokenize_trim_dot())
+    Unit <- E.must("tok_trim_semi", VL.tokenize_trim_semi())
+    Unit <- E.must("tok_trim_brack", VL.tokenize_trim_brack())
+    Unit <- E.must("tok_trim_osc", VL.tokenize_trim_osc())
     Unit <- E.must("snap", CL.snap_ok())
     Unit <- E.must("self_part", CL.self_part_drops())
     # F8: roundtrip alone is satisfied by an identity tokenizer; require a Bold span.
-    Unit <- E.must("tok_rt", V.tokenize_roundtrip("hello *bold* text"))
-    Unit <- E.must("tok_bold", V.tokenize_has_bold("hello *bold* text"))
-    Unit <- E.must("tok_plain", Bool.not(V.tokenize_has_bold("no stars here")))
+    Unit <- E.must("tok_rt", VL.tokenize_roundtrip("hello *bold* text"))
+    Unit <- E.must("tok_bold", VL.tokenize_has_bold("hello *bold* text"))
+    Unit <- E.must("tok_plain", Bool.not(VL.tokenize_has_bold("no stars here")))
     Unit <- E.must("log_ts", CL.log_ts_ok())
     Unit <- E.must("sanitize", Tag.sanitize_in_ok())
     Unit <- E.must("no_forge", no_forge_pack())

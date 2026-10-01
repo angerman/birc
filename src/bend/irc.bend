@@ -418,6 +418,35 @@ def parse_body.on_rest(rest: String) -> Maybe<&2, Message>:
 def parse_body(s: String) -> Maybe<&2, Message>:
   parse_body.on_rest(drop_spaces(s))
 
+# Source inspection keeps the user/host markers that Message.nick omits.
+# A bare nickname is ambiguous: only a server-shaped or configured source
+# is a server here. Explicit nick!user@host sources always remain users.
+def source_prefix.word(pair: String & String) -> String:
+  match pair:
+    case (prefix, _): prefix
+
+def source_prefix.body(s: String) -> String:
+  match s:
+    case SCon{Chr{58}, t}: source_prefix.word(take_until_space(t))
+    case _: ""
+
+def source_prefix.tagged(pair: String & String) -> String:
+  match pair:
+    case (_, rest): source_prefix.body(drop_spaces(rest))
+
+def source_prefix.on(tagged: Bool, +s: String) -> String:
+  match tagged:
+    case True{}: source_prefix.tagged(take_until_space(s))
+    case False{}: source_prefix.body(s)
+
+def source_prefix(+line: String) -> String:
+  +body = drop_spaces(line)
+  source_prefix.on(String.starts_with(body, "@"), body)
+
+def source_is_server(+prefix: String, +server: String) -> Bool:
+  Bool.not(String.is_empty(prefix) || String.contains(prefix, "!") || String.contains(prefix, "@"))
+    && (String.contains(prefix, ".") || ieq(prefix, server))
+
 def strip_cr.fin(cr: Bool, +s: String, +t: String) -> String:
   match cr:
     case True{}:
@@ -479,6 +508,11 @@ def skip_one_digit(+s: String) -> String:
     case SCon{+h, t}:
       skip_one_digit_on(h, t, Char.is_digit(h))
 
+def starts_digit(s: String) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{h, _}: Char.is_digit(h)
+
 def skip_mirc_com(+h: Char, t: String, comma: Bool) -> String:
   match comma:
     case True{}:
@@ -490,15 +524,15 @@ def skip_mirc_comma(+s: String) -> String:
   match s:
     case SNil{}:
       SNil{}
-    case SCon{+h, t}:
-      skip_mirc_com(h, t, code_is(h, 44))
+    case SCon{+h, +t}:
+      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
 
-def skip_mirc_d2.on(+h: Char, t: String, dig: Bool) -> String:
+def skip_mirc_d2.on(+h: Char, +t: String, dig: Bool) -> String:
   match dig:
     case True{}:
       skip_mirc_comma(t)
     case False{}:
-      skip_mirc_com(h, t, code_is(h, 44))
+      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
 
 def skip_mirc_d2(+s: String) -> String:
   match s:
@@ -521,7 +555,8 @@ def skip_mirc_d1(+s: String) -> String:
     case SCon{+h, t}:
       skip_mirc_d1.on(h, t, Char.is_digit(h))
 
-# 0x03 then optional 1–2 fg digits, then comma+bg only if a digit was eaten.
+# 0x03 then optional 1–2 fg digits; comma belongs to the color code only
+# when a foreground digit was eaten and a background digit follows it.
 def skip_mirc(+s: String) -> String:
   skip_mirc_d1(s)
 

@@ -2,6 +2,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 import ../../src/bend/media.bend as M
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/split.bend as Sp
@@ -54,5 +55,5 @@ def main() -> IO(Unit):
     Unit <- E.must("accepted local preview helper-only", helper_only(ready))
     Unit <- E.must("accepted local preview paints token", has_token(production(ready, Sp.Off{})))
     Unit <- E.must("legacy pure preview adapter remains", Bool.not(no_raw(V.view_draft(client(), 24, 80, "", "demo"))))
-    Unit <- E.must_eq("direct runs preserve rendered text", spans_text(V.render_spans("**é** 👩‍💻 :eyes: https://example.test/x")), spans_text(V.span_ops(V.tokenize("**é** 👩‍💻 :eyes: https://example.test/x"))))
+    Unit <- E.must_eq("direct runs preserve rendered text", spans_text(V.render_spans("**é** 👩‍💻 :eyes: https://example.test/x")), spans_text(VL.span_ops(VL.tokenize("**é** 👩‍💻 :eyes: https://example.test/x"))))
     IO.print("ui_review_view=ok")

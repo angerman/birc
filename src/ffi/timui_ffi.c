@@ -623,6 +623,18 @@ static Term birc_cons_head(Env e, Term xs, Term *tail) {
   spare_free(e, cls_fit(2), sp);
   return fb[0];
 }
+/* Byte-capped labels must inspect the complete source cluster, including any
+ * attachment beyond the cap. The composer keeps its separate code-point clip. */
+static size_t birc_cluster_fit(const char *text, size_t length, size_t cap) {
+  size_t kept = 0;
+  if (!text) return 0;
+  while (kept < length) {
+    size_t next = timui_grapheme_next(text, length, kept);
+    if (next <= kept || next > cap) break;
+    kept = next;
+  }
+  return kept;
+}
 static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
                          int max) {
   int n = 0;
@@ -634,7 +646,9 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
     Term h = birc_cons_head(e, xs, &t);
     xs = t;
     s = io_cstr(e, h, &len);
+    /* Keep the byte/code-point cap, then back up past a partial cluster. */
     nlen = birc_utf8_fit(s, (size_t)len < 63 ? (size_t)len : (size_t)63);
+    nlen = birc_cluster_fit(s, (size_t)len, nlen);
     if (nlen > 0)
       memcpy(store[n], s, nlen);
     store[n][nlen] = '\0';

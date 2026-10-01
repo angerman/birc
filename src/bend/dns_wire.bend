@@ -503,6 +503,18 @@ def take16(+c: Cur) -> Maybe<&2, Got>:
     +g1 : Got <- take8(got_cur(g0))
     return Got{u16_of(got_v(g0), got_v(g1)), got_cur(g1)}
 
+# Queries use dotted hostname syntax, never an escaped literal dot in a label.
+# Reject that octet on replies so joining labels cannot alias another name.
+def label_byte.keep(+b: U32, dot: Bool) -> Maybe<&2, U32>:
+  match dot:
+    case True{}: None{}
+    case False{}: Some{b}
+
+def label_byte(c: Cur) -> Maybe<&2, U32>:
+  do Maybe<&2, U32>:
+    +b : U32 <- byte_at(c)
+    label_byte.keep(b, U32.is_eq(b, 46))
+
 def lo_byte_on(+b: U32, up: Bool) -> U32:
   match up:
     case True{}:
@@ -632,7 +644,7 @@ def read_name_go(
             case True{}:
               read_name_go(p, RdGet{}, pkt, pos, ret, hops, name_join(acc, lab), "", 0, 0, None{}, False{})
             case False{}:
-              read_name_go(p, RdLabB{}, pkt, pos, ret, hops, acc, lab, n, b, byte_at(at_off(pkt, pos)), False{})
+              read_name_go(p, RdLabB{}, pkt, pos, ret, hops, acc, lab, n, b, label_byte(at_off(pkt, pos)), False{})
         case RdLabB{}:
           match got:
             case None{}:
@@ -843,7 +855,6 @@ def first_fail(xs: List<&2, Chk>) -> Maybe<&2, String>:
 def hdr_chks(+want: U32, +h: Hdr) -> List<&2, Chk>:
   Chk{U32.is_eq(hdr_id(h), want), "bad id"}
     <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"}
-    <> Chk{rcode_ok(hdr_sb(h)), "rcode"}
     <> Chk{U32.is_zero(U32.and(hdr_fb(h), 120)), "bad dns"}
     <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
 
@@ -857,35 +868,42 @@ def parse_q_truncated(r: Result<&1, &1, U32 & String, String>, tc: Bool) -> Resu
         case True{}: err("tc")
         case False{}: Fail{e}
 
+# A terminal server error still belongs to a validated echoed question.
+def parse_q_rcode(good: Bool, +host: String, +pkt: List<&2, U32>, +an: U32, +off: U32, tc: Bool) -> Result<&1, &1, U32 & String, String>:
+  match good:
+    case False{}: err("rcode")
+    case True{}: parse_q_truncated(walk_an(pkt, off, an, host), tc)
+
 def parse_q_qs_ok(
   +host: String,
   +pkt: List<&2, U32>,
   +an: U32,
   +off: U32,
   tc: Bool,
+  sb: U32,
   ok: Bool
 ) -> Result<&1, &1, U32 & String, String>:
   match ok:
     case False{}:
       err("bad dns")
     case True{}:
-      parse_q_truncated(walk_an(pkt, off, an, host), tc)
+      parse_q_rcode(rcode_ok(sb), host, pkt, an, off, tc)
 
-def parse_q_qs(+host: String, +an: U32, +pkt: List<&2, U32>, tc: Bool, m: Maybe<&2, Qsec>) -> Result<&1, &1, U32 & String, String>:
+def parse_q_qs(+host: String, +an: U32, +pkt: List<&2, U32>, tc: Bool, sb: U32, m: Maybe<&2, Qsec>) -> Result<&1, &1, U32 & String, String>:
   match m:
     case None{}:
       err("bad dns")
     case Some{q}:
       match q:
         case Qsec{qname, ty, cls, off}:
-          parse_q_qs_ok(host, pkt, an, off, tc, U32.is_eq(ty, 1) && U32.is_eq(cls, 1) && String.eq(qname, host))
+          parse_q_qs_ok(host, pkt, an, off, tc, sb, U32.is_eq(ty, 1) && U32.is_eq(cls, 1) && String.eq(qname, host))
 
 def parse_q_chk(fail: Maybe<&2, String>, +host: String, +h: Hdr) -> Result<&1, &1, U32 & String, String>:
   match fail:
     case Some{+msg}:
       err(msg)
     case None{}:
-      parse_q_qs(host, hdr_an(h), hdr_pkt(h), Bool.not(U32.is_zero(U32.and(hdr_fb(h), 2))), read_qsec(hdr_pkt(h)))
+      parse_q_qs(host, hdr_an(h), hdr_pkt(h), Bool.not(U32.is_zero(U32.and(hdr_fb(h), 2))), hdr_sb(h), read_qsec(hdr_pkt(h)))
 
 def parse_q_h(+want: U32, +host: String, m: Maybe<&2, Hdr>) -> Result<&1, &1, U32 & String, String>:
   match m:

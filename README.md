@@ -83,6 +83,7 @@ whole client correct.
 | [`src/bend/media.bend`](src/bend/media.bend) | Bend 2 | Bounded image request identity, queue, cache policy, and stale-result guards |
 | [`src/bend/diagnostic.bend`](src/bend/diagnostic.bend) | Bend 2 | Bounded private diagnostic text and safe helper results |
 | [`src/bend/columns.bend`](src/bend/columns.bend) | Bend 2 | Terminal column widths and common cluster boundaries for wrapping |
+| [`src/bend/history_io.bend`](src/bend/history_io.bend) | Bend 2 | Private history append effects, separate from proof-facing history rules |
 | [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
 | [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
@@ -239,6 +240,11 @@ When historical conversations exceed the available buffer slots, restore
 retains the most recently used targets. Server and local tabs are preserved.
 A zero history cap restores no chat targets.
 
+History writes create private `0600` files. An existing regular file owned by
+the current user is repaired to `0600` before appending, without changing its
+contents. Symlinks, nonregular files, and files owned by another user are not
+written. A failed permission check or write is reported in `*log*`.
+
 The pinned file-size API supports at most 4,294,967,295 bytes. Larger files
 produce a visible history error instead of an empty restore. Other size/read
 errors are also visible. A failed read retains only completed records from
@@ -285,6 +291,10 @@ keep the original message. Styled URLs close formatting at the token end;
 internal URL punctuation is not markup. URLs inside styles or code remain
 display text, not clickable links or automatic preview requests.
 Native output and selection preserve combining marks and emoji sequences.
+Wrapping prefers spaces between words, including across formatting runs.
+Oversized words and URLs still hard-wrap at complete cluster boundaries.
+Spaces hidden at a row boundary remain part of scroll and resize anchors.
+A cluster that crosses a style boundary uses its leading character's style.
 OSC8 hyperlinks keep exact targets through 1024 bytes; larger targets are
 declined instead of shortened. Visible glyphs still depend on terminal fonts.
 

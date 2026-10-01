@@ -13,6 +13,19 @@ def empty_out() -> List<&2, String>:
 def one_out(+s: String) -> List<&2, String>:
   Irc.clamp_line(Irc.strip_ctl(s)) <> Nil{}
 
+# ---- shared automatic-image argument policy ----------------------------
+
+def images_arg(arg: String) -> Maybe<&2, Bool>:
+  match arg:
+    case "on": Some{True{}}
+    case "off": Some{False{}}
+    case _: None{}
+
+def images_status(intent: Maybe<&2, Bool>) -> String:
+  match intent:
+    case None{}: "usage: /images on|off"
+    case Some{on}: Bool.pick(String, on, "automatic images on", "automatic images off")
+
 # ---- shared space scan; command verb drops exactly one separator --------
 
 def take_verb.scanned(pair: String & String) -> String & String:
@@ -93,39 +106,58 @@ def send_message(cl: Cl.Client, bi: Nat, target: String, body: String) -> Cl.Cli
 
 # ---- /join --------------------------------------------------------------
 
-def submit_join.got.on(+cl2: Cl.Client, +bi: Nat, +rest: String, +nick: String) -> Cl.Client & List<&2, String>:
-  (Cl.set_active(Cl.nick_add_idx(cl2, bi, nick), bi), one_out(Irc.format_join(rest)))
-
-def submit_join.got.cl(+cl2: Cl.Client, +bi: Nat, +rest: String) -> Cl.Client & List<&2, String>:
-  match cl2:
-    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
-      submit_join.got.on(cl2, bi, rest, nick)
-
-def submit_join.got(pair: Cl.Client & Maybe<&2, Nat>, +rest: String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (cl2, None{}):
-      (cl2, empty_out())
-    case (cl2, Some{+bi}):
-      submit_join.got.cl(cl2, bi, rest)
-
-def submit_join.on(+cl: Cl.Client, +target: String, +args: String, chan: Bool) -> Cl.Client & List<&2, String>:
-  match chan:
-    case False{}:
-      (echo_err(cl, "usage: /join #chan"), empty_out())
-    case True{}:
-      submit_join.got(Cl.buf_get(cl, target, True{}, True{}), args)
-
 def submit_join.args(+target: String, +key: String, has_key: Bool) -> String:
   match has_key:
     case False{}: target
     case True{}: target ++ " " ++ key
+
+# A JOIN list is one wire command, but each channel has its own buffer.
+# Validate the complete request before staging any local changes. A full
+# buffer set rejects the request atomically instead of joining unseen tabs.
+def join_channel(+target: String) -> Bool:
+  match target:
+    case SNil{}: False{}
+    case SCon{h, t}: Irc.is_chan_type(h) && Bool.not(String.is_empty(t))
+
+def join_channels(targets: List<&2, String>) -> Bool:
+  match targets:
+    case Nil{}: True{}
+    case Con{+h, t}: join_channel(h) && join_channels(t)
+
+def join_staged.got(pair: Cl.Client & Maybe<&2, Nat>) -> Maybe<&2, Cl.Client>:
+  match pair:
+    case (_, None{}): None{}
+    case (+cl, Some{+i}): Some{Cl.set_active(Cl.nick_add_idx(cl, i, Cl.nick_of(cl)), i)}
+
+def join_staged.step(acc: Maybe<&2, Cl.Client>, target: String) -> Maybe<&2, Cl.Client>:
+  match acc:
+    case None{}: None{}
+    case Some{cl}: join_staged.got(Cl.buf_get(cl, target, True{}, True{}))
+
+def join_staged(targets: List<&2, String>, +cl: Cl.Client) -> Maybe<&2, Cl.Client>:
+  List.foldl(~&2, ~String, ~Maybe<&2, Cl.Client>, ~join_staged.step, targets, Some{cl})
+
+def submit_join.staged(+original: Cl.Client, +args: String, staged: Maybe<&2, Cl.Client>) -> Cl.Client & List<&2, String>:
+  match staged:
+    case None{}: (echo_err_server(original, "buffer limit reached"), empty_out())
+    case Some{cl}: (cl, one_out(Irc.format_join(args)))
+
+def submit_join.valid(valid: Bool, +cl: Cl.Client, targets: List<&2, String>, +args: String) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "usage: /join #chan[,#chan] [key[,key]]"), empty_out())
+    case True{}: submit_join.staged(cl, args, join_staged(targets, cl))
 
 def submit_join.words(cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
     case (+channel, rest):
       +target = Cl.target_name(channel)
       +key = Irc.drop_spaces(rest)
-      submit_join.on(cl, target, submit_join.args(target, key, Bool.not(String.is_empty(key))), Irc.starts_channel(target))
+      +targets = String.split(target, Chr{44})
+      +args = submit_join.args(target, key, Bool.not(String.is_empty(key)))
+      submit_join.valid(Bool.not(String.is_empty(target)) && join_channels(targets)
+        && Bool.not(String.contains(key, " "))
+        && (String.is_empty(key) || Nat.is_le(List.length(&2, String, String.split(key, Chr{44})), List.length(&2, String, targets)))
+        && Nat.is_le(Irc.utf8_len(Irc.format_join(args)), Irc.LINE_MAX()), cl, targets, args)
 
 def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_join.words(cl, Irc.take_until_space(Irc.drop_spaces(rest)))
@@ -1114,8 +1146,7 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
     case PreviewCmd{}:
       submit_preview(cl, rest)
     case ImagesCmd{}:
-      (echo_sys(cl, Bool.pick(String, String.eq(Irc.drop_spaces(rest), "on"), "automatic images on",
-        Bool.pick(String, String.eq(Irc.drop_spaces(rest), "off"), "automatic images off", "usage: /images on|off"))), empty_out())
+      (echo_sys(cl, images_status(images_arg(Irc.drop_spaces(rest)))), empty_out())
     case LogCmd{}:
       (Cl.log_open(cl), empty_out())
     case Unknown{}:

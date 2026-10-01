@@ -4,6 +4,7 @@ import Base
 import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./frame.bend as Fr
+import ./irc.bend as Irc
 import ./clock.bend as Clock
 
 type ReadState is Data:
@@ -33,7 +34,7 @@ def chunk(state: ReadState, bytes: List<&2, U32>) -> ReadState:
 def finish_client(drop: Bool, cl: Cl.Client, rem: List<&2, U32>) -> Cl.Client:
   match drop:
     case True{}: cl
-    case False{}: Feed.feed_all(cl, Cl.replay_lines(Fr.line_from_octets(rem)))
+    case False{}: Feed.feed_all(cl, Cl.replay_lines(Irc.sanitize_in(Fr.line_from_octets(rem))))
 
 def finish(f: File, state: ReadState) -> IO(Cl.Client):
   match state:

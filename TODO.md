@@ -2305,6 +2305,66 @@ Implementation checkpoint: `ba48c67`. Final documentation handoff passes
 cleanup items are implemented and cross-reviewed. No push was made. The
 earlier intermittent timeout causes remain unknown, despite this clean run.
 
+## M21 — Review follow-up: correctness and word-boundary wrapping
+
+Reviewed baseline: `771beab`. Findings were reproduced with owned synthetic
+probes under `build/`; no private chat URLs or live IRC endpoints were used.
+Implementations must retain all existing laws and assertions unless a specific
+expectation correction receives user approval. Add failing and passing controls.
+
+- [x] R01 — Private history append: new files are `0600` independent of umask;
+      repair owned regular files via descriptor, reject unsafe paths/files, and
+      never change the global umask. The user explicitly approved the repair.
+- [x] R02 — GIF source bounds: validate each canvas and count actual cumulative
+      source pixels, including an APNG fallback; preserve valid animations.
+- [x] R03 — DNS name identity: preserve wire label boundaries during comparison.
+- [x] R04 — DNS error identity: validate header/question before terminal RCODE.
+- [x] R05 — Styled clusters: keep common graphemes whole across style runs;
+      cluster-leading style owns paint, and Bend retains wrapping policy.
+- [x] R06 — Hidden header: honor zero-sized rectangles and constrain both runs.
+- [x] R07 — JOIN lists: keep individual channel identities and matching keys;
+      never create the phantom comma-list buffer.
+- [x] R08 — Status targets: preserve wire audience prefixes, normalize only
+      local buffer identity consistently across send/query/inbound routing.
+- [x] R09 — Color commas: consume a comma only when background digits follow.
+      Existing `irc_show` expectation correction requires explicit approval.
+- [x] R10 — Reconnect: distinguish missing configuration from valid `s`/`demo`
+      hostnames; retain manual/automatic reconnect state and port controls.
+- [x] R11 — Unicode header: allocate and clip in terminal columns, not scalars.
+- [x] R12 — Final replay: sanitize the unterminated record like framed records.
+- [x] R13 — Nix preflight: run the CTCP Python fixture guard through `NIXRUN`.
+- [x] R14 — Prefix fallback: preserve the original text on parse failure,
+      including an accepted history row such as `<alice>oops`.
+- [x] W01 — Prefer word boundaries across style runs; hard-wrap oversized
+      words/URLs, retain clusters and hanging indents, and count hidden boundary
+      spaces in resize-safe source anchors.
+- [x] C01 — Move legacy tokenizer-law adapters into the existing View law module;
+      mechanically update references without changing assertions.
+- [x] C02 — Share the SASL CLI-or-environment resolver without changing precedence.
+- [x] C03 — Replace redundant empty-list helpers with `List.is_empty`.
+- [x] C04 — Share `/images` argument acceptance for status and state mutation.
+- [x] C05 — Share buffer-key normalization and reconnect eligibility predicates.
+- [x] U01 — Clip tab labels only at complete common-cluster byte boundaries.
+- [x] P01 — User chose directed server NOTICE routing to the read-only server
+      buffer; preserve private user notices and ambiguous bare nicknames.
+- [ ] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
+      full `make check`, supported sanitizers, and installed Nix package.
+
+Concurrent ownership: state/protocol/history, runtime/DNS/replay, native/media,
+and root View/wrapping/driver/proof integration. No dependency pins may move.
+
+User approved two existing expectation corrections: a literal color comma is
+preserved (`irc_show`), and malformed DNS flags report `bad dns` instead of
+`rcode` (`parse_fffd`). Other existing assertions are unchanged; legacy adapter
+references and one history-save import were mechanically moved.
+
+Focused model/native checks and actual terminal-painter controls pass. New
+wrapping guards retain source anchors across hidden spaces and width changes.
+Eight new View/DNS/color laws plus target/reconnect/notice/JOIN/image-switch
+laws pass. Cross-review caught and fixed a new allocation-failure argument
+ownership leak and preserved legal masked JOIN names. Full verification and
+package qualification remain before the final handoff.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

@@ -4,6 +4,220 @@ import Base
 import ./buffer.bend as Cl
 import ./split.bend as Sp
 import ./view.bend as V
+import ./links.bend as Links
+import ./columns.bend as Cols
+
+# Legacy tokenizer adapters preserve the original proof/test vocabulary.
+# Production View paints shared Links.Run values without this intermediate type.
+type TextSpan is Data:
+  Plain{text: String}
+  Bold{text: String}
+  Italic{text: String}
+  Code{text: String}
+  Link{url: String, text: String}
+  Styled{attrs: U32, text: String}
+
+def STAR() -> Char:
+  Chr{42}
+
+def USCORE() -> Char:
+  Chr{95}
+
+def TICK() -> Char:
+  Chr{96}
+
+type TokMode is Data:
+  MdOut{}
+  MdBold{}
+  MdItalic{}
+  MdCode{}
+
+# Retain the public fallback seam used by the original tokenizer guards.
+def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
+  match acc:
+    case SNil{}: spans
+    case SCon{_, _}: Plain{String.reverse(acc)} <> spans
+
+def tokenize.force_mode(mode: TokMode, +acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
+  match mode:
+    case MdOut{}: List.reverse(&2, TextSpan, tokenize.emit_plain(acc, spans))
+    case MdBold{}: List.reverse(&2, TextSpan, Plain{SCon{STAR(), String.reverse(acc)}} <> spans)
+    case MdItalic{}: List.reverse(&2, TextSpan, Plain{SCon{USCORE(), String.reverse(acc)}} <> spans)
+    case MdCode{}: List.reverse(&2, TextSpan, Plain{SCon{TICK(), String.reverse(acc)}} <> spans)
+
+def tokenize.styled(attrs: U32, text: String) -> TextSpan:
+  match attrs:
+    case 0: Plain{text}
+    case 1: Bold{text}
+    case 2: Code{text}
+    case 4: Italic{text}
+    case _: Styled{attrs, text}
+
+def tokenize.run(run: Links.Run) -> TextSpan:
+  match run:
+    case Links.Run{attrs, text, url}:
+      match url:
+        case None{}: tokenize.styled(attrs, text)
+        case Some{link}: Link{link, text}
+
+def tokenize.runs(runs: List<&2, Links.Run>) -> List<&2, TextSpan>:
+  match runs:
+    case Nil{}: Nil{}
+    case Con{h, t}: tokenize.run(h) <> tokenize.runs(t)
+
+def tokenize(+s: String) -> List<&2, TextSpan>:
+  tokenize.runs(Links.render(s))
+
+# Reconstruct the legacy single-style spelling for the tokenizer laws.
+# Emoji and escaped source remain in Client; display spans are not source text.
+def show_spans.styled(+attrs: U32, text: String) -> String:
+  +bold = Bool.pick(String, U32.is_ne(U32.and(attrs, 1), 0), "*", "")
+  +italic = Bool.pick(String, U32.is_ne(U32.and(attrs, 4), 0), "_", "")
+  +code = Bool.pick(String, U32.is_ne(U32.and(attrs, 2), 0), "`", "")
+  bold ++ italic ++ code ++ text ++ code ++ italic ++ bold
+
+def show_spans.chunk(sp: TextSpan) -> String:
+  match sp:
+    case Plain{+tx}:
+      tx
+    case Bold{+tx}:
+      "*" ++ tx ++ "*"
+    case Italic{+tx}:
+      "_" ++ tx ++ "_"
+    case Code{+tx}:
+      "`" ++ tx ++ "`"
+    case Link{_, +text}:
+      text
+    case Styled{attrs, text}:
+      show_spans.styled(attrs, text)
+
+def show_spans.chunks(+xs: List<&2, TextSpan>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      show_spans.chunk(h) <> show_spans.chunks(t)
+
+def show_spans(+xs: List<&2, TextSpan>) -> String:
+  String.concat(show_spans.chunks(xs))
+
+def tokenize_roundtrip(+s: String) -> Bool:
+  String.eq(show_spans(tokenize(s)), s)
+
+type SpanKind is Data:
+  WantBold{}
+  WantItalic{}
+  WantCode{}
+  WantLink{}
+
+def span_hit(k: SpanKind, h: TextSpan) -> Bool:
+  match k:
+    case WantBold{}:
+      match h:
+        case Bold{_}:
+          True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 1), 0)
+        case _:
+          False{}
+    case WantItalic{}:
+      match h:
+        case Italic{_}:
+          True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 4), 0)
+        case _:
+          False{}
+    case WantCode{}:
+      match h:
+        case Code{_}:
+          True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 2), 0)
+        case _:
+          False{}
+    case WantLink{}:
+      match h:
+        case Link{_, _}:
+          True{}
+        case _:
+          False{}
+
+def has_kind.go(+k: SpanKind, xs: List<&2, TextSpan>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      Bool.pick(Bool, span_hit(k, h), True{}, has_kind.go(k, t))
+
+def has_kind(+k: SpanKind, +s: String) -> Bool:
+  has_kind.go(k, tokenize(s))
+
+def tokenize_has_bold(+s: String) -> Bool:
+  has_kind(WantBold{}, s)
+
+def tokenize_has_italic(+s: String) -> Bool:
+  has_kind(WantItalic{}, s)
+
+def tokenize_has_code(+s: String) -> Bool:
+  has_kind(WantCode{}, s)
+
+def tokenize_has_link(+s: String) -> Bool:
+  has_kind(WantLink{}, s)
+
+def first_link.go(+xs: List<&2, TextSpan>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{h, t}:
+      match h:
+        case Link{+url, _}:
+          url
+        case _:
+          first_link.go(t)
+
+def tokenize_no_embed() -> Bool:
+  Bool.not(tokenize_has_link("notahttp://x"))
+
+def tokenize_trim_dot() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com.")), "http://x.com")
+
+def tokenize_trim_semi() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com;")), "http://x.com")
+
+def tokenize_trim_brack() -> Bool:
+  String.eq(first_link.go(tokenize("see http://x.com]")), "http://x.com")
+
+# − https://evil2.exampleclick]8;; was one link including the OSC-8 closer.
+# Trailing ] and ; strip; a digit stops the trim, so ]8 remains.
+def tokenize_trim_osc() -> Bool:
+  String.eq(first_link.go(tokenize("see https://evil2.exampleclick];; x")), "https://evil2.exampleclick")
+    && String.eq(first_link.go(tokenize("see https://evil2.exampleclick]8;; x")), "https://evil2.exampleclick]8")
+
+def unclosed_star_plain() -> Bool:
+  Bool.not(tokenize_has_bold("*foo"))
+
+def span_op(sp: TextSpan) -> V.SpanOp:
+  match sp:
+    case Plain{+tx}:
+      V.Spn{0, tx}
+    case Bold{+tx}:
+      V.Spn{1, tx}
+    case Italic{+tx}:
+      V.Spn{4, tx}
+    case Code{+tx}:
+      V.Spn{2, tx}
+    case Link{+url, +text}:
+      V.Lnk{url, text}
+    case Styled{attrs, text}:
+      V.Spn{attrs, text}
+
+def span_ops(xs: List<&2, TextSpan>) -> List<&2, V.SpanOp>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, t}:
+      span_op(h) <> span_ops(t)
 
 def style_self_ne_msg() -> Bool:
   Bool.not(U32.is_eq(V.style_of(Cl.Self{}), V.style_of(Cl.Msg{})))
@@ -249,3 +463,38 @@ def scroll_bounds_ok.fin(+c: Nat, +m: Nat, +count: Nat, +height: Nat) -> Bool:
 
 def scroll_bounds_ok(+scroll: Nat, +count: Nat, +height: Nat) -> Bool:
   scroll_bounds_ok.fin(V.clamp_scroll(scroll, count, height), V.scroll_max(count, height), count, height)
+
+def cluster_plain(xs: List<&2, V.SpanOp>, +want: String) -> Bool:
+  match xs:
+    case Con{V.Spn{attrs, text}, Nil{}}: U32.is_eq(attrs, 0) && String.eq(text, want)
+    case _: False{}
+
+def styled_cluster_ok() -> Bool:
+  cluster_plain(V.line_spans_for(Cl.Msg{}, "e*́*X"), "éX")
+    && cluster_plain(V.line_spans_for(Cl.Msg{}, "👩*‍💻*X"), "👩‍💻X")
+    && cluster_plain(V.line_spans_for(Cl.Msg{}, "👩‍💻X"), "👩‍💻X")
+
+def wrapped_text(rows: List<&2, V.BodyRow>) -> List<&2, String>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{V.BodyRow{_, _, _, _, _, spans, _}, t}: V.spans_text(spans) <> wrapped_text(t)
+    case Con{_, t}: wrapped_text(t)
+
+def word_wrap_ok() -> Bool:
+  +rows = V.wrap_line(Cl.Line{Cl.Msg{}, "", "hello   **world**", "", 0n}, 8, False{})
+  String.eq(String.join(wrapped_text(rows), "|"), "hello|world")
+    && Nat.is_eq(V.rows_chars(rows), 13n)
+    && String.eq(String.join(wrapped_text(V.wrap_line(Cl.Line{Cl.Msg{}, "", "abcdefghijk", "", 0n}, 4, False{})), "|"), "abcd|efgh|ijk")
+
+def hidden_header_ok() -> Bool:
+  List.is_empty(&2, V.DrawOp, V.user_header_ops(V.Rect{0, 0, 0, 0}, "me", "irc", "online"))
+    && List.is_empty(&2, V.DrawOp, V.user_header_ops(V.Rect{5, 2, 20, 0}, "me", "irc", "online"))
+
+def header_columns_ok() -> Bool:
+  U32.is_eq(V.user_w("漢@irc · online"), Cols.text_width("漢@irc · online"))
+    && U32.is_eq(V.user_w("é@irc · online"), Cols.text_width("é@irc · online"))
+
+def prefix_fallback_ok() -> Bool:
+  String.eq(V.spans_text(V.line_spans_for(Cl.Msg{}, "<alice>oops")), "<alice>oops")
+    && String.eq(V.spans_text(V.line_spans_for(Cl.Msg{}, "<alice")), "<alice")
+    && String.eq(V.spans_text(V.line_spans_for(Cl.Msg{}, "<alice> hello")), "<alice> hello")

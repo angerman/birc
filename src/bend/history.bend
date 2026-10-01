@@ -286,7 +286,7 @@ def history_target.allowed(allowed: Bool, +cl: Cl.Client, +target: String) -> Cl
     case True{}: history_target.found(Cl.buf_find(cl, target), cl, target)
 
 def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
-  +canonical = Cl.target_name(target)
+  +canonical = Cl.target_key(target)
   history_target.allowed(Cl.target_wire(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
@@ -479,34 +479,6 @@ def save_result(result: Result<&1, &1, U32 & String, Unit>) -> Maybe<&2, String>
     case Done{_}: None{}
     case Fail{error}: Some{save_error(error, "write failed")}
 
-def history_append_file.done(pair: File & Result<&1, &1, U32 & String, Unit>) -> IO(Maybe<&2, String>):
-  match pair:
-    case (f, result):
-      do IO<Maybe<&2, String>>:
-        Unit <- File.close(f)
-        return save_result(result)
-
-def history_append_file.open(r: Result<&1, &1, U32 & String, File>, +data: String) -> IO(Maybe<&2, String>):
-  match r:
-    case Fail{error}:
-      IO.pure(Maybe<&2, String>, Some{save_error(error, "open failed")})
-    case Done{f}:
-      do IO<Maybe<&2, String>>:
-        pair : File & Result<&1, &1, U32 & String, Unit> <- File.write(f, data)
-        history_append_file.done(pair)
-
-def history_append_file.check(skip: Bool, +path: String, +data: String) -> IO(Maybe<&2, String>):
-  match skip:
-    case True{}:
-      IO.pure(Maybe<&2, String>, None{})
-    case False{}:
-      do IO<Maybe<&2, String>>:
-        r : Result<&1, &1, U32 & String, File> <- File.open(path, "a")
-        history_append_file.open(r, data)
-
-def history_append_file(+path: String, +data: String) -> IO(Maybe<&2, String>):
-  history_append_file.check(String.is_empty(path) || String.is_empty(data), path, data)
-
 def resolve_history_path.home(h: Result<&1, &1, U32 & String, String>) -> IO(String):
   match h:
     case Done{+home}:
@@ -582,16 +554,3 @@ def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap
 
 def history_init_client(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   history_init_client.pick(String.is_empty(path), path, endpoint, cap, nick, host, now)
-
-def maybe_save_history.check(enabled: Bool, +path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Maybe<&2, String>):
-  match enabled:
-    case False{}:
-      IO.pure(Maybe<&2, String>, None{})
-    case True{}:
-      history_append_file(path, extract_new_history_for(endpoint, old_cl, new_cl))
-
-def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Maybe<&2, String>):
-  maybe_save_history.check(
-    Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(new_cl)),
-    path, endpoint, old_cl, new_cl
-  )
