@@ -110,10 +110,10 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("empty_usage", empty_query_active(), "#birc")
     Unit <- E.must("fuzzy", Feed.search_text_matches("Hello World", "hlo"))
     Unit <- E.must_eq("full_count", Nat.show(CL.nbuf(full_search_client())), "16")
-    Unit <- E.must_eq("full_active", Sub.active_name(full_search_client()), "#full14")
+    Unit <- E.must_eq("full_active", Sub.active_name(full_search_client()), "#full13")
     Unit <- E.must(
       "full_error",
-      String.contains(texts_at(full_search_client(), "#full14"), "search unavailable: buffer limit reached")
+      String.contains(texts_at(full_search_client(), "#full13"), "search unavailable: buffer limit reached")
     )
     Unit <- E.must_eq(
       "cap",

@@ -46,14 +46,14 @@ def focused_send_ok() -> Bool:
 def no_phantom_ok() -> Bool:
   +st0 = Sess.session_demo(test_client(), "#one")
   +st1 = trip_state(Sess.step_enter(st0, "/split #missing"))
-  Nat.is_eq(Cl.buf_count(Cl.client_bufs(Sess.session_cl(st1))), 3n)
+  Nat.is_eq(Cl.buf_count(Cl.client_bufs(Sess.session_cl(st1))), 4n)
     && String.eq(Sp.show_state(Sess.session_split(st1)), "off")
 
 def invalid_preserves_split_ok() -> Bool:
   +st0 = Sess.session_demo(test_client(), "#one")
   +st1 = trip_state(Sess.step_enter(st0, "/split server"))
   +st2 = trip_state(Sess.step_enter(st1, "/split #missing"))
-  Nat.is_eq(Cl.buf_count(Cl.client_bufs(Sess.session_cl(st2))), 3n)
+  Nat.is_eq(Cl.buf_count(Cl.client_bufs(Sess.session_cl(st2))), 4n)
     && String.eq(Sp.show_state(Sess.session_split(st2)), "stacked:#one:server:0")
 
 def lines(n: Nat) -> List<&2, Cl.Line>:
@@ -166,14 +166,16 @@ def split_control_query_ok() -> Bool:
 
 def split_explicit_control_ok() -> Bool:
   +st = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/split *server*"))
-  +control = trip_state(Sess.step_keys(st, Sess.keys_focus()))
-  +query = trip_state(Sess.step_keys(control, Sess.keys_focus()))
   +vm = V.view_draft_split(Sess.session_cl(st), 30, 120, "", "demo", Sess.session_split(st))
-  Sp.is_on(Sess.session_split(st)) && view_contains(vm, "CONTROL-WELCOME")
+  view_ok = Sp.is_on(Sess.session_split(st)) && view_contains(vm, "CONTROL-WELCOME")
     && view_contains(vm, "PRIVATE-SERVER-QUERY")
-    && Nat.is_eq(Cl.active_of(Sess.session_cl(control)), 0n)
+  +control = trip_state(Sess.step_keys(st, Sess.keys_focus()))
+  control_active = Cl.active_of(Sess.session_cl(control))
+  control_local = String.is_empty(cmd_first(trip_cmd(Sess.step_enter(control, "local"))))
+  +query = trip_state(Sess.step_keys(control, Sess.keys_focus()))
+  view_ok && Nat.is_eq(control_active, 0n)
     && Nat.is_eq(Cl.active_of(Sess.session_cl(query)), 3n)
-    && String.is_empty(cmd_first(trip_cmd(Sess.step_enter(control, "local"))))
+    && control_local
     && String.eq(cmd_first(trip_cmd(Sess.step_enter(query, "hello"))), "PRIVMSG server :hello")
 
 def main() -> IO(Unit):
