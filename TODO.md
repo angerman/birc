@@ -807,11 +807,12 @@ green, GOLDEN CHANGE, three consecutive pty runs, never push). Review:
 
 ## Milestone 16 — Next-Gen Terminal Visuals & Advanced Capabilities
 
-- [x] **M16.1** Kitty Graphics Protocol Image Viewer: `/preview <local-path>` opens a local PNG from a path or `file://`-prefixed local path through TimUI's Kitty image transport.
-      The C edge accepts only bounded regular files, caches up to two images
-      for split panes, and uses the existing frame deadline. HTTP(S) is rejected
-      explicitly: plaintext birc has no TLS downloader, and C does not perform
-      networking.
+- [x] **M16.1** Original Kitty Graphics Protocol Image Viewer checkpoint:
+      `/preview <local-path>` opened local PNGs, with a two-image cache and
+      explicit HTTP(S) rejection. M18 supersedes these limits with general
+      local formats, bounded remote fetching through the provisioned helper,
+      an eight-image cache, inline layout, and terminal-side animation.
+      IRC remains plaintext; the C edge does not perform image networking.
 - [x] **M16.2** Split-Screen Dual Buffer View: side-by-side or stacked dual-channel tiling (`/split`) using TimUI split panes.
       `/split`, `/vsplit`, `/split-off`, `/unsplit`, and `/focus` use existing
       buffers only. F6/Ctrl-W changes the focused pane; send, scroll, nick list,
@@ -1118,13 +1119,67 @@ passed. This is signal-versus-close safety, not generic concurrent Ui support.
       Add a 150-second recipe bound without changing their assertions. A new
       dry-run guard rejects missing, zero, and nonfinite timeouts and accepts
       direct/Nix/shell-wrapped bounds. It was red on the old driver and is
-      green for all 63 planned commands. This is a missing test bound, not a
-      claim that a program hang was reproduced.
-- [ ] **V04 — Integrated verification and handoff.** Run the full pinned
+      green for all 63 commands at that checkpoint (64 after P21). This is a
+      missing test bound, not a claim that a program hang was reproduced.
+- [x] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
 
-Verification so far (all through the locked Nix shell, no pin updates):
+Final-tree checkpoint at `829d9ce`: locked `timeout 3600 make -k check`
+completed with exit 0 on 2026-10-01, from 06:05:42 to about 06:24:23 UTC.
+Proof, all model/native/network guards, all 64 planned PTY commands, warning
+lint, and paste checks pass. Log:
+`build/review-final-check-wake-20261001.log`. App SHA-256:
+`e841f1caa67e017f5bb0cf827d3af5d4b96f6a797ea638f85585fa498930d9dc`;
+output-limit fixture binary:
+`f7e3fdc34e24d3cf36c05fb7aae98ef05b015fbdc2383033f4ce537ad5b6b51c`.
+This is whole-PTY round one. Round two also passes: locked
+`timeout 1500 make -k -o build/birc -o build/birc-output-limit test-pty`,
+06:26:09–06:33:42 UTC, exit 0. All 64 commands match the dry-run plan in order;
+HEAD and both binary hashes are unchanged. Logs:
+`build/review-final-pty-2-20261001.log` and
+`build/review-final-pty-2-coverage-20261001.log`.
+Round three uses the same command and passes with exit 0,
+06:34:42–06:42:13 UTC. Log: `build/review-final-pty-3-20261001.log`.
+Its HEAD and binary hashes remain unchanged; no pins or existing assertions
+changed.
+Independent coverage comparison confirms all 192 planned recipe executions:
+64 commands per round, with exact order in all three. Evidence:
+`build/review-final-pty-three-coverage-20261001.log`.
+
+Final locked sanitizer/hardening command:
+`timeout 2400 make -k -o build/birc -o build/birc-output-limit -W build/birc_bend.c test-sanitizers check-hardening`.
+It starts at 06:49:22 UTC; exit 0 is confirmed at 06:54:40 UTC, with the last
+raw output at 06:53:18 UTC. The forced fresh UBSan app
+build uses current generated C and FFI; production binaries stay unchanged.
+UBSan app SHA-256:
+`576c1f74b172cd841cc435eb1a1454c743a4950bc5eaa1dd5a54ee52320908fb`.
+Full-app hostile input, native UTF-8/shutdown/progress, PNG bounds and allocation
+cleanup, media cache/animation/FFI, proof, protocol parity, and performance gates
+pass. Idle CPU is 0.00% at both sizes; paint/JOIN are 5.9/0.7 ms against their
+unchanged 100-ms limits. The 8-buffer, 256-line scale replay is ready in
+351.1 ms and completes in 1441.9 ms. Log:
+`build/review-final-hardening-locked-20261001.log`.
+The first attempt failed only because the reconstructed PATH lacked
+`dsymutil`; its log is `build/review-final-hardening-environment-20261001.log`.
+Adding `/nix/store/chm6n1f020n71ykanbpbxya4izw3pzc0-llvm-21.1.8/bin`
+from the exact locked Clang closure fixes that environment without changing
+flags, tests, source, dependencies, or pins.
+
+Verification limits remain explicit. ASan's compiled probe reports
+`unsupported` on Darwin arm64 because its runtime hangs during startup;
+this is not ASan coverage. Separate `timeout 310 make proof-kernel` returns
+exit 2: Lean is absent from PATH, and Bend requires Lean v4.34.0 or a built
+`BENDTT` kernel. The locked nixpkgs offers v4.30.0; no toolchain was installed
+or pin moved. Log: `build/review-final-proof-kernel-20261001.log`.
+The normal Bend checker reports `ALL PROOFS CHECK`, not an independent-kernel
+verdict. All required M17/M18 implementation and supported verification gates
+are complete; optional parity work remains unselected below.
+The final documentation-only handoff also passes `timeout 240 make proof`
+and `git diff --check`. Proof log:
+`build/review-final-handoff-proof-20261001.log`.
+
+Earlier verification checkpoints (locked tools, no pin updates):
 
 - `make test-auth test-commands test-submit test-base64 test-frame test-args`
   passed, including red-before-fix credential and offline-command cases.
@@ -1453,8 +1508,9 @@ the final combined runtime/PTY/sanitizer gate has already passed.
 
 ## Milestone 18 — TimUI example parity audit
 
-Current feature status: formatting, remote image fetching, inline layout, and
-terminal playback are implemented. Final combined verification is still open.
+Current feature status: formatting, remote image fetching, inline layout,
+terminal playback, and the diagnostic log are implemented and verified.
+V04 records the final combined checks and their explicit platform/tool limits.
 The user selected animated GIFs where supported, with a
 still-frame fallback. Optional parity items below are not M17 correctness
 findings or approved feature requirements.
@@ -1493,7 +1549,7 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       lacks a style decoder. Numeric color parameters are stripped; hex-color
       digits remain after their control introducer is removed. Any decoder
       needs an explicit safe style/reset model and hostile-control tests.
-- [ ] **P05 — Remote image previews.** The original client rejected HTTP(S)
+- [x] **P05 — Remote image previews.** The original client rejected HTTP(S)
       `/preview` and did not fetch chat links. Direct live image links now
       expand without changing their exact URLs. The chat reference routes bare
       image URLs through OpenGraph; its direct-image path is `![alt](URL)`.
@@ -1504,7 +1560,7 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       are explicit. Its bounded base64 envelope avoids temporary files; Bend
       owns scheduling and stale-result checks, and Ui owns decoded cache bytes.
       Automatic fetch applies to new live image links, not saved history.
-- [ ] **P06 — Inline image layout and animation.** The original client previewed
+- [x] **P06 — Inline image layout and animation.** The original client previewed
       local PNG only in `*preview*`; chat additionally has Markdown image badges, inline
       images, and fullscreen viewing. Inline image rows and explicit remote
       previews are authorized. GIFs use terminal-side Kitty/iTerm animation
@@ -1517,7 +1573,7 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
 - [ ] **P08 — Optional exact code foreground color.** DIM is restored by U09. The IRC
       example additionally uses a code foreground color; matching that palette
       is optional, not a reason to introduce a new theme model.
-- [ ] **P09 — Diagnostic log buffer.** Add a lazy, read-only `*log*` buffer and
+- [x] **P09 — Diagnostic log buffer.** Add a lazy, read-only `*log*` buffer and
       offline `/log` command. Preserve errors at their current locations,
       retain timestamps, and do not steal focus. Reserve one of the existing
       16 buffer slots; bound diagnostic rows and text, exclude them from chat
@@ -1551,8 +1607,8 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       removed the visible image. Put the manual image before raw diagnostics;
       failure/completion, ordinary-inline, resize, and exact distinct-token
       side-by-side/stacked split-clip guards now pass.
-- [ ] **P16 — Preserve installed image-helper overrides.** The installed Nix
-      wrapper uses unconditional `--set`, contradicting the documented
+- [x] **P16 — Preserve installed image-helper overrides.** The installed Nix
+      wrapper previously used unconditional `--set`, contradicting the documented
       `BIRC_MEDIA_HELPER` override and bypassing synthetic test helpers.
       Default only an unset variable; retain a nonempty executable path and
       the existing empty-value `birc-image` PATH fallback. Verify installed
@@ -1571,8 +1627,14 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       Raw fixture logs: `build/review-package-old-red-20261001.log` and
       `build/review-package-green{1,2,3}-20261001.log`. Installed helper paths
       with spaces and an explicitly empty variable are preserved. Pins stay
-      unchanged; full integrated verification remains V04.
-- [ ] **P17 — Select rendering branches before building their rows.** Default-off
+      unchanged; final integrated verification is recorded under V04.
+      After P21's wake fix, the final installed `829d9ce` package is
+      `/nix/store/7rbrlx1s2s15c0qpka22i9gh7kgmvfnn-birc-0.1.0`.
+      Its FFI source is byte-identical to the committed checkout. The same
+      fixture again passes three consecutive serial Make runs; source and
+      lock pins are unchanged. Logs:
+      `build/review-package-final-{build,green1,green2,green3}-20261001.log`.
+- [x] **P17 — Select rendering branches before building their rows.** Default-off
       View timing was committed in `cfbab9a` before measurement. Three serial
       output profiles attribute 98–99% of recorded frame-phase time to View,
       with PONG delays of 5–6 seconds. Consumed, warmed component batches show
@@ -1591,7 +1653,7 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       The bounded new fixture is now green, as are unchanged feed, split-rename,
       diagnostic-buffer, and diagnostic-session controls. Full proofs pass.
       Normal NICK/QUIT preserve log focus; local search/log still work.
-- [ ] **P19 — Measure the remaining lexer latency.** Lexer instrumentation
+- [x] **P19 — Measure the remaining lexer latency.** Lexer instrumentation
       was committed in `2caffee` before measurement. Consumed warmed plain-text
       batches take 121/133 ms in `Links.render` alone, versus 156/165 ms for
       full wrapping. Eight-link lexer batches take 82/95 ms; sixteen take
@@ -1620,7 +1682,7 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       `build/review-output-profile-lexer-three-20261001.log` and
       `build/review-output-gates-lexer-after-20261001.log`. Keep the remaining
       regression open and measure actual IRC-prefix viewport construction.
-- [ ] **P20 — Build only visible rows at the live bottom.** Whole-body and
+- [x] **P20 — Build only visible rows at the live bottom.** Whole-body and
       viewport instrumentation was committed in `e38fe2f` before measurement.
       The fixture uses the production 50×200 geometry: 180 inner columns and
       45 visible rows, with IRC nick prefixes and timestamps. Two warmed,
@@ -1656,8 +1718,8 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       with no concurrent builds or assertion changes. Logs:
       `build/review-output-gates-viewport-{1,2,3}-20261001.log`.
       The measured hypothesis holds for the components and app; the full
-      integrated check remains the separate V04 gate.
-- [ ] **P21 — Verify pending input after non-key paints.** The clean `7474983`
+      integrated verification is recorded under V04.
+- [x] **P21 — Verify pending input after non-key paints.** The clean `7474983`
       integrated run reproduces a killed Esc-after-resize case in the unchanged
       `test-pty-tinyquit`: `1x1`→`24x80`, lone Esc, still alive after six seconds,
       exit `-9`, no restoration. Its seven preceding tiny-window cases pass;
@@ -1700,7 +1762,8 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       `build/review-input-wake-green-20261001.log` and
       `build/review-input-wake-native-controls-20261001.log`.
       FFI blob: `c81e68a0ffab75c39d0d61882aaec45c31eb8e57`. Rebuilt-app
-      confirmation and full integrated verification remain required.
+      confirmation and full integrated verification were still required at
+      that checkpoint; their successful results follow.
       Full proof and combined app build pass (SHA-256
       `e841f1caa67e017f5bb0cf827d3af5d4b96f6a797ea638f85585fa498930d9dc`).
       All seven tinyquit, split-Esc, idle-CPU, output-progress, output-stall,
@@ -1713,7 +1776,8 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       `build/review-input-wake-gates-{1,2,3}-20261001.log`.
       This confirms the controlled fix and resolves the repeated symptom;
       it does not invent a scheduling trace for the original failing process.
-      The driver now bounds all 64 planned PTY commands. Full V04 remains open.
+      The driver now bounds all 64 planned PTY commands. Final V04 results
+      are recorded above.
 
 P17 component checkpoint (not a whole-app latency claim): all 20 warmed,
 fully consumed after-batches completed serially with 15-second child bounds.
@@ -1740,7 +1804,9 @@ ordinary stall and FIN/RST controls pass. Logs:
 `build/review-output-profile-after-three-20261001.log` and
 `build/review-output-gates-after-20261001.log`. The branch hypothesis is
 supported, but it does not fully explain the latency regression. Instrument
-the remaining lexer stage before the next fix; final verification stays open.
+the remaining lexer stage before the next fix. This historical checkpoint
+prompted P19; P20 later restored the unchanged app gates. V04 records the final
+combined verification.
 
 Final combined run at `1ed6cb6`: `timeout 1800 make -k check` finished with
 exit 2 (no timeout) on 2026-10-01. Proof, media, diagnostics, IO, history,
