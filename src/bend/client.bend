@@ -86,6 +86,27 @@ def action_text(+body: String) -> String:
 
 # ---- feed arms ----------------------------------------------------------
 
+# Synthetic names belong to local commands, never wire buffer identity.
+# Keep generic container/focus lookup unchanged so local tabs still work.
+def wire_name(+name: String) -> Bool:
+  Bool.not(String.starts_with(name, "*"))
+
+def wire_find.on(allowed: Bool, cl: Cl.Client, name: String) -> Maybe<&2, Nat>:
+  match allowed:
+    case False{}: None{}
+    case True{}: Cl.buf_find(cl, name)
+
+def wire_find(+cl: Cl.Client, +name: String) -> Maybe<&2, Nat>:
+  wire_find.on(wire_name(name), cl, name)
+
+def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
+  match allowed:
+    case False{}: (cl, None{})
+    case True{}: Cl.buf_get(cl, name, channel, create)
+
+def wire_get(+cl: Cl.Client, +name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
+  wire_get.on(wire_name(name), cl, name, channel, create)
+
 def feed_none(+cl: Cl.Client) -> Cl.Client:
   cl
 
@@ -183,7 +204,7 @@ def feed_priv.nonchan(
     case True{}:
       feed_priv.write(cl, 0n, from, notice, body, ts)
     case False{}:
-      feed_priv.private_got(Cl.buf_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body, ts)
+      feed_priv.private_got(wire_get(cl, feed_priv.key(cl, from, target), False{}, True{}), from, notice, body, ts)
 
 def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
   match empty:
@@ -199,7 +220,7 @@ def feed_priv.to_server(+from: String, +target: String) -> Bool:
 def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String, chan: Bool) -> Cl.Client:
   match chan:
     case True{}:
-      feed_priv.write_got(Cl.buf_get(cl, target, True{}, False{}), from, notice, body, ts)
+      feed_priv.write_got(wire_get(cl, target, True{}, False{}), from, notice, body, ts)
     case False{}:
       feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target), target, ts)
 
@@ -209,9 +230,11 @@ def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: St
     case False{}:
       feed_priv.route.on(cl, target, from, notice, body, ts, Irc.starts_channel(target))
 
-def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
+def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, +notice: Bool, +body: String, +ts: String) -> Cl.Client:
   +tgt = Irc.chan_target(target)
-  feed_priv.route.mute(Cl.is_muted_client(cl, from, tgt), cl, tgt, from, notice, body, ts)
+  # NOTICE * is a server broadcast, not a synthetic buffer target.
+  feed_priv.route.mute(Cl.is_muted_client(cl, from, tgt) || Bool.not(wire_name(from))
+    || (Bool.not(wire_name(tgt)) && Bool.not(notice && Irc.ieq(tgt, "*"))), cl, tgt, from, notice, body, ts)
 
 def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
   match self:
@@ -251,7 +274,7 @@ def feed_join.with.on(+cl: Cl.Client, +from: String, +chan: String, +self: Bool,
     case True{}:
       cl
     case False{}:
-      feed_join.from_pair(Cl.buf_get(cl, chan, True{}, self), from, chan, self)
+      feed_join.from_pair(wire_get(cl, chan, True{}, self), from, chan, self)
 
 def feed_join.with(+cl: Cl.Client, +from: String, +chan: String, +self: Bool) -> Cl.Client:
   feed_join.with.on(cl, from, chan, self, String.is_empty(chan))
@@ -297,7 +320,7 @@ def feed_part.pick(+cl: Cl.Client, +chan: String, +from: String, self: Bool, fou
       feed_part.on(cl, chan, from, found)
 
 def feed_part.with(+cl: Cl.Client, +chan: String, +from: String, self: Bool) -> Cl.Client:
-  feed_part.pick(cl, chan, from, self, Cl.buf_find(cl, chan))
+  feed_part.pick(cl, chan, from, self, wire_find(cl, chan))
 
 def feed_part(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_part.with(cl, Irc.msg_param(m, 0n), msg_nick(m), self)
@@ -471,10 +494,18 @@ def feed_nick.coalesced(+cl: Cl.Client, +from: String, +to: String, +focus: Stri
   +name = Bool.pick(String, Irc.ieq(focus, from) && Cl.is_query_name(focus), to, focus)
   feed_nick.focus_control(control, merged, name, to, self)
 
-def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
+def feed_nick.with.valid(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       feed_nick.coalesced(Cl.stamp_logs(Cl.Client{nick, server, feed_nick.map(bufs, from, to, now), active, now, stg, auth, log_seq}), from, to, Cl.active_buf_name(cl), self, Nat.is_eq(active, 0n))
+
+def feed_nick.with.on(allowed: Bool, cl: Cl.Client, from: String, to: String, self: Bool) -> Cl.Client:
+  match allowed:
+    case False{}: cl
+    case True{}: feed_nick.with.valid(cl, from, to, self)
+
+def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
+  feed_nick.with.on(wire_name(from) && wire_name(to), cl, from, to, self)
 
 def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
@@ -495,7 +526,7 @@ def feed_topic.from_pair(pair: Cl.Client & Maybe<&2, Nat>, +from: String, +topic
       feed_topic.from_cl(cl2, bi, from, topic)
 
 def feed_topic.with(+cl: Cl.Client, +chan: String, +topic: String, +from: String) -> Cl.Client:
-  feed_topic.from_pair(Cl.buf_get(cl, chan, True{}, False{}), from, topic)
+  feed_topic.from_pair(wire_get(cl, chan, True{}, False{}), from, topic)
 
 def feed_topic(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_topic.with(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), msg_nick(m))
@@ -524,7 +555,7 @@ def feed_num.topic.pair(pair: Cl.Client & Maybe<&2, Nat>, +topic: String) -> Cl.
       feed_num.topic.cl(cl2, bi, topic)
 
 def feed_num.topic(+cl: Cl.Client, +chan: String, +topic: String) -> Cl.Client:
-  feed_num.topic.pair(Cl.buf_get(cl, chan, True{}, False{}), topic)
+  feed_num.topic.pair(wire_get(cl, chan, True{}, False{}), topic)
 
 def names_upd(+names: String, b: Cl.Buffer) -> Cl.Buffer:
   Cl.nick_add_all(b, split_names(names))
@@ -542,7 +573,7 @@ def feed_num.names.pair(pair: Cl.Client & Maybe<&2, Nat>, +names: String) -> Cl.
       feed_num.names.cl(cl2, bi, names)
 
 def feed_num.names(+cl: Cl.Client, +chan: String, +names: String) -> Cl.Client:
-  feed_num.names.pair(Cl.buf_get(cl, chan, True{}, False{}), names)
+  feed_num.names.pair(wire_get(cl, chan, True{}, False{}), names)
 
 def is_motd_num(+num: U32) -> Bool:
   U32.is_eq(num, 372) || U32.is_eq(num, 375) || U32.is_eq(num, 376)
@@ -642,7 +673,7 @@ def feed_self(+cl: Cl.Client, +from: String) -> Bool:
   feed_self.empty(String.is_empty(from), cl, from)
 
 def feed_kick.with(+cl: Cl.Client, +chan: String, +victim: String) -> Cl.Client:
-  feed_kick.pick(cl, chan, victim, feed_self(cl, victim), Cl.buf_find(cl, chan))
+  feed_kick.pick(cl, chan, victim, feed_self(cl, victim), wire_find(cl, chan))
 
 def feed_kick(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_kick.with(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
@@ -664,7 +695,7 @@ def first_param(+ps: List<&2, String>) -> String:
 def feed_mode(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
     case Irc.Message{_, +nick, _, _, +ps}:
-      feed_mode.got(cl, nick, ps, Cl.buf_find(cl, first_param(ps)))
+      feed_mode.got(cl, nick, ps, wire_find(cl, first_param(ps)))
 
 def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:

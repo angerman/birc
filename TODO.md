@@ -1564,12 +1564,28 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       A valid 457-byte IRC line with 16 links also takes 125 ms to partition,
       versus 1 ms with eight links. Replace only these measured eager branches
       with parameter matches; preserve rows and remeasure before claiming a fix.
-- [ ] **P18 — Keep reserved buffers outside wire routing.** A new full-log
+- [x] **P18 — Keep reserved buffers outside wire routing.** A new full-log
       fixture reproduced `TOPIC/JOIN isolation topic=bad join=bad`: server
       events could mutate `*log*` without its privacy and row-limit checks.
       Guard protocol buffer names and nickname renames, not local UI lookups.
       Verify TOPIC, JOIN, PART, KICK, MODE, 332, 353, and NICK attacks, including
       an absent/closed log, alongside ordinary channel/query/NOTICE controls.
+      The bounded new fixture is now green, as are unchanged feed, split-rename,
+      diagnostic-buffer, and diagnostic-session controls. Full proofs pass.
+      Normal NICK/QUIT preserve log focus; local search/log still work.
+
+P17 component checkpoint (not a whole-app latency claim): all 20 warmed,
+fully consumed after-batches completed serially with 15-second child bounds.
+Empty-media wrapping is now 158/162 ms versus ordinary 158/161 ms, with 384
+rows in both. The 128-line body is 580/587 ms with media versus ordinary
+606/614 ms, consuming 1536 rows. Sixteen-link partitioning fell from 125 to
+2 ms with a known image and from 41 to 1 ms without one. Eight-link ready
+wrapping fell from 286/303 to 94/102 ms, retaining all 1280 rows. Source View
+hash: `cce7c3b7d79b3a14fb97fede8b6562a37b8398a1`; benchmark SHA-256:
+`e206aad927853ca14ec1956b105e3410833dbfecccac84816e1a5a1ad8568fed`.
+Raw log: `build/review-media-component-after-20261001.log`. Branch selection
+uses parameter matches and one lazy recursive continuation, with no new state.
+Exact-row characterization and same-scenario app measurements remain required.
 
 Final combined run at `1ed6cb6`: `timeout 1800 make -k check` finished with
 exit 2 (no timeout) on 2026-10-01. Proof, media, diagnostics, IO, history,
