@@ -1105,6 +1105,11 @@ passed. This is signal-versus-close safety, not generic concurrent Ui support.
       and split-selection tests inherit PATH and can call the desktop
       clipboard helper. Use a fixture-only helper path without changing test
       expectations. Run each changed PTY three times before commit.
+- [x] **V08 — Run the existing server-time integration guard.** The standalone
+      `server_time_demo.bend` was absent from Make/check; direct tag-extraction
+      laws did not exercise `Irc.parse`→`msg_time`. Add `test-server-time` to
+      the central driver and review gate. Its unchanged time/multi-tag/no-tag
+      assertions pass in the locked shell.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
@@ -1438,9 +1443,9 @@ the final combined runtime/PTY/sanitizer gate has already passed.
 
 ## Milestone 18 — TimUI example parity audit
 
-Current feature status: formatting is implemented and tested. Remote image
-fetch/decode is tested in isolation; inline layout and terminal playback are
-being connected. The user selected animated GIFs where supported, with a
+Current feature status: formatting, remote image fetching, inline layout, and
+terminal playback are implemented. Final combined verification is still open.
+The user selected animated GIFs where supported, with a
 still-frame fallback. Optional parity items below are not M17 correctness
 findings or approved feature requirements.
 
@@ -1453,7 +1458,7 @@ as well as PNG. These are feature work after the M17 correctness fixes.
 Cards, RTL shaping, multiline composer, and fullscreen media are separate
 options, not implicit requirements of the image/formatting choice.
 
-Already supported: plaintext IRC, tabs/topics/nicks, timestamps and line kinds,
+Original parity baseline: plaintext IRC, tabs/topics/nicks, timestamps and line kinds,
 navigation/composer, single-marker `*bold*`, `_italic_`, backticks, exact HTTP(S)
 links, raw Unicode emoji/CJK, and explicit local-PNG `/preview`. U08/U09 track
 the two existing formatting defects. Birc adds history, wrapping, alerts,
@@ -1478,10 +1483,10 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       lacks a style decoder. Numeric color parameters are stripped; hex-color
       digits remain after their control introducer is removed. Any decoder
       needs an explicit safe style/reset model and hostile-control tests.
-- [ ] **P05 — Remote image previews.** Birc rejects HTTP(S) `/preview` and does
-      not fetch chat links. The supplied percent-encoded PNG URL is one exact
-      link, not an OpImage. Even chat routes bare image URLs through OpenGraph,
-      not direct extension detection. Its direct-image path is `![alt](URL)`.
+- [ ] **P05 — Remote image previews.** The original client rejected HTTP(S)
+      `/preview` and did not fetch chat links. Direct live image links now
+      expand without changing their exact URLs. The chat reference routes bare
+      image URLs through OpenGraph; its direct-image path is `![alt](URL)`.
       The approved implementation uses a provisioned Python/Pillow helper:
       HTTP(S) public addresses only, standard ports, pinned resolved addresses,
       checked redirects, normal certificate checks, and no cookies/proxies.
@@ -1489,8 +1494,8 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       are explicit. Its bounded base64 envelope avoids temporary files; Bend
       owns scheduling and stale-result checks, and Ui owns decoded cache bytes.
       Automatic fetch applies to new live image links, not saved history.
-- [ ] **P06 — Inline image layout and animation.** Birc previews local PNG
-      only in `*preview*`; chat additionally has Markdown image badges, inline
+- [ ] **P06 — Inline image layout and animation.** The original client previewed
+      local PNG only in `*preview*`; chat additionally has Markdown image badges, inline
       images, and fullscreen viewing. Inline image rows and explicit remote
       previews are authorized. GIFs use terminal-side Kitty/iTerm animation
       where supported and a first-frame fallback elsewhere; fullscreen is
@@ -1520,6 +1525,36 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       not an animation frame. Seek to the first real frame and keep the
       fallback in the source decode-work bound. Green-default/red-blue-frame
       fixtures verify frame count, first RGBA, duration, and bound controls.
+- [x] **P13 — Keep diagnostic bounds independent of chat history.** Generic
+      reconnect markers grew a full log to 129 rows; a chat history cap of two
+      trimmed it to three. The new model guard reproduced `129,3` instead of
+      `128,128`. Skip chat markers and chat caps for the app-session log;
+      connection stages use its bounded append. Ordinary chat markers pass.
+- [x] **P14 — Do not replay archived errors into the log.** Endpoint restores
+      duplicated old errors as new diagnostics (one retained row became two,
+      then three). Restore original server/query rows through the same
+      timestamp/sanitization/ID path without diagnostic mirroring. Repeat
+      A→B→A guards preserve the log, metadata, and live-error mirroring.
+- [x] **P15 — Keep paused manual-image anchors on diagnostics.** A failed
+      completion appended a raw error before the synthetic last image, but
+      advanced the anchor as if after it. The reproduced `0:2`→`1:2` jump
+      removed the visible image. Put the manual image before raw diagnostics;
+      failure/completion, ordinary-inline, resize, and exact distinct-token
+      side-by-side/stacked split-clip guards now pass.
+
+Log checkpoint: the lazy model and approved four submit-buffer count updates
+are integrated in `adc0055`. Root IO now reports read, history-save, clipboard,
+and opener errors with safe numeric results. `*log*` survives endpoint changes;
+ordinary connection/auth stages append only once it exists. Save errors remain
+log-only and use one coalesced repaint, preventing a recursive save/error loop.
+Pinned buffer/submit/session/restore/IO and reader/history-save/clipboard guards
+pass; `c7a581c` commits the IO/retention fixes and negative/positive controls.
+`f4bc5a8` adds a synthetic-helper, loopback-only PTY; it passed three
+consecutive runs against the combined root binary before commit. Tests retain
+timestamps, check URL/credential redaction, no focus change, local-only commands,
+close/recreate, endpoint retention, one save failure under idle/PONG, and quit
+plus complete terminal restoration. Fatal pre-UI startup still exits with a
+diagnostic rather than an interactive buffer.
 
 P10–P12 were independently reproduced before the narrow fixes. Reference
 semantics: [PNG animation control](https://www.w3.org/TR/png-3/#acTL-chunk),
@@ -1533,8 +1568,8 @@ The packaged helper now provides the locked CA bundle by default, respecting
 an explicit `SSL_CERT_FILE`; no dependency pins changed.
 
 Terminal limits: OSC 8 and italic/dim visibility depend on terminal/font support.
-Local image rendering uses detected Kitty/iTerm2/Sixel capabilities and bounded
-PNG input; unsupported data/protocols show `[img]`. Multiplexers can suppress
+Image rendering uses detected Kitty/iTerm2/Sixel capabilities and normalized
+bounded frames; unsupported data/protocols show `[img]`. Multiplexers can suppress
 image capabilities. The chat transcript's auto-inline path requires Kitty.
 Broader image APIs in the header do not imply automatic remote expansion.
 
@@ -1566,10 +1601,11 @@ or compressed profile chunk and 256 KiB total text. Red compressed-text and
 aggregate-text controls previously decoded despite these preview limits;
 normal boundary text still decodes. No second PNG parser/inflater is added.
 
-Parity evidence: an offline model fixture preserved the supplied encoded URL
-through tokenizer/link extraction, proved ordinary chat has no OpImage, rejected
-remote `/preview`, and accepted local `file://` preview. No networking, file
-loading, native UI, browser, or clipboard action was needed for those guards.
+Initial parity evidence preserved the supplied encoded URL through tokenizer/
+link extraction, showed no inline image, and rejected remote `/preview`.
+The user approved the changed remote-preview expectation. Current policy and
+layout guards cover exact direct/Markdown URLs and local/remote manual intent;
+native and synthetic-helper PTYs cover playback without fetching real URLs.
 
 ## Open decisions (resolve in M0/M4)
 

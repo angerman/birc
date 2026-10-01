@@ -15,6 +15,9 @@ whole client correct.
 - **Parked event loop**: Descriptor watchers wake one Bend `Chan(UiMsg)`. A one-second maintenance tick expires typing state and checks whether refused terminal output can resume; a full output queue does not cause a busy retry loop.
 - **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
 - **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
+- **Image previews**: New live image links expand inline. Explicit `/preview`
+  accepts local files and HTTP(S) URLs. Common formats use a bounded,
+  provisioned decoder; supported Kitty/iTerm2 terminals can play animations.
 - **Explicit bounds**: 512-byte IRC lines, capped buffers, bounded terminal writes, and UTF-8 decoding with Latin-1 fallback. Foreign effects and malformed inputs still need runtime tests.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
@@ -47,7 +50,7 @@ whole client correct.
 |  |     (view.bend)     |                                               |
 |  +---------------------+                                               |
 |             |                                                          |
-|             | List<DrawOp> (includes OpSplit and OpImage)              |
+|             | List<DrawOp> (OpSplit, OpImage, OpMedia)                  |
 |             v                                                          |
 +-------------|----------------------------------------------------------+
               | Foreign Effect (Timui.frame)
@@ -75,6 +78,8 @@ whole client correct.
 | [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
 | [`src/bend/view.bend`](src/bend/view.bend) | Bend 2 | ViewModel generation, token-aware wrapping, and `List<DrawOp>` layout |
 | [`src/bend/links.bend`](src/bend/links.bend) | Bend 2 | Shared URL/span lexer for rendering, listing, and opening |
+| [`src/bend/media.bend`](src/bend/media.bend) | Bend 2 | Bounded image request identity, queue, cache policy, and stale-result guards |
+| [`src/bend/diagnostic.bend`](src/bend/diagnostic.bend) | Bend 2 | Bounded private diagnostic text and safe helper results |
 | [`src/bend/columns.bend`](src/bend/columns.bend) | Bend 2 | Terminal column widths and common cluster boundaries for wrapping |
 | [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
@@ -88,6 +93,7 @@ whole client correct.
 | [`src/ffi/timui_ffi.c`](src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
+| [`src/media/image.py`](src/media/image.py) | Python | Bounded HTTP(S)/local image loading and normalization with Pillow |
 | [`LAWS.bend`](LAWS.bend) / [`PROOF.bend`](PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
 
 ---
@@ -132,6 +138,10 @@ it does not restart its prefix. Capture is capped at 64 MiB. Allocation or cap
 failure discards that whole capture and exits through normal terminal cleanup
 with a nonzero status. A full output queue does not cause a busy retry loop.
 Ordinary frames have 40 ms, writable repairs have 200 ms.
+Signal restoration owns stable descriptor references. A handler already using
+Ui can retain one complete owner until final exit; close never waits for it.
+Final output suppresses same-stream status while ownership or terminal debt
+remains unresolved. This is not general concurrent access support for Ui.
 Headless live startup awaits the bounded registration result and reports
 initial connection failure with a nonzero exit.
 
@@ -177,7 +187,7 @@ nix run github:angerman/birc -- --connect irc.libera.chat --nick mynick --channe
 # Or via make in a cloned checkout
 make run HOST=irc.libera.chat NICK=birc_user CHAN='#birc'
 
-# Or invoke the built binary directly
+# Or invoke the built binary inside the locked development shell
 ./build/birc --connect irc.libera.chat --port 6667 --nick mynick --channel '#birc'
 ```
 
@@ -209,7 +219,8 @@ Run `./build/birc --help-irc` for a full summary:
 ### Stored history
 
 History records use `BIRC2` and include the server hostname and port. Different
-endpoints do not share buffers or history. The reader scans the file to its
+endpoints do not share chat buffers or stored history. The in-memory `*log*`
+belongs to the app session and survives endpoint changes. The reader scans the file to its
 initial size, keeps only the configured recent records, and rejects malformed
 or overlong records. An incomplete final record is not loaded.
 
@@ -269,11 +280,13 @@ Type commands into the composer prompt:
 | `/close` | Close the active private query buffer tab |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
+| `/log` | Open the read-only diagnostic buffer; also works offline |
 | `/split [orientation] [buffer]` | Open a stacked split by default; orientation is `horizontal` or `vertical`, and the target must already be open |
 | `/vsplit [buffer]` | Open a side-by-side split with an existing buffer |
 | `/focus` | Move focus to the other split pane |
 | `/split-off` or `/unsplit` | Close the split without closing either buffer |
-| `/preview <local-path>` | Preview one local PNG from a path or `file://`-prefixed local path; HTTP(S) is rejected |
+| `/preview <path-or-url>` | Preview a local image (also `file://`-prefixed paths) or an HTTP(S) image URL in `*preview*` |
+| `/images on` / `/images off` | Enable or disable automatic image previews; explicit `/preview` remains available |
 | `/set bell on` / `/set bell off` | Enable or disable terminal bells for mentions and private messages |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
@@ -287,6 +300,58 @@ control buffer explicitly. `/split server` selects a private query named
 Live connections automatically reconnect to the saved host and port two seconds
 after an unexpected disconnect. A manual `/connect` cancels the pending retry.
 Use `/set autoreconn off` to disable this behavior.
+
+### Diagnostic log
+
+Errors stay in their original buffer. A private copy also appears in `*log*`,
+without changing focus. `/log` opens the log; `/close` removes it. The next
+error creates it again. Connection, reconnect, and authentication stages are
+recorded while the log exists.
+
+The log holds at most 128 rows of 512 characters in memory. It survives server
+changes, but is not saved to chat history. One of the existing 16 buffer slots
+is reserved for it. Diagnostic copies remove HTTP(S) URLs and configured SASL
+credentials. Helper failures show only the operation and numeric error or exit
+code, never child output. This does not redact the original chat/error row.
+
+The log includes failed clipboard helpers, link openers, image previews,
+history loads/saves, and socket reads. A fatal startup error can exit before
+there is an interactive buffer; it remains an exit diagnostic.
+
+### Images and privacy
+
+Automatic previews apply to new live messages with direct PNG, JPEG, GIF,
+WebP, BMP, TIFF, or AVIF links, or Markdown `![alt](URL)` image links. Saved
+history, replay, and demo messages do not trigger automatic requests. Sent
+messages and stored history keep the exact original text and URL.
+
+Fetching an image discloses your IP address to its host. Use `/images off` or
+start with `BIRC_IMAGES=off` to prevent automatic requests. Disabling previews
+clears their visible state and ignores late automatic results. A helper already
+running finishes within its bound; disabling or quitting does not cancel it.
+
+The helper permits only public HTTP(S) hosts on standard ports. It checks every
+redirect, pins resolved addresses for connection, verifies HTTPS certificates,
+and sends no cookies or proxy credentials. It does not fetch private/loopback
+hosts, follow HTTPS-to-HTTP redirects, or load local paths posted in chat.
+Explicit local previews require a bounded regular file.
+
+Downloads are capped at 8 MiB; local inputs at 16 MiB. Source images are capped
+at 4096 pixels per side and 16,777,216 pixels. Normalized previews fit within
+320 pixels per side. Animations have at most 24 frames, with additional total
+pixel and encoded-output limits. The helper has an eight-second deadline.
+Bend allows one active helper, eight queued requests, and eight cached results.
+
+Kitty and iTerm2 handle animation in the terminal; birc does not add an
+animation timer. Sixel uses the first frame. Unsupported image terminals show
+a placeholder. A partially clipped iTerm2 image also shows a placeholder,
+because that protocol has no source-crop command. Terminal and multiplexer
+support can differ.
+
+Use `make shell` before invoking `./build/birc` directly. The Nix package sets
+an absolute helper path. `BIRC_MEDIA_HELPER` can override the helper program
+for development and synthetic tests; it is an executable path, not a shell
+command. Reload an existing Nix shell after provisioning changes.
 
 ---
 

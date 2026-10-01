@@ -74,11 +74,74 @@ build-proto: ## Build the Bend protocol self-test binary.
 BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
 
-.PHONY: FORCE test-golden-runner test-build-config test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-pty-output-stall
-.PHONY: test-media-image test-formatting test-formatting-painter
+.PHONY: FORCE test-golden-runner test-build-config test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
+.PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
+
+test-server-time: ## IRCv3 time tags reach parsed message timestamps.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/server_time_demo.bend -o $(BLDDIR)/server_time_demo
+	$(NIXRUN) sh scripts/check-golden.sh server_time_demo=ok ./$(BLDDIR)/server_time_demo
+
+test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io ## Log bounds, privacy, commands, endpoint retention, and IO failure/success controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/diagnostic_demo.bend -o $(BLDDIR)/diagnostic_demo
+	$(NIXRUN) sh scripts/check-golden.sh diagnostic_demo=ok ./$(BLDDIR)/diagnostic_demo
+
+test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io:
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+
+test-history-save-errors: ## Surface failed history saves; preserve successful, empty, and disabled writes.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_save_errors.bend -o $(BLDDIR)/history_save_errors
+	$(NIXRUN) timeout 30 python3 tests/history_save_errors.py ./$(BLDDIR)/history_save_errors
+
+test-reader-errors: ## Socket-read failure, orderly EOF, and no-data branch controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/reader_errors.bend -o $(BLDDIR)/reader_errors
+	$(NIXRUN) sh scripts/check-golden.sh reader_errors=ok timeout 15 ./$(BLDDIR)/reader_errors
+
+test-clipboard-errors: ## Clipboard helper success, failure, timeout, and privacy controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/clipboard_errors.bend -o $(BLDDIR)/clipboard_errors
+	$(NIXRUN) timeout 30 python3 tests/clipboard_errors.py ./$(BLDDIR)/clipboard_errors
+
+test-media-policy: ## Bounded image requests, opt-out, stale results, and exact URL eligibility.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_policy.bend -o $(BLDDIR)/media_policy
+	$(NIXRUN) sh scripts/check-golden.sh media_policy=ok ./$(BLDDIR)/media_policy
+
+test-media-view: ## Image rows share wrapping, scrolling, split panes, and resize coordinates.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_view.bend -o $(BLDDIR)/media_view
+	$(NIXRUN) sh scripts/check-golden.sh media_view=ok ./$(BLDDIR)/media_view
+
+test-media-anchor: ## Manual error/completion anchors and distinct split-pane image clipping.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_anchor.bend -o $(BLDDIR)/media_anchor
+	$(NIXRUN) sh scripts/check-golden.sh media_anchor=ok timeout 15 ./$(BLDDIR)/media_anchor
+
+test-media-native: ## Image payload ownership, terminal animation, clipping, and pending-frame guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in media_cache media_animation media_ffi; do timeout 60 $$CC -std=c11 -O0 -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$$guard; sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$$guard; done'
+
+test-media-portable: ## TimUI animation API remains C99, including TIMUI_NO_IMAGES fallback.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for mode in images no_images; do flag=; if [ "$$mode" = no_images ]; then flag=-DTIMUI_NO_IMAGES; fi; timeout 60 $$CC -std=c99 -O0 -Werror=vla -Wall -Wextra -Werror $$flag -isystem src/ui tests/media_animation.c -o $(BLDDIR)/media_animation_$$mode; sh scripts/check-golden.sh media_animation=ok timeout 15 ./$(BLDDIR)/media_animation_$$mode; done'
+
+test-media-native-ubsan: ## UBSan: decoded media ownership and actual FFI replacement/cleanup.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in media_cache media_animation media_ffi; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
+
+test-pty-media: build-ui ## Pty: automatic/explicit images, animation, opt-out, stale results, and stalled output.
+	$(NIXRUN) timeout 75 python3 tests/pty/media.py ./$(BLDDIR)/birc
+
+test-pty-diagnostic: build-ui ## Pty: private log copies, helper errors, endpoint retention, and nonrecursive save failures.
+	$(NIXRUN) timeout 75 python3 tests/pty/diagnostic.py ./$(BLDDIR)/birc
 
 test-formatting: ## Rich style composition, emoji aliases, exact URLs, and raw-source guards.
 	@mkdir -p $(BLDDIR)
@@ -514,6 +577,7 @@ test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-c
 
 .PHONY: test-review-pure
 test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
+test-pty: test-pty-media test-pty-diagnostic
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -529,6 +593,7 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
+test-review-pure: test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -640,7 +705,7 @@ test-ubsan-native: ## UBSan: output progress, real signals, and final status own
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh -c 'set -eu; for guard in output_utf8 output_shutdown output_progress; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -I src/ui -I src/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
 
-test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
+test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan test-media-native-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
 
 test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
 
