@@ -1604,7 +1604,7 @@ the remaining lexer stage before the next fix; final verification stays open.
 Final combined run at `1ed6cb6`: `timeout 1800 make -k check` finished with
 exit 2 (no timeout) on 2026-10-01. Proof, media, diagnostics, IO, history,
 formatting, and most terminal tests passed. Raw log:
-`build/review-check-media-log-20261001.log`. Six failures remain under review:
+`build/review-check-media-log-20261001.log`. The run exposed six failures:
 search's approved capacity targets, split's compiler capture limit and approved
 lazy-log counts, missing reset-socket disconnect wording, and three stalled
 output checks. Unchanged bounded reruns passed `test-pty-stall`, but reproduced
@@ -1612,8 +1612,17 @@ output checks. Unchanged bounded reruns passed `test-pty-stall`, but reproduced
 assertions. Logs: `build/review-output-gates-rerun-20261001.log` and
 `build/review-output-gates-repeat-20261001.log`. The tested binary SHA-256 is
 `dc5c5dec075a0dac45ace49ade41f238bdb857600c0c01f361f1ecc76014f835`.
-The output cause is not established; instrument pure Bend view time before
-attempting a performance fix. Final verification remains open.
+This historical checkpoint predates P17's measured rendering fix. Search and
+split corrections are committed in `5691079`; the output cause and remaining
+verification are tracked above rather than inferred from this first run.
+
+The read-failure diagnostic now retains the visible `disconnected` prefix
+before its safe numeric cause. On the frozen `b9fae4b…` binary, unchanged
+`test-pty-rst` passed three consecutive serial runs: both FIN and reset remain
+alive for four seconds, show the disconnect, quit with zero, and restore the
+terminal. First pass: `build/review-output-gates-after-20261001.log`; repeats:
+`build/review-rst-after-repeat-20261001.log`. Full proof and read-error controls
+also pass; no existing test expectation changed.
 
 Log checkpoint: the lazy model and approved four submit-buffer count updates
 are integrated in `adc0055`. Root IO now reports read, history-save, clipboard,

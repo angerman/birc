@@ -647,7 +647,7 @@ def on_evt(
     case Sess.Eof{}:
       on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected", k)
     case Sess.NetFail{+msg}:
-      on_fail(ui, st, evt, cmd, ack, gen, frames, msg, k)
+      on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected: " ++ msg, k)
     case Sess.InitialFail{+msg}:
       shutdown_failed(ui, cmd, ack, msg)
 
