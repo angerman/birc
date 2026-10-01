@@ -6,47 +6,13 @@ import ./client.bend as Feed
 import ./net.bend as Net
 import ./args.bend as Args
 import ./clock.bend as Clock
+import ./replay.bend as Replay
 
 def run_demo(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
   Net.run_offline(frames, cl, chan)
 
-def replay_die(+path: String, +msg: String) -> IO(Cl.Client):
-  IO.die(Cl.Client, 1, "birc: cannot read replay " ++ path ++ ": " ++ msg)
-
-def replay_read.got(+path: String, +nick: String, +server: String, f: File, r: Result<&1, &1, U32 & String, String>) -> IO(Cl.Client):
-  match r:
-    case Fail{e}:
-      match e:
-        case (_, +msg):
-          do IO<Cl.Client>:
-            Unit <- File.close(f)
-            replay_die(path, msg)
-    case Done{+text}:
-      do IO<Cl.Client>:
-        Unit <- File.close(f)
-        ts : String <- Clock.hhmmss()
-        return Feed.feed_all(Cl.set_now(Cl.init(nick, server), ts), Cl.replay_lines(text))
-
-def replay_read(+path: String, +nick: String, +server: String, pair: File & Result<&1, &1, U32 & String, String>) -> IO(Cl.Client):
-  match pair:
-    case (f, r):
-      replay_read.got(path, nick, server, f, r)
-
-def replay_open(+path: String, +nick: String, +server: String, r: Result<&1, &1, U32 & String, File>) -> IO(Cl.Client):
-  match r:
-    case Fail{e}:
-      match e:
-        case (_, +msg):
-          replay_die(path, msg)
-    case Done{f}:
-      do IO<Cl.Client>:
-        pair : File & Result<&1, &1, U32 & String, String> <- File.read(f, 1048576)
-        replay_read(path, nick, server, pair)
-
 def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
-  do IO<Cl.Client>:
-    r : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-    replay_open(path, nick, server, r)
+  Replay.load(path, nick, server)
 
 def resolve_sasl_user.env(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
@@ -148,16 +114,6 @@ def main_dispatch(
 ) -> IO(Unit):
   main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass)
 
-def align_sasl_nick.pick(should_align: Bool, +user: String, +nick: String) -> String:
-  match should_align:
-    case True{}: user
-    case False{}: nick
-
-def align_sasl_nick(+user: String, +nick: String) -> String:
-  +is_def = String.eq(nick, "birc") || String.eq(nick, "me")
-  +has_user = Bool.not(String.is_empty(user))
-  align_sasl_nick.pick(is_def && has_user, user, nick)
-
 def main_cfg.dispatch(
   +frames: U32,
   demo: Bool,
@@ -166,19 +122,20 @@ def main_cfg.dispatch(
   +nick: String,
   +chan: String,
   +replay: String,
+  explicit: Bool,
   +user: String,
   +pass: String
 ) -> IO(Unit):
-  +n = align_sasl_nick(user, nick)
+  +n = Args.resolve_nick(nick, explicit, user)
   main_dispatch(frames, demo, host, port, n, chan, replay, user, pass)
 
 def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
       do IO<Unit>:
         user : String <- resolve_sasl_user(su)
         pass : String <- resolve_sasl_pass(sp)
-        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, user, pass)
+        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, explicit, user, pass)
 
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:

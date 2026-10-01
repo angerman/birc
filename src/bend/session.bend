@@ -266,6 +266,7 @@ def event_current(m: UiMsg, +gen: U32) -> Bool:
 type NetState is Data:
   Demo{}
   Connecting{}
+  Reconnecting{}
   Online{}
   Offline{}
 
@@ -274,6 +275,8 @@ def net_label(st: NetState) -> String:
     case Demo{}:
       "demo"
     case Connecting{}:
+      "connecting"
+    case Reconnecting{}:
       "connecting"
     case Online{}:
       "online"
@@ -290,6 +293,7 @@ def net_label_lag(+st: NetState, +lag: U32) -> String:
     case Online{}: net_label_lag.online(lag, U32.is_eq(lag, 0))
     case Demo{}: "demo"
     case Connecting{}: "connecting"
+    case Reconnecting{}: "connecting"
     case Offline{}: "offline"
 
 def net_demo_ok() -> Bool:
@@ -313,6 +317,8 @@ def hold_cmd.outs(net: NetState, outs: List<&2, String>) -> NetCmd:
     case Online{}:
       Cont{outs}
     case Connecting{}:
+      Cont{Nil{}}
+    case Reconnecting{}:
       Cont{Nil{}}
     case Demo{}:
       Cont{Nil{}}
@@ -345,6 +351,8 @@ def can_send(net: NetState) -> Bool:
       True{}
     case Connecting{}:
       False{}
+    case Reconnecting{}:
+      False{}
     case Offline{}:
       False{}
 
@@ -358,6 +366,8 @@ def connect_apply.busy(+cl: Cl.Client, online: Bool) -> Cl.Client & String & Net
 def connect_apply.st(+cl: Cl.Client, +host: String, +port: U32, net: NetState) -> Cl.Client & String & NetCmd:
   match net:
     case Connecting{}:
+      connect_apply.busy(cl, False{})
+    case Reconnecting{}:
       connect_apply.busy(cl, False{})
     case _:
       (Sub.echo_sys(cl, "connecting to " ++ host ++ ":" ++ U32.show(port)), "", Dial{host, port, 0, Cl.nick_of(cl)})
@@ -1035,39 +1045,13 @@ def split_key_ok() -> Bool:
     && pol_eq(key_pol_raw(0, MOD_CTRL(), 119, 0, 9n), 0, 0, 0, 0, 0, 0, 1)
     && pol_eq(key_pol_raw(0, MOD_CTRL(), 120, 0, 9n), 0, 0, 0, 0, 0, 0, 0)
 
-def session_was_offline(+st: Session) -> Bool:
+def session_needs_reconnect_marker(+st: Session) -> Bool:
   match st:
     case Session{_, _, _, _, _, _, net, _, _, _, _, _, _, _, _}:
       match net:
         case Offline{}: True{}
+        case Reconnecting{}: True{}
         case _: False{}
-
-def buf_has_lines(+b: Cl.Buffer) -> Bool:
-  match b:
-    case Cl.Buffer{_, _, _, lines, _, _}:
-      match lines:
-        case Nil{}: False{}
-        case Con{_, _}: True{}
-
-def add_recon_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffer:
-  match has:
-    case False{}: b
-    case True{}:
-      Cl.buf_reconnect(b, now)
-
-def add_recon_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
-  add_recon_marker.has(buf_has_lines(b), b, now)
-
-def add_recon_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buffer>:
-  match bufs:
-    case Nil{}: Nil{}
-    case Con{+b, t}:
-      add_recon_marker(b, now) <> add_recon_bufs(t, now)
-
-def add_recon_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
-      Cl.stamp_logs(Cl.Client{nick, server, add_recon_bufs(bufs, now), active, now_old, stg, auth, log_seq})
 
 def session_reset_auth(st: Session) -> Session:
   match st:
@@ -1081,10 +1065,10 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
     case True{}:
       match st:
         case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media}:
-          Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing, port, media}
+          Session{Cl.reconnect_markers(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing, port, media}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
-  +online = session_reconnected.on(session_was_offline(st), session_reset_auth(st), now)
+  +online = session_reconnected.on(session_needs_reconnect_marker(st), session_reset_auth(st), now)
   session_set_client(online, Cl.diagnostic_notice(Cl.set_now(session_cl(online), now), Cl.System{}, "IRC connection established"))
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
@@ -1115,7 +1099,7 @@ def session_autoreconnect.st(
   +media: M.State
 ) -> Session:
   +cl2 = Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "...")
-  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port, M.reset(media)}
+  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, False{}, chan, Reconnecting{}, hist, size, seed, comp, split, Ty.empty(), port, M.reset(media)}
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -1194,6 +1178,20 @@ def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client
 def endpoint_client(+cl: Cl.Client, +host: String, +old_port: U32, +new_port: U32) -> Cl.Client:
   endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), cl, host)
 
+# A first connection and a changed endpoint have no reconnect boundary.
+# Preserve the same-endpoint intent while the socket is being opened.
+def dialing_state.prior(net: NetState) -> NetState:
+  match net:
+    case Online{}: Reconnecting{}
+    case Offline{}: Reconnecting{}
+    case Reconnecting{}: Reconnecting{}
+    case _: Connecting{}
+
+def dialing_state(same: Bool, net: NetState) -> NetState:
+  match same:
+    case True{}: dialing_state.prior(net)
+    case False{}: Connecting{}
+
 def session_after.dial(
   +cl: Cl.Client,
   +draft: String,
@@ -1206,10 +1204,12 @@ def session_after.dial(
   +host: String,
   +port: U32,
   +old_port: U32,
+  net: NetState,
   +media: M.State
 ) -> Session:
+  +next_net = dialing_state(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, port), net)
   +cl2 = endpoint_client(cl, host, old_port, port)
-  Session{cl2, False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, M.reset(media)}
+  Session{cl2, False{}, Nil{}, draft, False{}, chan, next_net, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, M.reset(media)}
 
 def session_after(
   +cl: Cl.Client,
@@ -1231,7 +1231,7 @@ def session_after(
 ) -> Session:
   match cmd:
     case Dial{+host, dial_port, _, _}:
-      session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port, media)
+      session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port, net, media)
     case Drop{}:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}
     case Pump{_}:

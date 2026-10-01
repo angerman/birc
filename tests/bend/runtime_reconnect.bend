@@ -1,0 +1,43 @@
+# Exercise real reconnect transitions, not just marker insertion.
+import Base
+import ./expect.bend as E
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
+import ../../src/bend/session.bend as Sess
+
+def markers(xs: List<&2, Cl.Line>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{Cl.Line{kind, _, _, _, _}, t}:
+      Nat.add(Bool.pick(Nat, Cl.is_reconnect(kind), 1n, 0n), markers(t))
+
+def chat() -> Cl.Client:
+  +cl = Cl.set_active(Feed.feed_all(Cl.init("probe", "a.example"),
+    ":probe!u@h JOIN #t" <> ":alice!u@h PRIVMSG #t :before reconnect" <> Nil{}), 1n)
+  Cl.set_settings(cl, Cl.set_autoreconn(Cl.get_settings(cl), True{}))
+
+def count(+st: Sess.Session) -> String:
+  Nat.show(markers(Cl.active_buf_lines(Sess.session_cl(st))))
+
+def auto_up(pair: Sess.Session & Sess.NetCmd) -> Sess.Session:
+  match pair:
+    case (st, _): Sess.session_reconnected(st, "13:00:00")
+
+def manual_up(trip: Sess.Session & Sess.NetCmd & Bool) -> Sess.Session:
+  match trip:
+    case (st, _, _): Sess.session_reconnected(st, "13:00:00")
+
+def main() -> IO(Unit):
+  +initial = Sess.session_with_client(chat(), "#t")
+  +online = Sess.session_online(initial)
+  +failed = Sess.session_fail(online, "disconnected")
+  +auto = auto_up(Sess.session_autoreconnect(failed))
+  do IO<Unit>:
+    Unit <- E.must_eq("initial_connection_has_no_divider", count(Sess.session_reconnected(initial, "13:00:00")), "0")
+    Unit <- E.must_eq("ordinary_paint_has_no_divider", count(online), "0")
+    Unit <- E.must_eq("automatic_reconnect_divider", count(auto), "1")
+    Unit <- E.must_eq("manual_online_reconnect_divider", count(manual_up(Sess.step_enter(online, "/reconnect"))), "1")
+    Unit <- E.must_eq("manual_offline_reconnect_divider", count(manual_up(Sess.step_enter(failed, "/reconnect"))), "1")
+    Unit <- E.must_eq("second_up_does_not_repeat_divider", count(Sess.session_reconnected(auto, "13:01:00")), "1")
+    Unit <- E.must_eq("new_endpoint_has_no_divider", count(manual_up(Sess.step_enter(online, "/connect b.example"))), "0")
+    IO.print("runtime_reconnect=ok")

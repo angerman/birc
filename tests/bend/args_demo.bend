@@ -21,7 +21,7 @@ def many_demo(n: Nat, acc: List<&2, String>) -> List<&2, String>:
 
 def show_cfg(+cfg: Args.Cfg) -> String:
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, _}:
       "demo=" ++ Bool.show(demo)
         ++ " frames=" ++ U32.show(frames)
         ++ " host=" ++ host
@@ -99,7 +99,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "sasl_flags",
       show_parsed(Args.parse("--sasl-user" <> "alice" <> "--sasl-pass" <> "secret" <> Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=alice chan=#birc replay= sasl_user=alice sasl_pass=secret"
+      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay= sasl_user=alice sasl_pass=secret"
     )
     Unit <- E.must_eq(
       "sasl_flags_explicit_nick",

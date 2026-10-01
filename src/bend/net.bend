@@ -72,6 +72,8 @@ def shutdown_waits(net: Sess.NetState) -> Bool:
   match net:
     case Sess.Connecting{}:
       False{}
+    case Sess.Reconnecting{}:
+      False{}
     case _:
       True{}
 
@@ -285,7 +287,6 @@ def after_emit(
   +ack: Chan(Unit),
   halt: Bool,
   more: Bool,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match halt:
@@ -304,7 +305,6 @@ def on_key_cmd(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match packed:
@@ -318,7 +318,7 @@ def on_key_cmd(
                   do IO<Unit>:
                     gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
                     Unit <- ack_key(is_key, ack)
-                    after_emit(gen2, ui, st, evt, cmd, ack, halt, more, frames, k)
+                    after_emit(gen2, ui, st, evt, cmd, ack, halt, more, k)
 
 def apply_pack(
   ui: T.Ui,
@@ -382,12 +382,11 @@ def on_frame.final(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match result:
     case (packed, _):
-      on_key_cmd(is_key, packed, evt, cmd, ack, gen, frames, k)
+      on_key_cmd(is_key, packed, evt, cmd, ack, gen, k)
 
 # At most one immediate redraw. It too passes through frame_result, so
 # a click or key consumed by that redraw is not lost.
@@ -402,18 +401,17 @@ def on_frame.redo(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match halt:
     case True{}:
-      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, k)
     case False{}:
       do IO<Unit>:
         gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
         result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, Some{evt})
-        on_frame.final(result, is_key, evt, cmd, ack, gen2, frames, k)
+        on_frame.final(result, is_key, evt, cmd, ack, gen2, k)
 
 def on_frame.pick(
   redo: Bool,
@@ -427,14 +425,13 @@ def on_frame.pick(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match redo:
     case False{}:
-      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, frames, k)
+      on_key_cmd(is_key, apply_pack(ui, st, ncmd, halt, more), evt, cmd, ack, gen, k)
     case True{}:
-      on_frame.redo(ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, frames, k)
+      on_frame.redo(ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, k)
 
 def on_frame.check(
   result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,
@@ -444,7 +441,6 @@ def on_frame.check(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match result:
@@ -457,7 +453,7 @@ def on_frame.check(
                 case (+ncmd, rest3):
                   match rest3:
                     case (halt, more):
-                      on_frame.pick(redraw && hot, ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, frames, k)
+                      on_frame.pick(redraw && hot, ui, st, ncmd, halt, more, is_key, evt, cmd, ack, gen, k)
 
 def on_frame(
   got: T.Ui & T.UiKeys,
@@ -468,12 +464,11 @@ def on_frame(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, Some{evt})
-    on_frame.check(result, is_key, redraw, evt, cmd, ack, gen, frames, k)
+    on_frame.check(result, is_key, redraw, evt, cmd, ack, gen, k)
 
 def paint_input(
   ui: T.Ui,
@@ -483,12 +478,11 @@ def paint_input(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st)
-    on_frame(got, st, is_key, True{}, evt, cmd, ack, gen, frames, k)
+    on_frame(got, st, is_key, True{}, evt, cmd, ack, gen, k)
 
 def on_chunk.paint(
   got: T.Ui & T.UiKeys,
@@ -497,10 +491,9 @@ def on_chunk.paint(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, frames, k)
+  on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, k)
 
 def on_chunk_go(
   pair: Sess.Session & List<&2, String>,
@@ -509,7 +502,6 @@ def on_chunk_go(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
@@ -517,7 +509,7 @@ def on_chunk_go(
       do IO<Unit>:
         gen2 : U32 <- emit_outs(cmd, outs, gen, outs_nil(outs))
         got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-        on_chunk.paint(got, st2, evt, cmd, ack, gen2, frames, k)
+        on_chunk.paint(got, st2, evt, cmd, ack, gen2, k)
 
 def on_chunk(
   ui: T.Ui,
@@ -526,13 +518,12 @@ def on_chunk(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   xs: List<&2, U32>,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     now_ms : U32 <- Clock.millis()
-    on_chunk_go(Sess.step_on_chunk_ms(st, xs, now_ms), ui, evt, cmd, ack, gen, frames, k)
+    on_chunk_go(Sess.step_on_chunk_ms(st, xs, now_ms), ui, evt, cmd, ack, gen, k)
 
 def on_up_go(
   +st2: Sess.Session,
@@ -541,12 +532,11 @@ def on_up_go(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-    on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+    on_chunk.paint(got, st2, evt, cmd, ack, gen, k)
 
 def on_up(
   ui: T.Ui,
@@ -555,12 +545,11 @@ def on_up(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, frames, k)
+    on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, k)
 
 @unsafe
 def reconnect_watch(+evt: Chan(Sess.UiMsg), +host: String, +port: U32, +gen: U32) -> IO(Unit):
@@ -591,7 +580,6 @@ def on_fail_recon(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match recon:
@@ -599,7 +587,7 @@ def on_fail_recon(
       do IO<Unit>:
         gen2 : U32 <- emit_fail_cmd(recon_cmd, evt, cmd, gen)
         got : T.Ui & T.UiKeys <- paint_session(ui, st3)
-        on_chunk.paint(got, st3, evt, cmd, ack, gen2, frames, k)
+        on_chunk.paint(got, st3, evt, cmd, ack, gen2, k)
 
 def on_fail_go(
   +st2: Sess.Session,
@@ -608,10 +596,9 @@ def on_fail_go(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_fail_recon(Sess.session_autoreconnect(st2), ui, evt, cmd, ack, gen, frames, k)
+  on_fail_recon(Sess.session_autoreconnect(st2), ui, evt, cmd, ack, gen, k)
 
 def on_fail(
   ui: T.Ui,
@@ -620,13 +607,12 @@ def on_fail(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   +msg: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    on_fail_go(Sess.session_fail(Sess.session_set_now(st, ts), msg), ui, evt, cmd, ack, gen, frames, k)
+    on_fail_go(Sess.session_fail(Sess.session_set_now(st, ts), msg), ui, evt, cmd, ack, gen, k)
 
 def on_evt(
   e: Sess.NetEvt,
@@ -636,18 +622,17 @@ def on_evt(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match e:
     case Sess.Chunk{xs}:
-      on_chunk(ui, st, evt, cmd, ack, gen, frames, xs, k)
+      on_chunk(ui, st, evt, cmd, ack, gen, xs, k)
     case Sess.Up{}:
-      on_up(ui, st, evt, cmd, ack, gen, frames, k)
+      on_up(ui, st, evt, cmd, ack, gen, k)
     case Sess.Eof{}:
-      on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected", k)
+      on_fail(ui, st, evt, cmd, ack, gen, "disconnected", k)
     case Sess.NetFail{+msg}:
-      on_fail(ui, st, evt, cmd, ack, gen, frames, "disconnected: " ++ msg, k)
+      on_fail(ui, st, evt, cmd, ack, gen, "disconnected: " ++ msg, k)
     case Sess.InitialFail{+msg}:
       shutdown_failed(ui, cmd, ack, msg)
 
@@ -660,7 +645,6 @@ def on_from(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   same: Bool,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
@@ -668,7 +652,7 @@ def on_from(
     case False{}:
       k((ui, st, gen, False{}))
     case True{}:
-      on_evt(e, ui, st, evt, cmd, ack, gen, frames, k)
+      on_evt(e, ui, st, evt, cmd, ack, gen, k)
 
 
 def on_typing_tick.pick(
@@ -678,7 +662,6 @@ def on_typing_tick.pick(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
@@ -689,7 +672,7 @@ def on_typing_tick.pick(
         case True{}:
           do IO<Unit>:
             got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-            on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+            on_chunk.paint(got, st2, evt, cmd, ack, gen, k)
 
 def on_typing_tick.retry(pair: Sess.Session & Bool, retry: Bool) -> Sess.Session & Bool:
   match pair:
@@ -703,12 +686,11 @@ def on_typing_tick.ready(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match got:
     case (ui, ready):
-      on_typing_tick.pick(on_typing_tick.retry(Sess.session_expire_typing(st, now_ms), T.flag_on(ready)), ui, evt, cmd, ack, gen, frames, k)
+      on_typing_tick.pick(on_typing_tick.retry(Sess.session_expire_typing(st, now_ms), T.flag_on(ready)), ui, evt, cmd, ack, gen, k)
 
 def on_typing_tick(
   ui: T.Ui,
@@ -718,12 +700,11 @@ def on_typing_tick(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & U32 <- T.Timui.redraw_ready(ui)
-    on_typing_tick.ready(got, st, now_ms, evt, cmd, ack, gen, frames, k)
+    on_typing_tick.ready(got, st, now_ms, evt, cmd, ack, gen, k)
 
 def on_reconnect.enabled(
   enabled: Bool,
@@ -735,7 +716,6 @@ def on_reconnect.enabled(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match enabled:
@@ -743,7 +723,7 @@ def on_reconnect.enabled(
       +st2 = Sess.session_cancel_reconnect(st)
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-        on_chunk.paint(got, st2, evt, cmd, ack, gen, frames, k)
+        on_chunk.paint(got, st2, evt, cmd, ack, gen, k)
     case True{}:
       do IO<Unit>:
         gen2 : U32 <- emit_cmd(evt, cmd, Sess.Dial{host, port, 0, Cl.nick_of(Sess.session_cl(st))}, gen)
@@ -759,14 +739,13 @@ def on_reconnect.same(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match same:
     case False{}:
       k((ui, st, gen, False{}))
     case True{}:
-      on_reconnect.enabled(Sess.session_autoreconnect_on(st), ui, st, host, port, evt, cmd, ack, gen, frames, k)
+      on_reconnect.enabled(Sess.session_autoreconnect_on(st), ui, st, host, port, evt, cmd, ack, gen, k)
 
 def on_reconnect(
   ui: T.Ui,
@@ -778,10 +757,9 @@ def on_reconnect(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
-  on_reconnect.same(U32.is_eq(scheduled_gen, gen), ui, st, host, port, evt, cmd, ack, gen, frames, k)
+  on_reconnect.same(U32.is_eq(scheduled_gen, gen), ui, st, host, port, evt, cmd, ack, gen, k)
 
 # One bounded external worker; only its exact completion can release ownership.
 def media_payload(r: Result<&1, &1, U32 & String, U32 & (String & String)>) -> String:
@@ -829,21 +807,21 @@ def media_stage(acc: T.Ui & Sess.Session & U32 & Bool, old_gen: Nat, +evt: Chan(
     case (ui, +st, gen, more):
       media_stage.job(M.take_job(M.maintain(Sess.session_media(st), Sess.session_cl(st))), ui, st, gen, more, old_gen, evt, k)
 
-def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, +frames: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
     case (ui, +token):
       +media = M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, token)
       +next = Sess.session_set_media(st, media)
-      paint_input(ui, Bool.pick(Sess.Session, U32.is_zero(token), Sess.session_error(next, "image preview unavailable"), next), False{}, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, Bool.pick(Sess.Session, U32.is_zero(token), Sess.session_error(next, "image preview unavailable"), next), False{}, evt, cmd, ack, gen, k)
 
-def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, +frames: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match accepted:
     case False{}:
       k((ui, Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)), gen, False{}))
     case True{}:
       do IO<Unit>:
         pair : T.Ui & U32 <- T.Timui.media_add(ui, payload)
-        on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, frames, k)
+        on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, k)
 
 def images_enabled.got(result: Result<&1, &1, U32 & String, String>) -> Bool:
   match result:
@@ -863,26 +841,25 @@ def on_msg_go(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match m:
     case Sess.UiKey{}:
-      paint_input(ui, st, True{}, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, st, True{}, evt, cmd, ack, gen, k)
     case Sess.UiContinue{}:
-      paint_input(ui, st, False{}, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, st, False{}, evt, cmd, ack, gen, k)
     case Sess.Resize{}:
-      paint_input(ui, st, False{}, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, st, False{}, evt, cmd, ack, gen, k)
     case Sess.UiError{+msg}:
-      paint_input(ui, Sess.session_error(st, msg), False{}, evt, cmd, ack, gen, frames, k)
+      paint_input(ui, Sess.session_error(st, msg), False{}, evt, cmd, ack, gen, k)
     case Sess.TypingTick{now_ms}:
-      on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
+      on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, k)
     case Sess.Reconnect{+host, port, scheduled_gen}:
-      on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, frames, k)
+      on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
     case Sess.MediaFetched{+generation, +ticket, +url, payload}:
-      on_media(M.accept(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, frames, k)
+      on_media(M.accept(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
     case Sess.FromNet{+got, +e}:
-      on_from(got, e, ui, st, evt, cmd, ack, gen, frames, Sess.event_current(Sess.FromNet{got, e}, gen), k)
+      on_from(got, e, ui, st, evt, cmd, ack, gen, Sess.event_current(Sess.FromNet{got, e}, gen), k)
 
 def on_msg(
   m: Sess.UiMsg,
@@ -892,12 +869,11 @@ def on_msg(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
-    on_msg_go(m, ui, Sess.session_set_now(st, ts), evt, cmd, ack, gen, frames, k)
+    on_msg_go(m, ui, Sess.session_set_now(st, ts), evt, cmd, ack, gen, k)
 
 def live_step.reload(
   changed: Bool,
@@ -982,7 +958,6 @@ def live_step.recv(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   +scheduled: Bool,
   +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
@@ -991,7 +966,7 @@ def live_step.recv(
     case None{}:
       shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
     case Some{+m}:
-      on_msg(m, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, evt, k))
+      on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, evt, k))
 
 def live_step(
   ui: T.Ui,
@@ -1000,14 +975,13 @@ def live_step(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  +frames: U32,
   +scheduled: Bool,
   +hist_path: String,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-    live_step.recv(g, ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, k)
+    live_step.recv(g, ui, st, evt, cmd, ack, gen, scheduled, hist_path, k)
 
 def live_go(
   fuel: Nat,
@@ -1015,7 +989,6 @@ def live_go(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32,
   +hist_path: String
 ) -> IO(Unit):
   match fuel:
@@ -1026,7 +999,7 @@ def live_go(
     case 1n+p:
       match acc:
         case (ui, +st, gen, scheduled):
-          live_step(ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, nxt => live_go(p, nxt, evt, cmd, ack, frames, hist_path))
+          live_step(ui, st, evt, cmd, ack, gen, scheduled, hist_path, nxt => live_go(p, nxt, evt, cmd, ack, hist_path))
 
 @unsafe
 def live_idle(
@@ -1034,19 +1007,18 @@ def live_idle(
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
-  +frames: U32,
   +hist_path: String
 ) -> IO(Unit):
   match acc:
     case (ui, +st, gen, scheduled):
-      live_step(ui, st, evt, cmd, ack, gen, frames, scheduled, hist_path, nxt => live_idle(nxt, evt, cmd, ack, frames, hist_path))
+      live_step(ui, st, evt, cmd, ack, gen, scheduled, hist_path, nxt => live_idle(nxt, evt, cmd, ack, hist_path))
 
 def live_boot(zero: Bool, +frames: U32, ui: T.Ui, +st: Sess.Session, +gen: U32, +scheduled: Bool, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +hist_path: String) -> IO(Unit):
   match zero:
     case True{}:
-      live_idle((ui, st, gen, scheduled), evt, cmd, ack, frames, hist_path)
+      live_idle((ui, st, gen, scheduled), evt, cmd, ack, hist_path)
     case False{}:
-      live_go(Sess.ticks_of(frames), (ui, st, gen, scheduled), evt, cmd, ack, frames, hist_path)
+      live_go(Sess.ticks_of(frames), (ui, st, gen, scheduled), evt, cmd, ack, hist_path)
 
 def tty_watch.ack(
   g: Maybe<&1, Unit>,
@@ -1158,7 +1130,7 @@ def watch_win(
     case Done{w}:
       do IO<Unit>:
         got : T.Ui & T.UiKeys <- paint_session(ui, st)
-        on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, frames, acc => watch_start(acc, evt, cmd, ack, frames, tty, w, hist_path))
+        on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, acc => watch_start(acc, evt, cmd, ack, frames, tty, w, hist_path))
 
 def watch_die_win(
   wr: Result<&1, &1, U32 & String, T.Winch>,

@@ -2,7 +2,7 @@
 import Base
 
 type Cfg is Data:
-  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String}
+  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String, nick_explicit: Bool}
 
 type Parsed is Data:
   Good{cfg: Cfg}
@@ -12,7 +12,7 @@ type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", ""}
+  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", "", False{}}
 
 def parse_u32.on(m: Maybe<&2, U32>) -> Num:
   match m:
@@ -26,54 +26,58 @@ def parse_u32(+s: String) -> Num:
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp}:
-      Cfg{demo, n, host, port, nick, chan, replay, su, sp}
+    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
+      Cfg{demo, n, host, port, nick, chan, replay, su, sp, explicit}
 
 def set_host(+cfg: Cfg, +host: String) -> Cfg:
   match cfg:
-    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp}:
-      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp}
+    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp, explicit}:
+      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp, explicit}
 
 def set_port(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp}:
-      Cfg{demo, frames, host, n, nick, chan, replay, su, sp}
+    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp, explicit}:
+      Cfg{demo, frames, host, n, nick, chan, replay, su, sp, explicit}
 
 def set_nick(+cfg: Cfg, +nick: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
+    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp, _}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, True{}}
 
 def set_chan(+cfg: Cfg, +chan: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
+    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp, explicit}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit}
 
 def set_replay(+cfg: Cfg, +replay: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp}
+    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp, explicit}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit}
 
 def set_demo(+cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp}:
-      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp}
-
-def set_sasl_user.nick(is_def: Bool, +user: String, +nick: String) -> String:
-  match is_def:
-    case True{}: user
-    case False{}: nick
+    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
+      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp, explicit}
 
 def set_sasl_user(+cfg: Cfg, +user: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp}:
-      +n = set_sasl_user.nick(String.eq(nick, "birc") || String.eq(nick, "me"), user, nick)
-      Cfg{demo, frames, host, port, n, chan, replay, user, sp}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp, explicit}:
+      Cfg{demo, frames, host, port, nick, chan, replay, user, sp, explicit}
 
 def set_sasl_pass(+cfg: Cfg, +pass: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, pass}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _, explicit}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, pass, explicit}
+
+# Resolve once after the CLI/environment SASL user is known. Nicknames are
+# values, not sentinels: explicit "birc" and "me" must remain unchanged.
+def resolve_nick.pick(align: Bool, +nick: String, +user: String) -> String:
+  match align:
+    case True{}: user
+    case False{}: nick
+
+def resolve_nick(+nick: String, explicit: Bool, +user: String) -> String:
+  resolve_nick.pick(Bool.not(explicit) && Bool.not(String.is_empty(user)), nick, user)
 
 type Step is Data:
   Go{xs: List<&2, String>, cfg: Cfg}

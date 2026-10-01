@@ -282,8 +282,18 @@ def encode_go(
 def encode_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), ELab{}, xs, header(id), "", True{}, 1)
 
+# Remove only the terminal DNS root label. A second dot remains an empty label
+# and is rejected by the ordinary encoder validation.
+def without_root_dot.rev(+rev: String) -> String:
+  match rev:
+    case SCon{Chr{46}, +t}: String.reverse(t)
+    case _: String.reverse(rev)
+
+def without_root_dot(+host: String) -> String:
+  without_root_dot.rev(String.reverse(host))
+
 def encode_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
-  encode_xs(id, String.split(host, Chr{46}))
+  encode_xs(id, String.split(without_root_dot(host), Chr{46}))
 
 def encode(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_id(1, host)
@@ -307,7 +317,7 @@ def encode_edns_xs(+id: U32, +xs: List<&2, String>) -> Result<&1, &1, U32 & Stri
   encode_edns_tail(encode_go(Nat.add(1n, Nat.mul(3n, List.length(&2, String, xs))), ELab{}, xs, header_edns(id), "", True{}, 1))
 
 def encode_edns_id(+id: U32, +host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
-  encode_edns_xs(id, String.split(host, Chr{46}))
+  encode_edns_xs(id, String.split(without_root_dot(host), Chr{46}))
 
 def encode_edns(+host: String) -> Result<&1, &1, U32 & String, List<&2, U32>>:
   encode_edns_id(1, host)
@@ -884,7 +894,7 @@ def parse_q_h(+want: U32, +host: String, m: Maybe<&2, Hdr>) -> Result<&1, &1, U3
       parse_q_chk(first_fail(hdr_chks(want, h)), host, h)
 
 def parse_q(+want: U32, +host: String, +xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
-  parse_q_h(want, name_lo(host), parse_hdr(xs))
+  parse_q_h(want, name_lo(without_root_dot(host)), parse_hdr(xs))
 
 def parse_id(+want: U32, xs: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   parse_q(want, "a", xs)
