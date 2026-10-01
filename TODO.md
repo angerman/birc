@@ -1585,7 +1585,21 @@ hash: `cce7c3b7d79b3a14fb97fede8b6562a37b8398a1`; benchmark SHA-256:
 `e206aad927853ca14ec1956b105e3410833dbfecccac84816e1a5a1ad8568fed`.
 Raw log: `build/review-media-component-after-20261001.log`. Branch selection
 uses parameter matches and one lazy recursive continuation, with no new state.
-Exact-row characterization and same-scenario app measurements remain required.
+Exact-row characterization, existing media-view/manual-anchor guards, full
+proof, and the combined application build pass. Three serial same-scenario
+app profiles on SHA-256
+`b9fae4b18a4953af9368ddebbc79586903de68481de960e17117dd45cb1d5bcf`
+reduce median recorded View averages from 356786 to 91600 us (stall) and
+428335 to 129100 us (progress). Stall frame counts change from 31 to 46–47;
+progress remains 16, so this is not an exact per-call speedup claim. Median
+unread PONG is 979.244/1901.794 ms, still above the original 800/1000-ms
+limits. View still accounts for 97.69%/95.85% of recorded phase time. The
+unchanged after-gate batch exits 2: both output latency gates fail, while
+ordinary stall and FIN/RST controls pass. Logs:
+`build/review-output-profile-after-three-20261001.log` and
+`build/review-output-gates-after-20261001.log`. The branch hypothesis is
+supported, but it does not fully explain the latency regression. Instrument
+the remaining lexer stage before the next fix; final verification stays open.
 
 Final combined run at `1ed6cb6`: `timeout 1800 make -k check` finished with
 exit 2 (no timeout) on 2026-10-01. Proof, media, diagnostics, IO, history,

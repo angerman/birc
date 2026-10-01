@@ -827,6 +827,13 @@ def contains_url(xs: List<&2, String>, +url: String) -> Bool:
     case Nil{}: False{}
     case Con{h, tail}: String.eq(h, url) || contains_url(tail, url)
 
+def media_parts.link(+h: SpanOp, rev: List<&2, SpanOp>, +url: String, known: Bool, k: List<&2, SpanOp> -> List<&2, MediaPart>) -> List<&2, MediaPart>:
+  match known:
+    case True{}:
+      MediaPart{List.reverse(&2, SpanOp, h <> rev), Some{url}} <> k(Nil{})
+    case False{}:
+      k(h <> rev)
+
 def media_parts(xs: List<&2, SpanOp>, +rev: List<&2, SpanOp>, +urls: List<&2, String>) -> List<&2, MediaPart>:
   match xs:
     case Nil{}:
@@ -836,9 +843,7 @@ def media_parts(xs: List<&2, SpanOp>, +rev: List<&2, SpanOp>, +urls: List<&2, St
     case Con{+h, +tail}:
       match h:
         case Lnk{+url, _}:
-          Bool.pick(List<&2, MediaPart>, contains_url(urls, url),
-            MediaPart{List.reverse(&2, SpanOp, h <> rev), Some{url}} <> media_parts(tail, Nil{}, urls),
-            media_parts(tail, h <> rev, urls))
+          media_parts.link(h, rev, url, contains_url(urls, url), next => media_parts(tail, next, urls))
         case _: media_parts(tail, h <> rev, urls)
 
 # Image rows occupy six virtual rendered characters, independent of pane width.
@@ -864,16 +869,20 @@ def wrapped_media.parts(parts: List<&2, MediaPart>, +media: M.State, +target: M.
         List.append(&2, BodyRow, media_part_image(url, media, target, w),
           wrapped_media.parts(tail, media, target, "", 0, cont_off, cont_w, cont_off, cont_w, fg, w)))
 
+def wrapped_media.known(urls: List<&2, String>, +k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State) -> List<&2, BodyRow>:
+  match urls:
+    case Nil{}: wrapped_rows(k, ts, text, w, show_ts)
+    case Con{+h, +tail}:
+      +shown = Bool.pick(String, show_ts, ts, "")
+      +first_off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
+      +first_w = U32.sub(w, first_off)
+      +indent = wrap_indent(line_prefix_w(k, text), first_w)
+      +cont_off = U32.add(first_off, indent)
+      +cont_w = U32.sub(first_w, indent)
+      wrapped_media.parts(media_parts(line_spans_for(k, text), Nil{}, h <> tail), media, M.Inline{id}, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k), w)
+
 def wrapped_media(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State) -> List<&2, BodyRow>:
-  +shown = Bool.pick(String, show_ts, ts, "")
-  +first_off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
-  +first_w = U32.sub(w, first_off)
-  +indent = wrap_indent(line_prefix_w(k, text), first_w)
-  +cont_off = U32.add(first_off, indent)
-  +cont_w = U32.sub(first_w, indent)
-  +urls = M.known_urls(media, M.Inline{id})
-  Bool.pick(List<&2, BodyRow>, List.is_empty(&2, String, urls), wrapped_rows(k, ts, text, w, show_ts),
-    wrapped_media.parts(media_parts(line_spans_for(k, text), Nil{}, urls), media, M.Inline{id}, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k), w))
+  wrapped_media.known(M.known_urls(media, M.Inline{id}), k, ts, text, w, show_ts, id, media)
 
 def wrap_line_media(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
   match ln:
@@ -937,8 +946,13 @@ def body_rows.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, synthetic: B
 def body_rows(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
   body_rows.on(lines, w, show_ts, String.eq(name, "*settings*"))
 
-def body_rows_media(+lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State) -> List<&2, BodyRow>:
-  Bool.pick(List<&2, BodyRow>, String.eq(name, "*settings*"), unwrapped_lines(lines, w, show_ts), wrap_lines_media(lines, w, show_ts, media))
+def body_rows_media.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, media: M.State, synthetic: Bool) -> List<&2, BodyRow>:
+  match synthetic:
+    case True{}: unwrapped_lines(lines, w, show_ts)
+    case False{}: wrap_lines_media(lines, w, show_ts, media)
+
+def body_rows_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State) -> List<&2, BodyRow>:
+  body_rows_media.on(lines, w, show_ts, media, String.eq(name, "*settings*"))
 
 # This synthetic row exists only in the view; raw Client/history lines stay intact.
 # Manual diagnostics append after it, matching the ordinary paused-anchor rule.
