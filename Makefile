@@ -178,6 +178,14 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
+.PHONY: build-package test-package
+build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
+
+test-package: build-package ## Check installed helper overrides, local images, trust, and clean-environment startup.
+	$(NIXRUN) timeout 75 python3 tests/package.py ./$(BLDDIR)/package-birc
+
 test-proto: build-proto ## Run Bend protocol golden harness.
 	$(NIXRUN) sh scripts/check-golden.sh proto_demo=ok ./$(BLDDIR)/birc-proto
 

@@ -29,7 +29,7 @@ in stdenv.mkDerivation {
     runHook preInstall
     mkdir -p $out/bin
     cp birc $out/bin/birc
-    wrapProgram $out/bin/birc --set BIRC_MEDIA_HELPER "${media}/bin/birc-image"
+    wrapProgram $out/bin/birc --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image"
     runHook postInstall
   '';
 

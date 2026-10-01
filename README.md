@@ -267,7 +267,8 @@ escapes `*`, `_`, backticks, backslash, or colon. The 22 chat-demo emoji aliases
 (for example `:eyes:`, `:fire:`, and `:+1:`) expand only in displayed text.
 Unknown names, code spans, and exact URLs stay unchanged. Sent text and history
 keep the original message. Styled URLs close formatting at the token end;
-internal URL punctuation is not markup.
+internal URL punctuation is not markup. URLs inside styles or code remain
+display text, not clickable links or automatic preview requests.
 
 Type commands into the composer prompt:
 
@@ -276,11 +277,14 @@ Type commands into the composer prompt:
 | `/connect <host> [port]` | Connect to an IRC server (from demo or offline mode) |
 | `/reconnect` | Reconnect to the saved server and port |
 | `/join <channel>` | Join an IRC channel (e.g. `/join #bend`) |
-| `/part [reason]` | Leave the active channel |
-| `/close` | Close the active private query buffer tab |
+| `/part [channel]` | Leave the named channel, or the active channel if omitted |
+| `/close [buffer]` | Close a query or local tab, or leave a channel; the server buffer cannot close |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
 | `/log` | Open the read-only diagnostic buffer; also works offline |
+| `/links` | List links from the focused buffer |
+| `/open [n-or-url]` | Open a numbered link or HTTP(S) URL; omitted arguments select the first listed link |
+| `/settings` | Open the settings panel |
 | `/split [orientation] [buffer]` | Open a stacked split by default; orientation is `horizontal` or `vertical`, and the target must already be open |
 | `/vsplit [buffer]` | Open a side-by-side split with an existing buffer |
 | `/focus` | Move focus to the other split pane |
@@ -313,6 +317,8 @@ changes, but is not saved to chat history. One of the existing 16 buffer slots
 is reserved for it. Diagnostic copies remove HTTP(S) URLs and configured SASL
 credentials. Helper failures show only the operation and numeric error or exit
 code, never child output. This does not redact the original chat/error row.
+IRC events cannot create, rename, or target reserved local buffers such as
+`*log*`. Ordinary channels, private queries, and server broadcasts stay separate.
 
 The log includes failed clipboard helpers, link openers, image previews,
 history loads/saves, and socket reads. A fatal startup error can exit before
@@ -338,8 +344,10 @@ Explicit local previews require a bounded regular file.
 
 Downloads are capped at 8 MiB; local inputs at 16 MiB. Source images are capped
 at 4096 pixels per side and 16,777,216 pixels. Normalized previews fit within
-320 pixels per side. Animations have at most 24 frames, with additional total
-pixel and encoded-output limits. The helper has an eight-second deadline.
+320 pixels per side. Animations have at most 24 frames, 33,554,432 source-frame
+pixels (including an APNG fallback image), and 1,536,000 normalized pixels in
+total. The binary envelope is capped at 2 MiB before base64 encoding. The
+helper has an eight-second deadline.
 Bend allows one active helper, eight queued requests, and eight cached results.
 
 Kitty and iTerm2 handle animation in the terminal; birc does not add an
@@ -348,10 +356,11 @@ a placeholder. A partially clipped iTerm2 image also shows a placeholder,
 because that protocol has no source-crop command. Terminal and multiplexer
 support can differ.
 
-Use `make shell` before invoking `./build/birc` directly. The Nix package sets
-an absolute helper path. `BIRC_MEDIA_HELPER` can override the helper program
-for development and synthetic tests; it is an executable path, not a shell
-command. Reload an existing Nix shell after provisioning changes.
+Use `make shell` before invoking `./build/birc` directly. The Nix package defaults
+an unset helper variable to its absolute helper path. Use `BIRC_MEDIA_HELPER`
+to override the helper for development and synthetic tests. It is an executable
+path, not a shell command. An explicitly empty value uses `birc-image` from
+PATH. Reload an existing Nix shell after provisioning changes.
 
 ---
 
@@ -365,6 +374,8 @@ make check                 # Proofs + pure tests + FFI lints + UI smoke
 make proof                 # Run Bend formal proof checker (PROOF.bend)
 make test-pty              # Run the PTY integration suite
 make test-live             # Run mock IRC socket handshake test
+make test-package          # Installed wrapper, local images, helper overrides, offline CA
+make check-hardening       # Bounded hostile, sanitizer, and performance checks
 make lint-ffi              # Strict syntax and compiler warning lint of C FFI
 make clean                 # Remove build artifacts
 ```

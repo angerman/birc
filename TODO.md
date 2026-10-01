@@ -1101,6 +1101,9 @@ passed. This is signal-versus-close safety, not generic concurrent Ui support.
       rather than only claiming it does. Replace unsupported whole-client,
       zero-poll, and production-hardening claims with the actual bounds and
       one-second maintenance behavior. Verify the documented lint flags.
+      Final docs review also corrected `/part [channel]` and `/close [buffer]`
+      scope, listed existing link/settings commands, and stated total image
+      frame-pixel and envelope bounds from the helper constants.
 - [x] **V07 — Isolate desktop helpers in selection tests.** Existing mouse
       and split-selection tests inherit PATH and can call the desktop
       clipboard helper. Use a fixture-only helper path without changing test
@@ -1554,6 +1557,21 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       Default only an unset variable; retain a nonempty executable path and
       the existing empty-value `birc-image` PATH fallback. Verify installed
       wrappers, local formats/bounds, and offline CA trust with owned fixtures.
+      The actual old package built successfully from `102bdd3`:
+      `/nix/store/dvayvzmrhb7rfgw1zif3djylxfxvq6nk-birc-0.1.0`.
+      `make test-package` reproduces both rejected overrides (exit 2), after
+      passing installed provenance, default-helper, local PNG/JPEG and bounds,
+      offline CA, help/headless, preview paint, quit, and tty-restore controls.
+      The fixture uses no HTTP URL. Replacing only `--set` with `--set-default`
+      produces `/nix/store/rffm2057y0fy1jca501zi1nqyvd6fydy-birc-0.1.0`.
+      Both packages use identical source and helper derivations. The unchanged
+      `make test-package` passes three consecutive serial runs, including all
+      three local-preview PTYs per run. Its SHA-256 is
+      `81ddf0a56e757232ce6d5a29f68b4857358d97a7dfaafc55d9a35b4d6fa559ef`.
+      Raw fixture logs: `build/review-package-old-red-20261001.log` and
+      `build/review-package-green{1,2,3}-20261001.log`. Installed helper paths
+      with spaces and an explicitly empty variable are preserved. Pins stay
+      unchanged; full integrated verification remains V04.
 - [ ] **P17 — Select rendering branches before building their rows.** Default-off
       View timing was committed in `cfbab9a` before measurement. Three serial
       output profiles attribute 98–99% of recorded frame-phase time to View,
