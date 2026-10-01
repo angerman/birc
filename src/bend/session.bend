@@ -1084,7 +1084,8 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
           Session{add_recon_cl(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing, port, media}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
-  session_reconnected.on(session_was_offline(st), session_reset_auth(st), now)
+  +online = session_reconnected.on(session_was_offline(st), session_reset_auth(st), now)
+  session_set_client(online, Cl.diagnostic_notice(Cl.set_now(session_cl(online), now), Cl.System{}, "IRC connection established"))
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
@@ -1113,7 +1114,8 @@ def session_autoreconnect.st(
   +port: U32,
   +media: M.State
 ) -> Session:
-  Session{Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "..."), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port, M.reset(media)}
+  +cl2 = Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "...")
+  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, False{}, chan, Connecting{}, hist, size, seed, comp, split, Ty.empty(), port, M.reset(media)}
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -1187,7 +1189,7 @@ def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client
       match cl:
         case Cl.Client{+nick, _, _, _, +now, +stg, +auth, +seq}:
           +clean = Cl.set_unreads(stg, Nil{})
-          Cl.client_set_lag(Cl.Client{nick, host, Cl.empty_buf("server", False{}) <> Nil{}, 0n, now, clean, auth, seq}, 0)
+          Cl.client_set_lag(Cl.Client{nick, host, Cl.empty_buf("server", False{}) <> Cl.log_buffers(cl), 0n, now, clean, auth, seq}, 0)
 
 def endpoint_client(+cl: Cl.Client, +host: String, +old_port: U32, +new_port: U32) -> Cl.Client:
   endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), cl, host)

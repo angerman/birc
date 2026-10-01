@@ -59,7 +59,7 @@ def step(phase: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) ->
 def log_notice(+cl: Cl.Client, notice: Notice) -> Cl.Client:
   match notice:
     case Quiet{}: cl
-    case Started{}: Cl.client_log(cl, 0n, Cl.System{}, "SASL: authenticating with PLAIN...")
-    case Succeeded{}: Cl.client_log(cl, 0n, Cl.System{}, "SASL: authentication successful")
+    case Started{}: Cl.diagnostic_notice(Cl.client_log(cl, 0n, Cl.System{}, "SASL: authenticating with PLAIN..."), Cl.System{}, "SASL: authenticating with PLAIN...")
+    case Succeeded{}: Cl.diagnostic_notice(Cl.client_log(cl, 0n, Cl.System{}, "SASL: authentication successful"), Cl.System{}, "SASL: authentication successful")
     case Failed{}: Cl.client_log(cl, 0n, Cl.Error{}, "SASL: authentication failed")
     case Rejected{}: Cl.client_log(cl, 0n, Cl.Error{}, "SASL: capability rejected")

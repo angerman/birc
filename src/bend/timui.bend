@@ -3,6 +3,7 @@
 # (Window.frame shape: handle & Data). C does not latch keys for a
 # second IO.
 import Base
+import ./diagnostic.bend as Diagnostic
 import ./view.bend as V
 
 # Opaque TimUI handle (same runtime shape as Base Window / Socket handles).
@@ -161,20 +162,20 @@ law Sys.exit_fail:
 def Sys.exit_fail(msg):
   import "../ffi/timui_ffi.c"
 
-def Sys.copy_clipboard.on(+program: String, +text: String, empty: Bool) -> IO(Unit):
+def Sys.copy_clipboard.on(+program: String, +text: String, empty: Bool) -> IO(Maybe<&2, String>):
   match empty:
     case True{}:
-      IO.pure(Unit, Unit{})
+      IO.pure(Maybe<&2, String>, None{})
     case False{}:
-      do IO<Unit>:
+      do IO<Maybe<&2, String>>:
         result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, Nil{}, text, 4096, 1000)
-        return Unit{}
+        return Diagnostic.process_result("clipboard helper", result)
 
 # Process.run waits/reaps on an IO helper thread; the caller spawns this work.
-def Sys.copy_clipboard.program(+program: String, +text: String) -> IO(Unit):
+def Sys.copy_clipboard.program(+program: String, +text: String) -> IO(Maybe<&2, String>):
   Sys.copy_clipboard.on(program, text, String.is_empty(program))
 
-def Sys.copy_clipboard(+text: String) -> IO(Unit):
-  do IO<Unit>:
+def Sys.copy_clipboard(+text: String) -> IO(Maybe<&2, String>):
+  do IO<Maybe<&2, String>>:
     program : String <- Sys.clipboard_program()
     Sys.copy_clipboard.program(program, text)

@@ -144,8 +144,10 @@ def reader_r(
   k: Socket -> IO(Unit)
 ) -> IO(Unit):
   match r:
-    case Fail{_}:
-      reader_stop(dup, evt, gen)
+    case Fail{(code, _)}:
+      do IO<Unit>:
+        Unit <- post(evt, gen, Sess.NetFail{"receive failed (OS " ++ U32.show(code) ++ ")"})
+        Socket.close(dup)
     case Done{got}:
       reader_got(dup, evt, gen, got, k)
 

@@ -1,6 +1,7 @@
 # IRC UI loop. Writer owns the Socket and blocks on NetCmd. Reader owns a
 # dup and parks in recv_octets. The UI parks on Chan(UiMsg).
 import Base
+import ./diagnostic.bend as Diagnostic
 import ./buffer.bend as Cl
 import ./view.bend as V
 import ./timui.bend as T
@@ -87,17 +88,35 @@ def shutdown(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +evt: Chan(Ses
     Unit <- Chan.close(Unit, ack)
     shutdown_pick(wait, ui, evt, gen)
 
-def frame_clipboard.on(+text: String, empty: Bool) -> IO(Unit):
+def helper_post(notice: Maybe<&2, Chan(Sess.UiMsg)>, +msg: String) -> IO(Unit):
+  match notice:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{+evt}:
+      do IO<Unit>:
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiError{msg})
+        return Unit{}
+
+def helper_notify(result: Maybe<&2, String>, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
+  match result:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{msg}: helper_post(notice, msg)
+
+def frame_clipboard.run(text: String, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
+  do IO<Unit>:
+    result : Maybe<&2, String> <- T.Sys.copy_clipboard(text)
+    helper_notify(result, notice)
+
+def frame_clipboard.on(+text: String, empty: Bool, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
   match empty:
     case True{}:
       IO.pure(Unit, Unit{})
     case False{}:
       do IO<Unit>:
-        Unit <- IO.spawn(Unit, T.Sys.copy_clipboard(text))
+        Unit <- IO.spawn(Unit, frame_clipboard.run(text, notice))
         return Unit{}
 
-def frame_clipboard(+text: String) -> IO(Unit):
-  frame_clipboard.on(text, String.is_empty(text))
+def frame_clipboard(+text: String, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
+  frame_clipboard.on(text, String.is_empty(text), notice)
 
 def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
@@ -141,32 +160,8 @@ def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty
         ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Cont{outs})
         return gen
 
-def launch_fail(notice: Maybe<&2, Chan(Sess.UiMsg)>, +msg: String) -> IO(Unit):
-  match notice:
-    case None{}:
-      IO.pure(Unit, Unit{})
-    case Some{+evt}:
-      do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiError{msg})
-        return Unit{}
-
-def launch_exit(ok: Bool, +notice: Maybe<&2, Chan(Sess.UiMsg)>, +code: U32) -> IO(Unit):
-  match ok:
-    case True{}:
-      IO.pure(Unit, Unit{})
-    case False{}:
-      launch_fail(notice, "cannot open link: opener exited " ++ U32.show(code))
-
 def launch_result(r: Result<&1, &1, U32 & String, U32 & (String & String)>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  match r:
-    case Fail{e}:
-      match e:
-        case (_, +msg):
-          launch_fail(notice, "cannot open link: " ++ msg)
-    case Done{out}:
-      match out:
-        case (+code, _):
-          launch_exit(U32.is_eq(code, 0), notice, code)
+  helper_notify(Diagnostic.process_result("cannot open link: opener", r), notice)
 
 # Process.run owns and reaps the helper on its worker thread. Only the
 # completion message touches the UI; neither spawn nor wait parks painting.
@@ -362,7 +357,7 @@ def frame_result.pol(
     case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
       do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
         Unit <- open_clicked(notice, url)
-        Unit <- frame_clipboard(clipboard)
+        Unit <- frame_clipboard(clipboard, notice)
         return (
           apply_pol(ui, st, enter, typed, rows, cols, click, more, Sess.KeyPol{tab, up, dn, hist, quit, comp, focus}),
           pol_hot(tab, click, up, dn, hist, enter, comp, focus) || Bool.not(Sess.size_eq(Sess.session_size(st), Sess.Size{rows, cols}))
@@ -920,6 +915,32 @@ def live_step.reload(
         loaded : Cl.Client <- Hist.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
         k((ui, Sess.session_set_client(st, loaded), gen, pending))
 
+def history_notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Session & Bool:
+  match notice:
+    case None{}: (st, False{})
+    case Some{msg}:
+      (Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{}, msg)), True{})
+
+def live_step.saved(
+  status: Sess.Session & Bool,
+  ui: T.Ui,
+  gen: U32,
+  more: Bool,
+  scheduled: Bool,
+  consumed: Bool,
+  old_endpoint: String,
+  old_media_gen: Nat,
+  +hist_path: String,
+  +new_endpoint: String,
+  +evt: Chan(Sess.UiMsg),
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match status:
+    case (+st, failed):
+      do IO<Unit>:
+        pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
+        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, k))
+
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
   +scheduled: Bool,
@@ -937,9 +958,11 @@ def live_step.next(
       do IO<Unit>:
         # Save only the current event. Imported rows get fresh IDs and must
         # become the next baseline, never part of this append comparison.
-        Unit <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
-        pending : Bool <- more_schedule(scheduled, consumed, more, evt)
-        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, k))
+        notice : Maybe<&2, String> <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
+        # A save failure belongs only in the non-persisted diagnostic buffer.
+        # Repaint through the existing coalesced continuation, never UiError:
+        # saving an Error chat row would recursively fail and notify again.
+        live_step.saved(history_notice(new_st, notice), ui, gen, more, scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, evt, k)
 
 def is_continue(m: Sess.UiMsg) -> Bool:
   match m:

@@ -1,5 +1,6 @@
 # Persisted IRC chat scrollback history across sessions with reconnect markers.
 import Base
+import ./diagnostic.bend as Diagnostic
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
 import ./frame.bend as Fr
@@ -233,7 +234,7 @@ def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Cl
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:
     case Cl.Line{kind, +ts, +text, +author, _}:
-      Cl.client_log_author_ts(cl, bi, kind, ts, text, author)
+      Cl.client_restore_author_ts(cl, bi, kind, ts, text, author)
 
 def apply_entry.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line) -> Cl.Client:
   match pair:
@@ -288,8 +289,8 @@ def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
 
 def cap_buf_history(b: Cl.Buffer, cap: U32) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{+name, is_ch, +topic, lines, +nicks, scroll}:
-      Cl.Buffer{name, is_ch, topic, Cl.take_last(lines, U32.to_nat(cap)), nicks, scroll}
+    case Cl.Buffer{+name, is_ch, +topic, +lines, +nicks, scroll}:
+      Cl.Buffer{name, is_ch, topic, Bool.pick(List<&2, Cl.Line>, Irc.ieq(name, Diagnostic.name()), lines, Cl.take_last(lines, U32.to_nat(cap))), nicks, scroll}
 
 def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer>:
   match bufs:
@@ -422,30 +423,41 @@ def read_open(result: Result<&1, &1, U32 & String, File>, cl: Cl.Client, endpoin
         pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
         read_size(pair, cl, endpoint, cap, now)
 
-def history_append_file.done(pair: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
-  match pair:
-    case (f, _):
-      File.close(f)
+def save_error(error: U32 & String, +stage: String) -> String:
+  match error:
+    case (code, _): "history save " ++ stage ++ " (" ++ U32.show(code) ++ ")"
 
-def history_append_file.open(r: Result<&1, &1, U32 & String, File>, +data: String) -> IO(Unit):
+def save_result(result: Result<&1, &1, U32 & String, Unit>) -> Maybe<&2, String>:
+  match result:
+    case Done{_}: None{}
+    case Fail{error}: Some{save_error(error, "write failed")}
+
+def history_append_file.done(pair: File & Result<&1, &1, U32 & String, Unit>) -> IO(Maybe<&2, String>):
+  match pair:
+    case (f, result):
+      do IO<Maybe<&2, String>>:
+        Unit <- File.close(f)
+        return save_result(result)
+
+def history_append_file.open(r: Result<&1, &1, U32 & String, File>, +data: String) -> IO(Maybe<&2, String>):
   match r:
-    case Fail{_}:
-      IO.pure(Unit, Unit{})
+    case Fail{error}:
+      IO.pure(Maybe<&2, String>, Some{save_error(error, "open failed")})
     case Done{f}:
-      do IO<Unit>:
+      do IO<Maybe<&2, String>>:
         pair : File & Result<&1, &1, U32 & String, Unit> <- File.write(f, data)
         history_append_file.done(pair)
 
-def history_append_file.check(skip: Bool, +path: String, +data: String) -> IO(Unit):
+def history_append_file.check(skip: Bool, +path: String, +data: String) -> IO(Maybe<&2, String>):
   match skip:
     case True{}:
-      IO.pure(Unit, Unit{})
+      IO.pure(Maybe<&2, String>, None{})
     case False{}:
-      do IO<Unit>:
+      do IO<Maybe<&2, String>>:
         r : Result<&1, &1, U32 & String, File> <- File.open(path, "a")
         history_append_file.open(r, data)
 
-def history_append_file(+path: String, +data: String) -> IO(Unit):
+def history_append_file(+path: String, +data: String) -> IO(Maybe<&2, String>):
   history_append_file.check(String.is_empty(path) || String.is_empty(data), path, data)
 
 def resolve_history_path.home(h: Result<&1, &1, U32 & String, String>) -> IO(String):
@@ -524,14 +536,14 @@ def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap
 def history_init_client(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   history_init_client.pick(String.is_empty(path), path, endpoint, cap, nick, host, now)
 
-def maybe_save_history.check(enabled: Bool, +path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
+def maybe_save_history.check(enabled: Bool, +path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Maybe<&2, String>):
   match enabled:
     case False{}:
-      IO.pure(Unit, Unit{})
+      IO.pure(Maybe<&2, String>, None{})
     case True{}:
       history_append_file(path, extract_new_history_for(endpoint, old_cl, new_cl))
 
-def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Unit):
+def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Maybe<&2, String>):
   maybe_save_history.check(
     Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(new_cl)),
     path, endpoint, old_cl, new_cl

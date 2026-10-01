@@ -738,6 +738,16 @@ def diagnostic(cl: Client, kind: LineKind, msg: String) -> Client:
     case Client{nick, server, bufs, active, +now, stg, auth, +seq}:
       diagnostic_line(Client{nick, server, bufs, active, now, stg, auth, 1n+seq}, Line{kind, now, msg, "", 1n+seq})
 
+# Ordinary stages do not create a tab. Once opened (or created by an error),
+# the app-session log also records safe connection and authentication stages.
+def diagnostic_notice.got(got: Maybe<&2, Nat>, cl: Client, kind: LineKind, msg: String) -> Client:
+  match got:
+    case None{}: cl
+    case Some{_}: diagnostic(cl, kind, msg)
+
+def diagnostic_notice(+cl: Client, kind: LineKind, msg: String) -> Client:
+  diagnostic_notice.got(buf_find(cl, Diagnostic.name()), cl, kind, msg)
+
 def diagnostic_error(kind: LineKind) -> Bool:
   match kind:
     case Error{}: True{}
@@ -783,8 +793,17 @@ def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
 def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
   buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text), "", 0n})
 
+def buf_reconnect.on(internal: Bool, b: Buffer, now: String) -> Buffer:
+  match internal:
+    case True{}: b
+    case False{}: buf_log_ts(b, Reconnect{}, "", now)
+
+# App-session diagnostics are not chat history. Generic reconnect dividers
+# must not bypass their smaller row cap; the session records a bounded stage.
 def buf_reconnect(+b: Buffer, +now: String) -> Buffer:
-  buf_log_ts(b, Reconnect{}, "", now)
+  match b:
+    case Buffer{+name, _, _, _, _, _}:
+      buf_reconnect.on(Irc.ieq(name, Diagnostic.name()), b, now)
 
 def is_reconnect(kind: LineKind) -> Bool:
   match kind:
@@ -938,28 +957,36 @@ def client_log.destination(got: Maybe<&2, Buffer>) -> Bool:
     case None{}: False{}
     case Some{Buffer{name, _, _, _, _, _}}: Irc.ieq(name, Diagnostic.name())
 
-def diagnostic_mirror(cl: Client, +line: Line) -> Client:
+def diagnostic_mirror(mirror: Bool, cl: Client, +line: Line) -> Client:
   match line:
-    case Line{kind, _, _, _, _}: diagnostic_mirror.on(diagnostic_error(kind), cl, line)
+    case Line{kind, _, _, _, _}: diagnostic_mirror.on(mirror && diagnostic_error(kind), cl, line)
 
-def client_log.original(cl: Client, i: Nat, +line: Line) -> Client:
+def client_log.original(mirror: Bool, cl: Client, i: Nat, +line: Line) -> Client:
   match cl:
     case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      diagnostic_mirror(
+      diagnostic_mirror(mirror,
         Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, seq}, line)
 
-def client_log.append(internal: Bool, cl: Client, i: Nat, line: Line) -> Client:
+def client_log.append(internal: Bool, mirror: Bool, cl: Client, i: Nat, line: Line) -> Client:
   match internal:
     case True{}: diagnostic_line(cl, line)
-    case False{}: client_log.original(cl, i, line)
+    case False{}: client_log.original(mirror, cl, i, line)
 
-def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
+def client_log_author_ts.record(mirror: Bool, +cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
       +next: Nat = 1n+log_seq
       +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_in(text), Irc.sanitize_in(author), next}
-      client_log.append(client_log.destination(nth_buf(bufs, i)), Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
+      client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
+
+def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
+  client_log_author_ts.record(True{}, cl, i, kind, ts, text, author)
+
+# History imports receive fresh chat IDs but are not new diagnostic events.
+# Reuse the same timestamp/sanitization/cap path without replaying error copies.
+def client_restore_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
+  client_log_author_ts.record(False{}, cl, i, kind, ts, text, author)
 
 def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
   client_log_author_ts(cl, i, kind, ts, text, "")
