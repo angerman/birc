@@ -6,11 +6,15 @@ import importlib.util
 import io
 import socket
 import struct
+import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 spec = importlib.util.spec_from_file_location("birc_image", Path(__file__).parents[1] / "src/media/image.py")
 media = importlib.util.module_from_spec(spec)
@@ -216,8 +220,55 @@ saved_limit = media.MAX_PAYLOAD
 media.MAX_PAYLOAD = 64
 rejected(lambda: media.encode(source("PNG")))
 media.MAX_PAYLOAD = saved_limit
+# A caught Python exception is not a hard process deadline. This fake fetch
+# swallows exceptions like an unresponsive native call; it contacts no host.
+deadline_probe = f'''
+import importlib.util, time
+spec = importlib.util.spec_from_file_location("birc_image", {str(spec.origin)!r})
+media = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(media)
+def stuck(*args):
+    while True:
+        try:
+            time.sleep(60)
+        except BaseException:
+            pass
+media.fetch = stuck
+media.TIMEOUT = 1
+media.main(["https://unused.invalid/a.png"])
+'''
+try:
+    deadline_result = subprocess.run([sys.executable, "-c", deadline_probe],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
+except subprocess.TimeoutExpired as error:
+    raise AssertionError("helper deadline did not terminate its process") from error
+assert deadline_result.returncode == -media.signal.SIGALRM, deadline_result.returncode
 for malformed in (b"", b"<html>not an image</html>", b"<svg/>", source("PNG")[:30], b"x" * (media.MAX_DOWNLOAD + 1)):
     rejected(lambda: media.encode(malformed))
+metadata = PngInfo()
+metadata.add_text("comment", "x" * 65537, zip=True)
+rejected(lambda: media.encode(source("PNG", pnginfo=metadata)))
+metadata = PngInfo()
+for index in range(5):
+    metadata.add_text(str(index), "x" * 60000, zip=True)
+rejected(lambda: media.encode(source("PNG", pnginfo=metadata)))
+metadata = PngInfo()
+metadata.add_text("comment", "x" * 65536, zip=True)
+assert unpack(source("PNG", pnginfo=metadata))[:2] == (17, 11)
+with tempfile.TemporaryDirectory(prefix="birc-media-local-") as directory:
+    path = Path(directory, "image with spaces.jpg")
+    path.write_bytes(source("JPEG"))
+    assert unpack(media.read_local(path))[:2] == (17, 11)
+    fifo = Path(directory, "blocked.gif")
+    media.os.mkfifo(fifo)
+    rejected(lambda: media.read_local(fifo))
+    rejected(lambda: media.read_local(directory))
+    rejected(lambda: media.read_local(Path(directory, "missing.png")))
+    oversized = Path(directory, "oversized.png")
+    with oversized.open("wb") as file:
+        file.truncate(media.MAX_LOCAL_BYTES + 1)
+    rejected(lambda: media.read_local(oversized))
+    rejected(lambda: media.destination("file://" + str(path), public))
 output = io.BytesIO()
 Image.new("1", (4097, 1)).save(output, format="PNG")
 rejected(lambda: media.encode(output.getvalue()))

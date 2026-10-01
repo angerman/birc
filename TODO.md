@@ -1504,6 +1504,21 @@ fragment as required. No real remote host was contacted. Nix adds Pillow and
 an absolute packaged helper from the existing locked nixpkgs; no pins move.
 The existing test/check targets default to `BIRC_IMAGES=off`; the new media
 integration fixtures must explicitly enable it and use a synthetic helper.
+An added hard-deadline probe swallowed Python exceptions and outlived the old
+alarm callback. The helper now uses SIGALRM's terminating disposition, so the
+deadline does not depend on Python regaining control from a decoder/DNS call.
+The synthetic blocked-helper probe must terminate at one second; its parent
+has a three-second test bound and kills/reaps a failed fixture.
+The same decoder also accepts explicit `--local PATH` for general local-format
+`/preview`; chat URLs cannot enter this path. Local reads use a nonblocking,
+CLOEXEC descriptor, require a regular file, retain the existing 16-MiB local
+input ceiling, and reject a changed length. Remote downloads stay at 8 MiB.
+Synthetic spaces-in-path, missing file, FIFO, directory, and sparse oversized
+file controls cover this path without reading user files.
+The PNG decoder's existing metadata limits are tightened to 64 KiB per text
+or compressed profile chunk and 256 KiB total text. Red compressed-text and
+aggregate-text controls previously decoded despite these preview limits;
+normal boundary text still decodes. No second PNG parser/inflater is added.
 
 Parity evidence: an offline model fixture preserved the supplied encoded URL
 through tokenizer/link extraction, proved ordinary chat has no OpImage, rejected

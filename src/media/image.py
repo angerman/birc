@@ -11,18 +11,21 @@ import base64
 import http.client
 import io
 import ipaddress
+import os
 import signal
 import socket
 import ssl
+import stat
 import struct
 import sys
 import time
 import warnings
 from urllib.parse import quote, urljoin, urlsplit
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, PngImagePlugin
 
 MAX_DOWNLOAD = 8 * 1024 * 1024
+MAX_LOCAL_BYTES = 16 * 1024 * 1024
 MAX_PIXELS = 16 * 1024 * 1024
 MAX_SOURCE_FRAME_PIXELS = 32 * 1024 * 1024
 MAX_SIDE = 320
@@ -32,6 +35,10 @@ MAX_PAYLOAD = 2 * 1024 * 1024
 TIMEOUT = 8
 FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "TIFF", "AVIF")
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+# Previews do not need large text/profile payloads. Use the decoder's existing
+# limits instead of adding a separate PNG parser or metadata inflater.
+PngImagePlugin.MAX_TEXT_CHUNK = 65536
+PngImagePlugin.MAX_TEXT_MEMORY = 262144
 
 
 class ImageError(Exception):
@@ -158,8 +165,8 @@ def encode(data):
     The compact binary envelope is base64 on stdout because Bend Process.run
     returns UTF-8 strings. The UI owns the decoded bytes, not temporary paths.
     """
-    if not data or len(data) > MAX_DOWNLOAD:
-        raise ImageError("image download is empty or too large")
+    if not data or len(data) > MAX_LOCAL_BYTES:
+        raise ImageError("image input is empty or too large")
     with warnings.catch_warnings():
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         with Image.open(io.BytesIO(data), formats=FORMATS) as image:
@@ -213,16 +220,38 @@ def encode(data):
             return base64.b64encode(payload).decode("ascii")
 
 
-def alarm_expired(_signal, _frame):
-    raise ImageError("image helper timed out")
+def read_local(path):
+    """Only an explicit --local argument can enter this path."""
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= MAX_LOCAL_BYTES:
+            raise ImageError("local image must be a bounded regular file")
+        data = bytearray()
+        while len(data) <= metadata.st_size:
+            chunk = os.read(fd, min(65536, metadata.st_size + 1 - len(data)))
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) != metadata.st_size:
+            raise ImageError("local image changed while reading")
+        return bytes(data)
+    finally:
+        os.close(fd)
 
 
 def main(args):
-    if len(args) != 1:
-        raise ImageError("usage: birc-image <HTTP-or-HTTPS-image-URL>")
-    signal.signal(signal.SIGALRM, alarm_expired)
+    # Terminate in the kernel even if a decoder/DNS call cannot dispatch a
+    # Python exception. Process.run observes failure and reaps this helper.
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
     signal.alarm(TIMEOUT)
-    result = encode(fetch(args[0], time.monotonic() + TIMEOUT))
+    if len(args) == 1:
+        data = fetch(args[0], time.monotonic() + TIMEOUT)
+    elif len(args) == 2 and args[0] == "--local":
+        data = read_local(args[1])
+    else:
+        raise ImageError("usage: birc-image <HTTP-or-HTTPS-image-URL> | --local <path>")
+    result = encode(data)
     print(result)
 
 
