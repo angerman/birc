@@ -17,6 +17,7 @@
 #define TIMUI_IMPLEMENTATION
 #endif
 #include "timui.h"
+#include "birc_output.h"
 
 #ifndef Loc
 typedef uint64_t Loc;
@@ -85,6 +86,7 @@ typedef struct {
 
 typedef struct {
   TimuiImage *image;
+  TimuiImage *retiring;
   char path[4096];
   size_t path_len;
 } BircPreview;
@@ -110,12 +112,14 @@ typedef struct {
   uint64_t profile_end_ns;
   BircPreview previews[2];
   int preview_count;
+  BircOutput output;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
+/* Capture failure follows ordinary Escape/shutdown, then nonzero status. */
 static int birc_output_failure;
 /* Only the single controlling UI's accepted output debt can outlive close. Keep
  * its stream open independently of borrowed stdout/stderr descriptor numbers. */
@@ -252,14 +256,18 @@ static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
 
 static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
                              size_t path_len) {
+  BircUi *bu = birc_state(ui);
   if (!preview || !ui || !path || path_len == 0 ||
-      path_len >= sizeof preview->path || memchr(path, '\0', path_len))
+      path_len >= sizeof preview->path || memchr(path, '\0', path_len) ||
+      !bu || !bu->output.capturing || preview->retiring)
     return;
   if (preview->image && preview->path_len == path_len &&
       memcmp(preview->path, path, path_len) == 0)
     return;
   if (preview->image) {
-    timui_image_free(ui, preview->image);
+    if (timui_image_retire_capture_(ui, preview->image) != TIMUI_FRAME_DONE)
+      return;
+    preview->retiring = preview->image;
     preview->image = NULL;
   }
   memcpy(preview->path, path, path_len);
@@ -273,8 +281,6 @@ static void birc_ui_atexit(void) {
   Timui *ui = birc_ui_live;
   birc_ui_live = NULL;
   if (ui) {
-    if (ui->fd.write_fd >= 0)
-      birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     timui_restore_terminal(ui);
   }
 }
@@ -658,12 +664,17 @@ static void birc_drop_ops(Env e, Term xs) {
   birc_draw_ops(e, NULL, xs, NULL);
 }
 /* A tty that stops reading must not park the only event-loop thread.
- * The first blocked frame waits a few ms; later frames fail at once
- * until a whole frame gets out. A dropped frame forces a full redraw. */
+ * Own exactly one serialized frame and its accepted-byte offset. TimUI's
+ * baseline describes that frame; it cannot advance again until bytes drain. */
 static uint64_t birc_frame_deadline;
-static int birc_frame_short;
-static int birc_tty_stalled;
 static int birc_frame_disabled;
+static int birc_frame_attempted;
+
+static int birc_output_pending(const Timui *ui) {
+  BircUi *bu = birc_state(ui);
+  return bu && (bu->output.size > 0 || bu->output.repaint ||
+                ui->fd.write_utf8_tail_len != 0);
+}
 
 static int birc_output_ready(const Timui *ui) {
   struct pollfd pfd;
@@ -678,7 +689,7 @@ static int birc_output_ready(const Timui *ui) {
 #if CID_TIMUI_REDRAW_READY
 Term timui_redraw_ready_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
-  uint32_t ready = birc_tty_stalled && birc_output_ready(ui) ? 1u : 0u;
+  uint32_t ready = birc_output_pending(ui) && birc_output_ready(ui) ? 1u : 0u;
   (void)w;
   return io_tup(e, f[0], (Term)(uint64_t)ready);
 }
@@ -688,38 +699,99 @@ static void __attribute__((constructor)) timui_redraw_ready_use(void) {
 #endif
 
 static int birc_frame_write(TimuiTransport *t, const void *data, size_t n) {
-  TimuiFdCtx *c = (TimuiFdCtx *)t->ctx;
+  BircUi *bu = birc_state(birc_ui_live);
   int w;
-  if (birc_frame_disabled || !c || n > 0x7fffffff) {
-    birc_frame_short = 1;
+  (void)t;
+  if (birc_frame_disabled || !bu) {
     return -1;
   }
-  w = timui_fd_write_(c, data, n, 1, birc_frame_deadline);
-  if (w < 0 || (size_t)w < n || c->write_utf8_tail_len != 0)
-    birc_frame_short = 1;
+  w = birc_output_capture(&bu->output, data, n);
   return w;
 }
 
-/* One budget covers every write performed by a frame, including image
- * retirement, OSC 52, and BEL. A short write forces a later full redraw. */
+static int birc_physical_write(TimuiTransport *t, const void *data, size_t n) {
+  return timui_fd_write_((TimuiFdCtx *)t->ctx, data, n, 1,
+                         birc_frame_deadline);
+}
+
+static void birc_frame_drain(Timui *ui, BircUi *bu) {
+  TimuiTransport sink;
+  int owned_frame;
+  if (!bu || birc_frame_disabled || bu->output.capturing)
+    return;
+  sink = ui->transport;
+  sink.write = birc_physical_write;
+  owned_frame = bu->output.size > 0 || ui->fd.write_utf8_tail_len != 0;
+  if (bu->output.size > 0) {
+    if (birc_frame_attempted && timui_now_ms() >= birc_frame_deadline)
+      return;
+    birc_frame_attempted = 1;
+    /* A serialized closing sequence is not a physically accepted close.
+     * Signal/quit can abandon this frame; conservatively owe resync and a
+     * synchronized-output end until every queued byte and scalar is out. */
+    ui->framing_debt = 1;
+    ui->sync_open = 1;
+  }
+  (void)birc_output_drain(&bu->output, &sink, birc_frame_deadline);
+  if (bu->output.size == 0 && ui->fd.write_utf8_tail_len != 0) {
+    if (birc_frame_attempted && timui_now_ms() >= birc_frame_deadline)
+      return;
+    birc_frame_attempted = 1;
+  }
+  if (bu->output.size == 0 &&
+      timui_fd_write_(&ui->fd, "", 0, 1, birc_frame_deadline) == 0) {
+    int i;
+    if (owned_frame) {
+      ui->framing_debt = 0;
+      ui->sync_open = 0;
+    }
+    if (!birc_output_failure)
+      for (i = 0; i < 2; i++)
+        if (bu->previews[i].retiring) {
+          timui_image_retire_done_(ui, bu->previews[i].retiring);
+          bu->previews[i].retiring = NULL;
+        }
+  }
+}
+
+/* One budget covers physical frame output, including image retirement,
+ * OSC 52 and BEL. Short writes retain their byte offset, not a redraw request. */
 static TimuiTransportWrite birc_output_begin(Timui *ui, int *saved_flags) {
   TimuiTransportWrite saved = ui->transport.write;
+  BircUi *bu = birc_state(ui);
   int wait_ms = 40;
-  birc_frame_short = 0;
   *saved_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
   birc_frame_disabled = *saved_flags < 0 ||
       fcntl(ui->fd.write_fd, F_SETFL, *saved_flags | O_NONBLOCK) < 0;
   /* Writable means some bytes fit, not that a complete repaint will fit.
    * A repair gets bounded headroom, never the former two-second UI stall. */
-  if (birc_tty_stalled)
+  if (birc_output_pending(ui))
     wait_ms = birc_output_ready(ui) ? 200 : 0;
   birc_frame_deadline = timui_now_ms() + (uint64_t)wait_ms;
+  birc_frame_attempted = 0;
+  birc_frame_drain(ui, bu);
+  if (bu)
+    (void)birc_output_start(&bu->output);
   ui->transport.write = birc_frame_write;
+  if (bu && bu->output.capturing)
+    (void)timui_framing_settle_(ui);
   return saved;
 }
 
 static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
                            int saved_flags) {
+  BircUi *bu = birc_state(ui);
+  if (bu && !birc_output_finish(&bu->output)) {
+    birc_output_failure = 1;
+    /* Captured settling bytes were discarded too. Memory acceptance cannot
+     * discharge any physical debt from startup or the preceding frame. */
+    ui->framing_debt = 1;
+    ui->sync_open = 1;
+    /* Failed capture never touched the physical output. Restore its diff
+     * baseline in case a renderer callback already completed in memory. */
+    timui_full_redraw(ui);
+  }
+  birc_frame_drain(ui, bu);
   ui->transport.write = saved;
   if (saved_flags >= 0 && !birc_frame_disabled)
     timui_fd_flags_restore_(ui->fd.write_fd, saved_flags);
@@ -1029,12 +1101,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
         bu->bell_pending = 0;
     }
     birc_output_end(ui, saved_write, saved_write_flags);
-    if (birc_frame_short) {
-      birc_tty_stalled = 1;
-      timui_full_redraw(ui);
-    } else {
-      birc_tty_stalled = 0;
-    }
   }
   if (bu && bu->profile_enabled) {
     uint64_t profile_t4 = birc_profile_now_ns();
@@ -1064,7 +1130,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
         bu->sel.dragging = 0;
       }
     }
-    if (timui_should_quit(ui) && key == 0)
+    if (birc_output_failure || (timui_should_quit(ui) && key == 0))
       key = (uint32_t)TIMUI_KEY_ESCAPE;
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
       timui_quit(ui);
@@ -1122,8 +1188,6 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   }
   if (ui) {
     TimuiClosedOutput pending;
-    if (ui->fd.write_fd >= 0)
-      birc_write_bounded(&ui->fd, ui->fd.write_fd, "\x1b[?1002l", 8, timui_now_ms());
     /* TimUI retires and disowns image IDs under its one teardown budget.
      * Cached bitmaps can then be freed without further terminal IO. */
     timui_close_fd_(ui, &pending);
@@ -1134,10 +1198,16 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
           timui_image_free(NULL, st->previews[i].image);
           st->previews[i].image = NULL;
         }
+        if (st->previews[i].retiring) {
+          timui_image_free(NULL, st->previews[i].retiring);
+          st->previews[i].retiring = NULL;
+        }
       }
   }
   if (st)
     free(st->clipboard);
+  if (st)
+    birc_output_destroy(&st->output);
   free(st);
   return term_pak(CID_UNIT, 0);
 }

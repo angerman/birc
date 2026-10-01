@@ -4808,6 +4808,13 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
         trace_write_(ui->trace_fd, "READ  ", (const unsigned char *)buf,
                      (size_t)n);
       timui_input_set_now(&ui->input, timui_now_ms());
+      /* Readable continuation bytes take precedence over an idle timeout.
+       * The loop may have spent its bounded output budget since the prior
+       * read; that delay is not evidence that the user typed a lone Esc.
+       * Empty reads still run flush_esc below, preserving lone-Esc recovery. */
+      if ((ui->input.state >= 1 && ui->input.state <= 3) ||
+          ui->input.state == 7)
+        ui->input.esc_since_ms = ui->input.now_ms;
       timui_input_feed(&ui->input, buf, (size_t)n, ui_event_cb, ui);
     } else if (n < 0) {
       if (n == -2)
@@ -26685,6 +26692,30 @@ static void image_id_release_(TimuiImage *img, int slot) {
   image_id_disown_(img, slot);
 }
 
+/* A buffered transport can accept retirement before the terminal does.
+ * Keep the image in the owning UI's teardown list until that captured frame
+ * physically completes. Cancellation can then still retire its payload. */
+static inline TimuiFrameOutcome_ timui_image_retire_capture_(Timui *ui,
+                                                    TimuiImage *img) {
+  int slot = image_id_slot_find_(img, ui);
+  TimuiImageIdRef_ ref;
+  if (slot < 0)
+    return TIMUI_FRAME_DONE;
+  if (ui->framing_debt)
+    return TIMUI_FRAME_NONE;
+  ref = image_id_slot_at_(img, slot);
+  if (*ref.id == 0)
+    return TIMUI_FRAME_DONE;
+  return kitty_retire_image_(&ui->transport, *ref.id);
+}
+
+static inline void timui_image_retire_done_(Timui *ui, TimuiImage *img) {
+  int slot = image_id_slot_find_(img, ui);
+  if (slot >= 0)
+    image_id_disown_(img, slot);
+  timui_image_free(NULL, img);
+}
+
 /* Make room deterministically while retaining every terminal whose payload
  * retirement was not fully accepted. An owned zero-id slot names no payload
  * and is the only safe no-write eviction. */
@@ -30501,6 +30532,7 @@ TIMUI_API void timui_screen_exit(TimuiTransport *t, TimuiScreenMode *m) {
     TIMUI_EMIT(t, "\x1b[?2004l");
   if (flags & TIMUI_FLAG_MOUSE) {
     TIMUI_EMIT(t, "\x1b[?1006l");
+    TIMUI_EMIT(t, "\x1b[?1002l"); /* application-owned button-drag mode */
     if (flags & TIMUI_FLAG_MOUSE_MOTION)
       TIMUI_EMIT(t, "\x1b[?1003l");
     else

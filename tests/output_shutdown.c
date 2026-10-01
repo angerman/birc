@@ -513,6 +513,124 @@ static int successful_short_budget(int expired) {
   return 0;
 }
 
+#ifdef BIRC_OUTPUT_H
+static int capture_failure_preserves_debt(int failure) {
+  SinkFixture fixture;
+  Env env = {0};
+  Timui *ui;
+  BircUi *state;
+  TimuiTransportWrite saved;
+  int flags;
+  static const char prefix[] = "\x1b[?2026h\x1b]52;;x";
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  state = calloc(1, sizeof *state);
+  CHECK(ui && state);
+  ui->cfg.userdata = state;
+  birc_ui_live = ui;
+  allowance[0] = sizeof captured[0];
+  CHECK(fd_write(&ui->transport, prefix, sizeof prefix - 1) == (int)sizeof prefix - 1);
+  ui->framing_debt = ui->sync_open = 1;
+  clock_paused = 1;
+  saved = birc_output_begin(ui, &flags);
+  CHECK(!ui->framing_debt && ui->sync_open); /* resync captured, not physical */
+  CHECK(timui_sync_end_accepted_(&ui->transport));
+  ui->sync_open = 0; /* native frame accepted its closing marker in memory */
+  if (failure)
+    CHECK(birc_frame_write(&ui->transport, "", BIRC_OUTPUT_LIMIT) < 0);
+  else
+    CHECK(birc_frame_write(&ui->transport, "done", 4) == 4);
+  birc_output_end(ui, saved, flags);
+  CHECK(captured_len[0] == sizeof prefix - 1 + (failure ? 0u : 15u));
+  int correct_debt = failure ? ui->framing_debt && ui->sync_open
+                            : !ui->framing_debt && !ui->sync_open;
+  Term args[1] = {io_hand((u64)(uintptr_t)ui)};
+  timui_close_run(env, args, NULL);
+  clock_paused = 0;
+  birc_output_failure = 0;
+  CHECK(fixture_stop(&fixture) == 0);
+  CHECK(correct_debt);
+  CHECK(captured_len[0] > sizeof prefix - 1 + 11);
+  CHECK(memcmp(captured[0] + sizeof prefix - 1, "\\\x1b\\\x1b[?2026l", 11) == 0);
+  return 0;
+}
+
+/* A transient writer owner can refuse the begin drain before its deadline.
+ * If end drains that old frame, the refused latest model still needs paint. */
+static int latest_frame_pending(void) {
+  SinkFixture fixture;
+  Env env = {0};
+  Timui *ui;
+  BircUi *state;
+  TimuiTransportWrite saved;
+  int flags;
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  state = calloc(1, sizeof *state);
+  CHECK(ui && state);
+  ui->cfg.userdata = state;
+  birc_ui_live = ui;
+  CHECK(birc_output_start(&state->output));
+  CHECK(birc_output_capture(&state->output, "OLD", 3) == 3);
+  CHECK(birc_output_finish(&state->output));
+  clock_paused = 1;
+  ui->fd.write_owner = 3;
+  saved = birc_output_begin(ui, &flags);
+  CHECK(!state->output.capturing);
+  CHECK(birc_frame_write(&ui->transport, "LATEST", 6) < 0);
+  ui->fd.write_owner = 0;
+  allowance[0] = sizeof captured[0];
+  birc_output_end(ui, saved, flags);
+  CHECK(state->output.size == 0 && birc_output_pending(ui));
+  saved = birc_output_begin(ui, &flags);
+  CHECK(state->output.capturing);
+  CHECK(birc_frame_write(&ui->transport, "LATEST", 6) == 6);
+  birc_output_end(ui, saved, flags);
+  CHECK(!birc_output_pending(ui));
+  CHECK(captured_len[0] == 9 && memcmp(captured[0], "OLDLATEST", 9) == 0);
+  Term args[1] = {io_hand((u64)(uintptr_t)ui)};
+  timui_close_run(env, args, NULL);
+  clock_paused = 0;
+  CHECK(fixture_stop(&fixture) == 0);
+  return 0;
+}
+
+/* Each native call permits a first attempt. A serialized frame must not use
+ * repeated calls, including its end drain, to bypass that one deadline. */
+static int serialized_frame_budget(int expired) {
+  SinkFixture fixture;
+  Env env = {0};
+  Timui *ui;
+  BircUi *state;
+  TimuiTransportWrite saved;
+  static const char payload[] = "0123456789abcdef";
+  int flags;
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  state = calloc(1, sizeof *state);
+  CHECK(ui && state);
+  ui->cfg.userdata = state;
+  birc_ui_live = ui;
+  CHECK(birc_output_start(&state->output));
+  CHECK(birc_output_capture(&state->output, payload, sizeof payload - 1) == (int)sizeof payload - 1);
+  CHECK(birc_output_finish(&state->output));
+  allowance[0] = sizeof captured[0];
+  short_success = 1;
+  clock_paused = !expired;
+  saved = birc_output_begin(ui, &flags);
+  birc_output_end(ui, saved, flags);
+  CHECK(captured_len[0] == (expired ? 1u : sizeof payload - 1));
+  CHECK(attempts[0] == captured_len[0]);
+  short_success = 0;
+  clock_paused = 1;
+  Term args[1] = {io_hand((u64)(uintptr_t)ui)};
+  timui_close_run(env, args, NULL);
+  clock_paused = 0;
+  CHECK(fixture_stop(&fixture) == 0);
+  return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
   size_t cut, repair;
   if (argc == 4 && strcmp(argv[1], "flags") == 0)
@@ -556,6 +674,13 @@ int main(int argc, char **argv) {
   CHECK(signal_next_payload(0, 1) == 0);
   CHECK(successful_short_budget(0) == 0);
   CHECK(successful_short_budget(1) == 0);
+#ifdef BIRC_OUTPUT_H
+  CHECK(capture_failure_preserves_debt(1) == 0);
+  CHECK(capture_failure_preserves_debt(0) == 0);
+  CHECK(latest_frame_pending() == 0);
+  CHECK(serialized_frame_budget(0) == 0);
+  CHECK(serialized_frame_budget(1) == 0);
+#endif
   puts("output_shutdown=ok");
   return 0;
 }
