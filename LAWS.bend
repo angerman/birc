@@ -15,6 +15,7 @@ import ./src/bend/split.bend as Sp
 import ./src/bend/typing.bend as Ty
 import ./src/bend/auth.bend as Auth
 import ./src/bend/outbound.bend as Act
+import ./src/bend/diagnostic.bend as Diagnostic
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:
@@ -410,3 +411,15 @@ law formatting_unmatched_double:
 # LAW: nested style closers do not split or rewrite a URL's internal bytes.
 law formatting_styled_url_identity:
   {V.span_ops(V.tokenize("_**https://x.test/a_b/:eyes:**_")) == [V.Spn{5, "https://x.test/a_b/:eyes:"}] : List<&2, V.SpanOp>}
+
+# LAW: diagnostic copies redact URLs inside opaque code and styled text.
+law diagnostic_opaque_urls_private:
+  {Bool.not(String.contains(Diagnostic.text("_https://x.invalid/a_ `https://x.invalid/b`", "", ""), "x.invalid")) == True{} : Bool}
+
+# LAW: configured secrets are redacted before truncation, even inside code.
+law diagnostic_credentials_private:
+  {Diagnostic.text("`secret`", "", "secret") == "`[redacted]`" : String}
+
+# LAW: helpers report only caller-owned labels and numeric codes.
+law diagnostic_helper_private:
+  {Diagnostic.process_result("clipboard", Fail{(2, "private secret")}) == Some{"clipboard failed (OS 2)"} : Maybe<&2, String>}

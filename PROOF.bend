@@ -745,3 +745,12 @@ def Laws.formatting_unmatched_double():
 
 def Laws.formatting_styled_url_identity():
   {==}
+
+def Laws.diagnostic_opaque_urls_private():
+  {==}
+
+def Laws.diagnostic_credentials_private():
+  {==}
+
+def Laws.diagnostic_helper_private():
+  {==}
