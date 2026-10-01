@@ -39,7 +39,7 @@ check: export BIRC_IMAGES ?= off
         test-pty-hostile lint-ffi test-utf8-fit test-paste-harness proto-parity proof check \
         test-asan test-ubsan test-sanitizers test-perf-gates check-hardening \
         run run-demo clean \
-        test-perf-cpu test-perf-tickrate test-perf-search test-perf-hardening \
+        test-perf-cpu test-perf-tickrate test-perf-search test-perf-hardening test-perf-output \
         test-dns-live test-dns-timeout
 
 help: ## Show the public targets (default).
@@ -74,7 +74,7 @@ build-proto: ## Build the Bend protocol self-test binary.
 BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
 
-.PHONY: FORCE test-golden-runner test-build-config test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
+.PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
 .PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
@@ -174,6 +174,9 @@ test-golden-runner: ## Reject failing, missing-token, and timed-out golden progr
 
 test-build-config: ## Verify header dependencies and changed/unchanged compiler flags.
 	$(NIXRUN) timeout 30 python3 tests/build_config.py
+
+test-pty-deadlines: ## Require finite outer deadlines for every planned terminal test.
+	$(NIXRUN) timeout 30 python3 tests/pty_deadlines.py
 
 test-feed: test-feed-bench ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
@@ -349,78 +352,78 @@ test-live: build-ui ## Local mock: register + PONG + birc=ok, bounded timeout.
 	$(NIXRUN) python3 tests/live_mock.py ./$(BLDDIR)/birc
 
 test-pty-flood: build-ui ## Pty: 400 server chunks (C1 deadlock).
-	$(NIXRUN) python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc 400
+	$(NIXRUN) timeout 150 python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc 400
 
 test-pty-rows: build-ui ## Pty: newest body line is painted (C3).
-	$(NIXRUN) python3 tests/pty/body_rows.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/body_rows.py ./$(BLDDIR)/birc
 
 test-pty-tall: build-ui ## Pty: newest line on 40- and 90-row terminals (R6).
-	$(NIXRUN) python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 40 80
-	$(NIXRUN) python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 90 120
+	$(NIXRUN) timeout 150 python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 40 80
+	$(NIXRUN) timeout 150 python3 tests/pty/tall_rows.py ./$(BLDDIR)/birc 90 120
 
 test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
-	$(NIXRUN) python3 tests/pty/restore.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/restore.py ./$(BLDDIR)/birc
 
 test-pty-composer: build-ui ## Pty: composer length, history clear, and Ctrl-A/Ctrl-K.
-	$(NIXRUN) python3 tests/pty/composer_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/composer_pty.py ./$(BLDDIR)/birc
 
 test-pty-eof: build-ui ## Pty: server close keeps the UI alive (H3).
-	$(NIXRUN) python3 tests/pty/eof_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/eof_pty.py ./$(BLDDIR)/birc
 
 test-pty-connect: build-ui ## Pty: /connect does not freeze the UI (H4).
-	$(NIXRUN) python3 tests/pty/connect_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/connect_pty.py ./$(BLDDIR)/birc
 
 test-pty-demo-nick: build-ui ## Pty: --demo --nick bob registers as bob (H5).
-	$(NIXRUN) python3 tests/pty/demo_nick.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/demo_nick.py ./$(BLDDIR)/birc
 
 test-pty-linger: build-ui ## Pty: boot_clock does not linger 8 s after quit (H6).
-	$(NIXRUN) python3 tests/pty/linger.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/linger.py ./$(BLDDIR)/birc
 
 test-pty-utf8: build-ui ## Pty: UTF-8 split + Latin-1 fallback + CJK (H7).
-	$(NIXRUN) python3 tests/pty/utf8_split_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/utf8_split_pty.py ./$(BLDDIR)/birc
 
 test-pty-minus: build-ui ## Pty: connect refused, 433 retry, close mid-line (T7).
-	$(NIXRUN) python3 tests/pty/live_minus.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/live_minus.py ./$(BLDDIR)/birc
 
 test-pty-redial: build-ui ## Pty: partial line then Eof; /connect 001 sends JOIN in 100 ms (A1).
-	$(NIXRUN) python3 tests/pty/redial.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/redial.py ./$(BLDDIR)/birc
 
 test-pty-rst: build-ui ## Pty: TCP RST keeps the UI alive (A3).
-	$(NIXRUN) python3 tests/pty/rst.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/rst.py ./$(BLDDIR)/birc
 
 test-pty-tinyquit: build-ui ## Pty: /quit at 1-2 cols and after resize-back (A6).
-	$(NIXRUN) python3 tests/pty/tinyquit.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/tinyquit.py ./$(BLDDIR)/birc
 
 test-pty-tabcut: build-ui ## Pty: long UTF-8 tab label cut on a code point (A7).
-	$(NIXRUN) python3 tests/pty/tab_cut.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/tab_cut.py ./$(BLDDIR)/birc
 
 test-pty-paste50: build-ui ## Pty: burst paste 50/100/300 lines, then /quit (X3).
-	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 50
-	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 100
-	$(NIXRUN) python3 tests/pty/paste50.py ./$(BLDDIR)/birc 300
+	$(NIXRUN) timeout 150 python3 tests/pty/paste50.py ./$(BLDDIR)/birc 50
+	$(NIXRUN) timeout 150 python3 tests/pty/paste50.py ./$(BLDDIR)/birc 100
+	$(NIXRUN) timeout 150 python3 tests/pty/paste50.py ./$(BLDDIR)/birc 300
 
 test-pty-bpaste: build-ui ## Pty: bracketed paste 10/60/300 lines, then /quit (B1).
-	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 10
-	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 60
-	$(NIXRUN) python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 300
+	$(NIXRUN) timeout 150 python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 10
+	$(NIXRUN) timeout 150 python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 60
+	$(NIXRUN) timeout 150 python3 tests/pty/bpaste.py ./$(BLDDIR)/birc 300
 
 test-pty-mixburst: build-ui ## Pty: text+Backspace+arrows+Enter burst (B3).
-	$(NIXRUN) python3 tests/pty/mixburst.py ./$(BLDDIR)/birc 200
+	$(NIXRUN) timeout 150 python3 tests/pty/mixburst.py ./$(BLDDIR)/birc 200
 
 test-pty-quitcap: build-ui ## Pty: /quit after a SEND_CAP burst still sends QUIT (X2).
-	$(NIXRUN) python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/quitcap.py ./$(BLDDIR)/birc
 
 test-pty-tickrate: build-ui ## Pty: parked --demo idle CPU <= 1.0% (K2).
-	$(NIXRUN) python3 tests/pty/tickrate.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/tickrate.py ./$(BLDDIR)/birc
 
 test-pty-geneof: build-ui ## Pty: late Eof from the old server does not drop the new one.
-	$(NIXRUN) python3 tests/pty/gen_eof.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/gen_eof.py ./$(BLDDIR)/birc
 
 test-pty-closequit: build-ui ## Pty: server close then /quit exits (12 runs).
-	$(NIXRUN) python3 tests/pty/close_then_quit.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/close_then_quit.py ./$(BLDDIR)/birc
 
 test-pty-stall: build-ui ## Pty: PONG while the terminal is not read (F1).
-	$(NIXRUN) python3 tests/pty/stall.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/stall.py ./$(BLDDIR)/birc
 
 test-pty-output-stall: build-ui ## Pty: bounded bells/selection and nonblocking clipboard.
 	$(NIXRUN) timeout 40 python3 tests/pty/output_stall.py ./$(BLDDIR)/birc
@@ -520,58 +523,58 @@ test-pty-output-recovery: build-ui ## Pty: short frames recover without blocking
 	$(NIXRUN) timeout 40 python3 tests/pty/output_recovery.py ./$(BLDDIR)/birc
 
 test-pty-escup: build-ui ## Pty: Esc split across reads is one Up, lone Esc quits (F2).
-	$(NIXRUN) python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/esc_up.py ./$(BLDDIR)/birc
 
 test-pty-paintwake: build-ui ## Pty: incoming line paints within 100 ms after idle (P1).
-	$(NIXRUN) python3 tests/pty/paint_wake.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/paint_wake.py ./$(BLDDIR)/birc
 
 test-pty-joinlat: build-ui ## Pty: 001 to JOIN under 100 ms (P1 handshake).
-	$(NIXRUN) python3 tests/pty/join_latency.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/join_latency.py ./$(BLDDIR)/birc
 
 test-pty-manyeof: build-ui ## Pty: 12 one-write /connect after FIN/RST idle (note 16).
-	$(NIXRUN) python3 tests/pty/many_eof.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/many_eof.py ./$(BLDDIR)/birc
 
 test-pty-tabswitch: build-ui ## Pty: 1-press / 1-click tab switching.
-	$(NIXRUN) python3 tests/pty/tab_switch.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/tab_switch.py ./$(BLDDIR)/birc
 
 test-pty-alerts: build-ui ## Pty: bell events and visual background-tab alerts.
-	$(NIXRUN) python3 tests/pty/alerts.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/alerts.py ./$(BLDDIR)/birc
 
 test-pty-linkclick: build-ui ## Pty: a body-link click opens its exact URL.
-	$(NIXRUN) python3 tests/pty/link_click.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/link_click.py ./$(BLDDIR)/birc
 
 test-pty-softwrap: build-ui ## Pty: long chat lines wrap and reflow after resize.
-	$(NIXRUN) python3 tests/pty/softwrap.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/softwrap.py ./$(BLDDIR)/birc
 
 test-pty-mouseselect: build-ui ## Pty: in-app mouse selection and Esc dismissal.
-	$(NIXRUN) python3 tests/pty/mouse_select.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/mouse_select.py ./$(BLDDIR)/birc
 
 test-pty-preview: build-ui ## Pty: local PNG preview emits Kitty transmit and placement escapes.
-	$(NIXRUN) python3 tests/pty/preview_kitty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/preview_kitty.py ./$(BLDDIR)/birc
 
 test-pty-resize: build-ui ## Pty: dynamic window resize expand and shrink.
-	$(NIXRUN) python3 tests/pty/resize.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/resize.py ./$(BLDDIR)/birc
 
 test-pty-settings: build-ui ## Pty: /settings panel, /set, and /toggle commands.
-	$(NIXRUN) python3 tests/pty/settings.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/settings.py ./$(BLDDIR)/birc
 
 test-pty-history: build-ui ## Pty: history persistence, reconnect markers, and BIRC_HISTORY.
-	$(NIXRUN) python3 tests/pty/history_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/history_pty.py ./$(BLDDIR)/birc
 
 test-pty-autoreconnect: build-ui ## Pty: live disconnect reconnects on the saved host and port.
-	$(NIXRUN) python3 tests/pty/autoreconnect.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/autoreconnect.py ./$(BLDDIR)/birc
 
 test-pty-disconnect-cleanup: build-ui ## Pty: reconnect-off disconnect releases the dead writer socket.
-	$(NIXRUN) python3 tests/pty/disconnect_cleanup.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/disconnect_cleanup.py ./$(BLDDIR)/birc
 
 test-pty-hostile: build-ui ## M7.6: combined hostile wire, resize, cap, and recovery corpus.
 	$(NIXRUN) timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc
 
 test-pty-split: build-ui ## Pty: visible split geometry/content, focus keys, selection, and tiny resize.
-	$(NIXRUN) python3 tests/pty/split_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/split_pty.py ./$(BLDDIR)/birc
 
 test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and muted clear.
-	$(NIXRUN) python3 tests/pty/typing.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 150 python3 tests/pty/typing.py ./$(BLDDIR)/birc
 
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
@@ -593,7 +596,7 @@ test-pty: test-pty-media test-pty-diagnostic
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
-test-review-pure: test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors
+test-review-pure: test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -692,6 +695,9 @@ test-perf-search: ## Profile serial/parallel search at 16 x 1024 lines (not in c
 
 test-perf-hardening: build-ui ## Profile production frame phases with scale replay (not in check).
 	$(NIXRUN) timeout 120 python3 tests/perf/hardening_profile.py ./$(BLDDIR)/birc
+
+test-perf-output: build-ui ## Measure stalled-output View/native phases and PONG latency (not in check).
+	$(NIXRUN) timeout 90 python3 tests/perf/output_profile.py ./$(BLDDIR)/birc
 
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 
