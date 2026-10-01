@@ -382,3 +382,31 @@ law reconnect_endpoint:
 # LAW: reconnect-off disconnects explicitly release the network actor socket.
 law disconnect_drop:
   {Sess.disconnect_drop_ok() == True{} : Bool}
+
+# LAW: double bold and nested italic compose independent attribute bits.
+law formatting_nested_bits:
+  {V.span_ops(V.tokenize("**B _BI_ B**")) == [V.Spn{1, "B "}, V.Spn{5, "BI"}, V.Spn{1, " B"}] : List<&2, V.SpanOp>}
+
+# LAW: escaped markers remain literal, without becoming style delimiters.
+law formatting_escaped_literal:
+  {V.span_ops(V.tokenize("\\*literal\\*")) == [V.Spn{0, "*literal*"}] : List<&2, V.SpanOp>}
+
+# LAW: bold + opaque dim code is not interpreted as a URL tag.
+law formatting_code_identity:
+  {V.span_ops(V.tokenize("*`:eyes:`*")) == [V.Spn{3, ":eyes:"}] : List<&2, V.SpanOp>}
+
+# LAW: aliases are view-only and case sensitive; unknown names remain literal.
+law formatting_alias_literals:
+  {V.span_ops(V.tokenize(":eyes: :Eyes: :unknown:")) == [V.Spn{0, "👀 :Eyes: :unknown:"}] : List<&2, V.SpanOp>}
+
+# LAW: alias-like and markup-like URL bytes remain exact and opaque.
+law formatting_url_identity:
+  {V.span_ops(V.tokenize("https://x.test/a_b/:eyes:?q=**z**,")) == [V.Lnk{"https://x.test/a_b/:eyes:?q=**z**", "https://x.test/a_b/:eyes:?q=**z**"}, V.Spn{0, ","}] : List<&2, V.SpanOp>}
+
+# LAW: a greedy unmatched double opener retains both source characters.
+law formatting_unmatched_double:
+  {V.span_ops(V.tokenize("**one*")) == [V.Spn{0, "**one*"}] : List<&2, V.SpanOp>}
+
+# LAW: nested style closers do not split or rewrite a URL's internal bytes.
+law formatting_styled_url_identity:
+  {V.span_ops(V.tokenize("_**https://x.test/a_b/:eyes:**_")) == [V.Spn{5, "https://x.test/a_b/:eyes:"}] : List<&2, V.SpanOp>}

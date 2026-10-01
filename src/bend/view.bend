@@ -85,6 +85,7 @@ type TextSpan is Data:
   Italic{text: String}
   Code{text: String}
   Link{url: String, text: String}
+  Styled{attrs: U32, text: String}
 
 def TS_WIDTH() -> Nat:
   8n
@@ -125,184 +126,55 @@ def USCORE() -> Char:
 def TICK() -> Char:
   Chr{96}
 
-def HTTP() -> String:
-  "http://"
-
-def HTTPS() -> String:
-  "https://"
-
 type TokMode is Data:
   MdOut{}
   MdBold{}
   MdItalic{}
   MdCode{}
 
-type TokJump is Data:
-  Jump{mode: TokMode, s: String, acc: String, spans: List<&2, TextSpan>}
-  TokDone{spans: List<&2, TextSpan>}
-
+# Retain the public fallback seam used by the original tokenizer guards.
 def tokenize.emit_plain(+acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
   match acc:
-    case SNil{}:
-      spans
-    case SCon{_, _}:
-      Plain{String.reverse(acc)} <> spans
-
-def trim_url(+url: String) -> String:
-  Links.trim(url)
-
-def take_url(+s: String) -> String & String:
-  Links.take(s)
-
-def tokenize.emit_url(+acc: String, spans: List<&2, TextSpan>, pair: String & String) -> TokJump:
-  match pair:
-    case (+url, rest):
-      Jump{MdOut{}, rest, SNil{}, Link{url, url} <> tokenize.emit_plain(acc, spans)}
-
-def tokenize.out_tick(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, tick: Bool) -> TokJump:
-  match tick:
-    case True{}:
-      Jump{MdCode{}, t, SNil{}, tokenize.emit_plain(acc, spans)}
-    case False{}:
-      Jump{MdOut{}, t, SCon{h, acc}, spans}
-
-def tokenize.out_us(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, us: Bool) -> TokJump:
-  match us:
-    case True{}:
-      Jump{MdItalic{}, t, SNil{}, tokenize.emit_plain(acc, spans)}
-    case False{}:
-      tokenize.out_tick(s, t, acc, h, spans, Char.is_eq(h, TICK()))
-
-def tokenize.out_star(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, star: Bool) -> TokJump:
-  match star:
-    case True{}:
-      Jump{MdBold{}, t, SNil{}, tokenize.emit_plain(acc, spans)}
-    case False{}:
-      tokenize.out_us(s, t, acc, h, spans, Char.is_eq(h, USCORE()))
-
-def url_bound(+acc: String) -> Bool:
-  Links.bound(acc)
-
-def tokenize.url_if(
-  ok: Bool,
-  +s: String,
-  +t: String,
-  +acc: String,
-  +h: Char,
-  spans: List<&2, TextSpan>
-) -> TokJump:
-  match ok:
-    case True{}:
-      tokenize.emit_url(acc, spans, take_url(s))
-    case False{}:
-      tokenize.out_star(s, t, acc, h, spans, Char.is_eq(h, STAR()))
-
-def tokenize.out_http(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, http: Bool) -> TokJump:
-  match http:
-    case True{}:
-      tokenize.url_if(url_bound(acc), s, t, acc, h, spans)
-    case False{}:
-      tokenize.out_star(s, t, acc, h, spans, Char.is_eq(h, STAR()))
-
-def tokenize.out_https(+s: String, +t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, https: Bool) -> TokJump:
-  match https:
-    case True{}:
-      tokenize.url_if(url_bound(acc), s, t, acc, h, spans)
-    case False{}:
-      tokenize.out_http(s, t, acc, h, spans, String.starts_with(s, HTTP()))
-
-def tokenize.next_out(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
-  match s:
-    case SNil{}:
-      TokDone{tokenize.emit_plain(acc, spans)}
-    case SCon{+h, t}:
-      tokenize.out_https(s, t, acc, h, spans, String.starts_with(s, HTTPS()))
-
-def tokenize.close_bold(+t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, star: Bool) -> TokJump:
-  match star:
-    case True{}:
-      Jump{MdOut{}, t, SNil{}, Bold{String.reverse(acc)} <> spans}
-    case False{}:
-      Jump{MdBold{}, t, SCon{h, acc}, spans}
-
-def tokenize.next_bold(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
-  match s:
-    case SNil{}:
-      TokDone{Plain{SCon{STAR(), String.reverse(acc)}} <> spans}
-    case SCon{+h, t}:
-      tokenize.close_bold(t, acc, h, spans, Char.is_eq(h, STAR()))
-
-def tokenize.close_italic(+t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, us: Bool) -> TokJump:
-  match us:
-    case True{}:
-      Jump{MdOut{}, t, SNil{}, Italic{String.reverse(acc)} <> spans}
-    case False{}:
-      Jump{MdItalic{}, t, SCon{h, acc}, spans}
-
-def tokenize.next_italic(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
-  match s:
-    case SNil{}:
-      TokDone{Plain{SCon{USCORE(), String.reverse(acc)}} <> spans}
-    case SCon{+h, t}:
-      tokenize.close_italic(t, acc, h, spans, Char.is_eq(h, USCORE()))
-
-def tokenize.close_code(+t: String, +acc: String, +h: Char, spans: List<&2, TextSpan>, tick: Bool) -> TokJump:
-  match tick:
-    case True{}:
-      Jump{MdOut{}, t, SNil{}, Code{String.reverse(acc)} <> spans}
-    case False{}:
-      Jump{MdCode{}, t, SCon{h, acc}, spans}
-
-def tokenize.next_code(+s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
-  match s:
-    case SNil{}:
-      TokDone{Plain{SCon{TICK(), String.reverse(acc)}} <> spans}
-    case SCon{+h, t}:
-      tokenize.close_code(t, acc, h, spans, Char.is_eq(h, TICK()))
-
-def tokenize.next(mode: TokMode, +s: String, +acc: String, spans: List<&2, TextSpan>) -> TokJump:
-  match mode:
-    case MdOut{}:
-      tokenize.next_out(s, acc, spans)
-    case MdBold{}:
-      tokenize.next_bold(s, acc, spans)
-    case MdItalic{}:
-      tokenize.next_italic(s, acc, spans)
-    case MdCode{}:
-      tokenize.next_code(s, acc, spans)
+    case SNil{}: spans
+    case SCon{_, _}: Plain{String.reverse(acc)} <> spans
 
 def tokenize.force_mode(mode: TokMode, +acc: String, spans: List<&2, TextSpan>) -> List<&2, TextSpan>:
   match mode:
-    case MdOut{}:
-      List.reverse(&2, TextSpan, tokenize.emit_plain(acc, spans))
-    case MdBold{}:
-      List.reverse(&2, TextSpan, Plain{SCon{STAR(), String.reverse(acc)}} <> spans)
-    case MdItalic{}:
-      List.reverse(&2, TextSpan, Plain{SCon{USCORE(), String.reverse(acc)}} <> spans)
-    case MdCode{}:
-      List.reverse(&2, TextSpan, Plain{SCon{TICK(), String.reverse(acc)}} <> spans)
+    case MdOut{}: List.reverse(&2, TextSpan, tokenize.emit_plain(acc, spans))
+    case MdBold{}: List.reverse(&2, TextSpan, Plain{SCon{STAR(), String.reverse(acc)}} <> spans)
+    case MdItalic{}: List.reverse(&2, TextSpan, Plain{SCon{USCORE(), String.reverse(acc)}} <> spans)
+    case MdCode{}: List.reverse(&2, TextSpan, Plain{SCon{TICK(), String.reverse(acc)}} <> spans)
 
-def tokenize.force_done(j: TokJump) -> List<&2, TextSpan>:
-  match j:
-    case TokDone{spans}:
-      List.reverse(&2, TextSpan, spans)
-    case Jump{+mode, _, +acc, spans}:
-      tokenize.force_mode(mode, acc, spans)
+def tokenize.styled(attrs: U32, text: String) -> TextSpan:
+  match attrs:
+    case 0: Plain{text}
+    case 1: Bold{text}
+    case 2: Code{text}
+    case 4: Italic{text}
+    case _: Styled{attrs, text}
 
-# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed tokenize.go
-def tokenize.go(fuel: Nat, j: TokJump) -> List<&2, TextSpan>:
-  match fuel:
-    case 0n:
-      tokenize.force_done(j)
-    case 1n+p:
-      match j:
-        case TokDone{spans}:
-          List.reverse(&2, TextSpan, spans)
-        case Jump{+mode, +s, +acc, spans}:
-          tokenize.go(p, tokenize.next(mode, s, acc, spans))
+def tokenize.run(run: Links.Run) -> TextSpan:
+  match run:
+    case Links.Run{attrs, text, url}:
+      match url:
+        case None{}: tokenize.styled(attrs, text)
+        case Some{link}: Link{link, text}
+
+def tokenize.runs(runs: List<&2, Links.Run>) -> List<&2, TextSpan>:
+  match runs:
+    case Nil{}: Nil{}
+    case Con{h, t}: tokenize.run(h) <> tokenize.runs(t)
 
 def tokenize(+s: String) -> List<&2, TextSpan>:
-  tokenize.go(Nat.add(1n, Nat.mul(4n, String.length(s))), Jump{MdOut{}, s, SNil{}, Nil{}})
+  tokenize.runs(Links.render(s))
+
+# Reconstruct the legacy single-style spelling for the tokenizer laws.
+# Emoji and escaped source remain in Client; display spans are not source text.
+def show_spans.styled(+attrs: U32, text: String) -> String:
+  +bold = Bool.pick(String, U32.is_ne(U32.and(attrs, 1), 0), "*", "")
+  +italic = Bool.pick(String, U32.is_ne(U32.and(attrs, 4), 0), "_", "")
+  +code = Bool.pick(String, U32.is_ne(U32.and(attrs, 2), 0), "`", "")
+  bold ++ italic ++ code ++ text ++ code ++ italic ++ bold
 
 def show_spans.chunk(sp: TextSpan) -> String:
   match sp:
@@ -316,6 +188,8 @@ def show_spans.chunk(sp: TextSpan) -> String:
       "`" ++ tx ++ "`"
     case Link{_, +text}:
       text
+    case Styled{attrs, text}:
+      show_spans.styled(attrs, text)
 
 def show_spans.chunks(+xs: List<&2, TextSpan>) -> List<&2, String>:
   match xs:
@@ -342,18 +216,24 @@ def span_hit(k: SpanKind, h: TextSpan) -> Bool:
       match h:
         case Bold{_}:
           True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 1), 0)
         case _:
           False{}
     case WantItalic{}:
       match h:
         case Italic{_}:
           True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 4), 0)
         case _:
           False{}
     case WantCode{}:
       match h:
         case Code{_}:
           True{}
+        case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 2), 0)
         case _:
           False{}
     case WantLink{}:
@@ -489,6 +369,8 @@ def span_op(sp: TextSpan) -> SpanOp:
       Spn{2, tx}
     case Link{+url, +text}:
       Lnk{url, text}
+    case Styled{attrs, text}:
+      Spn{attrs, text}
 
 def span_ops(xs: List<&2, TextSpan>) -> List<&2, SpanOp>:
   match xs:

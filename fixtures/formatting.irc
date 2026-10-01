@@ -1,0 +1,9 @@
+:irc.example.test 001 me :Welcome me
+:me!me@localhost JOIN #formatting
+:irc.example.test 353 me = #formatting :me
+:irc.example.test 366 me #formatting :End of /NAMES list.
+:a!a@h PRIVMSG #formatting :*SINGLE* **DOUBLE** **B _BOTH_ B** *`BOLDCODE`*
+:a!a@h PRIVMSG #formatting :\*ESCAPED\* :eyes: :joy: :Eyes: :unknown: `:fire:`
+:a!a@h PRIVMSG #formatting :https://x.test/a_b/:eyes:?q=**z**,
+:a!a@h PRIVMSG #formatting :**UNMATCHED
+:a!a@h PRIVMSG #formatting :_**https://nested.test/a_b/:eyes:**_

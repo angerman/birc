@@ -724,3 +724,24 @@ def Laws.narrow_cluster_source_count():
 
 def Laws.wide_cluster_source_count():
   {==}
+
+def Laws.formatting_nested_bits():
+  {==}
+
+def Laws.formatting_escaped_literal():
+  {==}
+
+def Laws.formatting_code_identity():
+  {==}
+
+def Laws.formatting_alias_literals():
+  {==}
+
+def Laws.formatting_url_identity():
+  {==}
+
+def Laws.formatting_unmatched_double():
+  {==}
+
+def Laws.formatting_styled_url_identity():
+  {==}
