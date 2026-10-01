@@ -1,10 +1,15 @@
 # Buffer container: types, nick lists, find/get/modify, scroll, take_last.
 import Base
 import ./irc.bend as Irc
+import ./diagnostic.bend as Diagnostic
 
 
 def MAX_BUFFERS() -> Nat:
   16n
+
+# One slot remains available for diagnostics, even after normal buffer floods.
+def NORMAL_BUFFERS() -> Nat:
+  15n
 
 def SCROLL_CAP() -> Nat:
   1024n
@@ -642,7 +647,7 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
       empty_buf.nicks.server(String.eq(name, "server") || String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
-  Buffer{Irc.sanitize_in(name), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), ScrollAt{0n, 0n}}
+  Buffer{Bool.pick(String, Irc.ieq(name, Diagnostic.name()), Diagnostic.name(), Irc.sanitize_in(name)), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), ScrollAt{0n, 0n}}
 
 # Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
@@ -665,6 +670,115 @@ def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
       +lines2 = take_last(List.append(&2, Line, lines, line <> Nil{}), SCROLL_CAP())
       Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
+
+# Diagnostics have no author/nick payload and retain only bounded, private text.
+# Mirror IDs are the original event IDs; copying does not create a new event.
+def diagnostic_append(+line: Line, b: Buffer) -> Buffer:
+  match b:
+    case Buffer{name, ch, topic, lines, nicks, scroll}:
+      Buffer{name, ch, topic, take_last(List.append(&2, Line, lines, line <> Nil{}), Diagnostic.ROW_CAP()), nicks, buf_log.scroll(scroll)}
+
+def diagnostic_slot.make(full: Bool, cl: Client) -> Client & Maybe<&2, Nat>:
+  match full:
+    case True{}: (cl, None{})
+    case False{}:
+      match cl:
+        case Client{nick, server, +bufs, active, now, stg, auth, seq}:
+          (Client{nick, server, List.append(&2, Buffer, bufs, empty_buf(Diagnostic.name(), False{}) <> Nil{}), active, now, stg, auth, seq}, Some{buf_count(bufs)})
+
+def diagnostic_slot.got(got: Maybe<&2, Nat>, +cl: Client) -> Client & Maybe<&2, Nat>:
+  match got:
+    case Some{i}: (cl, Some{i})
+    case None{}:
+      match cl:
+        case Client{_, _, +bufs, _, _, _, _, _}:
+          diagnostic_slot.make(Nat.is_ge(buf_count(bufs), MAX_BUFFERS()), cl)
+
+def diagnostic_slot(+cl: Client) -> Client & Maybe<&2, Nat>:
+  diagnostic_slot.got(buf_find(cl, Diagnostic.name()), cl)
+
+def log_buffers.got(got: Maybe<&2, Buffer>) -> List<&2, Buffer>:
+  match got:
+    case None{}: Nil{}
+    case Some{b}: b <> Nil{}
+
+# Preserve only the app-session diagnostics across endpoint changes, not chats.
+def log_buffers.index(cl: Client, i: Nat) -> List<&2, Buffer>:
+  match cl:
+    case Client{_, _, bufs, _, _, _, _, _}: log_buffers.got(nth_buf(bufs, i))
+
+def log_buffers.at(cl: Client, got: Maybe<&2, Nat>) -> List<&2, Buffer>:
+  match got:
+    case None{}: Nil{}
+    case Some{i}: log_buffers.index(cl, i)
+
+def log_buffers(+cl: Client) -> List<&2, Buffer>:
+  log_buffers.at(cl, buf_find(cl, Diagnostic.name()))
+
+def diagnostic_line.at(cl: Client, i: Nat, kind: LineKind, ts: String, text: String, id: Nat) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, +stg, auth, seq}:
+      +line: Line = Line{kind, String.take(Irc.sanitize_in(ts), 32n), Diagnostic.text(text, settings_sasl_user(stg), settings_sasl_pass(stg)), "", id}
+      Client{nick, server, buf_modify(bufs, i, diagnostic_append(line)), active, now, stg, auth, seq}
+
+def diagnostic_line.got(pair: Client & Maybe<&2, Nat>, kind: LineKind, ts: String, text: String, id: Nat) -> Client:
+  match pair:
+    case (cl, None{}): cl
+    case (cl, Some{i}): diagnostic_line.at(cl, i, kind, ts, text, id)
+
+def diagnostic_line(cl: Client, line: Line) -> Client:
+  match line:
+    case Line{kind, ts, text, _, id}:
+      diagnostic_line.got(diagnostic_slot(cl), kind, ts, text, id)
+
+# Useful stage notices use this same bounded buffer, without changing focus or
+# the original error routes. The IO caller supplies only a safe stage label.
+def diagnostic(cl: Client, kind: LineKind, msg: String) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, +now, stg, auth, +seq}:
+      diagnostic_line(Client{nick, server, bufs, active, now, stg, auth, 1n+seq}, Line{kind, now, msg, "", 1n+seq})
+
+def diagnostic_error(kind: LineKind) -> Bool:
+  match kind:
+    case Error{}: True{}
+    case _: False{}
+
+def diagnostic_mirror.on(mirror: Bool, cl: Client, line: Line) -> Client:
+  match mirror:
+    case False{}: cl
+    case True{}: diagnostic_line(cl, line)
+
+type DiagnosticFresh is Data:
+  DiagnosticFresh{client: Client, cutoff: Nat}
+
+def diagnostic_fresh_line.got(+cutoff: Nat, cl: Client, +line: Line) -> DiagnosticFresh:
+  match line:
+    case Line{+kind, _, _, _, +id}:
+      DiagnosticFresh{diagnostic_mirror.on(diagnostic_error(kind) && Nat.is_gt(id, cutoff), cl, line), cutoff}
+
+def diagnostic_fresh_line(acc: DiagnosticFresh, line: Line) -> DiagnosticFresh:
+  match acc:
+    case DiagnosticFresh{cl, cutoff}: diagnostic_fresh_line.got(cutoff, cl, line)
+
+def diagnostic_fresh_buf.on(internal: Bool, acc: DiagnosticFresh, lines: List<&2, Line>) -> DiagnosticFresh:
+  match internal:
+    case True{}: acc
+    case False{}:
+      List.foldl(~&2, ~Line, ~DiagnosticFresh, ~diagnostic_fresh_line, lines, acc)
+
+def diagnostic_fresh_buf(acc: DiagnosticFresh, b: Buffer) -> DiagnosticFresh:
+  match b:
+    case Buffer{name, _, _, lines, _, _}:
+      diagnostic_fresh_buf.on(Irc.ieq(name, Diagnostic.name()), acc, lines)
+
+def diagnostic_fresh.fin(acc: DiagnosticFresh) -> Client:
+  match acc:
+    case DiagnosticFresh{cl, _}: cl
+
+def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
+  match cl:
+    case Client{_, _, +bufs, _, _, _, _, _}:
+      diagnostic_fresh.fin(List.foldl(~&2, ~Buffer, ~DiagnosticFresh, ~diagnostic_fresh_buf, bufs, DiagnosticFresh{cl, cutoff}))
 
 def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
   buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text), "", 0n})
@@ -736,14 +850,14 @@ def stamp_bufs.fin(acc: StampBufs) -> List<&2, Buffer> & Nat:
 def stamp_bufs(bufs: List<&2, Buffer>, seq: Nat) -> List<&2, Buffer> & Nat:
   stamp_bufs.fin(List.foldl(~&2, ~Buffer, ~StampBufs, ~stamp_bufs.step, bufs, StampBufs{Nil{}, seq}))
 
-def stamp_logs.got(pair: List<&2, Buffer> & Nat, nick: String, server: String, active: Nat, now: String, stg: Settings, auth: AuthPhase) -> Client:
+def stamp_logs.got(pair: List<&2, Buffer> & Nat, nick: String, server: String, active: Nat, now: String, stg: Settings, auth: AuthPhase, cutoff: Nat) -> Client:
   match pair:
-    case (bufs, seq): Client{nick, server, bufs, active, now, stg, auth, seq}
+    case (bufs, seq): diagnostic_fresh(Client{nick, server, bufs, active, now, stg, auth, seq}, cutoff)
 
 def stamp_logs(cl: Client) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth)
+    case Client{nick, server, bufs, active, now, stg, auth, +seq}:
+      stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth, seq)
 
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   buf_log_ts(b, Error{}, now, "buffer limit reached")
@@ -768,8 +882,17 @@ def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, 
       +bufs2 = List.append(&2, Buffer, bufs, b <> Nil{})
       (Client{nick, server, bufs2, active, now, stg, auth, log_seq}, Some{i})
 
+def normal_buffer_count.step(n: Nat, b: Buffer) -> Nat:
+  match b:
+    case Buffer{name, _, _, _, _, _}:
+      Nat.add(n, Bool.pick(Nat, Irc.ieq(name, Diagnostic.name()), 0n, 1n))
+
+def normal_buffer_count(bufs: List<&2, Buffer>) -> Nat:
+  List.foldl(~&2, ~Buffer, ~Nat, ~normal_buffer_count.step, bufs, 0n)
+
 def buf_get.create(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool) -> Client & Maybe<&2, Nat>:
-  buf_get.create.cap(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, Nat.is_ge(buf_count(bufs), MAX_BUFFERS()))
+  buf_get.create.cap(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel,
+    Nat.is_ge(buf_count(bufs), MAX_BUFFERS()) || (Bool.not(Irc.ieq(name, Diagnostic.name())) && Nat.is_ge(normal_buffer_count(bufs), NORMAL_BUFFERS())))
 
 def buf_get.miss(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
   match create:
@@ -810,13 +933,33 @@ def client_log_ts.pick(empty: Bool, +ts: String, +now: String) -> String:
     case False{}:
       ts
 
+def client_log.destination(got: Maybe<&2, Buffer>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{Buffer{name, _, _, _, _, _}}: Irc.ieq(name, Diagnostic.name())
+
+def diagnostic_mirror(cl: Client, +line: Line) -> Client:
+  match line:
+    case Line{kind, _, _, _, _}: diagnostic_mirror.on(diagnostic_error(kind), cl, line)
+
+def client_log.original(cl: Client, i: Nat, +line: Line) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      diagnostic_mirror(
+        Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, seq}, line)
+
+def client_log.append(internal: Bool, cl: Client, i: Nat, line: Line) -> Client:
+  match internal:
+    case True{}: diagnostic_line(cl, line)
+    case False{}: client_log.original(cl, i, line)
+
 def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
       +next: Nat = 1n+log_seq
       +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_in(text), Irc.sanitize_in(author), next}
-      Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, next}
+      client_log.append(client_log.destination(nth_buf(bufs, i)), Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
 
 def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
   client_log_author_ts(cl, i, kind, ts, text, "")
@@ -1131,6 +1274,14 @@ def buf_scroll_of(+cl: Client, +i: Nat) -> Nat:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_scroll_of.on(nth_buf(bufs, i))
+
+def log_open.got(pair: Client & Maybe<&2, Nat>) -> Client:
+  match pair:
+    case (cl, None{}): cl
+    case (cl, Some{i}): set_active(cl, i)
+
+def log_open(cl: Client) -> Client:
+  log_open.got(diagnostic_slot(cl))
 
 def active_of(+cl: Client) -> Nat:
   match cl:

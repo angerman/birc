@@ -446,3 +446,15 @@ law diagnostic_credentials_private:
 # LAW: helpers report only caller-owned labels and numeric codes.
 law diagnostic_helper_private:
   {Diagnostic.process_result("clipboard", Fail{(2, "private secret")}) == Some{"clipboard failed (OS 2)"} : Maybe<&2, String>}
+
+# LAW: app-session diagnostics are lazy and do not steal chat focus.
+law diagnostic_preserves_focus:
+  {Cl.active_of(Cl.diagnostic(Cl.init("me", "s"), Cl.System{}, "connected")) == 0n : Nat}
+
+# LAW: a diagnostic copy uses the original event ID rather than a new event.
+law diagnostic_mirror_single_event:
+  {Cl.log_seq_of(Cl.client_log(Cl.init("me", "s"), 0n, Cl.Error{}, "failed")) == 1n : Nat}
+
+# LAW: /log focuses its canonical internal buffer without IRC output.
+law diagnostic_log_command:
+  {Sub.submit(Cl.init("me", "s"), "/log") == (Cl.log_open(Cl.init("me", "s")), Nil{}) : Cl.Client & List<&2, String>}

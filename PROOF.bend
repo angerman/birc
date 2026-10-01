@@ -775,3 +775,12 @@ def Laws.diagnostic_credentials_private():
 
 def Laws.diagnostic_helper_private():
   {==}
+
+def Laws.diagnostic_preserves_focus():
+  {==}
+
+def Laws.diagnostic_mirror_single_event():
+  {==}
+
+def Laws.diagnostic_log_command():
+  {==}

@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./links.bend as Links
 import ./args.bend as Args
+import ./diagnostic.bend as Diagnostic
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -236,12 +237,17 @@ def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String
       +cl3 = Cl.set_active(echo_self(cl2, bi, body), bi)
       (cl3, one_out(Irc.format_privmsg(who, body)))
 
+def submit_msg.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match internal:
+    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}: submit_msg.got(Cl.buf_get(cl, who, False{}, True{}), who, body)
+
 def submit_msg.bad(+cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match bad:
     case True{}:
       (echo_err(cl, "usage: /msg nick text"), empty_out())
     case False{}:
-      submit_msg.got(Cl.buf_get(cl, who, False{}, True{}), who, body)
+      submit_msg.readonly(Irc.ieq(who, Diagnostic.name()), cl, who, body)
 
 def submit_msg.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -268,12 +274,17 @@ def submit_query.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: Str
     case (cl2, Some{+bi}):
       submit_query.found(cl2, bi, who, body, has_text)
 
+def submit_query.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match internal:
+    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}: submit_query.text(Cl.buf_get(cl, who, False{}, True{}), who, body, Bool.not(String.is_empty(body)))
+
 def submit_query.empty(+cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
     case False{}:
-      submit_query.text(Cl.buf_get(cl, who, False{}, True{}), who, body, Bool.not(String.is_empty(body)))
+      submit_query.readonly(Irc.ieq(who, Diagnostic.name()) && Bool.not(String.is_empty(body)), cl, who, body)
 
 def submit_query.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -958,6 +969,7 @@ type Slash is Data:
   SearchCmd{}
   PreviewCmd{}
   ImagesCmd{}
+  LogCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -983,6 +995,7 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"search", SearchCmd{}}
     <> SlashRow{"preview", PreviewCmd{}}
     <> SlashRow{"images", ImagesCmd{}}
+    <> SlashRow{"log", LogCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1096,6 +1109,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
     case ImagesCmd{}:
       (echo_sys(cl, Bool.pick(String, String.eq(Irc.drop_spaces(rest), "on"), "automatic images on",
         Bool.pick(String, String.eq(Irc.drop_spaces(rest), "off"), "automatic images off", "usage: /images on|off"))), empty_out())
+    case LogCmd{}:
+      (Cl.log_open(cl), empty_out())
     case Unknown{}:
       submit_unknown(cl, verb)
 
