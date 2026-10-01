@@ -285,8 +285,19 @@ def history_target.allowed(allowed: Bool, +cl: Cl.Client, +target: String) -> Cl
     case False{}: (cl, None{})
     case True{}: history_target.found(Cl.buf_find(cl, target), cl, target)
 
+# Stored + channel identities are not message audiences. Only the historical
+# @ audience alias is unambiguous: @ cannot begin an actual channel name.
+def history_key.alias(alias: Bool, +name: String) -> String:
+  match alias:
+    case False{}: name
+    case True{}: Irc.chan_target(name)
+
+def history_key(+target: String) -> String:
+  +name = Cl.target_name(target)
+  history_key.alias(String.starts_with(name, "@"), name)
+
 def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
-  +canonical = Cl.target_key(target)
+  +canonical = history_key(target)
   history_target.allowed(Cl.target_wire(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:

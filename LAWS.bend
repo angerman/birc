@@ -606,6 +606,9 @@ law view_header_uses_columns:
 law view_prefix_fallback_preserves_text:
   {VL.prefix_fallback_ok() == True{} : Bool}
 
+law view_prefix_width_includes_joined_closer:
+  {V.msg_prefix_w("<👩‍> hello") == 4 : U32}
+
 law color_without_background_preserves_literal_comma:
   {Irc.sanitize_in(SCon{Chr{3}, "4,hello"}) == ",hello" : String}
 
@@ -614,6 +617,21 @@ law status_audience_keeps_local_channel_identity:
 
 law local_channel_prefix_is_not_status_audience:
   {Cl.target_key("+local") == "+local" : String}
+
+law channel_creation_keeps_status_like_prefix:
+  {Cl.active_buf_name.on(Some{Cl.empty_buf("+#room", True{})}) == "+#room" : String}
+
+law resident_channel_wins_over_status_fallback:
+  {Cl.message_key.resident("+#room", Some{Cl.empty_buf("+#room", True{})}) == "+#room" : String}
+
+law stored_plus_channel_keeps_identity:
+  {Hist.history_key("+#room") == "+#room" : String}
+
+law legacy_at_audience_restores_channel:
+  {Hist.history_key("@#room") == "#room" : String}
+
+law typing_membership_target_is_not_status_audience:
+  {Ty.event_target(Cl.init("me", "s"), Irc.Message{"", "alice", "PART", 0, ["+#room"]}, Irc.Part{}) == "+#room" : String}
 
 law saved_single_label_hosts_can_reconnect:
   {Sess.reconnect_configured(Sess.Offline{}, "s") && Sess.reconnect_configured(Sess.Offline{}, "demo") == True{} : Bool}

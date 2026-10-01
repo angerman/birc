@@ -18,8 +18,8 @@ def target_name(+raw: String) -> String:
   +clean = Irc.sanitize_in(raw)
   target_name.known(clean, Irc.rfc1459(clean))
 
-# STATUSMSG changes the wire audience, not the resident channel identity.
-# Generic buf_find deliberately does not apply this creation/routing policy.
+# STATUSMSG fallback for a message audience, never for a stored channel name.
+# `message_key` first resolves ambiguous audiences against resident channels.
 def target_key(+raw: String) -> String:
   Irc.chan_target(target_name(raw))
 
@@ -27,7 +27,7 @@ def target_is_synthetic(+raw: String) -> Bool:
   String.starts_with(target_name(raw), "*")
 
 def target_channel(+raw: String) -> Bool:
-  Irc.starts_channel(target_key(raw))
+  Irc.starts_channel(target_name(raw))
 
 def target_wire(+raw: String) -> Bool:
   Bool.not(target_is_synthetic(raw))
@@ -669,6 +669,34 @@ def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_find.skip0(bufs, name)
 
+# A + channel may itself be named +#room. At message boundaries, prefer an
+# exact resident channel to interpreting its leading + as a STATUSMSG prefix.
+# @ cannot begin a channel name, so @#room always remains an audience alias.
+def message_key.resident(+name: String, got: Maybe<&2, Buffer>) -> String:
+  match got:
+    case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key(name))
+    case None{}: target_key(name)
+
+def message_key.found(+cl: Client, +name: String, found: Maybe<&2, Nat>) -> String:
+  match cl:
+    case Client{_, _, bufs, _, _, _, _, _}:
+      match found:
+        case None{}: target_key(name)
+        case Some{i}: message_key.resident(name, nth_buf(bufs, i))
+
+def message_key.head(+cl: Client, +name: String, actual_channel: Bool) -> String:
+  match actual_channel:
+    case False{}: target_key(name)
+    case True{}: message_key.found(cl, name, buf_find(cl, name))
+
+def message_key.name(+cl: Client, +name: String) -> String:
+  match name:
+    case SNil{}: ""
+    case SCon{+h, +t}: message_key.head(cl, SCon{h, t}, Irc.is_chan_type(h))
+
+def message_key(+cl: Client, +raw: String) -> String:
+  message_key.name(cl, target_name(raw))
+
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:
     case True{}: Nil{}
@@ -681,7 +709,7 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
       empty_buf.nicks.server(String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
-  +canonical = target_key(name)
+  +canonical = target_name(name)
   +channel = is_channel || target_channel(canonical)
   Buffer{canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
 
@@ -1028,7 +1056,7 @@ def buf_get.fin(+cl: Client, +name: String, is_channel: Bool, create: Bool, foun
       buf_get.found(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create, found)
 
 def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
-  +canonical = target_key(name)
+  +canonical = target_name(name)
   buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
 # ---- scrollback ---------------------------------------------------------

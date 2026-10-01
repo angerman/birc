@@ -97,7 +97,7 @@ def wire_find.on(allowed: Bool, cl: Cl.Client, name: String) -> Maybe<&2, Nat>:
     case True{}: Cl.buf_find(cl, name)
 
 def wire_find(+cl: Cl.Client, +name: String) -> Maybe<&2, Nat>:
-  +canonical = Cl.target_key(name)
+  +canonical = Cl.target_name(name)
   wire_find.on(wire_name(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
 def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
@@ -106,7 +106,7 @@ def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, creat
     case True{}: Cl.buf_get(cl, name, channel, create)
 
 def wire_get(+cl: Cl.Client, +name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
-  +canonical = Cl.target_key(name)
+  +canonical = Cl.target_name(name)
   wire_get.on(wire_name(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical, channel, create)
 
 def feed_none(+cl: Cl.Client) -> Cl.Client:
@@ -235,7 +235,7 @@ def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: St
       feed_priv.route.on(cl, target, from, notice, body, ts, Irc.starts_channel(target))
 
 def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, +notice: Bool, +body: String, +ts: String) -> Cl.Client:
-  +tgt = Cl.target_key(target)
+  +tgt = Cl.message_key(cl, target)
   # NOTICE * is a server broadcast, not a synthetic buffer target.
   feed_priv.route.mute(Cl.is_muted_client(cl, from, tgt) || Bool.not(wire_name(from))
     || (Bool.not(wire_name(tgt)) && Bool.not(notice && Irc.ieq(tgt, "*"))), cl, tgt, from, notice, body, ts)
@@ -763,7 +763,7 @@ def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message
     case None{}: cl
     case Some{+msg}:
       +from = msg_nick(msg)
-      +target = Cl.target_key(Irc.msg_param(msg, 0n))
+      +target = Cl.message_key(cl, Irc.msg_param(msg, 0n))
       feed.server_notice.on(Irc.ieq(Irc.msg_command(msg), "NOTICE")
         && Irc.ieq(target, Cl.nick_of(cl)) && Irc.source_is_server(prefix, Cl.server_of(cl))
         && wire_name(from) && Bool.not(Cl.is_muted_client(cl, from, target)), cl, msg)

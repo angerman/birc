@@ -917,6 +917,9 @@ def Laws.view_header_uses_columns():
 def Laws.view_prefix_fallback_preserves_text():
   {==}
 
+def Laws.view_prefix_width_includes_joined_closer():
+  {==}
+
 def Laws.color_without_background_preserves_literal_comma():
   {==}
 
@@ -924,6 +927,21 @@ def Laws.status_audience_keeps_local_channel_identity():
   {==}
 
 def Laws.local_channel_prefix_is_not_status_audience():
+  {==}
+
+def Laws.channel_creation_keeps_status_like_prefix():
+  {==}
+
+def Laws.resident_channel_wins_over_status_fallback():
+  {==}
+
+def Laws.stored_plus_channel_keeps_identity():
+  {==}
+
+def Laws.legacy_at_audience_restores_channel():
+  {==}
+
+def Laws.typing_membership_target_is_not_status_audience():
   {==}
 
 def Laws.saved_single_label_hosts_can_reconnect():

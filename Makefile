@@ -467,8 +467,8 @@ test-m21-clusters-output: build-ui ## Synthetic replay: actual terminal paint ac
 test-nix-preflight: ## Fixture guard uses provisioned Python, not the host interpreter.
 	$(NIXRUN) timeout 30 python3 tests/nix_preflight.py
 
-.PHONY: test-m21-targets test-m21-session test-m21-color test-m21-history-private
-test-m21-targets test-m21-session test-m21-color:
+.PHONY: test-m21-targets test-m21-session test-m21-color test-m21-typing test-m21-history-private
+test-m21-targets test-m21-session test-m21-color test-m21-typing:
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
@@ -491,7 +491,7 @@ test-m21-history-native-ubsan: ## UBSan: history allocation ownership, descripto
 	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh m21_history_native=ok timeout 15 ./$(BLDDIR)/m21_history_native_ubsan'
 
 .PHONY: test-m21
-test-m21: test-m21-view test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-clusters-output test-nix-preflight test-m21-targets test-m21-session test-m21-color test-m21-history-private ## Review fixes: routing, private history, DNS, replay, clusters, and word wrapping.
+test-m21: test-m21-view test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-clusters-output test-nix-preflight test-m21-targets test-m21-session test-m21-color test-m21-typing test-m21-history-private ## Review fixes: routing, private history, DNS, replay, clusters, and word wrapping.
 
 test-review-pure: test-m21
 test-m21: test-m21-history-native

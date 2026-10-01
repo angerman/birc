@@ -123,6 +123,45 @@ def apply_maybe(+state: State, e: Maybe<&2, Irc.TypingEvent>, +now_ms: U32) -> S
 def apply_line(+state: State, +line: String, +now_ms: U32) -> State:
   apply_maybe(state, Irc.typing_event(line), now_ms)
 
+# Production targets need resident-channel context; the context-free parser
+# stays available for protocol laws and callers without a Client.
+def message_target(+cl: Cl.Client, +nick: String, +raw: String, channel: Bool) -> String:
+  match channel:
+    case True{}: Cl.message_key(cl, raw)
+    case False{}: nick
+
+def event_target.raw(+cl: Cl.Client, +nick: String, +raw: String, c: Irc.Cmd) -> String:
+  match c:
+    case Irc.Part{}: Cl.target_name(raw)
+    case Irc.Kick{}: Cl.target_name(raw)
+    case _: message_target(cl, nick, raw, Irc.starts_channel(raw))
+
+def event_target(+cl: Cl.Client, +m: Irc.Message, c: Irc.Cmd) -> String:
+  event_target.raw(cl, Irc.msg_nick(m), Irc.msg_param(m, 0n), c)
+
+def retarget_event(e: Irc.TypingEvent, +target: String) -> Irc.TypingEvent:
+  match e:
+    case Irc.TypingSet{nick, _, status}: Irc.TypingSet{nick, target, status}
+    case Irc.TypingClear{nick, _}: Irc.TypingClear{nick, target}
+    case Irc.TypingClearAll{nick}: Irc.TypingClearAll{nick}
+
+def retarget_maybe(e: Maybe<&2, Irc.TypingEvent>, +target: String) -> Maybe<&2, Irc.TypingEvent>:
+  match e:
+    case None{}: None{}
+    case Some{event}: Some{retarget_event(event, target)}
+
+def event_for.cmd(+cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, status: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+  retarget_maybe(Irc.typing_event_cmd(m, status, c), event_target(cl, m, c))
+
+def event_for.parsed(+cl: Cl.Client, m: Maybe<&2, Irc.Message>, status: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+  match m:
+    case None{}: None{}
+    case Some{+msg}: event_for.cmd(cl, msg, Irc.classify(msg), status)
+
+def apply_line_for(+state: State, +cl: Cl.Client, +line: String, +now_ms: U32) -> State:
+  +clean = Irc.strip_cr(line)
+  apply_maybe(state, event_for.parsed(cl, Irc.parse(clean), Irc.typing_tag(Irc.raw_tags(clean))), now_ms)
+
 def apply_lines.step(acc: State & U32, line: String) -> State & U32:
   match acc:
     case (+state, +now_ms):

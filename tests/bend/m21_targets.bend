@@ -68,6 +68,33 @@ def status_guards() -> IO(Unit):
     Unit <- E.must_eq("plus CHANTYPE is not STATUSMSG", Cl.active_buf_name(client(Sub.submit(base, "/query +local"))), "+local")
     IO.pure(Unit, Unit{})
 
+def plus_channel_guards() -> IO(Unit):
+  +base = Cl.init("me", "irc.example")
+  +joined = client(Sub.submit(base, "/join +#room"))
+  +members = Feed.feed_all(joined, [":me!u@h JOIN +#room", ":s 353 me = +#room :me alice"])
+  +incoming = Feed.feed_all(members, [":alice!u@h PRIVMSG +#room :actual plus channel", ":alice!u@h NOTICE +#room :plus notice"])
+  +restored = H.apply_history(base, H.parse_history_text("+#room\tMSG\t\tretained plus\n"), "", 10)
+  +stored = H.apply_history(base, H.parse_entries.on(H.parse_line_for("irc.example:6667", "BIRC2\tirc.example:6667\t+#room\tMSG\t\talice\tstored plus"), Nil{}), "", 10)
+  +both = client(Sub.submit(members, "/join #room"))
+  +routed = Feed.feed_all(both, [":alice!u@h PRIVMSG +#room :plus alone", ":alice!u@h NOTICE @#room :hash alone"])
+  do IO<Unit>:
+    Unit <- E.must_eq("plus channel JOIN wire identity", wire(Sub.submit(base, "/join +#room")), "JOIN +#room")
+    Unit <- E.must_eq("plus channel JOIN resident identity", Cl.active_buf_name(joined), "+#room")
+    Unit <- E.must_eq("plus channel self JOIN reuses the channel", Nat.show(CL.nbuf(members)), "2")
+    Unit <- E.must_eq("plus channel NAMES reaches its roster", CL.buf_nicks(members, "+#room"), "me alice ")
+    Unit <- E.must("plus channel never creates a different hash channel", Bool.not(CL.has_buf(members, "#room")))
+    Unit <- E.must_eq("plain send stays in actual plus channel", wire(Sub.submit(members, "hello")), "PRIVMSG +#room :hello")
+    Unit <- E.must_eq("PART stays in actual plus channel", wire(Sub.submit(members, "/part")), "PART +#room")
+    Unit <- E.must_eq("close stays in actual plus channel", wire(Sub.submit(members, "/close")), "PART +#room")
+    Unit <- E.must("inbound message/notice prefer resident plus channel", String.contains(text(incoming, "+#room"), "actual plus channel") && String.contains(text(incoming, "+#room"), "plus notice"))
+    Unit <- E.must_eq("msg prefers resident plus channel", Cl.active_buf_name(client(Sub.submit(members, "/msg +#room hello"))), "+#room")
+    Unit <- E.must_eq("query prefers resident plus channel", Cl.active_buf_name(client(Sub.submit(members, "/query +#room hello"))), "+#room")
+    Unit <- E.must("coexisting channels keep distinct message audiences", String.contains(text(routed, "+#room"), "plus alone") && Bool.not(String.contains(text(routed, "#room"), "plus alone")) && String.contains(text(routed, "#room"), "hash alone") && Bool.not(String.contains(text(routed, "+#room"), "hash alone")))
+    Unit <- E.must("history preserves stored plus channel", CL.has_buf(restored, "+#room") && Bool.not(CL.has_buf(restored, "#room")) && String.contains(text(restored, "+#room"), "retained plus"))
+    Unit <- E.must("BIRC2 restore preserves stored plus channel", CL.has_buf(stored, "+#room") && Bool.not(CL.has_buf(stored, "#room")) && String.contains(text(stored, "+#room"), "stored plus"))
+    Unit <- E.must_eq("restored plus channel remains writable as itself", wire(Sub.submit(Cl.set_active(restored, 1n), "after restore")), "PRIVMSG +#room :after restore")
+    IO.pure(Unit, Unit{})
+
 def notice_guards() -> IO(Unit):
   +base = Cl.init("me", "irc.example")
   +server = Feed.feed(base, ":irc.example NOTICE me :maintenance")
@@ -89,5 +116,6 @@ def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- join_guards()
     Unit <- status_guards()
+    Unit <- plus_channel_guards()
     Unit <- notice_guards()
     IO.print("m21_targets=ok")

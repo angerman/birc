@@ -295,6 +295,8 @@ Wrapping prefers spaces between words, including across formatting runs.
 Oversized words and URLs still hard-wrap at complete cluster boundaries.
 Spaces hidden at a row boundary remain part of scroll and resize anchors.
 A cluster that crosses a style boundary uses its leading character's style.
+Hanging indents measure the complete painted nickname prefix, including any
+cluster that crosses its punctuation.
 OSC8 hyperlinks keep exact targets through 1024 bytes; larger targets are
 declined instead of shortened. Visible glyphs still depend on terminal fonts.
 

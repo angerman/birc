@@ -274,7 +274,7 @@ def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String
 def submit_msg.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_msg.got(Cl.buf_get(cl, who, Cl.target_channel(who), True{}), who, body)
+    case False{}: submit_msg.got(Cl.buf_get(cl, Cl.message_key(cl, who), Cl.target_channel(who), True{}), who, body)
 
 def submit_msg.bad(+cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match bad:
@@ -312,7 +312,7 @@ def submit_query.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: Str
 def submit_query.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_query.text(Cl.buf_get(cl, who, Cl.target_channel(who), True{}), who, body, Bool.not(String.is_empty(body)))
+    case False{}: submit_query.text(Cl.buf_get(cl, Cl.message_key(cl, who), Cl.target_channel(who), True{}), who, body, Bool.not(String.is_empty(body)))
 
 def submit_query.empty(+cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match empty:

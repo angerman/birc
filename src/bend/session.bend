@@ -90,6 +90,24 @@ def fold_lines_ms(+cl: Cl.Client, +xs: List<&2, String>, +now_ms: U32) -> Cl.Cli
 def fold_lines(+cl: Cl.Client, +xs: List<&2, String>) -> Cl.Client & List<&2, String>:
   fold_lines_ms(cl, xs, 0)
 
+# Resolve each typing event against the Client at that wire position. A JOIN
+# earlier in one chunk can establish an otherwise ambiguous +channel identity.
+def fold_typing_step.fed(fed: FoldAcc, typing: Ty.State) -> FoldAcc & Ty.State:
+  match fed:
+    case FoldAcc{+cl, pongs, now_ms}:
+      (FoldAcc{cl, pongs, now_ms}, Ty.retain_client(typing, cl))
+
+def fold_typing_step.line(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, typing: Ty.State, +line: String) -> FoldAcc & Ty.State:
+  fold_typing_step.fed(fold_step.got(cl, pongs, now_ms, line), Ty.apply_line_for(typing, cl, line, now_ms))
+
+def fold_typing_step(st: FoldAcc & Ty.State, line: String) -> FoldAcc & Ty.State:
+  match st:
+    case (FoldAcc{+cl, pongs, +now_ms}, typing):
+      fold_typing_step.line(cl, pongs, now_ms, typing, line)
+
+def fold_lines_typing(+cl: Cl.Client, xs: List<&2, String>, +now_ms: U32, typing: Ty.State) -> FoldAcc & Ty.State:
+  List.foldl(~&2, ~String, ~(FoldAcc & Ty.State), ~fold_typing_step, xs, (FoldAcc{cl, Nil{}, now_ms}, typing))
+
 def is_001_msg(+m: Irc.Message) -> Bool:
   match m:
     case Irc.Message{_, _, _, +num, _}:
@@ -169,6 +187,10 @@ def push_pure_join(
   match cl_pongs:
     case (cl2, pongs):
       push_pure_join2(cl2, rem2, drop2, join_outs(joined, chan, xs, pongs))
+
+def push_pure_typing_join(folded: FoldAcc & Ty.State, rem: List<&2, U32>, drop: Bool, joined: Bool, chan: String, +lines: List<&2, String>) -> (Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool) & Ty.State:
+  match folded:
+    case (acc, typing): (push_pure_join(fold_fin(acc), rem, drop, joined, chan, lines), typing)
 
 def push_pure_pair_ms(
   +cl: Cl.Client,
@@ -1631,13 +1653,12 @@ def step_chunk_got(
   +seed: U32,
   +comp: Comp,
   split: Sp.State,
-  +typing: Ty.State,
   +port: U32,
-  got: Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool,
+  got: (Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool) & Ty.State,
   +media: M.State
 ) -> Session & List<&2, String>:
   match got:
-    case (+cl2, rem2, drop2, outs, joined2):
+    case ((+cl2, rem2, drop2, outs, joined2), typing):
       +typing2 = Ty.retain_client(typing, cl2)
       (Session{cl2, drop2, rem2, draft, joined2, chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing2, port, media}, outs)
 
@@ -1660,11 +1681,10 @@ def step_on_chunk_pair(
 ) -> Session & List<&2, String>:
   match got:
     case (+lines, rem2, drop2):
-      +typing2 = Ty.apply_lines(typing, lines, now_ms)
       +split2 = Sp.rename_queries(split, lines)
       step_chunk_got(
-        draft, chan, net, hist, size, seed, comp, split2, typing2, port,
-        push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
+        draft, chan, net, hist, size, seed, comp, split2, port,
+        push_pure_typing_join(fold_lines_typing(cl, lines, now_ms, typing), rem2, drop2, joined, chan, lines)
       , media)
 
 def step_on_chunk_ms.base(+st: Session, chunk: List<&2, U32>, +now_ms: U32) -> Session & List<&2, String>:

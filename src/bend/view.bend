@@ -690,7 +690,7 @@ def msg_prefix_w.parsed(pair: String & String) -> U32:
     case (+nick, +rest):
       Bool.pick(U32,
         String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)),
-        U32.add(Cols.text_width(nick), 3),
+        Cols.text_width("<" ++ nick ++ "> "),
         0)
 
 def msg_prefix_w.lt(+t: String, lt: Bool) -> U32:

@@ -2327,7 +2327,7 @@ expectation correction receives user approval. Add failing and passing controls.
 - [x] R08 — Status targets: preserve wire audience prefixes, normalize only
       local buffer identity consistently across send/query/inbound routing.
 - [x] R09 — Color commas: consume a comma only when background digits follow.
-      Existing `irc_show` expectation correction requires explicit approval.
+      The user approved the existing `irc_show` expectation correction.
 - [x] R10 — Reconnect: distinguish missing configuration from valid `s`/`demo`
       hostnames; retain manual/automatic reconnect state and port controls.
 - [x] R11 — Unicode header: allocate and clip in terminal columns, not scalars.
@@ -2335,6 +2335,11 @@ expectation correction receives user approval. Add failing and passing controls.
 - [x] R13 — Nix preflight: run the CTCP Python fixture guard through `NIXRUN`.
 - [x] R14 — Prefix fallback: preserve the original text on parse failure,
       including an accepted history row such as `<alice>oops`.
+- [x] R15 — Preserve real `+#room` channel identities through JOIN, history,
+      send/PART, inbound routing and typing; normalize STATUSMSG only at message
+      audience boundaries, preferring an exact resident channel.
+- [x] R16 — Measure the complete nickname prefix as painted; a trailing joiner
+      can join the closing `>` into a cluster. Retain ordinary/combining guards.
 - [x] W01 — Prefer word boundaries across style runs; hard-wrap oversized
       words/URLs, retain clusters and hanging indents, and count hidden boundary
       spaces in resize-safe source anchors.
@@ -2364,6 +2369,21 @@ Eight new View/DNS/color laws plus target/reconnect/notice/JOIN/image-switch
 laws pass. Cross-review caught and fixed a new allocation-failure argument
 ownership leak and preserved legal masked JOIN names. Full verification and
 package qualification remain before the final handoff.
+
+The final concurrent cross-review found R15 and R16 after checkpoint `91edf88`.
+R16 is reproduced by `m21-prefix-red-20261002.log` (five columns versus four)
+and passes with existing wrap/scroll controls in `m21-prefix-green-20261002.log`.
+The first broad run was deliberately stopped (exit 143), not treated as a pass.
+Its checkpoint package passed `make build-package test-package`; final package
+and full-suite qualification must be repeated after the follow-up changes.
+
+R15 has native failing/passing guards for actual `+#room` identities and
+typing. The ordered Session fold resolves events before each command, then
+retains only open-buffer typing state. A second failing guard caught stale
+peer typing across a same-chunk self-PART/rejoin; the final focused binary
+passes all actual-channel, status-audience, membership, batch, private, and
+depart/rejoin controls. All earlier typing APIs and assertions stay unchanged.
+The frozen state diff received an independent all-clear cross-review.
 
 ## Open decisions (resolve in M0/M4)
 
