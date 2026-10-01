@@ -710,10 +710,11 @@ test-perf-output: build-ui ## Measure stalled-output View/native phases and PONG
 MEDIA_PROFILE_MODE ?= empty
 MEDIA_PROFILE_LINKS ?= 0
 MEDIA_PROFILE_SAMPLES ?= 128
-test-perf-media-wrap: ## Measure consumed pure wrapping batches; set MEDIA_PROFILE_MODE/LINKS/SAMPLES (not in check).
+MEDIA_PROFILE_LINES ?= 128
+test-perf-media-wrap: ## Measure consumed batches; set MEDIA_PROFILE_MODE/LINKS/SAMPLES/LINES (not in check).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/perf/media_wrap_profile.bend -o $(BLDDIR)/media_wrap_profile
-	$(NIXRUN) timeout 15 ./$(BLDDIR)/media_wrap_profile $(MEDIA_PROFILE_MODE) $(MEDIA_PROFILE_LINKS) $(MEDIA_PROFILE_SAMPLES)
+	$(NIXRUN) timeout 15 ./$(BLDDIR)/media_wrap_profile $(MEDIA_PROFILE_MODE) $(MEDIA_PROFILE_LINKS) $(MEDIA_PROFILE_SAMPLES) $(MEDIA_PROFILE_LINES)
 
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 

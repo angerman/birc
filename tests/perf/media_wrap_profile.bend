@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Component profile only. Inputs come from IO to prevent constant folding.
-# Usage: media_wrap_profile MODE LINKS SAMPLES
-# Modes: lex, rows, empty, ready, parts-empty, parts-ready, body, body-media.
+# Usage: media_wrap_profile MODE LINKS SAMPLES [LINE_COUNT]
+# Modes: lex, rows, empty, ready, parts-empty, parts-ready, body, body-media,
+# whole, viewport.
 # LINKS=0 uses plain text; 1..16 includes one known image plus ordinary links.
+# New whole/viewport modes ignore LINKS and use stamped 171-character messages
+# at width 180/height 45. Only these modes use LINE_COUNT (default 128, 1..1024).
 # Every mode warms and consumes one full batch before its timed full batch.
 import Base
 import ../../src/bend/buffer.bend as Cl
@@ -61,6 +64,41 @@ def fixture_lines(+n: Nat, +text: String) -> List<&2, Cl.Line>:
     case 0n: Nil{}
     case 1n+p: Cl.Line{Cl.Msg{}, "", text, "alice", n} <> fixture_lines(p, text)
 
+def viewport_text.number(+number: String) -> String:
+  "<a> row" ++ String.take("000", Nat.sub(3n, String.length(number)))
+    ++ number ++ " " ++ String.repeat("x", 160n)
+
+def viewport_text(row: Nat) -> String:
+  viewport_text.number(Nat.show(Nat.mod(row, 1000n)))
+
+def viewport_lines(n: Nat, +row: Nat) -> List<&2, Cl.Line>:
+  match n:
+    case 0n: Nil{}
+    case 1n+p:
+      Cl.Line{Cl.Msg{}, "12:34:56", viewport_text(row), "a", 1n+row}
+        <> viewport_lines(p, 1n+row)
+
+def buffer_count(whole: Bool, buffer: Cl.Buffer, media: M.State) -> Nat:
+  match whole:
+    case True{}:
+      match buffer:
+        case Cl.Buffer{name, _, _, lines, _, _}:
+          List.length(&2, V.BodyRow, V.body_rows_media(lines, name, 180, True{}, media))
+    case False{}:
+      List.length(&2, V.BodyRow, V.body_of.buf_media(buffer, 45n, 180, True{}, Nil{}, "s", media))
+
+def buffer_batch(n: Nat, +whole: Bool, +buffer: Cl.Buffer, +media: M.State, acc: Nat) -> Nat:
+  match n:
+    case 0n: acc
+    case 1n+p: buffer_batch(p, whole, buffer, media, Nat.add(acc, buffer_count(whole, buffer, media)))
+
+def measure_buffer(+mode: String, +links: Nat, +n: Nat, +buffer: Cl.Buffer, +media: M.State) -> IO(Unit):
+  +whole = String.eq(mode, "whole")
+  do IO<Unit>:
+    Unit <- IO.print("warm_consumed=" ++ Nat.show(buffer_batch(n, whole, buffer, media, 0n)) ++ "\n")
+    t0 : Nat <- IO.now()
+    finish(t0, mode, links, n, buffer_batch(n, whole, buffer, media, 0n))
+
 def body_count(rows: Bool, lines: List<&2, Cl.Line>, media: M.State) -> Nat:
   match rows:
     case True{}: List.length(&2, V.BodyRow, V.body_rows(lines, "#t", 80, False{}))
@@ -102,37 +140,62 @@ def run_mode(body: Bool, +mode: String, +links: Nat, +n: Nat, text: String, medi
     case False{}:
       run_text(String.eq(mode, "lex"), mode, links, n, text, media)
 
-def run(ok: Bool, +mode: String, +links: Nat, +n: Nat) -> IO(Unit):
+def source_info(+text: String) -> IO(Unit):
+  # Every fixture character is ASCII, so this is its UTF-8 byte count.
+  IO.print("source_bytes=" ++ Nat.show(String.length(text)) ++ " outbound_privmsg_bytes=" ++ Nat.show(Nat.add(14n, String.length(text))) ++ "\n")
+
+def run_seed(buffer: Bool, +mode: String, +links: Nat, +n: Nat, +line_count: Nat, +seed: Nat) -> IO(Unit):
+  match buffer:
+    case True{}:
+      +first = Nat.mod(seed, 1000n)
+      +buf : Cl.Buffer = Cl.Buffer{"#t", True{}, "", viewport_lines(line_count, first), Nil{}, Cl.ScrollAt{0n, 0n}}
+      do IO<Unit>:
+        Unit <- source_info(viewport_text(first))
+        Unit <- IO.print("line_count=" ++ Nat.show(line_count) ++ " width=180 height=45\n")
+        measure_buffer(mode, links, n, buf, fixture_state(False{}, seed))
+    case False{}:
+      +text = fixture_text(links, seed)
+      do IO<Unit>:
+        Unit <- source_info(text)
+        run_mode(String.eq(mode, "body") || String.eq(mode, "body-media"), mode, links, n, text,
+          fixture_state(String.eq(mode, "ready") || String.eq(mode, "parts-ready"), seed))
+
+def run(ok: Bool, +mode: String, +links: Nat, +n: Nat, line_count: Nat) -> IO(Unit):
   match ok:
     case False{}: IO.die(Unit, 1, "invalid profile arguments")
     case True{}:
       do IO<Unit>:
         +seed : Nat <- IO.now()
-        +text : String = fixture_text(links, seed)
-        # Every fixture character is ASCII, so this is its UTF-8 byte count.
-        Unit <- IO.print("source_bytes=" ++ Nat.show(String.length(text)) ++ " outbound_privmsg_bytes=" ++ Nat.show(Nat.add(14n, String.length(text))) ++ "\n")
-        run_mode(String.eq(mode, "body") || String.eq(mode, "body-media"), mode, links, n, text,
-          fixture_state(String.eq(mode, "ready") || String.eq(mode, "parts-ready"), seed))
+        run_seed(String.eq(mode, "whole") || String.eq(mode, "viewport"), mode, links, n, line_count, seed)
 
-def parsed_samples(samples: Maybe<&2, Nat>, +mode: String, +links: Nat) -> IO(Unit):
+def parsed_samples(samples: Maybe<&2, Nat>, +mode: String, +links: Nat, +line_count: Nat) -> IO(Unit):
   match samples:
     case None{}: IO.die(Unit, 1, "invalid sample count")
     case Some{+n}:
       run(Nat.is_le(links, 16n) && Nat.is_gt(n, 0n) && Nat.is_le(n, 4096n)
+        && Nat.is_gt(line_count, 0n) && Nat.is_le(line_count, 1024n)
         && (String.eq(mode, "lex") || String.eq(mode, "rows") || String.eq(mode, "empty") || String.eq(mode, "ready")
           || String.eq(mode, "parts-empty") || String.eq(mode, "parts-ready")
-          || String.eq(mode, "body") || String.eq(mode, "body-media")), mode, links, n)
+          || String.eq(mode, "body") || String.eq(mode, "body-media")
+          || String.eq(mode, "whole") || String.eq(mode, "viewport")), mode, links, n, line_count)
 
-def parsed_links(links: Maybe<&2, Nat>, mode: String, samples: String) -> IO(Unit):
+def parsed_links(links: Maybe<&2, Nat>, mode: String, samples: String, line_count: Nat) -> IO(Unit):
   match links:
     case None{}: IO.die(Unit, 1, "invalid link count")
-    case Some{n}: parsed_samples(Nat.read(samples), mode, n)
+    case Some{n}: parsed_samples(Nat.read(samples), mode, n, line_count)
+
+def parsed_lines(lines: Maybe<&2, Nat>, mode: String, links: String, samples: String) -> IO(Unit):
+  match lines:
+    case None{}: IO.die(Unit, 1, "invalid line count")
+    case Some{n}: parsed_links(Nat.read(links), mode, samples, n)
 
 def after_args(args: List<&1, String>) -> IO(Unit):
   match args:
     case Con{_, Con{mode, Con{links, Con{samples, Nil{}}}}}:
-      parsed_links(Nat.read(links), mode, samples)
-    case _: IO.die(Unit, 1, "usage: media_wrap_profile MODE LINKS SAMPLES")
+      parsed_links(Nat.read(links), mode, samples, 128n)
+    case Con{_, Con{mode, Con{links, Con{samples, Con{lines, Nil{}}}}}}:
+      parsed_lines(Nat.read(lines), mode, links, samples)
+    case _: IO.die(Unit, 1, "usage: media_wrap_profile MODE LINKS SAMPLES [LINE_COUNT]")
 
 def main() -> IO(Unit):
   do IO<Unit>:
