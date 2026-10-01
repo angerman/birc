@@ -145,6 +145,12 @@ static uint32_t birc_media_add(BircMediaCache *cache, const char *text, size_t l
   if (offset != size || !birc_media_parse(&media, bytes, size))
     goto invalid;
   media.token = ++cache->next_token;
+  /* Reuse released payload slots before the standalone FIFO fallback. Bend
+   * releases exactly the tokens absent from its accepted completion state. */
+  for (i = 0; i < BIRC_MEDIA_CAP; i++) {
+    unsigned slot = (cache->next_slot + (unsigned)i) % BIRC_MEDIA_CAP;
+    if (!cache->slots[slot].token) { cache->next_slot = slot; break; }
+  }
   free(cache->slots[cache->next_slot].bytes);
   cache->slots[cache->next_slot] = media;
   cache->next_slot = (cache->next_slot + 1) % BIRC_MEDIA_CAP;
@@ -160,6 +166,23 @@ static const BircMedia *birc_media_find(const BircMediaCache *cache, uint32_t to
   for (i = 0; i < BIRC_MEDIA_CAP; i++)
     if (cache->slots[i].token == token) return &cache->slots[i];
   return NULL;
+}
+
+/* Payload ownership follows Bend's bounded ready list, not viewport visibility.
+ * Copied terminal images remain owned until an accepted frame retires them. */
+static inline void birc_media_retain(BircMediaCache *cache, const uint32_t *tokens,
+                                     size_t count) {
+  unsigned i;
+  size_t j;
+  if (!cache || count > BIRC_MEDIA_CAP || (count && !tokens)) return;
+  for (i = 0; i < BIRC_MEDIA_CAP; i++) {
+    for (j = 0; j < count; j++)
+      if (cache->slots[i].token == tokens[j]) break;
+    if (j == count) {
+      free(cache->slots[i].bytes);
+      memset(&cache->slots[i], 0, sizeof cache->slots[i]);
+    }
+  }
 }
 
 static void birc_media_clear(BircMediaCache *cache) {

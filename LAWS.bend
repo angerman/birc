@@ -20,6 +20,69 @@ import ./src/bend/diagnostic.bend as Diagnostic
 import ./src/bend/media.bend as Media
 import ./src/bend/args.bend as Args
 import ./src/bend/history.bend as Hist
+import ./tests/bend/m20_media_preds.bend as MediaReview
+import ./tests/bend/dns_validation_preds.bend as DnsValidation
+import ./src/bend/columns.bend as Columns
+
+law media_retained_payload_coherence:
+  {MediaReview.coherence_ok() == True{} : Bool}
+
+law dns_response_opcode_matches_query:
+  {DnsValidation.opcode_ok() == True{} : Bool}
+
+law dns_truncation_after_question_validation:
+  {DnsValidation.truncated_validation_ok() == True{} : Bool}
+
+law cluster_width_matches_native:
+  {Columns.text_width("👩‍💻❤️🇰") == 6 : U32}
+
+law cluster_vs16_wrap_boundary:
+  {Columns.take("❤️x", 2) == Columns.Cut{"❤️", "x", 2} : Columns.Cut}
+
+law cluster_zwj_one_column_boundary:
+  {Columns.take("👩‍💻x", 1) == Columns.Cut{"", "👩‍💻x", 0} : Columns.Cut}
+
+law cluster_regional_pair_with_extension:
+  {Columns.cluster("🇰́🇷x") == Columns.Cut{"🇰́🇷", "x", 2} : Columns.Cut}
+
+law synthetic_search_identity_canonical:
+  {Cl.target_name("*SEARCH*") == "*search*" : String}
+
+law synthetic_preview_identity_canonical:
+  {Cl.target_name("*PREVIEW*") == "*preview*" : String}
+
+law ordinary_query_spelling_preserved:
+  {Cl.target_name("ALIce") == "ALIce" : String}
+
+law split_reserved_rename_rejected:
+  {Cl.nick_rename_allowed("alice", "*server*") == False{} : Bool}
+
+law split_ordinary_rename_allowed:
+  {Cl.nick_rename_allowed("alice", "bob") == True{} : Bool}
+
+law server_query_seeded:
+  {Cl.empty_buf("server", False{}) == Cl.Buffer{"server", False{}, "", Nil{}, "server" <> Nil{}, Cl.ScrollAt{0n, 0n}} : Cl.Buffer}
+
+law verb_keeps_extra_separators:
+  {Sub.take_verb("cmd   rest") == ("cmd", "  rest") : String & String}
+
+law word_drops_separators:
+  {Sub.take_word("cmd   rest") == ("cmd", "rest") : String & String}
+
+law protocol_scan_keeps_separators:
+  {Irc.take_until_space("cmd   rest") == ("cmd", "   rest") : String & String}
+
+law log_command_has_completion:
+  {Sess.comp_candidates(Cl.init("me", "s"), "/lo") == "/log" <> Nil{} : List<&2, String>}
+
+law reader_eof_is_not_writer_completion:
+  {Sess.writer_done_current(Sess.FromNet{1, Sess.Eof{}}, 1) == False{} : Bool}
+
+law stale_writer_completion_rejected:
+  {Sess.writer_done_current(Sess.FromNet{0, Sess.WriterDone{}}, 1) == False{} : Bool}
+
+law current_writer_completion_accepted:
+  {Sess.writer_done_current(Sess.FromNet{1, Sess.WriterDone{}}, 1) == True{} : Bool}
 
 # Media is view-only, bounded and exact-identity scheduled.
 law media_encoded_png:

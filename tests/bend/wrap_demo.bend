@@ -78,7 +78,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("wide characters kept", rows_text(wide), "漢字漢字漢")
     Unit <- E.must_eq("wide split", String.join(row_chunks(wide), "|"), "漢字|漢字|漢")
     Unit <- E.must_eq("combining stays with base", String.join(row_chunks(V.wrap_line(line("éx"), 1, False{})), "|"), "é|x")
-    Unit <- E.must_eq("joiner cluster kept", String.join(row_chunks(V.wrap_line(line("a👩‍💻b"), 4, False{})), "|"), "a|👩‍💻|b")
+    Unit <- E.must_eq("joiner cluster kept", String.join(row_chunks(V.wrap_line(line("a👩‍💻b"), 4, False{})), "|"), "a👩‍💻b")
     Unit <- E.must_eq("regional pair kept", String.join(row_chunks(V.wrap_line(line("a🇰🇷b"), 2, False{})), "|"), "a|🇰🇷|b")
     Unit <- E.must_eq("modifier kept", String.join(row_chunks(V.wrap_line(line("👍🏽x"), 2, False{})), "|"), "👍🏽|x")
     Unit <- E.must_eq("forced cluster keeps source character count", Nat.show(V.rows_chars(V.wrap_line(line("👩‍💻x"), 1, False{}))), "4")

@@ -198,12 +198,94 @@ test-golden-runner: ## Reject failing, missing-token, and timed-out golden progr
 test-build-config: ## Verify header dependencies and changed/unchanged compiler flags.
 	$(NIXRUN) timeout 30 python3 tests/build_config.py
 
+.PHONY: test-build-deadlines test-m20-state test-m20-media test-m20-native test-m20-native-ubsan test-m20 test-pty-m20-media-cache test-pty-preview-retry
+test-build-deadlines: ## Require a positive deadline on every Bend compiler recipe.
+	$(NIXRUN) timeout 30 python3 tests/build_deadlines.py
+
+test-m20-state: ## Canonical identities, reconnect members, AUTH, split, and command metadata.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m20_state.bend -o $(BLDDIR)/m20_state
+	$(NIXRUN) sh scripts/check-golden.sh m20_state=ok timeout 30 ./$(BLDDIR)/m20_state
+
+test-m20-media: ## Bend retained image tokens for refresh, capacity, failures, and stale targets.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/m20_media.bend -o $(BLDDIR)/m20_media
+	$(NIXRUN) sh scripts/check-golden.sh m20_media=ok timeout 30 ./$(BLDDIR)/m20_media
+
+test-m20-native: ## Complete large selection and native payload ownership follow Bend policy.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache; do timeout 60 $$CC -std=c11 -O0 -Werror=vla -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$$guard; sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$$guard; done'
+
+test-m20-native-ubsan: ## UBSan: large-cluster selection and payload-retention boundaries.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Werror=vla -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
+
+test-m20: test-build-deadlines test-m20-state test-m20-media test-m20-native ## Fresh deep-review correctness and cleanup gates.
+test-m20: test-dns-validation test-cli-diagnostics test-ui-review-columns test-ui-review-widgets test-png-16bit-oom
+test-m20: test-shutdown-ack test-shutdown-flush
+
+.PHONY: test-shutdown-ack test-shutdown-flush
+test-shutdown-ack: ## Only the current writer completion can acknowledge UI shutdown.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/shutdown_ack.bend -o $(BLDDIR)/shutdown_ack
+	$(NIXRUN) sh scripts/check-golden.sh shutdown_ack=ok timeout 15 ./$(BLDDIR)/shutdown_ack
+
+# The pinned compiler namespaces constructors by the fixture import path.
+# Keep these test-only aliases out of the production thin FFI.
+SHUTDOWN_FFI_ALIASES := $(foreach op,COL LNK SPN OPBOX OPSPLIT OPTEXT OPTABS OPLINE OPIMAGE OPMEDIA,-DCID_VIEW_$(op)=CID_______SRC_BEND_VIEW_$(op))
+test-shutdown-flush: ## Actual socket half-close/stale EOF cannot bypass queued QUIT or idle writer completion.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/shutdown_flush.bend -o $(BLDDIR)/shutdown_flush.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/shutdown_flush.c -o $(BLDDIR)/shutdown_flush'
+	$(NIXRUN) timeout 15 python3 tests/net/shutdown_flush.py ./$(BLDDIR)/shutdown_flush
+
+.PHONY: test-dns-validation test-cli-diagnostics test-ui-review-columns test-ui-review-widgets test-png-16bit-oom test-ui-review-widgets-ubsan test-png-16bit-oom-ubsan
+test-dns-validation: ## Reject opcode and truncated-reply identity errors before TCP fallback.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/dns_validation.bend -o $(BLDDIR)/dns_validation
+	$(NIXRUN) sh scripts/check-golden.sh dns_validation=ok timeout 30 ./$(BLDDIR)/dns_validation
+
+test-cli-diagnostics: build-ui ## Exact single CLI error diagnostics and normal headless startup.
+	$(NIXRUN) timeout 30 python3 tests/cli_diagnostics.py ./$(BLDDIR)/birc
+
+test-ui-review-widgets: ## Whole-cluster tab geometry and code-widget painting/style guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Isrc/ui tests/ui_review_widgets.c -o $(BLDDIR)/ui_review_widgets'
+	$(NIXRUN) sh scripts/check-golden.sh ui_review_widgets=ok timeout 15 ./$(BLDDIR)/ui_review_widgets
+
+test-ui-review-columns: test-ui-review-widgets ## Bend/native whole-cluster width and boundary parity, plus wrapping.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ui_review_columns.bend -o $(BLDDIR)/ui_review_columns
+	$(NIXRUN) sh scripts/check-golden.sh ui_review_columns=ok timeout 30 ./$(BLDDIR)/ui_review_columns
+	$(NIXRUN) timeout 40 python3 tests/ui_review_columns.py ./$(BLDDIR)/ui_review_columns ./$(BLDDIR)/ui_review_widgets
+
+test-png-16bit-oom: ## 16-bit decoder allocation failure releases bytes and never flips NULL.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Isrc/ui tests/png_16bit_oom.c -o $(BLDDIR)/png_16bit_oom'
+	$(NIXRUN) timeout 30 python3 tests/png_16bit_oom.py ./$(BLDDIR)/png_16bit_oom
+
+test-ui-review-widgets-ubsan: ## UBSan: whole-cluster tabs and code-widget cells.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Werror=vla -pedantic -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui tests/ui_review_widgets.c -o $(BLDDIR)/ui_review_widgets_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh ui_review_widgets=ok timeout 15 ./$(BLDDIR)/ui_review_widgets_ubsan'
+
+test-png-16bit-oom-ubsan: ## UBSan: every 16-bit decoder allocation with vertical flip enabled.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Werror=vla -pedantic -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui tests/png_16bit_oom.c -o $(BLDDIR)/png_16bit_oom_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 timeout 30 python3 tests/png_16bit_oom.py ./$(BLDDIR)/png_16bit_oom_ubsan'
+
+test-pty-m20-media-cache: build-ui ## Pty: seven inline results survive a full-cache manual refresh without refetch.
+	$(NIXRUN) timeout 45 python3 tests/pty/m20_media_cache.py ./$(BLDDIR)/birc
+
+test-pty-preview-retry: build-ui ## Pty: delayed helper failure completes before an identical manual retry.
+	$(NIXRUN) timeout 40 python3 tests/pty/preview_retry.py ./$(BLDDIR)/birc
+
 test-pty-deadlines: ## Require finite outer deadlines for every planned terminal test.
 	$(NIXRUN) timeout 30 python3 tests/pty_deadlines.py
 
 test-feed: test-feed-bench ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
+	$(NIXRUN) timeout 180 bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
 	$(NIXRUN) sh scripts/check-golden.sh feed_demo=ok ./$(BLDDIR)/feed_demo
 
 test-feed-bench: ## Run the existing feed bound independently of feed goldens.
@@ -213,53 +295,53 @@ test-feed-bench: ## Run the existing feed bound independently of feed goldens.
 
 test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
+	$(NIXRUN) timeout 180 bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
 	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
 
 test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
+	$(NIXRUN) timeout 180 bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
 	$(NIXRUN) sh scripts/check-golden.sh search_demo=ok ./$(BLDDIR)/search_demo
 
 test-split: ## M16.2 split-view state, focus, geometry, and routing goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/split_demo.bend -o $(BLDDIR)/split_demo
+	$(NIXRUN) timeout 180 bend tests/bend/split_demo.bend -o $(BLDDIR)/split_demo
 	$(NIXRUN) sh scripts/check-golden.sh split_demo=ok ./$(BLDDIR)/split_demo
 
 test-preview: ## M16.1 local PNG preview command and DrawOp goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/preview_demo.bend -o $(BLDDIR)/preview_demo
+	$(NIXRUN) timeout 180 bend tests/bend/preview_demo.bend -o $(BLDDIR)/preview_demo
 	$(NIXRUN) sh scripts/check-golden.sh preview_demo=ok ./$(BLDDIR)/preview_demo
 
 test-typing: ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
+	$(NIXRUN) timeout 180 bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
 	$(NIXRUN) sh scripts/check-golden.sh typing_demo=ok ./$(BLDDIR)/typing_demo
 
 test-frame: ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/frame_demo.bend -o $(BLDDIR)/frame_demo
+	$(NIXRUN) timeout 180 bend tests/bend/frame_demo.bend -o $(BLDDIR)/frame_demo
 	$(NIXRUN) sh scripts/check-golden.sh frame_demo=ok ./$(BLDDIR)/frame_demo
 
 test-net: ## M4 loopback TCP.send/recv + register/pong goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
+	$(NIXRUN) timeout 180 bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
 	$(NIXRUN) sh scripts/check-golden.sh net_demo=ok ./$(BLDDIR)/net_demo
 
 test-dns: ## UDP A lookup identity + parse edges (no network).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
+	$(NIXRUN) timeout 180 bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
 	$(NIXRUN) sh scripts/check-golden.sh dns_demo=ok ./$(BLDDIR)/dns_demo
 	@! grep -F 'Dns.resolve("one.one.one.one")' tests/bend/dns_demo.bend
 
 test-dns-live: ## Live A lookup of one.one.one.one (not in check).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
+	$(NIXRUN) timeout 180 bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
 	$(NIXRUN) sh scripts/check-golden.sh dns_live=ok ./$(BLDDIR)/dns_live
 
 test-dns-timeout: ## K3: blackhole nameserver returns timeout, does not park.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
+	$(NIXRUN) timeout 180 bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
 	$(NIXRUN) sh scripts/check-golden.sh dns_timeout=ok timeout 15 ./$(BLDDIR)/dns_timeout
 
 test-dns-tcp: ## DNS TCP segmentation, length validation, and deadlines.
@@ -274,7 +356,7 @@ test-socket-deadline: ## Socket deadlines: exact writes, stalled peers, refused 
 
 test-base64: ## Base64 and SASL PLAIN golden tests.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/base64_demo.bend -o $(BLDDIR)/base64_demo
+	$(NIXRUN) timeout 180 bend tests/bend/base64_demo.bend -o $(BLDDIR)/base64_demo
 	$(NIXRUN) sh scripts/check-golden.sh base64_demo=ok ./$(BLDDIR)/base64_demo
 
 test-auth: ## Parsed SASL exchange, phase gating, and forged chat regression.
@@ -381,7 +463,7 @@ test-commands: ## Local commands offline/connecting and read-only wire target gu
 
 test-args: ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
+	$(NIXRUN) timeout 180 bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
 	$(NIXRUN) sh scripts/check-golden.sh args_demo=ok ./$(BLDDIR)/args_demo
 	@! grep -F 'def seed_bit' src/bend/session.bend
 	@! grep -F 'CopyMany' src/bend/args.bend
@@ -399,7 +481,7 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	@grep -F 'PiNg :xyz' fixtures/odd_casing.irc >/dev/null || { printf '%s\n' 'BLOCKED: fixtures/odd_casing.irc drifted' >&2; exit 2; }
 	@python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc missing CTCP SOH' >&2; exit 2; }
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
+	$(NIXRUN) timeout 180 bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
 	$(NIXRUN) sh scripts/check-golden.sh proto_parity=ok ./$(BLDDIR)/proto_parity
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
@@ -647,6 +729,8 @@ test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-c
 test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
 test-pty: test-pty-media test-pty-diagnostic test-pty-esc-resize-wake
 test-pty: test-pty-ui-review-selection test-pty-ui-review-media
+test-pty: test-pty-m20-media-cache
+test-pty: test-pty-preview-retry
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -664,6 +748,7 @@ test-pty: test-pty-ui-review-selection test-pty-ui-review-media
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
 test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
 test-review-pure: test-state-review test-runtime-review test-ui-review-native test-ui-review-view test-ui-review-output
+test-review-pure: test-m20
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -762,7 +847,7 @@ test-perf-tickrate: build-ui ## 600-frame idle tickrate (not in check).
 
 test-perf-search: ## Profile serial/parallel search at 16 x 1024 lines (not in check).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) bend tests/perf/search_profile.bend -o $(BLDDIR)/search_profile
+	$(NIXRUN) timeout 180 bend tests/perf/search_profile.bend -o $(BLDDIR)/search_profile
 	$(NIXRUN) sh -c 'for mode in serial parallel parallel serial serial parallel parallel serial serial parallel; do BIRC_SEARCH_PROFILE=$$mode ./$(BLDDIR)/search_profile; done'
 
 test-perf-hardening: build-ui ## Profile production frame phases with scale replay (not in check).
@@ -800,6 +885,8 @@ test-ubsan-native: ## UBSan: output progress, real signals, and final status own
 	$(NIXRUN) sh -c 'set -eu; for guard in output_utf8 output_shutdown output_progress; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -I src/ui -I src/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
 
 test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan test-media-native-ubsan test-ui-review-native-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
+test-sanitizers: test-m20-native-ubsan
+test-sanitizers: test-ui-review-widgets-ubsan test-png-16bit-oom-ubsan
 
 test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
 

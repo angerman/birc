@@ -67,9 +67,17 @@ def main() -> int:
             return 1
 
         os.write(master, f"/preview file://{image_path}\r".encode())
-        missing = drain(master, 0.5)
+        # Retry is defined after completion. A fixed sleep can instead submit
+        # an intentional duplicate of the still-active request under load.
+        missing = bytearray()
+        deadline = time.monotonic() + 2.0
+        while b"image preview unavailable" not in missing and time.monotonic() < deadline:
+            missing.extend(drain(master, 0.05))
         if b"\x1b_Ga=t" in missing:
             print("FAIL: missing image was transmitted", file=sys.stderr)
+            return 1
+        if b"image preview unavailable" not in missing:
+            print("FAIL: missing image completion was not reported", file=sys.stderr)
             return 1
 
         with open(image_path, "wb") as image:

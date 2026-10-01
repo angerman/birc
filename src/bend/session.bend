@@ -1,4 +1,4 @@
-# Pure IRC session: fold, JOIN-after-001, keys. No reconnect/backoff.
+# Pure IRC session: protocol fold, keys, and connection/reconnect transitions.
 # No IO. net.bend owns Socket / Chan / TimUI.
 import Base
 import ./irc.bend as Irc
@@ -234,6 +234,7 @@ def step_chunk(
 type NetEvt is Data:
   Chunk{xs: List<&2, U32>}
   Eof{}
+  WriterDone{}
   Up{}
   NetFail{msg: String}
   InitialFail{msg: String}
@@ -262,6 +263,13 @@ def event_current(m: UiMsg, +gen: U32) -> Bool:
   match m:
     case FromNet{got, _}: U32.is_eq(got, gen)
     case _: True{}
+
+# Only the socket owner can acknowledge completed shutdown. Reader EOF is
+# independent of the writer's pending queue and must not release the UI.
+def writer_done_current(m: UiMsg, +gen: U32) -> Bool:
+  match m:
+    case FromNet{got, WriterDone{}}: U32.is_eq(got, gen)
+    case _: False{}
 
 type NetState is Data:
   Demo{}
@@ -891,11 +899,13 @@ def comp_format.on(+pre: String, +nick: String, spaces: Bool) -> String:
 def comp_format(+pre: String, +nick: String) -> String:
   comp_format.on(pre, nick, is_all_spaces(pre))
 
+def slash_command_names(rows: List<&2, Sub.SlashRow>) -> List<&2, String>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{Sub.SlashRow{name, _}, rest}: ("/" ++ name) <> slash_command_names(rest)
+
 def slash_command_list() -> List<&2, String>:
-  "/join" <> "/part" <> "/close" <> "/msg" <> "/query" <> "/nick" <> "/me"
-    <> "/quit" <> "/settings" <> "/set" <> "/toggle" <> "/mute" <> "/unmute"
-    <> "/mutes" <> "/connect" <> "/reconnect" <> "/open" <> "/links" <> "/search" <> "/preview" <> "/images"
-    <> "/split" <> "/vsplit" <> "/split-off" <> "/unsplit" <> "/focus" <> Nil{}
+  slash_command_names(Sub.slash_rows())
 
 def is_slash_word(+w: String) -> Bool:
   String.starts_with(w, "/")
@@ -1068,7 +1078,9 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
           Session{Cl.reconnect_markers(cl, now), drop, rem, draft, joined, chan, Online{}, hist, size, seed, comp, split, typing, port, media}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
-  +online = session_reconnected.on(session_needs_reconnect_marker(st), session_reset_auth(st), now)
+  +reset = session_reset_auth(st)
+  +fresh = session_set_client(reset, Cl.reset_channel_state(session_cl(reset)))
+  +online = session_reconnected.on(session_needs_reconnect_marker(st), fresh, now)
   session_set_client(online, Cl.diagnostic_notice(Cl.set_now(session_cl(online), now), Cl.System{}, "IRC connection established"))
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
@@ -1173,7 +1185,7 @@ def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client
       match cl:
         case Cl.Client{+nick, _, _, _, +now, +stg, +auth, +seq}:
           +clean = Cl.set_unreads(stg, Nil{})
-          Cl.client_set_lag(Cl.Client{nick, host, Cl.empty_buf("server", False{}) <> Cl.log_buffers(cl), 0n, now, clean, auth, seq}, 0)
+          Cl.client_set_lag(Cl.Client{nick, host, Cl.server_buf() <> Cl.log_buffers(cl), 0n, now, clean, auth, seq}, 0)
 
 def endpoint_client(+cl: Cl.Client, +host: String, +old_port: U32, +new_port: U32) -> Cl.Client:
   endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), cl, host)

@@ -840,11 +840,12 @@ def first_fail(xs: List<&2, Chk>) -> Maybe<&2, String>:
             case True{}:
               first_fail(t)
 
-def tc_ok(+fb: U32, +an: U32) -> Bool:
-  U32.is_zero(U32.and(fb, 2)) || U32.is_gt(an, 0)
-
 def hdr_chks(+want: U32, +h: Hdr) -> List<&2, Chk>:
-  Chk{U32.is_eq(hdr_id(h), want), "bad id"} <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"} <> Chk{tc_ok(hdr_fb(h), hdr_an(h)), "tc"} <> Chk{rcode_ok(hdr_sb(h)), "rcode"} <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
+  Chk{U32.is_eq(hdr_id(h), want), "bad id"}
+    <> Chk{U32.is_ge(hdr_fb(h), 128), "bad dns"}
+    <> Chk{rcode_ok(hdr_sb(h)), "rcode"}
+    <> Chk{U32.is_zero(U32.and(hdr_fb(h), 120)), "bad dns"}
+    <> Chk{U32.is_eq(hdr_qd(h), 1), "bad dns"} <> Nil{}
 
 # A usable complete A can be accepted even when the server sets TC. An
 # incomplete answer to the validated question needs TCP regardless of ANCOUNT.

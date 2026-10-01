@@ -44,6 +44,14 @@ def show_num(got: Args.Num) -> String:
     case Args.Num{ok, n}:
       Bool.show(ok) ++ ":" ++ U32.show(n)
 
+# Legacy leftover-argv characterization uses a copyable fixture, not IO.args.
+def copy_fin2(rest: List<&2, String>, acc: List<&2, String>) -> Args.Parsed:
+  match rest:
+    case Nil{}:
+      Args.parse(List.reverse(&2, String, acc))
+    case Con{_, _}:
+      Args.Bad{"birc: too many arguments"}
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("num_ok", show_num(Args.parse_u32("12")), "True:12")
@@ -133,12 +141,12 @@ def main() -> IO(Unit):
     )
     Unit <- E.must_eq(
       "copy_fin_extra",
-      show_parsed(Args.copy_fin2("extra" <> Nil{}, Nil{})),
+      show_parsed(copy_fin2("extra" <> Nil{}, Nil{})),
       "bad:birc: too many arguments"
     )
     Unit <- E.must_eq(
       "copy_fin_empty",
-      show_parsed(Args.copy_fin2(Nil{}, Nil{})),
+      show_parsed(copy_fin2(Nil{}, Nil{})),
       "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay= sasl_user= sasl_pass="
     )
     Unit <- E.must_eq(

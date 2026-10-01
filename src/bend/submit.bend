@@ -13,26 +13,14 @@ def empty_out() -> List<&2, String>:
 def one_out(+s: String) -> List<&2, String>:
   Irc.clamp_line(Irc.strip_ctl(s)) <> Nil{}
 
-# ---- take_verb / take_word (structural; helper never calls back) --------
+# ---- shared space scan; command verb drops exactly one separator --------
 
-def take_verb.cons(+h: Char, r: String & String) -> String & String:
-  match r:
-    case (tok, rest):
-      (SCon{h, tok}, rest)
-
-def take_verb.fin(+h: Char, +t: String, r: String & String, space: Bool) -> String & String:
-  match space:
-    case True{}:
-      ("", t)
-    case False{}:
-      take_verb.cons(h, r)
+def take_verb.scanned(pair: String & String) -> String & String:
+  match pair:
+    case (token, rest): (token, String.drop(rest, 1n))
 
 def take_verb(s: String) -> String & String:
-  match s:
-    case SNil{}:
-      ("", "")
-    case SCon{+h, +t}:
-      take_verb.fin(h, t, take_verb(t), Irc.is_space(h))
+  take_verb.scanned(Irc.take_until_space(s))
 
 def skip_slash.on(+h: Char, +t: String, slash: Bool) -> String:
   match slash:
@@ -120,15 +108,27 @@ def submit_join.got(pair: Cl.Client & Maybe<&2, Nat>, +rest: String) -> Cl.Clien
     case (cl2, Some{+bi}):
       submit_join.got.cl(cl2, bi, rest)
 
-def submit_join.on(+cl: Cl.Client, +rest: String, chan: Bool) -> Cl.Client & List<&2, String>:
+def submit_join.on(+cl: Cl.Client, +target: String, +args: String, chan: Bool) -> Cl.Client & List<&2, String>:
   match chan:
     case False{}:
       (echo_err(cl, "usage: /join #chan"), empty_out())
     case True{}:
-      submit_join.got(Cl.buf_get(cl, rest, True{}, True{}), rest)
+      submit_join.got(Cl.buf_get(cl, target, True{}, True{}), args)
+
+def submit_join.args(+target: String, +key: String, has_key: Bool) -> String:
+  match has_key:
+    case False{}: target
+    case True{}: target ++ " " ++ key
+
+def submit_join.words(cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+channel, rest):
+      +target = Cl.target_name(channel)
+      +key = Irc.drop_spaces(rest)
+      submit_join.on(cl, target, submit_join.args(target, key, Bool.not(String.is_empty(key))), Irc.starts_channel(target))
 
 def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_join.on(cl, rest, Irc.starts_channel(rest))
+  submit_join.words(cl, Irc.take_until_space(Irc.drop_spaces(rest)))
 
 # ---- /part --------------------------------------------------------------
 
@@ -224,24 +224,13 @@ def submit_close(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 
 # ---- /msg ---------------------------------------------------------------
 
-def take_word.cons(+h: Char, r: String & String) -> String & String:
-  match r:
-    case (tok, rest):
-      (SCon{h, tok}, rest)
-
-def take_word.fin(+h: Char, +t: String, r: String & String, space: Bool) -> String & String:
-  match space:
-    case True{}:
-      ("", Irc.drop_spaces(t))
-    case False{}:
-      take_word.cons(h, r)
+# A target/argument word drops all separators after the shared scan.
+def take_word.scanned(pair: String & String) -> String & String:
+  match pair:
+    case (token, rest): (token, Irc.drop_spaces(rest))
 
 def take_word(s: String) -> String & String:
-  match s:
-    case SNil{}:
-      ("", "")
-    case SCon{+h, +t}:
-      take_word.fin(h, t, take_word(t), Irc.is_space(h))
+  take_word.scanned(Irc.take_until_space(s))
 
 def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -1000,12 +989,20 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"mute", MuteCmd{}}
     <> SlashRow{"unmute", UnmuteCmd{}}
     <> SlashRow{"mutes", MutesCmd{}}
-    <> SlashRow{"links", LinksCmd{}}
+    # Session owns connection and pane commands; keep their aliases here too.
+    <> SlashRow{"connect", Unknown{}}
+    <> SlashRow{"reconnect", Unknown{}}
     <> SlashRow{"open", OpenCmd{}}
+    <> SlashRow{"links", LinksCmd{}}
     <> SlashRow{"search", SearchCmd{}}
     <> SlashRow{"preview", PreviewCmd{}}
     <> SlashRow{"images", ImagesCmd{}}
     <> SlashRow{"log", LogCmd{}}
+    <> SlashRow{"split", Unknown{}}
+    <> SlashRow{"vsplit", Unknown{}}
+    <> SlashRow{"split-off", Unknown{}}
+    <> SlashRow{"unsplit", Unknown{}}
+    <> SlashRow{"focus", Unknown{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:

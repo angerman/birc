@@ -459,12 +459,16 @@ static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
     image_placeholder_(ui, timui_intersect_rect_(visible, timui_root(frame)));
 }
 
+static int birc_u32_list(Env e, Term xs, uint32_t *vals, int max);
 #if CID_TIMUI_MEDIA_ADD
 Term timui_media_add_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   BircUi *bu = birc_state(ui);
   u64 length = 0;
+  uint32_t retained[BIRC_MEDIA_CAP];
+  int count = birc_u32_list(e, f[2], retained, BIRC_MEDIA_CAP);
   char *text = io_cstr(e, f[1], &length);
+  if (bu) birc_media_retain(&bu->media, retained, (size_t)count);
   uint32_t token = bu && text && length <= (u64)SIZE_MAX
       ? birc_media_add(&bu->media, text, (size_t)length) : 0;
   (void)w;
@@ -1048,6 +1052,31 @@ static void birc_hold_ctrl_w(Timui *ui) {
     ui->edit_count--;
 }
 
+static int birc_selection_append(char **out, size_t *cap, size_t *len,
+                                  const char *text, size_t size) {
+  size_t need, grown;
+  char *next;
+  if (size > SIZE_MAX - *len - 1)
+    return 0;
+  need = *len + size + 1;
+  if (need > *cap) {
+    grown = *cap;
+    while (grown < need) {
+      if (grown > SIZE_MAX / 2) { grown = need; break; }
+      grown *= 2;
+    }
+    next = (char *)realloc(*out, grown);
+    if (!next)
+      return 0;
+    *out = next;
+    *cap = grown;
+  }
+  memcpy(*out + *len, text, size);
+  *len += size;
+  (*out)[*len] = '\0';
+  return 1;
+}
+
 static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
   int from_x, from_y, to_x, to_y;
   int min_x, max_x;
@@ -1072,8 +1101,7 @@ static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
   for (int y = from_y; y <= to_y; y++) {
     int start_col = (y == from_y) ? from_x : min_x;
     int end_col = (y == to_y) ? to_x : max_x;
-    char line[2048];
-    size_t line_len = 0;
+    size_t row_end = len;
     for (int x = start_col; x <= end_col; x++) {
       TimuiCell *c;
       uint32_t cp;
@@ -1088,28 +1116,20 @@ static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
         glyph.ptr = utf8;
         glyph.len = (size_t)timui_utf8_encode_(cp, utf8);
       }
-      if (glyph.len > 0 && glyph.len < sizeof line - line_len) {
-        memcpy(line + line_len, glyph.ptr, glyph.len);
-        line_len += glyph.len;
+      if (glyph.len && !birc_selection_append(&out, &cap, &len, glyph.ptr, glyph.len)) {
+        free(out);
+        return;
       }
+      /* Padding is a separate one-byte space cell. A space attached by ZWJ
+       * belongs to its complete glyph and must not be trimmed from its bytes. */
+      if (glyph.len != 1 || glyph.ptr[0] != ' ')
+        row_end = len;
     }
-    while (line_len > 0 && line[line_len - 1] == ' ')
-      line_len--;
-    if (y < to_y) {
-      if (line_len + 1 < sizeof line) {
-        line[line_len++] = '\n';
-      }
-    }
-    if (line_len > 0) {
-      if (len + line_len + 1 >= cap) {
-        cap = (cap + line_len + 1) * 2;
-        char *nout = (char *)realloc(out, cap);
-        if (!nout) { free(out); return; }
-        out = nout;
-      }
-      memcpy(out + len, line, line_len);
-      len += line_len;
-      out[len] = '\0';
+    len = row_end;
+    out[len] = '\0';
+    if (y < to_y && !birc_selection_append(&out, &cap, &len, "\n", 1)) {
+      free(out);
+      return;
     }
   }
   if (len > 0) {

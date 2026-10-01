@@ -2064,15 +2064,16 @@ not unverified fixes or weakened expectations.
 
 The user requested another deep defect and cleanliness review while M19
 verification was running. Three review lanes covered runtime/infrastructure,
-protocol/state, and UI/media, including changed vendored seams. This pass is
-read-only for production code and tracked tests. The following 15 findings
-remain open; they are not included in the earlier 14 implemented M19 fixes.
+protocol/state, and UI/media, including changed vendored seams. The initial
+pass was read-only. The user then requested concurrent fixes. Four lanes
+implemented the initial 15 findings and three more confirmed during the fix
+pass. These are separate from the 14 implemented M19 fixes.
 P2 denotes user-visible correctness; P3 denotes lower impact or a dormant path.
 All guards below require failing-case and normal-case controls before a fix.
 
 ### Active correctness findings
 
-- [ ] **N01 (P2) — One cluster-width contract.** `columns.bend:48` sums scalar
+- [x] **N01 (P2) — One cluster-width contract.** `columns.bend:48` sums scalar
   widths, while native paint/FFI clip use whole clusters. `👩‍💻` is Bend width
   4/native width 2 and becomes `�` at a two-column wrap. `❤️x` is placed on
   one two-column row, then native clipping loses `x`. Native tab sizing at
@@ -2081,61 +2082,61 @@ All guards below require failing-case and normal-case controls before a fix.
   Guard ZWJ/VS16 wrap, tight-tab paint/hit geometry, ASCII, combining marks,
   modifiers, and one-column fallback. `wrap_demo.bend:81` encodes old scalar
   behavior; changing that existing expectation needs user approval.
-- [ ] **N02 (P2) — Native/Bend image cache coherence.** `media.bend:169,275`
+- [x] **N02 (P2) — Native/Bend image cache coherence.** `media.bend:169,275`
   replaces manual H while retaining seven live inline results A–G. Native
   `birc_media.h:148` evicts oldest A on H2 insertion instead of obsolete H.
   `timui_ffi.c:414,432` then refuses/retires A, but Bend still emits its token
   and suppresses another automatic request. Guard seven inline + manual
   refresh at capacity, ninth distinct insertion, failed refresh, and stale
   targets. Let retained Bend tokens govern native payload ownership.
-- [ ] **N03 (P2) — Canonical synthetic identities.** Lookup is case-insensitive,
+- [x] **N03 (P2) — Canonical synthetic identities.** Lookup is case-insensitive,
   but `client.bend:905` excludes only exact `*search*` from search. Create
   `/query *SEARCH*`, then repeat `/search hello`: prior results become search
   inputs and acquire nested prefixes. `/query *PREVIEW*` similarly breaks
   exact-name preview checks (`media.bend:220`). Guard equal upper/lower search
   and manual-preview behavior, normal queries, and literal wire rejection.
-- [ ] **N04 (P2) — JOIN arguments are not buffer identity.** `submit.bend:128`
+- [x] **N04 (P2) — JOIN arguments are not buffer identity.** `submit.bend:128`
   passes all remaining text to `buf_get`. `/join #room ` and `/join #room key`
   create identities with a space/key; self JOIN `#room` creates another tab.
   Parse channel identity separately from wire arguments. Guard both cases,
   plain JOIN, and valid key handling without exposing a key in a tab name.
-- [ ] **N05 (P2) — Reset volatile roster on reconnect.** `session.bend:1070`
+- [x] **N05 (P2) — Reset volatile roster on reconnect.** `session.bend:1070`
   retains channel nicks, and fresh NAMES (`client.bend:562`) only appends.
   Reconnect from `me alice` to `me bob` yields `me alice bob` indefinitely.
   Guard actual reconnect with departed members, fresh multi-line 353/366,
   retained chat history, and changed endpoint behavior.
-- [ ] **N06 (P2) — AUTH is a legal private-message target.** `client.bend:219`
+- [x] **N06 (P2) — AUTH is a legal private-message target.** `client.bend:219`
   treats any target `AUTH` as a server broadcast for both NOTICE and PRIVMSG.
   Own nick `AUTH` receives Alice's private message in the server buffer and
   loses private-message alerts. Restrict authentication broadcast handling.
   Guard private own/peer nick AUTH and genuine pre-registration NOTICE AUTH.
-- [ ] **N07 (P2) — Split rename must share client validation.** `split.bend:206`
+- [x] **N07 (P2) — Split rename must share client validation.** `split.bend:206`
   applies NICK parameters before Client's reserved-name rejection. `alice →
   *server*` leaves Alice's query unchanged but replaces its pane with server.
   Guard rejected reserved/empty renames, ordinary/collision renames, and
   unchanged focus. The suspected C0-prefixed ordinary-name variant was
   retracted: framing sanitizes it and the executed positive case is correct.
-- [ ] **N08 (P2) — Validate DNS response opcode.** `dns_wire.bend:847` checks QR
+- [x] **N08 (P2) — Validate DNS response opcode.** `dns_wire.bend:847` checks QR
   but not OPCODE. Mutating a valid response's first flags byte 129→137 still
   returns `1.2.3.4` for the opcode-zero query. Guard mismatched opcode rejection
   and the unchanged valid response; retain source/port/ID/question checks.
-- [ ] **N09 (P3) — Validate empty truncated DNS before TCP fallback.** The same
+- [x] **N09 (P3) — Validate empty truncated DNS before TCP fallback.** The same
   header checks return `tc` before QDCOUNT/RCODE/question validation when TC
   is set and ANCOUNT is zero. Wrong QNAME, zero questions, and error RCODE all
   trigger TCP instead of their validation failures. Guard those mutations,
   valid truncated fallback, and usable complete-A-with-TC behavior.
-- [ ] **N10 (P3) — Print each CLI diagnostic once.** `app.bend:144` calls
+- [x] **N10 (P3) — Print each CLI diagnostic once.** `app.bend:144` calls
   `IO.print_err(msg)` then `IO.die(..., msg)`, which also prints. Invalid
   `--frames xyz` emits the same error twice and exits 2. Guard one exact stderr
   diagnostic, unchanged exit status, and successful ordinary demo startup.
-- [ ] **N11 (P3) — Query role is not nickname spelling.** `buffer.bend:660`
+- [x] **N11 (P3) — Query role is not nickname spelling.** `buffer.bend:660`
   suppresses nick seeding for every buffer named `server`, including a legal
   peer query. Completion stays empty even after rename. Construct the control
   server separately; guard ordinary/server peer seeds and control isolation.
-- [ ] **N12 (P3) — Complete every supported slash command.** `/log` exists in
+- [x] **N12 (P3) — Complete every supported slash command.** `/log` exists in
   `Sub.slash_rows` but is missing from `session.bend:894` completion metadata.
   Guard `/lo` completion, accepted `/log`, and existing aliases/order.
-- [ ] **N13 (P3) — Do not omit selected clusters.** `timui_ffi.c:1075,1091`
+- [x] **N13 (P3) — Do not omit selected clusters.** `timui_ffi.c:1075,1091`
   silently skips a glyph that does not fit its 2048-byte row staging buffer.
   An accepted local-history cluster `e` + 1200 combining marks followed by X
   paints in two columns, but selection copies only X (1 instead of 2402
@@ -2144,34 +2145,63 @@ All guards below require failing-case and normal-case controls before a fix.
 
 ### Dormant vendored paths (not reached by birc today)
 
-- [ ] **N14 (P3) — Code widget must pass complete clusters.** `timui.h:29865`
+- [x] **N14 (P3) — Code widget must pass complete clusters.** `timui.h:29865`
   sends isolated code points to labels, so combining marks/ZWJ/modifiers are
   lost before cluster-aware paint. Iterate clusters with style at their start.
   Guard attached glyph bytes and ASCII syntax styling. The widget is unused
   by birc; this is not a new arena-ownership regression.
-- [ ] **N15 (P3) — Decoder 16-bit conversion OOM ownership.** `timui.h:19608`
+- [x] **N15 (P3) — Decoder 16-bit conversion OOM ownership.** `timui.h:19608`
   returns on failed allocation without freeing original decoded bytes. Its
   caller at 19706 can vertically flip the null result. Guard forced conversion
   failure with flip enabled and successful conversion. This predates M19;
   birc explicitly takes the inspected 8-bit path at 26777.
 
+### Additional implementation-review findings
+
+- [x] **N16 (P3) — Preserve attached final spaces in selection.** The first
+  growable-copy fix still trimmed raw trailing space bytes. Native `e + ZWJ +
+  space` is one attached glyph, so trimming changed its bytes. A new native
+  guard failed before the correction. Track the last non-padding cell end;
+  trim only a separate one-byte space cell. Ordinary padding, large clusters,
+  cross-row copying, and allocation refusal remain covered. Normal and UBSan
+  gates pass in `build/m20-selection-cache-final-20261001.log`.
+- [x] **N17 (P2) — Reader EOF cannot acknowledge writer shutdown.** A real
+  loopback peer `SHUT_WR` with a gated writer produced exit 0 and no queued
+  NOTICE/QUIT bytes. The open-peer control sent both. Add current-generation
+  `WriterDone` after FIFO flush and Socket close; ignore reader EOF and stale
+  completions while shutting down. Preserve ordinary EOF notifications. Real
+  open/half-close/stale-ack and Demo/Offline idle-writer controls now pass.
+  Evidence: `build/m20-shutdown-{red,green}.log`; driver
+  `make test-shutdown-ack test-shutdown-flush`. Connecting/Reconnecting still
+  bypass a pending dial. Cross-review found no ownership or consumer gap.
+- [x] **N18 (P3) — Preview retry fixture must observe completion.** The old
+  fixture slept 0.5 seconds then retried an identical manual request. A local
+  helper that delays a known failure by 1.5 seconds makes that request an
+  intentional in-flight duplicate and reproduces the retry-test failure.
+  Wait for the visible failure completion, with a finite two-second bound,
+  before creating the file and retrying. Keep no-upload, upload, placement,
+  FIFO nonblocking, exit-status, and existing two-second upload assertions.
+  Add `make test-pty-preview-retry` as the delayed control. Three consecutive
+  normal/delayed passes on the new binary passed. This proves a fixture
+  race, not the cause of the earlier full-run failure.
+
 ### Concrete cleanliness work, not speculative optimization
 
-- [ ] **K01 — Consistent build deadlines.** Older Makefile test recipes at
+- [x] **K01 — Consistent build deadlines.** Older Makefile test recipes at
   206/216/241/246/251/262/384/402 still invoke the compiler without a wall-clock
   timeout. Apply the existing bounded convention; preserve all test deadlines.
-- [ ] **K02 — One command catalog.** Derive completion from dispatch metadata
+- [x] **K02 — One command catalog.** Derive completion from dispatch metadata
   with explicit aliases/order instead of maintaining a second command list.
   N12 demonstrates actual drift; avoid a new command framework.
-- [ ] **K03 — Share scanning, preserve remainder policy.** `Sub.take_verb`,
+- [x] **K03 — Share scanning, preserve remainder policy.** `Sub.take_verb`,
   `Sub.take_word`, and `Irc.take_until_space` repeat the same space scan but
   deliberately keep/drop one/drop all separator spaces. Share the scan with
   small explicit wrappers; characterize all three policies first.
-- [ ] **K04 — Keep fixture-only compatibility out of production modules.**
+- [x] **K04 — Keep fixture-only compatibility out of production modules.**
   `Args.copy_fin2` is production-unused and explicitly retained by synthetic
   tests. Move it to test/law helpers if imports/assertions can be preserved.
   Do not remove useful compatibility or weaken tests to reduce line count.
-- [ ] **K05 — Correct stale explanations.** Session's header still says no
+- [x] **K05 — Correct stale explanations.** Session's header still says no
   reconnect/backoff. `net.bend:63` says receive-after-close deadlocks, although
   the pinned runtime returns None. Keep the real actor-ack ownership reason.
 
@@ -2183,23 +2213,65 @@ returned 0; raw output is `build/fresh-review-probes-final-20261001.log`.
 It demonstrates JOIN identities, uppercase search recursion, AUTH routing,
 reserved split rename, reconnect roster, server query seeding, Bend wrapping,
 retained cache tokens, DNS mutations, and duplicated CLI errors. Native cache
-FIFO is also covered by existing executed cache guards; its cross-layer manual
-refresh scenario is a source composition, not an end-to-end terminal repro.
+FIFO was covered by existing executed cache guards. At that review stage its
+cross-layer manual-refresh scenario was source composition; the implementation
+pass added an actual live Bend-to-C terminal reproducer and regression guard.
 
 The actual native fake-transport probe `build/review_native_edges.c` compiles
 under strict C11 warnings. Its short-Unicode control passes; tab metrics are
 6 vs 4 and 3 vs 4; large-cluster selection is RED with only X copied. The
 expected negative exit is 1. Log: `build/fresh-review-native-red-20261001.log`.
-N03 preview casing, N12 completion, and dormant N14/N15 remain source proofs,
-not executed feature reproducers. No new production/test behavior was changed
-in M20. No upstream push, source-pin update, real IRC connection, remote image
+At that initial read-only stage, N03 preview casing, N12 completion, and
+N14/N15 were source proofs. The implementation pass added executed red/green
+guards for each; new production/test behavior is now covered below. No upstream push, source-pin update, real IRC connection, remote image
 fetch, or desktop helper was used for these probes.
 
-Keep two unresolved observations distinct from confirmed defects: the M19
-intermittent execution failures (three isolated repeats now pass), and the
-possible reader-Eof/writer-flush shutdown acknowledgement race. Current Eof
-events have no writer-specific acknowledgement; an adversarial half-close
-test with pending QUIT is needed before promoting the shutdown candidate.
+The shutdown candidate is now confirmed and fixed as N17. The delayed-helper
+control confirms N18's fixture race, but does not prove the old full-run failure
+cause. The earlier scroll-edits and DNS TCP timeouts remain unexplained; preserve
+their assertions/deadlines. DNS_TCP_TRACE=1 now records fixed stages/timestamps,
+and failures report the case plus last child/peer stage without child text.
+
+### Implementation and verification (2026-10-01)
+
+Four lanes (root plus three agents) implemented the 18 findings and five
+cleanliness items, then cross-reviewed the ownership and test boundaries.
+Only one old expected value changed: the user explicitly approved the
+four-column ZWJ wrap correction. The argument helper and FFI fixture argument
+updates are mechanical and preserve assertions. No source pins, upstream
+pushes, real IRC endpoints, supplied private image URLs, or desktop helpers.
+No performance optimization or speedup claim was made.
+
+- [x] Red/green and ordinary controls for every confirmed defect. New state
+  modes each failed before the fix; native code/decoder guards included exact
+  attached bytes, allocation denials, and a null-flip crash. N02's actual live
+  test failed after full-cache manual refresh on the old app, then passed on
+  the rebuilt app without refetch. N17's real half-close lost queued QUIT
+  before the fix, then passed open/half-close/stale/idle controls afterward.
+- [x] `timeout 600 make proof test-m20-state test-ui-review-columns
+  test-dns-validation test-m20-media lint-ffi`: exit 0; ALL PROOFS CHECK and
+  all named guards pass. Log: `build/m20-integrated-pure-20261001.log`.
+- [x] Existing state/runtime regressions pass unchanged. Commands and outputs
+  are in `build/m20-state-regressions.log`; DNS/args checks retain the old
+  compound-error diagnostic precedence and all original assertions.
+- [x] New native normal/UBSan, strict C99/C11, 204-case cluster parity,
+  exhaustive scalar parity, and approved wrap controls pass. Logs:
+  `build/m20-ui-guards-20261001.log` and
+  `build/m20-selection-cache-final-20261001.log`.
+- [x] `timeout 650 make build-ui`: exit 0. Native binary SHA-256 is
+  `b8e757694db05b3f65bc1e427c3c139767728e2df9c87fb56a188f71666b4c54`.
+- [x] `make test-cli-diagnostics`, then three consecutive rounds of
+  `make test-pty-m20-media-cache test-pty-preview test-pty-preview-retry`:
+  all pass on that unchanged hash. Log:
+  `build/m20-terminal-three-20261001.log`.
+- [x] `timeout 300 make proof test-build-deadlines test-pty-deadlines`:
+  exit 0; ALL PROOFS CHECK, 63 bounded compiler recipes, 68 bounded terminal
+  commands. Log: `build/m20-final-law-driver-gates-20261001.log`.
+- [ ] Full uninterrupted `make check` on the frozen implementation.
+- [ ] Full sanitizer gate on the frozen implementation. New targeted UBSan
+  guards above pass; ASan remains unavailable on this Darwin arm64 runtime.
+- [ ] Rebuild the Nix app and run package checks on the new implementation.
+  The prior M19 package is not the new M20 build.
 
 ## Open decisions (resolve in M0/M4)
 

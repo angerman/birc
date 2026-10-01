@@ -45,7 +45,7 @@ static int draw_media(Timui *ui, BircUi *state, uint32_t token, int *saved_flags
 }
 
 static int cache_frame_ownership(void) {
-  SinkFixture fixture; Timui *ui; BircUi *state; Env env = {0}; Term fields[2];
+  SinkFixture fixture; Timui *ui; BircUi *state; Env env = {0}; Term fields[3];
   char text[256]; uint32_t token, next; int flags, i;
   TimuiTransportWrite saved; TimuiTransport transport = {NULL, media_read, NULL, NULL, NULL};
   TimuiAllocator allocator = timui_default_allocator();
@@ -56,7 +56,7 @@ static int cache_frame_ownership(void) {
   ui->fd.write_fd = fixture.fds[0][1]; install_writer(ui);
   state = calloc(1, sizeof *state); CHECK(state); ui->cfg.userdata = state; birc_ui_live = ui;
   fields[0] = io_hand((uint64_t)(uintptr_t)ui); helper_output(text, 1);
-  fields[1] = (Term)(uintptr_t)text;
+  fields[1] = (Term)(uintptr_t)text; fields[2] = CID_NIL;
   token = (uint32_t)timui_media_add_run(env, fields, NULL); CHECK(token != 0);
   CHECK(captured_len[0] == 0 && ui->id_head == NULL && !state->previews[0].image);
   timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);

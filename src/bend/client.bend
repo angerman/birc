@@ -215,16 +215,18 @@ def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
     case False{}:
       broadcast
 
-# NOTICE * / AUTH (and a missing nick) is a server broadcast, not a query.
-def feed_priv.to_server(+from: String, +target: String) -> Bool:
-  feed_priv.to_server.on(String.is_empty(from), Irc.ieq(target, "*") || Irc.ieq(target, "AUTH"))
+# AUTH is also a legal nickname. Only a registration NOTICE addressed to its
+# pseudo-target is broadcast; messages to our nick and self echoes stay private.
+def feed_priv.to_server(+cl: Cl.Client, +from: String, +target: String, notice: Bool) -> Bool:
+  feed_priv.to_server.on(String.is_empty(from), notice && (Irc.ieq(target, "*")
+    || (Irc.ieq(target, "AUTH") && Bool.not(Irc.ieq(target, Cl.nick_of(cl)) || Irc.ieq(from, Cl.nick_of(cl))))))
 
-def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String, chan: Bool) -> Cl.Client:
+def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, +notice: Bool, +body: String, +ts: String, chan: Bool) -> Cl.Client:
   match chan:
     case True{}:
       feed_priv.write_got(wire_get(cl, target, True{}, False{}), from, notice, body, ts)
     case False{}:
-      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(from, target), target, ts)
+      feed_priv.nonchan(cl, from, notice, body, feed_priv.to_server(cl, from, target, notice), target, ts)
 
 def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
   match muted:
@@ -507,7 +509,7 @@ def feed_nick.with.on(allowed: Bool, cl: Cl.Client, from: String, to: String, se
     case True{}: feed_nick.with.valid(cl, from, to, self)
 
 def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
-  feed_nick.with.on(wire_name(from) && wire_name(to), cl, Cl.target_name(from), Cl.target_name(to), self)
+  feed_nick.with.on(Cl.nick_rename_allowed(from, to), cl, Cl.target_name(from), Cl.target_name(to), self)
 
 def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)

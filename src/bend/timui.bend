@@ -73,11 +73,12 @@ law Timui.close:
 def Timui.close(ui):
   import "../ffi/timui_ffi.c"
 
-# The bounded helper envelope is validated and stored by the native image cache.
+# Retained tokens come from Bend's prospective accepted completion. The native
+# cache releases other payloads, then validates/stores the bounded envelope.
 law Timui.media_add:
-  Ui -> String -> IO(Ui & U32)
+  Ui -> String -> List<&2, U32> -> IO(Ui & U32)
 
-def Timui.media_add(ui, payload):
+def Timui.media_add(ui, payload, retained):
   import "../ffi/timui_ffi.c"
 
 law Timui.media_clear:

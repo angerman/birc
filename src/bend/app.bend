@@ -140,9 +140,7 @@ def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:
     case Args.Bad{+msg}:
-      do IO<Unit>:
-        Unit <- IO.print_err(msg)
-        IO.die(Unit, 2, msg)
+      IO.die(Unit, 2, msg)
     case Args.Good{cfg}:
       main_cfg(cfg)
 

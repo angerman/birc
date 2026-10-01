@@ -32,7 +32,7 @@ def shutdown_failed(ui: T.Ui, +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +msg: S
     Unit <- T.Timui.close(ui)
     T.Sys.exit_fail(msg)
 
-def shutdown_eof(same: Bool, ui: T.Ui, k: T.Ui -> IO(Unit)) -> IO(Unit):
+def shutdown_done(same: Bool, ui: T.Ui, k: T.Ui -> IO(Unit)) -> IO(Unit):
   match same:
     case True{}:
       shutdown_finish(ui)
@@ -49,18 +49,11 @@ def shutdown_on(
     case None{}:
       shutdown_finish(ui)
     case Some{m}:
-      match m:
-        case Sess.FromNet{got, e}:
-          match e:
-            case Sess.Eof{}:
-              shutdown_eof(Sess.event_current(Sess.FromNet{got, Sess.Eof{}}, gen), ui, k)
-            case _:
-              k(ui)
-        case _:
-          k(ui)
+      shutdown_done(Sess.writer_done_current(m, gen), ui, k)
 
-# Close cmd so the writer flushes QUIT and posts Eof. Do not close evt:
-# a recv after close deadlocks. Skip a stale generation.
+# Closing cmd lets the writer flush QUIT, close its Socket, and post WriterDone.
+# Keep evt open until that acknowledgement; reader EOF and stale events cannot
+# acknowledge the writer's pending queue.
 @unsafe
 def shutdown_wait(ui: T.Ui, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   do IO<Unit>:
@@ -631,6 +624,8 @@ def on_evt(
       on_up(ui, st, evt, cmd, ack, gen, k)
     case Sess.Eof{}:
       on_fail(ui, st, evt, cmd, ack, gen, "disconnected", k)
+    case Sess.WriterDone{}:
+      k((ui, st, gen, False{}))
     case Sess.NetFail{+msg}:
       on_fail(ui, st, evt, cmd, ack, gen, "disconnected: " ++ msg, k)
     case Sess.InitialFail{+msg}:
@@ -820,7 +815,8 @@ def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +tic
       k((ui, Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)), gen, False{}))
     case True{}:
       do IO<Unit>:
-        pair : T.Ui & U32 <- T.Timui.media_add(ui, payload)
+        pair : T.Ui & U32 <- T.Timui.media_add(ui, payload,
+          M.retained_tokens(M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)))
         on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, k)
 
 def images_enabled.got(result: Result<&1, &1, U32 & String, String>) -> Bool:

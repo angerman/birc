@@ -293,12 +293,3 @@ def drop_prog(xs: List<&1, String>) -> List<&1, String>:
 
 def parse_raw(raw: List<&1, String>) -> Parsed:
   parse(copy_args(drop_prog(raw), Nil{}))
-
-# Fail closed on leftover argv. Tests construct the remainder as List<&2>
-# without IO.args (copy_args itself has no cap; parse is 64 flags).
-def copy_fin2(rest: List<&2, String>, acc: List<&2, String>) -> Parsed:
-  match rest:
-    case Nil{}:
-      parse(List.reverse(&2, String, acc))
-    case Con{_, _}:
-      Bad{"birc: too many arguments"}

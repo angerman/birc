@@ -344,12 +344,19 @@ def close_socket(sock: Maybe<&1, Socket>) -> IO(Unit):
     case None{}: IO.pure(Unit, Unit{})
     case Some{s}: writer_drop(s)
 
+# Preserve the ordinary EOF notification, then acknowledge writer completion
+# separately. A reader's EOF cannot stand in for this socket-owner event.
+def writer_done(+evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- post(evt, gen, Sess.Eof{})
+    post(evt, gen, Sess.WriterDone{})
+
 def finish_sent(pair: Socket & Sent, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   match pair:
     case (sock, _):
       do IO<Unit>:
         Unit <- writer_drop(sock)
-        post(evt, gen, Sess.Eof{})
+        writer_done(evt, gen)
 
 # Closing cmd (including UI fuel exhaustion) flushes the healthy FIFO outside
 # the loop budget. A failed/partial write stops this flush without replay.
@@ -357,7 +364,7 @@ def writer_finish(st: Writer, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match st:
     case Writer{sock, +gen, pending, _, _}:
       match sock:
-        case None{}: post(evt, gen, Sess.Eof{})
+        case None{}: writer_done(evt, gen)
         case Some{s}:
           do IO<Unit>:
             pair : Socket & Sent <- send_batch(s, pending)

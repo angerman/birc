@@ -281,6 +281,20 @@ def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: S
     case State{_, _, _, +active, _, _}:
       complete.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state, token)
 
+# Zero denotes a placeholder, never native payload ownership. Compute this on
+# the prospective completion with token zero before admitting its new payload.
+def retained_tokens.ready(xs: List<&2, Ready>) -> List<&2, U32>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Ready{_, _, +token}, tail}:
+      match token:
+        case 0: retained_tokens.ready(tail)
+        case _: token <> retained_tokens.ready(tail)
+
+def retained_tokens(state: State) -> List<&2, U32>:
+  match state:
+    case State{_, _, _, _, _, ready}: retained_tokens.ready(ready)
+
 def token_from(xs: List<&2, Ready>, +target: Target, +url: String) -> U32:
   match xs:
     case Nil{}: 0

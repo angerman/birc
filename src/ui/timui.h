@@ -2166,7 +2166,7 @@ TIMUI_API TimuiTooltipResult timui_tooltip_mut(
  * The geometry is factored into pure, I/O-free helpers (no frame / terminal),
  * so an app can hit-test or lay tabs out itself and the math is unit-testable
  * in isolation. Each tab occupies display_width(label)+2 columns — a one-space
- * pad each side, the ' LABEL ' box — width-aware via timui_utf8_width. */
+ * pad each side, the ' LABEL ' box — width-aware via timui_grapheme_width. */
 typedef struct {
   int x;
   int w;
@@ -19605,7 +19605,10 @@ static stbi__uint16 *stbi__convert_8_to_16(stbi_uc *orig, int w, int h, int chan
    stbi__uint16 *enlarged;
 
    enlarged = (stbi__uint16 *) stbi__malloc(img_len*2);
-   if (enlarged == NULL) return (stbi__uint16 *) stbi__errpuc("outofmem", "Out of memory");
+   if (enlarged == NULL) {
+      STBI_FREE(orig);
+      return (stbi__uint16 *) stbi__errpuc("outofmem", "Out of memory");
+   }
 
    for (i = 0; i < img_len; ++i)
       enlarged[i] = (stbi__uint16)((orig[i] << 8) + orig[i]); // replicate to high and low byte, maps 0->0, 255->0xffff
@@ -19695,6 +19698,10 @@ static stbi__uint16 *stbi__load_and_postprocess_16bit(stbi__context *s, int *x, 
 
    if (ri.bits_per_channel != 16) {
       result = stbi__convert_8_to_16((stbi_uc *) result, *x, *y, req_comp == 0 ? *comp : req_comp);
+      if (result == NULL) {
+         s->allocation_failed = 1;
+         return NULL;
+      }
       ri.bits_per_channel = 16;
    }
 
@@ -29854,24 +29861,28 @@ static void timui_hl_draw_line(TimuiFrame *f, int x0, int y, int x1,
   while (i < llen && col < x1) {
     TimuiHlClass cls = TIMUI_HL_TEXT;
     TimuiStr ch;
-    uint32_t cp = 0;
-    int adv, w;
+    size_t next;
+    int w;
     /* Advance past tokens that end at/before this byte, then adopt the one
      * covering it (gaps stay TIMUI_HL_TEXT). */
     while (ti < nt && i >= toks[ti].off + toks[ti].len)
       ti++;
     if (ti < nt && i >= toks[ti].off)
       cls = toks[ti].cls;
-    adv = timui_utf8_decode(line + i, (size_t)(llen - i), &cp);
-    if (adv <= 0)
-      adv = 1;
+    next = timui_grapheme_next(line, (size_t)llen, (size_t)i);
+    if (next <= (size_t)i)
+      next = (size_t)i + 1;
     ch.ptr = line + i;
-    ch.len = (size_t)adv;
+    ch.len = next - (size_t)i;
     timui_label(f, col, y, ch,
                 timui_style_make(timui_hl_color(cls), TIMUI_CODE_BG, 0));
-    w = timui_utf8_width(cp);
-    col += w > 0 ? w : 0;
-    i += adv;
+    w = timui_grapheme_width(ch.ptr, ch.len);
+    if (w == 0 && timui_utf8_decode(ch.ptr, ch.len, NULL) <= 0)
+      w = 1; /* same malformed-byte replacement as timui_draw_text */
+    if (col > INT_MAX - w)
+      break;
+    col += w;
+    i = (int)next;
   }
 }
 
@@ -29983,7 +29994,12 @@ static int timui_disp_width_n_(const char *s, size_t len) {
     size_t n = timui_grapheme_next(s, len, i);
     if (n <= i)
       n = i + 1; /* never stall on malformed input */
-    w += timui_grapheme_width(s + i, n - i);
+    {
+      int cw = timui_grapheme_width(s + i, n - i);
+      if (w > INT_MAX - cw)
+        return INT_MAX;
+      w += cw;
+    }
     i = n;
   }
   return w;
@@ -30574,31 +30590,12 @@ TIMUI_API TimuiTableResult timui_table_ex_mut(TimuiFrame *f, TimuiId id,
  * SPDX-License-Identifier: Apache-2.0
  * Copyright 2026 Moritz Angermann <moritz@zw3rk.com>, zw3rk pte. ltd. */
 
-/* Display width (terminal columns) of a NUL-terminated UTF-8 label, summing
- * per-codepoint widths so CJK/emoji count as 2 and combining marks as 0. */
-static int timui_tab_text_width_(const char *s) {
-  int w = 0;
-  size_t i = 0, len;
-  if (!s)
-    return 0;
-  len = strlen(s);
-  while (i < len) {
-    uint32_t cp = 0;
-    int adv = timui_utf8_decode(s + i, len - i, &cp);
-    if (adv <= 0)
-      adv = 1; /* never stall on a bad byte */
-    w += timui_utf8_width(cp);
-    i += (size_t)adv;
-  }
-  return w;
-}
-
 /* Columns occupied by tab `i`'s ' LABEL ' box: the label's display width plus
  * one pad column on each side. The single definition every pass shares, so the
  * measure / hit-test / draw walks can never disagree about a tab's width. */
 static int timui_tab_box_width_(const char *const *labels, int i) {
-  int lw = (labels && labels[i]) ? timui_tab_text_width_(labels[i]) : 0;
-  return lw + 2;
+  int lw = timui_display_width(labels ? labels[i] : NULL);
+  return timui_clamp_i64_to_int_((int64_t)lw + 2);
 }
 
 /* The scroll math of timui_tabs_scroll expressed over ONE span plus the total

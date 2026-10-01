@@ -12,6 +12,66 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.media_retained_payload_coherence():
+  {==}
+
+def Laws.dns_response_opcode_matches_query():
+  {==}
+
+def Laws.dns_truncation_after_question_validation():
+  {==}
+
+def Laws.cluster_width_matches_native():
+  {==}
+
+def Laws.cluster_vs16_wrap_boundary():
+  {==}
+
+def Laws.cluster_zwj_one_column_boundary():
+  {==}
+
+def Laws.cluster_regional_pair_with_extension():
+  {==}
+
+def Laws.synthetic_search_identity_canonical():
+  {==}
+
+def Laws.synthetic_preview_identity_canonical():
+  {==}
+
+def Laws.ordinary_query_spelling_preserved():
+  {==}
+
+def Laws.split_reserved_rename_rejected():
+  {==}
+
+def Laws.split_ordinary_rename_allowed():
+  {==}
+
+def Laws.server_query_seeded():
+  {==}
+
+def Laws.verb_keeps_extra_separators():
+  {==}
+
+def Laws.word_drops_separators():
+  {==}
+
+def Laws.protocol_scan_keeps_separators():
+  {==}
+
+def Laws.log_command_has_completion():
+  {==}
+
+def Laws.reader_eof_is_not_writer_completion():
+  {==}
+
+def Laws.stale_writer_completion_rejected():
+  {==}
+
+def Laws.current_writer_completion_accepted():
+  {==}
+
 def Laws.media_encoded_png():
   {==}
 

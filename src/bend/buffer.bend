@@ -5,8 +5,18 @@ import ./diagnostic.bend as Diagnostic
 
 # Creation and wire/history routing normalize identity before policy checks
 # and lookup. Generic local lookup compares the names actually stored.
+def target_name.known(+name: String, key: String) -> String:
+  match key:
+    case "*LOG*": Diagnostic.name()
+    case "*SEARCH*": "*search*"
+    case "*PREVIEW*": "*preview*"
+    case "*SETTINGS*": "*settings*"
+    case "*SERVER*": "*server*"
+    case _: name
+
 def target_name(+raw: String) -> String:
-  Irc.sanitize_in(raw)
+  +clean = Irc.sanitize_in(raw)
+  target_name.known(clean, Irc.rfc1459(clean))
 
 def target_is_synthetic(+raw: String) -> Bool:
   String.starts_with(target_name(raw), "*")
@@ -16,6 +26,12 @@ def target_channel(+raw: String) -> Bool:
 
 def target_wire(+raw: String) -> Bool:
   Bool.not(target_is_synthetic(raw))
+
+# Client and split panes must accept the same normalized NICK event.
+def nick_rename_allowed(+from: String, +to: String) -> Bool:
+  +old = target_name(from)
+  +new = target_name(to)
+  Bool.not(String.is_empty(old) || String.is_empty(new)) && target_wire(old) && target_wire(new)
 
 def MAX_BUFFERS() -> Nat:
   16n
@@ -657,12 +673,12 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
   match is_channel:
     case True{}: Nil{}
     case False{}:
-      empty_buf.nicks.server(String.eq(name, "server") || String.starts_with(name, "*"), name)
+      empty_buf.nicks.server(String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
   +canonical = target_name(name)
   +channel = is_channel || target_channel(canonical)
-  Buffer{Bool.pick(String, Irc.ieq(canonical, Diagnostic.name()), Diagnostic.name(), canonical), channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
+  Buffer{canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
 
 # Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
@@ -916,6 +932,23 @@ def reconnect_markers(cl: Client, now: String) -> Client:
   match cl:
     case Client{nick, server, bufs, active, old_now, stg, auth, seq}:
       stamp_logs(Client{nick, server, reconnect_bufs(bufs, now), active, old_now, stg, auth, seq})
+
+# Roster and topic describe the current connection, unlike retained history.
+def reset_channel_buf(b: Buffer) -> Buffer:
+  match b:
+    case Buffer{name, True{}, _, lines, _, scroll}:
+      Buffer{name, True{}, "", lines, Nil{}, scroll}
+    case _: b
+
+def reset_channel_bufs(bufs: List<&2, Buffer>) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{b, rest}: reset_channel_buf(b) <> reset_channel_bufs(rest)
+
+def reset_channel_state(cl: Client) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      Client{nick, server, reset_channel_bufs(bufs), active, now, stg, auth, seq}
 
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   buf_log_ts(b, Error{}, now, "buffer limit reached")
