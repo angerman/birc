@@ -1102,11 +1102,35 @@ def visible_anchored(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll
   +end = viewport_end(rows, height, want)
   anchored_bodies(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height))
 
+# At the live bottom, stop after enough expanded rows, not logical messages:
+# muted/empty media lines can add no rows, while wrapped lines and images add many.
+def recent_lines.more(state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
+  match state:
+    case (0n, acc): acc
+    case (1n+p, +acc):
+      +left : Nat = 1n+p
+      +rows = body_rows_media(body_of.lines([line], mutes, name, server), name, w, show_ts, media)
+      +count = List.length(&2, BodyRow, rows)
+      +keep = Nat.min(left, count)
+      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
+
+def recent_lines.go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
+  match lines:
+    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
+    case Con{+h, t}:
+      recent_lines.more(state, h, name, w, show_ts, mutes, server, media,
+        next => recent_lines.go(t, name, w, show_ts, mutes, server, media, next))
+
+def body_of.buf_media.bottom(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+  match bottom:
+    case True{}: recent_lines.go(List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, server, media, (height, Nil{}))
+    case False{}: visible_anchored(anchored_lines_media(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines), media), height, scroll)
+
 def body_of.buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String, +media: M.State) -> List<&2, BodyRow>:
   match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
+    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
       +lines = media_display_lines(name, topic, raw_lines, media)
-      visible_anchored(anchored_lines_media(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines), media), height, scroll)
+      body_of.buf_media.bottom(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, server, media, Cl.ScrollAt{after, tail})
 
 def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String) -> List<&2, BodyRow>:
   body_of.buf_media(b, height, w, show_ts, mutes, server, M.empty())

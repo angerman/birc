@@ -1602,6 +1602,43 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       `build/review-output-profile-lexer-three-20261001.log` and
       `build/review-output-gates-lexer-after-20261001.log`. Keep the remaining
       regression open and measure actual IRC-prefix viewport construction.
+- [ ] **P20 — Build only visible rows at the live bottom.** Whole-body and
+      viewport instrumentation was committed in `e38fe2f` before measurement.
+      The fixture uses the production 50×200 geometry: 180 inner columns and
+      45 visible rows, with IRC nick prefixes and timestamps. Two warmed,
+      fully consumed baseline batches at 128/512/1024 lines take 79/81,
+      321/341, and 623/717 ms for the viewport, always consuming 45 rows.
+      Full-body controls take 80/78, 328/317, and 663/647 ms. This supports
+      testing whether the default viewport unnecessarily formats older rows.
+      At anchor `0:0`, the candidate walks newest lines until 45 expanded
+      rows are available. It counts actual rows, preserving muted and empty
+      media lines, wrapped text, and clipped image metadata. Paused anchors
+      retain the complete legacy path. The reference fixture compares every
+      row/span field across geometry, timestamps, mutes, settings, Unicode,
+      pending/ready images, manual diagnostics, and paused anchors.
+      After batches take 33/27, 34/33, and 40/32 ms, still yielding 45 rows.
+      Full-body controls are slower in this batch (85/88, 428/402, 793/850 ms),
+      so these samples do not establish an exact speedup factor. Source hash
+      `a25e49201ce90d90f0e4a7e206cf8613c72cb6d1`; benchmark SHA-256
+      `ca79993b23f237982c2306bcf1d35a3acb45a88e54ec297ad341baa704bc4e5a`.
+      Logs: `build/review-viewport-baseline-20261001.log` and
+      `build/review-viewport-tail-after-20261001.log`. Exact reference,
+      media-view, manual-anchor, and full proof gates pass.
+      The combined app now builds successfully (SHA-256
+      `13139c35d4eb8cfb6eea194901559b77f286812af6383b2f741d492aad960b3c`).
+      Three serial profiles meet the original PONG limits in all six cases:
+      stall 27.177/25.406/24.269 ms; large-frame progress
+      674.731/860.798/638.779 ms. Median View times are 21,346 and 28,174 us;
+      stall frame counts changed, so this is not an exact per-call speedup.
+      The added live-bottom image-crop assertion preserves image row 5 plus
+      both raw diagnostic rows. Profile log:
+      `build/review-output-profile-viewport-three-20261001.log`.
+      All four unchanged output-stall, output-progress, terminal-stall, and
+      RST targets pass three consecutive serial batches on that same binary,
+      with no concurrent builds or assertion changes. Logs:
+      `build/review-output-gates-viewport-{1,2,3}-20261001.log`.
+      The measured hypothesis holds for the components and app; the full
+      integrated check remains the separate V04 gate.
 
 P17 component checkpoint (not a whole-app latency claim): all 20 warmed,
 fully consumed after-batches completed serially with 15-second child bounds.
