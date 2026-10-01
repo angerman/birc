@@ -1573,6 +1573,35 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       The bounded new fixture is now green, as are unchanged feed, split-rename,
       diagnostic-buffer, and diagnostic-session controls. Full proofs pass.
       Normal NICK/QUIT preserve log focus; local search/log still work.
+- [ ] **P19 — Measure the remaining lexer latency.** Lexer instrumentation
+      was committed in `2caffee` before measurement. Consumed warmed plain-text
+      batches take 121/133 ms in `Links.render` alone, versus 156/165 ms for
+      full wrapping. Eight-link lexer batches take 82/95 ms; sixteen take
+      277/207 ms. This isolates parsing as a major residual cost, not an exact
+      additive phase percentage (wrapping also strips the nick prefix).
+      Test the hypothesis that eager finished/continuing branches rebuild
+      intermediate output and continue after end-of-source. Preserve scanner
+      results and remeasure; keep original PONG limits unchanged.
+      Baseline log: `build/review-lexer-baseline-20261001.log`; benchmark
+      SHA-256 `66cf6172a3eba231ae6a1dba157999eca23f6d0e6f0ac292f59561a7586489e1`.
+      The narrow candidate selects finish or continuation with a parameter
+      match. After batches retain all run/row counts: plain lex 32/31 ms,
+      full wrapping 63/63 ms; eight-link lex 35/36 ms and wrapping 47/46 ms;
+      sixteen-link lex 85/82 ms and wrapping 106/111 ms. Log:
+      `build/review-lexer-lazy-after-20261001.log`; source hash
+      `b7f85a64393c26902be48cc3e04e012d96123d63`, benchmark SHA-256
+      `4b0f2c0d5d671328db72b4650eec28be926c17838ffb96cdf4e27d1c26d0be51`.
+      This supports the lexer branch hypothesis. Full proof, unchanged links,
+      link commands, wrapping, rich text, formatting, and media guards pass.
+      Three unchanged app profiles on SHA-256
+      `260d10f4b2bcb62277a6e763e1aa181cb097a1951d631838761ecc2105a51c37`
+      report median stall PONG 451.580 ms and progress PONG 1378.875 ms. The
+      unchanged output-stall gate passes all seven cases once; progress still
+      fails its first 1000-ms PONG assertion. Stall and RST remain green.
+      Later progress cases did not execute. Logs:
+      `build/review-output-profile-lexer-three-20261001.log` and
+      `build/review-output-gates-lexer-after-20261001.log`. Keep the remaining
+      regression open and measure actual IRC-prefix viewport construction.
 
 P17 component checkpoint (not a whole-app latency claim): all 20 warmed,
 fully consumed after-batches completed serially with 15-second child bounds.

@@ -332,15 +332,19 @@ def finish(state: Scan) -> List<&2, Run>:
   match state:
     case Scan{_, attrs, _, _, text, _, runs}: List.reverse(&2, Run, flush(attrs, text, runs))
 
+def render.go.on(empty: Bool, state: Scan, k: Scan -> List<&2, Run>) -> List<&2, Run>:
+  match empty:
+    case True{}: finish(state)
+    case False{}: k(next(state))
+
 def render.go(fuel: Nat, state: Scan) -> List<&2, Run>:
   match fuel:
     case 0n: finish(state)
     case 1n+p:
       match state:
         case Scan{+s, +attrs, +end, +scopes, +text, +previous, +runs}:
-          Bool.pick(List<&2, Run>, String.is_empty(s),
-            finish(Scan{s, attrs, end, scopes, text, previous, runs}),
-            render.go(p, next(Scan{s, attrs, end, scopes, text, previous, runs})))
+          render.go.on(String.is_empty(s), Scan{s, attrs, end, scopes, text, previous, runs},
+            state => render.go(p, state))
 
 # Every step consumes source; raw IRC/history/composer text is never rewritten.
 def render(+s: String) -> List<&2, Run>:
