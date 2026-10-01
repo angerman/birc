@@ -941,9 +941,10 @@ def body_rows_media(+lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts:
   Bool.pick(List<&2, BodyRow>, String.eq(name, "*settings*"), unwrapped_lines(lines, w, show_ts), wrap_lines_media(lines, w, show_ts, media))
 
 # This synthetic row exists only in the view; raw Client/history lines stay intact.
+# Manual diagnostics append after it, matching the ordinary paused-anchor rule.
 def media_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, media: M.State) -> List<&2, Cl.Line>:
   Bool.pick(List<&2, Cl.Line>, String.eq(name, "*preview*") && contains_url(M.known_urls(media, M.Manual{}), topic),
-    List.append(&2, Cl.Line, lines, [Cl.Line{Cl.System{}, "", topic, "", 0n}]), lines)
+    Cl.Line{Cl.System{}, "", topic, "", 0n} <> lines, lines)
 
 def span_hello(spans: List<&2, SpanOp>) -> Bool:
   match spans:

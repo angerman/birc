@@ -85,6 +85,9 @@ def show_op(op: V.DrawOp) -> String:
       "L:" ++ U32.show(y) ++ "|" ++ U32.show(fg) ++ "|" ++ show_spanops(spans)
     case V.OpImage{x, y, w, h, +path}:
       "I:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "|" ++ path
+    case V.OpMedia{x, y, w, h, clip_y, clip_h, token}:
+      "M:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h)
+        ++ "," ++ U32.show(clip_y) ++ "," ++ U32.show(clip_h) ++ "," ++ U32.show(token)
 
 def show_ops.chunks(+xs: List<&2, V.DrawOp>) -> List<&2, String>:
   match xs:
