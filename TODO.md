@@ -1110,6 +1110,13 @@ passed. This is signal-versus-close safety, not generic concurrent Ui support.
       laws did not exercise `Irc.parse`→`msg_time`. Add `test-server-time` to
       the central driver and review gate. Its unchanged time/multi-tag/no-tag
       assertions pass in the locked shell.
+- [x] **V09 — Bound legacy terminal-test recipes.** Forty older scripts had
+      no outer deadline, even though some use unbounded drain/cleanup loops.
+      Add a 150-second recipe bound without changing their assertions. A new
+      dry-run guard rejects missing, zero, and nonfinite timeouts and accepts
+      direct/Nix/shell-wrapped bounds. It was red on the old driver and is
+      green for all 63 planned commands. This is a missing test bound, not a
+      claim that a program hang was reproduced.
 - [ ] **V04 — Integrated verification and handoff.** Run the full pinned
       `make check`, sanitizer checks, and three runs of every changed PTY test.
       Record exact commands, outcomes, limits, and local commit IDs here.
@@ -1541,6 +1548,42 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       removed the visible image. Put the manual image before raw diagnostics;
       failure/completion, ordinary-inline, resize, and exact distinct-token
       side-by-side/stacked split-clip guards now pass.
+- [ ] **P16 — Preserve installed image-helper overrides.** The installed Nix
+      wrapper uses unconditional `--set`, contradicting the documented
+      `BIRC_MEDIA_HELPER` override and bypassing synthetic test helpers.
+      Default only an unset variable; retain a nonempty executable path and
+      the existing empty-value `birc-image` PATH fallback. Verify installed
+      wrappers, local formats/bounds, and offline CA trust with owned fixtures.
+- [ ] **P17 — Select rendering branches before building their rows.** Default-off
+      View timing was committed in `cfbab9a` before measurement. Three serial
+      output profiles attribute 98–99% of recorded frame-phase time to View,
+      with PONG delays of 5–6 seconds. Consumed, warmed component batches show
+      empty-media wrapping taking about 2.16 times ordinary wrapping, and a
+      128-line media body taking 2.67 times the ordinary body. The pinned Bend
+      library and compiler confirm that `Bool.pick` builds both alternatives.
+      A valid 457-byte IRC line with 16 links also takes 125 ms to partition,
+      versus 1 ms with eight links. Replace only these measured eager branches
+      with parameter matches; preserve rows and remeasure before claiming a fix.
+- [ ] **P18 — Keep reserved buffers outside wire routing.** A new full-log
+      fixture reproduced `TOPIC/JOIN isolation topic=bad join=bad`: server
+      events could mutate `*log*` without its privacy and row-limit checks.
+      Guard protocol buffer names and nickname renames, not local UI lookups.
+      Verify TOPIC, JOIN, PART, KICK, MODE, 332, 353, and NICK attacks, including
+      an absent/closed log, alongside ordinary channel/query/NOTICE controls.
+
+Final combined run at `1ed6cb6`: `timeout 1800 make -k check` finished with
+exit 2 (no timeout) on 2026-10-01. Proof, media, diagnostics, IO, history,
+formatting, and most terminal tests passed. Raw log:
+`build/review-check-media-log-20261001.log`. Six failures remain under review:
+search's approved capacity targets, split's compiler capture limit and approved
+lazy-log counts, missing reset-socket disconnect wording, and three stalled
+output checks. Unchanged bounded reruns passed `test-pty-stall`, but reproduced
+`test-pty-output-stall` and `test-pty-output-progress` twice at their PONG
+assertions. Logs: `build/review-output-gates-rerun-20261001.log` and
+`build/review-output-gates-repeat-20261001.log`. The tested binary SHA-256 is
+`dc5c5dec075a0dac45ace49ade41f238bdb857600c0c01f361f1ecc76014f835`.
+The output cause is not established; instrument pure Bend view time before
+attempting a performance fix. Final verification remains open.
 
 Log checkpoint: the lazy model and approved four submit-buffer count updates
 are integrated in `adc0055`. Root IO now reports read, history-save, clipboard,
