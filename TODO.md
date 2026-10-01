@@ -2354,6 +2354,15 @@ expectation correction receives user approval. Add failing and passing controls.
       case and paint phase; do not change assertions, deadlines, or add retries.
 - [x] P01 — User chose directed server NOTICE routing to the read-only server
       buffer; preserve private user notices and ambiguous bare nicknames.
+- [ ] T01 — Await explicit approval for two ASCII media-fixture row helpers
+      (`media_anchor`, `media_branches`). Account for consumed hidden boundary
+      spaces, retain the existing expected strings, image and anchor assertions,
+      and reject non-ASCII reconstruction rather than invent cluster contents.
+- [ ] T02 — Await explicit approval for the settings PTY test's final assertion.
+      It starts `--demo` without selecting an endpoint, so `/reconnect` must
+      report no configured server instead of dialing the demo placeholder.
+      Keep earlier settings assertions; require three consecutive changed-test
+      passes. Configured-host models and loopback reconnect guards stay positive.
 - [ ] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
       full `make check`, supported sanitizers, and installed Nix package.
 
@@ -2402,6 +2411,25 @@ changes (`m21-package-diagnostic-{1,2,3}-20261002.log`). The driver rerun
 the full-app hostile PTY corpus. ASan explicitly reports an unsupported
 Darwin-arm64 interceptor-startup runtime (LLVM #58503); this is not ASan
 coverage. Log: `build/m21-sanitizers-final-20261002.log`.
+
+Final broad run: `timeout 2700 make -k check` completed with exit 2; log:
+`build/m21-full-check-final-20261002.log`. All gates except the three T01/T02
+fixture cases passed, including the remaining PTY corpus, formatting/emoji and
+image painters, pending/stale image policy, preview retries, diagnostic log,
+reconnects, exact links, UTF-8, scroll/resize, strict FFI and paste harness.
+T01's existing helpers concatenate visible rows without restoring consumed
+word-boundary spaces; their underlying raw text and anchor guards remain intact.
+T02 expects an implicit network dial from an offline demo. Both proposed
+corrections are explicitly awaiting user approval; no old test was changed.
+
+`timeout 310 make proof-kernel` fails closed (exit 2): Lean is absent; the
+independent verdict needs Lean v4.34.0 or a built `BENDTT`. No toolchain or pin
+was changed. Log: `build/m21-proof-kernel-20261002.log`. Normal proof checks,
+including six further channel/prefix/typing laws, pass. Implementation commits:
+`91edf88`, `ebcfbac`; package diagnostic checkpoint: `040937a`. The remaining
+work is T01/T02 approval, their focused guards and a clean aggregate check.
+No build/test process or external connection started by this review remains.
+No push was made.
 
 ## Open decisions (resolve in M0/M4)
 
