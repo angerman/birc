@@ -30,6 +30,9 @@ typedef uint64_t Loc;
 #ifndef CID_TIMUI_OPEN
 #define CID_TIMUI_OPEN CID(Timui.open)
 #endif
+#ifndef CID_TIMUI_VIEW_BEGIN
+#define CID_TIMUI_VIEW_BEGIN CID(Timui.view_begin)
+#endif
 #ifndef CID_TIMUI_FRAME
 #define CID_TIMUI_FRAME CID(Timui.frame)
 #endif
@@ -118,6 +121,8 @@ typedef struct {
   BircSel sel;
   int profile_enabled;
   uint64_t profile_frames;
+  uint64_t profile_view_start_ns;
+  uint64_t profile_view_ns;
   uint64_t profile_prepare_ns;
   uint64_t profile_begin_ns;
   uint64_t profile_draw_ns;
@@ -278,6 +283,29 @@ static uint64_t birc_profile_now_ns(void) {
 
 static uint64_t birc_profile_us(uint64_t ns, uint64_t frames) {
   return frames > 0 ? ns / frames / 1000ULL : 0;
+}
+
+/* Consume a mark once at frame entry, before the native preparation phase. */
+static void birc_profile_view_end(BircUi *bu, uint64_t now) {
+  if (!bu)
+    return;
+  if (bu->profile_enabled && bu->profile_view_start_ns != 0 &&
+      now >= bu->profile_view_start_ns)
+    bu->profile_view_ns += now - bu->profile_view_start_ns;
+  bu->profile_view_start_ns = 0;
+}
+
+Term timui_view_begin_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  BircUi *bu = birc_state(ui);
+  (void)e;
+  (void)w;
+  if (bu && bu->profile_enabled)
+    bu->profile_view_start_ns = birc_profile_now_ns();
+  return f[0];
+}
+static void __attribute__((constructor)) timui_view_begin_use(void) {
+  io_eff(CID_TIMUI_VIEW_BEGIN, timui_view_begin_run, 0);
 }
 
 static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
@@ -1158,6 +1186,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   TimuiTransportWrite saved_write;
   int saved_write_flags;
   (void)w;
+  birc_profile_view_end(bu, profile_t0);
   input = io_cstr(e, f[2], &n_in);
   if (!ui) {
     free(input);
@@ -1368,7 +1397,7 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
     int same_report_stream = ui && birc_fd_same_stream(ui->fd.write_fd, STDERR_FILENO);
     int count = snprintf(report, sizeof report,
             "birc_profile frames=%llu prepare_us=%llu begin_us=%llu "
-            "draw_us=%llu end_us=%llu\n",
+            "draw_us=%llu end_us=%llu view_us=%llu\n",
             (unsigned long long)st->profile_frames,
             (unsigned long long)birc_profile_us(st->profile_prepare_ns,
                                                 st->profile_frames),
@@ -1377,6 +1406,8 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
             (unsigned long long)birc_profile_us(st->profile_draw_ns,
                                                 st->profile_frames),
             (unsigned long long)birc_profile_us(st->profile_end_ns,
+                                                st->profile_frames),
+            (unsigned long long)birc_profile_us(st->profile_view_ns,
                                                 st->profile_frames));
     /* stderr can alias the UI stream, including a redirected pipe. Finish
      * its accepted scalar before the report within the existing budget.

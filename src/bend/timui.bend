@@ -41,6 +41,14 @@ law Timui.open:
 def Timui.open():
   import "../ffi/timui_ffi.c"
 
+# Default-off View timing under the existing BIRC_FRAME_PROFILE flag.
+# Sequence this mark before constructing the pure ViewModel.
+law Timui.view_begin:
+  Ui -> IO(Ui)
+
+def Timui.view_begin(ui):
+  import "../ffi/timui_ffi.c"
+
 # One begin/draw/end. C walks List<DrawOp> (no packed wire). seed != 0
 # reseeds the composer from input, including "". Key policy is Bend's
 # (Sess.key_pol). The UI does not poll. Watchers park; this frame does not wait.

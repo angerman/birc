@@ -136,7 +136,9 @@ def paint_go(
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), seed)
+      do IO<T.Ui & T.UiKeys>:
+        ui : T.Ui <- T.Timui.view_begin(ui)
+        paint_vm(ui, V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:

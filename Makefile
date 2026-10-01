@@ -648,6 +648,12 @@ test-output-progress: ## One serialized frame drains exactly across short writes
 	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/output_progress tests/output_progress.c'
 	$(NIXRUN) sh scripts/check-golden.sh output_progress=ok timeout 15 ./$(BLDDIR)/output_progress
 
+.PHONY: test-view-profile
+test-view-profile: ## Default-off pure View timing and exact mark ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/view_profile tests/view_profile.c'
+	$(NIXRUN) sh scripts/check-golden.sh view_profile=ok timeout 15 ./$(BLDDIR)/view_profile
+
 test-pty-output-progress: build-ui ## Pty: large and paced frames finish; partial-frame quit stays bounded.
 	$(NIXRUN) timeout 45 python3 tests/pty/output_progress.py ./$(BLDDIR)/birc
 
