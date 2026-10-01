@@ -39,10 +39,13 @@ def recent_guards() -> IO(Unit):
   +base = Cl.init("me", "a")
   +many = restored(base, old_records(14n) ++ record("recent", "latest"), 1)
   +touched = restored(base, old_records(14n) ++ record("OLD14", "touched") ++ record("recent", "latest"), 1)
+  +alias = restored(base, old_records(14n) ++ record("ol" ++ SCon{Chr{31}, "d14"}, "touched"), 1)
   +zero = restored(base, old_records(20n) ++ record("*server*", "server"), 0)
   do IO<Unit>:
     Unit <- E.must("newest target replaces oldest restored target", CL.has_buf(many, "recent") && Bool.not(CL.has_buf(many, "old14")) && Nat.is_eq(CL.nbuf(many), 15n))
     Unit <- E.must("target recency follows last retained record", CL.has_buf(touched, "old14") && Bool.not(CL.has_buf(touched, "old13")))
+    Unit <- E.must("normalized history alias does not evict a resident target", CL.has_buf(alias, "old13") && Nat.is_eq(CL.nbuf(alias), 15n))
+    Unit <- E.must_eq("normalized history alias updates canonical target", CL.buf_texts(alias, 1n), "touched|")
     Unit <- E.must_eq("casefold target keeps latest per-buffer row", CL.buf_texts(touched, 1n), "touched|")
     Unit <- E.must("bounded restore does not generate buffer-limit errors", String.is_empty(CL.buf_texts(many, 0n)))
     Unit <- E.must("zero cap restores neither chat targets nor server rows", Nat.is_eq(CL.nbuf(zero), 1n) && String.is_empty(CL.buf_texts(zero, 0n)))

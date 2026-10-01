@@ -3,8 +3,8 @@ import Base
 import ./irc.bend as Irc
 import ./diagnostic.bend as Diagnostic
 
-# Buffer identity is sanitized before lookup and policy checks, not only when
-# a buffer is created. Local synthetic tabs remain valid container targets.
+# Creation and wire/history routing normalize identity before policy checks
+# and lookup. Generic local lookup compares the names actually stored.
 def target_name(+raw: String) -> String:
   Irc.sanitize_in(raw)
 
@@ -646,7 +646,7 @@ def buf_find.skip0(xs: List<&2, Buffer>, +name: String) -> Maybe<&2, Nat>:
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
-      buf_find.skip0(bufs, target_name(name))
+      buf_find.skip0(bufs, name)
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:

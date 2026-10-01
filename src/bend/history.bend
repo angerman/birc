@@ -286,7 +286,8 @@ def history_target.allowed(allowed: Bool, +cl: Cl.Client, +target: String) -> Cl
     case True{}: history_target.found(Cl.buf_find(cl, target), cl, target)
 
 def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
-  history_target.allowed(Cl.target_wire(target) && Bool.not(String.is_empty(Cl.target_name(target))), cl, target)
+  +canonical = Cl.target_name(target)
+  history_target.allowed(Cl.target_wire(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:

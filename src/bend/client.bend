@@ -97,7 +97,8 @@ def wire_find.on(allowed: Bool, cl: Cl.Client, name: String) -> Maybe<&2, Nat>:
     case True{}: Cl.buf_find(cl, name)
 
 def wire_find(+cl: Cl.Client, +name: String) -> Maybe<&2, Nat>:
-  wire_find.on(wire_name(name) && Bool.not(String.is_empty(Cl.target_name(name))), cl, name)
+  +canonical = Cl.target_name(name)
+  wire_find.on(wire_name(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
 def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
   match allowed:
@@ -105,7 +106,8 @@ def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, creat
     case True{}: Cl.buf_get(cl, name, channel, create)
 
 def wire_get(+cl: Cl.Client, +name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
-  wire_get.on(wire_name(name) && Bool.not(String.is_empty(Cl.target_name(name))), cl, name, channel, create)
+  +canonical = Cl.target_name(name)
+  wire_get.on(wire_name(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical, channel, create)
 
 def feed_none(+cl: Cl.Client) -> Cl.Client:
   cl

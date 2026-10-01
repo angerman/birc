@@ -33,8 +33,29 @@ def wire_guards() -> IO(Unit):
     Unit <- E.must("literal reserved control stays blocked", W.unchanged(base, ":account!u@h JOIN *log*"))
     Unit <- E.must("normalization cannot create empty wire target", W.unchanged(base, ":account!u@h JOIN " ++ raw("")))
     Unit <- E.must("sanitized ordinary identity reuses one buffer", CL.has_buf(joined, "#ab") && Nat.is_eq(CL.nbuf(joined), 2n))
+    Unit <- E.must("generic lookup does not alias an unstored raw identity", Bool.not(CL.has_buf(joined, "#a" ++ raw("b"))))
+    Unit <- E.must("wire lookup resolves its canonical identity", CL.has_buf.on(Feed.wire_find(joined, "#a" ++ raw("b"))))
     Unit <- E.must("NOTICE star broadcast remains valid", String.contains(CL.buf_texts(Feed.feed(base, ":s NOTICE * :maintenance"), 0n), "maintenance"))
     Unit <- E.must_eq("diagnostic rows keep redaction", CL.buf_texts(logged, 1n), "[redacted] [redacted]|")
+    IO.pure(Unit, Unit{})
+
+def wire_alias_events() -> IO(Unit):
+  +target = "#a" ++ raw("b")
+  +base = Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN #ab")
+  +members = Feed.feed(base, ":s 353 me = " ++ target ++ " :me alice bob")
+  +topic = Feed.feed(Feed.feed(members, ":alice!u@h TOPIC " ++ target ++ " :changed"), ":s 332 me " ++ target ++ " :numeric topic")
+  +mode = Feed.feed(topic, ":alice!u@h MODE " ++ target ++ " +o bob")
+  +message = Feed.feed(mode, ":alice!u@h PRIVMSG " ++ target ++ " :ordinary")
+  +kicked = Feed.feed(message, ":alice!u@h KICK " ++ target ++ " bob :bye")
+  +parted = Feed.feed(kicked, ":alice!u@h PART " ++ target)
+  do IO<Unit>:
+    Unit <- E.must("NAMES routes normalized target", String.eq(CL.buf_nicks(members, "#ab"), "me alice bob "))
+    Unit <- E.must_eq("TOPIC/332 route normalized target", W.active_topic(topic), "numeric topic")
+    Unit <- E.must("MODE routes normalized target", String.contains(CL.buf_texts(mode, 1n), "MODE #ab +o bob"))
+    Unit <- E.must("PRIVMSG routes normalized target", String.contains(CL.buf_texts(message, 1n), "<alice> ordinary"))
+    Unit <- E.must_eq("KICK/PART route normalized target", CL.buf_nicks(parted, "#ab"), "me ")
+    Unit <- E.must("self KICK closes canonical target", Bool.not(CL.has_buf(Feed.feed(parted, ":alice!u@h KICK " ++ target ++ " me :bye"), "#ab")))
+    Unit <- E.must("wire aliases do not create duplicate targets", Nat.is_eq(CL.nbuf(parted), 2n))
     IO.pure(Unit, Unit{})
 
 def local_guards() -> IO(Unit):
@@ -102,6 +123,7 @@ def promotion_guard() -> IO(Unit):
 def main() -> IO(Unit):
   do IO<Unit>:
     wire_guards()
+    wire_alias_events()
     local_guards()
     lifecycle("/msg #r hi")
     lifecycle("/query #r hi")
