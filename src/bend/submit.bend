@@ -48,24 +48,9 @@ def skip_slash(+s: String) -> String:
     case SNil{}:
       SNil{}
 
-def active_idx(+cl: Cl.Client) -> Nat:
-  match cl:
-    case Cl.Client{_, _, _, +active, _, _, +auth, +log_seq}:
-      active
-
-def active_name.on(+got: Maybe<&2, Cl.Buffer>) -> String:
-  match got:
-    case None{}:
-      "server"
-    case Some{b}:
-      match b:
-        case Cl.Buffer{+name, _, _, _, _, _}:
-          name
-
+# Compatibility accessor used by existing command tests.
 def active_name(+cl: Cl.Client) -> String:
-  match cl:
-    case Cl.Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
-      active_name.on(Cl.nth_buf(bufs, active))
+  Cl.active_buf_name(cl)
 
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
@@ -78,16 +63,45 @@ def echo_action(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
       Cl.client_log_author_ts(cl, bi, Cl.Action{}, "", Feed.fmt_action(nick, body), nick)
 
 def echo_err(+cl: Cl.Client, +msg: String) -> Cl.Client:
-  Cl.client_log(cl, active_idx(cl), Cl.Error{}, msg)
+  Cl.client_log(cl, Cl.active_of(cl), Cl.Error{}, msg)
 
 def echo_info(+cl: Cl.Client, +msg: String) -> Cl.Client:
-  Cl.client_log(cl, active_idx(cl), Cl.System{}, msg)
+  Cl.client_log(cl, Cl.active_of(cl), Cl.System{}, msg)
 
 def echo_sys(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, 0n, Cl.System{}, msg)
 
 def echo_err_server(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, 0n, Cl.Error{}, msg)
+
+# Fit only the body after reserving the complete target envelope. The same
+# fitted value supplies the wire line and local echo/history.
+def fit_body(+body: String, budget: Nat) -> String:
+  +clean = Irc.strip_ctl(body)
+  Irc.clamp_line.go(Nat.add(1n, Nat.mul(2n, String.length(clean))), Irc.ClStr{}, budget, clean, "")
+
+type MessageBody is Data:
+  MessageBody{body: String, wire: String}
+
+def prepare_message.fits(fits: Bool, +target: String, body: String, overhead: Nat) -> Maybe<&2, MessageBody>:
+  match fits:
+    case False{}: None{}
+    case True{}:
+      +fitted = fit_body(body, Nat.sub(Irc.LINE_MAX(), overhead))
+      Some{MessageBody{fitted, Irc.format_privmsg(target, fitted)}}
+
+def prepare_message(+target: String, body: String) -> Maybe<&2, MessageBody>:
+  +clean = Cl.target_name(target)
+  +overhead = Irc.utf8_len(Irc.format_privmsg(clean, ""))
+  prepare_message.fits(Nat.is_le(overhead, Irc.LINE_MAX()), clean, body, overhead)
+
+def send_message.prepared(prepared: Maybe<&2, MessageBody>, cl: Cl.Client, +bi: Nat) -> Cl.Client & List<&2, String>:
+  match prepared:
+    case None{}: (echo_err(cl, "message target exceeds IRC line limit"), empty_out())
+    case Some{MessageBody{body, wire}}: (echo_self(cl, bi, body), wire <> Nil{})
+
+def send_message(cl: Cl.Client, bi: Nat, target: String, body: String) -> Cl.Client & List<&2, String>:
+  send_message.prepared(prepare_message(target, body), cl, bi)
 
 # ---- /join --------------------------------------------------------------
 
@@ -150,12 +164,12 @@ def submit_part.empty.on(+cl: Cl.Client, +rest: String, server: Bool) -> Cl.Clie
     case True{}:
       (echo_err(cl, "usage: /part #chan"), empty_out())
     case False{}:
-      submit_part.is_ch(cl, active_name(cl), Irc.starts_channel(active_name(cl)))
+      submit_part.is_ch(cl, Cl.active_buf_name(cl), Cl.target_channel(Cl.active_buf_name(cl)))
 
 def submit_part.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
-      submit_part.empty.on(cl, rest, Nat.is_eq(active_idx(cl), 0n))
+      submit_part.empty.on(cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
     case False{}:
       submit_part.is_ch(cl, rest, Irc.starts_channel(rest))
 
@@ -201,7 +215,7 @@ def submit_close.with(+cl: Cl.Client, +tgt: String) -> Cl.Client & List<&2, Stri
 def submit_close.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
-      submit_close.drop(cl, active_name(cl), active_idx(cl), Nat.is_eq(active_idx(cl), 0n))
+      submit_close.drop(cl, Cl.active_buf_name(cl), Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n))
     case False{}:
       submit_close.with(cl, rest)
 
@@ -234,25 +248,25 @@ def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String
     case (cl2, None{}):
       (cl2, empty_out())
     case (cl2, Some{+bi}):
-      +cl3 = Cl.set_active(echo_self(cl2, bi, body), bi)
-      (cl3, one_out(Irc.format_privmsg(who, body)))
+      send_message(Cl.set_active(cl2, bi), bi, who, body)
 
 def submit_msg.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_msg.got(Cl.buf_get(cl, who, False{}, True{}), who, body)
+    case False{}: submit_msg.got(Cl.buf_get(cl, who, Cl.target_channel(who), True{}), who, body)
 
 def submit_msg.bad(+cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match bad:
     case True{}:
       (echo_err(cl, "usage: /msg nick text"), empty_out())
     case False{}:
-      submit_msg.readonly(Irc.ieq(who, Diagnostic.name()), cl, who, body)
+      submit_msg.readonly(Cl.target_is_synthetic(who), cl, who, body)
 
 def submit_msg.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
     case (+who, +body):
-      submit_msg.bad(cl, String.is_empty(who) || String.is_empty(body), who, body)
+      +target = Cl.target_name(who)
+      submit_msg.bad(cl, String.is_empty(target) || String.is_empty(body), target, body)
 
 def submit_msg(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_msg.words(cl, take_word(rest))
@@ -262,7 +276,7 @@ def submit_query.send(has_text: Bool, +cl: Cl.Client, +bi: Nat, +who: String, +b
     case False{}:
       (cl, empty_out())
     case True{}:
-      (echo_self(cl, bi, body), one_out(Irc.format_privmsg(who, body)))
+      send_message(cl, bi, who, body)
 
 def submit_query.found(+cl2: Cl.Client, +bi: Nat, +who: String, +body: String, has_text: Bool) -> Cl.Client & List<&2, String>:
   submit_query.send(has_text, Cl.set_active(cl2, bi), bi, who, body)
@@ -277,19 +291,20 @@ def submit_query.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: Str
 def submit_query.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_query.text(Cl.buf_get(cl, who, False{}, True{}), who, body, Bool.not(String.is_empty(body)))
+    case False{}: submit_query.text(Cl.buf_get(cl, who, Cl.target_channel(who), True{}), who, body, Bool.not(String.is_empty(body)))
 
 def submit_query.empty(+cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
     case False{}:
-      submit_query.readonly(Irc.ieq(who, Diagnostic.name()) && Bool.not(String.is_empty(body)), cl, who, body)
+      submit_query.readonly(Cl.target_is_synthetic(who) && Bool.not(String.is_empty(body)), cl, who, body)
 
 def submit_query.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
     case (+who, +body):
-      submit_query.empty(cl, String.is_empty(who), who, body)
+      +target = Cl.target_name(who)
+      submit_query.empty(cl, String.is_empty(target), target, body)
 
 def submit_query(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_query.words(cl, take_word(Irc.drop_spaces(rest)))
@@ -312,8 +327,7 @@ def ctcp_action(+rest: String) -> String:
 # Reserve the complete CTCP envelope before fitting its text. Clamping the
 # assembled line can delete the closing SOH and echo text that was not sent.
 def ctcp_action_body(+rest: String, budget: Nat) -> String:
-  +body = Irc.strip_ctl(rest)
-  Irc.clamp_line.go(Nat.add(1n, Nat.mul(2n, String.length(body))), Irc.ClStr{}, budget, body, "")
+  fit_body(rest, budget)
 
 def submit_me.budget(+cl: Cl.Client, +tgt: String, +rest: String, +overhead: Nat, fits: Bool) -> Cl.Client & List<&2, String>:
   match fits:
@@ -321,24 +335,24 @@ def submit_me.budget(+cl: Cl.Client, +tgt: String, +rest: String, +overhead: Nat
       (echo_err(cl, "action target exceeds IRC line limit"), empty_out())
     case True{}:
       +body = ctcp_action_body(rest, Nat.sub(Irc.LINE_MAX(), overhead))
-      (echo_action(cl, active_idx(cl), body), one_out(Irc.format_privmsg(tgt, ctcp_action(body))))
+      (echo_action(cl, Cl.active_of(cl), body), one_out(Irc.format_privmsg(tgt, ctcp_action(body))))
 
 def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client & List<&2, String>:
   match on_server:
     case True{}:
       (echo_err(cl, "not in a channel — /join #chan first"), empty_out())
     case False{}:
-      +tgt = Irc.strip_ctl(active_name(cl))
+      +tgt = Irc.strip_ctl(Cl.active_buf_name(cl))
       +overhead = Irc.utf8_len(Irc.format_privmsg(tgt, ctcp_action("")))
       submit_me.budget(cl, tgt, rest, overhead, Nat.is_le(overhead, Irc.LINE_MAX()))
 
 def active_is_synthetic(+cl: Cl.Client) -> Bool:
-  String.starts_with(active_name(cl), "*")
+  Cl.target_is_synthetic(Cl.active_buf_name(cl))
 
 def submit_me.target(+cl: Cl.Client, +rest: String, synthetic: Bool) -> Cl.Client & List<&2, String>:
   match synthetic:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_me.chan(cl, rest, Nat.is_eq(active_idx(cl), 0n))
+    case False{}: submit_me.chan(cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
 
 def submit_me.on(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
@@ -543,47 +557,43 @@ def parse_bool.true(+s: String, hit: Bool) -> Maybe<&2, Bool>:
 def parse_bool(+s: String) -> Maybe<&2, Bool>:
   parse_bool.true(s, is_bool_true(s))
 
+def setting_changed(cl: Cl.Client, key: String, value: String) -> Cl.Client & List<&2, String>:
+  (echo_info(refresh_settings_if_open(cl), "setting '" ++ key ++ "' is now " ++ value), empty_out())
+
 def apply_set_key.joins(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_joins(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'joins' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "joins", bool_str(b))
 
 def apply_set_key.ts(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_ts(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'ts' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "ts", bool_str(b))
 
 def apply_set_key.motd(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_motd(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'motd' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "motd", bool_str(b))
 
 def apply_set_key.hist(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_history(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'history' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "history", bool_str(b))
 
 def apply_set_key.cap(+cl: Cl.Client, +cap: U32) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_hist_cap(stg, cap))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'hist_cap' is now " ++ U32.show(cap)), empty_out())
+  setting_changed(cl2, "hist_cap", U32.show(cap))
 
 def apply_set_key.autoreconn(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_autoreconn(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'autoreconn' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "autoreconn", bool_str(b))
 
 def apply_set_key.bell(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_bell(stg, b))
-  +cl3 = refresh_settings_if_open(cl2)
-  (echo_info(cl3, "setting 'bell' is now " ++ bool_str(b)), empty_out())
+  setting_changed(cl2, "bell", bool_str(b))
 
 def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   match k:
@@ -811,7 +821,7 @@ def nth_link(xs: List<&2, String>, +n: Nat) -> Maybe<&2, String>:
   nth_link.go(Nat.add(1n, n), xs, n)
 
 def echo_link_result(+cl: Cl.Client, +text: String) -> Cl.Client:
-  Cl.client_log(cl, active_idx(cl), Cl.LinkResult{}, text)
+  Cl.client_log(cl, Cl.active_of(cl), Cl.LinkResult{}, text)
 
 def clear_link_results.keep(skip: Bool, line: Cl.Line, rest: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
   match skip:
@@ -833,7 +843,7 @@ def clear_link_results.buf(b: Cl.Buffer) -> Cl.Buffer:
       Cl.Buffer{name, channel, topic, kept, nicks, Cl.reanchor_lines(lines, kept, scroll)}
 
 def clear_link_results(+cl: Cl.Client) -> Cl.Client:
-  Cl.buf_modify_client(cl, active_idx(cl), clear_link_results.buf)
+  Cl.buf_modify_client(cl, Cl.active_of(cl), clear_link_results.buf)
 
 def echo_links.go(fuel: Nat, cl: Cl.Client, xs: List<&2, String>, +idx: Nat) -> Cl.Client:
   match fuel:
@@ -1119,16 +1129,16 @@ def submit_plain.on(+cl: Cl.Client, +input: String, on_server: Bool) -> Cl.Clien
     case True{}:
       (echo_err(cl, "not in a channel — /join #chan first"), empty_out())
     case False{}:
-      +tgt = active_name(cl)
-      +bi = active_idx(cl)
-      (echo_self(cl, bi, input), one_out(Irc.format_privmsg(tgt, input)))
+      +tgt = Cl.active_buf_name(cl)
+      +bi = Cl.active_of(cl)
+      send_message(cl, bi, tgt, input)
 
 def submit_plain.virtual(virtual: Bool, +cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   match virtual:
     case True{}:
       (echo_err(cl, "read-only buffer"), empty_out())
     case False{}:
-      submit_plain.on(cl, input, Nat.is_eq(active_idx(cl), 0n))
+      submit_plain.on(cl, input, Nat.is_eq(Cl.active_of(cl), 0n))
 
 def submit_plain(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit_plain.virtual(active_is_synthetic(cl), cl, input)

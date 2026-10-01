@@ -1,6 +1,5 @@
 # Persisted IRC chat scrollback history across sessions with reconnect markers.
 import Base
-import ./diagnostic.bend as Diagnostic
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
 import ./frame.bend as Fr
@@ -141,7 +140,7 @@ def parse_line_for.tokens(tokens: List<&2, String>, +endpoint: String) -> Maybe<
   match tokens:
     case Con{+version, Con{+server, Con{+target, Con{+kind, Con{+ts, Con{+author, Con{+text, Nil{}}}}}}}}:
       parse_line_for.valid(String.eq(version, "BIRC2") && Irc.ieq(server, endpoint)
-        && Bool.not(String.is_empty(target)) && (String.eq(target, "*server*") || Bool.not(String.starts_with(target, "*")))
+        && Bool.not(String.is_empty(Cl.target_name(target))) && (String.eq(target, "*server*") || Cl.target_wire(target))
         && valid_kind(kind), target, kind, ts, author, text)
     case _: None{}
 
@@ -183,7 +182,7 @@ def lines_after(lines: List<&2, Cl.Line>, +seq: Nat) -> List<&2, Cl.Line>:
 def extract_new_buf(+seq: Nat, b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{+name, _, _, lines, _, _}:
-      Bool.pick(String, String.starts_with(name, "*"), "", serialize_lines(name, lines_after(lines, seq)))
+      Bool.pick(String, Cl.target_is_synthetic(name), "", serialize_lines(name, lines_after(lines, seq)))
 
 def extract_new_bufs(bufs: List<&2, Cl.Buffer>, +seq: Nat) -> String:
   match bufs:
@@ -205,7 +204,7 @@ def new_entries(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool) -> List<&2, H
     case Nil{}: Nil{}
     case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
       List.append(&2, HistEntry,
-        Bool.pick(List<&2, HistEntry>, String.starts_with(name, "*"), Nil{}, new_entries.lines(lines_after(lines, seq), name, first)),
+        Bool.pick(List<&2, HistEntry>, Cl.target_is_synthetic(name), Nil{}, new_entries.lines(lines_after(lines, seq), name, first)),
         new_entries(t, seq, False{}))
 
 def entry_line(entry: HistEntry) -> Cl.Line:
@@ -231,6 +230,64 @@ def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Cl
 
 # ---- applying history on load ---------------------------------------------
 
+# The bounded buffer set follows target recency as well as per-buffer row
+# recency. Restored IDs advance in file order, so each target's last row is
+# its last use. Server and synthetic local tabs are never eviction candidates.
+def last_id(lines: List<&2, Cl.Line>) -> Nat:
+  match lines:
+    case Nil{}: 0n
+    case Con{Cl.Line{_, _, _, _, id}, Nil{}}: id
+    case Con{_, rest}: last_id(rest)
+
+type OldestTarget is Data:
+  OldestTarget{index: Nat, id: Nat}
+
+def oldest_target.choose(older: Bool, +i: Nat, +id: Nat, old: Maybe<&2, OldestTarget>) -> Maybe<&2, OldestTarget>:
+  match older:
+    case True{}: Some{OldestTarget{i, id}}
+    case False{}: old
+
+def oldest_target.compare(old: Maybe<&2, OldestTarget>, +i: Nat, +id: Nat) -> Maybe<&2, OldestTarget>:
+  match old:
+    case None{}: Some{OldestTarget{i, id}}
+    case Some{OldestTarget{+oi, +oid}}: oldest_target.choose(Nat.is_lt(id, oid), i, id, Some{OldestTarget{oi, oid}})
+
+def oldest_target.at(eligible: Bool, old: Maybe<&2, OldestTarget>, i: Nat, lines: List<&2, Cl.Line>) -> Maybe<&2, OldestTarget>:
+  match eligible:
+    case False{}: old
+    case True{}: oldest_target.compare(old, i, last_id(lines))
+
+def oldest_target(bufs: List<&2, Cl.Buffer>, +i: Nat, old: Maybe<&2, OldestTarget>) -> Maybe<&2, OldestTarget>:
+  match bufs:
+    case Nil{}: old
+    case Con{Cl.Buffer{+name, _, _, lines, _, _}, rest}:
+      oldest_target(rest, 1n+i, oldest_target.at(Nat.is_gt(i, 0n) && Bool.not(Cl.target_is_synthetic(name)), old, i, lines))
+
+def evict_target.got(old: Maybe<&2, OldestTarget>, cl: Cl.Client) -> Cl.Client:
+  match old:
+    case None{}: cl
+    case Some{OldestTarget{i, _}}: Cl.drop_buf(cl, i)
+
+def evict_target(full: Bool, +cl: Cl.Client) -> Cl.Client:
+  match full:
+    case False{}: cl
+    case True{}: evict_target.got(oldest_target(Cl.client_bufs(cl), 0n, None{}), cl)
+
+def history_target.found(found: Maybe<&2, Nat>, +cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
+  match found:
+    case Some{_}: Cl.buf_get(cl, target, Cl.target_channel(target), True{})
+    case None{}:
+      +bufs = Cl.client_bufs(cl)
+      Cl.buf_get(evict_target(Nat.is_ge(Cl.buf_count(bufs), Cl.MAX_BUFFERS()) || Nat.is_ge(Cl.normal_buffer_count(bufs), Cl.NORMAL_BUFFERS()), cl), target, Cl.target_channel(target), True{})
+
+def history_target.allowed(allowed: Bool, +cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
+  match allowed:
+    case False{}: (cl, None{})
+    case True{}: history_target.found(Cl.buf_find(cl, target), cl, target)
+
+def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat>:
+  history_target.allowed(Cl.target_wire(target) && Bool.not(String.is_empty(Cl.target_name(target))), cl, target)
+
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:
     case Cl.Line{kind, +ts, +text, +author, _}:
@@ -244,7 +301,7 @@ def apply_entry.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line) -> Cl.Client:
 def apply_entry.target(is_srv: Bool, +cl: Cl.Client, +target: String, ln: Cl.Line) -> Cl.Client:
   match is_srv:
     case True{}: apply_entry.bi(cl, 0n, ln)
-    case False{}: apply_entry.got(Cl.buf_get(cl, target, Irc.starts_channel(target), True{}), ln)
+    case False{}: apply_entry.got(history_target(cl, target), ln)
 
 def apply_entry(+cl: Cl.Client, +target: String, ln: Cl.Line) -> Cl.Client:
   apply_entry.target(Irc.ieq(target, "server"), cl, target, ln)
@@ -252,7 +309,7 @@ def apply_entry(+cl: Cl.Client, +target: String, ln: Cl.Line) -> Cl.Client:
 def apply_hist_entry(entry: HistEntry, cl: Cl.Client) -> Cl.Client:
   match entry:
     case ServerEntry{line}: apply_entry.bi(cl, 0n, line)
-    case Entry{+target, line}: apply_entry.got(Cl.buf_get(cl, target, Irc.starts_channel(target), True{}), line)
+    case Entry{+target, line}: apply_entry.got(history_target(cl, target), line)
 
 def apply_entries(entries: List<&2, HistEntry>, cl: Cl.Client) -> Cl.Client:
   match entries:
@@ -260,37 +317,13 @@ def apply_entries(entries: List<&2, HistEntry>, cl: Cl.Client) -> Cl.Client:
     case Con{+e, t}:
       apply_entries(t, apply_hist_entry(e, cl))
 
-def buf_has_lines(+b: Cl.Buffer) -> Bool:
-  match b:
-    case Cl.Buffer{_, _, _, lines, _, _}:
-      match lines:
-        case Nil{}: False{}
-        case Con{_, _}: True{}
-
-def add_reconnect_marker.has(has: Bool, +b: Cl.Buffer, +now: String) -> Cl.Buffer:
-  match has:
-    case False{}: b
-    case True{}:
-      Cl.buf_reconnect(b, now)
-
-def add_reconnect_marker(+b: Cl.Buffer, +now: String) -> Cl.Buffer:
-  add_reconnect_marker.has(buf_has_lines(b), b, now)
-
-def add_markers_bufs(bufs: List<&2, Cl.Buffer>, +now: String) -> List<&2, Cl.Buffer>:
-  match bufs:
-    case Nil{}: Nil{}
-    case Con{+b, t}:
-      add_reconnect_marker(b, now) <> add_markers_bufs(t, now)
-
 def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now_old, +stg, +auth, +log_seq}:
-      Cl.stamp_logs(Cl.Client{nick, server, add_markers_bufs(bufs, now), active, now_old, stg, auth, log_seq})
+  Cl.reconnect_markers(cl, now)
 
 def cap_buf_history(b: Cl.Buffer, cap: U32) -> Cl.Buffer:
   match b:
     case Cl.Buffer{+name, is_ch, +topic, +lines, +nicks, scroll}:
-      Cl.Buffer{name, is_ch, topic, Bool.pick(List<&2, Cl.Line>, Irc.ieq(name, Diagnostic.name()), lines, Cl.take_last(lines, U32.to_nat(cap))), nicks, scroll}
+      Cl.Buffer{name, is_ch, topic, Bool.pick(List<&2, Cl.Line>, Cl.target_is_synthetic(name), lines, Cl.take_last(lines, U32.to_nat(cap))), nicks, scroll}
 
 def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer>:
   match bufs:
@@ -301,10 +334,15 @@ def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer
 def apply_history.cap(cl: Cl.Client, +now: String, +cap: U32) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      add_markers_cl(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq}, now)
+      Cl.reconnect_markers(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq}, now)
+
+def apply_history.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>, now: String, cap: U32) -> Cl.Client:
+  match zero:
+    case True{}: apply_history.cap(cl, now, cap)
+    case False{}: apply_history.cap(apply_entries(entries, cl), now, cap)
 
 def apply_history(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32) -> Cl.Client:
-  apply_history.cap(apply_entries(entries, cl), now, cap)
+  apply_history.capped(U32.is_eq(cap, 0), cl, entries, now, cap)
 
 # ---- file IO --------------------------------------------------------------
 
@@ -318,12 +356,20 @@ def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
     case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
       Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq}
 
-def read_record.entry(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
+def read_record.present(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
   match entry:
     case None{}: cl
     case Some{entry}: cap_client_history(apply_hist_entry(entry, cl), cap)
 
-def read_record.utf8(text: Maybe<&2, String>, cl: Cl.Client, +endpoint: String, cap: U32) -> Cl.Client:
+def read_record.capped(zero: Bool, entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
+  match zero:
+    case True{}: cl
+    case False{}: read_record.present(entry, cl, cap)
+
+def read_record.entry(entry: Maybe<&2, HistEntry>, cl: Cl.Client, +cap: U32) -> Cl.Client:
+  read_record.capped(U32.is_eq(cap, 0), entry, cl, cap)
+
+def read_record.utf8(text: Maybe<&2, String>, cl: Cl.Client, +endpoint: String, +cap: U32) -> Cl.Client:
   match text:
     case None{}: cl
     case Some{raw}: read_record.entry(parse_line_for(endpoint, raw), cl, cap)
@@ -358,7 +404,7 @@ def read_finish(f: File, state: ReadState, now: String) -> IO(Cl.Client):
     case ReadState{cl, _, _, _}:
       do IO<Cl.Client>:
         Unit <- File.close(f)
-        return add_markers_cl(cl, now)
+        return Cl.reconnect_markers(cl, now)
 
 def read_failure_text(error: U32 & String, +stage: String) -> String:
   match error:

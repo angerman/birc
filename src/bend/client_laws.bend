@@ -326,3 +326,23 @@ def active_clears_unread_ok() -> Bool:
   +cl3 = Cl.set_active_clamp(cl2, 2n)
   U32.is_eq(active_clears_unread.status(cl2), 2)
     && U32.is_eq(active_clears_unread.status(cl3), 0)
+
+def close_replacement_read_ok() -> Bool:
+  +cl = Cl.set_active(Feed.feed_all(Cl.init("me", "s"), [":alice!u@h PRIVMSG me :one", ":bob!u@h PRIVMSG me :two"]), 1n)
+  +closed = Cl.drop_buf(cl, 1n)
+  String.eq(Cl.active_buf_name(closed), "bob")
+    && U32.is_eq(Cl.buf_unread_status(Cl.settings_unreads(Cl.get_settings(closed)), "bob"), 0)
+
+def channel_identity_get_ok.buf(got: Maybe<&2, Cl.Buffer>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{b}: Feed.is_channel_buf(b)
+
+def channel_identity_get_ok.got(pair: Cl.Client & Maybe<&2, Nat>) -> Bool:
+  match pair:
+    case (Cl.Client{_, _, bufs, _, _, _, _, _}, Some{i}):
+      channel_identity_get_ok.buf(Cl.nth_buf(bufs, i))
+    case _: False{}
+
+def channel_identity_get_ok() -> Bool:
+  channel_identity_get_ok.got(Cl.buf_get(Cl.init("me", "s"), "#room", False{}, True{}))

@@ -3,6 +3,19 @@ import Base
 import ./irc.bend as Irc
 import ./diagnostic.bend as Diagnostic
 
+# Buffer identity is sanitized before lookup and policy checks, not only when
+# a buffer is created. Local synthetic tabs remain valid container targets.
+def target_name(+raw: String) -> String:
+  Irc.sanitize_in(raw)
+
+def target_is_synthetic(+raw: String) -> Bool:
+  String.starts_with(target_name(raw), "*")
+
+def target_channel(+raw: String) -> Bool:
+  Irc.starts_channel(target_name(raw))
+
+def target_wire(+raw: String) -> Bool:
+  Bool.not(target_is_synthetic(raw))
 
 def MAX_BUFFERS() -> Nat:
   16n
@@ -633,7 +646,7 @@ def buf_find.skip0(xs: List<&2, Buffer>, +name: String) -> Maybe<&2, Nat>:
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
-      buf_find.skip0(bufs, name)
+      buf_find.skip0(bufs, target_name(name))
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:
@@ -647,7 +660,9 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
       empty_buf.nicks.server(String.eq(name, "server") || String.starts_with(name, "*"), name)
 
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
-  Buffer{Bool.pick(String, Irc.ieq(name, Diagnostic.name()), Diagnostic.name(), Irc.sanitize_in(name)), is_channel, "", Nil{}, empty_buf.nicks(name, is_channel), ScrollAt{0n, 0n}}
+  +canonical = target_name(name)
+  +channel = is_channel || target_channel(canonical)
+  Buffer{Bool.pick(String, Irc.ieq(canonical, Diagnostic.name()), Diagnostic.name(), canonical), channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
 
 # Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
@@ -878,6 +893,30 @@ def stamp_logs(cl: Client) -> Client:
     case Client{nick, server, bufs, active, now, stg, auth, +seq}:
       stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth, seq)
 
+def buf_has_lines(b: Buffer) -> Bool:
+  match b:
+    case Buffer{_, _, _, Nil{}, _, _}: False{}
+    case _: True{}
+
+def reconnect_marker.has(has: Bool, b: Buffer, now: String) -> Buffer:
+  match has:
+    case False{}: b
+    case True{}: buf_reconnect(b, now)
+
+def reconnect_marker(+b: Buffer, now: String) -> Buffer:
+  reconnect_marker.has(buf_has_lines(b), b, now)
+
+def reconnect_bufs(bufs: List<&2, Buffer>, +now: String) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{b, rest}: reconnect_marker(b, now) <> reconnect_bufs(rest, now)
+
+# History and Session share the event-ID stamping boundary for dividers.
+def reconnect_markers(cl: Client, now: String) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, old_now, stg, auth, seq}:
+      stamp_logs(Client{nick, server, reconnect_bufs(bufs, now), active, old_now, stg, auth, seq})
+
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   buf_log_ts(b, Error{}, now, "buffer limit reached")
 
@@ -920,10 +959,28 @@ def buf_get.miss(+nick: String, +server: String, +bufs: List<&2, Buffer>, +activ
     case True{}:
       buf_get.create(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel)
 
+# Older query-created channels may retain their own name as a nick. A channel
+# name cannot be a member nick; remove that seed when promoting the buffer.
+def channel_nick(name: String) -> Bool:
+  Bool.not(target_channel(name))
+
+def promote_channel.on(promote: Bool, b: Buffer) -> Buffer:
+  match promote:
+    case False{}: b
+    case True{}:
+      match b:
+        case Buffer{name, _, topic, lines, nicks, scroll}:
+          Buffer{name, True{}, topic, lines, List.filter(~String, ~channel_nick, nicks), scroll}
+
+def promote_channel(channel: Bool, b: Buffer) -> Buffer:
+  match b:
+    case Buffer{_, +was_channel, _, _, _, _}:
+      promote_channel.on(channel && Bool.not(was_channel), b)
+
 def buf_get.found(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, create: Bool, found: Maybe<&2, Nat>) -> Client & Maybe<&2, Nat>:
   match found:
-    case Some{i}:
-      (Client{nick, server, bufs, active, now, stg, auth, log_seq}, Some{i})
+    case Some{+i}:
+      (Client{nick, server, buf_modify(bufs, i, promote_channel(is_channel)), active, now, stg, auth, log_seq}, Some{i})
     case None{}:
       buf_get.miss(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create)
 
@@ -933,7 +990,8 @@ def buf_get.fin(+cl: Client, +name: String, is_channel: Bool, create: Bool, foun
       buf_get.found(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create, found)
 
 def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
-  buf_get.fin(cl, name, is_channel, create, buf_find(cl, name))
+  +canonical = target_name(name)
+  buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
 # ---- scrollback ---------------------------------------------------------
 
@@ -1165,10 +1223,10 @@ def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
 def set_buf_name(+b: Buffer, +name: String) -> Buffer:
   match b:
     case Buffer{_, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nicks, scroll}
+      Buffer{target_name(name), ch, topic, lines, nicks, scroll}
 
 def is_query_name(+name: String) -> Bool:
-  Bool.not(String.starts_with(name, "*") || Irc.starts_channel(name))
+  Bool.not(target_is_synthetic(name) || target_channel(name))
 
 def query_target(+b: Buffer, +target: String) -> Bool:
   match b:
@@ -1416,7 +1474,8 @@ def drop_buf.act(+active: Nat, +bi: Nat, +nbufs2: Nat, shift: Bool) -> Nat:
 def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +bi: Nat) -> Client:
   +bufs2 = remove_buf(bufs, bi)
   +stg2 = set_active.unread(stg, nth_buf(bufs, bi))
-  Client{nick, server, bufs2, drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi)), now, stg2, auth, log_seq}
+  +next = drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi))
+  set_active(Client{nick, server, bufs2, next, now, stg2, auth, log_seq}, next)
 
 def drop_buf.body(+cl: Client, +bi: Nat) -> Client:
   match cl:

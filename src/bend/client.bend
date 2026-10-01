@@ -6,7 +6,7 @@ import ./buffer.bend as Cl
 # ---- format helpers -----------------------------------------------------
 
 def msg_nick(+m: Irc.Message) -> String:
-  Irc.msg_nick(m)
+  Cl.target_name(Irc.msg_nick(m))
 
 def fmt_msg.empty(empty: Bool, +nick: String, +body: String) -> String:
   match empty:
@@ -87,9 +87,9 @@ def action_text(+body: String) -> String:
 # ---- feed arms ----------------------------------------------------------
 
 # Synthetic names belong to local commands, never wire buffer identity.
-# Keep generic container/focus lookup unchanged so local tabs still work.
+# Generic container/focus lookup still accepts local tabs.
 def wire_name(+name: String) -> Bool:
-  Bool.not(String.starts_with(name, "*"))
+  Cl.target_wire(name)
 
 def wire_find.on(allowed: Bool, cl: Cl.Client, name: String) -> Maybe<&2, Nat>:
   match allowed:
@@ -97,7 +97,7 @@ def wire_find.on(allowed: Bool, cl: Cl.Client, name: String) -> Maybe<&2, Nat>:
     case True{}: Cl.buf_find(cl, name)
 
 def wire_find(+cl: Cl.Client, +name: String) -> Maybe<&2, Nat>:
-  wire_find.on(wire_name(name), cl, name)
+  wire_find.on(wire_name(name) && Bool.not(String.is_empty(Cl.target_name(name))), cl, name)
 
 def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
   match allowed:
@@ -105,7 +105,7 @@ def wire_get.on(allowed: Bool, cl: Cl.Client, name: String, channel: Bool, creat
     case True{}: Cl.buf_get(cl, name, channel, create)
 
 def wire_get(+cl: Cl.Client, +name: String, channel: Bool, create: Bool) -> Cl.Client & Maybe<&2, Nat>:
-  wire_get.on(wire_name(name), cl, name, channel, create)
+  wire_get.on(wire_name(name) && Bool.not(String.is_empty(Cl.target_name(name))), cl, name, channel, create)
 
 def feed_none(+cl: Cl.Client) -> Cl.Client:
   cl
@@ -231,7 +231,7 @@ def feed_priv.route.mute(muted: Bool, +cl: Cl.Client, +target: String, +from: St
       feed_priv.route.on(cl, target, from, notice, body, ts, Irc.starts_channel(target))
 
 def feed_priv.route(+cl: Cl.Client, +target: String, +from: String, +notice: Bool, +body: String, +ts: String) -> Cl.Client:
-  +tgt = Irc.chan_target(target)
+  +tgt = Irc.chan_target(Cl.target_name(target))
   # NOTICE * is a server broadcast, not a synthetic buffer target.
   feed_priv.route.mute(Cl.is_muted_client(cl, from, tgt) || Bool.not(wire_name(from))
     || (Bool.not(wire_name(tgt)) && Bool.not(notice && Irc.ieq(tgt, "*"))), cl, tgt, from, notice, body, ts)
@@ -505,7 +505,7 @@ def feed_nick.with.on(allowed: Bool, cl: Cl.Client, from: String, to: String, se
     case True{}: feed_nick.with.valid(cl, from, to, self)
 
 def feed_nick.with(+cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
-  feed_nick.with.on(wire_name(from) && wire_name(to), cl, from, to, self)
+  feed_nick.with.on(wire_name(from) && wire_name(to), cl, Cl.target_name(from), Cl.target_name(to), self)
 
 def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
