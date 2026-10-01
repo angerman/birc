@@ -85,12 +85,13 @@ test-server-time: ## IRCv3 time tags reach parsed message timestamps.
 	$(NIXRUN) timeout 180 bend tests/bend/server_time_demo.bend -o $(BLDDIR)/server_time_demo
 	$(NIXRUN) sh scripts/check-golden.sh server_time_demo=ok ./$(BLDDIR)/server_time_demo
 
-test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io ## Log bounds, privacy, commands, endpoint retention, and IO failure/success controls.
+test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire ## Log bounds, privacy, wire isolation, commands, retention, and IO controls.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/diagnostic_demo.bend -o $(BLDDIR)/diagnostic_demo
 	$(NIXRUN) sh scripts/check-golden.sh diagnostic_demo=ok ./$(BLDDIR)/diagnostic_demo
 
-test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io:
+.PHONY: test-diagnostic-wire
+test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire:
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
@@ -124,6 +125,12 @@ test-media-anchor: ## Manual error/completion anchors and distinct split-pane im
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/media_anchor.bend -o $(BLDDIR)/media_anchor
 	$(NIXRUN) sh scripts/check-golden.sh media_anchor=ok timeout 15 ./$(BLDDIR)/media_anchor
+
+.PHONY: test-media-branches
+test-media-branches: ## Exact fallback rows and multi-link image partitioning.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_branches.bend -o $(BLDDIR)/media_branches
+	$(NIXRUN) sh scripts/check-golden.sh media_branches=ok timeout 15 ./$(BLDDIR)/media_branches
 
 test-media-native: ## Image payload ownership, terminal animation, clipping, and pending-frame guards.
 	@mkdir -p $(BLDDIR)
@@ -596,7 +603,7 @@ test-pty: test-pty-media test-pty-diagnostic
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
-test-review-pure: test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile
+test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -698,6 +705,15 @@ test-perf-hardening: build-ui ## Profile production frame phases with scale repl
 
 test-perf-output: build-ui ## Measure stalled-output View/native phases and PONG latency (not in check).
 	$(NIXRUN) timeout 90 python3 tests/perf/output_profile.py ./$(BLDDIR)/birc
+
+.PHONY: test-perf-media-wrap
+MEDIA_PROFILE_MODE ?= empty
+MEDIA_PROFILE_LINKS ?= 0
+MEDIA_PROFILE_SAMPLES ?= 128
+test-perf-media-wrap: ## Measure consumed pure wrapping batches; set MEDIA_PROFILE_MODE/LINKS/SAMPLES (not in check).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/perf/media_wrap_profile.bend -o $(BLDDIR)/media_wrap_profile
+	$(NIXRUN) timeout 15 ./$(BLDDIR)/media_wrap_profile $(MEDIA_PROFILE_MODE) $(MEDIA_PROFILE_LINKS) $(MEDIA_PROFILE_SAMPLES)
 
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 

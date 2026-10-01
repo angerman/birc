@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Component profile only. Inputs come from IO to prevent constant folding.
 # Usage: media_wrap_profile MODE LINKS SAMPLES
-# Modes: rows, empty, ready, parts-empty, parts-ready, body, body-media.
+# Modes: lex, rows, empty, ready, parts-empty, parts-ready, body, body-media.
 # LINKS=0 uses plain text; 1..16 includes one known image plus ordinary links.
 # Every mode warms and consumes one full batch before its timed full batch.
 import Base
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/links.bend as Links
 import ../../src/bend/media.bend as M
 import ../../src/bend/view.bend as V
 
@@ -77,11 +78,29 @@ def measure_body(+mode: String, +links: Nat, +n: Nat, +lines: List<&2, Cl.Line>,
     t0 : Nat <- IO.now()
     finish(t0, mode, links, n, body_batch(n, rows, lines, media, 0n))
 
+# Consume every lexer run, without View span conversion or wrapping.
+def lex_batch(n: Nat, +text: String, acc: Nat) -> Nat:
+  match n:
+    case 0n: acc
+    case 1n+p: lex_batch(p, text, Nat.add(acc, List.length(&2, Links.Run, Links.render(text))))
+
+def measure_lex(+mode: String, +links: Nat, +n: Nat, +text: String) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.print("warm_consumed=" ++ Nat.show(lex_batch(n, text, 0n)) ++ "\n")
+    t0 : Nat <- IO.now()
+    finish(t0, mode, links, n, lex_batch(n, text, 0n))
+
+def run_text(lex: Bool, +mode: String, +links: Nat, +n: Nat, text: String, media: M.State) -> IO(Unit):
+  match lex:
+    case True{}: measure_lex(mode, links, n, text)
+    case False{}:
+      measure(mode, links, n, String.eq(mode, "parts-empty") || String.eq(mode, "parts-ready"), String.eq(mode, "rows"), text, media)
+
 def run_mode(body: Bool, +mode: String, +links: Nat, +n: Nat, text: String, media: M.State) -> IO(Unit):
   match body:
     case True{}: measure_body(mode, links, n, fixture_lines(128n, text), media)
     case False{}:
-      measure(mode, links, n, String.eq(mode, "parts-empty") || String.eq(mode, "parts-ready"), String.eq(mode, "rows"), text, media)
+      run_text(String.eq(mode, "lex"), mode, links, n, text, media)
 
 def run(ok: Bool, +mode: String, +links: Nat, +n: Nat) -> IO(Unit):
   match ok:
@@ -100,7 +119,7 @@ def parsed_samples(samples: Maybe<&2, Nat>, +mode: String, +links: Nat) -> IO(Un
     case None{}: IO.die(Unit, 1, "invalid sample count")
     case Some{+n}:
       run(Nat.is_le(links, 16n) && Nat.is_gt(n, 0n) && Nat.is_le(n, 4096n)
-        && (String.eq(mode, "rows") || String.eq(mode, "empty") || String.eq(mode, "ready")
+        && (String.eq(mode, "lex") || String.eq(mode, "rows") || String.eq(mode, "empty") || String.eq(mode, "ready")
           || String.eq(mode, "parts-empty") || String.eq(mode, "parts-ready")
           || String.eq(mode, "body") || String.eq(mode, "body-media")), mode, links, n)
 
