@@ -880,7 +880,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       pending continuation work and preserve paste/network fairness without
       adding Session fields. Test normal acknowledgement, two synthetic wakes,
       a full event queue, mixed incoming chunks/paste, PONG, and quit.
-- [ ] **R08 — Recover refused terminal frames (P1).** A bounded write may
+- [x] **R08 — Recover refused terminal frames (P1).** A bounded write may
       leave the display incomplete. Wake the UI when output can proceed;
       do not park forever or spin while output remains full. Keep typing
       expiry and network work independent. Test partial output, recovery,
@@ -932,7 +932,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
 - [x] **S08 — Query rename collisions (P2).** Merge or otherwise uniquely
       identify queries after NICK changes; update nick lists and focus.
       Test an old query colliding with an existing query and normal rename.
-- [ ] **S09 — Legal nick `server` is not the control buffer (P2).** Keep
+- [x] **S09 — Legal nick `server` is not the control buffer (P2).** Keep
       index zero's role separate from the query's display name during NICK,
       QUIT, unread handling, and history serialization. Use the invalid IRC
       nick `*server*` as the persisted control target. Test both buffer roles,
@@ -983,13 +983,13 @@ implementations. Every changed PTY test must pass three consecutive runs.
       a later escape sequence or payload. Bound any retained transport suffix
       and share the rule with teardown. Test short writes at each byte boundary,
       blocked recovery, ordering, and the unchanged Unicode tab fixture.
-- [ ] **U06 — Signal-safe suffix ownership (P2).** A signal can arrive after
+- [x] **U06 — Signal-safe suffix ownership (P2).** A signal can arrive after
       write accepts bytes but before accounting owns their missing suffix.
       Prevent the handler and normal writer from claiming the same bytes or
       emitting escapes past unknown debt. Keep handler work async-signal-safe
       and bounded. Test staging, pending flush, returning handlers, concurrent
       delivery, and preservation of nonblocking descriptor flags.
-- [ ] **U07 — Final status cannot bypass terminal debt (P2).** TimUI can close
+- [x] **U07 — Final status cannot bypass terminal debt (P2).** TimUI can close
       with a retained suffix when its teardown budget expires. Final success
       or error text must not follow that incomplete scalar after Ui is freed.
       Preserve stream identity and the existing final-output budget; test
@@ -1003,7 +1003,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       produce the dim attribute promised by M8.2.4 and upstream IRC parity.
       Test tokenizer spans, wrapped DrawOps, and actual native style emission;
       do not add a new theme or Markdown framework.
-- [ ] **U10 — Bound local PNG decoding before allocation (P2).** File size
+- [x] **U10 — Bound local PNG decoding before allocation (P2).** File size
       and IHDR dimensions do not bound declared IDAT allocations or zlib
       expansion. Check chunk availability before allocation and cap inflated
       data using supported PNG depth, channels, filters, and Adam7 geometry.
@@ -1011,6 +1011,28 @@ implementations. Every changed PTY test must pass three consecutive runs.
       interlaced images, malformed chunks, expansion beyond the declared
       image, allocation failure, cache behavior, and cleanup. Scope is explicit
       local Sixel preview, not remote fetching or a measured frame-time breach.
+- [x] **U11 — Free PNG intermediates on allocation failure (P2).** A failed
+      16-to-8-bit conversion leaks its owned input. Keep cleanup with existing
+      owners rather than adding a separate resource layer. Deny each allocation
+      in small valid images, require zero retained bytes, and verify a later
+      successful decode.
+- [ ] **U12 — Safe loaded-handler lifetime across close (P2).** Clearing
+      the global signal context does not revoke a handler that already loaded
+      Ui on another thread. Prevent use of freed storage and reused borrowed
+      descriptors without an unbounded close wait. Test a real paused handler
+      across close, a returning handler, and ordinary restoration/cleanup.
+- [x] **U13 — Re-arm bounded output after a returning signal (P2).** A handler
+      can restore a shared descriptor to blocking between bounded payloads,
+      including during memory-only frame capture. Re-borrow nonblocking output
+      before the next physical write and preserve its original flags. Test
+      two payloads on a nearly-full pipe, capture-phase delivery, separate
+      descriptions, prompt completion, and final flags.
+- [x] **U14 — Charge successful short writes to the shared deadline (P2).**
+      A writer must not retry indefinitely just because every syscall accepts
+      some bytes. Check the unchanged deadline between retries and between
+      serialized-frame drain calls. Preserve one immediate nonblocking attempt
+      for zero-wait callers. Test advancing time with successful short writes,
+      a future-deadline control, and finite frame progress across later ticks.
 
 ### Commands and authentication
 
@@ -1319,23 +1341,18 @@ Verification so far (all through the locked Nix shell, no pin updates):
   --no-update-lock-file . --command make proof test-split-rename test-split
   test-state` exited 0. No existing assertions or PTY tests changed.
 
-Pending approval: `tests/pty/history_pty.py` currently uses two different
-random ports but expects shared history. The endpoint fix deliberately stops
-that sharing. A proposed fixture correction reuses the original host:port and
-adds a distinct-port rejection case. Do not change that existing test without
-the user's approval.
-
-Pending approval: `tests/bend/view_preds.bend` expects no alert on a private
-query whose legal nick is `server`. That expectation confuses the query with
-the control buffer. The proposed correction expects `server!` and keeps a
-separate control/query regression. Do not change the existing expectation
-without the user's approval.
-
-Pending approval: `tests/pty/tab_switch.py` and `tests/pty/settings.py` assert
-the demo nick `me` without specifying it. `Args.cfg0` defaults to `birc`; C06
-now correctly preserves that default. Proposed fixture-only correction: pass
-`--nick me` explicitly, preserving every existing assertion. No such edit has
-been made without approval.
+Approved fixture corrections (`5b5c093`): the user explicitly approved all four.
+History restoration now reuses the original host:port; distinct-port isolation
+has a separate `history_endpoints.py` guard. `tab_collide` expects `server!`
+for the unread private query, not the control buffer. Tab-switch and settings
+pass `--nick me` explicitly, preserving every assertion; the real CLI default
+is `birc`. Root `timeout 360 nix --extra-experimental-features 'nix-command
+flakes' develop --no-update-lock-file . --command make proof test-feed`
+exited 0. Three consecutive serial runs of the three corrected PTYs passed
+via `make -o build/birc test-pty-tabswitch test-pty-settings test-pty-history`
+inside the locked shell (`build/review-approved-fixtures.log`). Those runs
+reused the previously built application binary; repeat them on the final
+combined source before claiming integrated verification.
 
 Open integration work remains unchecked above. Checkmarks are not a claim that
 the final combined runtime/PTY/sanitizer gate has already passed.
@@ -1350,13 +1367,74 @@ the final combined runtime/PTY/sanitizer gate has already passed.
   cases passed. No large actual allocation or private URL fetch occurred.
   The 3-MiB case took 624 microseconds here; this is a prevalidation-bounds
   finding, not evidence of a 40-ms frame-time breach.
+- U11 red evidence: denying the 16-to-8 conversion allocation retains its
+  8-byte input in a small valid fixture. A suspected second format-conversion
+  leak was retracted: its old early-return probe retains zero bytes because
+  successful parsing already frees IDAT/expanded data and conversion frees
+  its input. OOM classification at that site is still needed to allow retry.
+- U10/U11 (`3d0455e`): memory-backed PNG chunks are checked before allocation;
+  the existing fixed-buffer inflater gets the exact scanline/Adam7 bound.
+  One image-local bit caches malformed data, while per-load allocation status
+  allows transient OOM retry. Failed 16-to-8 conversion frees its owned input.
+  Root gate exited 0: `timeout 360 nix --extra-experimental-features
+  'nix-command flakes' develop --no-update-lock-file . --command make proof
+  test-png-bounds test-png-bounds-ubsan`. It passed 61 supported layout variants,
+  malformed/cache/owner-denial controls, and 32 decoder-allocation failures
+  that recover with zero retained bytes. Declared 32-MiB IDAT now makes no
+  decoder allocation; the 3-MiB expansion is rejected with maximum request
+  4,096 bytes and is not decoded again on the next draw. Full combined app
+  verification remains open.
+- U06/U07/U13 (`daf6376`): lock-free output ownership defers a busy handler
+  instead of guessing a UTF-8 suffix. Returning handlers preserve deferred
+  flags; each later physical write re-borrows nonblocking output, even after
+  capture-phase delivery. Final output retains one owned stream descriptor
+  plus identity and settles scalar/framing/sync debt before status. A verified
+  red probe reached a blocking second 64-KiB payload after a returning signal;
+  shared/separate-description and capture controls now pass. This does not
+  settle whole-Ui handler lifetime (U12).
+- R08/U14 (`c006a19`): one bounded serialized frame plus accepted offset makes
+  finite progress instead of restarting prefixes. Capture refusal emits none
+  of that capture and exits through the existing actor/Ui shutdown path with
+  nonzero status. Existing BEL, OSC 52, and image retirement share ordering.
+  A coalesced repaint bit preserves a latest model refused while an old frame
+  drains. Successful short-write retries and both drains share one deadline;
+  failed captures retain physical framing/sync debt. The deterministic old
+  200x50 renderer never reached LAST-ROW under 100 31-byte quotas; resumable
+  output does. The new large PTY passed the old binary once, so it is not
+  claimed as a baseline-red test. Worker fresh normal/capped builds, proof,
+  native/UBSan/lint, and three serial runs of progress, capture failure,
+  unchanged stall, recovery, split-Escape, typing, and output-stall passed.
+  Evidence: `runtime-progress.OziUzu/build/output-progress-gates.log`.
+- Combined root checkpoint (`8e84ef3`) exited 0: `timeout 420 nix
+  --extra-experimental-features 'nix-command flakes' develop
+  --no-update-lock-file . --command make proof test-formatting
+  test-output-progress test-output-shutdown test-output-utf8 test-ubsan-native
+  test-media-image lint-ffi`. All proofs, shared formatting model, three
+  native output guards (ordinary and UBSan), strict FFI lint, and synthetic
+  media helper controls passed. Full application/PTY gates remain open.
+- P01/P02/P03 (`8e84ef3`): one shared parser replaces the duplicate View
+  scanner; production net +138 lines. Seven new laws and existing laws passed.
+  Worker model/link/wrap/scroll/submit guards passed. The nested styled-URL
+  painter was red on the earlier binary, then green after rebuild; the final
+  pipe-based painter passed three runs. No native transport changes and no
+  raw-to-rendered provenance state were needed.
 
 ## Milestone 18 — TimUI example parity audit
+
+Current feature status: formatting is implemented and tested. Remote image
+fetch/decode is tested in isolation; inline layout and terminal playback are
+being connected. The user selected animated GIFs where supported, with a
+still-frame fallback. Optional parity items below are not M17 correctness
+findings or approved feature requirements.
 
 Read-only reference: local `timui.h` master `2be19558`, `examples/irc.c` and
 `examples/chat.c` plus `chat_text.h`. The richer chat demo is not the IRC parity
 contract. No reference files were changed. No supplied image URL was fetched.
-Optional gaps below are not authorized feature implementation or M17 fixes.
+The user now authorizes richer formatting, view-only emoji aliases, explicit
+remote previews, and automatic inline image previews, including JPEG and GIF
+as well as PNG. These are feature work after the M17 correctness fixes.
+Cards, RTL shaping, multiline composer, and fullscreen media are separate
+options, not implicit requirements of the image/formatting choice.
 
 Already supported: plaintext IRC, tabs/topics/nicks, timestamps and line kinds,
 navigation/composer, single-marker `*bold*`, `_italic_`, backticks, exact HTTP(S)
@@ -1364,19 +1442,21 @@ links, raw Unicode emoji/CJK, and explicit local-PNG `/preview`. U08/U09 track
 the two existing formatting defects. Birc adds history, wrapping, alerts,
 search, split panes, typing state, and bounded actor/shutdown behavior.
 
-- [ ] **P01 — Double-marker Markdown.** `**bold**` leaves its body plain in
-      birc and both reference examples; empty Bold spans are not evidence that
-      the body is styled. Decide double-marker and unmatched-marker rules
-      before implementing. Keep tokenization in Bend and source/history intact.
-- [ ] **P02 — Escapes and nested styles.** Neither reference implements
-      backslash escapes. Reference toggles can combine bold/italic; birc has
-      exclusive modes and opaque code spans. Select semantics and add literal,
-      nested, code, link, wrap, and source-anchor guards if this is desired.
-- [ ] **P03 — Emoji shortcodes.** IRC example and birc leave `:eyes:` literal.
-      Chat has a finite case-sensitive 22-alias table; unknown names remain
-      literal. Smallest option: view-only Bend replacement, preserving sent
-      and saved text. Decide behavior inside code/URLs, copy, width, and anchors.
-- [ ] **P04 — IRC wire formatting.** Current control sanitization removes
+- [x] **P01 — Double-marker formatting.** The shared Bend scanner recognizes
+      paired `**bold**` as well as `*bold*`. Unmatched markers remain literal;
+      source/history are intact. Runs longer than two use greedy double then
+      single tokens, not general Markdown triple-marker semantics.
+- [x] **P02 — Escapes and nested styles.** Bold/italic bits compose; backticks
+      are opaque dim spans, including inside bold. Escapes cover markup,
+      backslash, and colon only. URLs remain lexically opaque: styled URL
+      closers must be at the URL token end. Parsing, exact URL, wrap, anchor,
+      raw-source, and actual native painter guards pass. The user approved
+      exactly the two old double-bold/nested-italic expectations.
+- [x] **P03 — Emoji shortcodes.** All 22 exact, case-sensitive aliases from
+      the chat example expand in view text only, not code or URLs. Unknown
+      names remain literal. Existing rendered-character anchors need no new
+      raw-source mapping; narrow replacement/resize/cluster guards pass.
+- [ ] **P04 — Optional IRC wire formatting.** Current control sanitization removes
       styling controls rather than interpreting them; the IRC example also
       lacks a style decoder. Numeric color parameters are stripped; hex-color
       digits remain after their control introducer is removed. Any decoder
@@ -1385,18 +1465,24 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       not fetch chat links. The supplied percent-encoded PNG URL is one exact
       link, not an OpImage. Even chat routes bare image URLs through OpenGraph,
       not direct extension detection. Its direct-image path is `![alt](URL)`.
-      Prefer explicit opt-in HTTPS PNG preview first, with a provisioned common
-      TLS client, bounded worker/cache/bytes/pixels/redirects/deadlines, safe
-      URL/address policy, private temporary storage, and stale-result guards.
-      Do not copy detached demo workers, fixed paths, or conversion helpers.
-- [ ] **P06 — Inline local images/fullscreen media.** Birc previews local PNG
+      The approved implementation uses a provisioned Python/Pillow helper:
+      HTTP(S) public addresses only, standard ports, pinned resolved addresses,
+      checked redirects, normal certificate checks, and no cookies/proxies.
+      Download/decode/frame/output limits and an eight-second helper deadline
+      are explicit. Its bounded base64 envelope avoids temporary files; Bend
+      owns scheduling and stale-result checks, and Ui owns decoded cache bytes.
+      Automatic fetch applies to new live image links, not saved history.
+- [ ] **P06 — Inline image layout and animation.** Birc previews local PNG
       only in `*preview*`; chat additionally has Markdown image badges, inline
-      images, and fullscreen viewing. These are separate layout/input features.
-- [ ] **P07 — Cards, fenced code, and composer styling.** OpenGraph cards,
+      images, and fullscreen viewing. Inline image rows and explicit remote
+      previews are authorized. GIFs use terminal-side Kitty/iTerm animation
+      where supported and a first-frame fallback elsewhere; fullscreen is
+      a separate optional input feature.
+- [ ] **P07 — Optional cards, fenced code, and composer styling.** OpenGraph cards,
       fenced syntax highlighting, multiline rich composer, and RTL shaping
       belong to chat, not IRC. Keep each independent; do not import a general
       rich-document framework for simple IRC parity.
-- [ ] **P08 — Exact code foreground color.** DIM is restored by U09. The IRC
+- [ ] **P08 — Optional exact code foreground color.** DIM is restored by U09. The IRC
       example additionally uses a code foreground color; matching that palette
       is optional, not a reason to introduce a new theme model.
 
@@ -1405,6 +1491,19 @@ Local image rendering uses detected Kitty/iTerm2/Sixel capabilities and bounded
 PNG input; unsupported data/protocols show `[img]`. Multiplexers can suppress
 image capabilities. The chat transcript's auto-inline path requires Kitty.
 Broader image APIs in the header do not imply automatic remote expansion.
+
+Image-helper checkpoint: `make test-media-image` in the locked shell passes
+synthetic PNG/JPEG/GIF/WebP/BMP/TIFF/AVIF decoding, GIF/APNG/WebP frame timing,
+normalization/output bounds, malformed inputs, private/mixed/transition-address
+rejection, redirects (including same-host DNS rebinding), and exact pinned
+connect/TLS-host identity. A red NAT64 probe showed that `is_global` alone
+accepts a loopback-mapping address; IPv6 automatic fetch now requires native
+global unicast rather than transition/site-local aliases. A red fragment
+probe is corrected: the displayed URL stays exact, while HTTP omits its
+fragment as required. No real remote host was contacted. Nix adds Pillow and
+an absolute packaged helper from the existing locked nixpkgs; no pins move.
+The existing test/check targets default to `BIRC_IMAGES=off`; the new media
+integration fixtures must explicitly enable it and use a synthetic helper.
 
 Parity evidence: an offline model fixture preserved the supplied encoded URL
 through tokenizer/link extraction, proved ordinary chat has no OpImage, rejected

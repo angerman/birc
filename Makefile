@@ -24,6 +24,8 @@ PROTO := tests/bend/proto_demo.bend
 
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
+test%: export BIRC_IMAGES ?= off
+check: export BIRC_IMAGES ?= off
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-feed-bench test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
@@ -73,6 +75,18 @@ BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
 
 .PHONY: FORCE test-golden-runner test-build-config test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-pty-output-stall
+.PHONY: test-media-image test-formatting test-formatting-painter
+
+test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
+	$(NIXRUN) timeout 30 python3 tests/media_image.py
+
+test-formatting: ## Rich style composition, emoji aliases, exact URLs, and raw-source guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/formatting_demo.bend -o $(BLDDIR)/formatting_demo
+	$(NIXRUN) sh scripts/check-golden.sh formatting_demo=ok ./$(BLDDIR)/formatting_demo
+
+test-formatting-painter: build-ui ## Actual terminal attributes, aliases, and opaque hyperlink targets.
+	$(NIXRUN) timeout 15 python3 tests/formatting_painter.py ./$(BLDDIR)/birc fixtures/formatting.irc
 FORCE:
 
 $(BLDDIR)/build-config: FORCE scripts/build-config.sh
@@ -499,7 +513,7 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
-test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery
+test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -511,10 +525,12 @@ test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-
 .PHONY: test-demo-identity test-headless-startup test-pty-output-recovery
 .PHONY: test-mute-scope test-action-budget test-richtext-model test-richtext-painter
 .PHONY: test-split-rename
+.PHONY: test-output-shutdown test-output-progress test-pty-output-progress test-pty-output-failure
+.PHONY: test-png-bounds test-png-bounds-ubsan
 
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-mute-scope test-action-budget test-richtext-model test-split-rename ## Adversarial review regression gates.
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
 
-test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
+test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
 	$(NIXRUN) timeout 180 bend PROOF.bend
@@ -554,8 +570,38 @@ test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 .PHONY: test-output-utf8
 test-output-utf8: ## Preserve partial UTF-8 scalars across bounded output retries.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/output_utf8 tests/output_utf8.c'
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -o $(BLDDIR)/output_utf8 tests/output_utf8.c'
 	$(NIXRUN) sh scripts/check-golden.sh output_utf8=ok ./$(BLDDIR)/output_utf8
+
+test-output-shutdown: ## Final output settles UTF-8, framing, and sync debt before status.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/output_shutdown tests/output_shutdown.c'
+	$(NIXRUN) sh scripts/check-golden.sh output_shutdown=ok timeout 15 ./$(BLDDIR)/output_shutdown
+
+test-output-progress: ## One serialized frame drains exactly across short writes and resize.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/output_progress tests/output_progress.c'
+	$(NIXRUN) sh scripts/check-golden.sh output_progress=ok timeout 15 ./$(BLDDIR)/output_progress
+
+test-pty-output-progress: build-ui ## Pty: large and paced frames finish; partial-frame quit stays bounded.
+	$(NIXRUN) timeout 45 python3 tests/pty/output_progress.py ./$(BLDDIR)/birc
+
+$(BLDDIR)/birc-output-limit: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) -DBIRC_OUTPUT_LIMIT=4096 -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc-output-limit'
+
+test-pty-output-failure: build-ui $(BLDDIR)/birc-output-limit ## Pty: capture refusal closes the connected actor and fails after tty restore.
+	$(NIXRUN) timeout 30 python3 tests/pty/output_failure.py ./$(BLDDIR)/birc ./$(BLDDIR)/birc-output-limit
+
+PNG_TEST_CFLAGS := -std=c99 -O1 -Werror=vla -pedantic -Wall -Wextra -Werror -isystem src/ui
+test-png-bounds: ## Bound local Sixel PNG allocation/inflation and retry transient failures.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC $(PNG_TEST_CFLAGS) tests/png_bounds.c -o $(BLDDIR)/png_bounds'
+	$(NIXRUN) timeout 30 python3 tests/png_bounds.py ./$(BLDDIR)/png_bounds
+
+test-png-bounds-ubsan: ## UBSan: PNG layouts, malformed cache, and allocation-denial cleanup.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC $(PNG_TEST_CFLAGS) -g -fsanitize=undefined -fno-sanitize-recover=all tests/png_bounds.c -o $(BLDDIR)/png_bounds_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 timeout 30 python3 tests/png_bounds.py ./$(BLDDIR)/png_bounds_ubsan'
 
 test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
 	@mkdir -p $(BLDDIR)
@@ -589,7 +635,12 @@ test-asan: ## M7.3: bounded ASan gate (explicit skip for broken runtimes).
 test-ubsan: $(BLDDIR)/birc_ubsan ## M7.4: full-app UBSan through the hostile pty corpus.
 	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 timeout 120 python3 tests/pty/hostile.py ./$(BLDDIR)/birc_ubsan'
 
-test-sanitizers: test-asan test-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
+.PHONY: test-ubsan-native
+test-ubsan-native: ## UBSan: output progress, real signals, and final status ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in output_utf8 output_shutdown output_progress; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -I src/ui -I src/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
+
+test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
 
 test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
 

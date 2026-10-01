@@ -14,7 +14,7 @@ whole client correct.
 - **Checked pure core**: `bend PROOF.bend` checks quantified sanitization, single-chunk framer bounds, and authentication-state laws, plus concrete protocol, scroll, and rendering examples. See the exact proof scope below.
 - **Parked event loop**: Descriptor watchers wake one Bend `Chan(UiMsg)`. A one-second maintenance tick expires typing state and checks whether refused terminal output can resume; a full output queue does not cause a busy retry loop.
 - **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
-- **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, and single-marker formatting (`*bold*`, `_italic_`, `` `code` ``). This is not a general Markdown renderer.
+- **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
 - **Explicit bounds**: 512-byte IRC lines, capped buffers, bounded terminal writes, and UTF-8 decoding with Latin-1 fallback. Foreign effects and malformed inputs still need runtime tests.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
@@ -126,9 +126,12 @@ outside these pure proof guarantees. Runtime, PTY, and sanitizer tests cover
 those paths separately.
 
 Terminal writes have a shared frame deadline. Partial UTF-8 scalars retain at
-most three suffix bytes, which must precede later output. A short frame retries
-on a writable one-second maintenance tick; a full output queue does not cause
-a busy retry loop. Ordinary frames have 40 ms, writable repairs have 200 ms.
+most three suffix bytes, which must precede later output. One serialized frame
+retains its accepted-byte offset and resumes on a writable maintenance tick;
+it does not restart its prefix. Capture is capped at 64 MiB. Allocation or cap
+failure discards that whole capture and exits through normal terminal cleanup
+with a nonzero status. A full output queue does not cause a busy retry loop.
+Ordinary frames have 40 ms, writable repairs have 200 ms.
 Headless live startup awaits the bounded registration result and reports
 initial connection failure with a nonzero exit.
 
@@ -246,6 +249,14 @@ Their server identity cannot be recovered safely. Reconnect dividers and
 - **Drag in a Pane**: Select and copy text within that pane.
 
 ### In-Client Commands
+
+Display formatting supports `*bold*`, `**bold**`, `_italic_`, nested bold and
+italic, and opaque dim backticks. Unmatched markers stay literal. A backslash
+escapes `*`, `_`, backticks, backslash, or colon. The 22 chat-demo emoji aliases
+(for example `:eyes:`, `:fire:`, and `:+1:`) expand only in displayed text.
+Unknown names, code spans, and exact URLs stay unchanged. Sent text and history
+keep the original message. Styled URLs close formatting at the token end;
+internal URL punctuation is not markup.
 
 Type commands into the composer prompt:
 
