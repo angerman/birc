@@ -20,6 +20,7 @@ def rows_text(rows: List<&2, V.BodyRow>) -> String:
     case Nil{}: ""
     case Con{V.BodyRow{_, _, _, _, _, spans, _}, t}: spans_text(spans) ++ rows_text(t)
     case Con{V.BodyRecon{_, _}, t}: rows_text(t)
+    case Con{V.BodyMedia{_, _, _, _}, t}: rows_text(t)
 
 def links_exact(xs: List<&2, V.SpanOp>, +url: String) -> Bool:
   match xs:

@@ -12,6 +12,27 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.media_encoded_png():
+  {==}
+
+def Laws.media_query_not_extension():
+  {==}
+
+def Laws.media_code_opaque():
+  {==}
+
+def Laws.media_queue_capped():
+  {==}
+
+def Laws.media_reset_hides_old_active():
+  {==}
+
+def Laws.media_virtual_rows_resize():
+  {==}
+
+def Laws.media_virtual_rows_six():
+  {==}
+
 def Laws.ping_classified():
   {==}
 

@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./split.bend as Sp
 import ./links.bend as Links
 import ./columns.bend as Cols
+import ./media.bend as M
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -23,6 +24,7 @@ type DrawOp is Data:
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>, alerts: List<&2, U32>, bell: U32, bell_seq: U32}
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
   OpImage{x: U32, y: U32, w: U32, h: U32, path: String}
+  OpMedia{x: U32, y: U32, w: U32, h: U32, clip_y: U32, clip_h: U32, token: U32}
 
 type Lay is Data:
   Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -34,6 +36,7 @@ type ViewModel is Data:
 type BodyRow is Data:
   BodyRow{ts: String, ts_w: U32, off: U32, w: U32, fg: U32, spans: List<&2, SpanOp>, source_chars: Nat}
   BodyRecon{text: String, w: U32}
+  BodyMedia{token: U32, w: U32, h: U32, row: U32}
 
 def scroll_max.on(+count: Nat, +height: Nat, ge: Bool) -> Nat:
   match ge:
@@ -816,6 +819,75 @@ def wrapped_rows(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: 
   +chunks = wrap_spans(line_spans_for(k, text), first_w, cont_w)
   wrapped_rows.chunks(chunks, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k))
 
+type MediaPart is Data:
+  MediaPart{spans: List<&2, SpanOp>, url: Maybe<&2, String>}
+
+def contains_url(xs: List<&2, String>, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{h, tail}: String.eq(h, url) || contains_url(tail, url)
+
+def media_parts(xs: List<&2, SpanOp>, +rev: List<&2, SpanOp>, +urls: List<&2, String>) -> List<&2, MediaPart>:
+  match xs:
+    case Nil{}:
+      match rev:
+        case Nil{}: Nil{}
+        case Con{+h, +tail}: [MediaPart{List.reverse(&2, SpanOp, h <> tail), None{}}]
+    case Con{+h, +tail}:
+      match h:
+        case Lnk{+url, _}:
+          Bool.pick(List<&2, MediaPart>, contains_url(urls, url),
+            MediaPart{List.reverse(&2, SpanOp, h <> rev), Some{url}} <> media_parts(tail, Nil{}, urls),
+            media_parts(tail, h <> rev, urls))
+        case _: media_parts(tail, h <> rev, urls)
+
+# Image rows occupy six virtual rendered characters, independent of pane width.
+# The exact same expanded rows are used for anchors, navigation and painting.
+def media_rows.go(n: Nat, +token: U32, +w: U32, +row: U32) -> List<&2, BodyRow>:
+  match n:
+    case 0n: Nil{}
+    case 1n+p: BodyMedia{token, U32.min(w, 40), 6, row} <> media_rows.go(p, token, w, U32.add(row, 1))
+
+def media_rows(token: U32, w: U32) -> List<&2, BodyRow>:
+  media_rows.go(6n, token, w, 0)
+
+def media_part_image(url: Maybe<&2, String>, +media: M.State, +target: M.Target, +w: U32) -> List<&2, BodyRow>:
+  match url:
+    case None{}: Nil{}
+    case Some{exact}: media_rows(M.token(media, target, exact), w)
+
+def wrapped_media.parts(parts: List<&2, MediaPart>, +media: M.State, +target: M.Target, +ts: String, +stamp_w: U32, +first_off: U32, +first_w: U32, +cont_off: U32, +cont_w: U32, +fg: U32, +w: U32) -> List<&2, BodyRow>:
+  match parts:
+    case Nil{}: Nil{}
+    case Con{MediaPart{spans, url}, tail}:
+      List.append(&2, BodyRow, wrapped_rows.chunks(wrap_spans(spans, first_w, cont_w), ts, stamp_w, first_off, first_w, cont_off, cont_w, fg),
+        List.append(&2, BodyRow, media_part_image(url, media, target, w),
+          wrapped_media.parts(tail, media, target, "", 0, cont_off, cont_w, cont_off, cont_w, fg, w)))
+
+def wrapped_media(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State) -> List<&2, BodyRow>:
+  +shown = Bool.pick(String, show_ts, ts, "")
+  +first_off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
+  +first_w = U32.sub(w, first_off)
+  +indent = wrap_indent(line_prefix_w(k, text), first_w)
+  +cont_off = U32.add(first_off, indent)
+  +cont_w = U32.sub(first_w, indent)
+  +urls = M.known_urls(media, M.Inline{id})
+  Bool.pick(List<&2, BodyRow>, List.is_empty(&2, String, urls), wrapped_rows(k, ts, text, w, show_ts),
+    wrapped_media.parts(media_parts(line_spans_for(k, text), Nil{}, urls), media, M.Inline{id}, shown, ts_w(w), first_off, first_w, cont_off, cont_w, style_of(k), w))
+
+def wrap_line_media(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+  match ln:
+    case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
+    case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
+      Bool.pick(List<&2, BodyRow>, contains_url(M.known_urls(media, M.Manual{}), text),
+        media_rows(M.token(media, M.Manual{}, text), w), wrapped_media(Cl.System{}, ts, text, w, show_ts, 0n, media))
+    case Cl.Line{+k, +ts, +text, _, +id}: wrapped_media(k, ts, text, w, show_ts, id, media)
+
+def wrap_lines_media(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{h, tail}: List.append(&2, BodyRow, wrap_line_media(h, w, show_ts, media), wrap_lines_media(tail, w, show_ts, media))
+
 def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> List<&2, BodyRow>:
   match recon:
     case True{}:
@@ -864,6 +936,14 @@ def body_rows.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, synthetic: B
 
 def body_rows(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
   body_rows.on(lines, w, show_ts, String.eq(name, "*settings*"))
+
+def body_rows_media(+lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State) -> List<&2, BodyRow>:
+  Bool.pick(List<&2, BodyRow>, String.eq(name, "*settings*"), unwrapped_lines(lines, w, show_ts), wrap_lines_media(lines, w, show_ts, media))
+
+# This synthetic row exists only in the view; raw Client/history lines stay intact.
+def media_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, media: M.State) -> List<&2, Cl.Line>:
+  Bool.pick(List<&2, Cl.Line>, String.eq(name, "*preview*") && contains_url(M.known_urls(media, M.Manual{}), topic),
+    List.append(&2, Cl.Line, lines, [Cl.Line{Cl.System{}, "", topic, "", 0n}]), lines)
 
 def span_hello(spans: List<&2, SpanOp>) -> Bool:
   match spans:
@@ -945,6 +1025,7 @@ def row_chars(row: BodyRow) -> Nat:
   match row:
     case BodyRow{_, _, _, _, _, _, source_chars}: source_chars
     case BodyRecon{_, _}: 0n
+    case BodyMedia{_, _, _, _}: 1n
 
 def rows_chars(rows: List<&2, BodyRow>) -> Nat:
   match rows:
@@ -961,13 +1042,16 @@ def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat) -> List<&2,
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_chars(rows))
 
-def anchored_lines(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +left: Nat) -> List<&2, AnchoredRow>:
+def anchored_lines_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
   match lines:
     case Nil{}: Nil{}
     case Con{+h, t}:
       +after = Nat.sub(left, 1n)
-      +head = body_rows(body_of.lines(h <> Nil{}, mutes, name, server), name, w, show_ts)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines(t, name, w, show_ts, mutes, server, after))
+      +head = body_rows_media(body_of.lines(h <> Nil{}, mutes, name, server), name, w, show_ts, media)
+      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media(t, name, w, show_ts, mutes, server, after, media))
+
+def anchored_lines(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +left: Nat) -> List<&2, AnchoredRow>:
+  anchored_lines_media(lines, name, w, show_ts, mutes, server, left, M.empty())
 
 def anchor_reached(row: Cl.Scroll, want: Cl.Scroll) -> Bool:
   match row:
@@ -1003,10 +1087,14 @@ def visible_anchored(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll
   +end = viewport_end(rows, height, want)
   anchored_bodies(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height))
 
-def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String) -> List<&2, BodyRow>:
+def body_of.buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String, +media: M.State) -> List<&2, BodyRow>:
   match b:
-    case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
-      visible_anchored(anchored_lines(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines)), height, scroll)
+    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
+      +lines = media_display_lines(name, topic, raw_lines, media)
+      visible_anchored(anchored_lines_media(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines), media), height, scroll)
+
+def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +server: String) -> List<&2, BodyRow>:
+  body_of.buf_media(b, height, w, show_ts, mutes, server, M.empty())
 
 def row_anchor_at(rows: List<&2, AnchoredRow>, i: Nat) -> Cl.Scroll:
   match rows:
@@ -1023,11 +1111,15 @@ def moved_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +
   +end = Nat.sub(count, clamp_scroll(Nat.sub(count, target), count, height))
   Bool.pick(Cl.Scroll, Nat.is_eq(end, count), Cl.ScrollAt{0n, 0n}, row_anchor_at(rows, Nat.sub(end, 1n)))
 
-def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
+def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{+name, _, _, +lines, _, +scroll}:
-      +rows = anchored_lines(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines))
+    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
+      +lines = media_display_lines(name, topic, raw_lines, media)
+      +rows = anchored_lines_media(lines, name, w, show_ts, mutes, server, List.length(&2, Cl.Line, lines), media)
       Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+
+def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
+  scroll_buf_media(b, height, w, show_ts, mutes, server, up, dn, M.empty())
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -1357,19 +1449,25 @@ def body_row_ops(+x: U32, +y: U32, row: BodyRow) -> List<&2, DrawOp>:
       body_row_ops.normal(x, y, ts, stamp_w, off, w, fg, spans, String.is_empty(ts))
     case BodyRecon{+text, +w}:
       OpText{x, y, w, FG_DIM(), 0, recon_divider(text, w)} <> Nil{}
+    case BodyMedia{_, _, _, _}: Nil{}
 
-def body_ops.go(xs: List<&2, BodyRow>, +x: U32, +y: U32) -> List<&2, DrawOp>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      List.append(&2, DrawOp, body_row_ops(x, y, h), body_ops.go(t, x, U32.add(y, 1)))
+def body_ops.go(fuel: Nat, xs: List<&2, BodyRow>, +x: U32, +y: U32) -> List<&2, DrawOp>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match xs:
+        case Nil{}: Nil{}
+        case Con{BodyMedia{token, w, +h, +row}, +tail}:
+          +visible = U32.min(U32.sub(h, row), U32.from_nat(Nat.add(1n, List.length(&2, BodyRow, tail))))
+          OpMedia{x, y, w, h, row, visible, token} <> body_ops.go(p, List.drop(&2, BodyRow, tail, Nat.sub(U32.to_nat(visible), 1n)), x, U32.add(y, visible))
+        case Con{head, tail}:
+          List.append(&2, DrawOp, body_row_ops(x, y, head), body_ops.go(p, tail, x, U32.add(y, 1)))
 
 def body_ops(r: Rect, +xs: List<&2, BodyRow>) -> List<&2, DrawOp>:
   match r:
     case Rect{x, y, w, h}:
       +n = U32.from_nat(List.length(&2, BodyRow, xs))
-      body_ops.go(xs, inner_x(x), body_y0(y, h, n))
+      body_ops.go(List.length(&2, BodyRow, xs), xs, inner_x(x), body_y0(y, h, n))
 
 def image_ops.on(+x: U32, +y: U32, +w: U32, +h: U32, +path: String, empty: Bool) -> List<&2, DrawOp>:
   match empty:
@@ -1446,10 +1544,13 @@ def preview_path_of.on(+topic: String, preview: Bool) -> String:
     case True{}: topic
     case False{}: ""
 
-def preview_path_of(+b: Cl.Buffer) -> String:
+def preview_path_of_media(+b: Cl.Buffer, +media: M.State) -> String:
   match b:
     case Cl.Buffer{+name, _, +topic, _, _, _}:
-      preview_path_of.on(topic, String.eq(name, "*preview*"))
+      preview_path_of.on(topic, String.eq(name, "*preview*") && Bool.not(Links.is_url_prefix(topic)) && U32.is_zero(M.token(media, M.Manual{}, topic)))
+
+def preview_path_of(+b: Cl.Buffer) -> String:
+  preview_path_of_media(b, M.empty())
 
 def rect_vis_h(r: Rect) -> Nat:
   match r:
@@ -1492,17 +1593,23 @@ def focused_rect.on(+body: Rect, split: Sp.State) -> Rect:
 def focused_rect(+rows: U32, +cols: U32, split: Sp.State) -> Rect:
   focused_rect.on(lay_body_rect(lay(rows, cols, 0)), split)
 
-def scroll_active.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
+def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   match move:
     case False{}: cl
     case True{}:
       match cl:
         case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
           +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, up, dn))
+          Cl.buf_modify_client(cl, active, b => scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, up, dn, media))
+
+def scroll_active.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
+  scroll_active_media.on(move, cl, rows, cols, split, up, dn, M.empty())
+
+def scroll_active_media(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
+  scroll_active_media.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media)
 
 def scroll_active(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
-  scroll_active.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn)
+  scroll_active_media(cl, rows, cols, split, up, dn, M.empty())
 
 def split_axis_tag(axis: Sp.Axis) -> U32:
   match axis:
@@ -1561,6 +1668,34 @@ def view_ops_split(
         List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
           op_text(status_rect, FG_DIM(), status) <> Nil{}))
 
+def view_split_media.rects(
+  pair: Rect & Rect,
+  lay0: Lay,
+  axis: Sp.Axis,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +tabs: List<&2, String>,
+  +alerts: List<&2, U32>,
+  +bell: U32,
+  +bell_seq: U32,
+  +b1: Cl.Buffer,
+  +b2: Cl.Buffer,
+  +focused: U32,
+  +mutes: List<&2, String>,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +status: String,
+  +typers: List<&2, String>,
+  +show_ts: Bool,
+  +media: M.State
+) -> List<&2, DrawOp>:
+  match pair:
+    case (+r1, +r2):
+      body1 body2 = body_of.buf_media(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, server, media) body_of.buf_media(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, server, media)
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_of_media(b1, media), r2, split_title(b2, focused, 1), body2, preview_path_of_media(b2, media), ntitle, nicks, status_or_typing(status, typers))
+
 def view_split.rects(
   pair: Rect & Rect,
   lay0: Lay,
@@ -1583,12 +1718,9 @@ def view_split.rects(
   +typers: List<&2, String>,
   +show_ts: Bool
 ) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, server) body_of.buf(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, server)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_of(b1), r2, split_title(b2, focused, 1), body2, preview_path_of(b2), ntitle, nicks, status_or_typing(status, typers))
+  view_split_media.rects(pair, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, b1, b2, focused, mutes, ntitle, nicks, status, typers, show_ts, M.empty())
 
-def view_split(
+def view_split_media(
   +cl: Cl.Client,
   +rows: U32,
   +cols: U32,
@@ -1598,7 +1730,8 @@ def view_split(
   +first: String,
   +second: String,
   +focused: U32,
-  +typers: List<&2, String>
+  +typers: List<&2, String>,
+  +media: M.State
 ) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
@@ -1612,26 +1745,46 @@ def view_split(
       +mutes = Cl.settings_mutes(stg)
       nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
       +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, nt, ns, status, typers, Cl.settings_ts(stg)), view_input(draft)}
+      ViewModel{view_split_media.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, nt, ns, status, typers, Cl.settings_ts(stg), media), view_input(draft)}
 
-def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
+def view_split(
+  +cl: Cl.Client,
+  +rows: U32,
+  +cols: U32,
+  +draft: String,
+  +net: String,
+  +axis: Sp.Axis,
+  +first: String,
+  +second: String,
+  +focused: U32,
+  +typers: List<&2, String>
+) -> ViewModel:
+  view_split_media(cl, rows, cols, draft, net, axis, first, second, focused, typers, M.empty())
+
+def view_draft.single_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State) -> ViewModel:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
       +lay0 = lay(rows, cols, user_w(uh))
       +br = lay_body_rect(lay0)
-      bod = body_of.buf(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), server)
+      bod = body_of.buf_media(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_of(b), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_of_media(b, media), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
 
-def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
+def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
+  view_draft.single_media(cl, rows, cols, draft, net, typers, M.empty())
+
+def view_draft.state_typing_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State) -> ViewModel:
   match split:
     case Sp.On{axis, +first, +second, focus}:
-      view_split(cl, rows, cols, draft, net, axis, first, second, focus, typers)
+      view_split_media(cl, rows, cols, draft, net, axis, first, second, focus, typers, media)
     case Sp.Off{}:
-      view_draft.single(cl, rows, cols, draft, net, typers)
+      view_draft.single_media(cl, rows, cols, draft, net, typers, media)
+
+def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
+  view_draft.state_typing_media(cl, rows, cols, draft, net, typers, split, M.empty())
 
 def view_draft_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   view_draft.state_typing(cl, rows, cols, draft, net, typers, Sp.Off{})
@@ -1641,6 +1794,16 @@ def view_draft(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: Str
 
 def view_draft_split(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, split: Sp.State) -> ViewModel:
   view_draft.state_typing(cl, rows, cols, draft, net, Nil{}, split)
+
+
+
+
+
+
+
+
+
+
 
 def split_test_cl.got(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
   match pair:

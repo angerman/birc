@@ -24,6 +24,7 @@ def row_text(row: V.BodyRow) -> String:
     case V.BodyRow{_, _, _, _, _, spans, _}:
       List.foldl(~&2, ~V.SpanOp, ~String, ~span_step, spans, "")
     case V.BodyRecon{text, _}: text
+    case V.BodyMedia{_, _, _, _}: ""
 
 def rows(+cl: Cl.Client, +w: U32) -> List<&2, V.BodyRow>:
   V.body_of.buf(V.active_buf.on(Cl.nth_buf(Cl.client_bufs(cl), 0n)), 3n, w, False{}, Nil{}, "s")

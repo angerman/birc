@@ -47,8 +47,8 @@ def main() -> IO(Unit):
       List.is_empty(&2, String, take_outs(Sub.submit(Cl.init("me", "irc.example"), "/preview /tmp/image.png")))
     )
     Unit <- E.must_eq(
-      "remote_rejected",
+      "remote_opened",
       Sub.active_name(take_client(Sub.submit(Cl.init("me", "irc.example"), "/preview https://example.test/image.png"))),
-      "server"
+      "*preview*"
     )
     IO.print("preview_demo=ok")

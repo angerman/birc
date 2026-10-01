@@ -63,6 +63,19 @@ law Timui.close:
 def Timui.close(ui):
   import "../ffi/timui_ffi.c"
 
+# The bounded helper envelope is validated and stored by the native image cache.
+law Timui.media_add:
+  Ui -> String -> IO(Ui & U32)
+
+def Timui.media_add(ui, payload):
+  import "../ffi/timui_ffi.c"
+
+law Timui.media_clear:
+  Ui -> IO(Ui)
+
+def Timui.media_clear(ui):
+  import "../ffi/timui_ffi.c"
+
 # 1 if stdin is a tty. The headless --frames smoke is not.
 law Timui.isatty:
   IO(U32)
@@ -128,6 +141,12 @@ law Sys.clipboard_program:
   IO(String)
 
 def Sys.clipboard_program():
+  import "../ffi/timui_ffi.c"
+
+law Sys.media_program:
+  IO(String)
+
+def Sys.media_program():
   import "../ffi/timui_ffi.c"
 
 law Sys.exit_done:

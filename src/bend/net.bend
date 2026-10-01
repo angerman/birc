@@ -10,6 +10,8 @@ import ./clock.bend as Clock
 import ./actor.bend as Act
 import ./history.bend as Hist
 import ./typing.bend as Ty
+import ./media.bend as M
+import ./links.bend as Links
 
 def endpoint(+host: String, +port: U32) -> String:
   host ++ ":" ++ U32.show(port)
@@ -110,16 +112,17 @@ def paint_go(
   +seed: U32,
   size: Sess.Size,
   split: Sp.State,
-  +typers: List<&2, String>
+  +typers: List<&2, String>,
+  +media: M.State
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, cols}:
-      paint_vm(ui, V.view_draft.state_typing(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split), seed)
+      paint_vm(ui, V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), seed)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _}:
-      paint_go(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)))
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media}:
+      paint_go(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)), media)
 
 
 def outs_nil(+xs: List<&2, String>) -> Bool:
@@ -783,6 +786,78 @@ def on_reconnect(
 ) -> IO(Unit):
   on_reconnect.same(U32.is_eq(scheduled_gen, gen), ui, st, host, port, evt, cmd, ack, gen, frames, k)
 
+# One bounded external worker; only its exact completion can release ownership.
+def media_payload(r: Result<&1, &1, U32 & String, U32 & (String & String)>) -> String:
+  match r:
+    case Fail{_}: ""
+    case Done{(code, (out, _))}: Bool.pick(String, U32.is_zero(code), out, "")
+
+def media_args.pick(remote: Bool, source: String) -> List<&1, String>:
+  match remote:
+    case True{}: [source]
+    case False{}: ["--local", source]
+
+def media_args(+source: String) -> List<&1, String>:
+  media_args.pick(Links.is_url_prefix(source), source)
+
+def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match req:
+    case M.Request{_, +url, +generation, +ticket}:
+      do IO<Unit>:
+        program : String <- T.Sys.media_program()
+        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, media_args(url), "", 2800000, 11000)
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
+        return Unit{}
+
+def media_spawn(job: Maybe<&2, M.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match job:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{req}: IO.spawn(Unit, media_run(req, evt))
+
+def media_clear(changed: Bool, ui: T.Ui) -> IO(T.Ui):
+  match changed:
+    case True{}: T.Timui.media_clear(ui)
+    case False{}: IO.pure(T.Ui, ui)
+
+def media_stage.job(pair: M.State & Maybe<&2, M.Request>, ui: T.Ui, +st: Sess.Session, gen: U32, more: Bool, old_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+media, job):
+      do IO<Unit>:
+        ui2 : T.Ui <- media_clear(Bool.not(Nat.is_eq(old_gen, M.generation(media))), ui)
+        Unit <- media_spawn(job, evt)
+        k((ui2, Sess.session_set_media(st, media), gen, more))
+
+def media_stage(acc: T.Ui & Sess.Session & U32 & Bool, old_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match acc:
+    case (ui, +st, gen, more):
+      media_stage.job(M.take_job(M.maintain(Sess.session_media(st), Sess.session_cl(st))), ui, st, gen, more, old_gen, evt, k)
+
+def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, +frames: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (ui, +token):
+      +media = M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, token)
+      +next = Sess.session_set_media(st, media)
+      paint_input(ui, Bool.pick(Sess.Session, U32.is_zero(token), Sess.session_error(next, "image preview unavailable"), next), False{}, evt, cmd, ack, gen, frames, k)
+
+def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, +frames: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match accepted:
+    case False{}:
+      k((ui, Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)), gen, False{}))
+    case True{}:
+      do IO<Unit>:
+        pair : T.Ui & U32 <- T.Timui.media_add(ui, payload)
+        on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, frames, k)
+
+def images_enabled.got(result: Result<&1, &1, U32 & String, String>) -> Bool:
+  match result:
+    case Fail{_}: True{}
+    case Done{value}: Bool.not(String.eq(value, "off"))
+
+def images_enabled() -> IO(Bool):
+  do IO<Bool>:
+    result : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_IMAGES")
+    return images_enabled.got(result)
+
 def on_msg_go(
   m: Sess.UiMsg,
   ui: T.Ui,
@@ -807,6 +882,8 @@ def on_msg_go(
       on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, frames, k)
     case Sess.Reconnect{+host, port, scheduled_gen}:
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, frames, k)
+    case Sess.MediaFetched{+generation, +ticket, +url, payload}:
+      on_media(M.accept(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, frames, k)
     case Sess.FromNet{+got, +e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, frames, Sess.event_current(Sess.FromNet{got, e}, gen), k)
 
@@ -849,6 +926,7 @@ def live_step.next(
   +consumed: Bool,
   +old_cl: Cl.Client,
   +old_endpoint: String,
+  +old_media_gen: Nat,
   +hist_path: String,
   +evt: Chan(Sess.UiMsg),
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
@@ -861,7 +939,7 @@ def live_step.next(
         # become the next baseline, never part of this append comparison.
         Unit <- Hist.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
         pending : Bool <- more_schedule(scheduled, consumed, more, evt)
-        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, pending, hist_path, new_endpoint, k)
+        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, new_st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, k))
 
 def is_continue(m: Sess.UiMsg) -> Bool:
   match m:
@@ -888,7 +966,7 @@ def live_step.recv(
     case None{}:
       shutdown(ui, cmd, ack, evt, gen, shutdown_waits(Sess.session_net(st)))
     case Some{+m}:
-      on_msg(m, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), hist_path, evt, k))
+      on_msg(m, ui, st, evt, cmd, ack, gen, frames, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, evt, k))
 
 def live_step(
   ui: T.Ui,
@@ -1191,7 +1269,8 @@ def start_ui_load(
 ) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- Hist.history_init_client(hist_path, endpoint(host, port), hist_cap, nick, host, now)
-    start_ui_go(ui, Sess.session_with_client_at(live_client(cl, sasl_user, sasl_pass), chan, port), frames, evt, cmd, ack, hist_path)
+    on : Bool <- images_enabled()
+    start_ui_go(ui, Sess.session_set_media(Sess.session_with_client_at(live_client(cl, sasl_user, sasl_pass), chan, port), M.initial(on)), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   +frames: U32,
@@ -1305,7 +1384,8 @@ def run_demo_go(
   do IO<Unit>:
     Unit <- IO.spawn(Unit, Act.idle_start(evt, cmd, frames))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    open_watch(ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts), 0, evt, cmd, ack, frames, "")
+    on : Bool <- images_enabled()
+    open_watch(ui, Sess.session_set_media(Sess.session_set_now(Sess.session_demo(cl, chan), ts), M.initial(on)), 0, evt, cmd, ack, frames, "")
 
 def run_demo_tty(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
   do IO<Unit>:

@@ -16,6 +16,29 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/auth.bend as Auth
 import ./src/bend/outbound.bend as Act
 import ./src/bend/diagnostic.bend as Diagnostic
+import ./src/bend/media.bend as Media
+
+# Media is view-only, bounded and exact-identity scheduled.
+law media_encoded_png:
+  {Media.auto_url("https://example.test/Screenshot%202026.png?q=exact#part") == True{} : Bool}
+
+law media_query_not_extension:
+  {Media.auto_url("https://example.test/raw?image=a.png") == False{} : Bool}
+
+law media_code_opaque:
+  {List.is_empty(&2, String, Media.targets("`https://example.test/a.png`")) == True{} : Bool}
+
+law media_queue_capped:
+  {Media.pending_count(Media.enqueue_urls(["http://x/1.png", "http://x/2.png", "http://x/3.png", "http://x/4.png", "http://x/5.png", "http://x/6.png", "http://x/7.png", "http://x/8.png", "http://x/9.png"], Media.initial(True{}), Media.Inline{1n})) == 8n : Nat}
+
+law media_reset_hides_old_active:
+  {List.is_empty(&2, String, Media.known_urls(Media.reset(Media.State{True{}, 1n, 2n, Some{Media.Request{Media.Inline{1n}, "http://x/a.png", 1n, 1n}}, Nil{}, Nil{}}), Media.Inline{1n})) == True{} : Bool}
+
+law media_virtual_rows_resize:
+  {Nat.is_eq(V.rows_chars(V.media_rows(7, 1)), V.rows_chars(V.media_rows(7, 80))) == True{} : Bool}
+
+law media_virtual_rows_six:
+  {V.rows_chars(V.media_rows(7, 80)) == 6n : Nat}
 
 # LAW: a concrete PING line is classified as Ping.
 law ping_classified:

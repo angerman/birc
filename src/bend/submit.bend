@@ -929,7 +929,7 @@ def submit_preview.local(+cl: Cl.Client, +path: String, empty: Bool) -> Cl.Clien
 def submit_preview.remote(+cl: Cl.Client, +arg: String, remote: Bool) -> Cl.Client & List<&2, String>:
   match remote:
     case True{}:
-      (echo_err(cl, "remote previews are unavailable; use a local path or file://-prefixed local path"), empty_out())
+      submit_preview.open(Cl.buf_get(cl, "*preview*", False{}, True{}), arg)
     case False{}:
       +path = preview_local_path(arg)
       submit_preview.local(cl, path, String.is_empty(path))
@@ -957,6 +957,7 @@ type Slash is Data:
   OpenCmd{}
   SearchCmd{}
   PreviewCmd{}
+  ImagesCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -981,6 +982,7 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"open", OpenCmd{}}
     <> SlashRow{"search", SearchCmd{}}
     <> SlashRow{"preview", PreviewCmd{}}
+    <> SlashRow{"images", ImagesCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1091,6 +1093,9 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_search(cl, rest)
     case PreviewCmd{}:
       submit_preview(cl, rest)
+    case ImagesCmd{}:
+      (echo_sys(cl, Bool.pick(String, String.eq(Irc.drop_spaces(rest), "on"), "automatic images on",
+        Bool.pick(String, String.eq(Irc.drop_spaces(rest), "off"), "automatic images off", "usage: /images on|off"))), empty_out())
     case Unknown{}:
       submit_unknown(cl, verb)
 
