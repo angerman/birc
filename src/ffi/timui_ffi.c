@@ -126,6 +126,22 @@ static int birc_output_failure;
 static TimuiClosedOutput birc_final_output;
 static struct stat birc_final_stream;
 static int birc_final_pending;
+static Timui *birc_final_retained_ui;
+static BircUi *birc_final_retained_state;
+
+static void birc_state_destroy(BircUi *state) {
+  if (!state)
+    return;
+  for (int i = 0; i < 2; i++) {
+    if (state->previews[i].image)
+      timui_image_free(NULL, state->previews[i].image);
+    if (state->previews[i].retiring)
+      timui_image_free(NULL, state->previews[i].retiring);
+  }
+  free(state->clipboard);
+  birc_output_destroy(&state->output);
+  free(state);
+}
 
 static int birc_same_stream(const struct stat *a, const struct stat *b) {
   return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
@@ -145,18 +161,51 @@ static void birc_final_disown(void) {
 
 static void birc_final_take(TimuiClosedOutput *pending) {
   birc_final_disown();
-  if (pending->fd.write_utf8_tail_len == 0 && !pending->framing_debt && !pending->sync_open)
+  birc_final_retained_ui = pending->retained_ui;
+  birc_final_retained_state = birc_state(pending->retained_ui);
+  if (pending->fd.write_utf8_tail_len == 0 && !pending->framing_debt &&
+      !pending->sync_open && !pending->retained_ui) {
+    if (pending->owned_fd)
+      (void)close(pending->fd.write_fd);
     return;
+  }
   birc_final_output = *pending;
   if (fstat(pending->fd.write_fd, &birc_final_stream) != 0) {
     /* Identity is unknown: suppress final output rather than bypass debt. */
+    if (pending->owned_fd)
+      (void)close(pending->fd.write_fd);
     memset(&birc_final_stream, 0, sizeof birc_final_stream);
     birc_final_output.fd.write_fd = -1;
     birc_final_pending = 2;
   } else {
-    birc_final_output.fd.write_fd = fcntl(pending->fd.write_fd, F_DUPFD_CLOEXEC, 3);
+    birc_final_output.fd.write_fd = pending->owned_fd ? pending->fd.write_fd
+        : fcntl(pending->fd.write_fd, F_DUPFD_CLOEXEC, 3);
     birc_final_pending = 1;
   }
+}
+
+/* At most one complete Ui/BircUi owner is retained for an already-entered
+ * handler. Never wait for it; a final exit gets only its existing deadline. */
+static int birc_final_reap(uint64_t deadline) {
+  Timui *ui = birc_final_retained_ui;
+  BircUi *state = birc_final_retained_state;
+  TimuiClosedOutput pending;
+  if (!ui)
+    return 1;
+  if (!timui_close_prepare_(ui))
+    return 0;
+  birc_final_retained_ui = NULL;
+  birc_final_retained_state = NULL;
+  timui_close_prepared_(ui, &pending, 1, deadline);
+  birc_state_destroy(state);
+  birc_final_take(&pending);
+  return 1;
+}
+
+static void birc_final_before_exit(void) {
+  if (birc_final_retained_ui)
+    timui_signal_host_restore_(birc_final_retained_ui);
+  birc_final_disown();
 }
 
 /* Input and output can have separate descriptions. Make the write target
@@ -188,6 +237,10 @@ static void birc_write_final(TimuiFdCtx *output, const void *data, size_t size,
                              uint64_t deadline) {
   struct stat stream;
   int fd = output->write_fd;
+  if (!birc_final_reap(deadline) &&
+      (fstat(fd, &stream) != 0 || birc_final_pending == 2 ||
+       birc_same_stream(&stream, &birc_final_stream)))
+    return;
   if (birc_final_pending &&
       (birc_final_output.fd.write_utf8_tail_len != 0 ||
        birc_final_output.framing_debt || birc_final_output.sync_open) &&
@@ -1160,6 +1213,13 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   (void)w;
   if (ui == birc_ui_live)
     birc_ui_live = NULL;
+  if (ui && !timui_close_prepare_(ui)) {
+    TimuiClosedOutput pending = {0};
+    pending.fd.write_fd = ui->signal_host.write_fd;
+    pending.retained_ui = ui;
+    birc_final_take(&pending);
+    return term_pak(CID_UNIT, 0);
+  }
   if (st && st->profile_enabled) {
     char report[256];
     uint64_t deadline = timui_now_ms() + 40u;
@@ -1190,25 +1250,10 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
     TimuiClosedOutput pending;
     /* TimUI retires and disowns image IDs under its one teardown budget.
      * Cached bitmaps can then be freed without further terminal IO. */
-    timui_close_fd_(ui, &pending);
+    timui_close_prepared_(ui, &pending, 0, 0);
     birc_final_take(&pending);
-    if (st)
-      for (int i = 0; i < 2; i++) {
-        if (st->previews[i].image) {
-          timui_image_free(NULL, st->previews[i].image);
-          st->previews[i].image = NULL;
-        }
-        if (st->previews[i].retiring) {
-          timui_image_free(NULL, st->previews[i].retiring);
-          st->previews[i].retiring = NULL;
-        }
-      }
   }
-  if (st)
-    free(st->clipboard);
-  if (st)
-    birc_output_destroy(&st->output);
-  free(st);
+  birc_state_destroy(st);
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) timui_close_use(void) {
@@ -1404,7 +1449,7 @@ Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
    * already closed; do not flush stdio or leave parked IO alive on success. */
   const char *status = birc_output_failure ? "birc=failed\n" : "birc=ok\n";
   birc_write_final(&output, status, strlen(status), timui_now_ms() + 250u);
-  birc_final_disown();
+  birc_final_before_exit();
   _Exit(birc_output_failure ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 static void __attribute__((constructor)) sys_exit_done_use(void) {
@@ -1423,7 +1468,7 @@ Term sys_exit_fail_run(Env e, Term *f, IoWork *w) {
   if (msg)
     birc_write_final(&output, msg, (size_t)len, deadline);
   birc_write_final(&output, "\n", 1, deadline);
-  birc_final_disown();
+  birc_final_before_exit();
   free(msg);
   _Exit(EXIT_FAILURE);
 }

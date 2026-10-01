@@ -2999,11 +2999,25 @@ typedef struct {
  * an atomic helper that takes a hidden lock is not signal-safe. */
 typedef char TimuiSignalWordLockFree_[
     __atomic_always_lock_free(sizeof(sig_atomic_t), 0) ? 1 : -1];
+typedef char TimuiSignalPointerLockFree_[
+    __atomic_always_lock_free(sizeof(void *), 0) ? 1 : -1];
+
+/* Immutable host snapshot and stable references for the one restore owner.
+ * Its saved termios bytes remain owned by Ui until the handler claim clears. */
+typedef struct {
+  int owned;
+  int read_fd, write_fd;
+  int input_flags_saved, input_flags, output_flags;
+  int termios_active;
+  TimuiTermios termios;
+} TimuiSignalHost;
 
 typedef struct {
   TimuiFdCtx fd;
   int framing_debt;
   volatile sig_atomic_t sync_open;
+  int owned_fd;
+  Timui *retained_ui;
 } TimuiClosedOutput;
 
 /* Private TimuiScreenMode.flags bit: enter() pushed the terminal's title stack
@@ -3210,6 +3224,7 @@ struct Timui {
   int screen_active;
   TimuiTermios termios;
   int termios_active;
+  TimuiSignalHost signal_host;
   struct sigaction prev_sigterm;
   struct sigaction prev_sighup;
   struct sigaction prev_sigquit;
@@ -4163,14 +4178,52 @@ TIMUI_API void timui_open_fail_fsetfl_for_test(int on) {
  * still restored immediately. No poll/retry loop can hang in the handler.
  *
  * C11 7.14.1.1p5 would have a handler touch static objects only through
- * volatile sig_atomic_t. The pointer is volatile-qualified so the load is not
- * cached or reordered across the handler boundary, but the restore itself must
+ * volatile sig_atomic_t. Lock-free backend atomics publish the pointer and
+ * lifetime claim, but the restore itself must
  * pass a saved `struct termios` to tcsetattr, and no integer type can hold one.
  * Mirroring only the integer fields would leave the real dereference in place
  * while dropping termios restoration — trading the bricked-terminal failure
  * this handler exists to prevent for a conformance nit. The deviation is
  * deliberate and recorded in docs/gaps.md. */
-static Timui *volatile g_sig_restore_ui = NULL;
+static Timui *g_sig_restore_ui = NULL;
+/* Low bits: 0 idle, 1 handler, 2 ordinary close/install. High bits retain one
+ * coalesced signal for an owner to re-raise after restoration. No wait/queue.
+ * A handler claims BEFORE loading Ui; a closer claims BEFORE freeing it. */
+static volatile sig_atomic_t g_sig_restore_claim;
+static Timui *g_sig_retained_ui;
+
+static void timui_signal_release_claim_(void) {
+  sig_atomic_t state = __atomic_exchange_n(&g_sig_restore_claim, 0,
+                                           __ATOMIC_ACQ_REL);
+  if (state >> 2)
+    (void)raise((int)(state >> 2));
+}
+
+static void timui_signal_defer_(int sig, sig_atomic_t state) {
+  if (!(state >> 2)) {
+    sig_atomic_t expected = state;
+    if (!__atomic_compare_exchange_n(&g_sig_restore_claim, &expected,
+                                      state | (sig << 2), 0,
+                                      __ATOMIC_RELEASE, __ATOMIC_RELAXED) &&
+        expected == 0)
+      (void)raise(sig); /* owner already restored its dispositions */
+  }
+}
+
+/* Read only immutable saved state. Final _Exit uses this if a handler is still
+ * active; it must restore the parent's host state without freeing/mutating Ui. */
+static inline void timui_signal_host_restore_(const Timui *ui) {
+  const TimuiSignalHost *host = &ui->signal_host;
+  if (!host->owned)
+    return;
+  timui_fd_flags_restore_(host->write_fd, host->output_flags);
+  if (host->input_flags_saved)
+    (void)fcntl(host->read_fd, F_SETFL, host->input_flags);
+  if (host->termios_active) {
+    TimuiTermios termios = host->termios;
+    (void)timui_termios_restore(&termios);
+  }
+}
 
 static void timui_restore_input_flags(Timui *ui) {
   if (!ui || !ui->input_flags_saved)
@@ -4200,7 +4253,7 @@ static int timui_framing_settle_(Timui *ui);
  * If either flag operation fails, teardown skips terminal writes rather than
  * falling back to a call that can block: an un-restorable terminal is a bad
  * outcome, a process that never returns is a worse one. */
-static int timui_teardown_arm_(Timui *ui) {
+static int timui_teardown_arm_until_(Timui *ui, uint64_t deadline) {
   int fl;
   if (!ui || !ui->have_transport)
     return 0;
@@ -4221,9 +4274,12 @@ static int timui_teardown_arm_(Timui *ui) {
     return 0;
   ui->fd.teardown_saved_flags = fl;
   ui->fd.teardown_flags_saved = 1;
-  ui->fd.teardown_deadline_ms = timui_now_ms() + TIMUI_TEARDOWN_BUDGET_MS;
+  ui->fd.teardown_deadline_ms = deadline;
   ui->fd.teardown_bounded = 1;
   return 1;
+}
+static int timui_teardown_arm_(Timui *ui) {
+  return timui_teardown_arm_until_(ui, timui_now_ms() + TIMUI_TEARDOWN_BUDGET_MS);
 }
 #undef TIMUI_TEARDOWN_BUDGET_MS
 static void timui_teardown_disarm_(Timui *ui) {
@@ -4287,41 +4343,40 @@ TIMUI_API void timui_restore_terminal(Timui *ui) {
   may_write = timui_teardown_arm_(ui);
   timui_restore_terminal_armed_(ui, may_write);
 }
-static void timui_signal_write_(int fd, const char *s, size_t n) {
-  if (fd >= 0)
-    (void)write(fd, s, n);
+static ssize_t timui_signal_write_(int fd, const char *s, size_t n) {
+  return fd >= 0 ? write(fd, s, n) : -1;
 }
-#define TIMUI_SIG_EMIT(ui, lit)                                                \
-  timui_signal_write_((ui)->fd.write_fd, (lit), sizeof(lit) - 1)
-static void timui_signal_screen_exit_(Timui *ui) {
+#define TIMUI_SIG_EMIT(fd, lit)                                                \
+  timui_signal_write_((fd), (lit), sizeof(lit) - 1)
+static void timui_signal_screen_exit_(Timui *ui, int fd) {
   uint32_t flags;
   if (!ui || !ui->screen_active)
     return;
   flags = ui->screen.flags;
   if (flags & TIMUI_FLAG_FOCUS_EVENTS)
-    TIMUI_SIG_EMIT(ui, "\x1b[?1004l");
+    TIMUI_SIG_EMIT(fd, "\x1b[?1004l");
   if (flags & TIMUI_FLAG_BRACKETED_PASTE)
-    TIMUI_SIG_EMIT(ui, "\x1b[?2004l");
+    TIMUI_SIG_EMIT(fd, "\x1b[?2004l");
   if (flags & TIMUI_FLAG_MOUSE) {
-    TIMUI_SIG_EMIT(ui, "\x1b[?1002l");
-    TIMUI_SIG_EMIT(ui, "\x1b[?1006l");
+    TIMUI_SIG_EMIT(fd, "\x1b[?1002l");
+    TIMUI_SIG_EMIT(fd, "\x1b[?1006l");
     if (flags & TIMUI_FLAG_MOUSE_MOTION)
-      TIMUI_SIG_EMIT(ui, "\x1b[?1003l");
+      TIMUI_SIG_EMIT(fd, "\x1b[?1003l");
     else
-      TIMUI_SIG_EMIT(ui, "\x1b[?1000l");
+      TIMUI_SIG_EMIT(fd, "\x1b[?1000l");
   }
   if (flags & TIMUI_FLAG_KITTY_KEYBOARD)
-    TIMUI_SIG_EMIT(ui, "\x1b[<u");
-  TIMUI_SIG_EMIT(ui, "\x1b[?25h");
+    TIMUI_SIG_EMIT(fd, "\x1b[<u");
+  TIMUI_SIG_EMIT(fd, "\x1b[?25h");
   if (flags & TIMUI_FLAG_ALT_SCREEN)
-    TIMUI_SIG_EMIT(ui, "\x1b[?1049l");
-  TIMUI_SIG_EMIT(ui, "\x1b[?7h");
+    TIMUI_SIG_EMIT(fd, "\x1b[?1049l");
+  TIMUI_SIG_EMIT(fd, "\x1b[?7h");
   if (flags & TIMUI_SCREEN_TITLE_PUSHED_) {
     /* F18: mirror timui_screen_exit, including clearing ownership — a handler
      * whose saved disposition returns instead of exiting leaves timui_close to
      * run afterwards, and the entry must not be popped twice. */
-    TIMUI_SIG_EMIT(ui, "\x1b[23;0t");
-    ui->screen.flags &= ~TIMUI_SCREEN_TITLE_PUSHED_;
+    if (TIMUI_SIG_EMIT(fd, "\x1b[23;0t") == 7)
+      ui->screen.flags &= ~TIMUI_SCREEN_TITLE_PUSHED_;
   }
 }
 #undef TIMUI_SIG_EMIT
@@ -4330,12 +4385,14 @@ static void timui_signal_restore_terminal_(Timui *ui) {
   int fl = -1;
   int may_write;
   int owns_output;
+  int output_fd;
   sig_atomic_t expected = 0;
   if (!ui)
     return;
   /* A handler must leave errno exactly as it found it: the interrupted code
    * may be about to read it. Every fcntl/write below can set it. */
   saved_errno = errno;
+  output_fd = ui->signal_host.owned ? ui->signal_host.write_fd : ui->fd.write_fd;
   owns_output = __atomic_compare_exchange_n(&ui->fd.write_owner, &expected, 3,
                                             0, __ATOMIC_ACQUIRE,
                                             __ATOMIC_RELAXED);
@@ -4360,15 +4417,15 @@ static void timui_signal_restore_terminal_(Timui *ui) {
    * operation fails, terminal writes are skipped rather than risking a handler
    * that never returns. */
   may_write = owns_output && ui->have_transport;
-  if (may_write && ui->transport.write == fd_write) {
-    if (ui->fd.write_fd < 0)
+  if (may_write && (ui->signal_host.owned || ui->transport.write == fd_write)) {
+    if (output_fd < 0)
       may_write = 0;
     else {
-      fl = fcntl(ui->fd.write_fd, F_GETFL, 0);
+      fl = fcntl(output_fd, F_GETFL, 0);
       if (fl < 0)
         may_write = 0;
       else if (!(fl & O_NONBLOCK) &&
-               fcntl(ui->fd.write_fd, F_SETFL, fl | O_NONBLOCK) < 0) {
+               fcntl(output_fd, F_SETFL, fl | O_NONBLOCK) < 0) {
         may_write = 0;
         fl = -1;
       }
@@ -4379,7 +4436,7 @@ static void timui_signal_restore_terminal_(Timui *ui) {
    * unwritten suffix for a normal restore if the saved handler returns. */
   if (may_write && ui->fd.write_utf8_tail_len != 0) {
     size_t left = ui->fd.write_utf8_tail_len;
-    ssize_t written = write(ui->fd.write_fd, ui->fd.write_utf8_tail, left);
+    ssize_t written = write(output_fd, ui->fd.write_utf8_tail, left);
     if (written > 0) {
       size_t i;
       left -= (size_t)written;
@@ -4395,22 +4452,43 @@ static void timui_signal_restore_terminal_(Timui *ui) {
    * the lowercase CSI finals these sequences end in. */
   if (may_write) {
     if (ui->framing_debt) { /* same debts as ordinary restore, async-safe */
-      timui_signal_write_(ui->fd.write_fd, TIMUI_FRAME_RESYNC_,
-                          sizeof(TIMUI_FRAME_RESYNC_) - 1);
-      ui->framing_debt = 0;
+      if (timui_signal_write_(output_fd, TIMUI_FRAME_RESYNC_,
+                             sizeof(TIMUI_FRAME_RESYNC_) - 1) ==
+          (ssize_t)(sizeof(TIMUI_FRAME_RESYNC_) - 1))
+        ui->framing_debt = 0;
+      else
+        may_write = 0;
     }
-    if (ui->sync_open) { /* same debt as ordinary restore, async-safe */
-      timui_signal_write_(ui->fd.write_fd, "\x1b[?2026l", 8);
-      ui->sync_open = 0;
+    if (may_write && ui->sync_open) {
+      if (timui_signal_write_(output_fd, "\x1b[?2026l", 8) == 8)
+        ui->sync_open = 0;
+      else
+        may_write = 0;
     }
-    timui_signal_screen_exit_(ui);
+    if (may_write)
+      timui_signal_screen_exit_(ui, output_fd);
   }
-  if (fl >= 0)
-    (void)fcntl(ui->fd.write_fd, F_SETFL, fl);
-  if (owns_output)
-    timui_restore_input_flags(ui);
-  if (ui->termios_active)
-    (void)timui_termios_restore(&ui->termios);
+  if (fl >= 0) {
+    /* A returning restore ends the frame borrow. Do not reinstate its flags
+     * after a concurrent final exit has restored the immutable host state. */
+    if (ui->signal_host.owned)
+      timui_fd_flags_restore_(output_fd, ui->signal_host.output_flags);
+    else
+      (void)fcntl(output_fd, F_SETFL, fl);
+  }
+  if (owns_output) {
+    if (ui->signal_host.owned && ui->input_flags_saved) {
+      (void)fcntl(ui->signal_host.read_fd, F_SETFL, ui->input_flags);
+      ui->input_flags_saved = 0;
+    } else {
+      timui_restore_input_flags(ui);
+    }
+  }
+  if (ui->termios_active) {
+    TimuiTermios termios = ui->signal_host.owned
+        ? ui->signal_host.termios : ui->termios;
+    (void)timui_termios_restore(&termios);
+  }
   if (owns_output)
     __atomic_store_n(&ui->fd.write_owner, 0, __ATOMIC_RELEASE);
   errno = saved_errno;
@@ -4447,12 +4525,26 @@ static void timui_restore_previous_signal(Timui *ui, int sig) {
     signal(sig, SIG_DFL);
 }
 static void timui_sig_restore(int sig) {
-  Timui *ui = g_sig_restore_ui;
+  sig_atomic_t expected = 0;
+  Timui *ui;
+  int saved_errno = errno;
+  if (!__atomic_compare_exchange_n(&g_sig_restore_claim, &expected, 1, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+    timui_signal_defer_(sig, expected);
+    errno = saved_errno;
+    return;
+  }
+  ui = __atomic_load_n(&g_sig_restore_ui, __ATOMIC_ACQUIRE);
   timui_signal_restore_terminal_(ui);
-  if (g_sig_restore_ui == ui)
-    g_sig_restore_ui = NULL;
-  timui_restore_previous_signal(ui, sig);
+  if (ui) {
+    __atomic_store_n(&g_sig_restore_ui, NULL, __ATOMIC_RELEASE);
+    timui_restore_previous_signal(ui, sig);
+  }
+  /* A late entry with no Ui uses the caller's current disposition. In
+   * particular, never replace an already-restored custom handler with DFL. */
+  timui_signal_release_claim_();
   raise(sig);
+  errno = saved_errno;
 }
 /* Install our restore handler for one signal, unless the application is
  * deliberately ignoring it. Installing over SIG_IGN would convert a signal the
@@ -4470,17 +4562,44 @@ static int timui_arm_signal_(int sig, const struct sigaction *sa,
   return sigaction(sig, sa, out_prev) == 0;
 }
 
-static void timui_install_sig_handlers(Timui *ui) {
+static int timui_install_sig_handlers(Timui *ui) {
   struct sigaction sa;
+  sig_atomic_t expected = 0;
+  Timui *current;
   if (!ui || !(ui->cfg.flags & TIMUI_FLAG_RESTORE_ON_EXIT) ||
       (!ui->termios_active && !ui->screen_active))
-    return;
+    return 1;
   /* F13: enforce the single-context contract. A second context leaves every
    * prev_*_saved at 0, so its close is a no-op and cannot disturb the owner's
    * handlers. Restoration stays with whoever actually owns the terminal. */
-  if (g_sig_restore_ui && g_sig_restore_ui != ui)
-    return;
-  g_sig_restore_ui = ui;
+  if (!__atomic_compare_exchange_n(&g_sig_restore_claim, &expected, 2, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+    return 1;
+  current = __atomic_load_n(&g_sig_restore_ui, __ATOMIC_ACQUIRE);
+  if (current || g_sig_retained_ui) {
+    timui_signal_release_claim_();
+    return 1;
+  }
+  ui->signal_host.read_fd = ui->fd.read_fd >= 0
+      ? fcntl(ui->fd.read_fd, F_DUPFD_CLOEXEC, 3) : -1;
+  ui->signal_host.write_fd = ui->fd.write_fd >= 0
+      ? fcntl(ui->fd.write_fd, F_DUPFD_CLOEXEC, 3) : -1;
+  if ((ui->fd.read_fd >= 0 && ui->signal_host.read_fd < 0) ||
+      (ui->fd.write_fd >= 0 && ui->signal_host.write_fd < 0)) {
+    if (ui->signal_host.read_fd >= 0)
+      close(ui->signal_host.read_fd);
+    if (ui->signal_host.write_fd >= 0)
+      close(ui->signal_host.write_fd);
+    timui_signal_release_claim_();
+    return 0;
+  }
+  ui->signal_host.input_flags_saved = ui->input_flags_saved;
+  ui->signal_host.input_flags = ui->input_flags;
+  ui->signal_host.output_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
+  ui->signal_host.termios = ui->termios;
+  ui->signal_host.termios.fd = ui->signal_host.read_fd;
+  ui->signal_host.termios_active = ui->termios_active;
+  ui->signal_host.owned = 1;
   ui->fd.write_restore_ui = ui;
   memset(&sa, 0, sizeof sa);
   sa.sa_handler = timui_sig_restore;
@@ -4499,10 +4618,34 @@ static void timui_install_sig_handlers(Timui *ui) {
   ui->prev_sighup_saved = timui_arm_signal_(SIGHUP, &sa, &ui->prev_sighup);
   ui->prev_sigquit_saved = timui_arm_signal_(SIGQUIT, &sa, &ui->prev_sigquit);
   ui->prev_sigint_saved = timui_arm_signal_(SIGINT, &sa, &ui->prev_sigint);
+  __atomic_store_n(&g_sig_restore_ui, ui, __ATOMIC_RELEASE);
+  timui_signal_release_claim_();
+  return 1;
 }
-static void timui_remove_sig_handlers(Timui *ui) {
-  if (g_sig_restore_ui == ui)
-    g_sig_restore_ui = NULL;
+/* The final-exit owner can resume a retained close under its own already-armed
+ * deadline. This is only the signal lifetime boundary, not general Ui locking. */
+static int timui_close_prepare_(Timui *ui) {
+  sig_atomic_t expected = 0;
+  Timui *published = ui;
+  if (!ui || !ui->signal_host.owned)
+    return 1;
+  if (!__atomic_compare_exchange_n(&g_sig_restore_claim, &expected, 2, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+    g_sig_retained_ui = ui;
+    return 0;
+  }
+  (void)__atomic_compare_exchange_n(&g_sig_restore_ui, &published, NULL, 0,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+  if (g_sig_retained_ui == ui) {
+    g_sig_retained_ui = NULL;
+    ui->fd.read_fd = ui->signal_host.read_fd;
+    ui->fd.write_fd = ui->signal_host.write_fd;
+    ui->termios.fd = ui->signal_host.read_fd;
+  }
+  return 1;
+}
+
+static void timui_remove_sig_handlers_prepared_(Timui *ui) {
   if (!ui)
     return;
   if (ui->prev_sigterm_saved) {
@@ -4521,6 +4664,24 @@ static void timui_remove_sig_handlers(Timui *ui) {
     sigaction(SIGINT, &ui->prev_sigint, NULL);
     ui->prev_sigint_saved = 0;
   }
+}
+static void timui_signal_refs_close_(Timui *ui) {
+  if (!ui || !ui->signal_host.owned)
+    return;
+  if (ui->signal_host.read_fd >= 0)
+    (void)close(ui->signal_host.read_fd);
+  if (ui->signal_host.write_fd >= 0)
+    (void)close(ui->signal_host.write_fd);
+  ui->signal_host.owned = 0;
+}
+static inline void timui_remove_sig_handlers(Timui *ui) {
+  int claimed = ui && ui->signal_host.owned;
+  if (!timui_close_prepare_(ui))
+    return;
+  timui_remove_sig_handlers_prepared_(ui);
+  timui_signal_refs_close_(ui);
+  if (claimed)
+    timui_signal_release_claim_();
 }
 static void timui_open_cleanup_failed(Timui *ui) {
   if (!ui)
@@ -4703,28 +4864,34 @@ TIMUI_API TimuiResult timui_open(const TimuiConfig *cfg, Timui **out_ui) {
   }
   timui_set_terminal_pixels_(ui, w, h, px_w, px_h);
   *out_ui = ui;
-  timui_install_sig_handlers(
-      ui); /* W6: restore the terminal on SIGINT/SIGTERM/SIGHUP/SIGQUIT */
+  if (!timui_install_sig_handlers(ui)) {
+    timui_close(ui);
+    *out_ui = NULL;
+    return TIMUI_ERR_OS;
+  }
   return TIMUI_OK;
 }
-/* The FFI's final bounded status write outlives TimUI. It can take only the
- * retained fd/scalar/framing obligations, never a pointer into the freed UI. */
-static void timui_close_fd_(Timui *ui, TimuiClosedOutput *pending) {
+/* Final output owns closed fd obligations, or one still-live signal-retained
+ * Ui. It never retains a pointer into freed Ui storage. */
+static void timui_close_prepared_(Timui *ui, TimuiClosedOutput *pending,
+                                  int bounded, uint64_t deadline) {
   TimuiAllocator al;
-  int may_write;
+  int may_write, claimed;
   if (!ui)
     return;
+  claimed = ui->signal_host.owned;
   /* End an abandoned frame borrow before the UI storage it names goes away. */
   timui_images_release_placements_(ui);
   /* Arm once before the first possible terminal write. Payload retirement,
    * framing repair, synchronized-update closure, placement deletion, and
    * screen exit all consume this one absolute teardown budget. */
-  may_write = timui_teardown_arm_(ui);
+  may_write = bounded ? timui_teardown_arm_until_(ui, deadline)
+                      : timui_teardown_arm_(ui);
   if (may_write)
     (void)timui_framing_settle_(ui);
   timui_images_release_ids_(ui, may_write);
   timui_restore_terminal_armed_(ui, may_write);
-  timui_remove_sig_handlers(
+  timui_remove_sig_handlers_prepared_(
       ui); /* W6: stop intercepting after the terminal is restored */
   if (ui->termios_active)
     timui_termios_destroy(&ui->termios);
@@ -4752,9 +4919,30 @@ static void timui_close_fd_(Timui *ui, TimuiClosedOutput *pending) {
            ui->fd.write_utf8_tail_len);
     pending->framing_debt = ui->framing_debt;
     pending->sync_open = ui->sync_open;
+    if (ui->signal_host.owned && ui->signal_host.write_fd >= 0) {
+      pending->fd.write_fd = ui->signal_host.write_fd;
+      pending->owned_fd = 1;
+      ui->signal_host.write_fd = -1; /* transfer, not a borrowed fd number */
+    }
   }
+  timui_signal_refs_close_(ui);
   al = ui->alloc;
   al.free(al.userdata, ui, sizeof *ui);
+  if (claimed)
+    timui_signal_release_claim_();
+}
+static void timui_close_fd_(Timui *ui, TimuiClosedOutput *pending) {
+  if (!ui)
+    return;
+  if (!timui_close_prepare_(ui)) {
+    if (pending) {
+      memset(pending, 0, sizeof *pending);
+      pending->fd.write_fd = ui->signal_host.write_fd;
+      pending->retained_ui = ui;
+    }
+    return;
+  }
+  timui_close_prepared_(ui, pending, 0, 0);
 }
 TIMUI_API void timui_close(Timui *ui) { timui_close_fd_(ui, NULL); }
 TIMUI_API uint64_t timui_now_ms(void) {

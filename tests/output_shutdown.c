@@ -25,6 +25,19 @@ static int signal_on_write;
 static int signal_nonblock;
 static volatile sig_atomic_t signal_count;
 static int real_sink, blocking_attempt, short_success;
+static int pause_handler, pause_enter[2], pause_resume[2];
+static volatile sig_atomic_t pause_phase, ui_retired;
+static int watch_retire, signal_retire_phase, image_freed, image_detached;
+
+static void pause_signal_writer(void) {
+  char byte = 1;
+  pause_handler = 0;
+  __atomic_store_n(&pause_phase, 1, __ATOMIC_RELEASE);
+  if (write(pause_enter[1], &byte, 1) != 1 ||
+      read(pause_resume[0], &byte, 1) != 1 ||
+      __atomic_load_n(&pause_phase, __ATOMIC_ACQUIRE) != 2)
+    abort();
+}
 
 static ssize_t real_write(int fd, const void *data, size_t size) {
   return write(fd, data, size);
@@ -42,6 +55,8 @@ static int sink_index(int fd) {
 }
 
 static ssize_t captured_write(int fd, const void *data, size_t size) {
+  if (pause_handler)
+    pause_signal_writer();
   if (real_sink) {
     ssize_t result;
     /* Fail the guard safely instead of letting the known bad bounded writer
@@ -347,6 +362,8 @@ static int profile_alias(int redirected) {
 static void returning_signal(int sig) {
   (void)sig;
   signal_count++;
+  if (watch_retire)
+    signal_retire_phase = __atomic_load_n(&ui_retired, __ATOMIC_ACQUIRE);
 }
 
 static int signal_borrow(int shared, int frame) {
@@ -630,6 +647,296 @@ static int serialized_frame_budget(int expired) {
   return 0;
 }
 #endif
+/* Reuse released storage but keep it mapped. This observes stale access to a
+ * retired allocator object without dereferencing an actual freed allocation. */
+static void retire_ui(void *arg, void *pointer, size_t bytes) {
+  Timui *ui = pointer;
+  (void)arg;
+  memset(pointer, 0, bytes);
+  ui->fd.write_fd = 999;
+  __atomic_store_n(&ui_retired, 1, __ATOMIC_RELEASE);
+}
+
+static void retire_image(void *arg, void *pointer, size_t bytes) {
+  TimuiImage *image = pointer;
+  (void)arg;
+  image_detached += image->id_owner == NULL;
+  image_freed++;
+  memset(pointer, 0, bytes);
+}
+
+static void *deliver_paused_signal(void *arg) {
+  (void)arg;
+  if (raise(SIGTERM) != 0)
+    abort();
+  return NULL;
+}
+
+static int same_termios(const struct termios *a, const struct termios *b) {
+  return a->c_iflag == b->c_iflag && a->c_oflag == b->c_oflag &&
+         a->c_cflag == b->c_cflag && a->c_lflag == b->c_lflag &&
+         memcmp(a->c_cc, b->c_cc, sizeof a->c_cc) == 0 &&
+         cfgetispeed(a) == cfgetispeed(b) && cfgetospeed(a) == cfgetospeed(b);
+}
+
+static int handler_close_lifetime(int unresolved) {
+  SinkFixture fixture;
+  Env env = {0};
+  Term args[1];
+  Timui *ui;
+  BircUi *state;
+  TimuiImage *image, *retiring;
+  struct sigaction action, saved, current, previous;
+  struct termios original, restored;
+  pthread_t handler;
+  char byte = 1;
+  int master, slave, input_probe, output_probe, input_flags, output_flags, other_flags;
+  int held, previews_held, unresolved_quiet = 1, host_restored = 1;
+  CHECK(fixture_start(&fixture) == 0);
+  CHECK(pipe(pause_enter) == 0 && pipe(pause_resume) == 0);
+  master = posix_openpt(O_RDWR | O_NOCTTY);
+  CHECK(master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0);
+  slave = open(ptsname(master), O_RDWR | O_NOCTTY);
+  CHECK(slave >= 0 && tcgetattr(slave, &original) == 0);
+  input_probe = dup(slave);
+  CHECK(input_probe >= 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  state = calloc(1, sizeof *state);
+  image = calloc(1, sizeof *image);
+  retiring = calloc(1, sizeof *retiring);
+  CHECK(ui && state && image && retiring);
+  ui->cfg.userdata = state;
+  ui->alloc.free = retire_ui;
+  image->alloc = timui_default_allocator();
+  image->alloc.free = retire_image;
+  retiring->alloc = image->alloc;
+  state->previews[0].image = image;
+  state->previews[1].retiring = retiring;
+  timui_set_image_id_for_test(ui, image, 7);
+  timui_set_image_id_for_test(ui, retiring, 8);
+  CHECK(birc_output_start(&state->output));
+  CHECK(birc_output_capture(&state->output, "owned", 5) == 5);
+  CHECK(birc_output_finish(&state->output));
+  unsigned char *owned_payload = state->output.bytes;
+  birc_ui_live = ui;
+  ui->fd.read_fd = slave;
+  input_flags = fcntl(slave, F_GETFL, 0);
+  output_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
+  output_probe = dup(ui->fd.write_fd);
+  other_flags = fcntl(fixture.fds[1][1], F_GETFL, 0);
+  CHECK(input_flags >= 0 && output_flags >= 0 && other_flags >= 0 && output_probe >= 0);
+  ui->input_flags = input_flags;
+  ui->input_flags_saved = 1;
+  CHECK(fcntl(slave, F_SETFL, input_flags | O_NONBLOCK) == 0);
+  CHECK(timui_termios_enter(&ui->termios, slave) == TIMUI_OK);
+  ui->termios_active = 1;
+  ui->cfg.flags = TIMUI_FLAG_RESTORE_ON_EXIT;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  sigaddset(&action.sa_mask, SIGUSR1);
+  action.sa_flags = SA_RESTART;
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0);
+  CHECK(sigaction(SIGTERM, NULL, &previous) == 0);
+  timui_install_sig_handlers(ui);
+  CHECK(sigaction(SIGTERM, NULL, &current) == 0 && current.sa_handler == timui_sig_restore);
+  /* A frame borrow can precede the signal. A returning handler must not
+   * reinstate that borrowed flag after final host restoration. */
+  if (unresolved == 3)
+    CHECK(fcntl(ui->fd.write_fd, F_SETFL, output_flags | O_NONBLOCK) == 0);
+  __atomic_store_n(&ui_retired, 0, __ATOMIC_RELEASE);
+  signal_count = image_freed = image_detached = 0;
+  allowance[0] = sizeof captured[0];
+  pause_handler = 1;
+  CHECK(pthread_create(&handler, NULL, deliver_paused_signal, NULL) == 0);
+  CHECK(read(pause_enter[0], &byte, 1) == 1 &&
+        __atomic_load_n(&pause_phase, __ATOMIC_ACQUIRE) == 1);
+  args[0] = io_hand((u64)(uintptr_t)ui);
+  timui_close_run(env, args, NULL);
+  held = !__atomic_load_n(&ui_retired, __ATOMIC_ACQUIRE);
+  previews_held = held && image_freed == 0 && image->id_owner == ui &&
+      retiring->id_owner == ui && state->output.bytes == owned_payload;
+  /* Caller may reuse both borrowed descriptor numbers after close returns.
+   * The handler must keep writing/restoring the original streams. */
+  CHECK(close(slave) == 0 && dup2(fixture.fds[1][1], slave) == slave);
+  CHECK(close(fixture.fds[0][1]) == 0 &&
+        dup2(fixture.fds[1][1], fixture.fds[0][1]) == fixture.fds[0][1]);
+  if (unresolved) {
+    struct timespec before_time, after_time;
+    size_t before = captured_len[0];
+    if (unresolved == 2)
+      CHECK(dup2(fixture.fds[1][1], STDOUT_FILENO) == STDOUT_FILENO);
+    CHECK(clock_gettime(CLOCK_MONOTONIC, &before_time) == 0);
+    if (!setjmp(final_exit))
+      sys_exit_done_run(env, NULL, NULL);
+    CHECK(clock_gettime(CLOCK_MONOTONIC, &after_time) == 0);
+    unresolved_quiet = captured_len[0] == before &&
+        captured_len[1] == (unresolved == 2 ? 8u : 0u) &&
+        (after_time.tv_sec - before_time.tv_sec) * 1000 +
+            (after_time.tv_nsec - before_time.tv_nsec) / 1000000 < 500;
+    host_restored = tcgetattr(input_probe, &restored) == 0 &&
+        same_termios(&original, &restored) &&
+        fcntl(input_probe, F_GETFL, 0) == input_flags &&
+        fcntl(output_probe, F_GETFL, 0) == output_flags &&
+        !__atomic_load_n(&ui_retired, __ATOMIC_ACQUIRE) && image_freed == 0;
+  }
+  CHECK(dup2(output_probe, STDOUT_FILENO) == STDOUT_FILENO);
+  __atomic_store_n(&pause_phase, 2, __ATOMIC_RELEASE);
+  CHECK(write(pause_resume[1], &byte, 1) == 1 && pthread_join(handler, NULL) == 0);
+  CHECK(sigaction(SIGTERM, NULL, &current) == 0);
+  int disposition_ok = current.sa_handler == action.sa_handler &&
+      current.sa_flags == previous.sa_flags && sigismember(&current.sa_mask, SIGUSR1) == 1;
+  if (!setjmp(final_exit))
+    sys_exit_done_run(env, NULL, NULL);
+  int restored_ok = tcgetattr(input_probe, &restored) == 0 &&
+      same_termios(&original, &restored) &&
+      fcntl(input_probe, F_GETFL, 0) == input_flags &&
+      fcntl(STDOUT_FILENO, F_GETFL, 0) == output_flags &&
+      fcntl(fixture.fds[1][1], F_GETFL, 0) == other_flags;
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0);
+  CHECK(close(master) == 0 && close(slave) == 0 && close(input_probe) == 0 && close(output_probe) == 0);
+  CHECK(close(pause_enter[0]) == 0 && close(pause_enter[1]) == 0);
+  CHECK(close(pause_resume[0]) == 0 && close(pause_resume[1]) == 0);
+  CHECK(fixture_stop(&fixture) == 0);
+  CHECK(held && previews_held && unresolved_quiet && host_restored);
+  CHECK(disposition_ok && signal_count == 1 && restored_ok);
+  CHECK(__atomic_load_n(&ui_retired, __ATOMIC_ACQUIRE) &&
+        image_freed == 2 && image_detached == 2);
+  CHECK(captured_len[1] == (unresolved == 2 ? 8u : 0u) && captured_len[0] >= 8 &&
+        memcmp(captured[0] + captured_len[0] - 8, "birc=ok\n", 8) == 0);
+  free(image);
+  free(retiring);
+  free(ui);
+  return 0;
+}
+
+static int signal_during_close(void) {
+  SinkFixture fixture;
+  Env env = {0};
+  Term args[1];
+  Timui *ui;
+  struct sigaction action, saved, current, previous;
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  CHECK(ui != NULL);
+  ui->alloc.free = retire_ui;
+  ui->cfg.flags = TIMUI_FLAG_RESTORE_ON_EXIT;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  sigaddset(&action.sa_mask, SIGUSR1);
+  action.sa_flags = SA_RESTART;
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0);
+  CHECK(sigaction(SIGTERM, NULL, &previous) == 0);
+  timui_install_sig_handlers(ui);
+  CHECK(sigaction(SIGTERM, NULL, &current) == 0 && current.sa_handler == timui_sig_restore);
+  __atomic_store_n(&ui_retired, 0, __ATOMIC_RELEASE);
+  signal_count = signal_retire_phase = 0;
+  watch_retire = signal_on_write = 1;
+  allowance[0] = sizeof captured[0];
+  args[0] = io_hand((u64)(uintptr_t)ui);
+  timui_close_run(env, args, NULL);
+  watch_retire = 0;
+  CHECK(sigaction(SIGTERM, NULL, &current) == 0);
+  int disposition_ok = current.sa_handler == action.sa_handler &&
+      current.sa_flags == previous.sa_flags && sigismember(&current.sa_mask, SIGUSR1) == 1;
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0);
+  CHECK(fixture_stop(&fixture) == 0);
+  CHECK(signal_count == 1 && signal_retire_phase == 1 && disposition_ok);
+  free(ui);
+  return 0;
+}
+
+static int late_signal_entry(void) {
+  struct sigaction action, saved, current;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0);
+  signal_count = 0;
+  /* Simulate an already-dispatched handler entering after the close handoff.
+   * It must preserve the caller's current disposition, not install SIG_DFL. */
+  timui_sig_restore(SIGTERM);
+  CHECK(sigaction(SIGTERM, NULL, &current) == 0);
+  CHECK(current.sa_handler == action.sa_handler && signal_count == 1);
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0);
+  return 0;
+}
+
+static int short_signal_debt(int sync, int recover) {
+  SinkFixture fixture;
+  Env env = {0};
+  Term args[1];
+  Timui *ui;
+  struct sigaction action, saved;
+  const char *repair = sync ? "\x1b[?2026l" : "\\\x1b\\";
+  size_t repair_len = sync ? 8u : 3u;
+  int debt_held;
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  CHECK(ui != NULL);
+  ui->cfg.flags = TIMUI_FLAG_RESTORE_ON_EXIT;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0);
+  CHECK(timui_install_sig_handlers(ui));
+  ui->framing_debt = !sync;
+  ui->sync_open = sync;
+  allowance[0] = 1;
+  CHECK(raise(SIGTERM) == 0);
+  debt_held = captured_len[0] == 1 && (sync ? ui->sync_open : ui->framing_debt);
+  allowance[0] = 0;
+  args[0] = io_hand((u64)(uintptr_t)ui);
+  timui_close_run(env, args, NULL);
+  allowance[0] = recover ? sizeof captured[0] : 0;
+  if (!setjmp(final_exit))
+    sys_exit_done_run(env, NULL, NULL);
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0);
+  CHECK(fixture_stop(&fixture) == 0);
+  CHECK(debt_held);
+  CHECK(recover ? captured_len[0] == 1 + repair_len + 8 &&
+      memcmp(captured[0] + 1, repair, repair_len) == 0 &&
+      memcmp(captured[0] + captured_len[0] - 8, "birc=ok\n", 8) == 0 :
+      captured_len[0] == 1);
+  return 0;
+}
+
+static int signal_title_pop(size_t cut) {
+  static const char prefix[] = "\x1b[?25h\x1b[?7h";
+  static const char pop[] = "\x1b[23;0t";
+  SinkFixture fixture;
+  Env env = {0};
+  Term args[1];
+  struct sigaction action, saved;
+  Timui *ui;
+  int ownership_ok;
+  CHECK(fixture_start(&fixture) == 0);
+  ui = fixture_ui(fixture.fds[0][1]);
+  CHECK(ui != NULL);
+  allowance[0] = sizeof captured[0];
+  timui_screen_enter(&ui->transport, &ui->screen, 0, timui_str_from_cstr("owned"));
+  CHECK(ui->screen.flags != 0); /* actual accepted title push, no forged bit */
+  ui->cfg.flags = TIMUI_FLAG_RESTORE_ON_EXIT;
+  memset(&action, 0, sizeof action);
+  action.sa_handler = returning_signal;
+  sigemptyset(&action.sa_mask);
+  CHECK(sigaction(SIGTERM, &action, &saved) == 0 && timui_install_sig_handlers(ui));
+  captured_len[0] = 0;
+  allowance[0] = sizeof prefix - 1 + cut;
+  CHECK(raise(SIGTERM) == 0);
+  ownership_ok = (ui->screen.flags != 0) == (cut < sizeof pop - 1);
+  allowance[0] = sizeof captured[0] - captured_len[0];
+  args[0] = io_hand((u64)(uintptr_t)ui);
+  timui_close_run(env, args, NULL);
+  CHECK(sigaction(SIGTERM, &saved, NULL) == 0 && fixture_stop(&fixture) == 0);
+  CHECK(ownership_ok);
+  CHECK(captured_len[0] == 2 * (sizeof prefix - 1) + cut +
+      (cut < sizeof pop - 1 ? sizeof pop - 1 : 0));
+  CHECK(memcmp(captured[0], prefix, sizeof prefix - 1) == 0 &&
+      memcmp(captured[0] + sizeof prefix - 1, pop, cut) == 0);
+  return 0;
+}
 
 int main(int argc, char **argv) {
   size_t cut, repair;
@@ -637,6 +944,16 @@ int main(int argc, char **argv) {
     return signal_next_payload(atoi(argv[2]), atoi(argv[3]));
   if (argc == 3 && strcmp(argv[1], "budget") == 0)
     return successful_short_budget(atoi(argv[2]));
+  if (argc == 3 && strcmp(argv[1], "lifetime") == 0)
+    return handler_close_lifetime(atoi(argv[2]));
+  if (argc == 2 && strcmp(argv[1], "closing") == 0)
+    return signal_during_close();
+  if (argc == 2 && strcmp(argv[1], "late") == 0)
+    return late_signal_entry();
+  if (argc == 4 && strcmp(argv[1], "signal-debt") == 0)
+    return short_signal_debt(atoi(argv[2]), atoi(argv[3]));
+  if (argc == 3 && strcmp(argv[1], "signal-title") == 0)
+    return signal_title_pop((size_t)atoi(argv[2]));
   for (cut = 1; cut < 4; cut++) {
     for (repair = 0; repair < 4 - cut; repair++) {
       CHECK(run_final(cut, repair, 0, 0, 0) == 0);
@@ -681,6 +998,20 @@ int main(int argc, char **argv) {
   CHECK(serialized_frame_budget(0) == 0);
   CHECK(serialized_frame_budget(1) == 0);
 #endif
+  CHECK(handler_close_lifetime(0) == 0);
+  CHECK(handler_close_lifetime(1) == 0);
+  CHECK(handler_close_lifetime(2) == 0);
+  CHECK(handler_close_lifetime(3) == 0);
+  CHECK(signal_during_close() == 0);
+  CHECK(late_signal_entry() == 0);
+  CHECK(short_signal_debt(0, 0) == 0);
+  CHECK(short_signal_debt(0, 1) == 0);
+  CHECK(short_signal_debt(1, 0) == 0);
+  CHECK(short_signal_debt(1, 1) == 0);
+  CHECK(signal_title_pop(0) == 0);
+  CHECK(signal_title_pop(1) == 0);
+  CHECK(signal_title_pop(6) == 0);
+  CHECK(signal_title_pop(7) == 0);
   puts("output_shutdown=ok");
   return 0;
 }
