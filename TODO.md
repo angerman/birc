@@ -1896,6 +1896,311 @@ The user approved the changed remote-preview expectation. Current policy and
 layout guards cover exact direct/Markdown URLs and local/remote manual intent;
 native and synthetic-helper PTYs cover playback without fetching real URLs.
 
+## Milestone 19 — Fresh defect review follow-up (2026-10-01)
+
+Review base: `fc756fd`. The user requested implementation of every verified
+defect and the concrete style/DRY cleanup. Preserve existing test assertions;
+add failing-case and normal-case guards. No source pins or upstream pushes.
+
+### Correctness checklist
+
+- [x] **F01 — Canonical wire identity.** Normalize before reserved-name
+      validation and lookup. Prevent control-prefixed synthetic identities,
+      duplicate logs, redaction bypass, and slot exhaustion; retain `NOTICE *`.
+- [x] **F02 — One local image acceptance path.** Pending or helper-rejected
+      local PNG/APNG data must not reach the raw-image fallback or terminal.
+- [x] **F03 — Outbound/echo agreement.** Prepare the fitted message body once
+      for plain input, `/msg`, and `/query`; echo/history must match the wire.
+      Cover ASCII, multibyte boundaries, and oversized target envelopes.
+- [x] **F04 — Recent history targets.** Bound target selection separately
+      from per-buffer rows. Recent conversations must displace obsolete targets.
+- [x] **F05 — Complete replay.** Read the initial capture snapshot in bounded chunks;
+      cover records below, across, and beyond the old one-MiB boundary.
+- [x] **F06 — Channel identity.** `/msg` and `/query` channel targets retain
+      channel membership semantics when JOIN reuses the buffer.
+- [x] **F07 — Explicit nickname precedence.** Preserve explicit `--nick me`
+      and `--nick birc` with CLI/environment SASL settings in either order.
+- [x] **F08 — Native Unicode fidelity.** Preserve combining marks, modifiers,
+      ZWJ, and variation selectors through painting and selection ownership.
+- [x] **F09 — Exact native hyperlinks.** OSC8 must never emit a truncated
+      target. Keep short/long in-app and terminal-native link behavior exact.
+- [x] **F10 — Synthetic send policy.** All send paths reject local synthetic
+      targets, while no-text local focus and ordinary nick/channel sends work.
+- [x] **F11 — Reconnect intent.** Preserve dividers through automatic/manual
+      `Offline -> Connecting -> Up`; initial connection has no divider.
+- [x] **F12 — Close/focus unread transition.** Clear the replacement tab's
+      unread state when closing the active tab.
+- [x] **F13 — Selection dismissal paint.** Escape clears the visible highlight
+      immediately, without quitting or invoking clipboard helpers.
+- [x] **F14 — Absolute DNS names.** Accept one terminal root dot consistently
+      in question encoding/comparison; reject interior/repeated empty labels.
+
+### Cleanliness checklist
+
+- [x] **C01 — Target policy.** Share canonical identity, synthetic-target,
+      and channel classification predicates across routing and submission.
+- [x] **C02 — Message preparation.** Remove duplicated fit/echo ordering.
+- [x] **C03 — Configuration.** Resolve nickname defaults once, after options
+      and environment values; do not infer explicitness from string contents.
+- [x] **C04 — Image ownership.** Remove raw local-image loading from the
+      production preview path; retain proof adapters only when required.
+- [x] **C05 — Dead forwarding/getters.** Drop unused callback `frames`
+      parameters and duplicated active-buffer getters; retain actual loop fuel.
+- [x] **C06 — View representations/geometry.** Map lexical Runs directly to
+      production SpanOps and share repeated wrapping metrics.
+- [x] **C07 — Proof fixtures.** Move View fixture builders/assertions into a
+      proof-facing module without weakening any law.
+
+### Integration gates
+
+- [x] **V01 — Regressions and proofs.** Add central Makefile targets and law
+      guards; run each focused regression and `make proof lint-ffi`.
+- [ ] **V02 — Native/terminal integration.** Run new or changed PTYs three
+      consecutive times; run full `make check` on a stable source/binary.
+- [x] **V03 — Safety and package.** Run supported sanitizer/native ownership
+      checks, prebuild the Nix package without changing pins, and record limits.
+- [x] **V04 — Recoverable handoff.** Commit verified semantic changes and
+      record exact commands/results here. Never push without permission.
+
+Verification evidence so far: all three new state regression groups failed
+on the review base, then passed after fixes. The existing focused state,
+submit, commands, history/IO, action-budget, and diagnostic suites passed.
+Runtime DNS/reconnect/argument regressions and `args_demo` also passed;
+the replay/nickname binary regressions reproduced their old failures.
+The user approved only the parser's `--sasl-user alice` nickname expectation
+change (`alice` to unresolved `birc`); final runtime defaults must remain `alice`.
+Moved View test calls preserve their assertions.
+
+`timeout 300 make proof lint-ffi` passed with 17 added laws, including
+quantified explicit-nickname and new-endpoint rules. Log:
+`build/fresh-fix-proof-lint-20261001.log`. Native cross-review caught and fixed
+two new Unicode-boundary errors before integration: wide-cluster allocation
+failure needed a one-column replacement, and FFI span clipping still used
+scalar widths. Both now have actual native paint regression guards.
+All three subsystem cross-reviews found no further verified issue. The
+first `timeout 600 make build-ui` passed; final integration gates below must
+use the later binary with the hyperlink allocation-multiplication guard.
+
+Verified code checkpoints: `d36bc06` (state/target/send/history), `00b09a4`
+(runtime/config/replay/DNS), and `b72fe3c` (native text, View, preview acceptance,
+proofs, and central regression targets). The final build/proof/strict-lint/native
+and UBSan batch passed via `timeout 600 make build-ui proof lint-ffi
+test-ui-review-native test-ui-review-native-ubsan`:
+`build/fresh-fix-build-gates-20261001.log`. App SHA-256:
+`6a8d6c78f4c516f4577c5efadc7c97e60e747cd7ce5b31482cf4225b3050ce2f`.
+
+`timeout 240 make -o build/birc test-cli-nick test-replay-stream
+test-ui-review-output` passed every final-nickname, replay-boundary/error, and
+native-output control. Log: `build/fresh-fix-app-regressions-20261001.log`.
+Both new PTYs and existing local preview, mouse selection, and frame-link
+controls passed three consecutive rounds on that same frozen binary (15
+commands total). Log: `build/fresh-fix-pty-three-20261001.log`. The PTY source
+files predate every round. No original assertion or timeout was weakened.
+At this checkpoint full `make check`, supported sanitizers, and the installed
+Nix package remained pending. Their final results follow below. Heavyweight
+builds stayed separate from the full suite's latency/CPU threshold jobs.
+
+The first full `timeout 2400 make check` stopped at the unchanged `feed_demo`
+`join_us` negative assertion (exit 2, 09:07:40–09:23:25 UTC). Canonicalizing
+generic `buf_find` made raw aliases appear resident, although storage was
+correct. Restore generic lookup's stored-name semantics; normalize explicitly
+at wire, creation, and history boundaries. Add raw-identity and full-capacity
+history-alias guards without changing the existing expectation. Log:
+`build/fresh-fix-check-20261001.log`.
+
+Corrective checkpoint `d3ca435` restores the boundary contract. The added
+raw-name negative guard was red first (`build/test-logs/golden.lo6s3S`).
+Proof, expanded identity/send/history guards, original `feed_demo`, diagnostic
+wire, history, submit, and command tests then passed. All original assertions
+remain intact. The final full run is `timeout 2400 make -k check`, started
+09:31:15 UTC; log: `build/fresh-fix-check-final-20261001.log`.
+Independent runtime cross-review accepts the correction: wire/history checks
+remain canonical, NICK focus uses stored/canonical names, and live typing/split
+updates receive sanitized framed lines. No further verified issue was found.
+
+Independent `timeout 310 make proof-kernel` returns exit 2 because Lean is
+absent; Bend requires Lean v4.34.0 or a built `BENDTT`. No toolchain or pin
+was changed. Log: `build/fresh-fix-proof-kernel-20261001.log`. Normal
+`make proof` passes; this is not an independent-kernel verdict.
+
+Final M19 verification (locked tools, source `d3ca435`):
+
+- `timeout 2400 make -k check` completed at 10:03:25 UTC with exit 2. All
+  66 planned PTY commands executed; 65 passed and local preview retry failed.
+  Scroll-edits timed out at its unchanged 30-second golden deadline, and DNS
+  TCP timed out at an unchanged five-second child deadline. All other proof,
+  model, native, network, strict-lint, and paste gates completed successfully.
+  This is not a clean full-suite pass. Log:
+  `build/fresh-fix-check-final-20261001.log`.
+- The exact three failing commands then passed three isolated repeats each,
+  without changed arguments, assertions, or deadlines. The bounded batch
+  returned 0; log: `build/fresh-fix-isolated-three-20261001.log`. Their earlier
+  failures remain unexplained. In particular, the preview fixture retries
+  after 0.5 seconds without observing the first helper's completion; this is
+  a synchronization gap, not proof of this run's cause. V02 remains open for
+  a clean uninterrupted full run or a verified explanation.
+- Both new PTYs passed two more rounds after their full-suite round, on the
+  same final source and binary. Log:
+  `build/fresh-fix-final-new-pty-three-20261001.log`. Final app SHA-256:
+  `e485a917cf264a2e608000e575253a2bf6adc659ee4e16cd8ca4e7c4cb4d3387`.
+- `timeout 1200 make test-sanitizers` returned 0. Full-app hostile input,
+  output/native, PNG, media, and cluster-arena UBSan guards passed. ASan
+  explicitly reported unsupported Darwin arm64 startup, not coverage. Log:
+  `build/fresh-fix-sanitizers-20261001.log`. UBSan app SHA-256:
+  `10485469b45782cde651c7d8cd8049cdd975e65dcd7a045e3a27ef5034bccabd`.
+- `timeout 1000 make build-package` returned 0 without pin updates. Three
+  subsequent `make test-package` rounds returned 0. Installed package:
+  `/nix/store/r7cwzq1z1b39qxyi4aaxdia3nynf21b6-birc-0.1.0`, linked at
+  `build/package-birc`. Logs: `build/fresh-fix-package-build-20261001.log` and
+  `build/fresh-fix-package-three-20261001.log`.
+
+Documentation handoff also passes `timeout 240 make proof` and
+`git diff --check`; log: `build/fresh-review-handoff-proof-20261001.log`.
+The four semantic code checkpoints are recorded above. No push or pin update
+was made. V02 remains open honestly; M20 findings are review-only follow-up,
+not unverified fixes or weakened expectations.
+
+## Milestone 20 — Fresh whole-tree review (2026-10-01)
+
+The user requested another deep defect and cleanliness review while M19
+verification was running. Three review lanes covered runtime/infrastructure,
+protocol/state, and UI/media, including changed vendored seams. This pass is
+read-only for production code and tracked tests. The following 15 findings
+remain open; they are not included in the earlier 14 implemented M19 fixes.
+P2 denotes user-visible correctness; P3 denotes lower impact or a dormant path.
+All guards below require failing-case and normal-case controls before a fix.
+
+### Active correctness findings
+
+- [ ] **N01 (P2) — One cluster-width contract.** `columns.bend:48` sums scalar
+  widths, while native paint/FFI clip use whole clusters. `👩‍💻` is Bend width
+  4/native width 2 and becomes `�` at a two-column wrap. `❤️x` is placed on
+  one two-column row, then native clipping loses `x`. Native tab sizing at
+  `timui.h:30579` also sums scalars: padded ZWJ width is 6 instead of 4;
+  VS16 heart width is 3 instead of 4. Share the existing cluster contract.
+  Guard ZWJ/VS16 wrap, tight-tab paint/hit geometry, ASCII, combining marks,
+  modifiers, and one-column fallback. `wrap_demo.bend:81` encodes old scalar
+  behavior; changing that existing expectation needs user approval.
+- [ ] **N02 (P2) — Native/Bend image cache coherence.** `media.bend:169,275`
+  replaces manual H while retaining seven live inline results A–G. Native
+  `birc_media.h:148` evicts oldest A on H2 insertion instead of obsolete H.
+  `timui_ffi.c:414,432` then refuses/retires A, but Bend still emits its token
+  and suppresses another automatic request. Guard seven inline + manual
+  refresh at capacity, ninth distinct insertion, failed refresh, and stale
+  targets. Let retained Bend tokens govern native payload ownership.
+- [ ] **N03 (P2) — Canonical synthetic identities.** Lookup is case-insensitive,
+  but `client.bend:905` excludes only exact `*search*` from search. Create
+  `/query *SEARCH*`, then repeat `/search hello`: prior results become search
+  inputs and acquire nested prefixes. `/query *PREVIEW*` similarly breaks
+  exact-name preview checks (`media.bend:220`). Guard equal upper/lower search
+  and manual-preview behavior, normal queries, and literal wire rejection.
+- [ ] **N04 (P2) — JOIN arguments are not buffer identity.** `submit.bend:128`
+  passes all remaining text to `buf_get`. `/join #room ` and `/join #room key`
+  create identities with a space/key; self JOIN `#room` creates another tab.
+  Parse channel identity separately from wire arguments. Guard both cases,
+  plain JOIN, and valid key handling without exposing a key in a tab name.
+- [ ] **N05 (P2) — Reset volatile roster on reconnect.** `session.bend:1070`
+  retains channel nicks, and fresh NAMES (`client.bend:562`) only appends.
+  Reconnect from `me alice` to `me bob` yields `me alice bob` indefinitely.
+  Guard actual reconnect with departed members, fresh multi-line 353/366,
+  retained chat history, and changed endpoint behavior.
+- [ ] **N06 (P2) — AUTH is a legal private-message target.** `client.bend:219`
+  treats any target `AUTH` as a server broadcast for both NOTICE and PRIVMSG.
+  Own nick `AUTH` receives Alice's private message in the server buffer and
+  loses private-message alerts. Restrict authentication broadcast handling.
+  Guard private own/peer nick AUTH and genuine pre-registration NOTICE AUTH.
+- [ ] **N07 (P2) — Split rename must share client validation.** `split.bend:206`
+  applies NICK parameters before Client's reserved-name rejection. `alice →
+  *server*` leaves Alice's query unchanged but replaces its pane with server.
+  Guard rejected reserved/empty renames, ordinary/collision renames, and
+  unchanged focus. The suspected C0-prefixed ordinary-name variant was
+  retracted: framing sanitizes it and the executed positive case is correct.
+- [ ] **N08 (P2) — Validate DNS response opcode.** `dns_wire.bend:847` checks QR
+  but not OPCODE. Mutating a valid response's first flags byte 129→137 still
+  returns `1.2.3.4` for the opcode-zero query. Guard mismatched opcode rejection
+  and the unchanged valid response; retain source/port/ID/question checks.
+- [ ] **N09 (P3) — Validate empty truncated DNS before TCP fallback.** The same
+  header checks return `tc` before QDCOUNT/RCODE/question validation when TC
+  is set and ANCOUNT is zero. Wrong QNAME, zero questions, and error RCODE all
+  trigger TCP instead of their validation failures. Guard those mutations,
+  valid truncated fallback, and usable complete-A-with-TC behavior.
+- [ ] **N10 (P3) — Print each CLI diagnostic once.** `app.bend:144` calls
+  `IO.print_err(msg)` then `IO.die(..., msg)`, which also prints. Invalid
+  `--frames xyz` emits the same error twice and exits 2. Guard one exact stderr
+  diagnostic, unchanged exit status, and successful ordinary demo startup.
+- [ ] **N11 (P3) — Query role is not nickname spelling.** `buffer.bend:660`
+  suppresses nick seeding for every buffer named `server`, including a legal
+  peer query. Completion stays empty even after rename. Construct the control
+  server separately; guard ordinary/server peer seeds and control isolation.
+- [ ] **N12 (P3) — Complete every supported slash command.** `/log` exists in
+  `Sub.slash_rows` but is missing from `session.bend:894` completion metadata.
+  Guard `/lo` completion, accepted `/log`, and existing aliases/order.
+- [ ] **N13 (P3) — Do not omit selected clusters.** `timui_ffi.c:1075,1091`
+  silently skips a glyph that does not fit its 2048-byte row staging buffer.
+  An accepted local-history cluster `e` + 1200 combining marks followed by X
+  paints in two columns, but selection copies only X (1 instead of 2402
+  bytes). This is not a legal 512-octet wire message. Guard complete large
+  and boundary-size selection, ordinary Unicode, and allocation failure.
+
+### Dormant vendored paths (not reached by birc today)
+
+- [ ] **N14 (P3) — Code widget must pass complete clusters.** `timui.h:29865`
+  sends isolated code points to labels, so combining marks/ZWJ/modifiers are
+  lost before cluster-aware paint. Iterate clusters with style at their start.
+  Guard attached glyph bytes and ASCII syntax styling. The widget is unused
+  by birc; this is not a new arena-ownership regression.
+- [ ] **N15 (P3) — Decoder 16-bit conversion OOM ownership.** `timui.h:19608`
+  returns on failed allocation without freeing original decoded bytes. Its
+  caller at 19706 can vertically flip the null result. Guard forced conversion
+  failure with flip enabled and successful conversion. This predates M19;
+  birc explicitly takes the inspected 8-bit path at 26777.
+
+### Concrete cleanliness work, not speculative optimization
+
+- [ ] **K01 — Consistent build deadlines.** Older Makefile test recipes at
+  206/216/241/246/251/262/384/402 still invoke the compiler without a wall-clock
+  timeout. Apply the existing bounded convention; preserve all test deadlines.
+- [ ] **K02 — One command catalog.** Derive completion from dispatch metadata
+  with explicit aliases/order instead of maintaining a second command list.
+  N12 demonstrates actual drift; avoid a new command framework.
+- [ ] **K03 — Share scanning, preserve remainder policy.** `Sub.take_verb`,
+  `Sub.take_word`, and `Irc.take_until_space` repeat the same space scan but
+  deliberately keep/drop one/drop all separator spaces. Share the scan with
+  small explicit wrappers; characterize all three policies first.
+- [ ] **K04 — Keep fixture-only compatibility out of production modules.**
+  `Args.copy_fin2` is production-unused and explicitly retained by synthetic
+  tests. Move it to test/law helpers if imports/assertions can be preserved.
+  Do not remove useful compatibility or weaken tests to reduce line count.
+- [ ] **K05 — Correct stale explanations.** Session's header still says no
+  reconnect/backoff. `net.bend:63` says receive-after-close deadlocks, although
+  the pinned runtime returns None. Keep the real actor-ack ownership reason.
+
+### Evidence and unresolved checks
+
+Ignored fixtures `build/review_{state,session,ui,runtime}_edges.bend` include
+normal-case guards and print the reproduced behavior. The final bounded batch
+returned 0; raw output is `build/fresh-review-probes-final-20261001.log`.
+It demonstrates JOIN identities, uppercase search recursion, AUTH routing,
+reserved split rename, reconnect roster, server query seeding, Bend wrapping,
+retained cache tokens, DNS mutations, and duplicated CLI errors. Native cache
+FIFO is also covered by existing executed cache guards; its cross-layer manual
+refresh scenario is a source composition, not an end-to-end terminal repro.
+
+The actual native fake-transport probe `build/review_native_edges.c` compiles
+under strict C11 warnings. Its short-Unicode control passes; tab metrics are
+6 vs 4 and 3 vs 4; large-cluster selection is RED with only X copied. The
+expected negative exit is 1. Log: `build/fresh-review-native-red-20261001.log`.
+N03 preview casing, N12 completion, and dormant N14/N15 remain source proofs,
+not executed feature reproducers. No new production/test behavior was changed
+in M20. No upstream push, source-pin update, real IRC connection, remote image
+fetch, or desktop helper was used for these probes.
+
+Keep two unresolved observations distinct from confirmed defects: the M19
+intermittent execution failures (three isolated repeats now pass), and the
+possible reader-Eof/writer-flush shutdown acknowledgement race. Current Eof
+events have no writer-specific acknowledgement; an adversarial half-close
+test with pending QUIT is needed before promoting the shutdown candidate.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

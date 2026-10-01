@@ -50,7 +50,7 @@ whole client correct.
 |  |     (view.bend)     |                                               |
 |  +---------------------+                                               |
 |             |                                                          |
-|             | List<DrawOp> (OpSplit, OpImage, OpMedia)                  |
+|             | List<DrawOp> (OpSplit, OpMedia, text and geometry)         |
 |             v                                                          |
 +-------------|----------------------------------------------------------+
               | Foreign Effect (Timui.frame)
@@ -72,11 +72,13 @@ whole client correct.
 | [`src/bend/client.bend`](src/bend/client.bend) | Bend 2 | Incoming IRC event dispatcher (`feed`) and state transitions |
 | [`src/bend/buffer.bend`](src/bend/buffer.bend) | Bend 2 | Channel/query buffer container and nick list data structures |
 | [`src/bend/client_laws.bend`](src/bend/client_laws.bend) | Bend 2 | Feed inspectors, invariants, and client law predicates |
+| [`src/bend/replay.bend`](src/bend/replay.bend) | Bend 2 | Bounded file-snapshot replay through the live byte framer |
 | [`src/bend/submit.bend`](src/bend/submit.bend) | Bend 2 | User slash-command parsing and outbound line formatting |
 | [`src/bend/frame.bend`](src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
 | [`src/bend/dns.bend`](src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
 | [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
 | [`src/bend/view.bend`](src/bend/view.bend) | Bend 2 | ViewModel generation, token-aware wrapping, and `List<DrawOp>` layout |
+| [`src/bend/view_laws.bend`](src/bend/view_laws.bend) | Bend 2 | View fixtures and proof-facing layout predicates |
 | [`src/bend/links.bend`](src/bend/links.bend) | Bend 2 | Shared URL/span lexer for rendering, listing, and opening |
 | [`src/bend/media.bend`](src/bend/media.bend) | Bend 2 | Bounded image request identity, queue, cache policy, and stale-result guards |
 | [`src/bend/diagnostic.bend`](src/bend/diagnostic.bend) | Bend 2 | Bounded private diagnostic text and safe helper results |
@@ -199,6 +201,12 @@ Replay raw IRC wire logs deterministically for testing or inspection:
 ./build/birc --replay fixtures/demo.irc
 ```
 
+Replay reads the initial file snapshot in bounded chunks, including captures
+larger than one MiB. UTF-8 and CRLF can cross chunk boundaries. A final record
+without a newline is retained. Open, size, and read failures exit nonzero;
+an early EOF does not silently paint a partial capture. The file-size API
+supports snapshots up to 4,294,967,295 bytes.
+
 ---
 
 ## Command-Line Options
@@ -216,6 +224,10 @@ Run `./build/birc --help-irc` for a full summary:
 | `--frames` | `<n>` | Run for `n` frames/ticks (headless batch test if stdin not a tty) |
 | `--help-irc` | — | Show birc client command-line options |
 
+An explicit `--nick` always wins, including `me` and `birc`. Without `--nick`,
+the SASL username supplies the nickname when configured; otherwise it is `birc`.
+This default is resolved after CLI and environment SASL settings are combined.
+
 ### Stored history
 
 History records use `BIRC2` and include the server hostname and port. Different
@@ -223,6 +235,9 @@ endpoints do not share chat buffers or stored history. The in-memory `*log*`
 belongs to the app session and survives endpoint changes. The reader scans the file to its
 initial size, keeps only the configured recent records, and rejects malformed
 or overlong records. An incomplete final record is not loaded.
+When historical conversations exceed the available buffer slots, restore
+retains the most recently used targets. Server and local tabs are preserved.
+A zero history cap restores no chat targets.
 
 The pinned file-size API supports at most 4,294,967,295 bytes. Larger files
 produce a visible history error instead of an empty restore. Other size/read
@@ -269,6 +284,9 @@ Unknown names, code spans, and exact URLs stay unchanged. Sent text and history
 keep the original message. Styled URLs close formatting at the token end;
 internal URL punctuation is not markup. URLs inside styles or code remain
 display text, not clickable links or automatic preview requests.
+Native output and selection preserve combining marks and emoji sequences.
+OSC8 hyperlinks keep exact targets through 1024 bytes; larger targets are
+declined instead of shortened. Visible glyphs still depend on terminal fonts.
 
 Type commands into the composer prompt:
 
@@ -341,6 +359,8 @@ redirect, pins resolved addresses for connection, verifies HTTPS certificates,
 and sends no cookies or proxy credentials. It does not fetch private/loopback
 hosts, follow HTTPS-to-HTTP redirects, or load local paths posted in chat.
 Explicit local previews require a bounded regular file.
+Local and remote previews both require helper acceptance and normalization;
+pending or rejected input is never uploaded through a raw-file fallback.
 
 Downloads are capped at 8 MiB; local inputs at 16 MiB. Source images are capped
 at 4096 pixels per side and 16,777,216 pixels. Normalized previews fit within
