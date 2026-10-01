@@ -834,10 +834,15 @@ typedef struct {
   uint16_t flags;
   uint32_t hyperlink_id;
   uint32_t image_id; /* reserved for kitty-graphics cell placement (unused) */
+  /* Complete multi-codepoint glyph, owned by this cell's buffer. Offsets,
+   * like hyperlink ids, are buffer-local; no cell owns an allocation. */
+  size_t grapheme_offset;
+  size_t grapheme_len;
 } TimuiCell;
 
+#define TIMUI_HYPERLINK_MAX_BYTES 1024
 typedef struct {
-  char uri[256];
+  char uri[TIMUI_HYPERLINK_MAX_BYTES + 1];
 } TimuiHyperlink;
 
 struct TimuiCellBuffer {
@@ -850,6 +855,9 @@ struct TimuiCellBuffer {
   TimuiHyperlink *links; /* per-frame hyperlink table (id = index + 1) */
   int link_count;
   int link_cap;
+  char *graphemes; /* owned UTF-8 arena; swaps with cells, reset on clear */
+  size_t grapheme_size;
+  size_t grapheme_cap;
 };
 /* Clip stack. push intersects `rect` with the active clip, so nested scopes
  * only ever shrink; pop restores the previous. Drawing skips cells outside the
@@ -876,8 +884,15 @@ TIMUI_API TimuiResult timui_cells_resize(TimuiCellBuffer *buf, int w, int h,
                                          const TimuiAllocator *alloc);
 TIMUI_API void timui_cells_clear(TimuiCellBuffer *buf);
 TIMUI_API TimuiCell *timui_cells_get(TimuiCellBuffer *buf, int x, int y);
+/* Put a bare codepoint/style cell. Arena attachments are not transferable;
+ * use draw_text with borrowed/copied UTF-8 to paint a complete glyph. */
 TIMUI_API int timui_cells_put(TimuiCellBuffer *buf, int x, int y,
                               const TimuiCell *cell);
+/* Borrow a stored multi-codepoint glyph until this buffer is cleared,
+ * destroyed, or drawn into again. Single-codepoint cells return {NULL,0}.
+ * cells_put always strips this attachment, including within one buffer. */
+TIMUI_API TimuiStr timui_cell_grapheme(const TimuiCellBuffer *buf,
+                                      const TimuiCell *cell);
 TIMUI_API uint32_t timui_hyperlink_set(TimuiCellBuffer *buf,
                                        const char *uri); /* v0.2: OSC 8 */
 TIMUI_API void timui_draw_text_linked(TimuiCellBuffer *buf, int x, int y,
@@ -946,7 +961,7 @@ typedef struct {
   /* OSC 8 hyperlink ids are per-frame indices into each buffer's links table,
    * so the renderer caches the last-emitted URI string (not the id) to detect
    * a same-id-different-URI change across frames (W9). */
-  char last_link_uri[256]; /* URI of the currently-open OSC 8 link */
+  char last_link_uri[TIMUI_HYPERLINK_MAX_BYTES + 1]; /* open OSC 8 URI */
   int have_last_link;      /* 1 = a link is currently open */
 } TimuiRenderer;
 
@@ -9630,6 +9645,7 @@ static void timui_chart_put_dot_(TimuiCellBuffer *buf, TimuiRect r, int px,
   if (cell->codepoint < 0x2800u || cell->codepoint > 0x28ffu)
     cell->codepoint = 0x2800u;
   cell->codepoint = 0x2800u | ((cell->codepoint - 0x2800u) | bit);
+  cell->grapheme_offset = cell->grapheme_len = 0;
   cell->fg = color;
   cell->width = 1;
 }
@@ -13434,28 +13450,20 @@ static void timui_dither_button_label_(TimuiCellBuffer *buf, TimuiRect clip,
   if (!buf || !text.ptr)
     return;
   while (i < text.len) {
-    uint32_t cp = 0;
-    int adv = timui_utf8_decode(text.ptr + i, text.len - i, &cp);
+    size_t next = timui_grapheme_next(text.ptr, text.len, i);
     int w;
     TimuiCell *cell;
-    if (adv <= 0) {
-      cp = 0xfffdu;
-      adv = 1;
-    }
-    w = timui_utf8_width(cp);
+    if (next <= i) break;
+    w = timui_grapheme_width(text.ptr + i, next - i);
     if (w > 0 && cx >= INT_MIN && cx <= INT_MAX &&
         timui_rect_contains_(clip, (int)cx, y)) {
-      char tmp[4];
-      TimuiStr s;
       cell = timui_cells_get(buf, (int)cx, y);
-      s.ptr = tmp;
-      s.len = (size_t)timui_utf8_encode_(cp, tmp);
       timui_draw_text(
-          buf, (int)cx, y, s,
+          buf, (int)cx, y, (TimuiStr){text.ptr + i, next - i},
           timui_style_make(fg, cell ? cell->bg : TIMUI_COLOR_DEFAULT, 0));
     }
     cx += w > 0 ? w : 0;
-    i += (size_t)adv;
+    i = next;
   }
 }
 
@@ -17312,9 +17320,10 @@ TIMUI_API void timui_cells_destroy(TimuiCellBuffer *buf) {
                     (size_t)buf->link_cap * sizeof(*buf->links));
     buf->links = NULL;
   }
+  if (buf->graphemes)
+    buf->alloc.free(buf->alloc.userdata, buf->graphemes, buf->grapheme_cap);
   buf->alloc.free(buf->alloc.userdata, buf->cells, n * sizeof(TimuiCell));
-  buf->cells = NULL;
-  buf->w = buf->h = 0;
+  memset(buf, 0, sizeof *buf);
 }
 TIMUI_API TimuiResult timui_cells_resize(TimuiCellBuffer *buf, int w, int h,
                                          const TimuiAllocator *alloc) {
@@ -17356,6 +17365,7 @@ TIMUI_API void timui_cells_clear(TimuiCellBuffer *buf) {
     buf->cells[i].bg = TIMUI_COLOR_DEFAULT;
   }
   buf->link_count = 0; /* hyperlinks are per-frame */
+  buf->grapheme_size = 0; /* cells never outlive their frame's arena */
 }
 TIMUI_API TimuiCell *timui_cells_get(TimuiCellBuffer *buf, int x, int y) {
   if (!buf || !buf->cells || x < 0 || y < 0 || x >= buf->w || y >= buf->h)
@@ -17371,7 +17381,25 @@ TIMUI_API int timui_cells_put(TimuiCellBuffer *buf, int x, int y,
   if (!dst)
     return 0;
   *dst = *cell;
+  dst->grapheme_offset = dst->grapheme_len = 0;
   return 1;
+}
+TIMUI_API TimuiStr timui_cell_grapheme(const TimuiCellBuffer *buf,
+                                      const TimuiCell *cell) {
+  TimuiStr result = {NULL, 0};
+  uint32_t first;
+  if (!buf || !cell || !buf->graphemes || !cell->grapheme_len ||
+      (cell->flags & TIMUI_CELL_CONTINUATION) ||
+      cell->grapheme_offset > buf->grapheme_size ||
+      cell->grapheme_len > buf->grapheme_size - cell->grapheme_offset)
+    return result;
+  result.ptr = buf->graphemes + cell->grapheme_offset;
+  result.len = cell->grapheme_len;
+  /* Direct glyph mutations must not resurrect an old cluster. */
+  if (timui_utf8_decode(result.ptr, result.len, &first) <= 0 ||
+      first != cell->codepoint)
+    return (TimuiStr){NULL, 0};
+  return result;
 }
 
 /* ---- utf-8 decode + width --------------------------------------------- */
@@ -17467,6 +17495,71 @@ TIMUI_API int timui_utf8_width(uint32_t cp) {
 }
 
 /* ---- drawing primitives ----------------------------------------------- */
+static uint32_t render_safe_cp(uint32_t cp) {
+  if (cp == 0)
+    return ' ';
+  if (cp < 0x20u || cp == 0x7Fu || (cp >= 0x80u && cp <= 0x9Fu))
+    return ' ';
+  if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
+    return 0xFFFDu;
+  return cp;
+}
+/* Store sanitized UTF-8 once, with offsets that survive arena realloc/swap.
+ * Allocation failure is atomic: the caller paints one replacement glyph. */
+static int cell_store_grapheme_(TimuiCellBuffer *buf, TimuiCell *cell,
+                                const char *text, size_t len) {
+  size_t off = 0, bytes = 0, needed, cap, source_off = 0;
+  int source_owned = 0;
+  char encoded[4], *arena;
+  if (buf->graphemes && (uintptr_t)text >= (uintptr_t)buf->graphemes) {
+    uintptr_t delta = (uintptr_t)text - (uintptr_t)buf->graphemes;
+    if (delta <= buf->grapheme_size && len <= buf->grapheme_size - delta) {
+      source_owned = 1;
+      source_off = (size_t)delta;
+    }
+  }
+  while (off < len) {
+    uint32_t cp;
+    int adv = timui_utf8_decode(text + off, len - off, &cp), count;
+    if (adv <= 0) { cp = 0xFFFDu; adv = 1; }
+    count = timui_utf8_encode_(render_safe_cp(cp), encoded);
+    if ((size_t)count > SIZE_MAX - bytes)
+      return 0;
+    bytes += (size_t)count;
+    off += (size_t)adv;
+  }
+  if (bytes > SIZE_MAX - buf->grapheme_size)
+    return 0;
+  needed = buf->grapheme_size + bytes;
+  if (needed > buf->grapheme_cap) {
+    cap = buf->grapheme_cap ? buf->grapheme_cap : 128;
+    while (cap < needed) {
+      if (cap > SIZE_MAX / 2) { cap = needed; break; }
+      cap *= 2;
+    }
+    arena = (char *)buf->alloc.realloc(buf->alloc.userdata, buf->graphemes,
+                                      buf->grapheme_cap, cap);
+    if (!arena)
+      return 0;
+    buf->graphemes = arena;
+    buf->grapheme_cap = cap;
+    if (source_owned)
+      text = arena + source_off;
+  }
+  cell->grapheme_offset = buf->grapheme_size;
+  cell->grapheme_len = bytes;
+  off = 0;
+  while (off < len) {
+    uint32_t cp;
+    int adv = timui_utf8_decode(text + off, len - off, &cp), count;
+    if (adv <= 0) { cp = 0xFFFDu; adv = 1; }
+    count = timui_utf8_encode_(render_safe_cp(cp), encoded);
+    memcpy(buf->graphemes + buf->grapheme_size, encoded, (size_t)count);
+    buf->grapheme_size += (size_t)count;
+    off += (size_t)adv;
+  }
+  return 1;
+}
 static void clear_cell_default_(TimuiCellBuffer *buf, int x, int y) {
   TimuiCell c;
   if (!timui_cells_get(buf, x, y))
@@ -17499,10 +17592,10 @@ static void clear_wide_pair_touching_(TimuiCellBuffer *buf, int x, int y) {
  * This is the one place the subtle wide-glyph continuation logic lives (the
  * site of the prior V6/X2 bugs) — draw_text, draw_text_linked, and the box/
  * fill/line primitives all route through it. */
-static void put_glyph_link(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
-                           TimuiStyle st, uint32_t link) {
+static void put_grapheme_(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
+                           TimuiStyle st, uint32_t link, int w,
+                           const char *text, size_t len) {
   TimuiCell c;
-  int w;
   if (!buf || !buf->cells || x < 0 || y < 0 || x >= buf->w || y >= buf->h)
     return;
   if (buf->has_clip &&
@@ -17510,21 +17603,25 @@ static void put_glyph_link(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
        y >= buf->clip.y + buf->clip.h))
     return;
   memset(&c, 0, sizeof c);
-  w = timui_utf8_width(cp);
   if (w > 1 && (x + 1 >= buf->w ||
                 (buf->has_clip &&
                  (x + 1 < buf->clip.x || x + 1 >= buf->clip.x + buf->clip.w))))
     return;
+  c.codepoint = render_safe_cp(cp);
+  if (len && !cell_store_grapheme_(buf, &c, text, len)) {
+    c.codepoint = 0xFFFDu;
+    w = 1; /* replacement advances one column, even for a wide source */
+  }
   clear_wide_pair_touching_(buf, x, y);
   if (w > 1)
     clear_wide_pair_touching_(buf, x + 1, y);
-  c.codepoint = cp;
   c.fg = st.fg;
   c.bg = st.bg;
   c.attrs = st.attrs;
   c.width = (uint16_t)(w > 1 ? 2 : 1);
   c.hyperlink_id = link;
-  timui_cells_put(buf, x, y, &c);
+  /* This painter owns the attachment in buf; public bare-cell puts do not. */
+  *timui_cells_get(buf, x, y) = c;
   /* wide glyph: blank the continuation cell so stale content isn't left behind
    */
   if (w > 1) {
@@ -17535,6 +17632,10 @@ static void put_glyph_link(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
     c.width = 0;
     timui_cells_put(buf, x + 1, y, &c);
   }
+}
+static void put_glyph_link(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
+                           TimuiStyle st, uint32_t link) {
+  put_grapheme_(buf, x, y, cp, st, link, timui_utf8_width(cp), NULL, 0);
 }
 /* Unlinked convenience for the drawing primitives (box/fill/lines). */
 static void put_glyph(TimuiCellBuffer *buf, int x, int y, uint32_t cp,
@@ -17558,12 +17659,17 @@ TIMUI_API uint32_t timui_hyperlink_set(TimuiCellBuffer *buf, const char *uri) {
   size_t n;
   if (!buf || !uri)
     return 0;
+  n = strlen(uri);
+  if (n > TIMUI_HYPERLINK_MAX_BYTES)
+    return 0; /* never turn an unsupported target into a different URL */
   if (buf->link_count >= buf->link_cap) {
     int nc;
     TimuiHyperlink *nl;
     if (buf->link_cap > INT_MAX / 2)
       return 0; /* cannot double without signed overflow */
     nc = buf->link_cap ? buf->link_cap * 2 : 8;
+    if ((size_t)nc > SIZE_MAX / sizeof(*nl))
+      return 0; /* enlarged URI entries must also fit a 32-bit size_t */
     nl = (TimuiHyperlink *)buf->alloc.realloc(
         buf->alloc.userdata, buf->links, (size_t)buf->link_cap * sizeof(*nl),
         (size_t)nc * sizeof(*nl));
@@ -17572,9 +17678,6 @@ TIMUI_API uint32_t timui_hyperlink_set(TimuiCellBuffer *buf, const char *uri) {
     buf->links = nl;
     buf->link_cap = nc;
   }
-  n = strlen(uri);
-  if (n >= sizeof(buf->links[0].uri))
-    n = sizeof(buf->links[0].uri) - 1;
   memcpy(buf->links[buf->link_count].uri, uri, n);
   buf->links[buf->link_count].uri[n] = '\0';
   buf->link_count++;
@@ -17584,20 +17687,38 @@ TIMUI_API void timui_draw_text_linked(TimuiCellBuffer *buf, int x, int y,
                                       TimuiStr text, TimuiStyle st,
                                       uint32_t link) {
   size_t i = 0;
+  size_t source_off = 0;
+  int source_owned = 0;
   int cx = x;
   if (!buf || !text.ptr)
     return;
+  if (buf->graphemes && (uintptr_t)text.ptr >= (uintptr_t)buf->graphemes) {
+    uintptr_t delta = (uintptr_t)text.ptr - (uintptr_t)buf->graphemes;
+    if (delta <= buf->grapheme_size && text.len <= buf->grapheme_size - delta) {
+      source_owned = 1;
+      source_off = (size_t)delta;
+    }
+  }
   while (i < text.len) {
     uint32_t cp = 0;
     int adv = timui_utf8_decode(text.ptr + i, text.len - i, &cp);
+    size_t next = timui_grapheme_next(text.ptr, text.len, i);
+    int invalid = adv <= 0;
     int w;
     if (adv <= 0) {
       cp = 0xFFFD;
       adv = 1;
     }
-    w = timui_utf8_width(cp);
+    if (next <= i || next > text.len)
+      next = i + (size_t)adv;
+    w = timui_grapheme_width(text.ptr + i, next - i);
+    if (invalid && w == 0)
+      w = 1; /* malformed bytes still paint a replacement, never disappear */
     if (w > 0) {
-      put_glyph_link(buf, cx, y, cp, st, link);
+      put_grapheme_(buf, cx, y, cp, st, link, w,
+                     text.ptr + i, next - i > (size_t)adv ? next - i : 0);
+      if (source_owned)
+        text.ptr = buf->graphemes + source_off;
       /* The coordinate is unvalidated caller geometry, so stop before the
        * cursor advance leaves int. Every remaining column is outside the
        * buffer and put_glyph_link would discard it anyway. */
@@ -17605,7 +17726,7 @@ TIMUI_API void timui_draw_text_linked(TimuiCellBuffer *buf, int x, int y,
         return;
       cx += w;
     }
-    i += (size_t)adv;
+    i = next;
   }
 }
 /* Clamp a rect to the buffer bounds (and non-negative). Prevents a runaway
@@ -17925,14 +18046,10 @@ static int uri_eq(const char *a, const char *b) {
     return 0;
   return strcmp(a, b) == 0;
 }
-static uint32_t render_safe_cp(uint32_t cp) {
-  if (cp == 0)
-    return ' ';
-  if (cp < 0x20u || cp == 0x7Fu || (cp >= 0x80u && cp <= 0x9Fu))
-    return ' ';
-  if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
-    return 0xFFFDu;
-  return cp;
+static int cell_grapheme_eq_(const TimuiCellBuffer *a, const TimuiCell *ca,
+                             const TimuiCellBuffer *b, const TimuiCell *cb) {
+  TimuiStr sa = timui_cell_grapheme(a, ca), sb = timui_cell_grapheme(b, cb);
+  return sa.len == sb.len && (!sa.len || !memcmp(sa.ptr, sb.ptr, sa.len));
 }
 TIMUI_API void timui_render_diff(TimuiTransport *t, const TimuiCellBuffer *prev,
                                  const TimuiCellBuffer *curr,
@@ -17957,6 +18074,7 @@ TIMUI_API void timui_render_diff(TimuiTransport *t, const TimuiCellBuffer *prev,
       if (pc->codepoint == cc->codepoint && pc->fg == cc->fg &&
           pc->bg == cc->bg && pc->attrs == cc->attrs &&
           pc->width == cc->width &&
+          cell_grapheme_eq_(prev, pc, curr, cc) &&
           (pc->flags & TIMUI_CELL_CONTINUATION) ==
               (cc->flags & TIMUI_CELL_CONTINUATION) &&
           uri_eq(cell_link_uri(prev, pc->hyperlink_id),
@@ -17984,8 +18102,6 @@ TIMUI_API void timui_render_diff(TimuiTransport *t, const TimuiCellBuffer *prev,
             r->have_last_link = want;
             if (curi) {
               size_t ul = strlen(curi);
-              if (ul >= sizeof r->last_link_uri)
-                ul = sizeof r->last_link_uri - 1;
               memcpy(r->last_link_uri, curi, ul);
               r->last_link_uri[ul] = '\0';
             } else
@@ -17993,8 +18109,15 @@ TIMUI_API void timui_render_diff(TimuiTransport *t, const TimuiCellBuffer *prev,
           }
         }
       }
-      gn = timui_utf8_encode_(render_safe_cp(cc->codepoint), gb);
-      r_emit(t, gb, (size_t)gn);
+      {
+        TimuiStr cluster = timui_cell_grapheme(curr, cc);
+        if (cluster.len)
+          r_emit(t, cluster.ptr, cluster.len);
+        else {
+          gn = timui_utf8_encode_(render_safe_cp(cc->codepoint), gb);
+          r_emit(t, gb, (size_t)gn);
+        }
+      }
       r->last_x =
           x + (cc->width >= 2 ? 2 : 1); /* wide glyph advances cursor by 2 */
       r->last_y = y;
@@ -28724,7 +28847,8 @@ TIMUI_API int timui_snapshot_row_eq(const TimuiCellBuffer *buf, int row,
  *
  * Each cell is five '|'-separated fields: <codepoint>|<fg>|<bg>|<attrs>|<width>
  *   codepoint : glyph for printable ASCII (0x20-0x7e); '.' for an empty cell
- *               (cp==0); otherwise U+XXXX (uppercase hex).
+ *               (cp==0); otherwise U+XXXX (uppercase hex). A stored cluster
+ *               adds {UTF-8 hex bytes}, so suffix-only changes are visible.
  *   fg / bg   : '-' when "default" (field == TIMUI_COLOR_DEFAULT, matching
  *               emit_sgr's "no SGR" emitted); otherwise 6-digit lowercase
  *               hex rrggbb. Pure black (0x000000) is literal black.
@@ -28766,7 +28890,8 @@ static void sb_uint(TimuiSnapBuf *s,
 }
 
 /* Serialize one cell's five fields into s (no trailing separator). */
-static void sb_cell(TimuiSnapBuf *s, const TimuiCell *c) {
+static void sb_cell(TimuiSnapBuf *s, const TimuiCellBuffer *buf,
+                     const TimuiCell *c) {
   /* codepoint */
   if (c->codepoint == 0) {
     sb_put(s, '.');
@@ -28784,6 +28909,19 @@ static void sb_cell(TimuiSnapBuf *s, const TimuiCell *c) {
     } while (cp && n < (int)sizeof(tmp));
     for (i = 0; i < n; i++)
       sb_put(s, tmp[n - 1 - i]);
+  }
+  {
+    TimuiStr cluster = timui_cell_grapheme(buf, c);
+    size_t i;
+    if (cluster.len) {
+      sb_put(s, '{');
+      for (i = 0; i < cluster.len; i++) {
+        unsigned char byte = (unsigned char)cluster.ptr[i];
+        sb_putx(s, byte >> 4, 1);
+        sb_putx(s, byte & 15u, 1);
+      }
+      sb_put(s, '}');
+    }
   }
   sb_put(s, '|');
   /* fg */
@@ -28852,7 +28990,7 @@ TIMUI_API size_t timui_snapshot_grid(const TimuiCellBuffer *buf, char *out,
     sb_put(&s, ':');
     for (x = 0; x < buf->w; x++) {
       sb_put(&s, ' ');
-      sb_cell(&s, &buf->cells[(size_t)y * buf->w + x]);
+      sb_cell(&s, buf, &buf->cells[(size_t)y * buf->w + x]);
     }
   }
   if (out && cap)
@@ -28893,7 +29031,7 @@ TIMUI_API int timui_grid_eq(const TimuiCellBuffer *a, const TimuiCellBuffer *b,
       const TimuiCell *cb = &b->cells[(size_t)y * b->w + x];
       if (ca->codepoint != cb->codepoint || ca->fg != cb->fg ||
           ca->bg != cb->bg || ca->attrs != cb->attrs ||
-          ca->width != cb->width) {
+          ca->width != cb->width || !cell_grapheme_eq_(a, ca, b, cb)) {
         if (diff_out && diff_cap) {
           TimuiSnapBuf s = {diff_out, diff_cap, 0};
           sb_puts(&s, "mismatch at (");
@@ -28901,9 +29039,9 @@ TIMUI_API int timui_grid_eq(const TimuiCellBuffer *a, const TimuiCellBuffer *b,
           sb_put(&s, ',');
           sb_uint(&s, (unsigned)y);
           sb_puts(&s, "): expected ");
-          sb_cell(&s, ca);
+          sb_cell(&s, a, ca);
           sb_puts(&s, " got ");
-          sb_cell(&s, cb);
+          sb_cell(&s, b, cb);
           if (s.len >= diff_cap)
             s.len = diff_cap - 1;
           s.p[s.len] = '\0';

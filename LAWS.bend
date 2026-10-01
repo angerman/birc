@@ -7,6 +7,7 @@ import ./src/bend/client_laws.bend as CL
 import ./src/bend/submit.bend as Sub
 import ./src/bend/frame.bend as Fr
 import ./src/bend/view.bend as V
+import ./src/bend/view_laws.bend as VL
 import ./src/bend/session.bend as Sess
 import ./src/bend/clock_fmt.bend as Clock
 import ./src/bend/dns_wire.bend as Wire
@@ -17,6 +18,8 @@ import ./src/bend/auth.bend as Auth
 import ./src/bend/outbound.bend as Act
 import ./src/bend/diagnostic.bend as Diagnostic
 import ./src/bend/media.bend as Media
+import ./src/bend/args.bend as Args
+import ./src/bend/history.bend as Hist
 
 # Media is view-only, bounded and exact-identity scheduled.
 law media_encoded_png:
@@ -108,7 +111,7 @@ law framer_roundtrip:
 
 # LAW: concrete scroll clamp sample stays within bounds (100, 10, 5).
 law scroll_bounds:
-  {V.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
+  {VL.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
 # LAW: body height is rows minus five chrome rows (tabs, borders,
 # status, composer), with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
@@ -190,19 +193,19 @@ law cycle_tab:
 
 # LAW: Self and Msg use different paint colours.
 law style_self_ne_msg:
-  {V.style_self_ne_msg() == True{} : Bool}
+  {VL.style_self_ne_msg() == True{} : Bool}
 
 # LAW: timestamp column is 8 cells (HH:MM:SS + space).
 law ts_width_ok:
-  {V.ts_width_ok() == True{} : Bool}
+  {VL.ts_width_ok() == True{} : Bool}
 
 # LAW: visible window is oldest-to-newest.
 law vis_chrono:
-  {V.vis_chrono_ok() == True{} : Bool}
+  {VL.vis_chrono_ok() == True{} : Bool}
 
 # LAW: body-line y values increase, end on the last inner row, count = vis_h.
 law body_ys_ok:
-  {V.body_ys_ok() == True{} : Bool}
+  {VL.body_ys_ok() == True{} : Bool}
 
 # LAW: demo/online net labels.
 law net_demo_ok:
@@ -458,3 +461,62 @@ law diagnostic_mirror_single_event:
 # LAW: /log focuses its canonical internal buffer without IRC output.
 law diagnostic_log_command:
   {Sub.submit(Cl.init("me", "s"), "/log") == (Cl.log_open(Cl.init("me", "s")), Nil{}) : Cl.Client & List<&2, String>}
+
+# Fresh review: identity policy is applied after incoming-name normalization.
+law wire_control_prefixed_log_rejected:
+  {Feed.wire_name(SCon{Chr{31}, "*log*"}) == False{} : Bool}
+
+law wire_literal_log_rejected:
+  {Feed.wire_name("*log*") == False{} : Bool}
+
+law wire_normal_channel_allowed:
+  {Feed.wire_name("#room") == True{} : Bool}
+
+# Every send entry point shares the local synthetic-target boundary.
+law synthetic_msg_has_no_wire_output:
+  {Pair.snd(Cl.Client, List<&2, String>, Sub.submit(Cl.init("me", "s"), "/msg *search* text")) == Nil{} : List<&2, String>}
+
+law synthetic_query_has_no_wire_output:
+  {Pair.snd(Cl.Client, List<&2, String>, Sub.submit(Cl.init("me", "s"), "/query *settings* text")) == Nil{} : List<&2, String>}
+
+law normal_channel_msg_has_exact_wire_output:
+  {Pair.snd(Cl.Client, List<&2, String>, Sub.submit(Cl.init("me", "s"), "/msg #room text")) == ["PRIVMSG #room :text"] : List<&2, String>}
+
+# An absolute DNS name has the same question bytes as its root-relative form.
+law dns_absolute_name_question:
+  {Wire.encode_edns("a.example.") == Wire.encode_edns("a.example") : Result<&1, &1, U32 & String, List<&2, U32>>}
+
+# Explicitness is configuration state, never inferred from the nickname value.
+law explicit_nickname_preserved:
+  for nick: String
+  for user: String
+  {Args.resolve_nick(nick, True{}, user) == nick : String}
+
+law nickname_without_sasl_user_preserved:
+  for nick: String
+  {Args.resolve_nick(nick, False{}, "") == nick : String}
+
+law implicit_nickname_uses_sasl_user:
+  {Args.resolve_nick("birc", False{}, "alice") == "alice" : String}
+
+law channel_target_created_by_query_is_channel:
+  {CL.channel_identity_get_ok() == True{} : Bool}
+
+law closing_focused_tab_clears_replacement_unread:
+  {CL.close_replacement_read_ok() == True{} : Bool}
+
+law history_control_prefixed_log_rejected:
+  {Hist.parse_line_for("a:6667", "BIRC2\ta:6667\t" ++ SCon{Chr{31}, "*log*"} ++ "\tMSG\t\talice\tsecret") == None{} : Maybe<&2, Hist.HistEntry>}
+
+law history_zero_cap_restores_no_targets:
+  {Hist.read_record.entry(Some{Hist.Entry{"alice", Cl.Line{Cl.Msg{}, "", "hi", "alice", 0n}}}, Cl.init("me", "a"), 0) == Cl.init("me", "a") : Cl.Client}
+
+law prepared_message_echo_matches_wire:
+  {Sub.prepare_message("#room", "hello") == Some{Sub.MessageBody{"hello", "PRIVMSG #room :hello"}} : Maybe<&2, Sub.MessageBody>}
+
+law same_endpoint_dial_preserves_reconnect_intent:
+  {Sess.dialing_state(True{}, Sess.Online{}) == Sess.Reconnecting{} : Sess.NetState}
+
+law new_endpoint_dial_has_no_reconnect_intent:
+  for net: Sess.NetState
+  {Sess.dialing_state(False{}, net) == Sess.Connecting{} : Sess.NetState}

@@ -784,3 +784,54 @@ def Laws.diagnostic_mirror_single_event():
 
 def Laws.diagnostic_log_command():
   {==}
+
+def Laws.wire_control_prefixed_log_rejected():
+  {==}
+
+def Laws.wire_literal_log_rejected():
+  {==}
+
+def Laws.wire_normal_channel_allowed():
+  {==}
+
+def Laws.synthetic_msg_has_no_wire_output():
+  {==}
+
+def Laws.synthetic_query_has_no_wire_output():
+  {==}
+
+def Laws.normal_channel_msg_has_exact_wire_output():
+  {==}
+
+def Laws.dns_absolute_name_question():
+  {==}
+
+def Laws.explicit_nickname_preserved(nick, user):
+  {==}
+
+def Laws.nickname_without_sasl_user_preserved(nick):
+  {==}
+
+def Laws.implicit_nickname_uses_sasl_user():
+  {==}
+
+def Laws.channel_target_created_by_query_is_channel():
+  {==}
+
+def Laws.closing_focused_tab_clears_replacement_unread():
+  {==}
+
+def Laws.history_control_prefixed_log_rejected():
+  {==}
+
+def Laws.history_zero_cap_restores_no_targets():
+  {==}
+
+def Laws.prepared_message_echo_matches_wire():
+  {==}
+
+def Laws.same_endpoint_dial_preserves_reconnect_intent():
+  {==}
+
+def Laws.new_endpoint_dial_has_no_reconnect_intent(net):
+  {==}

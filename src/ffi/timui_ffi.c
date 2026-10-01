@@ -87,7 +87,7 @@ typedef uint64_t Loc;
 
 /* An IRC record is at most 512 octets, but Latin-1 fallback can expand
  * every octet to two UTF-8 bytes. Never truncate a decoded click target. */
-enum { BIRC_URL_CAP = 1025 };
+enum { BIRC_URL_CAP = TIMUI_HYPERLINK_MAX_BYTES + 1 };
 enum { BIRC_PREVIEW_CAP = BIRC_MEDIA_CAP };
 
 typedef struct {
@@ -561,25 +561,22 @@ static void __attribute__((constructor)) timui_open_use(void) {
 }
 static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
-  int cx = x;
+  int64_t cx = x;
   if (!s) n = 0;
   while (i < n) {
-    uint32_t cp = 0;
-    int adv = timui_utf8_decode(s + i, n - i, &cp);
-    int w;
-    if (adv <= 0) {
-      cp = 0xFFFDu;
-      adv = 1;
-    }
-    w = timui_utf8_width(cp);
-    if (w > 0 && cx > maxx - w)
+    size_t next = timui_grapheme_next(s, n, i);
+    int w = timui_grapheme_width(s + i, next - i);
+    if (next <= i) break;
+    if (w == 0 && timui_utf8_decode(s + i, n - i, NULL) <= 0)
+      w = 1;
+    if (w > 0 && (cx + w > maxx || cx + w - x > INT_MAX))
       break;
     if (w > 0)
       cx += w;
-    i += (size_t)adv;
+    i = next;
   }
   if (out_w)
-    *out_w = cx - x;
+    *out_w = (int)(cx - x);
   return i;
 }
 static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
@@ -1081,15 +1078,19 @@ static void birc_copy_selection(Timui *ui, TimuiCellBuffer *buf, BircUi *bu) {
       TimuiCell *c;
       uint32_t cp;
       char utf8[8];
-      int n;
+      TimuiStr glyph;
       if (x < 0 || x >= buf->w || y < 0 || y >= buf->h) continue;
       c = &buf->cells[y * buf->w + x];
       if (c->flags & TIMUI_CELL_CONTINUATION) continue;
       cp = c->codepoint ? c->codepoint : (uint32_t)' ';
-      n = timui_utf8_encode_(cp, utf8);
-      if (n > 0 && line_len + (size_t)n < sizeof line) {
-        memcpy(line + line_len, utf8, (size_t)n);
-        line_len += (size_t)n;
+      glyph = timui_cell_grapheme(buf, c);
+      if (!glyph.len) {
+        glyph.ptr = utf8;
+        glyph.len = (size_t)timui_utf8_encode_(cp, utf8);
+      }
+      if (glyph.len > 0 && glyph.len < sizeof line - line_len) {
+        memcpy(line + line_len, glyph.ptr, glyph.len);
+        line_len += glyph.len;
       }
     }
     while (line_len > 0 && line[line_len - 1] == ' ')
@@ -1323,6 +1324,18 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (bu && bu->profile_enabled)
     profile_t3 = birc_profile_now_ns();
   {
+    /* Dismiss before the overlay is painted. A consumed Escape is not a
+     * Bend navigation event, so there may be no later frame to repair it. */
+    if (bu && bu->sel.active) {
+      if (ui->key_pressed == TIMUI_KEY_ESCAPE) {
+        bu->sel.active = 0;
+        bu->sel.dragging = 0;
+        ui->key_pressed = (TimuiKey)0;
+      } else if (ui->key_pressed != 0 || enter || timui_mouse_wheel(fr) != 0) {
+        bu->sel.active = 0;
+        bu->sel.dragging = 0;
+      }
+    }
     if (bu && bu->sel.active) {
       birc_render_selection(timui_frame_buffer(fr), bu);
     }
@@ -1350,17 +1363,6 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
     Term out;
-    if (bu && bu->sel.active) {
-      if (key == (uint32_t)TIMUI_KEY_ESCAPE) {
-        bu->sel.active = 0;
-        bu->sel.dragging = 0;
-        key = 0;
-        ui->key_pressed = (TimuiKey)0;
-      } else if (key != 0 || enter || wh != 0) {
-        bu->sel.active = 0;
-        bu->sel.dragging = 0;
-      }
-    }
     if (birc_output_failure || (timui_should_quit(ui) && key == 0))
       key = (uint32_t)TIMUI_KEY_ESCAPE;
     if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)

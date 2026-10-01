@@ -3,6 +3,7 @@ import Base
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 
 def style_spec_ok() -> Bool:
   U32.is_eq(V.style_of(Cl.Msg{}), 13158600)
@@ -167,7 +168,7 @@ def tab_alerts_ok() -> Bool:
   tab_alerts_ok.on(Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #a" <> ":me!m@h JOIN #b" <> Nil{}))
 
 def tab_star_ok() -> Bool:
-  V.tab_names_ok()
+  VL.tab_names_ok()
 
 def tab_collide.labs(xs: List<&2, String>) -> Bool:
   match xs:

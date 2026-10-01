@@ -5,6 +5,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 import ../../src/bend/clock.bend as Clock
 import ./client_preds.bend as Pred
 import ./view_preds.bend as VP
@@ -65,10 +66,10 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("kick_self", CL.kick_self_drops())
     Unit <- E.must("chrono", CL.log_chrono_ok())
     Unit <- E.must("cycle", CL.cycle_ok())
-    Unit <- E.must("style", V.style_self_ne_msg())
+    Unit <- E.must("style", VL.style_self_ne_msg())
     Unit <- E.must("style_spec", VP.style_spec_ok())
     Unit <- E.must("draw_line", VP.draw_line_ok())
-    Unit <- E.must("line_ts", V.line_ts_ok())
+    Unit <- E.must("line_ts", VL.line_ts_ok())
     Unit <- E.must("draw_link", VP.draw_link_ok())
     Unit <- E.must("wrap_rows", VP.wrap_rows_ok())
     Unit <- E.must("wrap_resize", VP.wrap_resize_ok())
@@ -78,12 +79,12 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("bell_mentions", CL.bell_mentions_advance_ok())
     Unit <- E.must("active_clears_unread", CL.active_clears_unread_ok())
     Unit <- E.must("mention_boundary", Bool.not(Cl.is_mention("message", "me")) && Cl.is_mention("hey me!", "me"))
-    Unit <- E.must("tab_star", V.tab_names_ok())
+    Unit <- E.must("tab_star", VL.tab_names_ok())
     Unit <- E.must("tab_collide", VP.tab_collide_ok())
     Unit <- E.must("draw_nicks", VP.draw_nicks_ok())
-    Unit <- E.must("body_ys", V.body_ys_ok())
-    Unit <- E.must("tsw", V.ts_width_ok())
-    Unit <- E.must("vchrono", V.vis_chrono_ok())
+    Unit <- E.must("body_ys", VL.body_ys_ok())
+    Unit <- E.must("tsw", VL.ts_width_ok())
+    Unit <- E.must("vchrono", VL.vis_chrono_ok())
     Unit <- E.must("tok_italic", V.tokenize_has_italic("_em_"))
     Unit <- E.must("tok_code", V.tokenize_has_code("`code`"))
     Unit <- E.must("tok_link", V.tokenize_has_link("see https://timui.dev x"))

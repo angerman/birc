@@ -5,6 +5,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/split.bend as Sp
 import ../../src/bend/view.bend as V
+import ../../src/bend/view_laws.bend as VL
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/typing.bend as Ty
 import ../../src/bend/frame.bend as Fr
@@ -187,7 +188,7 @@ def main() -> IO(Unit):
     Unit <- E.must("invalid_preserves_split", invalid_preserves_split_ok())
     Unit <- E.must("focused_send", focused_send_ok())
     Unit <- E.must("focused_scroll", focused_scroll_ok())
-    Unit <- E.must("draw", V.split_draw_ok())
+    Unit <- E.must("draw", VL.split_draw_ok())
     Unit <- E.must("preview_typing_view", preview_typing_view_ok())
     Unit <- E.must("typing_preserves_split", typing_preserves_split_ok())
     Unit <- E.must("split_control_query_identity", split_identity_ok())

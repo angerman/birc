@@ -287,6 +287,48 @@ test-state: ## Bounded logging and structural state regressions.
 	$(NIXRUN) timeout 180 bend tests/bend/state_demo.bend -o $(BLDDIR)/state_demo
 	$(NIXRUN) sh scripts/check-golden.sh state_demo=ok ./$(BLDDIR)/state_demo
 
+.PHONY: test-state-review test-state-review-identity test-state-review-send test-state-review-history
+test-state-review: test-state-review-identity test-state-review-send test-state-review-history ## Canonical targets, exact outgoing echoes, recent restores, and close/focus transitions.
+
+test-state-review-identity test-state-review-send test-state-review-history test-runtime-dns test-runtime-reconnect test-runtime-args:
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+
+.PHONY: test-runtime-review test-runtime-dns test-runtime-reconnect test-runtime-args test-cli-nick test-replay-stream
+test-runtime-review: test-runtime-dns test-runtime-reconnect test-runtime-args test-cli-nick test-replay-stream ## Reconnect intent, absolute DNS names, explicit nicks, and complete replay.
+
+test-cli-nick: build-ui ## Loopback: explicit nickname precedence and SASL-derived defaults.
+	$(NIXRUN) timeout 75 python3 tests/net/cli_nick.py ./$(BLDDIR)/birc
+
+test-replay-stream: build-ui ## Replay all records across and beyond one-MiB read boundaries.
+	$(NIXRUN) timeout 90 python3 tests/net/replay_stream.py ./$(BLDDIR)/birc
+
+.PHONY: test-ui-review-view test-ui-review-output test-ui-review-native test-ui-review-native-ubsan test-pty-ui-review-selection test-pty-ui-review-media
+test-ui-review-view: ## Production previews are helper-only; preserve isolated legacy proof adapters.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ui_review_view.bend -o $(BLDDIR)/ui_review_view
+	$(NIXRUN) sh scripts/check-golden.sh ui_review_view=ok timeout 15 ./$(BLDDIR)/ui_review_view
+
+test-ui-review-output: build-ui ## Actual painter preserves Unicode clusters and complete OSC8 targets.
+	$(NIXRUN) timeout 30 python3 tests/ui_review_output.py ./$(BLDDIR)/birc
+
+test-ui-review-native: ## Native cluster/selection fidelity, exact hyperlinks, and buffer ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/ui_review_native.c -o $(BLDDIR)/ui_review_native'
+	$(NIXRUN) sh scripts/check-golden.sh ui_review_native=ok timeout 15 ./$(BLDDIR)/ui_review_native
+
+test-ui-review-native-ubsan: ## UBSan: cluster arenas, cell-buffer swaps, selection, and hyperlink bounds.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/ui_review_native.c -o $(BLDDIR)/ui_review_native_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh ui_review_native=ok timeout 15 ./$(BLDDIR)/ui_review_native_ubsan'
+
+test-pty-ui-review-selection: build-ui ## Pty: Escape clears selected cells without quitting or copying blank text.
+	$(NIXRUN) timeout 30 python3 tests/pty/ui_review_selection.py ./$(BLDDIR)/birc
+
+test-pty-ui-review-media: build-ui ## Pty: actual helper rejection blocks raw PNG/APNG upload; accepted data is normalized.
+	$(NIXRUN) timeout 40 python3 tests/pty/ui_review_media.py ./$(BLDDIR)/birc
+
 test-history: ## Stable log identities, authored lines, and typed reconnect markers.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/history_demo.bend -o $(BLDDIR)/history_demo
@@ -604,6 +646,7 @@ test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-c
 .PHONY: test-review-pure
 test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
 test-pty: test-pty-media test-pty-diagnostic test-pty-esc-resize-wake
+test-pty: test-pty-ui-review-selection test-pty-ui-review-media
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -620,6 +663,7 @@ test-pty: test-pty-media test-pty-diagnostic test-pty-esc-resize-wake
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
 test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
+test-review-pure: test-state-review test-runtime-review test-ui-review-native test-ui-review-view test-ui-review-output
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -755,7 +799,7 @@ test-ubsan-native: ## UBSan: output progress, real signals, and final status own
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh -c 'set -eu; for guard in output_utf8 output_shutdown output_progress; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -I src/ui -I src/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
 
-test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan test-media-native-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
+test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan test-media-native-ubsan test-ui-review-native-ubsan ## M7.3/M7.4: all repeatable sanitizer gates.
 
 test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
 
