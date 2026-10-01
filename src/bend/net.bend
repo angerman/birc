@@ -1094,7 +1094,8 @@ def winch_watch(w: T.Winch, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
     winch_watch.on(ok, w2, w3 => winch_watch(w3, evt))
 
-# A one-second Bend-owned clock tick expires typing and repairs short frames.
+# A one-second Bend-owned tick expires typing and repairs short frames or
+# timed input read by a non-key paint before the tty watcher observed it.
 # Failed output waits for a writable tick, never a hot input continuation.
 # Normal idle ticks do not repaint.
 @unsafe

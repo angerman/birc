@@ -58,8 +58,9 @@ law Timui.frame:
 def Timui.frame(ui, ops, input, seed):
   import "../ffi/timui_ffi.c"
 
-# Read-only, nonblocking probe for a short frame whose output is writable again.
-# The maintenance tick owns retry scheduling; pending input stays separate.
+# Read-only, nonblocking maintenance probe for timed input or writable output.
+# The existing tick supplies a fallback if a non-key paint read partial input
+# before the tty watcher noticed readability. Frames still own parser expiry.
 law Timui.redraw_ready:
   Ui -> IO(Ui & U32)
 

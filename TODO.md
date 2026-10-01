@@ -1657,6 +1657,63 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
       `build/review-output-gates-viewport-{1,2,3}-20261001.log`.
       The measured hypothesis holds for the components and app; the full
       integrated check remains the separate V04 gate.
+- [ ] **P21 — Verify pending input after non-key paints.** The clean `7474983`
+      integrated run reproduces a killed Esc-after-resize case in the unchanged
+      `test-pty-tinyquit`: `1x1`→`24x80`, lone Esc, still alive after six seconds,
+      exit `-9`, no restoration. Its seven preceding tiny-window cases pass;
+      unchanged lone-Esc/split-sequence controls also pass. Read-only reviews
+      find a possible lost wake: a non-key frame can read Esc after the tty
+      watcher has armed an infinite wait with parser state zero. The resulting
+      pending parser does not change that wait or request a continuation, and
+      idle maintenance ticks do not paint for parser state alone. The failing
+      run has no scheduling trace, so this is not yet its established cause.
+      Add a controlled ordering guard and preserve normal idle, output-repair,
+      split-Esc, and ordinary key controls before choosing a narrow fix. Raw
+      integrated evidence: `build/review-final-check-20261001.log`.
+      `timeout 3600 make -k check` finished with exit 2 (no timeout) on
+      2026-10-01, about 22½ minutes after start. The Esc-after-resize case is
+      its only unexpected failure; every proof/model, other PTY, media/log,
+      native-painter, mock-network, strict lint, and paste gate passes. This
+      is not a final green integrated result. The isolated controlled input
+      wake investigation follows on the same frozen production source.
+      Three unchanged isolated tinyquit runs reproduce the same final-case
+      failure, with all seven controls green. An instrumented trace probe
+      instead passes (resized Esc exits in 257 ms), so it does not establish
+      the original scheduling trace or invalidate the unchanged failures.
+      The deterministic actual-FFI guard reproduces the missing wake after
+      its idle/output/timed-Esc/split-sequence controls pass:
+      `state=1 key=0 more=0 watch_deadline=0 output_pending=0 ready=0`.
+      The behavioral `ready == 1` assertion fails, not compilation or an
+      absent API. Old FFI blob: `c643fbcab6003f76b0e25de9ac9fb051156ae934`.
+      Logs: `build/review-tinyquit-unchanged-{1,2,3}-20261001.log`,
+      `build/review-esc-resize-wake-baseline-20261001.log`, and
+      `build/review-input-wake-red-20261001.log`. Test the narrow fallback
+      through existing maintenance readiness, excluding untimed partial
+      UTF-8 and keeping normal idle/output repair behavior unchanged.
+      The narrow FFI candidate adds timed states 1–3/5/6/7 and paste to the
+      existing readiness predicate, independent of output writability. It
+      adds no API, fields, watcher, timer, or hot continuation. The same guard
+      is green, including a physically full output pipe with held Esc. Idle
+      and partial UTF-8 remain false; normal timed Esc, split Up, and timed
+      CSI/SS3/X10/control-string/paste cleanup controls pass. Unchanged native
+      output, media, View-profile, and strict-lint gates also pass. Logs:
+      `build/review-input-wake-green-20261001.log` and
+      `build/review-input-wake-native-controls-20261001.log`.
+      FFI blob: `c81e68a0ffab75c39d0d61882aaec45c31eb8e57`. Rebuilt-app
+      confirmation and full integrated verification remain required.
+      Full proof and combined app build pass (SHA-256
+      `e841f1caa67e017f5bb0cf827d3af5d4b96f6a797ea638f85585fa498930d9dc`).
+      All seven tinyquit, split-Esc, idle-CPU, output-progress, output-stall,
+      FIN/RST, and new resize-diagnostic targets pass three consecutive serial
+      batches without concurrent team builds, assertion changes, or rebuilds.
+      The unchanged tinyquit's previously red case now exits zero and restores
+      the terminal in all three runs. The new diagnostic requires exact tty
+      restoration and never counts its rescue as success; resized Esc exits
+      in 220.236/229.428/226.878 ms, with no rescue. Logs:
+      `build/review-input-wake-gates-{1,2,3}-20261001.log`.
+      This confirms the controlled fix and resolves the repeated symptom;
+      it does not invent a scheduling trace for the original failing process.
+      The driver now bounds all 64 planned PTY commands. Full V04 remains open.
 
 P17 component checkpoint (not a whole-app latency claim): all 20 warmed,
 fully consumed after-batches completed serially with 15-second child bounds.

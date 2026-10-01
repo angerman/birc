@@ -126,7 +126,7 @@ test-media-anchor: ## Manual error/completion anchors and distinct split-pane im
 	$(NIXRUN) timeout 180 bend tests/bend/media_anchor.bend -o $(BLDDIR)/media_anchor
 	$(NIXRUN) sh scripts/check-golden.sh media_anchor=ok timeout 15 ./$(BLDDIR)/media_anchor
 
-.PHONY: test-media-branches test-viewport-tail
+.PHONY: test-media-branches test-viewport-tail test-input-wake test-pty-esc-resize-wake
 test-media-branches: ## Exact fallback rows and multi-link image partitioning.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/media_branches.bend -o $(BLDDIR)/media_branches
@@ -154,6 +154,9 @@ test-pty-media: build-ui ## Pty: automatic/explicit images, animation, opt-out, 
 
 test-pty-diagnostic: build-ui ## Pty: private log copies, helper errors, endpoint retention, and nonrecursive save failures.
 	$(NIXRUN) timeout 75 python3 tests/pty/diagnostic.py ./$(BLDDIR)/birc
+
+test-pty-esc-resize-wake: build-ui ## Pty: lone Esc after resize, with bounded trace and raw-screen evidence.
+	$(NIXRUN) timeout 120 python3 tests/pty/esc_resize_wake.py ./$(BLDDIR)/birc
 
 test-formatting: ## Rich style composition, emoji aliases, exact URLs, and raw-source guards.
 	@mkdir -p $(BLDDIR)
@@ -600,7 +603,7 @@ test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-c
 
 .PHONY: test-review-pure
 test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
-test-pty: test-pty-media test-pty-diagnostic
+test-pty: test-pty-media test-pty-diagnostic test-pty-esc-resize-wake
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
@@ -616,7 +619,7 @@ test-pty: test-pty-media test-pty-diagnostic
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
-test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile
+test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
@@ -676,6 +679,11 @@ test-view-profile: ## Default-off pure View timing and exact mark ownership.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/view_profile tests/view_profile.c'
 	$(NIXRUN) sh scripts/check-golden.sh view_profile=ok timeout 15 ./$(BLDDIR)/view_profile
+
+test-input-wake: ## Actual FFI: timed input survives non-key paints and an already parked tty watcher.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/input_wake tests/input_wake.c'
+	$(NIXRUN) sh scripts/check-golden.sh input_wake=ok timeout 15 ./$(BLDDIR)/input_wake
 
 test-pty-output-progress: build-ui ## Pty: large and paced frames finish; partial-frame quit stays bounded.
 	$(NIXRUN) timeout 45 python3 tests/pty/output_progress.py ./$(BLDDIR)/birc

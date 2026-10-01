@@ -911,7 +911,14 @@ static int birc_output_ready(const Timui *ui) {
 #if CID_TIMUI_REDRAW_READY
 Term timui_redraw_ready_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
-  uint32_t ready = birc_output_pending(ui) && birc_output_ready(ui) ? 1u : 0u;
+  /* A resize/network paint can read input before the parked tty watcher sees
+   * readability. Its old wait may have no deadline, so the maintenance tick
+   * must also expire timed parser states, independently of output readiness.
+   * Partial UTF-8 (state 4) has no idle expiry and must not cause idle paints. */
+  int timed_input = ui && ((ui->input.state >= 1 && ui->input.state <= 3) ||
+                          ui->input.state == 5 || ui->input.state == 6 ||
+                          ui->input.state == 7 || ui->input.pasting);
+  uint32_t ready = timed_input || (birc_output_pending(ui) && birc_output_ready(ui)) ? 1u : 0u;
   (void)w;
   return io_tup(e, f[0], (Term)(uint64_t)ready);
 }
