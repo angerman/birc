@@ -1955,8 +1955,10 @@ add failing-case and normal-case guards. No source pins or upstream pushes.
 
 - [x] **V01 — Regressions and proofs.** Add central Makefile targets and law
       guards; run each focused regression and `make proof lint-ffi`.
-- [ ] **V02 — Native/terminal integration.** Run new or changed PTYs three
+- [x] **V02 — Native/terminal integration.** Run new or changed PTYs three
       consecutive times; run full `make check` on a stable source/binary.
+      Closed by the clean M20 full run recorded below, not by changing the
+      earlier failed M19 result.
 - [x] **V03 — Safety and package.** Run supported sanitizer/native ownership
       checks, prebuild the Nix package without changing pins, and record limits.
 - [x] **V04 — Recoverable handoff.** Commit verified semantic changes and
@@ -2057,8 +2059,8 @@ Final M19 verification (locked tools, source `d3ca435`):
 Documentation handoff also passes `timeout 240 make proof` and
 `git diff --check`; log: `build/fresh-review-handoff-proof-20261001.log`.
 The four semantic code checkpoints are recorded above. No push or pin update
-was made. V02 remains open honestly; M20 findings are review-only follow-up,
-not unverified fixes or weakened expectations.
+was made. At this checkpoint V02 remained open and M20 was a read-only review.
+The M20 implementation and its final integration evidence follow below.
 
 ## Milestone 20 — Fresh whole-tree review (2026-10-01)
 
@@ -2070,6 +2072,8 @@ implemented the initial 15 findings and three more confirmed during the fix
 pass. These are separate from the 14 implemented M19 fixes.
 P2 denotes user-visible correctness; P3 denotes lower impact or a dormant path.
 All guards below require failing-case and normal-case controls before a fix.
+Locations and defect descriptions refer to the reviewed baseline. Checked
+items are now fixed; their guards and verification results are recorded below.
 
 ### Active correctness findings
 
@@ -2267,11 +2271,39 @@ No performance optimization or speedup claim was made.
 - [x] `timeout 300 make proof test-build-deadlines test-pty-deadlines`:
   exit 0; ALL PROOFS CHECK, 63 bounded compiler recipes, 68 bounded terminal
   commands. Log: `build/m20-final-law-driver-gates-20261001.log`.
-- [ ] Full uninterrupted `make check` on the frozen implementation.
-- [ ] Full sanitizer gate on the frozen implementation. New targeted UBSan
-  guards above pass; ASan remains unavailable on this Darwin arm64 runtime.
-- [ ] Rebuild the Nix app and run package checks on the new implementation.
-  The prior M19 package is not the new M20 build.
+- [x] `timeout 2700 make -k check`: exit 0 on frozen source `ba48c67`,
+  completed at 11:59:01 UTC. All 68 planned terminal commands executed and
+  passed, as did the proofs, model/native/network regressions, strict FFI
+  lint, and paste harness. The app retained the SHA-256 above. The earlier
+  scroll-edits and DNS TCP checks passed without deadline/assertion changes;
+  their earlier timeout causes remain unknown. Log:
+  `build/m20-full-check-20261001.log`.
+- [x] `timeout 1200 make test-sanitizers`: exit 0. Full-app hostile input,
+  output/native, PNG, media, selection/cache, code-widget, and 16-bit OOM
+  UBSan guards pass. UBSan app SHA-256:
+  `acfa8ffe070d7ce8392ef5bec2d352750738a4a6b873578c4cef6e3226833dc7`.
+  ASan explicitly reports unsupported Darwin arm64 interceptor startup;
+  this is a skip, not ASan coverage. Log: `build/m20-sanitizers-20261001.log`.
+- [x] `timeout 1000 make build-package`: exit 0, with the driver's existing
+  900-second Nix deadline and `--no-update-lock-file`. Installed M20 package:
+  `/nix/store/05ys4c0cld55m37nsx782br4scsiy9q5-birc-0.1.0`, linked at
+  `build/package-birc`. Three consecutive `make test-package` rounds passed
+  inside a 900-second batch; the store path stayed identical after every
+  round. Checks cover helper-source provenance, overrides, local image
+  decoding, trust settings, and clean-environment startup. Logs:
+  `build/m20-package-build-20261001.log` and
+  `build/m20-package-three-20261001.log`.
+
+Independent `timeout 310 make proof-kernel` returned exit 2 on this tree:
+Lean is absent, and Bend requires Lean v4.34.0 or a built `BENDTT`. The normal
+proof checker passes; it is not an independent-kernel verdict. No toolchain
+or source pin was changed. Log: `build/m20-proof-kernel-20261001.log`.
+
+Implementation checkpoint: `ba48c67`. Final documentation handoff passes
+`timeout 240 make proof` (ALL PROOFS CHECK) and `git diff --check`; log:
+`build/m20-final-handoff-proof-20261001.log`. All confirmed M20 defects and
+cleanup items are implemented and cross-reviewed. No push was made. The
+earlier intermittent timeout causes remain unknown, despite this clean run.
 
 ## Open decisions (resolve in M0/M4)
 
