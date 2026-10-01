@@ -55,6 +55,11 @@ scheme, host, port, path, addresses = media.destination(
 assert (scheme, host, port, path) == ("https", "example.test", 443, "/Screenshot%202026.png?q=x%2Fy")
 assert addresses[0][4][0] == "93.184.216.34"
 assert media.destination("https://example.test/a.png?size=2#view", public)[3] == "/a.png?size=2"
+for scheme, standard_port in (("http", 80), ("https", 443)):
+    for suffix in ("", ":" + str(standard_port)):
+        assert media.destination(scheme + "://example.test" + suffix + "/a.png", public)[2] == standard_port
+    # An explicit zero is not an omitted port and must not become 80/443.
+    rejected(lambda: media.destination(scheme + "://example.test:0/a.png", public))
 
 
 class PinnedSocket:
@@ -211,6 +216,44 @@ for fmt in ("PNG", "WEBP"):
     first.save(output, format=fmt, save_all=True, append_images=[second], duration=[40, 80], loop=0)
     result = unpack(output.getvalue())
     assert result[2:4] == (2, 0) and [frame[0] for frame in result[5]] == [40, 80]
+for fmt in ("GIF", "PNG", "WEBP"):
+    for loops in (0, 1, 2):
+        output = io.BytesIO()
+        first.save(output, format=fmt, save_all=True, append_images=[second], duration=[40, 80], loop=loops)
+        result = unpack(output.getvalue())
+        expected = 0 if loops == 0 else loops + (fmt == "GIF")
+        assert result[2:4] == (2, expected), (fmt, loops, result[2:4])
+        assert [frame[0] for frame in result[5]] == [40, 80]
+        with Image.open(io.BytesIO(result[4])) as normalized:
+            assert normalized.n_frames == 2
+            if expected == 1:
+                assert "loop" not in normalized.info
+            else:
+                assert normalized.info["loop"] == (0 if expected == 0 else expected - 1)
+# APNG can carry a static fallback which is not part of its animation. The
+# first preview RGBA and every animated protocol must start at the red frame,
+# not the green fallback; ordinary APNG above still starts at seek(0).
+for loops in (0, 1, 2):
+    output = io.BytesIO()
+    Image.new("RGB", (17, 11), "green").save(
+        output, format="PNG", save_all=True, append_images=[first, second],
+        default_image=True, duration=[40, 80], loop=loops)
+    result = unpack(output.getvalue())
+    assert result[2:4] == (2, loops), ("APNG default image", loops, result[2:4])
+    assert result[5] == [(40, (255, 0, 0, 255)), (80, (0, 0, 255, 255))]
+    payload = base64.b64decode(media.encode(output.getvalue()), validate=True)
+    assert payload[32:36] == bytes((255, 0, 0, 255))
+# Excluding the fallback from output must not exclude its decode work from the
+# source-pixel limit. The same budget admits ordinary two-frame APNG.
+saved_source_limit = media.MAX_SOURCE_FRAME_PIXELS
+media.MAX_SOURCE_FRAME_PIXELS = 17 * 11 * 2
+try:
+    rejected(lambda: media.encode(output.getvalue()))
+    ordinary = io.BytesIO()
+    first.save(ordinary, format="PNG", save_all=True, append_images=[second], duration=[40, 80], loop=1)
+    assert unpack(ordinary.getvalue())[2:4] == (2, 1)
+finally:
+    media.MAX_SOURCE_FRAME_PIXELS = saved_source_limit
 output = io.BytesIO()
 first.save(output, format="GIF", save_all=True,
            append_images=[Image.new("RGB", (17, 11), (index, 0, 0)) for index in range(25)],

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Fetch and normalize one image. No files, shell, cookies, or proxy settings.
+"""Load and normalize one image. No temporary files, shell, cookies, or proxies.
 
 The parent owns scheduling and the output limit. This helper also has a total
 deadline, so a helper adopted during application exit cannot run indefinitely.
@@ -68,7 +68,7 @@ def destination(url, resolver=socket.getaddrinfo):
     if parsed.username is not None or parsed.password is not None:
         raise ImageError("image URL cannot contain credentials")
     host = parsed.hostname.encode("idna").decode("ascii")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
     if port != (443 if parsed.scheme == "https" else 80):
         raise ImageError("image URL must use the standard HTTP or HTTPS port")
     addresses = resolver(host, port, type=socket.SOCK_STREAM)
@@ -174,16 +174,20 @@ def encode(data):
             if width <= 0 or height <= 0 or width > 4096 or height > 4096 or width * height > MAX_PIXELS:
                 raise ImageError("image dimensions are too large")
             animated = image.format in ("GIF", "PNG", "WEBP") and getattr(image, "is_animated", False)
-            count = getattr(image, "n_frames", 1) if animated else 1
-            if count > MAX_FRAMES or width * height * count > MAX_SOURCE_FRAME_PIXELS:
+            # APNG's static fallback is not animated, but still counts toward
+            # source decode work when seeking to the actual first frame.
+            start = 1 if animated and image.format == "PNG" and image.info.get("default_image", False) else 0
+            count = (getattr(image, "n_frames", 1) if animated else 1) - start
+            if count > MAX_FRAMES or width * height * (count + start) > MAX_SOURCE_FRAME_PIXELS:
                 raise ImageError("image animation is too large")
             loops = image.info.get("loop") if animated else None
-            iterations = 1 if loops is None else (0 if loops == 0 else min(int(loops) + 1, 65535))
+            # GIF stores repeat count; APNG and WebP store total plays.
+            iterations = 1 if loops is None else (0 if loops == 0 else min(int(loops) + (image.format == "GIF"), 65535))
             frames, durations, pngs = [], [], []
             frame_pixels = 0
             encoded_size = 32
             for index in range(count):
-                image.seek(index)
+                image.seek(index + start)
                 frame = ImageOps.exif_transpose(image).convert("RGBA")
                 frame.thumbnail((MAX_SIDE, MAX_SIDE), Image.Resampling.LANCZOS)
                 if frames and frame.size != frames[0].size:
@@ -206,6 +210,9 @@ def encode(data):
             gif = b""
             if count > 1:
                 output = io.BytesIO()
+                # Do not inherit the source's different loop-count convention,
+                # especially when one play omits the GIF repeat extension.
+                first.info.pop("loop", None)
                 options = {"loop": 0 if iterations == 0 else iterations - 1} if iterations != 1 else {}
                 first.save(output, format="GIF", save_all=True, append_images=frames[1:],
                            duration=durations, disposal=2, **options)

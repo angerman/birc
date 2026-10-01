@@ -3,4 +3,6 @@ build/
 result
 result-*
 *.o
+__pycache__/
+*.py[cod]
 .DS_Store

@@ -1016,7 +1016,7 @@ implementations. Every changed PTY test must pass three consecutive runs.
       owners rather than adding a separate resource layer. Deny each allocation
       in small valid images, require zero retained bytes, and verify a later
       successful decode.
-- [ ] **U12 — Safe loaded-handler lifetime across close (P2).** Clearing
+- [x] **U12 — Safe loaded-handler lifetime across close (P2).** Clearing
       the global signal context does not revoke a handler that already loaded
       Ui on another thread. Prevent use of freed storage and reused borrowed
       descriptors without an unbounded close wait. Test a real paused handler
@@ -1033,6 +1033,23 @@ implementations. Every changed PTY test must pass three consecutive runs.
       serialized-frame drain calls. Preserve one immediate nonblocking attempt
       for zero-wait callers. Test advancing time with successful short writes,
       a future-deadline control, and finite frame progress across later ticks.
+
+U12 checkpoint (`c2e6b59`, source `6090abe`): a lock-free lifetime claim precedes
+the installed handler's Ui load and ordinary close/free. The restore owner
+holds stable CLOEXEC input/output references. A busy close retains at most one
+complete Ui/BircUi owner; final exit never waits, uses its existing deadline,
+and suppresses same-stream status if ownership remains unresolved. Immutable
+host restoration uses saved flags and termios without freeing the active Ui.
+Actual paused-handler controls cover storage/fd reuse, returning and late
+handlers, bounded unresolved exit, and redirected output.
+The same probes found two remaining U06/U07 seams: short resync/sync-end writes
+cleared debt, and a short title-pop cleared title ownership. Accepted-count
+guards now retain those obligations on refusal/partial write; complete writes
+discharge them and close does not double-pop a title. No retry or new budget
+was added. Root `make proof test-output-shutdown test-output-progress
+test-output-utf8 test-ubsan-native lint-ffi` passed in the locked shell.
+The agent's fresh `make build-ui test-ui test-pty-restore test-pty-tabcut` also
+passed. This is signal-versus-close safety, not generic concurrent Ui support.
 
 ### Commands and authentication
 
@@ -1485,6 +1502,35 @@ search, split panes, typing state, and bounded actor/shutdown behavior.
 - [ ] **P08 — Optional exact code foreground color.** DIM is restored by U09. The IRC
       example additionally uses a code foreground color; matching that palette
       is optional, not a reason to introduce a new theme model.
+- [ ] **P09 — Diagnostic log buffer.** Add a lazy, read-only `*log*` buffer and
+      offline `/log` command. Preserve errors at their current locations,
+      retain timestamps, and do not steal focus. Reserve one of the existing
+      16 buffer slots; bound diagnostic rows and text, exclude them from chat
+      history, and redact credentials and URLs. Report previously hidden
+      clipboard-helper, history-save, and socket-read failures. Test failure
+      and success paths, full capacity, offline use, privacy, and cleanup.
+- [x] **P10 — Reject explicit port zero.** Default the image port only when
+      omitted. `:0` previously became 80/443. Fake-resolver negative guards
+      reject zero for both schemes; omitted and explicit standard ports pass.
+- [x] **P11 — Preserve finite animation plays.** GIF stores repeats, while
+      APNG/WebP store total plays. Add one only for GIF. Clear inherited loop
+      metadata before encoding a once-only GIF. Synthetic loops 0/1/2 verify
+      the envelope and normalized GIF, including the formerly wrong extra play.
+- [x] **P12 — Skip APNG's separate default image.** It is a static fallback,
+      not an animation frame. Seek to the first real frame and keep the
+      fallback in the source decode-work bound. Green-default/red-blue-frame
+      fixtures verify frame count, first RGBA, duration, and bound controls.
+
+P10–P12 were independently reproduced before the narrow fixes. Reference
+semantics: [PNG animation control](https://www.w3.org/TR/png-3/#acTL-chunk),
+[WebP animation](https://developers.google.com/speed/webp/docs/riff_container#animation),
+and [Pillow APNG sequences](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#apng-sequences).
+The final persistent locked-shell `timeout 300 make proof test-media-image
+test-diagnostic-io test-reader-errors test-history-save-errors
+test-clipboard-errors` passed. Nix shell entry had delayed earlier attempts;
+those outer timeouts occurred before Python started, not in the decoder.
+The packaged helper now provides the locked CA bundle by default, respecting
+an explicit `SSL_CERT_FILE`; no dependency pins changed.
 
 Terminal limits: OSC 8 and italic/dim visibility depend on terminal/font support.
 Local image rendering uses detected Kitty/iTerm2/Sixel capabilities and bounded
