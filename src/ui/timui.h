@@ -2262,12 +2262,27 @@ typedef struct TimuiImageId_ {
   int dirty;
 } TimuiImageId_;
 
+/* Complete normalized PNG frames. The image API copies these bytes and the
+ * optional normalized GIF; callers may release their source after attaching. */
+typedef struct TimuiImageFrame {
+  const unsigned char *png;
+  size_t len;
+  uint32_t duration_ms;
+} TimuiImageFrame;
+typedef struct TimuiImageAnimation_ {
+  size_t allocation_size, gif_len;
+  const unsigned char *gif;
+  uint32_t count, iterations;
+  TimuiImageFrame frames[24];
+} TimuiImageAnimation_;
+
 typedef struct TimuiImage {
   unsigned char *data;
   size_t len;
   unsigned char *rgba;
   size_t rgba_len;
   int png_decode_failed; /* immutable PNG was malformed; allocation denial retries */
+  TimuiImageAnimation_ *animation; /* immutable, owned with the base image */
   /* Slot zero's terminal-local Kitty id and dirty bit. Library-owned; tests
    * needing a deterministic id must use timui_set_image_id_for_test. */
   uint32_t id;
@@ -2349,6 +2364,16 @@ TIMUI_API TimuiImage *timui_image_from_png_rgba(Timui *ui, const void *png,
                                                 size_t png_size,
                                                 const void *rgba, int w, int h,
                                                 int stride);
+/* Attach 2..24 full PNG frames, including the image's existing first PNG.
+ * Dimensions are <=320, total frame pixels <=1536000, durations 20..10000 ms,
+ * iterations 0 (infinite) or 1..65535. Encoded bytes are bounded to 2 MiB.
+ * Kitty/iTerm animate in the terminal; Sixel/no-image use only the first frame.
+ * A successful RGBA update discards this attachment. Failure is atomic. */
+TIMUI_API TimuiResult timui_image_set_animation(TimuiImage *img,
+                                                const TimuiImageFrame *frames,
+                                                uint32_t count,
+                                                uint32_t iterations,
+                                                const void *gif, size_t gif_len);
 TIMUI_API void timui_image_free(Timui *ui, TimuiImage *img);
 /* Test seam: choose the Kitty transmission id carried for `img` and advance
  * `ui`'s issuing counter to at least that value. A zero id is ignored because
@@ -26450,7 +26475,7 @@ static void image_framed_begin_(TimuiFramed_ *f, TimuiTransport *t) {
 #define TIMUI_IMAGE_UINT_DIGITS_ 10
 #define TIMUI_KITTY_TRANSMIT_HDR_CAP_                                          \
   (3 + 10 + TIMUI_IMAGE_UINT_DIGITS_ + 2 * (3 + TIMUI_IMAGE_UINT_DIGITS_) +    \
-   7 + TIMUI_IMAGE_UINT_DIGITS_ + 1 + 4)
+   7 + TIMUI_IMAGE_UINT_DIGITS_ + 1 + 4 + 7 + TIMUI_IMAGE_UINT_DIGITS_)
 #define TIMUI_KITTY_PLACE_CAP_                                                 \
   (3 + 10 + TIMUI_IMAGE_UINT_DIGITS_ + 7 * (3 + TIMUI_IMAGE_UINT_DIGITS_) + 2)
 #define TIMUI_KITTY_RETIRE_CAP_ (3 + 14 + TIMUI_IMAGE_UINT_DIGITS_ + 2)
@@ -26701,6 +26726,13 @@ static void image_free_sidecar_rgba_(TimuiAllocator al, TimuiImage *img) {
   if (!img || !img->rgba || img->rgba == img->data)
     return;
   al.free(al.userdata, img->rgba, img->rgba_len);
+}
+
+static void image_free_animation_(TimuiAllocator al, TimuiImage *img) {
+  if (img->animation) {
+    al.free(al.userdata, img->animation, img->animation->allocation_size);
+    img->animation = NULL;
+  }
 }
 
 /* Drop every placement in `ui` that still borrows `img`. The placement table
@@ -27026,6 +27058,7 @@ TIMUI_API TimuiResult timui_image_update_rgba(Timui *ui, TimuiImage *img,
   img->kind = TIMUI_IMAGE_KIND_RGBA;
   img->stride = (int)row;
   img->alloc = al;
+  image_free_animation_(al, img);
   image_mark_kitty_dirty_(img);
   return TIMUI_OK;
 }
@@ -27076,6 +27109,70 @@ TIMUI_API TimuiImage *timui_image_from_png_rgba(Timui *ui, const void *png,
   img->kitty_dirty = 1;
   return img;
 }
+TIMUI_API TimuiResult timui_image_set_animation(TimuiImage *img,
+                                                const TimuiImageFrame *frames,
+                                                uint32_t count,
+                                                uint32_t iterations,
+                                                const void *gif, size_t gif_len) {
+  TimuiAllocator al;
+  TimuiImageAnimation_ *animation;
+  const unsigned char *gif_bytes = (const unsigned char *)gif;
+  unsigned char *next;
+  size_t payload_size, allocation_size;
+  uint32_t i;
+  if (!img || !frames || count < 2 || count > 24 || iterations > 65535 ||
+      (img->kind != TIMUI_IMAGE_KIND_PNG && img->kind != TIMUI_IMAGE_KIND_PNG_RGBA) ||
+      img->px_w <= 0 || img->px_h <= 0 || img->px_w > 320 || img->px_h > 320 ||
+      (uint64_t)(uint32_t)img->px_w * (uint32_t)img->px_h * count > 1536000 ||
+      !img->data || frames[0].len != img->len || !frames[0].png ||
+      memcmp(frames[0].png, img->data, img->len) != 0 || !gif || gif_len < 14 ||
+      gif_len > 2u * 1024u * 1024u ||
+      (memcmp(gif, "GIF87a", 6) != 0 && memcmp(gif, "GIF89a", 6) != 0) ||
+      ((unsigned)gif_bytes[6] | ((unsigned)gif_bytes[7] << 8)) != (unsigned)img->px_w ||
+      ((unsigned)gif_bytes[8] | ((unsigned)gif_bytes[9] << 8)) != (unsigned)img->px_h ||
+      gif_bytes[gif_len - 1] != 0x3b)
+    return TIMUI_ERR_INVALID_ARGUMENT;
+  payload_size = gif_len;
+  for (i = 0; i < count; i++) {
+    int w, h;
+    if (!frames[i].png || frames[i].len < 33 ||
+        frames[i].duration_ms < 20 || frames[i].duration_ms > 10000 ||
+        frames[i].len > 2u * 1024u * 1024u - payload_size ||
+        memcmp(frames[i].png + 8, "\0\0\0\r", 4) != 0 ||
+        !image_png_header_(frames[i].png, frames[i].len, &w, &h) ||
+        w != img->px_w || h != img->px_h)
+      return TIMUI_ERR_INVALID_ARGUMENT;
+    payload_size += frames[i].len;
+  }
+  /* Root PNG is already owned by img; one allocation owns every extra frame
+   * and GIF so free/update/retirement cannot leave an animation side cache. */
+  allocation_size = sizeof *animation + payload_size - frames[0].len;
+  al = image_owner_allocator_(NULL, img);
+  animation = (TimuiImageAnimation_ *)al.alloc(al.userdata, allocation_size);
+  if (!animation)
+    return TIMUI_ERR_OUT_OF_MEMORY;
+  memset(animation, 0, sizeof *animation);
+  animation->allocation_size = allocation_size;
+  animation->count = count;
+  animation->iterations = iterations;
+  animation->gif_len = gif_len;
+  next = (unsigned char *)(animation + 1);
+  memcpy(next, gif, gif_len);
+  animation->gif = next;
+  next += gif_len;
+  animation->frames[0] = frames[0];
+  animation->frames[0].png = img->data;
+  for (i = 1; i < count; i++) {
+    animation->frames[i] = frames[i];
+    memcpy(next, frames[i].png, frames[i].len);
+    animation->frames[i].png = next;
+    next += frames[i].len;
+  }
+  image_free_animation_(al, img);
+  img->animation = animation;
+  image_mark_kitty_dirty_(img);
+  return TIMUI_OK;
+}
 TIMUI_API void timui_image_free(Timui *ui, TimuiImage *img) {
   TimuiAllocator al;
   Timui *borrower;
@@ -27092,6 +27189,7 @@ TIMUI_API void timui_image_free(Timui *ui, TimuiImage *img) {
   for (slot = 0; slot < TIMUI_IMAGE_ID_SLOTS_; slot++)
     image_id_release_(img, slot);
   al = image_owner_allocator_(ui, img);
+  image_free_animation_(al, img);
   image_free_sidecar_rgba_(al, img);
   if (img->data)
     al.free(al.userdata, img->data, img->len);
@@ -27138,7 +27236,7 @@ TIMUI_API void timui_set_image_id_for_test(Timui *ui, TimuiImage *img,
 static TimuiFrameOutcome_ kitty_transmit_(TimuiTransport *t, TimuiAllocator al,
                                           uint32_t id, int format, int w, int h,
                                           const unsigned char *data,
-                                          size_t len) {
+                                          size_t len, char action, uint32_t gap) {
   size_t b64cap, b64len, sent = 0;
   char *buf;
   int first = 1;
@@ -27166,7 +27264,11 @@ static TimuiFrameOutcome_ kitty_transmit_(TimuiTransport *t, TimuiAllocator al,
       hdr[hn++] = '_';
       hdr[hn++] = 'G'; /* APC + G */
       if (first) {     /* transmit: direct(d) payload under id, quiet(q=2) */
-        p = "a=t,t=d,f=";
+        p = "a=";
+        while (*p)
+          hdr[hn++] = *p++;
+        hdr[hn++] = action;
+        p = ",t=d,f=";
         while (*p)
           hdr[hn++] = *p++;
         hn += fmt_uint(hdr + hn, (unsigned)format);
@@ -27181,6 +27283,19 @@ static TimuiFrameOutcome_ kitty_transmit_(TimuiTransport *t, TimuiAllocator al,
           hn += fmt_uint(hdr + hn, (unsigned)h);
         }
         p = ",q=2,i=";
+        while (*p)
+          hdr[hn++] = *p++;
+        hn += fmt_uint(hdr + hn, id);
+        if (action == 'f') {
+          p = ",X=1,z=";
+          while (*p)
+            hdr[hn++] = *p++;
+          hn += fmt_uint(hdr + hn, gap);
+        }
+        hdr[hn++] = ',';
+      } else if (action == 'f') {
+        /* Kitty requires a=f on every chunk, not just the first one. */
+        p = "a=f,q=2,i=";
         while (*p)
           hdr[hn++] = *p++;
         hn += fmt_uint(hdr + hn, id);
@@ -27210,6 +27325,58 @@ static TimuiFrameOutcome_ kitty_transmit_(TimuiTransport *t, TimuiAllocator al,
   }
   al.free(al.userdata, buf, b64cap);
   return rc;
+}
+
+static TimuiFrameOutcome_ kitty_animation_control_(TimuiTransport *t,
+                                                   uint32_t id, uint32_t gap,
+                                                   uint32_t iterations) {
+  char header[96];
+  TimuiFramed_ frame;
+  const char *part = "\x1b_Ga=a,q=2,i=";
+  int size = 0;
+  TimuiFrameOutcome_ outcome;
+  while (*part) header[size++] = *part++;
+  size += fmt_uint(header + size, id);
+  part = ",r=1,z=";
+  while (*part) header[size++] = *part++;
+  size += fmt_uint(header + size, gap);
+  image_framed_begin_(&frame, t);
+  timui_framed_put_(&frame, header, (size_t)size);
+  outcome = timui_framed_end_(&frame);
+  if (outcome != TIMUI_FRAME_DONE)
+    return outcome;
+  size = 0;
+  part = "\x1b_Ga=a,q=2,i=";
+  while (*part) header[size++] = *part++;
+  size += fmt_uint(header + size, id);
+  part = ",s=3,v=";
+  while (*part) header[size++] = *part++;
+  size += fmt_uint(header + size, iterations + 1);
+  image_framed_begin_(&frame, t);
+  timui_framed_put_(&frame, header, (size_t)size);
+  outcome = timui_framed_end_(&frame);
+  return outcome == TIMUI_FRAME_NONE ? TIMUI_FRAME_TORN : outcome;
+}
+
+static TimuiFrameOutcome_ kitty_animation_(TimuiTransport *t, TimuiAllocator al,
+                                           uint32_t id, const TimuiImage *img) {
+  uint32_t i;
+  const TimuiImageAnimation_ *animation = img->animation;
+  if (!animation)
+    return TIMUI_FRAME_DONE;
+  for (i = 1; i < animation->count; i++) {
+    TimuiFrameOutcome_ outcome = kitty_transmit_(
+        t, al, id, 100, 0, 0, animation->frames[i].png,
+        animation->frames[i].len, 'f', animation->frames[i].duration_ms);
+    /* Root was transmitted already. Refusal is never an untouched upload. */
+    if (outcome != TIMUI_FRAME_DONE)
+      return outcome == TIMUI_FRAME_NONE ? TIMUI_FRAME_TORN : outcome;
+  }
+  {
+    TimuiFrameOutcome_ outcome = kitty_animation_control_(
+        t, id, animation->frames[0].duration_ms, animation->iterations);
+    return outcome == TIMUI_FRAME_NONE ? TIMUI_FRAME_TORN : outcome;
+  }
 }
 /* place image `id` at the cursor, scaled to cols x rows cells, under placement
  * id `place_id` (a=p). A UNIQUE placement id per on-screen slot is essential:
@@ -27297,18 +27464,22 @@ static TimuiFrameOutcome_ iterm2_emit_(TimuiTransport *t, TimuiAllocator al,
   TimuiFrameOutcome_ rc;
   int hn = 0;
   const char *p;
+  const unsigned char *data = img && img->animation ? img->animation->gif
+                                                  : (img ? img->data : NULL);
+  size_t length = img && img->animation ? img->animation->gif_len
+                                      : (img ? img->len : 0);
   if (!t || !t->write || !img || !img->data || img->len == 0 || r.w <= 0 ||
       r.h <= 0)
     return TIMUI_FRAME_NONE;
   if (r.x < 0 || r.y < 0)
     return TIMUI_FRAME_NONE;
-  if (img->len > (SIZE_MAX - 1) / 4)
+  if (length > (SIZE_MAX - 1) / 4)
     return TIMUI_FRAME_NONE;
-  b64cap = ((img->len + 2) / 3) * 4 + 1;
+  b64cap = ((length + 2) / 3) * 4 + 1;
   buf = (char *)al.alloc(al.userdata, b64cap);
   if (!buf)
     return TIMUI_FRAME_NONE;
-  b64len = b64_encode(img->data, img->len, buf, b64cap - 1);
+  b64len = b64_encode(data, length, buf, b64cap - 1);
   if (b64len == 0 || b64len == (size_t)-1) {
     al.free(al.userdata, buf, b64cap);
     return TIMUI_FRAME_NONE;
@@ -27322,7 +27493,7 @@ static TimuiFrameOutcome_ iterm2_emit_(TimuiTransport *t, TimuiAllocator al,
   p = "1337;File=inline=1;size=";
   while (*p)
     hdr[hn++] = *p++;
-  hn += image_fmt_size_(hdr + hn, img->len);
+  hn += image_fmt_size_(hdr + hn, length);
   p = ";width=";
   while (*p)
     hdr[hn++] = *p++;
@@ -28023,10 +28194,12 @@ static void timui_images_flush_(Timui *ui) {
         TimuiFrameOutcome_ sent =
             image_has_png_(img)
                 ? kitty_transmit_(&ui->transport, scratch, *cache.id, 100, 0, 0,
-                                  img->data, img->len)
+                                  img->data, img->len, 't', 0)
                 : kitty_transmit_(&ui->transport, scratch, *cache.id, 32,
                                   img->px_w, img->px_h, image_rgba_(img),
-                                  image_rgba_len_(img));
+                                  image_rgba_len_(img), 't', 0);
+        if (sent == TIMUI_FRAME_DONE)
+          sent = kitty_animation_(&ui->transport, scratch, *cache.id, img);
         if (sent != TIMUI_FRAME_DONE) {
           /* The transmit was cut off. Its APC has already been closed with a
            * complete ST, so the terminal is back to acting on ordinary output

@@ -77,6 +77,10 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_SYS_EXIT_DONE 41u
 #define CID_SYS_EXIT_FAIL 42u
 #define CID_TIMUI_REDRAW_READY 43u
+#define CID_VIEW_OPMEDIA 44u
+#define CID_TIMUI_MEDIA_ADD 45u
+#define CID_TIMUI_MEDIA_CLEAR 46u
+#define CID_SYS_MEDIA_PROGRAM 47u
 #ifndef THR
 #define THR
 #endif

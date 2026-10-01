@@ -18,6 +18,7 @@
 #endif
 #include "timui.h"
 #include "birc_output.h"
+#include "birc_media.h"
 
 #ifndef Loc
 typedef uint64_t Loc;
@@ -65,6 +66,15 @@ typedef uint64_t Loc;
 #ifndef CID_SYS_CLIPBOARD_PROGRAM
 #define CID_SYS_CLIPBOARD_PROGRAM CID(Sys.clipboard_program)
 #endif
+#ifndef CID_SYS_MEDIA_PROGRAM
+#define CID_SYS_MEDIA_PROGRAM CID(Sys.media_program)
+#endif
+#ifndef CID_TIMUI_MEDIA_ADD
+#define CID_TIMUI_MEDIA_ADD CID(Timui.media_add)
+#endif
+#ifndef CID_TIMUI_MEDIA_CLEAR
+#define CID_TIMUI_MEDIA_CLEAR CID(Timui.media_clear)
+#endif
 #ifndef CID_SYS_EXIT_DONE
 #define CID_SYS_EXIT_DONE CID(Sys.exit_done)
 #endif
@@ -75,6 +85,7 @@ typedef uint64_t Loc;
 /* An IRC record is at most 512 octets, but Latin-1 fallback can expand
  * every octet to two UTF-8 bytes. Never truncate a decoded click target. */
 enum { BIRC_URL_CAP = 1025 };
+enum { BIRC_PREVIEW_CAP = BIRC_MEDIA_CAP };
 
 typedef struct {
   int active;       /* 1 if selection exists */
@@ -89,6 +100,7 @@ typedef struct {
   TimuiImage *retiring;
   char path[4096];
   size_t path_len;
+  uint32_t token; /* 0 names the existing local-PNG preview path */
 } BircPreview;
 
 typedef struct {
@@ -110,9 +122,10 @@ typedef struct {
   uint64_t profile_begin_ns;
   uint64_t profile_draw_ns;
   uint64_t profile_end_ns;
-  BircPreview previews[2];
+  BircPreview previews[BIRC_PREVIEW_CAP];
   int preview_count;
   BircOutput output;
+  BircMediaCache media;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
@@ -132,7 +145,7 @@ static BircUi *birc_final_retained_state;
 static void birc_state_destroy(BircUi *state) {
   if (!state)
     return;
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < BIRC_PREVIEW_CAP; i++) {
     if (state->previews[i].image)
       timui_image_free(NULL, state->previews[i].image);
     if (state->previews[i].retiring)
@@ -140,6 +153,7 @@ static void birc_state_destroy(BircUi *state) {
   }
   free(state->clipboard);
   birc_output_destroy(&state->output);
+  birc_media_clear(&state->media);
   free(state);
 }
 
@@ -307,27 +321,144 @@ static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
   return img;
 }
 
-static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
-                             size_t path_len) {
+static int birc_preview_retire(BircPreview *preview, Timui *ui) {
   BircUi *bu = birc_state(ui);
-  if (!preview || !ui || !path || path_len == 0 ||
-      path_len >= sizeof preview->path || memchr(path, '\0', path_len) ||
-      !bu || !bu->output.capturing || preview->retiring)
-    return;
-  if (preview->image && preview->path_len == path_len &&
-      memcmp(preview->path, path, path_len) == 0)
-    return;
+  if (!bu || !bu->output.capturing)
+    return 0;
   if (preview->image) {
+    if (preview->retiring)
+      return 0;
     if (timui_image_retire_capture_(ui, preview->image) != TIMUI_FRAME_DONE)
-      return;
+      return 0;
     preview->retiring = preview->image;
     preview->image = NULL;
   }
+  preview->path_len = 0;
+  preview->token = 0;
+  return 1;
+}
+
+static void birc_preview_set(BircPreview *preview, Timui *ui, const char *path,
+                             size_t path_len) {
+  if (!preview || !ui || !path || path_len == 0 ||
+      path_len >= sizeof preview->path || memchr(path, '\0', path_len))
+    return;
+  if (preview->image && preview->token == 0 && preview->path_len == path_len &&
+      memcmp(preview->path, path, path_len) == 0)
+    return;
+  if (!birc_preview_retire(preview, ui))
+    return;
   memcpy(preview->path, path, path_len);
   preview->path[path_len] = '\0';
   preview->path_len = path_len;
   preview->image = birc_preview_load(ui, preview->path);
 }
+
+static TimuiImage *birc_media_image(Timui *ui, const BircMedia *media) {
+  TimuiImage *image;
+  TimuiImageFrame frames[BIRC_MEDIA_FRAME_CAP];
+  uint32_t i;
+  if (!media)
+    return NULL;
+  image = timui_image_from_png_rgba(ui, media->frames[0].png,
+      media->frames[0].png_len, media->rgba, (int)media->width,
+      (int)media->height, (int)media->width * 4);
+  if (!image)
+    return NULL;
+  if (media->count > 1) {
+    for (i = 0; i < media->count; i++) {
+      frames[i].png = media->frames[i].png;
+      frames[i].len = media->frames[i].png_len;
+      frames[i].duration_ms = media->frames[i].duration;
+    }
+    if (timui_image_set_animation(image, frames, media->count, media->iterations,
+                                  media->gif, media->gif_len) != TIMUI_OK) {
+      timui_image_free(NULL, image);
+      return NULL;
+    }
+  }
+  return image;
+}
+
+static TimuiImage *birc_preview_media(BircPreview *preview, Timui *ui,
+                                      uint32_t token) {
+  BircUi *bu = birc_state(ui);
+  const BircMedia *media = bu ? birc_media_find(&bu->media, token) : NULL;
+  if (!bu || !bu->output.capturing || !media)
+    return NULL;
+  if (preview->token == token && preview->image)
+    return preview->image;
+  if (!birc_preview_retire(preview, ui))
+    return NULL;
+  preview->token = token;
+  preview->image = birc_media_image(ui, media);
+  return preview->image;
+}
+
+/* Clearing/evicting payload bytes is immediate. Native ids remain owned until
+ * a later accepted frame deletes them, or ordinary close settles that debt. */
+static void birc_media_prune(Timui *ui, BircUi *bu) {
+  int i;
+  if (!bu || !bu->output.capturing)
+    return;
+  for (i = 0; i < BIRC_PREVIEW_CAP; i++)
+    if (bu->previews[i].token &&
+        !birc_media_find(&bu->media, bu->previews[i].token))
+      (void)birc_preview_retire(&bu->previews[i], ui);
+}
+
+static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
+                            uint32_t x, uint32_t y, uint32_t width,
+                            uint32_t height, uint32_t clip_y,
+                            uint32_t clip_h, uint32_t token) {
+  TimuiRect full, visible;
+  TimuiImage *image = NULL;
+  int64_t top = (int64_t)y - clip_y;
+  if (!frame || !bu || !ui || x > INT_MAX || y > INT_MAX ||
+      width > INT_MAX || height > INT_MAX || clip_h > INT_MAX ||
+      !width || !height || !clip_h || clip_y > height || clip_h > height - clip_y ||
+      top < INT_MIN || top > INT_MAX)
+    return;
+  full = (TimuiRect){(int)x, (int)top, (int)width, (int)height};
+  visible = (TimuiRect){(int)x, (int)y, (int)width, (int)clip_h};
+  if (bu->preview_count < BIRC_PREVIEW_CAP) {
+    BircPreview *preview = &bu->previews[bu->preview_count++];
+    image = birc_preview_media(preview, ui, token);
+  }
+  if (image)
+    timui_image_draw_clipped(frame, image, full, visible);
+  else
+    image_placeholder_(ui, timui_intersect_rect_(visible, timui_root(frame)));
+}
+
+#if CID_TIMUI_MEDIA_ADD
+Term timui_media_add_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  BircUi *bu = birc_state(ui);
+  u64 length = 0;
+  char *text = io_cstr(e, f[1], &length);
+  uint32_t token = bu && text && length <= (u64)SIZE_MAX
+      ? birc_media_add(&bu->media, text, (size_t)length) : 0;
+  (void)w;
+  free(text);
+  return io_tup(e, f[0], (Term)(uint64_t)token);
+}
+static void __attribute__((constructor)) timui_media_add_use(void) {
+  io_eff(CID_TIMUI_MEDIA_ADD, timui_media_add_run, 0);
+}
+#endif
+#if CID_TIMUI_MEDIA_CLEAR
+Term timui_media_clear_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  BircUi *bu = birc_state(ui);
+  (void)e; (void)w;
+  if (bu) birc_media_clear(&bu->media);
+  return f[0];
+}
+static void __attribute__((constructor)) timui_media_clear_use(void) {
+  io_eff(CID_TIMUI_MEDIA_CLEAR, timui_media_clear_run, 0);
+}
+#endif
 
 static int birc_winch_rd = -1;
 static void birc_ui_atexit(void) {
@@ -694,7 +825,7 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     r.y = (int)(uint32_t)f[1];
     r.w = (int)(uint32_t)f[2];
     r.h = (int)(uint32_t)f[3];
-    if (ly && ly->bu && ly->ui && ly->bu->preview_count < 2 &&
+    if (ly && ly->bu && ly->ui && ly->bu->preview_count < BIRC_PREVIEW_CAP &&
         n <= (u64)SIZE_MAX) {
       preview = &ly->bu->previews[ly->bu->preview_count++];
       birc_preview_set(preview, ly->ui, path, (size_t)n);
@@ -703,6 +834,16 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
       timui_image_draw_clipped(fr, preview->image, r, r);
     free(path);
     spare_free(e, cls_fit(5), loc);
+#ifdef CID_VIEW_OPMEDIA
+  } else if (cid == CID_VIEW_OPMEDIA) {
+    Term f[7];
+    Loc loc = ctr_take(e, op, 7, f);
+    if (ly)
+      birc_draw_media(fr, ly->bu, ly->ui, (uint32_t)f[0], (uint32_t)f[1],
+          (uint32_t)f[2], (uint32_t)f[3], (uint32_t)f[4], (uint32_t)f[5],
+          (uint32_t)f[6]);
+    spare_free(e, cls_fit(7), loc);
+#endif
   }
 }
 static void birc_draw_ops(Env e, TimuiFrame *fr, Term xs, BircLay *ly) {
@@ -799,7 +940,7 @@ static void birc_frame_drain(Timui *ui, BircUi *bu) {
       ui->sync_open = 0;
     }
     if (!birc_output_failure)
-      for (i = 0; i < 2; i++)
+      for (i = 0; i < BIRC_PREVIEW_CAP; i++)
         if (bu->previews[i].retiring) {
           timui_image_retire_done_(ui, bu->previews[i].retiring);
           bu->previews[i].retiring = NULL;
@@ -1071,6 +1212,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     if (bu) {
       bu->body_count = 0;
       bu->preview_count = 0;
+      birc_media_prune(ui, bu);
       bu->link_url[0] = '\0';
       memset(bu->body_inner, 0, sizeof bu->body_inner);
       memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
@@ -1421,6 +1563,17 @@ Term sys_open_program_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) sys_open_program_use(void) {
   io_eff(CID_SYS_OPEN_PROGRAM, sys_open_program_run, 0);
+}
+#endif
+#if CID_SYS_MEDIA_PROGRAM
+Term sys_media_program_run(Env e, Term *f, IoWork *w) {
+  const char *program = getenv("BIRC_MEDIA_HELPER");
+  (void)f; (void)w;
+  if (!program || !*program) program = "birc-image";
+  return io_str(e, program, strlen(program));
+}
+static void __attribute__((constructor)) sys_media_program_use(void) {
+  io_eff(CID_SYS_MEDIA_PROGRAM, sys_media_program_run, 0);
 }
 #endif
 #if CID_SYS_CLIPBOARD_PROGRAM
