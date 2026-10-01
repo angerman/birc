@@ -154,7 +154,7 @@ def fake_helper(path: Path, label: str, python: Path, payload: Path) -> None:
     path.chmod(0o755)
 
 
-def wrapper_case(binary: Path, jpeg: Path, env: dict[str, str], log: Path) -> list:
+def wrapper_case(binary: Path, jpeg: Path, env: dict[str, str], log: Path, case: str) -> list:
     master, slave = pty.openpty()
     saved = termios.tcgetattr(slave)
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
@@ -167,25 +167,56 @@ def wrapper_case(binary: Path, jpeg: Path, env: dict[str, str], log: Path) -> li
     finally:
         os.close(slave)
 
+    captured = bytearray()
+    phase = "startup"
+
     def painted(needle: bytes) -> None:
         output = bytearray()
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
-            output.extend(drain(master, 0.05))
+            chunk = drain(master, 0.05)
+            output.extend(chunk)
+            captured.extend(chunk)
+            del captured[:-65536]
             if needle in output:
                 return
-            assert process.poll() is None, "installed client exited before paint"
-        raise AssertionError("installed client did not paint local fixture")
+            assert process.poll() is None, f"installed client exited before paint ({case}: {phase})"
+        raise AssertionError(f"installed client did not paint local fixture ({case}: {phase})")
 
     try:
         painted(b"#birc")
+        phase = "local-preview"
         os.write(master, f"/preview {jpeg}\r".encode())
         painted(b"\x1b_Ga=t,")
+        phase = "shutdown"
         os.write(master, b"/quit\r")
         drain(master, 0.2)
         assert process.wait(timeout=3) == 0, "installed client did not quit cleanly"
         assert termios.tcgetattr(master) == saved, "installed client left tty state changed"
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    except (AssertionError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        # The child sees only this clean synthetic fixture. Keep bounded tails
+        # outside its temporary directory so a failure remains diagnosable.
+        try:
+            evidence_root = Path(__file__).resolve().parents[1] / "build"
+            evidence_root.mkdir(exist_ok=True)
+            evidence = Path(tempfile.mkdtemp(prefix="package-failure-", dir=evidence_root))
+            (evidence / "output-tail.bin").write_bytes(captured)
+            calls = b""
+            if log.exists():
+                with log.open("rb") as stream:
+                    stream.seek(max(0, log.stat().st_size - 16384))
+                    calls = stream.read(16384)
+            (evidence / "helper-calls-tail.jsonl").write_bytes(calls)
+            (evidence / "failure.json").write_text(json.dumps({
+                "case": case, "phase": phase, "error": str(error),
+                "returncode": process.poll(), "output_tail_bytes": len(captured),
+                "helper_calls_tail_bytes": len(calls),
+            }) + "\n")
+            print(f"package evidence: case={case!r} phase={phase} path={evidence}", file=sys.stderr)
+        except OSError as evidence_error:
+            print(f"package evidence: case={case!r} phase={phase} unavailable: {evidence_error}", file=sys.stderr)
+        raise
     finally:
         if process.poll() is None:
             process.kill()
@@ -208,7 +239,7 @@ def wrapper_controls(binary: Path, python: Path, jpeg: Path, payload: Path, root
             "BIRC_PACKAGE_CALLS": str(log)}
         if value is not None:
             current["BIRC_MEDIA_HELPER"] = value
-        if wrapper_case(binary, jpeg, current, log) != expected:
+        if wrapper_case(binary, jpeg, current, log, name) != expected:
             failures.append(name)
     assert not failures, "installed wrapper rejected: " + ", ".join(failures)
 

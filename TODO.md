@@ -2350,6 +2350,8 @@ expectation correction receives user approval. Add failing and passing controls.
 - [x] C04 — Share `/images` argument acceptance for status and state mutation.
 - [x] C05 — Share buffer-key normalization and reconnect eligibility predicates.
 - [x] U01 — Clip tab labels only at complete common-cluster byte boundaries.
+- [x] U02 — Preserve bounded, synthetic package-failure evidence with wrapper
+      case and paint phase; do not change assertions, deadlines, or add retries.
 - [x] P01 — User chose directed server NOTICE routing to the read-only server
       buffer; preserve private user notices and ambiguous bare nicknames.
 - [ ] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
@@ -2384,6 +2386,22 @@ peer typing across a same-chunk self-PART/rejoin; the final focused binary
 passes all actual-channel, status-audience, membership, batch, private, and
 depart/rejoin controls. All earlier typing APIs and assertions stay unchanged.
 The frozen state diff received an independent all-clear cross-review.
+
+Installed-package qualification initially timed out waiting for a paint; the
+old guard discarded the wrapper case, phase and temporary evidence. Its cause
+remains unknown: three unchanged reruns passed. U02 now records the case/phase
+and bounded output/helper-call tails under ignored `build/package-failure-*`.
+Controlled startup and preview failures check these diagnostics. The changed
+PTY guard then passed three consecutive runs without deadline or assertion
+changes (`m21-package-diagnostic-{1,2,3}-20261002.log`). The driver rerun
+`timeout 1000 make build-package test-package` also passes; log:
+`build/m21-package-qualified-20261002.log`. The qualified installed package is
+`/nix/store/hqdzy4p3r790k6lvgnf1halkz4afzjn3-birc-0.1.0`.
+
+`timeout 1200 make test-sanitizers` passes all supported UBSan gates, including
+the full-app hostile PTY corpus. ASan explicitly reports an unsupported
+Darwin-arm64 interceptor-startup runtime (LLVM #58503); this is not ASan
+coverage. Log: `build/m21-sanitizers-final-20261002.log`.
 
 ## Open decisions (resolve in M0/M4)
 
