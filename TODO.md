@@ -2501,7 +2501,7 @@ credential access, Keychain writes, or public IRC probes are part of testing.
 - [ ] Resolve the repeated one-second burst-PONG miss, which also occurs on
   the verified pre-auth package. Do not weaken the existing deadline or claim
   that authentication caused it without supporting measurements.
-- [ ] Finish the preview-retry failure investigation and final handoff.
+- [x] Repeat preview-retry unchanged three times and retain the original miss.
 
 Initial evidence: old host-switch test leaked `[secret]` in
 `build/auth_profile_scope.red.log`; new profile interpreter passes. Manual
@@ -2555,6 +2555,11 @@ that M22 caused the delay. Logs: `build/m22-output-progress-baseline-control.log
 and `build/m22-output-profile-paired-*`. All other aggregate gates passed, including auth,
 proofs, strict FFI lint and the paste harness. The aggregate is not green.
 
+Preview-retry passed three consecutive unchanged bounded reruns (exit 0):
+`build/m22-preview-retry-rerun-{1,2,3}-20261002.log`. No source, assertion,
+or deadline changed. Its original cause remains unknown; the failed raw-output
+substring alone cannot establish that the helper completion was lost.
+
 `timeout 1200 make test-sanitizers test-auth-bridge-ubsan` passes all supported
 UBSan gates, including the full-app hostile corpus; log:
 `build/m22-sanitizers-20261002.log`. Full-app authentication PTY also passes
@@ -2583,6 +2588,46 @@ production sources and packaging inputs are unchanged.
 Runtime `/set`, `/toggle`, mutes, and image switches remain session-only.
 Auth profile TOML and Keychain credentials persist separately from chat
 history. UI settings persistence was asked about, not requested as a change.
+
+## M23 — Confirmed file uploads and measured startup
+
+User scope: file drops (images and other regular files) through 0x0.st,
+confirmation before each upload, and investigation of the long `nix run`
+initialization delay. No real files are uploaded during tests.
+
+- [x] Verify the primary 0x0.st API and privacy terms with a descriptive UA.
+  Evidence: `build/m23-0x0-api-20261002.html`. Multipart `file` plus an empty
+  `secret` field requests a harder-to-guess public URL. This is not private
+  storage; the service retains the source IP and UA. Client limits are policy,
+  not claims about the server.
+- [x] Add and qualify bounded, default-off startup instrumentation before
+  measuring. The instrumentation checkpoint precedes app/Nix measurements.
+- [ ] Measure cached Nix launch separately from installed-client first paint;
+  use demo, loopback IRC, and owned synthetic history only.
+- [ ] Identify and fix the measured cause, then repeat the same measurements.
+  Do not infer a cause from code inspection or compare cold builds with warm
+  launches.
+- [ ] Add a bounded HTTPS uploader with strict URL output, streaming limits,
+  safe numeric diagnostics, and offline failing/passing controls.
+- [ ] Recognize exact local dropped paths and `/upload PATH`, without shell
+  evaluation, raw-path IRC output, or composer-history leakage.
+- [ ] Require F8 confirmation per file; Esc cancels. Pasted text cannot
+  authorize an upload. Keep ordinary chat, completion, history, and navigation
+  usable while one worker owns the pending request.
+- [ ] Bind completion to the confirmed endpoint and target; reject stale or
+  overlong URL sends without truncating them.
+- [ ] Add driver/package/usage support; qualify pure policy, mocked helpers,
+  and three consecutive actual-loop PTY runs.
+- [ ] Independent review, proof/lint, sanitizer checks, and updated Nix cache.
+
+Startup harness self-tests passed three consecutive controlled runs, including
+raw/visible/profile capture, early exit and bounded timeout with child reaping:
+`build/m22-startup-profile-selftest-final-{1,2,3}-20261002.log`.
+`timeout 250 make proof test-startup-profile test-build-config` passes (exit 0);
+log: `build/m23-startup-instrumentation-check-20261002.log`. Instrumentation
+does not change production sources and refuses to benchmark an unbuilt Nix
+output. First-visible timestamps mean observed mode-label paint, not complete
+physical-frame delivery.
 
 ## Open decisions (resolve in M0/M4)
 

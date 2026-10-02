@@ -954,6 +954,13 @@ test-perf-hardening: build-ui ## Profile production frame phases with scale repl
 test-perf-output: build-ui ## Measure stalled-output View/native phases and PONG latency (not in check).
 	$(NIXRUN) timeout 90 python3 tests/perf/output_profile.py ./$(BLDDIR)/birc
 
+.PHONY: test-startup-profile test-perf-startup
+test-startup-profile: ## Check bounded startup timing, failure evidence, and child cleanup with owned mocks.
+	$(NIXRUN) timeout 60 python3 tests/perf/startup_profile.py --self-test
+
+test-perf-startup: ## Measure cached nix run versus its installed app; refuses an unbuilt output (not in check).
+	$(NIXRUN) timeout 240 python3 tests/perf/startup_profile.py --nix-run --samples 3
+
 .PHONY: test-perf-media-wrap
 MEDIA_PROFILE_MODE ?= empty
 MEDIA_PROFILE_LINKS ?= 0

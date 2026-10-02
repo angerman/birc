@@ -497,6 +497,7 @@ make check-hardening       # Bounded hostile, sanitizer, and performance checks
 make lint-ffi              # Strict syntax and compiler warning lint of C FFI
 make test-auth-profiles    # Auth state, privacy, Keychain fakes, pipes, and real loopback PTY
 make test-auth-bridge-ubsan # Authentication pipe guard with UBSan
+make test-perf-startup      # Separate cached nix run launch time from first client paint
 make clean                 # Remove build artifacts
 ```
 
