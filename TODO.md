@@ -2861,9 +2861,9 @@ hand-written cryptography. The timestamp defect in M24 remains separate.
 - [x] Run proof, pure/legacy compatibility, strict native lint, sanitizers, and
   auth/upload regressions. Record exact outcomes; do not claim aggregate success
   from focused checks.
-- [ ] Build the final Nix app without changing pins and verify the hot cache.
+- [x] Build the final Nix app without changing pins and verify the hot cache.
 
-Implementation and qualification pass; the clean-tree cache check is pending.
+Implementation, qualification, and the clean-tree cache check pass.
 User approved the appended help option and mechanical socket/config fixture
 adapters. Existing assertion values and deadlines stay unchanged.
 
@@ -2946,8 +2946,14 @@ bounded wall time):
 - `git diff --check` and `git diff --cached --check` pass; `flake.lock` is
   unchanged. No full `make check` success is claimed from these focused gates.
 
-Current next steps: commit the qualified feature, then verify a clean hot-cache
-`nix build .` without moving pins. The separate M24 timestamp defect stays open.
+Committed as `80de433` (`feat(net): add verified native IRC TLS`). Clean-tree
+`timeout 900 nix build . --no-update-lock-file --no-link --print-out-paths`
+exits 0 and reuses the exact installed output without a build
+(`build/m25-clean-default-nix-cache-20261002.log`). `/usr/bin/time -p` reports
+real 21.58 s, user 2.49 s, sys 0.78 s. Thus the package is cached, but the
+separate Nix lookup delay is not fixed or explained. All test children were reaped.
+The M24 timestamp defect also stays open. Next work should address those
+existing diagnoses, not repeat TLS implementation or invent a cause.
 The changed devShell adds OpenSSL/CA inputs; reload existing development shells.
 
 ## Open decisions (resolve in M0/M4)
