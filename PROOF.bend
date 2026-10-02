@@ -12,6 +12,21 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.upload_requires_physical_consent():
+  {==}
+
+def Laws.upload_worker_one_shot():
+  {==}
+
+def Laws.upload_cancel_retains_owner_not_permission():
+  {==}
+
+def Laws.upload_warning_precedes_authorization():
+  {==}
+
+def Laws.upload_invalid_local_uri_keeps_intent():
+  {==}
+
 def Laws.media_retained_payload_coherence():
   {==}
 

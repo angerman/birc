@@ -49,10 +49,11 @@
           pkgs = import nixpkgs { inherit system; };
           bend = self.packages.${system}.bend;
           media = pkgs.callPackage ./nix/media.nix {};
+          upload = pkgs.callPackage ./nix/upload.nix {};
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media
+              bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media upload
               bashInteractive gnumake git
               coreutils findutils gnugrep gnused gawk
               diffutils file which cacert

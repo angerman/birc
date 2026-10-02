@@ -18,6 +18,8 @@ whole client correct.
 - **Image previews**: New live image links expand inline. Explicit `/preview`
   accepts local files and HTTP(S) URLs. Common formats use a bounded,
   provisioned decoder; supported Kitty/iTerm2 terminals can play animations.
+- **Confirmed file uploads**: Exact local file drops and `/upload` stage a
+  public upload to 0x0.st. Each file needs its own F8 confirmation.
 - **Explicit bounds**: 512-byte IRC lines, capped buffers, bounded terminal writes, and UTF-8 decoding with Latin-1 fallback. Foreign effects and malformed inputs still need runtime tests.
 - **Deterministic Offline & Replay Modes**: Built-in canned interactive demo (`--demo`) and deterministic session replayer (`--replay <file>`).
 
@@ -97,6 +99,8 @@ whole client correct.
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
 | [`src/media/image.py`](src/media/image.py) | Python | Bounded HTTP(S)/local image loading and normalization with Pillow |
+| [`src/bend/upload.bend`](src/bend/upload.bend) / [`src/bend/upload_io.bend`](src/bend/upload_io.bend) | Bend 2 | Per-file consent, worker ownership, scoped completion, and bounded helper calls |
+| [`src/media/upload.py`](src/media/upload.py) | Python | Fixed-origin HTTPS file upload with streamed input and checked URL output |
 | [`LAWS.bend`](LAWS.bend) / [`PROOF.bend`](PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
 
 ---
@@ -154,7 +158,7 @@ initial connection failure with a nonzero exit.
 
 ### Run Directly with Nix Flakes
 
-Run `birc` instantly without cloning:
+Run `birc` without cloning:
 
 ```sh
 # Launch offline interactive demo
@@ -170,6 +174,17 @@ nix run github:angerman/birc -- --connect irc.libera.chat --channel '#bend'
 make bootstrap   # Once: create flake.lock
 make check       # Run formal proofs, unit tests, live mock, and FFI lints
 ```
+
+Nix can evaluate or build before the client starts. To prebuild the installed
+package and then launch it without another flake evaluation:
+
+```sh
+make build-package
+./build/package-birc/bin/birc --demo
+```
+
+The installed package supplies its image and upload helpers. This bypasses
+Nix launch work; it does not fix a slow Nix store or daemon.
 
 ### 2. Offline Interactive Demo
 
@@ -353,7 +368,9 @@ Their server identity cannot be recovered safely. Reconnect dividers and
 | <kbd>Ctrl</kbd> + <kbd>A</kbd> | Move the composer cursor to the start of the line |
 | <kbd>Ctrl</kbd> + <kbd>K</kbd> | Delete from the composer cursor to the end of the line |
 | <kbd>Enter</kbd> | Send typed message or slash command; snap scroll to latest |
-| <kbd>Esc</kbd> / <kbd>F10</kbd> | Cleanly disconnect and quit |
+| <kbd>F8</kbd> | Confirm the currently staged public file upload |
+| <kbd>Esc</kbd> | Cancel a pending/running upload; otherwise disconnect and quit |
+| <kbd>F10</kbd> | Cleanly disconnect and quit |
 
 ### Mouse Navigation
 
@@ -402,6 +419,7 @@ Type commands into the composer prompt:
 | `/split-off` or `/unsplit` | Close the split without closing either buffer |
 | `/preview <path-or-url>` | Preview a local image (also `file://`-prefixed paths) or an HTTP(S) image URL in `*preview*` |
 | `/images on` / `/images off` | Enable or disable automatic image previews; explicit `/preview` remains available |
+| `/upload <local-path> [more-paths]` | Stage local files for individual public-upload confirmation; quote paths containing spaces |
 | `/set bell on` / `/set bell off` | Enable or disable terminal bells for mentions and private messages |
 | `/nick <newnick>` | Change your current nickname |
 | `/me <action>` | Send a CTCP ACTION message (e.g. `/me waves`) |
@@ -480,6 +498,49 @@ to override the helper for development and synthetic tests. It is an executable
 path, not a shell command. An explicitly empty value uses `birc-image` from
 PATH. Reload an existing Nix shell after provisioning changes.
 
+### Public file uploads
+
+Focus an online channel or query. Drop exact absolute paths or local
+`file:///` URLs into the composer, then press Enter. You can also use:
+
+```text
+/upload '/path/to/image.jpg' './another file.txt'
+```
+
+Quotes and backslashes decode literal paths. They do not run a shell or
+expand variables, globs, or `~`. Up to eight files can be staged together.
+Images and other regular files are supported, through 32 MiB per file.
+Empty files, final symlinks, and nonregular files are refused.
+
+The status row identifies the public destination, target, and next basename.
+Press F8 to authorize that file. Each remaining file needs another F8.
+Enter or pasted confirmation text cannot authorize an upload. Ordinary
+draft editing, completion, history, and navigation remain available while
+the helper runs. Upload commands and dropped paths do not enter command
+history or chat. A successful URL is sent as ordinary IRC text and can be
+saved in chat history. An overlong URL is refused, never shortened.
+
+This sends file contents to public storage. 0x0.st also receives your IP
+address and user agent. The helper requests a harder-to-guess URL, not
+encryption or access control. Do not upload a file that must remain private.
+The remote filename is generic; the file contents can still identify you.
+
+Esc cancels pending consent and queued files. If text is selected, the first
+Esc clears the selection; press Esc again to cancel the upload.
+For an upload already running,
+it prevents the resulting URL from being sent; it cannot retract bytes already
+sent to storage. Changing the connection or focused target also invalidates
+that result, even if you later return. Cancelling or quitting does not kill
+the running helper. It has a 30-second wall-clock bound; Bend's helper call
+has a separate 35-second bound. Only one upload helper runs at a time.
+
+The Nix package supplies Python, CA trust, and an absolute default uploader.
+Use `make shell` before running `./build/birc` directly. An existing shell
+must be reloaded to find the new uploader. `BIRC_UPLOAD_HELPER` is a literal
+executable-path override for development and offline tests, not a shell
+command. An explicitly empty value uses `birc-upload` from PATH.
+Runtime UI settings remain session-only.
+
 ---
 
 ## Development & Verification
@@ -498,6 +559,8 @@ make lint-ffi              # Strict syntax and compiler warning lint of C FFI
 make test-auth-profiles    # Auth state, privacy, Keychain fakes, pipes, and real loopback PTY
 make test-auth-bridge-ubsan # Authentication pipe guard with UBSan
 make test-perf-startup      # Separate cached nix run launch time from first client paint
+make test-upload           # Public-upload guards, owned helpers, and loopback IRC only
+make test-upload-package   # Installed uploader trust/provenance and loopback override
 make clean                 # Remove build artifacts
 ```
 

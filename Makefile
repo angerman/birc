@@ -72,13 +72,55 @@ build-proto: ## Build the Bend protocol self-test binary.
 # Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
 # birc usage is --help-irc (args.bend).
 BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
-BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
+BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix
 
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
 .PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
+
+.PHONY: test-upload test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-upload-native-ubsan test-pty-upload test-upload-package
+test-upload-helper: ## Offline upload transport: source, TLS, streaming, deadlines, and safe URL output.
+	$(NIXRUN) timeout 30 python3 tests/upload.py
+
+test-upload-policy: ## Local path parsing, per-file consent, single-worker ownership, and stale results.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_demo.bend -o $(BLDDIR)/upload_demo
+	$(NIXRUN) sh scripts/check-golden.sh upload_demo=ok timeout 15 ./$(BLDDIR)/upload_demo
+
+test-upload-session: ## Session consent, ordinary drafts/history/completion, and private dropped paths.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_session.bend -o $(BLDDIR)/upload_session
+	$(NIXRUN) sh scripts/check-golden.sh upload_session=ok timeout 15 ./$(BLDDIR)/upload_session
+
+test-upload-io: ## Literal helper selection and numeric-only failure diagnostics.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_io_demo.bend -o $(BLDDIR)/upload_io_demo
+	$(NIXRUN) sh scripts/check-golden.sh upload_io_demo=ok timeout 15 ./$(BLDDIR)/upload_io_demo
+
+test-upload-hint: ## Transient public-upload status preserves the ordinary composer draft.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_hint.bend -o $(BLDDIR)/upload_hint
+	$(NIXRUN) sh scripts/check-golden.sh upload_hint=ok timeout 15 ./$(BLDDIR)/upload_hint
+
+test-upload-native: ## Actual FFI returns Esc/F8 to Bend without bypassing fatal-output cleanup.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/upload_keys.c -o $(BLDDIR)/upload_keys'
+	$(NIXRUN) sh scripts/check-golden.sh upload_keys=ok timeout 15 ./$(BLDDIR)/upload_keys
+
+test-upload-native-ubsan: ## UBSan: raw upload keys and fatal-output cleanup ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -Werror=vla -pedantic -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/upload_keys.c -o $(BLDDIR)/upload_keys_ubsan'
+	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh upload_keys=ok timeout 15 ./$(BLDDIR)/upload_keys_ubsan'
+
+test-pty-upload: build-ui ## Loopback upload consent, paste refusal, drafts, stale scope, and bounded quit.
+	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/birc
+
+test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
+test-review-pure: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
+test-pty: test-pty-upload
+test-sanitizers: test-upload-native-ubsan
 
 test-server-time: ## IRCv3 time tags reach parsed message timestamps.
 	@mkdir -p $(BLDDIR)
@@ -191,6 +233,10 @@ test-package: build-package ## Check installed helper overrides, local images, t
 
 test-keychain-package: build-package ## Installed launcher provenance, clean help, and pre-Keychain refusal controls.
 	$(NIXRUN) timeout 30 python3 tests/keychain_package.py ./$(BLDDIR)/package-birc
+
+test-upload-package: build-package ## Installed uploader provenance, CA trust, clean PATH, and loopback override controls.
+	$(NIXRUN) timeout 30 python3 tests/upload_package.py ./$(BLDDIR)/package-birc
+	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/package-birc/bin/birc
 
 test-proto: build-proto ## Run Bend protocol golden harness.
 	$(NIXRUN) sh scripts/check-golden.sh proto_demo=ok ./$(BLDDIR)/birc-proto
@@ -974,7 +1020,7 @@ test-perf-media-wrap: ## Measure consumed batches; set MEDIA_PROFILE_MODE/LINKS/
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 
 $(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
-	$(NIXRUN) timeout 300 sh -c '$$CC $(SANITIZER_CFLAGS) -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc_ubsan'
+	$(NIXRUN) timeout 600 sh -c '$$CC $(SANITIZER_CFLAGS) -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc_ubsan'
 
 test-asan: ## M7.3: bounded ASan gate (explicit skip for broken runtimes).
 	@mkdir -p $(BLDDIR)

@@ -18,6 +18,9 @@ networking, and the frame loop**; C is thin TimUI FFI under `src/ffi/`. Plaintex
 installers. Remote image previews may use the provisioned Python/Pillow helper
 with standard-library HTTPS certificate verification; IRC remains plaintext.
 Never fetch supplied private chat URLs during tests.
+Confirmed file uploads use the provisioned standard-library HTTPS helper for
+`0x0.st`. Tests use synthetic files, fake helpers, and owned loopback servers;
+never upload user files or contact the public service from tests.
 
 Original material: Apache-2.0; author Moritz Angermann <moritz@zw3rk.com>.
 Preserve upstream licenses. Do not add model attribution.
@@ -54,16 +57,24 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/links.bend` | Shared URL lexical rules (pure) |
 | `src/bend/diagnostic.bend` | Bounded log text/redaction and numeric helper diagnostics (pure) |
 | `src/bend/media.bend` | Image request identity, one-worker queue, and stale-result policy (pure) |
+| `src/bend/upload.bend` | Local path decoding, per-file consent, worker ownership, and fixed-origin results (pure) |
+| `src/bend/upload_io.bend` | Bounded uploader process; never forward child diagnostics |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/media/image.py` | Bounded HTTP(S) image helper; normalized frames, no temporary files |
+| `src/media/upload.py` | Confirmed, bounded streaming uploads to `0x0.st` |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
 
 ## Engineering
 
 - Fail closed: missing targets exit nonzero.
+- Upload consent is a later physical F8, never Enter or pasted text. A new
+  request must cross a completed warning frame before F8 can authorize it.
+  Invalidate consent on every endpoint, target, or connection transition;
+  returning to the old scope must not revive it. C reports keys; Bend owns
+  Escape cancellation and F10 shutdown. Never replace a draft with a warning.
 - Keep IRC lines ≤ 512 bytes including CRLF.
 - Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop or blocking input poll. Output readiness checks and waits use the bounded frame-output budget. Live paint is `List<DrawOp>` (`OpBox` / `OpSplit` / `OpText` / `OpTabs` / `OpLine` / `OpMedia`); C walks and paints, and does not tokenize, classify, or wrap IRC. Bend expands logical chat lines into resize-safe visible rows with hanging indents. `OpTabs` carries Bend-owned alert levels plus the bell enable flag and event sequence. C renders activity with reverse video, mentions/private messages with gold, and emits one BEL when the sequence advances. Keys are Data on the frame return; a clicked chat link returns its exact URL for Bend to open. C reports the raw key, mods, and wheel; Bend maps Shift-arrows, PageUp/PageDown (`Sess.body_h`), history, and Esc/F10. A tty watcher and a `SIGWINCH` pipe wake one `Chan(UiMsg)`. The UI parks on that channel. Every paint applies the keys the frame read, including a chunk or Eof paint.
 - Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` uses `replay.bend` and fails closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.

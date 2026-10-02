@@ -212,7 +212,7 @@ static int timed_escape_control(void) {
   CHECK(parked.more(env, &f.watcher) == io_hand((u64)f.input[0]));
   CHECK(paint(&f, &key, &more) == 0);
   CHECK(key == TIMUI_KEY_ESCAPE && more == 0 && f.ui->input.state == 0);
-  CHECK(timui_should_quit(f.ui));
+  CHECK(!timui_should_quit(f.ui)); /* Bend decides cancel versus quit. */
   CHECK(fixture_stop(&f) == 0);
   return 0;
 }
@@ -256,7 +256,7 @@ static int nonkey_escape_gap(void) {
   CHECK(ready == 1); /* RED: old predicate sees only output */
   CHECK(paint(&f, &key, &more) == 0);
   CHECK(key == TIMUI_KEY_ESCAPE && more == 0 && f.ui->input.state == 0);
-  CHECK(timui_should_quit(f.ui) && maintenance_ready(&f) == 0);
+  CHECK(!timui_should_quit(f.ui) && maintenance_ready(&f) == 0);
   CHECK(fixture_stop(&f) == 0);
   return 0;
 }
@@ -274,7 +274,7 @@ static int full_output_escape_control(void) {
   now_ms = 2000;
   CHECK(paint(&f, &key, &more) == 0);
   CHECK(key == TIMUI_KEY_ESCAPE && more == 0 && f.ui->input.state == 0);
-  CHECK(timui_should_quit(f.ui));
+  CHECK(!timui_should_quit(f.ui)); /* The raw key remains unchanged. */
   CHECK(!birc_output_ready(f.ui) && maintenance_ready(&f) == 0);
   CHECK(drain_output(&f) == 0);
   CHECK(fixture_stop(&f) == 0);

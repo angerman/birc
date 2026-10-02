@@ -10,6 +10,7 @@ import ./auth.bend as Auth
 import ./split.bend as Sp
 import ./typing.bend as Ty
 import ./media.bend as M
+import ./upload.bend as Up
 import ./view.bend as View
 
 def register_lines(+nick: String) -> List<&2, String>:
@@ -283,6 +284,7 @@ type UiMsg is Data:
   UiError{msg: String}
   TypingTick{now_ms: U32}
   MediaFetched{generation: Nat, ticket: Nat, url: String, payload: String}
+  UploadFetched{request: Up.Request, result: String, error: U32}
   Reconnect{host: String, port: U32, gen: U32}
 
 # All socket events, including an initial dial failure, share this guard.
@@ -867,6 +869,24 @@ def hist_cap_ok() -> Bool:
 type Comp is Data:
   CompNone{}
   CompActive{pre: String, word: String, idx: Nat}
+  CompUpload{state: Up.State, completion: Maybe<&2, CompWord>, presented: Bool}
+
+type CompWord is Data:
+  CompWord{pre: String, word: String, idx: Nat}
+
+def comp_from_word(word: Maybe<&2, CompWord>) -> Comp:
+  match word:
+    case None{}: CompNone{}
+    case Some{CompWord{pre, word, idx}}: CompActive{pre, word, idx}
+
+def comp_word(comp: Comp) -> Maybe<&2, CompWord>:
+  match comp:
+    case CompNone{}: None{}
+    case CompActive{pre, word, idx}: Some{CompWord{pre, word, idx}}
+    case CompUpload{_, completion, _}: completion
+
+def comp_ordinary(comp: Comp) -> Comp:
+  comp_from_word(comp_word(comp))
 
 def comp0() -> Comp:
   CompNone{}
@@ -1005,12 +1025,19 @@ def comp_step.fresh(+cl: Cl.Client, pair: String & String, +typed: String) -> Co
       +matches = comp_candidates(cl, word)
       comp_pick.on(matches, pre, word, typed, 0n, Nat.is_eq(List.length(&2, String, matches), 0n))
 
+def comp_step.upload(word: Maybe<&2, CompWord>, +cl: Cl.Client, +typed: String) -> Comp & String & U32:
+  match word:
+    case None{}: comp_step.fresh(cl, split_word(typed), typed)
+    case Some{CompWord{pre, word, idx}}: comp_step.active(cl, pre, word, idx, typed)
+
 def comp_step(+cl: Cl.Client, comp: Comp, +typed: String) -> Comp & String & U32:
   match comp:
     case CompNone{}:
       comp_step.fresh(cl, split_word(typed), typed)
     case CompActive{+pre, +word, idx}:
       comp_step.active(cl, pre, word, idx, typed)
+    case CompUpload{_, completion, _}:
+      comp_step.upload(completion, cl, typed)
 
 def comp_step_ok.check(c: Comp, +str: String, seed: U32) -> Bool:
   String.eq(str, "/join ") && U32.is_eq(seed, 1)
@@ -1326,6 +1353,147 @@ def session_draft(+st: Session) -> String:
   match st:
     case Session{_, _, _, draft, _, _, _, _, _, _, _, _, _, _, _}:
       draft
+
+def comp_upload_state(comp: Comp) -> Up.State:
+  match comp:
+    case CompUpload{state, _, _}: state
+    case _: Up.empty()
+
+def session_upload(st: Session) -> Up.State:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _}: comp_upload_state(comp)
+
+def session_upload_scope(st: Session) -> Up.Scope:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, port, _}:
+      Up.Scope{Cl.server_of(cl), port, Cl.active_buf_name(cl)}
+
+def session_upload_online.net(net: NetState) -> Bool:
+  match net:
+    case Online{}: True{}
+    case _: False{}
+
+def session_upload_online(st: Session) -> Bool:
+  match st:
+    case Session{+cl, _, _, _, _, _, net, _, _, _, _, _, _, _, _}:
+      session_upload_online.net(net) && Bool.not(Nat.is_eq(Cl.active_of(cl), 0n) || Sub.active_is_synthetic(cl))
+
+# Only an unchanged Confirm can cross the presentation barrier. In particular,
+# Busy -> Confirm resets it even when two batch files have the same path.
+def upload_confirmation_eq(before: Up.State, after: Up.State) -> Bool:
+  match before:
+    case Up.Confirm{request, _}:
+      match after:
+        case Up.Confirm{next, _}: Up.request_eq(request, next)
+        case _: False{}
+    case _: False{}
+
+def comp_upload_presented(comp: Comp) -> Bool:
+  match comp:
+    case CompUpload{Up.Confirm{_, _}, _, presented}: presented
+    case _: False{}
+
+def session_upload_presented(st: Session) -> Bool:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _}: comp_upload_presented(comp)
+
+def comp_set_upload(+state: Up.State, +comp: Comp) -> Comp:
+  match state:
+    case Up.Idle{}: comp_ordinary(comp)
+    case _: CompUpload{state, comp_word(comp), comp_upload_presented(comp) && upload_confirmation_eq(comp_upload_state(comp), state)}
+
+def session_set_upload(st: Session, state: Up.State) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp_set_upload(state, comp), split, typing, port, media}
+
+def comp_upload_mark(comp: Comp, presented: Bool) -> Comp:
+  match comp:
+    case CompUpload{+state, completion, _}:
+      CompUpload{state, completion, presented && upload_confirmation_eq(state, state)}
+    case _: comp
+
+def session_upload_mark(st: Session, presented: Bool) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp_upload_mark(comp, presented), split, typing, port, media}
+
+def upload_presentation_reset_ok() -> Bool:
+  +request: Up.Request = Up.Request{Up.Scope{"s", 6667, "#c"}, "/tmp/a"}
+  +pending: Up.State = Up.Confirm{request, Nil{}}
+  +painted: Comp = CompUpload{pending, None{}, True{}}
+  Bool.not(comp_upload_presented(comp_set_upload(pending, CompNone{})))
+    && comp_upload_presented(comp_set_upload(pending, painted))
+    && Bool.not(comp_upload_presented(comp_set_upload(Up.Busy{request, Nil{}, True{}}, painted)))
+    && Bool.not(comp_upload_presented(comp_set_upload(pending, CompUpload{Up.Busy{request, Nil{}, True{}}, None{}, False{}})))
+
+def session_upload_draft(st: Session, draft: String, seed: U32) -> Session:
+  match st:
+    case Session{cl, drop, rem, _, joined, chan, net, hist, size, _, comp, split, typing, port, media}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}
+
+def upload_basename(parts: List<&2, String>, previous: String) -> String:
+  match parts:
+    case Nil{}: previous
+    case Con{part, rest}: upload_basename(rest, part)
+
+def upload_hint(request: Up.Request, remaining: List<&2, String>) -> String:
+  match request:
+    case Up.Request{Up.Scope{_, _, target}, path}:
+      "F8: upload publicly to 0x0.st; Esc: cancel | " ++ target ++ " | "
+        ++ String.take(upload_basename(String.split(path, Chr{47}), "file"), 128n)
+        ++ " (files=" ++ Nat.show(Nat.add(1n, List.length(&2, String, remaining))) ++ ")"
+
+def session_upload_hint.state(state: Up.State) -> String:
+  match state:
+    case Up.Confirm{request, remaining}: upload_hint(request, remaining)
+    case Up.Ready{request, remaining}: upload_hint(request, remaining)
+    case _: ""
+
+def session_upload_hint(+st: Session) -> String:
+  session_upload_hint.state(session_upload(st))
+
+# Every connection/focus transition must call this, not only completion. Busy
+# retains physical ownership but cannot regain permission after leaving scope.
+def session_upload_maintain(+st: Session) -> Session:
+  session_set_upload(st, Up.retain(session_upload(st), session_upload_scope(st), session_upload_online(st)))
+
+# Call after a frame and its keys are processed. A newly staged or completed
+# request must first survive a later warning frame; this frame cannot arm it.
+def session_upload_present(before: Session, +after: Session) -> Session:
+  session_upload_mark(after, upload_confirmation_eq(session_upload(before), session_upload(after)))
+
+def session_upload_key.confirm(confirm: Bool, +st: Session) -> Session & Bool:
+  match confirm:
+    case False{}: (st, False{})
+    case True{}:
+      (session_set_upload(st, Up.confirm(session_upload(st), session_upload_scope(st), session_upload_online(st))), True{})
+
+def session_upload_key.cancel(cancel: Bool, confirm: Bool, +st: Session) -> Session & Bool:
+  match cancel:
+    case False{}: session_upload_key.confirm(confirm, st)
+    case True{}:
+      (session_set_upload(st, Up.cancel(session_upload(st))), True{})
+
+def session_upload_key(+st: Session, +key: U32, mods: U32) -> Session & Bool:
+  session_upload_key.cancel(U32.is_eq(key, KEY_ESCAPE()) && Up.active(session_upload(st)),
+    U32.is_eq(key, 22) && U32.is_zero(mods) && Up.pending(session_upload(st)) && session_upload_presented(st), session_upload_maintain(st))
+
+def session_upload_take.got(pair: Up.State & Maybe<&2, Up.Request>, st: Session) -> Session & Maybe<&2, Up.Request>:
+  match pair:
+    case (state, request): (session_set_upload(st, state), request)
+
+def session_upload_take(+st: Session) -> Session & Maybe<&2, Up.Request>:
+  +next = session_upload_maintain(st)
+  session_upload_take.got(Up.take_job(session_upload(next)), next)
+
+def session_upload_complete.got(pair: Up.State & Maybe<&2, String>, +st: Session) -> Session & Maybe<&2, String>:
+  match pair:
+    case (+state, result):
+      (session_set_upload(st, state), result)
+
+def session_upload_complete(+st: Session, request: Up.Request, result: String) -> Session & Maybe<&2, String>:
+  session_upload_complete.got(Up.finish(session_upload(st), request, session_upload_scope(st), session_upload_online(st), result), st)
 
 def split_apply.open.got(
   triple: Cl.Client & Sp.State & Bool,
@@ -1643,8 +1811,83 @@ def step_keys.intent(keys: Keys, +after: Nat, trip: Session & NetCmd & Bool) -> 
       match trip:
         case (st, cmd, halt): (session_observe_media(media_intent(enter, st, typed), after), cmd, halt)
 
-def step_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
+def step_keys.normal(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), step_keys.base(st, keys))
+
+def step_keys.upload_restore(trip: Session & NetCmd & Bool, state: Up.State, presented: Bool) -> Session & NetCmd & Bool:
+  match trip:
+    case (st, cmd, halt): (session_upload_maintain(session_upload_mark(session_set_upload(st, state), presented)), cmd, halt)
+
+# Completion and worker state have distinct nonrecursive payloads. Ordinary
+# editing/history/completion can proceed while Busy without dropping its owner.
+def step_keys.ordinary(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  step_keys.upload_restore(step_keys.normal(session_set_upload(st, Up.empty()), keys), session_upload(st), session_upload_presented(st))
+
+def upload_modal_keys(keys: Keys) -> Keys:
+  match keys:
+    case Keys{typed, _, tab, click, up, dn, hist, comp, focus}:
+      Keys{typed, False{}, tab, click, up, dn, hist, comp, focus}
+
+def step_keys.upload_blocked(trip: Session & NetCmd & Bool, enter: Bool) -> Session & NetCmd & Bool:
+  match trip:
+    case (+st, cmd, halt):
+      # Native Enter clears its editor; restore the same unsent draft once.
+      (Bool.pick(Session, enter, session_upload_draft(st, session_draft(st), 1), st), cmd, halt)
+
+type UploadInput is Data:
+  NotUpload{}
+  UploadPaths{paths: List<&2, String>}
+  UploadBad{}
+
+def upload_input.paths(got: Maybe<&2, List<&2, String>>, explicit: Bool, raw: String) -> UploadInput:
+  match got:
+    case None{}: Bool.pick(UploadInput, explicit || Up.looks_local_drop(raw), UploadBad{}, NotUpload{})
+    case Some{paths}: UploadPaths{paths}
+
+def upload_input.unknown(known: Bool, +raw: String) -> UploadInput:
+  match known:
+    case True{}: NotUpload{}
+    case False{}: upload_input.paths(Up.parse_paths(raw, True{}), False{}, raw)
+
+def upload_input.parsed(input: Sub.Input, +raw: String) -> UploadInput:
+  match input:
+    case Sub.CommandInput{Sub.UploadCmd{}, _, rest}: upload_input.paths(Up.parse_paths(rest, False{}), True{}, raw)
+    case Sub.CommandInput{Sub.Unknown{}, verb, _}: upload_input.unknown(Sub.slash_known(verb), raw)
+    case Sub.PlainInput{_}: upload_input.paths(Up.parse_paths(raw, True{}), False{}, raw)
+    case _: NotUpload{}
+
+def upload_input(keys: Keys) -> UploadInput:
+  match keys:
+    case Keys{+typed, enter, _, _, _, _, _, _, _}:
+      match enter:
+        case False{}: NotUpload{}
+        case True{}: upload_input.parsed(Sub.parse_input(typed), typed)
+
+def step_keys.upload_offer.busy(busy: Bool, +st: Session, paths: List<&2, String>) -> Session & NetCmd & Bool:
+  match busy:
+    case True{}: (session_error(session_upload_draft(st, "", 1), "upload already in progress"), Cont{Nil{}}, False{})
+    case False{}:
+      +state = Up.offer(Up.empty(), session_upload_scope(st), session_upload_online(st), paths)
+      +next = session_upload_draft(session_set_upload(st, state), "", 1)
+      (Bool.pick(Session, Up.pending(state), next, session_error(next, "upload requires an online chat target")), Cont{Nil{}}, False{})
+
+def step_keys.upload_input(input: UploadInput, +st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  match input:
+    case NotUpload{}: step_keys.ordinary(st, keys)
+    case UploadBad{}: (session_error(session_upload_draft(st, "", 1), "usage: /upload <local-path>"), Cont{Nil{}}, False{})
+    case UploadPaths{paths}: step_keys.upload_offer.busy(Up.active(session_upload(st)), st, paths)
+
+def step_keys.upload_modal(pending: Bool, +st: Session, +keys: Keys) -> Session & NetCmd & Bool:
+  match pending:
+    case True{}:
+      match keys:
+        case Keys{_, enter, _, _, _, _, _, _, _}:
+          step_keys.upload_blocked(step_keys.ordinary(st, upload_modal_keys(keys)), enter)
+    case False{}: step_keys.upload_input(upload_input(keys), st, keys)
+
+def step_keys(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  +next = session_upload_maintain(st)
+  step_keys.upload_modal(Up.pending(session_upload(next)), next, keys)
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))

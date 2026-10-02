@@ -16,6 +16,9 @@ import ./media.bend as M
 import ./links.bend as Links
 import ./args.bend as Args
 import ./auth_bridge.bend as AuthBridge
+import ./upload.bend as Up
+import ./upload_io.bend as UploadIO
+import ./view_hint.bend as Hint
 
 def endpoint(+host: String, +port: U32) -> String:
   host ++ ":" ++ U32.show(port)
@@ -121,7 +124,7 @@ def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
     case V.ViewModel{+ops, +inp}:
       T.Timui.frame(ui, ops, inp, seed)
 
-def paint_go(
+def paint_go.hint(
   ui: T.Ui,
   +cl: Cl.Client,
   +draft: String,
@@ -130,19 +133,25 @@ def paint_go(
   size: Sess.Size,
   split: Sp.State,
   +typers: List<&2, String>,
-  +media: M.State
+  +media: M.State,
+  hint: String
 ) -> IO(T.Ui & T.UiKeys):
   match size:
-    case Sess.Size{+rows, cols}:
+    case Sess.Size{+rows, +cols}:
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), seed)
+        paint_vm(ui, Hint.status(V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), rows, cols, hint), seed)
 
-def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
+def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State) -> IO(T.Ui & T.UiKeys):
+  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, "")
+
+def paint_session.hint(ui: T.Ui, st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media}:
-      paint_go(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)), media)
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)), media, hint)
 
+def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
+  paint_session.hint(ui, st, Sess.session_upload_hint(st))
 
 def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty: Bool) -> IO(U32):
   match empty:
@@ -354,15 +363,49 @@ def frame_result.pol(
           pol_hot(tab, click, up, dn, hist, enter, comp, focus) || Bool.not(Sess.size_eq(Sess.session_size(st), Sess.Size{rows, cols}))
         )
 
+def frame_result.restore(packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool, restore: Bool, typed: String) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  match packed:
+    case (ui, +st, cmd, halt, more):
+      (ui, Bool.pick(Sess.Session, restore, Sess.session_upload_draft(st, typed, 1), st), cmd, halt, more)
+
+def frame_result.hot(result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool, +handled: Bool, restore: Bool, typed: String) -> (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool:
+  match result:
+    case (packed, hot): (frame_result.restore(packed, restore, typed), hot || handled)
+
+def frame_result.upload(pair: Sess.Session & Bool, ui: T.Ui, +enter: Bool, +typed: String, +rows: U32, cols: U32, click: U32, +key: U32, mods: U32, codepoint: U32, wheel: U32, more: Bool, url: String, clipboard: String, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match pair:
+    case (+st, +handled):
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result.pol(ui, st, enter && Bool.not(handled), typed, rows, cols, click, more || handled,
+          Sess.key_pol_for(st, Bool.pick(U32, handled, 0, key), mods, Bool.pick(U32, handled, 0, codepoint), wheel, rows), url, clipboard, notice)
+        # Apply after ordinary key processing, which resets the input seed.
+        # Native Enter already cleared the editor, even when suppressed here.
+        return frame_result.hot(result, handled, handled && enter, typed)
+
 def frame_result.keys(ui: T.Ui, +st: Sess.Session, keys: T.UiKeys, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, key, mods, codepoint, wheel, more, +url, +clipboard}:
-      frame_result.pol(ui, st, T.flag_on(enter), typed, rows, cols, click, T.flag_on(more), Sess.key_pol_for(st, key, mods, codepoint, wheel, rows), url, clipboard, notice)
+    case T.UiKeys{enter, +typed, +rows, cols, click, +key, +mods, codepoint, wheel, more, +url, +clipboard}:
+      # Authorize only a request that existed before this frame's submission.
+      # A coalesced Enter+F8 cannot stage and approve a new public upload.
+      frame_result.upload(Sess.session_upload_key(st, key, mods), ui, T.flag_on(enter), typed, rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), url, clipboard, notice)
+
+def frame_result.present_pack(packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool, before: Sess.Session) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
+  match packed:
+    case (ui, after, cmd, halt, more):
+      (ui, Sess.session_upload_present(before, after), cmd, halt, more)
+
+def frame_result.present(result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool, before: Sess.Session) -> (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool:
+  match result:
+    case (packed, hot): (frame_result.present_pack(packed, before), hot)
 
 def frame_result(got: T.Ui & T.UiKeys, +st: Sess.Session, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match got:
     case (ui, keys):
-      frame_result.keys(ui, st, keys, notice)
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result.keys(ui, st, keys, notice)
+        # Native begin reads keys before drawing. Only a request that existed
+        # across this completed frame becomes eligible for a later F8.
+        return frame_result.present(result, st)
 
 def on_frame.final(
   result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,
@@ -798,6 +841,75 @@ def media_stage(acc: T.Ui & Sess.Session & U32 & Bool, old_gen: Nat, +evt: Chan(
     case (ui, +st, gen, more):
       media_stage.job(M.take_job(M.maintain(Sess.session_media(st), Sess.session_cl(st))), ui, st, gen, more, old_gen, evt, k)
 
+def upload_run.result(result: String & U32, request: Up.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match result:
+    case (output, error):
+      do IO<Unit>:
+        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UploadFetched{request, output, error})
+        return Unit{}
+
+def upload_run(+request: Up.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  do IO<Unit>:
+    result : String & U32 <- UploadIO.run(Up.request_path(request))
+    upload_run.result(result, request, evt)
+
+def upload_spawn(job: Maybe<&2, Up.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match job:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{request}: IO.spawn(Unit, upload_run(request, evt))
+
+def upload_stage.job(pair: Sess.Session & Maybe<&2, Up.Request>, ui: T.Ui, gen: U32, more: Bool, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (st, job):
+      do IO<Unit>:
+        Unit <- upload_spawn(job, evt)
+        k((ui, st, gen, more))
+
+# Run after every event, even when it does not paint. Scope invalidation is
+# permanent; returning to an old endpoint or target never restores consent.
+def upload_stage(acc: T.Ui & Sess.Session & U32 & Bool, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match acc:
+    case (ui, +st, gen, more):
+      upload_stage.job(Sess.session_upload_take(st), ui, gen, more, evt, k)
+
+def upload_owned(state: Up.State, request: Up.Request) -> Bool:
+  match state:
+    case Up.Busy{active, _, _}: Up.request_eq(active, request)
+    case _: False{}
+
+def on_upload.sent(pair: Cl.Client & String & Sess.NetCmd, ui: T.Ui, +st: Sess.Session, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (cl, _, ncmd):
+      +next = Sess.session_observe_media(Sess.session_set_client(st, cl), Cl.log_seq_of(Sess.session_cl(st)))
+      do IO<Unit>:
+        gen2 : U32 <- emit_cmd(evt, cmd, ncmd, gen)
+        paint_input(ui, next, False{}, evt, cmd, ack, gen2, k)
+
+def on_upload.url(fits: Bool, ui: T.Ui, +st: Sess.Session, url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match fits:
+    case False{}: paint_input(ui, Sess.session_error(st, "upload URL exceeds IRC message limit"), False{}, evt, cmd, ack, gen, k)
+    case True{}:
+      # Submit the validated URL through the ordinary echo/wire path. Keep
+      # the real draft and composer history; the helper is not a keystroke.
+      on_upload.sent(Sess.apply_keys(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}), ui, st, evt, cmd, ack, gen, k)
+
+def on_upload.completed(pair: Sess.Session & Maybe<&2, String>, ui: T.Ui, request: Up.Request, allowed: Bool, +error: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+st, result):
+      match result:
+        case Some{+url}: on_upload.url(Up.wire_fits(request, url), ui, st, url, evt, cmd, ack, gen, k)
+        case None{}:
+          +msg = Bool.pick(String, Bool.not(allowed), "upload result discarded: canceled or destination changed",
+            Bool.pick(String, U32.is_zero(error), "upload returned an invalid URL", "upload failed (code: " ++ U32.show(error) ++ ")"))
+          paint_input(ui, Sess.session_error(st, msg), False{}, evt, cmd, ack, gen, k)
+
+def on_upload(owned: Bool, ui: T.Ui, +st: Sess.Session, +request: Up.Request, result: String, error: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match owned:
+    case False{}: k((ui, st, gen, False{}))
+    case True{}:
+      on_upload.completed(Sess.session_upload_complete(st, request, result), ui, request,
+        Up.eligible(Sess.session_upload(st), request, Sess.session_upload_scope(st), Sess.session_upload_online(st)), error, evt, cmd, ack, gen, k)
+
 def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
     case (ui, +token):
@@ -850,6 +962,8 @@ def on_msg_go(
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
     case Sess.MediaFetched{+generation, +ticket, +url, payload}:
       on_media(M.accept(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
+    case Sess.UploadFetched{+request, result, error}:
+      on_upload(upload_owned(Sess.session_upload(st), request), ui, st, request, result, error, evt, cmd, ack, gen, k)
     case Sess.FromNet{+got, +e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, Sess.event_current(Sess.FromNet{got, e}, gen), k)
 
@@ -916,7 +1030,7 @@ def live_step.saved(
     case (+st, failed):
       do IO<Unit>:
         pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
-        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, k))
+        live_step.reload(Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, after => upload_stage(after, evt, k)))
 
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,

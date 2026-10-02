@@ -1056,6 +1056,7 @@ type Slash is Data:
   SearchCmd{}
   PreviewCmd{}
   ImagesCmd{}
+  UploadCmd{}
   LogCmd{}
   Unknown{}
 
@@ -1091,6 +1092,7 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"split-off", Unknown{}}
     <> SlashRow{"unsplit", Unknown{}}
     <> SlashRow{"focus", Unknown{}}
+    <> SlashRow{"upload", UploadCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1104,6 +1106,16 @@ def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
 
 def slash_of(+verb: String) -> Slash:
   slash_lookup(slash_rows(), verb)
+
+# Unknown also names Session-owned aliases. Distinguish those catalog entries
+# from a dropped absolute path without duplicating the command list.
+def slash_known.rows(rows: List<&2, SlashRow>, +verb: String) -> Bool:
+  match rows:
+    case Nil{}: False{}
+    case Con{SlashRow{name, _}, rest}: Irc.ieq(name, verb) || slash_known.rows(rest, verb)
+
+def slash_known(verb: String) -> Bool:
+  slash_known.rows(slash_rows(), verb)
 
 type Input is Data:
   EmptyInput{}
@@ -1221,6 +1233,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       (echo_sys(cl, images_status(images_arg(Irc.drop_spaces(rest)))), empty_out())
     case LogCmd{}:
       (Cl.log_open(cl), empty_out())
+    case UploadCmd{}:
+      (echo_err(cl, "upload requires an active session confirmation"), empty_out())
     case Unknown{}:
       submit_unknown(cl, verb)
 

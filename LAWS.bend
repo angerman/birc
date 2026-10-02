@@ -24,6 +24,22 @@ import ./src/bend/history.bend as Hist
 import ./tests/bend/m20_media_preds.bend as MediaReview
 import ./tests/bend/dns_validation_preds.bend as DnsValidation
 import ./src/bend/columns.bend as Columns
+import ./src/bend/upload.bend as Up
+
+law upload_requires_physical_consent:
+  {Up.consent_ok() == True{} : Bool}
+
+law upload_worker_one_shot:
+  {Up.one_shot_ok() == True{} : Bool}
+
+law upload_cancel_retains_owner_not_permission:
+  {Up.cancel_ok() == True{} : Bool}
+
+law upload_warning_precedes_authorization:
+  {Sess.upload_presentation_reset_ok() == True{} : Bool}
+
+law upload_invalid_local_uri_keeps_intent:
+  {Up.looks_local_drop("file:///fixture/private%FF.jpg") == True{} : Bool}
 
 law media_retained_payload_coherence:
   {MediaReview.coherence_ok() == True{} : Bool}

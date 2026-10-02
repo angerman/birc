@@ -137,7 +137,7 @@ static BircUi *birc_state(const Timui *ui) {
 }
 #include "birc_utf8_fit.h"
 static Timui *birc_ui_live;
-/* Capture failure follows ordinary Escape/shutdown, then nonzero status. */
+/* Capture failure follows mandatory shutdown, then nonzero status. */
 static int birc_output_failure;
 /* Only the single controlling UI's accepted output debt can outlive close. Keep
  * its stream open independently of borrowed stdout/stderr descriptor numbers. */
@@ -1233,7 +1233,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (!ui) {
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "", "");
+    return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, (uint32_t)TIMUI_KEY_F10, 0, 0, 0, 0, "", "");
   }
   {
     int check_fd = -1;
@@ -1258,7 +1258,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     birc_output_end(ui, saved_write, saved_write_flags);
     free(input);
     birc_drop_ops(e, ops);
-    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, 1u, 0, 0, 0, 0, "", "");
+    return birc_uikeys(e, ui, 0, "", 0, 24, 80, 0, (uint32_t)TIMUI_KEY_F10, 0, 0, 0, 0, "", "");
   }
   if (bu && bu->profile_enabled)
     profile_t2 = birc_profile_now_ns();
@@ -1397,10 +1397,10 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
                      ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
     Term out;
+    /* Bend owns Escape/F10 policy: Escape may cancel a pending upload.
+     * Fatal transport shutdown must bypass that cancelable action. */
     if (birc_output_failure || (timui_should_quit(ui) && key == 0))
-      key = (uint32_t)TIMUI_KEY_ESCAPE;
-    if (key == (uint32_t)TIMUI_KEY_ESCAPE || key == (uint32_t)TIMUI_KEY_F10)
-      timui_quit(ui);
+      key = (uint32_t)TIMUI_KEY_F10;
     out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
                          codepoint, (uint32_t)wh, more,
                          bu ? bu->link_url : "", bu && bu->clipboard ? bu->clipboard : "");

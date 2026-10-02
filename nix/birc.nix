@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 { lib, stdenv, bend, clang, makeWrapper, callPackage, python3 }:
 
-let media = callPackage ./media.nix {};
+let
+  media = callPackage ./media.nix {};
+  upload = callPackage ./upload.nix {};
 in stdenv.mkDerivation {
   pname = "birc";
   version = "0.1.0";
@@ -29,7 +31,9 @@ in stdenv.mkDerivation {
     runHook preInstall
     mkdir -p $out/bin $out/libexec
     cp birc $out/bin/birc
-    wrapProgram $out/bin/birc --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image"
+    wrapProgram $out/bin/birc \
+      --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image" \
+      --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload"
     cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
     makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
       --add-flags $out/libexec/keychain_birc.py \
