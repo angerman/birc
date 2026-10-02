@@ -2494,18 +2494,23 @@ credential access, Keychain writes, or public IRC probes are part of testing.
   add the `keychain-birc` Nix app without changing shell inputs or pins.
 - [x] Qualify focused pure/native tests, proof laws, and strict FFI lint.
 - [x] Run the new real-loopback authentication PTY three consecutive times.
-- [ ] Run full `make check`, supported sanitizer gates, and installed-package
-  qualification. Prebuild the updated Nix package.
-- [ ] Independent final review, semantic checkpoint commits and handoff.
+- [x] Run full `make -k check` and retain its failures and focused reruns.
+- [x] Run supported sanitizer gates and installed-package qualification;
+  prebuild the updated default Nix package.
+- [x] Independent final review and semantic implementation checkpoint.
+- [ ] Resolve the repeated one-second burst-PONG miss, which also occurs on
+  the verified pre-auth package. Do not weaken the existing deadline or claim
+  that authentication caused it without supporting measurements.
+- [ ] Finish the preview-retry failure investigation and final handoff.
 
 Initial evidence: old host-switch test leaked `[secret]` in
 `build/auth_profile_scope.red.log`; new profile interpreter passes. Manual
 privacy had a native RED before the new classifier; focused native privacy
 now passes. Fake Keychain wrapper guards passed three consecutive runs in
 `build/m22-keychain-wrapper-green-{1,2,3}-20261002.log`. New fixture assertions
-were added; the only old-test edits are trailing constructor-pattern wildcards
-for the new Args auth-options field. No existing expected values were changed.
-Work is not yet fully qualified; this is a continuation checkpoint.
+were added. Initial old-test edits were trailing constructor-pattern wildcards
+for the new Args auth-options field. The later two expectation corrections
+were separately approved by the user, as recorded below.
 
 Root qualification: `timeout 250 make proof lint-ffi test-auth-bridge
 test-auth-bridge-ubsan` passes; log `build/m22-proof-native-20261002.log`.
@@ -2523,6 +2528,61 @@ Two independent final reviews report no further confirmed defect. The first
 aggregate/package attempts were deliberately
 stopped (exit143) to add the final diagnostic guard and stage new Nix source
 files; neither is counted as a pass.
+
+Implementation checkpoint: `5b9dd7e`. `timeout 2700 make -k check` completed
+with exit 2; log: `build/m22-full-check-20261002.log`. It found two obsolete
+expectations: credentials surviving a changed endpoint, and CLI help omitting
+the new auth flags. Both corrections received explicit user approval. The
+diagnostic test preserves its log/content, focus, history-cap, nickname, and
+event-ID checks, and adds same-endpoint credential retention plus changed-port
+isolation. `timeout 450 make proof test-diagnostic-session test-args` passes
+(exit 0); log: `build/m22-approved-fixtures-final-20261002.log`.
+
+Four PTY gates also failed: connect, stall, output-progress, and preview-retry.
+Connect passed four unchanged reruns, including three consecutive; stall
+passed three consecutive independently checked reruns. Logs:
+`build/m22-connect-repro-{1,2,3}-20261002.log` and
+`build/m22-stall-repro-{2,3,4}-20261002.log`. Their original misses remain
+unexplained; no assertion or deadline was weakened. Output-progress's PONG
+miss repeats. Existing committed phase timers show 1497/1639/1973 ms PONGs
+and 72/78/106 ms average View phases in the first three current-binary runs.
+The verified pre-auth Nix package also misses the unchanged line-52 deadline.
+Isolated interleaved progress comparisons have PONG medians 1088 ms (old)
+and 1099 ms (new), with CPU medians 1.18 s and 1.22 s and overlapping ranges.
+View accounts for 90.06% and 91.27% of the recorded frame-phase totals; that
+does not establish the whole PONG critical path. There is no measured evidence
+that M22 caused the delay. Logs: `build/m22-output-progress-baseline-control.log`
+and `build/m22-output-profile-paired-*`. All other aggregate gates passed, including auth,
+proofs, strict FFI lint and the paste harness. The aggregate is not green.
+
+`timeout 1200 make test-sanitizers test-auth-bridge-ubsan` passes all supported
+UBSan gates, including the full-app hostile corpus; log:
+`build/m22-sanitizers-20261002.log`. Full-app authentication PTY also passes
+under UBSan: `build/m22-auth-pty-ubsan-20261002.log`. ASan again reports the
+known unsupported Darwin-arm64 interceptor-startup runtime (LLVM #58503), not
+ASan coverage. No real Keychain or public-network tests were run.
+
+The first package command reached its 900-second build bound (inner exit124,
+Make exit2). Compiler samples showed advancing CPU time, but the cause of the
+slow build is not established. A fresh output-selected retry built the same
+derivation with unchanged pins/flags (exit 0), bounded at 1800 seconds; log:
+`build/m22-package-build-continuation-output-20261002.log`.
+Derivation: `/nix/store/0bs7xcprx3f08kscmj7lzpzq2c2vyg9k-birc-0.1.0.drv`.
+Use `nix build '…drv^*'` to build its outputs. A bare `…drv` diagnostic returned
+the derivation path itself and is not counted as a successful package build.
+`timeout 1000 make test-package test-keychain-package` passes (exit 0); log:
+`build/m22-package-qualified-20261002.log`. The installed auth PTY passes too:
+`build/m22-installed-auth-pty-20261002.log`. The qualified output is
+`/nix/store/gijifqaakdrx5wgwnhxcf6x13kxsr1wd-birc-0.1.0`.
+`timeout 180 nix --extra-experimental-features "nix-command flakes" build .
+--no-update-lock-file --no-link --print-out-paths` returns that cached output
+without rebuilding (exit 0); log: `build/m22-default-nix-cached-20261002.log`.
+Only approved tests and documentation changed after the package qualification;
+production sources and packaging inputs are unchanged.
+
+Runtime `/set`, `/toggle`, mutes, and image switches remain session-only.
+Auth profile TOML and Keychain credentials persist separately from chat
+history. UI settings persistence was asked about, not requested as a change.
 
 ## Open decisions (resolve in M0/M4)
 

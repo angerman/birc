@@ -87,13 +87,18 @@ def phase_result(phase: Cl.AuthPhase) -> Bool:
     case Cl.AuthResult{}: True{}
     case _: False{}
 
-def endpoint_metadata(cl: Cl.Client) -> Bool:
+def phase_idle(phase: Cl.AuthPhase) -> Bool:
+  match phase:
+    case Cl.AuthIdle{}: True{}
+    case _: False{}
+
+def endpoint_metadata(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{nick, host, _, active, now, +stg, auth, _}:
+    case Cl.Client{+nick, +host, _, +active, +now, +stg, _, _}:
       String.eq(nick, "probe") && String.eq(host, "b.example") && Nat.is_eq(active, 0n)
         && String.eq(now, "12:34:56") && U32.is_eq(Cl.settings_hist_cap(stg), 12)
-        && String.eq(Cl.settings_sasl_user(stg), "synth-user")
-        && String.eq(Cl.settings_sasl_pass(stg), "synth-secret") && phase_result(auth)
+        && String.is_empty(Cl.settings_sasl_user(stg))
+        && String.is_empty(Cl.settings_sasl_pass(stg)) && phase_idle(Cl.get_auth(cl))
 
 def no_log_notice(+cl: Cl.Client) -> IO(Unit):
   +next = Cl.diagnostic_notice(cl, Cl.System{}, "connection established")
@@ -119,12 +124,17 @@ def endpoints(+cl: Cl.Client) -> IO(Unit):
   +changed = Sess.endpoint_client(cl, "b.example", 6667, 6667)
   +port_changed = Sess.endpoint_client(cl, "a.example", 6667, 6668)
   +same = Sess.endpoint_client(cl, "A.EXAMPLE", 6667, 6667)
+  +credential_same = Sess.endpoint_client(cl, "a.example", 6667, 6667)
   do IO<Unit>:
     Unit <- E.must_eq("changed host retains only server and log", client_names(changed), "server;*log*;")
     Unit <- E.must_eq("changed port retains only server and log", client_names(port_changed), "server;*log*;")
     Unit <- E.must_eq("new server has no old history", CL.buf_texts(changed, 0n), "")
     Unit <- E.must_eq("retained log keeps content and IDs", signature(log_lines(changed)), signature(log_lines(cl)))
-    Unit <- E.must("endpoint preserves existing config contract", endpoint_metadata(changed))
+    Unit <- E.must("endpoint preserves noncredential config and clears authentication", endpoint_metadata(changed))
+    Unit <- E.must("changed port also clears credentials and authentication",
+      String.is_empty(Cl.client_sasl_user(port_changed)) && String.is_empty(Cl.client_sasl_pass(port_changed)) && phase_idle(Cl.get_auth(port_changed)))
+    Unit <- E.must("exact same endpoint retains credentials and pending authentication",
+      String.eq(Cl.client_sasl_user(credential_same), "synth-user") && String.eq(Cl.client_sasl_pass(credential_same), "synth-secret") && phase_result(Cl.get_auth(credential_same)))
     Unit <- E.must("endpoint preserves global event sequence", Nat.is_eq(Cl.log_seq_of(changed), Cl.log_seq_of(cl)))
     Unit <- E.must_eq("same endpoint keeps chats", client_names(same), client_names(cl))
     Unit <- E.must_eq("same endpoint keeps chat history", CL.buf_texts(same, 1n), CL.buf_texts(cl, 1n))

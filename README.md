@@ -272,8 +272,10 @@ To replace a saved password, remove its `birc.auth.v1:` item in Keychain Access
 and launch the profile again. The wrapper does not silently update an item.
 Keychain items use a versioned `birc.auth.v1:` service name and an encoded
 `birc-v1:` value to preserve spaces and Unicode. This encoding is not encryption;
-Keychain supplies storage protection. No secret is placed in child arguments,
-environment variables, temporary files, diagnostic logs, or chat history.
+Keychain supplies storage protection. The wrapper does not put its password in
+child arguments, environment variables, temporary files, or diagnostic logs.
+Authentication requests do not enter chat history. Arbitrary incoming messages
+are not globally redacted.
 
 To use NickServ, select `auth = "nickserv"`. To prefer SASL and fall back only
 when SASL is explicitly unavailable, select `auth = "sasl-nickserv"`. Both
@@ -413,6 +415,11 @@ control buffer explicitly. `/split server` selects a private query named
 Live connections automatically reconnect to the saved host and port two seconds
 after an unexpected disconnect. A manual `/connect` cancels the pending retry.
 Use `/set autoreconn off` to disable this behavior.
+
+Runtime preferences changed by `/set` or `/toggle`, scoped mutes, and
+`/images on|off` are session-only. They reset when birc restarts. Chat history
+persists separately; the Keychain launcher reads saved auth profiles from
+`config.toml` and passwords from Keychain. That file does not store UI settings.
 
 ### Diagnostic log
 

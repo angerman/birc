@@ -87,7 +87,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "help",
       show_parsed(Args.parse(xs1("--help-irc"))),
-      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--demo] [--help-irc]"
+      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",
