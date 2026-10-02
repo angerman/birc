@@ -145,11 +145,14 @@ def main() -> int:
             print("FAIL: /close did not switch back to #birc", file=sys.stderr)
             return 1
 
-        # Test 10: /reconnect command initiates reconnection
+        # Test 10: demo fixture identity is not a configured endpoint.
         os.write(master, b"/reconnect\r")
         out10 = drain(master, 0.8)
-        if b"connecting" not in out10 or b"me@irc.birc.dev" not in out10:
-            print("FAIL: /reconnect did not initiate connection to irc.birc.dev", file=sys.stderr)
+        if b"cannot reconnect: no server configured" not in out10:
+            print("FAIL: demo /reconnect did not reject an unconfigured endpoint", file=sys.stderr)
+            return 1
+        if b"connecting" in out10:
+            print("FAIL: demo /reconnect entered connecting state", file=sys.stderr)
             return 1
 
         # Clean exit

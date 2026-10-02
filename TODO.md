@@ -2354,15 +2354,15 @@ expectation correction receives user approval. Add failing and passing controls.
       case and paint phase; do not change assertions, deadlines, or add retries.
 - [x] P01 — User chose directed server NOTICE routing to the read-only server
       buffer; preserve private user notices and ambiguous bare nicknames.
-- [ ] T01 — Await explicit approval for two ASCII media-fixture row helpers
-      (`media_anchor`, `media_branches`). Account for consumed hidden boundary
-      spaces, retain the existing expected strings, image and anchor assertions,
-      and reject non-ASCII reconstruction rather than invent cluster contents.
-- [ ] T02 — Await explicit approval for the settings PTY test's final assertion.
-      It starts `--demo` without selecting an endpoint, so `/reconnect` must
-      report no configured server instead of dialing the demo placeholder.
-      Keep earlier settings assertions; require three consecutive changed-test
-      passes. Configured-host models and loopback reconnect guards stay positive.
+- [x] T01 — User-approved ASCII media-fixture projections (`media_anchor`,
+      `media_branches`) restore consumed hidden boundary spaces. Keep all
+      expected strings, image and anchor assertions. Share one test-only helper;
+      guard word/hard wrapping, non-ASCII output and invalid source counts.
+- [x] T02 — User-approved settings PTY assertion: `--demo` without a selected
+      endpoint reports no configured server on `/reconnect`; it must not dial
+      the demo placeholder. Earlier settings assertions remain unchanged. The
+      changed test passes three consecutive runs; configured-host models and
+      loopback reconnect guards remain positive.
 - [ ] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
       full `make check`, supported sanitizers, and installed Nix package.
 
@@ -2412,7 +2412,7 @@ the full-app hostile PTY corpus. ASan explicitly reports an unsupported
 Darwin-arm64 interceptor-startup runtime (LLVM #58503); this is not ASan
 coverage. Log: `build/m21-sanitizers-final-20261002.log`.
 
-Final broad run: `timeout 2700 make -k check` completed with exit 2; log:
+Pre-approval broad run: `timeout 2700 make -k check` completed with exit 2; log:
 `build/m21-full-check-final-20261002.log`. All gates except the three T01/T02
 fixture cases passed, including the remaining PTY corpus, formatting/emoji and
 image painters, pending/stale image policy, preview retries, diagnostic log,
@@ -2420,16 +2420,27 @@ reconnects, exact links, UTF-8, scroll/resize, strict FFI and paste harness.
 T01's existing helpers concatenate visible rows without restoring consumed
 word-boundary spaces; their underlying raw text and anchor guards remain intact.
 T02 expects an implicit network dial from an offline demo. Both proposed
-corrections are explicitly awaiting user approval; no old test was changed.
+corrections needed explicit user approval; no old test was changed in that run.
 
 `timeout 310 make proof-kernel` fails closed (exit 2): Lean is absent; the
 independent verdict needs Lean v4.34.0 or a built `BENDTT`. No toolchain or pin
 was changed. Log: `build/m21-proof-kernel-20261002.log`. Normal proof checks,
 including six further channel/prefix/typing laws, pass. Implementation commits:
 `91edf88`, `ebcfbac`; package diagnostic checkpoint: `040937a`. The remaining
-work is T01/T02 approval, their focused guards and a clean aggregate check.
+work at that checkpoint was T01/T02 approval, their focused guards and a clean
+aggregate check.
 No build/test process or external connection started by this review remains.
 No push was made.
+
+The user subsequently approved all three fixture corrections. The focused
+`timeout 240 make -k test-media-anchor test-media-branches` first reproduced
+both failures (exit 2); after the shared ASCII projection correction,
+`timeout 240 make test-media-anchor test-media-branches` passes (exit 0).
+The changed `timeout 180 make test-pty-settings` passes three consecutive
+runs: `build/m21_t02_settings_round{1,2,3}.log`. Steps 1–9 and clean shutdown
+are unchanged; no real IRC endpoint is dialed. `timeout 220 make proof`
+passes; log: `build/m21-approved-fixtures-proof-20261002.log`. Only tests and
+this checklist changed. A clean full aggregate check remains.
 
 ## Open decisions (resolve in M0/M4)
 

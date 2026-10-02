@@ -2,6 +2,7 @@
 # Characterize the measured media branches without changing latency gates.
 import Base
 import ./expect.bend as E
+import ./ascii_row_projection.bend as P
 import ../../src/bend/view.bend as V
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/media.bend as M
@@ -63,7 +64,7 @@ def spans_text(xs: List<&2, V.SpanOp>) -> String:
 def row_sequence(xs: List<&2, V.BodyRow>) -> String:
   match xs:
     case Nil{}: ""
-    case Con{V.BodyRow{_, _, _, _, _, spans, _}, tail}: spans_text(spans) ++ row_sequence(tail)
+    case Con{V.BodyRow{_, _, _, _, _, spans, chars}, tail}: P.show(spans, chars) ++ row_sequence(tail)
     case Con{V.BodyMedia{_, _, _, _}, tail}: "#" ++ row_sequence(tail)
     case Con{_, tail}: "unexpected reconnect" ++ row_sequence(tail)
 

@@ -2,6 +2,7 @@
 # Manual synthetic rows and ordinary inline rows share append-safe anchors.
 import Base
 import ./expect.bend as E
+import ./ascii_row_projection.bend as P
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/media.bend as M
 import ../../src/bend/view.bend as V
@@ -81,16 +82,20 @@ def topic(b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{_, _, topic, _, _, _}: topic
 
-def spans_text(xs: List<&2, V.SpanOp>) -> String:
-  match xs:
-    case Nil{}: ""
-    case Con{h, tail}: V.span_text(h) ++ spans_text(tail)
-
 def rows_text(xs: List<&2, V.BodyRow>) -> String:
   match xs:
     case Nil{}: ""
-    case Con{V.BodyRow{_, _, _, _, _, spans, _}, tail}: spans_text(spans) ++ rows_text(tail)
+    case Con{V.BodyRow{_, _, _, _, _, spans, chars}, tail}: P.show(spans, chars) ++ rows_text(tail)
     case Con{_, tail}: rows_text(tail)
+
+def projection_controls() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must_eq("ASCII projection restores hidden word boundary", rows_text(V.wrapped_rows(Cl.System{}, "", "hello   world", 8, False{})), "hello   world")
+    Unit <- E.must_eq("ASCII hard-wrap projection does not invent spaces", rows_text(V.wrapped_rows(Cl.System{}, "", "abcdefghijk", 4, False{})), "abcdefghijk")
+    Unit <- E.must("ASCII projection rejects non-ASCII clusters", Maybe.is_none(&2, String, P.text([V.Spn{0, "é"}], 2n)))
+    Unit <- E.must("ASCII projection rejects non-ASCII replacements", Maybe.is_none(&2, String, P.text([V.Spn{0, "�"}], 3n)))
+    Unit <- E.must("ASCII projection rejects invalid source counts", Maybe.is_none(&2, String, P.text([V.Spn{0, "abc"}], 2n)))
+    IO.pure(Unit, Unit{})
 
 def inline_paused() -> Cl.Buffer:
   V.scroll_buf_media(Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}, 2n, 20, False{}, Nil{}, "s", 2n, 0n, ready_inline())
@@ -180,6 +185,7 @@ def split_controls() -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
+    Unit <- projection_controls()
     Unit <- manual_controls()
     Unit <- inline_controls()
     Unit <- source_controls()
