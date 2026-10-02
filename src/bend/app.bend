@@ -9,8 +9,8 @@ import ./clock.bend as Clock
 import ./replay.bend as Replay
 import ./auth_bridge.bend as AuthBridge
 
-def run_demo(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
-  Net.run_offline(frames, cl, chan)
+def run_demo(+frames: U32, +cl: Cl.Client, +chan: String, force_tls: Bool) -> IO(Unit):
+  Net.run_offline(frames, cl, chan, force_tls)
 
 def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
   Replay.load(path, nick, server)
@@ -38,8 +38,8 @@ def resolve_sasl_user(+su: String) -> IO(String):
 def resolve_sasl_pass(+sp: String) -> IO(String):
   resolve_sasl(sp, "BIRC_SASL_PASS")
 
-def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions) -> IO(Unit):
-  Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth)
+def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions, force_tls: Bool) -> IO(Unit):
+  Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
 
 
 def demo_client(+nick: String) -> IO(Cl.Client):
@@ -47,13 +47,13 @@ def demo_client(+nick: String) -> IO(Cl.Client):
     ts : String <- Clock.hhmmss()
     return Feed.feed_all(Cl.set_now(Cl.init(nick, "irc.birc.dev"), ts), Feed.demo_lines_for(nick))
 
-def main_offline(+frames: U32, +chan: String, +cl: Cl.Client) -> IO(Unit):
-  run_demo(frames, cl, chan)
+def main_offline(+frames: U32, +chan: String, +cl: Cl.Client, force_tls: Bool) -> IO(Unit):
+  run_demo(frames, cl, chan, force_tls)
 
-def main_replay(+frames: U32, +nick: String, +chan: String, +path: String) -> IO(Unit):
+def main_replay(+frames: U32, +nick: String, +chan: String, +path: String, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- load_replay(path, nick, "replay")
-    main_offline(frames, chan, cl)
+    main_offline(frames, chan, cl, force_tls)
 
 def main_dispatch.demo(
   +frames: U32,
@@ -64,15 +64,16 @@ def main_dispatch.demo(
   +chan: String,
   +sasl_user: String,
   +sasl_pass: String,
-  +auth: Args.AuthOptions
+  +auth: Args.AuthOptions,
+  force_tls: Bool
 ) -> IO(Unit):
   match demo:
     case True{}:
       do IO<Unit>:
         cl : Cl.Client <- demo_client(nick)
-        main_offline(frames, chan, cl)
+        main_offline(frames, chan, cl, force_tls)
     case False{}:
-      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth)
+      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
 
 def main_dispatch.on(
   +frames: U32,
@@ -85,13 +86,14 @@ def main_dispatch.on(
   has_replay: Bool,
   +sasl_user: String,
   +sasl_pass: String,
-  +auth: Args.AuthOptions
+  +auth: Args.AuthOptions,
+  force_tls: Bool
 ) -> IO(Unit):
   match has_replay:
     case True{}:
-      main_replay(frames, nick, chan, replay)
+      main_replay(frames, nick, chan, replay, force_tls)
     case False{}:
-      main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass, auth)
+      main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
 
 def main_dispatch(
   +frames: U32,
@@ -103,9 +105,10 @@ def main_dispatch(
   +replay: String,
   +sasl_user: String,
   +sasl_pass: String,
-  +auth: Args.AuthOptions
+  +auth: Args.AuthOptions,
+  force_tls: Bool
 ) -> IO(Unit):
-  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass, auth)
+  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass, auth, force_tls)
 
 def main_cfg.dispatch(
   +frames: U32,
@@ -118,10 +121,11 @@ def main_cfg.dispatch(
   explicit: Bool,
   +user: String,
   +pass: String,
-  +auth: Args.AuthOptions
+  +auth: Args.AuthOptions,
+  force_tls: Bool
 ) -> IO(Unit):
   +n = Args.resolve_nick(nick, explicit, user)
-  main_dispatch(frames, demo, host, port, n, chan, replay, user, pass, auth)
+  main_dispatch(frames, demo, host, port, n, chan, replay, user, pass, auth, force_tls)
 
 def resolve_private_pass.present(present: Bool, +secret: String, +legacy: String) -> IO(String):
   match present:
@@ -136,12 +140,12 @@ def resolve_private_pass(pair: U32 & String, +legacy: String) -> IO(String):
 
 def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, +auth}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, +auth, force_tls, _}:
       do IO<Unit>:
         bridge : U32 & String <- AuthBridge.setup()
         user : String <- resolve_sasl_user(su)
         pass : String <- resolve_private_pass(bridge, sp)
-        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, explicit, user, pass, auth)
+        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, explicit, user, pass, auth, force_tls)
 
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:

@@ -10,6 +10,7 @@ import ../../src/bend/session.bend as Sess
 import ./session_preds.bend as SP
 import ../../src/bend/net.bend as IoNet
 import ../../src/bend/actor.bend as Act
+import ../../src/bend/transport.bend as Tr
 
 def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket):
   match m:
@@ -154,9 +155,9 @@ def chunk_join_pong() -> Bool:
     Sess.step_on_chunk(Sess.session_online(Sess.session0("probe", "h", "#t")), welcome_octets())
   )
 
-def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) -> IO(Unit):
+def finish_report(+lines: List<&2, String>, client2: Tr.Conn, server2: Socket) -> IO(Unit):
   do IO<Unit>:
-    Unit <- Socket.close(client2)
+    Unit <- Tr.close(client2)
     Unit <- Socket.close(server2)
     Unit <- E.must_eq("reg", show_reg_pair(Sess.register_lines("bob")), "NICK bob|USER bob 0 * :bob")
     Unit <- E.must_eq("pong", Irc.pong_for("PING :x"), "PONG :x")
@@ -179,13 +180,13 @@ def finish_report(+lines: List<&2, String>, client2: Socket, server2: Socket) ->
     Unit <- E.must("fuel70000", Nat.is_eq(Sess.live_fuel(70000), 70000n))
     IO.print("net_demo=ok")
 
-def finish_push(got: List<&2, String> & List<&2, U32>, client2: Socket, server2: Socket) -> IO(Unit):
+def finish_push(got: List<&2, String> & List<&2, U32>, client2: Tr.Conn, server2: Socket) -> IO(Unit):
   match got:
     case (+lines, _):
       finish_report(lines, client2, server2)
 
 def finish_drop(
-  pair: Socket & Bool,
+  pair: Tr.Conn & Bool,
   +chunk: String,
   server2: Socket
 ) -> IO(Unit):
@@ -199,7 +200,7 @@ def finish_recv(sl: Socket & String, client2: Socket) -> IO(Unit):
   match sl:
     case (server2, chunk):
       do IO<Unit>:
-        dropped : Socket & Bool <- Act.send_lines(client2, Nil{})
+        dropped : Tr.Conn & Bool <- Act.send_lines(Tr.Plain{client2}, Nil{})
         finish_drop(dropped, chunk, server2)
 
 def after_accept(

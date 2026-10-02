@@ -14,6 +14,8 @@ whole client correct.
 - **Checked pure core**: `bend PROOF.bend` checks quantified sanitization, single-chunk framer bounds, and authentication-state laws, plus concrete protocol, scroll, and rendering examples. See the exact proof scope below.
 - **Parked event loop**: Descriptor watchers wake one Bend `Chan(UiMsg)`. A one-second maintenance tick expires typing state and checks whether refused terminal output can resume; a full output queue does not cause a busy retry loop.
 - **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
+- **Verified IRC TLS**: OpenSSL checks certificate trust and the server name.
+  Port 6697 always uses TLS; `--tls` enables it on other ports.
 - **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
 - **Image previews**: New live image links expand inline. Explicit `/preview`
   accepts local files and HTTP(S) URLs. Common formats use a bounded,
@@ -27,7 +29,7 @@ whole client correct.
 
 ## Architecture
 
-`birc` enforces a strict division of responsibilities: **Bend 2 owns the application lifecycle, protocol, client state, networking, and the frame loop**. C provides terminal rendering primitives and POSIX socket/clock calls; it does not parse IRC or own the frame loop.
+`birc` enforces a strict division of responsibilities: **Bend 2 owns the application lifecycle, protocol, client state, networking, and the frame loop**. C provides terminal rendering, POSIX socket/clock calls, and verified OpenSSL TLS effects; it does not parse IRC or own the frame loop.
 
 ```text
 +------------------------------------------------------------------------+
@@ -58,9 +60,10 @@ whole client correct.
               | Foreign Effect (Timui.frame)
               v
 +------------------------------------------------------------------------+
-|                       C99 TimUI FFI (src/ffi/)                         |
+|                       C11 Native FFI (src/ffi/)                        |
 |  - timui_ffi.c : Walks DrawOps, paints to terminal, returns keys       |
 |  - dns_ffi.c   : POSIX socket dup, shutdown, octet send/recv           |
+|  - tls_ffi.c   : Verified OpenSSL handshake and encrypted IO          |
 |  - clock_ffi.c : Local clock seconds-of-day                            |
 +------------------------------------------------------------------------+
 ```
@@ -89,7 +92,8 @@ whole client correct.
 | [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
 | [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
-| [`src/bend/actor.bend`](src/bend/actor.bend) | Bend 2 | Background network actor: socket ownership and read/write loops |
+| [`src/bend/actor.bend`](src/bend/actor.bend) | Bend 2 | Background network actor: transport ownership and read/write loops |
+| [`src/bend/transport_policy.bend`](src/bend/transport_policy.bend) / [`src/bend/transport.bend`](src/bend/transport.bend) | Bend 2 | Pure TLS selection and affine plaintext/TLS IO dispatch |
 | [`src/bend/outbound.bend`](src/bend/outbound.bend) | Bend 2 | Pure outbound batches, FIFO splits, and finite send credits |
 | [`src/bend/net.bend`](src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
 | [`src/bend/args.bend`](src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
@@ -97,6 +101,7 @@ whole client correct.
 | [`src/bend/clock.bend`](src/bend/clock.bend) | Bend 2 | Timestamp formatting (`HH:MM:SS`) from seconds-of-day |
 | [`src/ffi/timui_ffi.c`](src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
+| [`src/bend/tls.bend`](src/bend/tls.bend) / [`src/ffi/tls_ffi.c`](src/ffi/tls_ffi.c) | Bend 2 / C11 | Bounded, verified OpenSSL TLS transport |
 | [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
 | [`src/media/image.py`](src/media/image.py) | Python | Bounded HTTP(S)/local image loading and normalization with Pillow |
 | [`src/bend/upload.bend`](src/bend/upload.bend) / [`src/bend/upload_io.bend`](src/bend/upload_io.bend) | Bend 2 | Per-file consent, worker ownership, scoped completion, and bounded helper calls |
@@ -164,8 +169,8 @@ Run `birc` without cloning:
 # Launch offline interactive demo
 nix run github:angerman/birc -- --demo
 
-# Connect to a live IRC network
-nix run github:angerman/birc -- --connect irc.libera.chat --channel '#bend'
+# Connect to a live IRC network with verified TLS
+nix run github:angerman/birc -- --connect irc.libera.chat --tls --channel '#bend'
 ```
 
 ### 1. Build and Test Locally
@@ -196,18 +201,32 @@ make run-demo
 
 ### 3. Connect to Live IRC
 
-Connect to any plaintext IRC network:
+Use verified TLS for a live IRC network:
 
 ```sh
 # Run directly without cloning
-nix run github:angerman/birc -- --connect irc.libera.chat --nick mynick --channel '#birc'
+nix run github:angerman/birc -- --connect irc.libera.chat --tls --nick mynick --channel '#birc'
 
 # Or via make in a cloned checkout
-make run HOST=irc.libera.chat NICK=birc_user CHAN='#birc'
+make run HOST=irc.libera.chat PORT=6697 NICK=birc_user CHAN='#birc'
 
 # Or invoke the built binary inside the locked development shell
-./build/birc --connect irc.libera.chat --port 6667 --nick mynick --channel '#birc'
+./build/birc --connect irc.libera.chat --tls --nick mynick --channel '#birc'
 ```
+
+`--tls` chooses port 6697 only when `--port` is absent. An explicit other port
+is retained. Port 6697 always uses TLS, even without `--tls`. Legacy launches
+without either TLS selection still default to plaintext port 6667.
+The `--tls` requirement persists across later connections. The slash command
+`/connect HOST` keeps its legacy port 6667 default, so use `/connect HOST 6697`
+or the network's explicit TLS port when switching secure servers.
+TLS failure does not retry with plaintext. TLS uses the Nix-provisioned CA
+bundle and verifies the hostname or IPv4 address; DNS names also use SNI.
+For a private CA, set `SSL_CERT_FILE` to its trusted PEM bundle. This changes
+trust, not verification: there is no certificate-verification bypass flag.
+Explicit CA files use bounded regular-file snapshots. TLS handshake and write
+waits have deadlines. Access to arbitrary remote filesystems or CA directories
+does not have a universal hard-cancellation guarantee.
 
 ### 4. Replay Captured Sessions
 
@@ -232,7 +251,8 @@ Run `./build/birc --help-irc` for a full summary:
 | Option | Argument | Description |
 |---|---|---|
 | `--connect` | `<host>` | IRC server hostname or IPv4 address |
-| `--port` | `<port>` | Server port (1–65535, default: `6667`) |
+| `--port` | `<port>` | Server port (1–65535; default `6667`, or `6697` with `--tls`); 6697 always uses TLS |
+| `--tls` | — | Require verified TLS; keeps an explicitly selected port |
 | `--nick` | `<nick>` | IRC nickname (default: `birc`) |
 | `--channel` | `<channel>` | Initial channel to join upon registration (default: `#birc`) |
 | `--demo` | — | Run offline demo with canned mock activity |
@@ -256,25 +276,32 @@ Create `~/.config/birc/config.toml` (or `$XDG_CONFIG_HOME/birc/config.toml`):
 
 ```toml
 [profiles.work]
-host = "127.0.0.1"
-port = 16667
-trusted_relay = true
+host = "irc.example.net"
+tls = true
 account = "myaccount"
 nick = "mynick"
 auth = "sasl"
 ```
 
-This example assumes an existing trusted local TLS relay. The wrapper does
-not create one or verify its TLS configuration. Without an explicit unsafe
-opt-in, it requires `trusted_relay = true` and an IPv4 loopback address.
+`tls = true` selects native verified TLS and defaults to port 6697. An explicit
+profile port stays unchanged. Port 6697 forces TLS even with `tls = false`.
+You can also use the wrapper's `--tls` option; it resolves the same endpoint
+before looking up the endpoint-bound Keychain item. Without TLS selection,
+legacy profiles still default to plaintext port 6667.
+
+TLS profiles need no unsafe flag or local relay. A plaintext profile instead
+needs a declared trusted IPv4 loopback relay, or per-launch
+`--allow-insecure-auth`. For example, an existing trusted local TLS relay can
+use `host = "127.0.0.1"`, `port = 16667`, and `trusted_relay = true`.
+The wrapper does not create that relay or verify its TLS configuration.
 The owned profile file must be a regular file, not a symlink, and must not
 allow group or other users to write it. Password fields are rejected.
 
 ```sh
 chmod 600 ~/.config/birc/config.toml
 nix run .#keychain-birc -- --profile work --channel '#birc'
-# For a plaintext endpoint, accept the password exposure risk for this launch:
-nix run .#keychain-birc -- --profile work --allow-insecure-auth
+# For a separate, existing plaintext profile, accept the risk for this launch:
+nix run .#keychain-birc -- --profile legacy --allow-insecure-auth
 ```
 
 The wrapper uses `/usr/bin/security` to find the profile/account password.
@@ -315,10 +342,10 @@ the loaded credentials for the rest of that client session, even if you return
 to the original endpoint. Start the wrapper again to load another profile.
 
 Direct launches still support `BIRC_SASL_USER` and `BIRC_SASL_PASS`; a nonempty
-CLI value takes precedence. They do not persist a password. IRC itself is still
-plaintext, including SASL PLAIN and NickServ IDENTIFY. Use a trusted TLS relay
-unless you accept this risk explicitly. The unsafe flag belongs to the wrapper,
-not the core IRC client.
+CLI value takes precedence. They do not persist a password. On a plaintext
+connection, SASL PLAIN and NickServ IDENTIFY expose the password. Use native
+TLS or a trusted TLS relay unless you accept this risk explicitly. The unsafe
+flag belongs to the wrapper, not the core IRC client.
 
 Automatic authentication bypasses the composer. Manual service credential
 commands retain their wire text but use a redacted local echo and skip command
@@ -557,6 +584,11 @@ make test-package          # Installed wrapper, local images, helper overrides, 
 make check-hardening       # Bounded hostile, sanitizer, and performance checks
 make lint-ffi              # Strict syntax and compiler warning lint of C FFI
 make test-auth-profiles    # Auth state, privacy, Keychain fakes, pipes, and real loopback PTY
+make test-keychain-tls     # Offline TLS profiles, port policy, and child argv
+make test-build-tls        # TLS flag preservation and build-cache invalidation
+make test-tls-native       # OpenSSL verification, retry, ownership, and IO queue guards
+make test-pty-tls          # Owned loopback TLS, authentication, reconnect, and quit
+make test-tls-package      # Installed CA selection, pinned libraries, and clean-PATH failures
 make test-auth-bridge-ubsan # Authentication pipe guard with UBSan
 make test-perf-startup      # Separate cached nix run launch time from first client paint
 make test-upload           # Public-upload guards, owned helpers, and loopback IRC only

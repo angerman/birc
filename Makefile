@@ -65,6 +65,18 @@ doctor: ## Report pinned Bend / clang identities.
 # Bend's emitted C is huge and trips -Wall/-Wextra noisily; silence only that TU.
 BEND_CORE_CFLAGS ?= -std=c11 -O2 -pthread -w
 
+# Bend chooses one CC executable and supplies fixed arguments. Use Nix's
+# salted flag seam for every generated binary, including actor test harnesses.
+# A captured shell may lack HOST role markers, which ignore unsalted flags.
+BIRC_TLS_CFLAGS ?= $(if $(BIRC_OPENSSL_DEV),-isystem $(BIRC_OPENSSL_DEV)/include)
+BIRC_TLS_LDFLAGS ?= $(if $(BIRC_OPENSSL_LIB),-L$(BIRC_OPENSSL_LIB)/lib -rpath $(BIRC_OPENSSL_LIB)/lib -lssl -lcrypto)
+OPENSSL ?= $(if $(BIRC_OPENSSL_BIN),$(BIRC_OPENSSL_BIN)/bin/openssl,openssl)
+append_tls_flags = $(1)$(if $(2),$(if $(findstring $(2),$(1)),, $(2)))
+ifneq ($(BIRC_NIX_CC_SUFFIX),)
+export NIX_CFLAGS_COMPILE_$(BIRC_NIX_CC_SUFFIX) := $(call append_tls_flags,$(NIX_CFLAGS_COMPILE_$(BIRC_NIX_CC_SUFFIX)),$(BIRC_TLS_CFLAGS))
+export NIX_LDFLAGS_$(BIRC_NIX_CC_SUFFIX) := $(call append_tls_flags,$(NIX_LDFLAGS_$(BIRC_NIX_CC_SUFFIX)),$(BIRC_TLS_LDFLAGS))
+endif
+
 build-proto: ## Build the Bend protocol self-test binary.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
@@ -75,6 +87,38 @@ BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix
 
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
+.PHONY: test-keychain-tls test-build-tls test-tls-args test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
+test-keychain-tls: ## Offline TLS profile selection, credential isolation, and literal child argv.
+	$(NIXRUN) timeout 30 python3 tests/keychain_tls.py
+
+test-build-tls: ## TLS compiler flags reach Bend binaries and invalidate cached builds correctly.
+	$(NIXRUN) timeout 30 python3 tests/build_tls.py
+
+test-tls-args: ## TLS port/default policy, explicit-port order, and legacy plaintext controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/tls_args.bend -o $(BLDDIR)/tls_args
+	$(NIXRUN) sh scripts/check-golden.sh tls_args=ok timeout 15 ./$(BLDDIR)/tls_args
+
+test-pty-tls: build-ui ## Owned loopback TLS: certificate/name checks, auth, reconnect, and bounded quit.
+	$(NIXRUN) timeout 120 python3 -u tests/pty/tls.py ./$(BLDDIR)/birc $(OPENSSL)
+
+TLS_NATIVE_CFLAGS := -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror
+test-tls-native: ## OpenSSL certificate, retry, deadline, affine ownership, and actual IO queue controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in tls_native tls_ffi; do timeout 60 $$CC $(TLS_NATIVE_CFLAGS) tests/$$guard.c -o $(BLDDIR)/$$guard; sh scripts/check-golden.sh $$guard=ok timeout 30 ./$(BLDDIR)/$$guard; done'
+
+test-tls-native-ubsan: ## UBSan: native TLS verification, retry buffers, and effect/queue ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in tls_native tls_ffi; do timeout 60 $$CC $(TLS_NATIVE_CFLAGS) -g -fsanitize=undefined -fno-sanitize-recover=undefined tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 30 ./$(BLDDIR)/$${guard}_ubsan; done'
+
+lint-tls: ## Strict syntax-only lint of the actual TLS bridge and effect ABI fixture.
+	$(NIXRUN) timeout 60 sh -c '$$CC $(LINT_FFI_CFLAGS) -Werror=vla tests/tls_ffi.c'
+
+test-tls: test-keychain-tls test-build-tls test-tls-args test-tls-native test-pty-tls ## TLS policy, tooling, and loopback qualification; no public IRC or credentials.
+test-review-pure: test-keychain-tls test-build-tls test-tls-args test-tls-native
+test-pty: test-pty-tls
+test-sanitizers: test-tls-native-ubsan
+lint-ffi: lint-tls
 .PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
@@ -223,7 +267,7 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
-.PHONY: build-package test-package test-keychain-package
+.PHONY: build-package test-package test-keychain-package test-tls-package
 build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
@@ -233,6 +277,9 @@ test-package: build-package ## Check installed helper overrides, local images, t
 
 test-keychain-package: build-package ## Installed launcher provenance, clean help, and pre-Keychain refusal controls.
 	$(NIXRUN) timeout 30 python3 tests/keychain_package.py ./$(BLDDIR)/package-birc
+
+test-tls-package: build-package ## Installed TLS trust, pinned OpenSSL linkage, and clean-PATH fail-closed controls.
+	$(NIXRUN) timeout 45 sh -c 'python3 tests/package_tls.py ./$(BLDDIR)/package-birc "$$BIRC_OPENSSL_LIB"'
 
 test-upload-package: build-package ## Installed uploader provenance, CA trust, clean PATH, and loopback override controls.
 	$(NIXRUN) timeout 30 python3 tests/upload_package.py ./$(BLDDIR)/package-birc
@@ -910,7 +957,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_auth_bridge.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_uikeys/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_uikeys/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
-	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Socket.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend
+	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Tr.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend
 	@! grep -F 'Chan.close(Sess.UiMsg' src/bend/net.bend
 	@! grep -F 'birc_wait_fds' src/ffi/timui_ffi.c
 	@! grep -F 'wake_poke' src/ffi/*.c

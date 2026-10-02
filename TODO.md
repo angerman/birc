@@ -2838,6 +2838,118 @@ not supplied, so each reported row's origin is not independently verified.
   times or the exact wire message. Add UTC/local, day-rollover, DST, missing
   tag, and invalid-tag controls. Diagnose first; no timestamp fix is claimed.
 
+## M25 — Native verified IRC TLS
+
+Explicit user request supersedes the original plaintext-only scope. Port 6697
+is the registered/common IRC-over-TLS port, not specific to Libera:
+https://www.rfc-editor.org/rfc/rfc7194.html. TLS uses provisioned OpenSSL, not
+hand-written cryptography. The timestamp defect in M24 remains separate.
+
+- [x] Capture a red CLI guard: the old parser rejects `--tls`.
+- [x] Add order-independent `--tls` defaults. Explicit ports are retained;
+  port 6697 always requires TLS. Legacy default port 6667 is unchanged.
+- [x] Add pure TLS policy laws without importing foreign transport IO.
+- [x] Introduce one affine connection type for plaintext and TLS; gate IRC
+  registration on verified TLS completion using the original hostname.
+- [x] Qualify nonblocking OpenSSL chain/hostname/IP SAN verification, SNI,
+  handshake/write deadlines, buffered reads, retry ownership, and shutdown.
+- [x] Qualify Keychain TLS profiles and CLI selection before credential lookup;
+  store synthetic prompted passwords only after actual authentication success.
+- [x] Qualify app and installed-package loopback TLS with trusted/untrusted,
+  wrong-host, expired, invalid-CA, non-TLS, stalled, reconnect, fragmentation,
+  buffered-read, and private-auth controls. Three consecutive unchanged PTY runs.
+- [x] Run proof, pure/legacy compatibility, strict native lint, sanitizers, and
+  auth/upload regressions. Record exact outcomes; do not claim aggregate success
+  from focused checks.
+- [ ] Build the final Nix app without changing pins and verify the hot cache.
+
+Implementation and qualification pass; the clean-tree cache check is pending.
+User approved the appended help option and mechanical socket/config fixture
+adapters. Existing assertion values and deadlines stay unchanged.
+
+Additional adversarial findings and evidence:
+
+- [x] Explicit CA precedence: pinned Nix OpenSSL's default-path loader can
+  prefer `NIX_SSL_CERT_FILE` over `SSL_CERT_FILE`. An explicit CA file now takes
+  precedence and malformed custom trust fails closed. Native strict/UBSan guards
+  pass; final app/package qualification is recorded below.
+- [x] Buffered-read wake contract: pinned Bend `io_wait` detaches all parked
+  work into local `todo`. A reader with buffered TLS plaintext must become due
+  even when it is not in the global parked queue. New guard was red, then green
+  after the narrow owned-item deadline marker. Retry deadlines and unrelated
+  queue entries are preserved. This is a contract defect, not a reproduced
+  public-server starvation report.
+- [x] Explicit CA FIFO: an owned FIFO blocked the single IO loop before the
+  original handshake deadline was installed. Owned regular CA control registered,
+  painted, and quit; the FIFO control remained unresponsive and was killed/reaped
+  within three seconds. The red guard is now green: a descriptor-owned regular
+  file snapshot is capped at 8 MiB and parsed by OpenSSL without password prompts.
+  AUX trust, CRLs, duplicate entries, symlinks to regular files, and exact-cap
+  controls pass. Setup consumes the original handshake budget. Do not attribute
+  the user's separate Nix delay to this synthetic configuration. Regular remote
+  filesystem calls and CA-directory lookups still lack hard cancellation.
+- [x] Absolute DNS compatibility: DNS accepts one terminal root dot, but native
+  TLS rejected it. One final DNS dot is normalized for verification/SNI only;
+  endpoint credential scope stays exact and malformed multiple dots are rejected.
+  Exact 254-byte dotted/253-byte normalized boundary and overlength guards pass.
+- [x] Baseline actual client: all 14 TLS cases passed three consecutive runs on
+  unchanged `c33acc51b76534116bb118bbd7bcaba6f00d1a53ba875272f1611c5d57c79670`.
+  Existing auth (6), upload (12), headless refusal/healthy (8), and CLI diagnostics
+  also pass. These baseline greens do not replace final post-hardening runs.
+- [x] Mechanical compatibility: network, actor FIFO/drop/redial, writer shutdown
+  flush/half-close, auth scope, legacy CLI, and proof checks pass. Full FFI lint
+  passes after its approved socket-to-connection close adapter.
+- [x] Final native/app/package hashes, strict/UBSan, and unchanged PTY triples.
+  New package guard is red on the old M23 package (no pinned TLS CA wrapper).
+  It checks readable trust objects, custom CA preservation, primary OpenSSL
+  linkage, clean PATH, and fixed safe failure diagnostics against owned peers.
+
+Frozen native source: `src/ffi/tls_ffi.c` SHA256
+`ba864b1fa768c4962eea3e0d2333dc2253d54072d0a619518b7aab3c258887d3`.
+`timeout 240 make test-tls-native test-tls-native-ubsan lint-tls` passes with
+pipefail (`build/m24-tls-ca-dot-final-round2-20261002.log`). Final regenerated
+app SHA256 is `9c2404b67a617e4114d175f6163344deb17e9d1ab7ead37c2066e06174773973`.
+Tooling passes: `timeout 90 make test-keychain-tls test-build-tls
+test-keychain-wrapper test-build-config test-build-deadlines`
+(`build/m25-final-tooling-corrected-20261002.log`). An earlier mistyped target
+`test-keychain` stopped after two green TLS guards; it is not a qualification.
+
+Final qualification (all listed commands exit 0; locked tools, pipefail, and
+bounded wall time):
+
+- `timeout 240 make proof lint-ffi test-tls-args test-args test-runtime-args`:
+  `build/m25-precommit-proof-lint-cli-20261002.log`.
+- `timeout 1200 make test-sanitizers`: all supported UBSan guards and hostile
+  full-app PTY pass (`build/m25-final-sanitizers-20261002.log`). ASan explicitly
+  reports unsupported Darwin-arm64 runtime startup, LLVM issue 58503; not an
+  ASan success claim. UBSan app SHA256
+  `a9ce17a9f5c4a623aea7e94263361509011aba1b2b8b9b1e69e24d1123e731c7`.
+- `timeout 120 python3 -u tests/pty/tls.py BIN OPENSSL`: 14 cases pass three
+  consecutive runs on each final normal and installed app, plus one UBSan run.
+  Normal logs `build/m25-tls-pty-final-wake-run{1,2,3}-20261002.log`; installed
+  logs `build/m25-tls-pty-installed-run{1,2,3}-20261002.log`; UBSan log
+  `build/m25-final-ubsan-tls-pty-20261002.log`. Unchanged PTY script SHA256
+  `dc17ebddb30a52d8bd61ce04f1328cfcf8f5a33eca290602c6e43a74c4428625`.
+- Existing final app auth (6), upload (12), refused/healthy headless (8), and
+  CLI diagnostics pass. Logs `build/m25-final-focused-{auth-profile,upload,
+  headless-startup,cli-diagnostics}-20261002.log`; outer bounds 60/120/30/30 s.
+- `timeout 960 make build-package` succeeds with its inner 900 s Nix bound and
+  `--no-update-lock-file` (`build/m25-final-nix-package-build-20261002.log`).
+  Installed output `/nix/store/s35pnc3y0hig1s42ylcnw04k5bmaa57y-birc-0.1.0`;
+  unwrapped binary SHA256
+  `fc25db85292d58f5264d2ba6ae6d99c38adebe0617fd5a3f57c5d3fc7b97c1cf`.
+- `python3 tests/{package_tls,package,keychain_package,upload_package}.py
+  ./build/package-birc` passes each with bounds 45/75/30/30 s (TLS guard also
+  receives the pinned OpenSSL library path). Logs
+  `build/m24-final-installed-{tls,image,keychain,upload}-package-20261002.log`.
+  No public IRC, real Keychain, private chat URL, or public upload was tested.
+- `git diff --check` and `git diff --cached --check` pass; `flake.lock` is
+  unchanged. No full `make check` success is claimed from these focused gates.
+
+Current next steps: commit the qualified feature, then verify a clean hot-cache
+`nix build .` without moving pins. The separate M24 timestamp defect stays open.
+The changed devShell adds OpenSSL/CA inputs; reload existing development shells.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

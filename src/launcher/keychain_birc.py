@@ -55,6 +55,7 @@ class Profile(NamedTuple):
     confirmation: str
     relay: bool
     service: str
+    tls: bool
 
 
 def public_text(value, limit: int, *, spaces=False) -> str:
@@ -65,7 +66,7 @@ def public_text(value, limit: int, *, spaces=False) -> str:
     return value
 
 
-def read_profile(path: Path, name: str) -> Profile:
+def read_profile(path: Path, name: str, *, tls=False) -> Profile:
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name):
         raise Refusal("invalid profile name")
     try:
@@ -85,7 +86,7 @@ def read_profile(path: Path, name: str) -> Profile:
         raise Refusal("invalid profile file")
     entry = document["profiles"].get(name)
     allowed = {"host", "port", "account", "nick", "auth", "nickserv_prefix",
-               "nickserv_success", "trusted_relay"}
+               "nickserv_success", "trusted_relay", "tls"}
     if (not isinstance(entry, dict)
             or any(not isinstance(row, dict) or set(row) - allowed
                    for row in document["profiles"].values())):
@@ -94,10 +95,15 @@ def read_profile(path: Path, name: str) -> Profile:
     if not re.fullmatch(r"[A-Za-z0-9.-]+", host):
         raise Refusal("invalid IPv4 host")
     account = public_text(entry.get("account"), 128)
-    port = entry.get("port", 6667)
+    profile_tls = entry.get("tls", False)
+    if type(profile_tls) is not bool:
+        raise Refusal("invalid profile metadata")
+    use_tls = tls or profile_tls
+    port = entry.get("port", 6697 if use_tls else 6667)
     relay = entry.get("trusted_relay", False)
     if type(port) is not int or not 1 <= port <= 65535 or type(relay) is not bool:
         raise Refusal("invalid profile metadata")
+    use_tls = use_tls or port == 6697
     nick = public_text(entry["nick"], 64) if "nick" in entry else ""
     auth = entry.get("auth", "sasl")
     if auth not in ("sasl", "nickserv", "sasl-nickserv"):
@@ -114,7 +120,7 @@ def read_profile(path: Path, name: str) -> Profile:
     elif "nickserv_prefix" in entry or "nickserv_success" in entry:
         raise Refusal("NickServ trust requires an explicit authentication mode")
     service = "birc.auth.v1:" + json.dumps([name, host, port], separators=(",", ":"))
-    return Profile(host, port, account, nick, auth, prefix, confirmation, relay, service)
+    return Profile(host, port, account, nick, auth, prefix, confirmation, relay, service, use_tls)
 
 
 def secret_bytes(value: str) -> bytes:
@@ -265,6 +271,8 @@ def launch(program: str, profile: Profile, secret: bytes, extra: list[str], secu
         env.update(BIRC_AUTH_SECRET_FD=str(secret_r), BIRC_AUTH_EVENT_FD=str(event_w))
         args = [program, "--connect", profile.host, "--port", str(profile.port),
                 "--sasl-user", profile.account, "--auth", profile.auth]
+        if profile.tls:
+            args.append("--tls")
         if profile.nick:
             args.extend(["--nick", profile.nick])
         if profile.prefix:
@@ -304,6 +312,8 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
     parser.add_argument("--config", type=Path, help="metadata TOML; contains no passwords")
     parser.add_argument("--allow-insecure-auth", action="store_true",
                         help="allow plaintext credentials for this launch only")
+    parser.add_argument("--tls", action="store_true",
+                        help="use verified TLS; default to port 6697 unless the profile sets a port")
     parser.add_argument("--frames", type=int, help="forward birc frame cap")
     parser.add_argument("--channel", help="forward initial IRC channel")
     options = parser.parse_args(argv)
@@ -317,16 +327,16 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
             except RuntimeError:
                 raise Refusal("cannot locate profile config") from None
             path = config_home / "birc/config.toml"
-        profile = read_profile(path, options.profile)
+        profile = read_profile(path, options.profile, tls=options.tls)
         try:
             address = ipaddress.ip_address(profile.host)
             loopback = isinstance(address, ipaddress.IPv4Address) and address.is_loopback
         except ValueError:
             loopback = False
-        if options.allow_insecure_auth:
+        if not profile.tls and options.allow_insecure_auth:
             print("keychain-birc: WARNING: plaintext IRC authentication can expose your password.", file=sys.stderr)
-        elif not (profile.relay and loopback):
-            raise Refusal("authentication requires a trusted loopback relay; use --allow-insecure-auth to accept plaintext risk")
+        elif not (profile.tls or (profile.relay and loopback)):
+            raise Refusal("authentication requires TLS or a trusted loopback relay; use --allow-insecure-auth to accept plaintext risk")
         extra = []
         if options.frames is not None:
             if not 0 <= options.frames <= 0xffffffff:

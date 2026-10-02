@@ -12,6 +12,21 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.secure_irc_port_requires_tls():
+  {==}
+
+def Laws.tls_flag_requires_tls_on_other_ports():
+  {==}
+
+def Laws.legacy_irc_port_is_plain_by_default():
+  {==}
+
+def Laws.tls_default_keeps_explicit_port():
+  {==}
+
+def Laws.tls_default_uses_secure_port():
+  {==}
+
 def Laws.upload_requires_physical_consent():
   {==}
 

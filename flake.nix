@@ -50,20 +50,36 @@
           bend = self.packages.${system}.bend;
           media = pkgs.callPackage ./nix/media.nix {};
           upload = pkgs.callPackage ./nix/upload.nix {};
+          tlsCflags = "-isystem ${pkgs.lib.getDev pkgs.openssl}/include";
+          tlsLdflags = "-L${pkgs.lib.getLib pkgs.openssl}/lib -rpath ${pkgs.lib.getLib pkgs.openssl}/lib -lssl -lcrypto";
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
               bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media upload
               bashInteractive gnumake git
               coreutils findutils gnugrep gnused gawk
-              diffutils file which cacert
+              diffutils file which cacert openssl.dev openssl.bin
             ];
             BIRC_NIX_SHELL = "1";
             BIRC_BEND_SRC = "${bend-src}";
             BIRC_BEND_REV = "7d8a3eb036042c6549461054d25a10f26d361c5c";
             CC = "${pkgs.clang}/bin/clang";
+            BIRC_OPENSSL_DEV = "${pkgs.lib.getDev pkgs.openssl}";
+            BIRC_OPENSSL_LIB = "${pkgs.lib.getLib pkgs.openssl}";
+            BIRC_OPENSSL_BIN = "${pkgs.lib.getBin pkgs.openssl}";
+            BIRC_TLS_CA = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+            BIRC_NIX_CC_SUFFIX = pkgs.clang.suffixSalt;
+            BIRC_TLS_CFLAGS = tlsCflags;
+            BIRC_TLS_LDFLAGS = tlsLdflags;
+            # Bend invokes CC with fixed arguments. Salted flags also work
+            # when a captured environment has no Nix compiler HOST role.
+            "NIX_CFLAGS_COMPILE_${pkgs.clang.suffixSalt}" = tlsCflags;
+            "NIX_LDFLAGS_${pkgs.clang.suffixSalt}" = tlsLdflags;
+            SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
             shellHook = ''
               export PYTHONDONTWRITEBYTECODE=1
+              # nix develop can omit SSL_CERT_FILE from captured attributes.
+              export SSL_CERT_FILE="''${SSL_CERT_FILE:-$BIRC_TLS_CA}"
             '';
           };
         });

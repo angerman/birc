@@ -25,6 +25,22 @@ import ./tests/bend/m20_media_preds.bend as MediaReview
 import ./tests/bend/dns_validation_preds.bend as DnsValidation
 import ./src/bend/columns.bend as Columns
 import ./src/bend/upload.bend as Up
+import ./src/bend/transport_policy.bend as Transport
+
+law secure_irc_port_requires_tls:
+  {Transport.enabled(False{}, 6697) == True{} : Bool}
+
+law tls_flag_requires_tls_on_other_ports:
+  {Transport.enabled(True{}, 6667) == True{} : Bool}
+
+law legacy_irc_port_is_plain_by_default:
+  {Transport.enabled(False{}, 6667) == False{} : Bool}
+
+law tls_default_keeps_explicit_port:
+  {Transport.default_port(True{}, True{}, 7000) == 7000 : U32}
+
+law tls_default_uses_secure_port:
+  {Transport.default_port(True{}, False{}, 6667) == 6697 : U32}
 
 law upload_requires_physical_consent:
   {Up.consent_ok() == True{} : Bool}

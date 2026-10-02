@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3 }:
+{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3, openssl, cacert }:
 
 let
   media = callPackage ./media.nix {};
@@ -19,11 +19,15 @@ in stdenv.mkDerivation {
   };
 
   nativeBuildInputs = [ bend clang makeWrapper ];
+  buildInputs = [ openssl ];
 
   buildPhase = ''
     runHook preBuild
     bend src/bend/app.bend -o birc_bend.c
-    clang -std=c11 -O2 -pthread -w -Isrc/ui -Isrc/ffi birc_bend.c -o birc
+    clang -std=c11 -O2 -pthread -w -Isrc/ui -Isrc/ffi \
+      -isystem ${lib.getDev openssl}/include birc_bend.c \
+      -L${lib.getLib openssl}/lib -Wl,-rpath,${lib.getLib openssl}/lib \
+      -lssl -lcrypto -o birc
     runHook postBuild
   '';
 
@@ -33,7 +37,8 @@ in stdenv.mkDerivation {
     cp birc $out/bin/birc
     wrapProgram $out/bin/birc \
       --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image" \
-      --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload"
+      --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload" \
+      --set-default SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt"
     cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
     makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
       --add-flags $out/libexec/keychain_birc.py \

@@ -3,6 +3,7 @@
 # The delay controls task scheduling; it does not fabricate an EOF event.
 import Base
 import ../../src/bend/actor.bend as Act
+import ../../src/bend/transport.bend as Tr
 import ../../src/bend/outbound.bend as Out
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/dns.bend as Dns
@@ -12,7 +13,7 @@ import ../../src/bend/app.bend as App
 
 def reader(dup: Socket, +evt: Chan(Sess.UiMsg), +done: Chan(Unit)) -> IO(Unit):
   do IO<Unit>:
-    Unit <- Act.reader_run(dup, evt, 1)
+    Unit <- Act.reader_run(Tr.Plain{dup}, evt, 1)
     _ : Bool <- Chan.send(Unit, done, Unit{})
     return Unit{}
 
@@ -47,7 +48,7 @@ def run(sock: Socket, dup: Socket, +half_close: Bool) -> IO(Unit):
     # A stale acknowledgement must not release either shutdown case.
     _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.FromNet{0, Sess.WriterDone{}})
     Unit <- IO.spawn(Unit, reader(dup, evt, done))
-    Unit <- IO.spawn(Unit, writer(Act.Writer{Some{sock}, 1, "NOTICE #t :pending" <> "QUIT :shutdown-test" <> Nil{}, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
+    Unit <- IO.spawn(Unit, writer(Act.Writer{Some{Tr.Plain{sock}}, 1, "NOTICE #t :pending" <> "QUIT :shutdown-test" <> Nil{}, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
     Unit <- await_reader(half_close, done)
     Unit <- IO.spawn(Unit, release(gate))
     Net.shutdown(ui, cmd, ack, evt, 1, True{})

@@ -14,9 +14,12 @@ When using timui.h:
 ## Scope
 
 `birc` is an IRC client: **Bend 2 owns main, protocol, client, submit, framer,
-networking, and the frame loop**; C is thin TimUI FFI under `src/ffi/`. Plaintext IRC only (host:6667). No crypto, no ncurses, no curl-pipe
+networking, and the frame loop**; C is thin native FFI under `src/ffi/`.
+IRC uses verified OpenSSL TLS on port 6697 or with `--tls`; legacy port 6667
+remains plaintext by default. Never hand-roll cryptography, disable certificate
+verification, or fall back to plaintext after TLS failure. No ncurses or curl-pipe
 installers. Remote image previews may use the provisioned Python/Pillow helper
-with standard-library HTTPS certificate verification; IRC remains plaintext.
+with standard-library HTTPS certificate verification.
 Never fetch supplied private chat URLs during tests.
 Confirmed file uploads use the provisioned standard-library HTTPS helper for
 `0x0.st`. Tests use synthetic files, fake helpers, and owned loopback servers;
@@ -34,7 +37,7 @@ make bootstrap   # create flake.lock (once)
 make shell       # enter the locked shell
 make check       # proof + Bend tests + net + UI smoke
 make run-demo    # offline TimUI demo
-make run HOST=…  # live plaintext IRC (Bend net + TimUI.frame)
+make run HOST=… PORT=6697  # live verified TLS IRC (Bend net + TimUI.frame)
 ```
 
 Do not use Homebrew/global installs, ambient compilers, `sudo make`, or
@@ -61,6 +64,9 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/upload_io.bend` | Bounded uploader process; never forward child diagnostics |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
+| `src/bend/transport_policy.bend` | Pure TLS port/default policy for CLI, actor, and proofs |
+| `src/bend/transport.bend` / `src/bend/tls.bend` | Affine plaintext/TLS connection dispatch and TLS effect declarations |
+| `src/ffi/tls_ffi.c` | Verified OpenSSL transport; no IRC parsing or authentication policy |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
 | `src/media/image.py` | Bounded HTTP(S) image helper; normalized frames, no temporary files |
 | `src/media/upload.py` | Confirmed, bounded streaming uploads to `0x0.st` |
@@ -70,6 +76,22 @@ silent flake/source pin updates. Routine Nix work uses
 ## Engineering
 
 - Fail closed: missing targets exit nonzero.
+- TLS verifies the certificate chain and original requested DNS hostname or IP
+  SAN before IRC registration. DNS names use SNI. The native operation owns a
+  five-second setup/handshake deadline; reads check buffered plaintext before parking.
+  Reader/writer handles share one TLS connection on the pinned serial IO loop.
+  Preserve exact OpenSSL retry buffers; shutdown must wake the shared reader.
+  Tests use synthetic certificates and owned loopback peers, never live accounts.
+  `--tls` persists across later Dials; `/connect HOST` retains the legacy slash
+  default 6667, so use an explicit secure port when switching TLS servers.
+  Explicit `SSL_CERT_FILE`/`SSL_CERT_DIR` overrides must not be silently replaced
+  by Nix trust defaults. Explicit CA files use descriptor-checked regular-file
+  snapshots capped at 8 MiB, parsed by OpenSSL without password prompts. Remote
+  filesystem calls and CA-directory lookups have no hard cancellation guarantee.
+  Normalize one DNS root dot for SNI/verification, not credential endpoint scope.
+  The pinned IO loop detaches parked work into local `todo`; an owned buffered
+  reader there must become due without a duplicate queue insertion. Keep TLS IO
+  outside the proof-facing policy module.
 - Upload consent is a later physical F8, never Enter or pasted text. A new
   request must cross a completed warning frame before F8 can authorize it.
   Invalidate consent on every endpoint, target, or connection transition;
@@ -77,8 +99,8 @@ silent flake/source pin updates. Routine Nix work uses
   Escape cancellation and F10 shutdown. Never replace a draft with a warning.
 - Keep IRC lines ≤ 512 bytes including CRLF.
 - Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop or blocking input poll. Output readiness checks and waits use the bounded frame-output budget. Live paint is `List<DrawOp>` (`OpBox` / `OpSplit` / `OpText` / `OpTabs` / `OpLine` / `OpMedia`); C walks and paints, and does not tokenize, classify, or wrap IRC. Bend expands logical chat lines into resize-safe visible rows with hanging indents. `OpTabs` carries Bend-owned alert levels plus the bell enable flag and event sequence. C renders activity with reverse video, mentions/private messages with gold, and emits one BEL when the sequence advances. Keys are Data on the frame return; a clicked chat link returns its exact URL for Bend to open. C reports the raw key, mods, and wheel; Bend maps Shift-arrows, PageUp/PageDown (`Sess.body_h`), history, and Esc/F10. A tty watcher and a `SIGWINCH` pipe wake one `Chan(UiMsg)`. The UI parks on that channel. Every paint applies the keys the frame read, including a chunk or Eof paint.
-- Net: `IO.spawn` actor owns `Socket`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd (never `Chan(Socket)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` uses `replay.bend` and fails closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
-- Shutdown (P5): the writer flushes its healthy pending FIFO, closes its Socket, and posts `WriterDone`. Only the current generation's `WriterDone` acknowledges shutdown; reader EOF and stale completions cannot. Demo/Offline idle writers acknowledge too; Connecting/Reconnecting do not wait for a pending dial. Then `Timui.close`, bounded status output, and `Sys.exit_done` ensure parked IO cannot linger. Do not use `IO.die` for successful UI shutdown: the pinned runtime writes an unbounded stderr newline even for an empty message. TimUI teardown restores terminal state before the final `_Exit`.
+- Net: `IO.spawn` actor owns affine `Tr.Conn`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd/TLS handle (never `Chan(Conn)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` uses `replay.bend` and fails closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
+- Shutdown (P5): the writer flushes its healthy pending FIFO, closes its connection, and posts `WriterDone`. Only the current generation's `WriterDone` acknowledges shutdown; reader EOF and stale completions cannot. Demo/Offline idle writers acknowledge too; Connecting/Reconnecting do not wait for a pending dial. Then `Timui.close`, bounded status output, and `Sys.exit_done` ensure parked IO cannot linger. Do not use `IO.die` for successful UI shutdown: the pinned runtime writes an unbounded stderr newline even for an empty message. TimUI teardown restores terminal state before the final `_Exit`.
 - All terminal writes, including BEL and OSC 52, use the frame deadline. The native transport owns at most three UTF-8 suffix bytes; later writes must complete them first. Clipboard process work runs through Bend `Process.run` outside the frame, not synchronous `popen` in C.
 - Log lines carry author identity and stable global IDs. Never infer new events by comparing rendered text/timestamps. Reconnect dividers are `Reconnect`, not a substring test; `Reconnecting` preserves same-endpoint intent through dialing. Unread names and alert levels are separate fields.
 - Scroll uses one message-and-character anchor (`ScrollAt{after, tail}`). View wrapping supplies both paint rows and navigation bounds. Never clamp live navigation by logical line count or store width-dependent row offsets.
@@ -92,7 +114,7 @@ silent flake/source pin updates. Routine Nix work uses
 - Canonicalize known synthetic identities at creation, not generic stored-name lookup. A peer named `server` is a query; construct the control buffer with `server_buf`. A new connection clears channel roster/topic, but keeps same-endpoint chat history. Split NICK handling shares Client's accepted-rename predicate.
 - `Sub.slash_rows` is the command/completion catalog, including Session-owned aliases in their established order. Space-scan wrappers must preserve their distinct remainder policies: protocol keeps separators, verb drops one, word drops all.
 - Authentication profiles bind credentials to the initial host and port. Any endpoint change permanently clears credentials and disables actor SASL negotiation; same-endpoint reconnects retain the profile. SASL uses parsed control events and 400-character UTF-8 Base64 chunks. NickServ requires a phase-gated HELP identity probe before IDENTIFY and exact full-prefix/current-recipient/display-text confirmation. Only explicit unavailable-SASL replies can trigger fallback, not a bad password. Track explicit nicknames separately; resolve defaults after CLI/environment settings are combined.
-- `src/launcher/keychain_birc.py` owns nonsecret TOML profiles and macOS `security` access. Default auth requires a declared trusted IPv4 loopback relay; plaintext needs per-launch `--allow-insecure-auth`. Never test real credentials or Keychain writes. Versioned ASCII envelopes preserve Unicode through security's hex-print behavior. The wrapper sends raw UTF-8 through an inherited EOF pipe; the separate one-shot `BIRC_AUTH_OK\n` pipe is emitted only on Bend's monotonic auth-success edge. Descriptor env values are not secrets; the native bridge sets CLOEXEC. Never infer success from stdout or child exit. Manual service credential commands skip local echo/history, but manually typed composer drafts remain visible.
+- `src/launcher/keychain_birc.py` owns nonsecret TOML profiles and macOS `security` access. Verified TLS profiles need no relay or unsafe flag. Plaintext requires a declared trusted IPv4 loopback relay or per-launch `--allow-insecure-auth`. Resolve the TLS/default-port selection before endpoint-bound Keychain lookup. Never test real credentials or Keychain writes. Versioned ASCII envelopes preserve Unicode through security's hex-print behavior. The wrapper sends raw UTF-8 through an inherited EOF pipe; the separate one-shot `BIRC_AUTH_OK\n` pipe is emitted only on Bend's monotonic auth-success edge. Descriptor env values are not secrets; the native bridge sets CLOEXEC. Never infer success from stdout or child exit. Manual service credential commands skip local echo/history, but manually typed composer drafts remain visible.
 - Headless (stdin is not a tty) awaits the bounded initial registration result before painting `--frames N` and exiting; initial failure exits nonzero. On a tty, `N` is a message cap and the loop parks; loop tests need a pty (`make test-pty`).
 - IRCv3 `+typing` state is Bend-owned, capped at 32 entries, and expires from a one-second `TypingTick`; active lasts 6 s and paused lasts 30 s. The tick repaints only for expiry changes, writable short frames, or timed input pending after a non-key paint. The last case repairs a watcher that parked before the frame read input; normal Esc still has its 50-ms watcher deadline. Partial UTF-8 has no idle expiry. `UiKeys.more` is input-only; terminal recovery does not schedule synthetic input wakes. Ordinary frames have a 40-ms output budget; writable repairs have 200 ms; still-full repairs do not wait.
 - A new or changed pty test must pass three consecutive runs before its commit.
