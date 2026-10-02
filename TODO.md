@@ -3085,7 +3085,15 @@ profiles. Explicit ports never select transport. No IPv6 or plaintext fallback.
   consecutive runs (`build/m26-installed-*-package*-20261002.log`). All 21
   installed TLS cases pass three consecutive runs with matching source/test/app
   hashes (`build/m26-tls-installed-final-run{1,2,3}-20261002.log`).
-- [ ] Clean-tree `nix build .` cache reuse after commits.
+- [x] `timeout 240 make proof` passes immediately before the implementation
+  commit (`build/m26-precommit-final-proof-20261002.log`). This is the standard
+  checker result, not an independent `--verdict` mathematical-validity claim.
+- [x] Implementation committed as `c774c75`. Clean-tree
+  `timeout 900 nix build . --no-update-lock-file --no-link --print-out-paths`
+  exits 0 and reuses `/nix/store/71axidj8nisxkn03gnhwfaj76a6zcc37-birc-0.1.0`
+  without a build (`build/m26-clean-default-nix-cache-20261002.log`).
+  `/usr/bin/time -p` reports real 2.72 s, user 1.12 s, sys 0.35 s. This verifies
+  the cached package; it does not explain the older variable Nix lookup delay.
 
 The separate M24 timestamp defect and unexplained cached Nix lookup delay stay
 open. This change does not claim to fix either issue. Tests must not use public
