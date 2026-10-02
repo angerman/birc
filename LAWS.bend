@@ -400,6 +400,42 @@ law auth_preserves_settings:
   for phase: Cl.AuthPhase
   {Cl.get_settings(Cl.set_auth(cl, phase)) == Cl.get_settings(cl) : Cl.Settings}
 
+# LAW: a rejected service identity probe cannot release credentials.
+law nickserv_untrusted_probe_no_reply:
+  for cl: Cl.Client
+  {Auth.nick_probed(False{}, cl) == Auth.unchanged(Cl.AuthNickProbe{}) : Auth.Reply}
+
+# LAW: a rejected confirmation is not an authentication success.
+law nickserv_untrusted_confirmation_no_success:
+  {Auth.nick_confirm(False{}) == Auth.unchanged(Cl.AuthNickResult{}) : Auth.Reply}
+
+# LAW: an absent profile cannot establish a trusted service notice.
+law nickserv_disabled_notice_untrusted:
+  for cl: Cl.Client
+  for prefix: String
+  for msg: Irc.Message
+  {Auth.trusted_notice(Cl.AuthDisabled{}, cl, prefix, msg) == False{} : Bool}
+
+# LAW: an absent credential pair cannot start either mechanism.
+law auth_without_credentials_idle:
+  for config: Cl.AuthConfig
+  {Cl.auth_initial(False{}, config) == Cl.AuthIdle{} : Cl.AuthPhase}
+
+# LAW: phase changes retain profile scope and success evidence.
+law auth_phase_preserves_profile:
+  for before: Cl.AuthPhase
+  for after: Cl.AuthPhase
+  for config: Cl.AuthConfig
+  for seq: Nat
+  {Cl.auth_config(Cl.auth_phase_set(Cl.AuthProfile{before, config, seq}, after)) == config : Cl.AuthConfig}
+
+law auth_phase_preserves_success:
+  for before: Cl.AuthPhase
+  for after: Cl.AuthPhase
+  for config: Cl.AuthConfig
+  for seq: Nat
+  {Cl.auth_seq(Cl.auth_phase_set(Cl.AuthProfile{before, config, seq}, after)) == seq : Nat}
+
 # LAW: applying an IO timestamp cannot reuse or reset a log event ID.
 law timestamp_preserves_log_sequence:
   for cl: Cl.Client

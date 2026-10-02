@@ -2463,6 +2463,67 @@ isolated package paint timeout is unreproduced and its cause remains unknown;
 diagnostics now retain evidence, but this is not a claim that its cause was
 fixed. No owned build/test process remains. No push was made.
 
+## M22 — Authentication profiles and Keychain launcher
+
+User scope: macOS `keychain-birc`, SASL, explicit trusted NickServ fallback,
+save prompted credentials only after actual success. IRC remains plaintext;
+the user approved per-launch unsafe opt-in. No TLS implementation, real
+credential access, Keychain writes, or public IRC probes are part of testing.
+
+- [x] Keep passwords out of profile TOML, child argv/environment, temporary
+  files, diagnostic logs, and authentication chat/history.
+- [x] Add explicit `sasl`, `nickserv`, and `sasl-nickserv` modes. Fallback
+  accepts phase-gated CAP NAK or valid server 421 CAP, never bad passwords.
+- [x] Bind credentials to initial host AND port. Clear them permanently on
+  endpoint changes. Preserve same-endpoint reconnects.
+- [x] Require exact full NickServ identity before sending a password: harmless
+  HELP probe, trusted directed NOTICE, IDENTIFY, exact confirmation.
+- [x] Track a monotonic phase-gated success sequence. Do not count registration,
+  duplicate/forged replies, manual commands, printed output, or exit status.
+- [x] Pass EOF-framed bounded UTF-8 through owned inherited pipes; CLOEXEC
+  prevents helper inheritance. Emit a separate one-shot success frame.
+- [x] Prompt without terminal echo; refuse echoed fallback. Versioned Keychain
+  envelopes preserve Unicode/spaces. Store through `security -i` stdin, never
+  secret argv, with no update/overwrite flag.
+- [x] Require a declared trusted IPv4 loopback relay by default. Accept
+  plaintext only with explicit `--allow-insecure-auth` per launch.
+- [x] Redact manual service credential echoes and exclude composer history.
+  Suppress own credential wire echoes. Manual typed drafts remain visible;
+  no native input-mask redesign is claimed.
+- [x] Add nonsecret profile examples, limits, failure behavior and Make targets;
+  add the `keychain-birc` Nix app without changing shell inputs or pins.
+- [x] Qualify focused pure/native tests, proof laws, and strict FFI lint.
+- [x] Run the new real-loopback authentication PTY three consecutive times.
+- [ ] Run full `make check`, supported sanitizer gates, and installed-package
+  qualification. Prebuild the updated Nix package.
+- [ ] Independent final review, semantic checkpoint commits and handoff.
+
+Initial evidence: old host-switch test leaked `[secret]` in
+`build/auth_profile_scope.red.log`; new profile interpreter passes. Manual
+privacy had a native RED before the new classifier; focused native privacy
+now passes. Fake Keychain wrapper guards passed three consecutive runs in
+`build/m22-keychain-wrapper-green-{1,2,3}-20261002.log`. New fixture assertions
+were added; the only old-test edits are trailing constructor-pattern wildcards
+for the new Args auth-options field. No existing expected values were changed.
+Work is not yet fully qualified; this is a continuation checkpoint.
+
+Root qualification: `timeout 250 make proof lint-ffi test-auth-bridge
+test-auth-bridge-ubsan` passes; log `build/m22-proof-native-20261002.log`.
+The integrated application and flag/privacy/actor-scope checks pass in
+`build/m22-integration-build-20261002.log`. Real-client SASL, NickServ, fallback,
+bad-password refusal, same-endpoint reconnect, and changed/returned endpoint
+guards passed three consecutive runs:
+`build/m22-auth-pty-green-{1,2,3}-20261002.log`. No real secrets were used.
+Final review also reproduced a wrapper exit/select success race and corrected
+it with a retained RED and three GREEN runs. NickServ metadata now rejects
+core-invalid channel/colon/multi-target service names before lookup or prompt;
+its retained RED and three GREEN runs are in
+`build/m22-keychain-prefix-{red,green-1,green-2,green-3}-20261002.log`.
+Two independent final reviews report no further confirmed defect. The first
+aggregate/package attempts were deliberately
+stopped (exit143) to add the final diagnostic guard and stage new Nix source
+files; neither is counted as a pass.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

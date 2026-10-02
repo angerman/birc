@@ -7,6 +7,7 @@ import ./net.bend as Net
 import ./args.bend as Args
 import ./clock.bend as Clock
 import ./replay.bend as Replay
+import ./auth_bridge.bend as AuthBridge
 
 def run_demo(+frames: U32, +cl: Cl.Client, +chan: String) -> IO(Unit):
   Net.run_offline(frames, cl, chan)
@@ -37,8 +38,8 @@ def resolve_sasl_user(+su: String) -> IO(String):
 def resolve_sasl_pass(+sp: String) -> IO(String):
   resolve_sasl(sp, "BIRC_SASL_PASS")
 
-def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
-  Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
+def main_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions) -> IO(Unit):
+  Net.run_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth)
 
 
 def demo_client(+nick: String) -> IO(Cl.Client):
@@ -62,7 +63,8 @@ def main_dispatch.demo(
   +nick: String,
   +chan: String,
   +sasl_user: String,
-  +sasl_pass: String
+  +sasl_pass: String,
+  +auth: Args.AuthOptions
 ) -> IO(Unit):
   match demo:
     case True{}:
@@ -70,7 +72,7 @@ def main_dispatch.demo(
         cl : Cl.Client <- demo_client(nick)
         main_offline(frames, chan, cl)
     case False{}:
-      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass)
+      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth)
 
 def main_dispatch.on(
   +frames: U32,
@@ -82,13 +84,14 @@ def main_dispatch.on(
   +replay: String,
   has_replay: Bool,
   +sasl_user: String,
-  +sasl_pass: String
+  +sasl_pass: String,
+  +auth: Args.AuthOptions
 ) -> IO(Unit):
   match has_replay:
     case True{}:
       main_replay(frames, nick, chan, replay)
     case False{}:
-      main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass)
+      main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass, auth)
 
 def main_dispatch(
   +frames: U32,
@@ -99,9 +102,10 @@ def main_dispatch(
   +chan: String,
   +replay: String,
   +sasl_user: String,
-  +sasl_pass: String
+  +sasl_pass: String,
+  +auth: Args.AuthOptions
 ) -> IO(Unit):
-  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass)
+  main_dispatch.on(frames, demo, host, port, nick, chan, replay, Bool.not(String.is_empty(replay)), sasl_user, sasl_pass, auth)
 
 def main_cfg.dispatch(
   +frames: U32,
@@ -113,18 +117,31 @@ def main_cfg.dispatch(
   +replay: String,
   explicit: Bool,
   +user: String,
-  +pass: String
+  +pass: String,
+  +auth: Args.AuthOptions
 ) -> IO(Unit):
   +n = Args.resolve_nick(nick, explicit, user)
-  main_dispatch(frames, demo, host, port, n, chan, replay, user, pass)
+  main_dispatch(frames, demo, host, port, n, chan, replay, user, pass, auth)
+
+def resolve_private_pass.present(present: Bool, +secret: String, +legacy: String) -> IO(String):
+  match present:
+    case True{}: IO.pure(String, secret)
+    case False{}: resolve_sasl_pass(legacy)
+
+def resolve_private_pass(pair: U32 & String, +legacy: String) -> IO(String):
+  match pair:
+    case (0, +secret):
+      resolve_private_pass.present(Bool.not(String.is_empty(secret)), secret, legacy)
+    case (_, _): IO.die(String, 2, "birc: invalid private authentication pipe")
 
 def main_cfg(+cfg: Args.Cfg) -> IO(Unit):
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, +auth}:
       do IO<Unit>:
+        bridge : U32 & String <- AuthBridge.setup()
         user : String <- resolve_sasl_user(su)
-        pass : String <- resolve_sasl_pass(sp)
-        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, explicit, user, pass)
+        pass : String <- resolve_private_pass(bridge, sp)
+        main_cfg.dispatch(frames, demo, host, port, nick, chan, replay, explicit, user, pass, auth)
 
 def main_run(got: Args.Parsed) -> IO(Unit):
   match got:

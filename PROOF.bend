@@ -742,6 +742,24 @@ def Laws.auth_preserves_settings(cl, phase):
     case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
       {==}
 
+def Laws.nickserv_untrusted_probe_no_reply(cl):
+  {==}
+
+def Laws.nickserv_untrusted_confirmation_no_success():
+  {==}
+
+def Laws.nickserv_disabled_notice_untrusted(cl, prefix, msg):
+  {==}
+
+def Laws.auth_without_credentials_idle(config):
+  {==}
+
+def Laws.auth_phase_preserves_profile(before, after, config, seq):
+  {==}
+
+def Laws.auth_phase_preserves_success(before, after, config, seq):
+  {==}
+
 def Laws.timestamp_preserves_log_sequence(cl, ts):
   match cl:
     case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:

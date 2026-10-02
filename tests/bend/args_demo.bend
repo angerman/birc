@@ -21,7 +21,7 @@ def many_demo(n: Nat, acc: List<&2, String>) -> List<&2, String>:
 
 def show_cfg(+cfg: Args.Cfg) -> String:
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, _}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, _, _}:
       "demo=" ++ Bool.show(demo)
         ++ " frames=" ++ U32.show(frames)
         ++ " host=" ++ host

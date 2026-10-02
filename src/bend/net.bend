@@ -14,6 +14,8 @@ import ./history_io.bend as HistIO
 import ./typing.bend as Ty
 import ./media.bend as M
 import ./links.bend as Links
+import ./args.bend as Args
+import ./auth_bridge.bend as AuthBridge
 
 def endpoint(+host: String, +port: U32) -> String:
   host ++ ":" ++ U32.show(port)
@@ -889,6 +891,13 @@ def history_notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Session
     case Some{msg}:
       (Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{}, msg)), True{})
 
+def auth_notice(+st: Sess.Session, code: U32) -> Sess.Session:
+  match code:
+    case 0: st
+    case _:
+      Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{},
+        "authentication notification failed (code: " ++ U32.show(code) ++ ")"))
+
 def live_step.saved(
   status: Sess.Session & Bool,
   ui: T.Ui,
@@ -924,13 +933,16 @@ def live_step.next(
     case (ui, +new_st, gen, more):
       +new_endpoint = session_endpoint(new_st)
       do IO<Unit>:
+        +auth_code : U32 <- AuthBridge.observed(String.eq(old_endpoint, new_endpoint)
+          && Nat.is_gt(Cl.auth_success_seq(Sess.session_cl(new_st)), Cl.auth_success_seq(old_cl)))
+        +observed_st : Sess.Session <- IO.pure(Sess.Session, auth_notice(new_st, auth_code))
         # Save only the current event. Imported rows get fresh IDs and must
         # become the next baseline, never part of this append comparison.
-        notice : Maybe<&2, String> <- HistIO.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(new_st))
+        notice : Maybe<&2, String> <- HistIO.maybe_save_history(hist_path, new_endpoint, old_cl, Sess.session_cl(observed_st))
         # A save failure belongs only in the non-persisted diagnostic buffer.
         # Repaint through the existing coalesced continuation, never UiError:
         # saving an Error chat row would recursively fail and notify again.
-        live_step.saved(history_notice(new_st, notice), ui, gen, more, scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, evt, k)
+        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, evt, k)
 
 def is_continue(m: Sess.UiMsg) -> Bool:
   match m:
@@ -1235,9 +1247,11 @@ def heartbeat_step(ok: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
 def heartbeat(+cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   heartbeat_step(True{}, cmd)
 
-def live_client(+cl: Cl.Client, +sasl_user: String, +sasl_pass: String) -> Cl.Client:
-  +cl1 = Cl.client_set_sasl(cl, sasl_user, sasl_pass)
-  Cl.set_settings(cl1, Cl.set_autoreconn(Cl.get_settings(cl1), True{}))
+def live_client(+cl: Cl.Client, +host: String, +port: U32, +sasl_user: String, +sasl_pass: String, auth: Args.AuthOptions) -> Cl.Client:
+  match auth:
+    case Args.AuthOptions{mode, prefix, success}:
+      +cl1 = Cl.client_set_auth(cl, mode, host, port, prefix, success, sasl_user, sasl_pass)
+      Cl.set_settings(cl1, Cl.set_autoreconn(Cl.get_settings(cl1), True{}))
 
 def start_ui_load(
   +hist_path: String,
@@ -1251,6 +1265,7 @@ def start_ui_load(
   +frames: U32,
   +sasl_user: String,
   +sasl_pass: String,
+  +auth: Args.AuthOptions,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit)
@@ -1258,7 +1273,7 @@ def start_ui_load(
   do IO<Unit>:
     cl : Cl.Client <- Hist.history_init_client(hist_path, endpoint(host, port), hist_cap, nick, host, now)
     on : Bool <- images_enabled()
-    start_ui_go(ui, Sess.session_set_media(Sess.session_with_client_at(live_client(cl, sasl_user, sasl_pass), chan, port), M.initial(on)), frames, evt, cmd, ack, hist_path)
+    start_ui_go(ui, Sess.session_set_media(Sess.session_with_client_at(live_client(cl, host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   +frames: U32,
@@ -1269,7 +1284,8 @@ def start_ui(
   +port: U32,
   +chan: String,
   +sasl_user: String,
-  +sasl_pass: String
+  +sasl_pass: String,
+  +auth: Args.AuthOptions
 ) -> IO(Unit):
   do IO<Unit>:
     ack : Chan(Unit) <- Chan.new(Unit, 1)
@@ -1278,7 +1294,7 @@ def start_ui(
     hist_cap : U32 <- Hist.resolve_history_cap()
     now : String <- Clock.hhmmss()
     Unit <- IO.spawn(Unit, heartbeat(cmd))
-    start_ui_load(hist_path, hist_cap, nick, host, port, now, ui, chan, frames, sasl_user, sasl_pass, evt, cmd, ack)
+    start_ui_load(hist_path, hist_cap, nick, host, port, now, ui, chan, frames, sasl_user, sasl_pass, auth, evt, cmd, ack)
 
 def boot_watch.event(e: Act.Boot, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
   match e:
@@ -1341,22 +1357,23 @@ def run_live_on(
   +chan: String,
   +sasl_user: String,
   +sasl_pass: String,
+  +auth: Args.AuthOptions,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
   +boot: Chan(Act.Boot)
 ) -> IO(Unit):
-  +has_sasl = Bool.not(String.is_empty(sasl_user)) && Bool.not(String.is_empty(sasl_pass))
+  +has_sasl = Cl.client_has_sasl(live_client(Cl.init(nick, host), host, port, sasl_user, sasl_pass, auth))
   do IO<Unit>:
     Unit <- IO.spawn(Unit, Act.actor_boot(host, port, nick, 1, evt, cmd, boot, has_sasl, frames))
     tty : U32 <- T.Timui.isatty()
-    run_live_start(U32.is_eq(tty, 0), boot, cmd, evt, _ => start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass))
+    run_live_start(U32.is_eq(tty, 0), boot, cmd, evt, _ => start_ui(frames, evt, cmd, nick, host, port, chan, sasl_user, sasl_pass, auth))
 
-def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String) -> IO(Unit):
+def run_live(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions) -> IO(Unit):
   do IO<Unit>:
     evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
-    run_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, evt, cmd, boot)
+    run_live_on(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, evt, cmd, boot)
 
 def run_demo_go(
   evt0: Chan(Sess.UiMsg),

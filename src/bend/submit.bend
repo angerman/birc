@@ -53,6 +53,38 @@ def skip_slash(+s: String) -> String:
 def active_name(+cl: Cl.Client) -> String:
   Cl.active_buf_name(cl)
 
+# Service credential commands have ordinary IRC wire syntax, but must not
+# become local chat or composer-history copies. Match complete command words;
+# an ordinary peer saying IDENTIFY remains ordinary chat. LOGIN and SET
+# PASSWORD are Atheme credential forms, alongside the common NickServ verbs.
+def credential_set(pair: String & String) -> Bool:
+  match pair:
+    case (+word, _): Irc.ieq(word, "PASSWORD")
+
+def credential_words(pair: String & String) -> Bool:
+  match pair:
+    case (+verb, +rest):
+      Irc.ieq(verb, "IDENTIFY") || Irc.ieq(verb, "LOGIN")
+        || Irc.ieq(verb, "REGISTER") || Irc.ieq(verb, "GHOST")
+        || Irc.ieq(verb, "RECOVER") || Irc.ieq(verb, "RELEASE")
+        || (Irc.ieq(verb, "SET") && credential_set(Irc.take_until_space(Irc.drop_spaces(rest))))
+
+def credential_body(+body: String) -> Bool:
+  credential_words(Irc.take_until_space(Irc.drop_spaces(Irc.strip_ctl(body))))
+
+def credential_target(+cl: Cl.Client, +target: String) -> Bool:
+  +nick = Irc.nick_of_prefix(Cl.target_name(target))
+  +service = Cl.client_auth_service(cl)
+  Irc.ieq(nick, "NickServ") || (Bool.not(String.is_empty(service)) && Irc.ieq(nick, service))
+
+def credential_targets(targets: List<&2, String>, +cl: Cl.Client) -> Bool:
+  match targets:
+    case Nil{}: False{}
+    case Con{+target, rest}: credential_target(cl, target) || credential_targets(rest, cl)
+
+def credential_message(+cl: Cl.Client, +target: String, +body: String) -> Bool:
+  credential_targets(String.split(target, Chr{44}), cl) && credential_body(body)
+
 def echo_self(+cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
@@ -96,10 +128,34 @@ def prepare_message(+target: String, body: String) -> Maybe<&2, MessageBody>:
   +overhead = Irc.utf8_len(Irc.format_privmsg(clean, ""))
   prepare_message.fits(Nat.is_le(overhead, Irc.LINE_MAX()), clean, body, overhead)
 
-def send_message.prepared(prepared: Maybe<&2, MessageBody>, cl: Cl.Client, +bi: Nat) -> Cl.Client & List<&2, String>:
+def credential_wire(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bool:
+  match parsed:
+    case None{}: False{}
+    case Some{+m}:
+      Irc.ieq(Irc.msg_command(m), "PRIVMSG")
+        && credential_message(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
+
+def credential_echo.parsed(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bool:
+  match parsed:
+    case None{}: False{}
+    case Some{+m}:
+      Irc.ieq(Irc.msg_nick(m), Cl.nick_of(cl)) && credential_wire(cl, Some{m})
+
+# An echoed copy of our own service credential command has the same privacy
+# policy as the local echo. Other authors and ordinary messages stay chat.
+def credential_echo(+cl: Cl.Client, +line: String) -> Bool:
+  credential_echo.parsed(cl, Irc.parse(line))
+
+def echo_message(private: Bool, cl: Cl.Client, bi: Nat, body: String) -> Cl.Client:
+  match private:
+    case True{}: echo_self(cl, bi, "[credential command sent]")
+    case False{}: echo_self(cl, bi, body)
+
+def send_message.prepared(prepared: Maybe<&2, MessageBody>, +cl: Cl.Client, +bi: Nat) -> Cl.Client & List<&2, String>:
   match prepared:
     case None{}: (echo_err(cl, "message target exceeds IRC line limit"), empty_out())
-    case Some{MessageBody{body, wire}}: (echo_self(cl, bi, body), wire <> Nil{})
+    case Some{MessageBody{body, +wire}}:
+      (echo_message(credential_wire(cl, Irc.parse(wire)), cl, bi, body), wire <> Nil{})
 
 def send_message(cl: Cl.Client, bi: Nat, target: String, body: String) -> Cl.Client & List<&2, String>:
   send_message.prepared(prepare_message(target, body), cl, bi)
@@ -1070,6 +1126,22 @@ def parse_input.empty(+input: String, empty: Bool) -> Input:
 
 def parse_input(+input: String) -> Input:
   parse_input.empty(input, String.is_empty(input))
+
+def input_sensitive.words(+cl: Cl.Client, pair: String & String) -> Bool:
+  match pair:
+    case (target, body): credential_message(cl, target, body)
+
+# Classify the original input against its original active buffer. Submission
+# and simultaneous navigation can change focus before history is retained.
+def input_sensitive.parsed(+cl: Cl.Client, input: Input) -> Bool:
+  match input:
+    case PlainInput{body}: credential_message(cl, Cl.active_buf_name(cl), body)
+    case CommandInput{Msg{}, _, rest}: input_sensitive.words(cl, take_word(rest))
+    case CommandInput{QueryCmd{}, _, rest}: input_sensitive.words(cl, take_word(Irc.drop_spaces(rest)))
+    case _: False{}
+
+def input_sensitive(+cl: Cl.Client, +raw: String) -> Bool:
+  input_sensitive.parsed(cl, parse_input(raw))
 
 def submit_is_open.parsed(input: Input) -> Bool:
   match input:

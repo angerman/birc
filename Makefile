@@ -181,13 +181,16 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
-.PHONY: build-package test-package
+.PHONY: build-package test-package test-keychain-package
 build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
 
 test-package: build-package ## Check installed helper overrides, local images, trust, and clean-environment startup.
 	$(NIXRUN) timeout 75 python3 tests/package.py ./$(BLDDIR)/package-birc
+
+test-keychain-package: build-package ## Installed launcher provenance, clean help, and pre-Keychain refusal controls.
+	$(NIXRUN) timeout 30 python3 tests/keychain_package.py ./$(BLDDIR)/package-birc
 
 test-proto: build-proto ## Run Bend protocol golden harness.
 	$(NIXRUN) sh scripts/check-golden.sh proto_demo=ok ./$(BLDDIR)/birc-proto
@@ -363,6 +366,33 @@ test-auth: ## Parsed SASL exchange, phase gating, and forged chat regression.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/auth_demo.bend -o $(BLDDIR)/auth_demo
 	$(NIXRUN) sh scripts/check-golden.sh auth_demo=ok ./$(BLDDIR)/auth_demo
+
+.PHONY: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge test-auth-bridge-ubsan test-pty-auth test-auth-profiles
+test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope: ## Authentication profile, flag, actor scope, and credential privacy guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+
+test-keychain-wrapper: ## Fake Keychain helper: private launch, safe prompt, and save only on verified success.
+	$(NIXRUN) timeout 60 python3 tests/keychain_birc.py
+
+test-auth-bridge: ## Strict C11: inherited secret/event pipe bounds, privacy, and one-shot ownership.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Isrc/ffi tests/auth_bridge.c -o $(BLDDIR)/auth_bridge'
+	$(NIXRUN) sh scripts/check-golden.sh auth_bridge=ok timeout 15 ./$(BLDDIR)/auth_bridge
+
+test-auth-bridge-ubsan: ## UBSan: inherited authentication descriptors and UTF-8 bounds.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -g -Werror=vla -pedantic -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ffi tests/auth_bridge.c -o $(BLDDIR)/auth_bridge_ubsan'
+	$(NIXRUN) sh scripts/check-golden.sh auth_bridge=ok timeout 15 ./$(BLDDIR)/auth_bridge_ubsan
+
+test-pty-auth: build-ui ## Actual SASL/NickServ, identity probes, hostile replies, and private success pipes.
+	$(NIXRUN) timeout 60 python3 tests/pty/auth_profile.py ./$(BLDDIR)/birc
+
+test-auth-profiles: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge test-pty-auth ## Authentication and secure launcher qualification.
+
+test-review-pure: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge
+test: test-pty-auth
 
 test-state: ## Bounded logging and structural state regressions.
 	@mkdir -p $(BLDDIR)
@@ -831,6 +861,7 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_auth_bridge.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_uikeys/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_uikeys/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
 	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Socket.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend

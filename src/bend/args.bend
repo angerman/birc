@@ -1,8 +1,16 @@
 # CLI flags for birc (IO.args). Pure. app.bend runs parse; tests assert it.
 import Base
+import ./buffer.bend as Cl
+import ./auth.bend as Auth
+
+type AuthOptions is Data:
+  AuthOptions{mode: Cl.AuthMode, prefix: String, success: String}
+
+def auth_options0() -> AuthOptions:
+  AuthOptions{Cl.SaslOnly{}, "", ""}
 
 type Cfg is Data:
-  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String, nick_explicit: Bool}
+  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String, nick_explicit: Bool, auth: AuthOptions}
 
 type Parsed is Data:
   Good{cfg: Cfg}
@@ -12,7 +20,7 @@ type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", "", False{}}
+  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", "", False{}, auth_options0()}
 
 def parse_u32.on(m: Maybe<&2, U32>) -> Num:
   match m:
@@ -26,48 +34,57 @@ def parse_u32(+s: String) -> Num:
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
-      Cfg{demo, n, host, port, nick, chan, replay, su, sp, explicit}
+    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth}:
+      Cfg{demo, n, host, port, nick, chan, replay, su, sp, explicit, auth}
 
 def set_host(+cfg: Cfg, +host: String) -> Cfg:
   match cfg:
-    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp, explicit}:
-      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp, explicit}
+    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp, explicit, auth}:
+      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth}
 
 def set_port(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp, explicit}:
-      Cfg{demo, frames, host, n, nick, chan, replay, su, sp, explicit}
+    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp, explicit, auth}:
+      Cfg{demo, frames, host, n, nick, chan, replay, su, sp, explicit, auth}
 
 def set_nick(+cfg: Cfg, +nick: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp, _}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, True{}}
+    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp, _, auth}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, True{}, auth}
 
 def set_chan(+cfg: Cfg, +chan: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp, explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit}
+    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp, explicit, auth}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth}
 
 def set_replay(+cfg: Cfg, +replay: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp, explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp, explicit, auth}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth}
 
 def set_demo(+cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit}:
-      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp, explicit}
+    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth}:
+      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth}
 
 def set_sasl_user(+cfg: Cfg, +user: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp, explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, user, sp, explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp, explicit, auth}:
+      Cfg{demo, frames, host, port, nick, chan, replay, user, sp, explicit, auth}
 
 def set_sasl_pass(+cfg: Cfg, +pass: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _, explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, pass, explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _, explicit, auth}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, pass, explicit, auth}
+
+def set_auth(+cfg: Cfg, auth: AuthOptions) -> Cfg:
+  match cfg:
+    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, _}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth}
+
+def auth_of(cfg: Cfg) -> AuthOptions:
+  match cfg:
+    case Cfg{_, _, _, _, _, _, _, _, _, _, auth}: auth
 
 # Resolve once after the CLI/environment SASL user is known. Nicknames are
 # values, not sentinels: explicit "birc" and "me" must remain unchanged.
@@ -192,8 +209,41 @@ def args_sasl_pass_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
 def args_sasl_pass(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   args_sasl_pass_con(xs, cfg)
 
+def auth_mode(+value: String) -> Maybe<&2, Cl.AuthMode>:
+  Bool.pick(Maybe<&2, Cl.AuthMode>, String.eq(value, "sasl"), Some{Cl.SaslOnly{}},
+    Bool.pick(Maybe<&2, Cl.AuthMode>, String.eq(value, "nickserv"), Some{Cl.NickServOnly{}},
+      Bool.pick(Maybe<&2, Cl.AuthMode>, String.eq(value, "sasl-nickserv"), Some{Cl.SaslNickServ{}}, None{})))
+
+def args_auth.mode(got: Maybe<&2, Cl.AuthMode>, t: List<&2, String>, +cfg: Cfg, prefix: String, success: String) -> Step:
+  match got:
+    case None{}: Stop{Bad{"birc: --auth expects sasl, nickserv, or sasl-nickserv"}}
+    case Some{mode}: Go{t, set_auth(cfg, AuthOptions{mode, prefix, success})}
+
+def args_auth.options(options: AuthOptions, t: List<&2, String>, +cfg: Cfg, +value: String, which: U32) -> Step:
+  match options:
+    case AuthOptions{mode, prefix, success}:
+      match which:
+        case 0: args_auth.mode(auth_mode(value), t, cfg, prefix, success)
+        case 1: Go{t, set_auth(cfg, AuthOptions{mode, value, success})}
+        case _: Go{t, set_auth(cfg, AuthOptions{mode, prefix, value})}
+
+def args_auth(xs: List<&2, String>, +cfg: Cfg, which: U32) -> Step:
+  match xs:
+    case Nil{}: Stop{Bad{"birc: missing value"}}
+    case Con{value, t}: args_auth.options(auth_of(cfg), t, cfg, value, which)
+
+def auth_options_valid(options: AuthOptions) -> Bool:
+  match options:
+    case AuthOptions{mode, +prefix, +success}:
+      Auth.valid_config(mode, prefix, success)
+
+def args_finish(valid: Bool, cfg: Cfg) -> Step:
+  match valid:
+    case True{}: Stop{Good{cfg}}
+    case False{}: Stop{Bad{"birc: NickServ authentication requires an exact --nickserv-prefix and control-free --nickserv-success"}}
+
 def USAGE() -> String:
-  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--demo] [--help-irc]"
+  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc]"
 
 type Flag is Data:
   FDemo{}
@@ -205,6 +255,9 @@ type Flag is Data:
   FReplay{}
   FSaslUser{}
   FSaslPass{}
+  FAuth{}
+  FNickServPrefix{}
+  FNickServSuccess{}
   FHelp{}
   FUnknown{}
 
@@ -212,7 +265,7 @@ type FlagRow is Data:
   FlagRow{name: String, f: Flag}
 
 def flag_rows() -> List<&2, FlagRow>:
-  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--help-irc", FHelp{}} <> Nil{}
+  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--auth", FAuth{}} <> FlagRow{"--nickserv-prefix", FNickServPrefix{}} <> FlagRow{"--nickserv-success", FNickServSuccess{}} <> FlagRow{"--help-irc", FHelp{}} <> Nil{}
 
 def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
   match xs:
@@ -243,6 +296,12 @@ def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
       args_sasl_user(t, cfg)
     case FSaslPass{}:
       args_sasl_pass(t, cfg)
+    case FAuth{}:
+      args_auth(t, cfg, 0)
+    case FNickServPrefix{}:
+      args_auth(t, cfg, 1)
+    case FNickServSuccess{}:
+      args_auth(t, cfg, 2)
     case FHelp{}:
       Stop{Bad{USAGE()}}
     case FUnknown{}:
@@ -251,7 +310,7 @@ def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
 def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
     case Nil{}:
-      Stop{Good{cfg}}
+      args_finish(auth_options_valid(auth_of(cfg)), cfg)
     case Con{+h, t}:
       args_opt.do(t, cfg, h, flag_of(flag_rows(), h))
 

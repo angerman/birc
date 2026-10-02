@@ -455,12 +455,52 @@ def purge_nick_buf(b: Buffer, +nick: String) -> Buffer:
       +kept = purge_nick_lines(lines, nick)
       Buffer{name, is_ch, topic, kept, nicks, reanchor_lines(lines, kept, scroll)}
 
+type AuthMode is Data:
+  SaslOnly{}
+  NickServOnly{}
+  SaslNickServ{}
+
+type AuthConfig is Data:
+  AuthDisabled{}
+  AuthConfig{mode: AuthMode, host: String, port: U32, prefix: String, success: String}
+
 type AuthPhase is Data:
   AuthIdle{}
   AuthCap{}
   AuthChallenge{}
   AuthResult{}
   AuthDone{}
+  AuthNickWait{}
+  AuthNickProbe{}
+  AuthNickResult{}
+  AuthProfile{phase: AuthPhase, config: AuthConfig, success_seq: Nat}
+
+# The profile is one wrapper in production. Keep the old phase seam and all
+# container arities, while configuration and success survive phase updates.
+def auth_phase(phase: AuthPhase) -> AuthPhase:
+  match phase:
+    case AuthProfile{inner, _, _}: auth_phase(inner)
+    case _: phase
+
+def auth_config(phase: AuthPhase) -> AuthConfig:
+  match phase:
+    case AuthProfile{_, config, _}: config
+    case _: AuthDisabled{}
+
+def auth_seq(phase: AuthPhase) -> Nat:
+  match phase:
+    case AuthProfile{_, _, seq}: seq
+    case _: 0n
+
+def auth_phase_set(state: AuthPhase, phase: AuthPhase) -> AuthPhase:
+  match state:
+    case AuthProfile{_, config, seq}: AuthProfile{auth_phase(phase), config, seq}
+    case _: auth_phase(phase)
+
+def auth_seq_advance(state: AuthPhase) -> AuthPhase:
+  match state:
+    case AuthProfile{phase, config, seq}: AuthProfile{phase, config, Nat.add(seq, 1n)}
+    case _: state
 
 type Client is Data:
   Client{
@@ -476,12 +516,41 @@ type Client is Data:
 
 def get_auth(+cl: Client) -> AuthPhase:
   match cl:
-    case Client{_, _, _, _, _, _, auth, _}: auth
+    case Client{_, _, _, _, _, _, auth, _}: auth_phase(auth)
+
+def client_auth_config(+cl: Client) -> AuthConfig:
+  match cl:
+    case Client{_, _, _, _, _, _, auth, _}: auth_config(auth)
+
+def auth_success_seq(+cl: Client) -> Nat:
+  match cl:
+    case Client{_, _, _, _, _, _, auth, _}: auth_seq(auth)
+
+def auth_config_prefix(config: AuthConfig) -> String:
+  match config:
+    case AuthDisabled{}: ""
+    case AuthConfig{_, _, _, prefix, _}: prefix
+
+def client_auth_prefix(+cl: Client) -> String:
+  auth_config_prefix(client_auth_config(cl))
+
+def client_auth_service(+cl: Client) -> String:
+  Irc.nick_of_prefix(client_auth_prefix(cl))
+
+def set_auth_state(+cl: Client, state: AuthPhase) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, _, seq}:
+      Client{nick, server, bufs, active, now, stg, state, seq}
 
 def set_auth(+cl: Client, phase: AuthPhase) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, _, seq}:
-      Client{nick, server, bufs, active, now, stg, phase, seq}
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      Client{nick, server, bufs, active, now, stg, auth_phase_set(auth, phase), seq}
+
+def advance_auth_success(+cl: Client) -> Client:
+  match cl:
+    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+      Client{nick, server, bufs, active, now, stg, auth_seq_advance(auth), seq}
 
 def log_seq_of(+cl: Client) -> Nat:
   match cl:
@@ -546,12 +615,69 @@ def auth_for_credentials(has: Bool) -> AuthPhase:
     case True{}: AuthCap{}
     case False{}: AuthIdle{}
 
+def auth_mode_sasl(mode: AuthMode) -> Bool:
+  match mode:
+    case NickServOnly{}: False{}
+    case _: True{}
+
+def auth_initial_mode(mode: AuthMode) -> AuthPhase:
+  match mode:
+    case NickServOnly{}: AuthNickWait{}
+    case _: AuthCap{}
+
+def auth_initial_config(config: AuthConfig) -> AuthPhase:
+  match config:
+    case AuthDisabled{}: AuthIdle{}
+    case AuthConfig{mode, _, _, _, _}: auth_initial_mode(mode)
+
+def auth_initial(has: Bool, config: AuthConfig) -> AuthPhase:
+  match has:
+    case False{}: AuthIdle{}
+    case True{}: auth_initial_config(config)
+
+def client_credentials(+cl: Client, +u: String, +p: String) -> Client:
+  set_settings(cl, set_sasl_pass(set_sasl_user(get_settings(cl), u), p))
+
+def client_set_auth(+cl: Client, +mode: AuthMode, +host: String, +port: U32, +prefix: String, +success: String, +u: String, +p: String) -> Client:
+  +config: AuthConfig = AuthConfig{mode, host, port, prefix, success}
+  +ready = Bool.not(String.is_empty(u) || String.is_empty(p))
+  set_auth_state(client_credentials(cl, u, p), AuthProfile{auth_initial(ready, config), config, 0n})
+
 def client_set_sasl(+cl: Client, +u: String, +p: String) -> Client:
-  +cl2 = set_settings(cl, set_sasl_pass(set_sasl_user(get_settings(cl), u), p))
-  set_auth(cl2, auth_for_credentials(Bool.not(String.is_empty(u)) && Bool.not(String.is_empty(p))))
+  match cl:
+    case Client{_, +server, _, _, _, _, _, _}:
+      client_set_auth(cl, SaslOnly{}, server, 6667, "", "", u, p)
+
+def auth_config_sasl(config: AuthConfig) -> Bool:
+  match config:
+    case AuthDisabled{}: False{}
+    case AuthConfig{mode, _, _, _, _}: auth_mode_sasl(mode)
+
+def client_has_credentials(+cl: Client) -> Bool:
+  Bool.not(String.is_empty(client_sasl_user(cl))) && Bool.not(String.is_empty(client_sasl_pass(cl)))
 
 def client_has_sasl(+cl: Client) -> Bool:
-  Bool.not(String.is_empty(client_sasl_user(cl))) && Bool.not(String.is_empty(client_sasl_pass(cl)))
+  client_has_credentials(cl) && auth_config_sasl(client_auth_config(cl))
+
+def reset_auth(+cl: Client) -> Client:
+  set_auth(cl, auth_initial(client_has_credentials(cl), client_auth_config(cl)))
+
+def clear_auth(+cl: Client) -> Client:
+  set_auth_state(client_credentials(cl, "", ""), AuthProfile{AuthIdle{}, AuthDisabled{}, auth_success_seq(cl)})
+
+def scope_auth_endpoint.allowed(same: Bool, +cl: Client) -> Client:
+  match same:
+    case True{}: cl
+    case False{}: clear_auth(cl)
+
+def scope_auth_endpoint.config(config: AuthConfig, +cl: Client, +host: String, +port: U32) -> Client:
+  match config:
+    case AuthDisabled{}: clear_auth(cl)
+    case AuthConfig{_, wanted, p, _, _}:
+      scope_auth_endpoint.allowed(String.eq(wanted, host) && U32.is_eq(p, port), cl)
+
+def scope_auth_endpoint(+cl: Client, +host: String, +port: U32) -> Client:
+  scope_auth_endpoint.config(client_auth_config(cl), cl, host, port)
 
 # ---- list helpers -------------------------------------------------------
 

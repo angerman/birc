@@ -38,6 +38,10 @@
           type = "app";
           program = "${self.packages.${system}.birc}/bin/birc";
         };
+        keychain-birc = {
+          type = "app";
+          program = "${self.packages.${system}.birc}/bin/keychain-birc";
+        };
       });
 
       devShells = forAllSystems (system:

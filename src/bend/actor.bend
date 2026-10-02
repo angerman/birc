@@ -318,6 +318,21 @@ def dial_begin(
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
     after_dns(r, port, nick, gen, evt, boot, live, has_sasl, k)
 
+type AuthScope is Data:
+  AuthScope{host: String, port: U32, enabled: Bool}
+
+def auth_scope_enabled(scope: AuthScope) -> Bool:
+  match scope:
+    case AuthScope{_, _, enabled}: enabled
+
+# The launch enables negotiation for one exact endpoint. Once a Dial leaves
+# it, returning later cannot restore credentials that Session already dropped.
+def auth_scope_dial(scope: AuthScope, +host: String, +port: U32) -> AuthScope:
+  match scope:
+    case AuthScope{+initial_host, +initial_port, enabled}:
+      AuthScope{initial_host, initial_port,
+        enabled && String.eq(initial_host, host) && U32.is_eq(initial_port, port)}
+
 type Writer is Type:
   Writer{socket: Maybe<&1, Socket>, gen: U32, pending: List<&2, String>, budget: Out.Budget, scheduled: Bool}
 
@@ -409,40 +424,50 @@ def writer_pump(same: Bool, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.
         case Writer{sock, gen, pending, budget, _}:
           writer_queue(Writer{sock, gen, pending, budget, False{}}, Nil{}, evt, cmd, k)
 
-def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool, k: Writer -> IO(Unit)) -> IO(Unit):
+def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +scope: AuthScope, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match c:
-    case Sess.Cont{outs}: writer_queue(st, outs, evt, cmd, k)
-    case Sess.OpenUrl{_}: k(st)
+    case Sess.Cont{outs}: writer_queue(st, outs, evt, cmd, next => k((next, scope)))
+    case Sess.OpenUrl{_}: k((st, scope))
     case Sess.Pump{pgen}:
       match st:
         case Writer{sock, +gen, pending, budget, scheduled}:
-          writer_pump(U32.is_eq(pgen, gen), Writer{sock, gen, pending, budget, scheduled}, evt, cmd, k)
+          writer_pump(U32.is_eq(pgen, gen), Writer{sock, gen, pending, budget, scheduled}, evt, cmd, next => k((next, scope)))
     case Sess.Drop{}:
       match st:
         case Writer{sock, gen, _, budget, _}:
           do IO<Unit>:
             Unit <- close_socket(sock)
-            k(Writer{None{}, gen, Nil{}, budget, False{}})
-    case Sess.Dial{+host, port, gen, +nick}:
+            k((Writer{None{}, gen, Nil{}, budget, False{}}, scope))
+    case Sess.Dial{+host, +port, gen, +nick}:
       match st:
         case Writer{sock, _, _, budget, _}:
+          +next_scope = auth_scope_dial(scope, host, port)
           do IO<Unit>:
             Unit <- close_socket(sock)
-            dial_begin(host, port, nick, gen, evt, boot, False{}, has_sasl, pair => k(writer_adopt(pair, budget)))
+            dial_begin(host, port, nick, gen, evt, boot, False{}, auth_scope_enabled(next_scope),
+              pair => k((writer_adopt(pair, budget), next_scope)))
 
-def writer_received(g: Maybe<&1, Sess.NetCmd>, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool, k: Writer -> IO(Unit)) -> IO(Unit):
+def writer_received(g: Maybe<&1, Sess.NetCmd>, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), scope: AuthScope, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match g:
     case None{}: writer_finish(st, evt)
-    case Some{c}: writer_command(c, st, evt, cmd, boot, has_sasl, k)
+    case Some{c}: writer_command(c, st, evt, cmd, boot, scope, k)
 
 @unsafe
-def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool) -> IO(Unit):
-  do IO<Unit>:
-    g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-    writer_received(g, st, evt, cmd, boot, has_sasl, next => writer_go(next, evt, cmd, boot, has_sasl))
+def writer_loop(state: Writer & AuthScope, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot)) -> IO(Unit):
+  match state:
+    case (st, scope):
+      do IO<Unit>:
+        g : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+        writer_received(g, st, evt, cmd, boot, scope, next => writer_loop(next, evt, cmd, boot))
+
+# Direct writer fixtures have no launch endpoint. Preserve their seam, but an
+# unidentified writer cannot enable SASL on a later Dial.
+def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool) -> IO(Unit):
+  writer_loop((st, AuthScope{"", 0, has_sasl}), evt, cmd, boot)
 
 def actor_boot(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool, frames: U32) -> IO(Unit):
-  dial_begin(host, port, nick, gen, evt, boot, True{}, has_sasl, st => writer_go(writer_adopt(st, Out.budget_frames(frames)), evt, cmd, boot, has_sasl))
+  dial_begin(host, port, nick, gen, evt, boot, True{}, has_sasl,
+    st => writer_loop((writer_adopt(st, Out.budget_frames(frames)), AuthScope{host, port, has_sasl}), evt, cmd, boot))
 
 def idle_start(+evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), frames: U32) -> IO(Unit):
   do IO<Unit>:

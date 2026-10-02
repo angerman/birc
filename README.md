@@ -223,11 +223,90 @@ Run `./build/birc --help-irc` for a full summary:
 | `--demo` | — | Run offline demo with canned mock activity |
 | `--replay` | `<file>` | Feed an IRC log capture into the client and launch UI |
 | `--frames` | `<n>` | Run for `n` frames/ticks (headless batch test if stdin not a tty) |
+| `--sasl-user` | `<account>` | Authentication account; defaults to `BIRC_SASL_USER` |
+| `--sasl-pass` | `<password>` | Legacy secret flag; prefer the Keychain wrapper, not process arguments |
+| `--auth` | `sasl`, `nickserv`, `sasl-nickserv` | SASL by default; explicit NickServ or unavailable-SASL fallback |
+| `--nickserv-prefix` | `nick!user@host` | Exact trusted service identity; no wildcard masks |
+| `--nickserv-success` | `<text>` | Exact successful NOTICE text after IRC formatting controls are removed |
 | `--help-irc` | — | Show birc client command-line options |
 
 An explicit `--nick` always wins, including `me` and `birc`. Without `--nick`,
 the SASL username supplies the nickname when configured; otherwise it is `birc`.
 This default is resolved after CLI and environment SASL settings are combined.
+
+### Authentication profiles and macOS Keychain
+
+`keychain-birc` keeps passwords in macOS Keychain, not the profile file.
+Create `~/.config/birc/config.toml` (or `$XDG_CONFIG_HOME/birc/config.toml`):
+
+```toml
+[profiles.work]
+host = "127.0.0.1"
+port = 16667
+trusted_relay = true
+account = "myaccount"
+nick = "mynick"
+auth = "sasl"
+```
+
+This example assumes an existing trusted local TLS relay. The wrapper does
+not create one or verify its TLS configuration. Without an explicit unsafe
+opt-in, it requires `trusted_relay = true` and an IPv4 loopback address.
+The owned profile file must be a regular file, not a symlink, and must not
+allow group or other users to write it. Password fields are rejected.
+
+```sh
+chmod 600 ~/.config/birc/config.toml
+nix run .#keychain-birc -- --profile work --channel '#birc'
+# For a plaintext endpoint, accept the password exposure risk for this launch:
+nix run .#keychain-birc -- --profile work --allow-insecure-auth
+```
+
+The wrapper uses `/usr/bin/security` to find the profile/account password.
+If none is usable, it prompts with terminal echo disabled. It saves a newly
+entered password only after the client confirms actual authentication on the
+initial endpoint. Exit status, welcome messages, and printed text do not
+count as success. An existing Keychain item is never overwritten. Denied
+Keychain access, failed authentication, or cancelled input does not save it.
+To replace a saved password, remove its `birc.auth.v1:` item in Keychain Access
+and launch the profile again. The wrapper does not silently update an item.
+Keychain items use a versioned `birc.auth.v1:` service name and an encoded
+`birc-v1:` value to preserve spaces and Unicode. This encoding is not encryption;
+Keychain supplies storage protection. No secret is placed in child arguments,
+environment variables, temporary files, diagnostic logs, or chat history.
+
+To use NickServ, select `auth = "nickserv"`. To prefer SASL and fall back only
+when SASL is explicitly unavailable, select `auth = "sasl-nickserv"`. Both
+require network-specific trusted metadata, for example:
+
+```toml
+nickserv_prefix = "NickServ!service@services.example"
+nickserv_success = "You are now identified for myaccount."
+```
+
+Replace both values with the service's real identity and successful NOTICE.
+Use a trusted network or relay that reserves and controls the service nickname.
+IRC messages address nicknames, so the prefix probe does not cryptographically
+bind the recipient or protect against a compromised server or nickname takeover.
+The client first sends a harmless `HELP` request. Only a NOTICE from that exact
+full identity, directed to the current nick, releases the `IDENTIFY` password.
+Only the exact configured confirmation then marks authentication successful.
+NickServ credentials must fit one IRC line and contain no whitespace; invalid
+credentials are not truncated or sent.
+There is no fallback after a bad SASL password. Changing host or port clears
+the loaded credentials for the rest of that client session, even if you return
+to the original endpoint. Start the wrapper again to load another profile.
+
+Direct launches still support `BIRC_SASL_USER` and `BIRC_SASL_PASS`; a nonempty
+CLI value takes precedence. They do not persist a password. IRC itself is still
+plaintext, including SASL PLAIN and NickServ IDENTIFY. Use a trusted TLS relay
+unless you accept this risk explicitly. The unsafe flag belongs to the wrapper,
+not the core IRC client.
+
+Automatic authentication bypasses the composer. Manual service credential
+commands retain their wire text but use a redacted local echo and skip command
+history; their own server echoes are also suppressed. Text typed manually in
+the composer remains visible. Prefer the wrapper for private password entry.
 
 ### Stored history
 
@@ -409,6 +488,8 @@ make test-live             # Run mock IRC socket handshake test
 make test-package          # Installed wrapper, local images, helper overrides, offline CA
 make check-hardening       # Bounded hostile, sanitizer, and performance checks
 make lint-ffi              # Strict syntax and compiler warning lint of C FFI
+make test-auth-profiles    # Auth state, privacy, Keychain fakes, pipes, and real loopback PTY
+make test-auth-bridge-ubsan # Authentication pipe guard with UBSan
 make clean                 # Remove build artifacts
 ```
 

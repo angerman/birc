@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-{ lib, stdenv, bend, clang, makeWrapper, callPackage }:
+{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3 }:
 
 let media = callPackage ./media.nix {};
 in stdenv.mkDerivation {
@@ -27,9 +27,13 @@ in stdenv.mkDerivation {
 
   installPhase = ''
     runHook preInstall
-    mkdir -p $out/bin
+    mkdir -p $out/bin $out/libexec
     cp birc $out/bin/birc
     wrapProgram $out/bin/birc --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image"
+    cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
+    makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
+      --add-flags $out/libexec/keychain_birc.py \
+      --set-default BIRC_PROGRAM "$out/bin/birc"
     runHook postInstall
   '';
 

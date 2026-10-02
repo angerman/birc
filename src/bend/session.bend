@@ -54,15 +54,20 @@ def fold_step.lag(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: Str
 def fold_step.auth.fed(fed: FoldAcc, phase: Cl.AuthPhase, outs: List<&2, String>, notice: Auth.Notice) -> FoldAcc:
   match fed:
     case FoldAcc{+cl, pongs, +now_ms}:
-      FoldAcc{Auth.log_notice(Cl.set_auth(cl, phase), notice), List.append(&2, String, List.reverse(&2, String, outs), pongs), now_ms}
+      FoldAcc{Auth.apply_reply(cl, phase, notice), List.append(&2, String, List.reverse(&2, String, outs), pongs), now_ms}
+
+def fold_step.auth.feed(consumed: Bool, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
+  match consumed:
+    case True{}: FoldAcc{cl, pongs, now_ms}
+    case False{}: fold_step.lag(cl, pongs, now_ms, h)
 
 def fold_step.auth(reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
   match reply:
     case Auth.Reply{phase, outs, notice}:
-      fold_step.auth.fed(fold_step.lag(cl, pongs, now_ms, h), phase, outs, notice)
+      fold_step.auth.fed(fold_step.auth.feed(Auth.consume_line(cl, h) || Sub.credential_echo(cl, h), cl, pongs, now_ms, h), phase, outs, notice)
 
 def fold_step.sasl(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
-  fold_step.auth(Auth.step(Cl.get_auth(cl), Irc.sasl_event.line(Irc.parse(h)), Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl)), cl, pongs, now_ms, h)
+  fold_step.auth(Auth.step_for(cl, h), cl, pongs, now_ms, h)
 
 def fold_step.ping(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool) -> FoldAcc:
   match ping:
@@ -1100,7 +1105,7 @@ def session_needs_reconnect_marker(+st: Session) -> Bool:
 def session_reset_auth(st: Session) -> Session:
   match st:
     case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media}:
-      Session{Cl.set_auth(cl, Cl.auth_for_credentials(Cl.client_has_sasl(cl))), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}
+      Session{Cl.reset_auth(cl), drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media}
 
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
@@ -1217,7 +1222,7 @@ def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client
           Cl.client_set_lag(Cl.Client{nick, host, Cl.server_buf() <> Cl.log_buffers(cl), 0n, now, clean, auth, seq}, 0)
 
 def endpoint_client(+cl: Cl.Client, +host: String, +old_port: U32, +new_port: U32) -> Cl.Client:
-  endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), cl, host)
+  endpoint_client.same(Irc.ieq(Cl.server_of(cl), host) && U32.is_eq(old_port, new_port), Cl.scope_auth_endpoint(cl, host, new_port), host)
 
 # A first connection and a changed endpoint have no reconnect boundary.
 # Preserve the same-endpoint intent while the socket is being opened.
@@ -1558,8 +1563,7 @@ def finish_keys.nav(
 ) -> Session & NetCmd & Bool:
   match pair:
     case (cl3, split3):
-      +h2 = hist_after_enter(hist, typed, enter)
-      finish_keys.comp(is_comp, drop, rem, joined, chan, net, cl3, cmd, h2, size, comp, split3, typing, port, typed, draft2, hdir, enter, media)
+      finish_keys.comp(is_comp, drop, rem, joined, chan, net, cl3, cmd, hist, size, comp, split3, typing, port, typed, draft2, hdir, enter, media)
 
 def finish_keys(
   drop: Bool,
@@ -1587,7 +1591,8 @@ def step_keys.base(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
     case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
-          finish_keys(drop, rem, joined, chan, net, keys, hist, size, comp, typing, port, submit_or_split(cl, split, net, port, typed, enter), media)
+          +hist2 = hist_after_enter(hist, typed, enter && Bool.not(Sub.input_sensitive(cl, typed)))
+          finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split(cl, split, net, port, typed, enter), media)
 
 def session_media(st: Session) -> M.State:
   match st:
