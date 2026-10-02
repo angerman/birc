@@ -15,8 +15,9 @@ When using timui.h:
 
 `birc` is an IRC client: **Bend 2 owns main, protocol, client, submit, framer,
 networking, and the frame loop**; C is thin native FFI under `src/ffi/`.
-IRC uses verified OpenSSL TLS on port 6697 or with `--tls`; legacy port 6667
-remains plaintext by default. Never hand-roll cryptography, disable certificate
+IRC defaults to verified OpenSSL TLS and port 6697. `--plain` explicitly selects
+plaintext and defaults to 6667; `--tls` and `--plain` conflict. An explicit port
+never selects the transport. Never hand-roll cryptography, disable certificate
 verification, or fall back to plaintext after TLS failure. No ncurses or curl-pipe
 installers. Remote image previews may use the provisioned Python/Pillow helper
 with standard-library HTTPS certificate verification.
@@ -37,7 +38,7 @@ make bootstrap   # create flake.lock (once)
 make shell       # enter the locked shell
 make check       # proof + Bend tests + net + UI smoke
 make run-demo    # offline TimUI demo
-make run HOST=… PORT=6697  # live verified TLS IRC (Bend net + TimUI.frame)
+make run HOST=…  # live verified TLS IRC; optional PORT=… or TRANSPORT=plain
 ```
 
 Do not use Homebrew/global installs, ambient compilers, `sudo make`, or
@@ -64,7 +65,8 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/upload_io.bend` | Bounded uploader process; never forward child diagnostics |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
-| `src/bend/transport_policy.bend` | Pure TLS port/default policy for CLI, actor, and proofs |
+| `src/bend/endpoint.bend` | Shared DNS/IPv4 host:port syntax and conflicting-port checks |
+| `src/bend/transport_policy.bend` | Pure transport/default-port policy for CLI and proofs |
 | `src/bend/transport.bend` / `src/bend/tls.bend` | Affine plaintext/TLS connection dispatch and TLS effect declarations |
 | `src/ffi/tls_ffi.c` | Verified OpenSSL transport; no IRC parsing or authentication policy |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
@@ -82,8 +84,10 @@ silent flake/source pin updates. Routine Nix work uses
   Reader/writer handles share one TLS connection on the pinned serial IO loop.
   Preserve exact OpenSSL retry buffers; shutdown must wake the shared reader.
   Tests use synthetic certificates and owned loopback peers, never live accounts.
-  `--tls` persists across later Dials; `/connect HOST` retains the legacy slash
-  default 6667, so use an explicit secure port when switching TLS servers.
+  The launch transport persists across later Dials. `/connect HOST[:PORT] [PORT]`
+  rejects conflicting explicit ports; an omitted port reuses the Session port.
+  `/reconnect` preserves the exact saved host/port. Preserve host spelling and
+  terminal DNS root dots for credential scope; IPv6 remains unsupported.
   Explicit `SSL_CERT_FILE`/`SSL_CERT_DIR` overrides must not be silently replaced
   by Nix trust defaults. Explicit CA files use descriptor-checked regular-file
   snapshots capped at 8 MiB, parsed by OpenSSL without password prompts. Remote

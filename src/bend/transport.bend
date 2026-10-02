@@ -4,7 +4,6 @@
 import Base
 import ./dns.bend as Dns
 import ./tls.bend as Tls
-import ./transport_policy.bend as Policy
 
 type Conn is Type:
   Plain{socket: Socket}
@@ -30,10 +29,10 @@ def connected(r: Result<&1, &1, U32 & String, Socket>, +host: String, secure: Bo
 
 # DNS may resolve a different address. Verification always uses the requested
 # hostname, not the address chosen for TCP. There is no plaintext retry.
-def connect_for(+ip: String, +port: U32, +host: String, force_tls: Bool) -> IO(Result<&1, &1, U32 & String, Conn>):
+def connect_for(+ip: String, +port: U32, +host: String, secure: Bool) -> IO(Result<&1, &1, U32 & String, Conn>):
   do IO<Result<&1, &1, U32 & String, Conn>>:
     r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for(ip, port, 1000)
-    connected(r, host, Policy.enabled(force_tls, port))
+    connected(r, host, secure)
 
 def send_plain(pair: Socket & Result<&1, &1, U32 & String, Unit>) -> Conn & Result<&1, &1, U32 & String, Unit>:
   match pair:

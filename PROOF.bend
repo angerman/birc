@@ -12,19 +12,46 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
-def Laws.secure_irc_port_requires_tls():
+def Laws.default_irc_transport_is_tls():
   {==}
 
-def Laws.tls_flag_requires_tls_on_other_ports():
+def Laws.explicit_tls_keeps_plain_number_port():
   {==}
 
-def Laws.legacy_irc_port_is_plain_by_default():
+def Laws.plain_default_uses_legacy_port():
   {==}
 
-def Laws.tls_default_keeps_explicit_port():
+def Laws.explicit_plain_keeps_secure_number_port():
+  {==}
+
+def Laws.tls_default_keeps_explicit_port(secure, port):
   {==}
 
 def Laws.tls_default_uses_secure_port():
+  {==}
+
+def Laws.transport_selectors_cannot_conflict():
+  {==}
+
+def Laws.endpoint_keeps_original_host_identity():
+  {==}
+
+def Laws.endpoint_same_explicit_ports_agree():
+  {==}
+
+def Laws.endpoint_differing_explicit_ports_refuse():
+  {==}
+
+def Laws.endpoint_port_is_bounded():
+  {==}
+
+def Laws.endpoint_ipv6_is_not_supported():
+  {==}
+
+def Laws.unknown_command_is_not_implicit_upload(rest):
+  {==}
+
+def Laws.path_shaped_drop_still_requires_upload_consent():
   {==}
 
 def Laws.upload_requires_physical_consent():

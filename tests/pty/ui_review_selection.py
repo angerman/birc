@@ -110,7 +110,7 @@ def main():
            'PATH': '/nonexistent-audit-path'}
     for key in ('BIRC_DIE_AFTER_OPEN', 'BIRC_FRAME_PROFILE', 'BIRC_FORCE_IMAGE_PROTOCOL', 'TIMUI_TRACE'):
         env.pop(key, None)
-    proc = subprocess.Popen([BIRC, '--demo', '--frames', '0'],
+    proc = subprocess.Popen([BIRC, '--plain', '--demo', '--frames', '0'],
                             stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True)
     os.close(slave)
     stages = {}

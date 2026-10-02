@@ -4,7 +4,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./links.bend as Links
-import ./args.bend as Args
+import ./endpoint.bend as Endpoint
 import ./diagnostic.bend as Diagnostic
 
 def empty_out() -> List<&2, String>:
@@ -459,40 +459,38 @@ def submit_unknown(+cl: Cl.Client, +verb: String) -> Cl.Client & List<&2, String
 type Conn is Data:
   ConnBad{}
   ConnOk{host: String, port: U32}
+  ConnDefault{host: String}
   ConnReconnect{}
 
-def connect_port.range(+host: String, +p: U32, bad: Bool) -> Conn:
-  match bad:
-    case True{}:
-      ConnBad{}
-    case False{}:
-      ConnOk{host, p}
-
-def connect_port.num(+host: String, got: Maybe<&2, U32>) -> Conn:
+def connect_resolved(got: Maybe<&1, String & U32>) -> Conn:
   match got:
-    case None{}:
-      ConnBad{}
-    case Some{+p}:
-      connect_port.range(host, p, U32.is_eq(p, 0) || U32.is_gt(p, Args.PORT_MAX()))
+    case None{}: ConnBad{}
+    case Some{(host, port)}: ConnOk{host, port}
 
-def connect_port.on(+host: String, +more: String, empty: Bool) -> Conn:
-  match empty:
-    case True{}:
-      ConnOk{host, 6667}
-    case False{}:
-      connect_port.num(host, U32.read(more))
+def connect_separate(got: Maybe<&2, U32>, endpoint: Endpoint.Endpoint) -> Conn:
+  match got:
+    case None{}: ConnBad{}
+    case Some{port}: connect_resolved(Endpoint.resolve(endpoint, Some{port}, 6697))
 
-def connect_parse.host(+host: String, +more: String, empty: Bool) -> Conn:
+def connect_endpoint.default(endpoint: Endpoint.Endpoint) -> Conn:
+  match endpoint:
+    case Endpoint.Endpoint{host, None{}}: ConnDefault{host}
+    case Endpoint.Endpoint{host, Some{port}}: ConnOk{host, port}
+
+def connect_endpoint.empty(endpoint: Endpoint.Endpoint, more: String, empty: Bool) -> Conn:
   match empty:
-    case True{}:
-      ConnBad{}
-    case False{}:
-      connect_port.on(host, more, String.is_empty(more))
+    case True{}: connect_endpoint.default(endpoint)
+    case False{}: connect_separate(Endpoint.port(more), endpoint)
+
+def connect_endpoint(parsed: Result<&2, &2, String, Endpoint.Endpoint>, +more: String) -> Conn:
+  match parsed:
+    case Fail{_}: ConnBad{}
+    case Done{endpoint}: connect_endpoint.empty(endpoint, more, String.is_empty(more))
 
 def connect_parse.words(pair: String & String) -> Conn:
   match pair:
     case (+host, +more):
-      connect_parse.host(host, more, String.is_empty(host))
+      connect_endpoint(Endpoint.parse(host), more)
 
 def connect_parse(+rest: String) -> Conn:
   connect_parse.words(take_word(Irc.drop_spaces(rest)))
@@ -1334,15 +1332,13 @@ def connect_parse_ok.on(c: Conn) -> Bool:
       False{}
     case ConnReconnect{}:
       False{}
+    case ConnDefault{_}:
+      False{}
 
 def connect_default_ok.on(c: Conn) -> Bool:
   match c:
-    case ConnOk{_, p}:
-      U32.is_eq(p, 6667)
-    case ConnBad{}:
-      False{}
-    case ConnReconnect{}:
-      False{}
+    case ConnDefault{_}: True{}
+    case _: False{}
 
 def connect_bad.on(c: Conn) -> Bool:
   match c:
@@ -1351,6 +1347,8 @@ def connect_bad.on(c: Conn) -> Bool:
     case ConnOk{_, _}:
       False{}
     case ConnReconnect{}:
+      False{}
+    case ConnDefault{_}:
       False{}
 
 def connect_port_range_ok() -> Bool:

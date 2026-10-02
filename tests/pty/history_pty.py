@@ -86,6 +86,7 @@ def main() -> int:
         proc1 = subprocess.Popen(
             [
                 birc,
+                "--plain",
                 "--connect",
                 "127.0.0.1",
                 "--port",
@@ -177,6 +178,7 @@ def main() -> int:
         proc2 = subprocess.Popen(
             [
                 birc,
+                "--plain",
                 "--connect",
                 "127.0.0.1",
                 "--port",
@@ -276,6 +278,7 @@ def main() -> int:
         proc3 = subprocess.Popen(
             [
                 birc,
+                "--plain",
                 "--connect",
                 "127.0.0.1",
                 "--port",

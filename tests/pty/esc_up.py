@@ -60,6 +60,7 @@ def split_once(birc: str) -> str:
     proc = subprocess.Popen(
         [
             birc,
+            "--plain",
             "--connect",
             "127.0.0.1",
             "--port",
@@ -112,7 +113,7 @@ def lone_esc(birc: str) -> bool:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--demo", "--frames", "0"],
+        [birc, "--plain", "--demo", "--frames", "0"],
         stdin=slave,
         stdout=slave,
         stderr=slave,

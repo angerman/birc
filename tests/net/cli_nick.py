@@ -13,7 +13,7 @@ def capture(label, options, expected, env_user=""):
         env = dict(os.environ, BIRC_HISTORY="none", BIRC_IMAGES="off",
                    BIRC_SASL_USER=env_user, BIRC_SASL_PASS="synthetic")
         proc = subprocess.Popen(
-            [sys.argv[1], "--connect", "127.0.0.1", "--port",
+            [sys.argv[1], "--plain", "--connect", "127.0.0.1", "--port",
              str(listener.getsockname()[1]), "--frames", "2",
              "--channel", "#audit", *options], stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)

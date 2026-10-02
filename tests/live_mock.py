@@ -48,6 +48,7 @@ def main() -> int:
     proc = subprocess.Popen(
         [
             birc,
+            "--plain",
             "--connect",
             "127.0.0.1",
             "--port",
@@ -67,71 +68,77 @@ def main() -> int:
     )
     os.close(slave)
     out = bytearray()
+    conn = None
     try:
-        conn, _ = srv.accept()
-    except socket.timeout:
-        proc.kill()
-        print("live_mock: accept timeout", file=sys.stderr)
-        return 1
-    conn.settimeout(0.4)
-    buf = b""
-    deadline = time.time() + 12
-    conn.sendall(b":irc.example.net 001 probe :Welcome\r\n")
-    conn.sendall(b"PING :xyz\r\n")
-    while time.time() < deadline:
-        drain(master, out)
         try:
-            chunk = conn.recv(4096)
-            if chunk:
-                buf += chunk
-        except (socket.timeout, ConnectionResetError, BrokenPipeError):
-            pass
-        if (
-            b"NICK probe" in buf
-            and b"USER probe" in buf
-            and b"JOIN #t" in buf
-            and b"PONG :xyz" in buf
-        ):
-            break
-        if proc.poll() is not None:
-            break
-    os.write(master, b"/quit\r")
-    t = time.time()
-    while proc.poll() is None and time.time() - t < 8:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            print("live_mock: accept timeout", file=sys.stderr)
+            return 1
+        conn.settimeout(0.4)
+        buf = b""
+        deadline = time.time() + 12
+        conn.sendall(b":irc.example.net 001 probe :Welcome\r\n")
+        conn.sendall(b"PING :xyz\r\n")
+        while time.time() < deadline:
+            drain(master, out)
+            try:
+                chunk = conn.recv(4096)
+                if chunk:
+                    buf += chunk
+            except (socket.timeout, ConnectionResetError, BrokenPipeError):
+                pass
+            if (
+                b"NICK probe" in buf
+                and b"USER probe" in buf
+                and b"JOIN #t" in buf
+                and b"PONG :xyz" in buf
+            ):
+                break
+            if proc.poll() is not None:
+                break
+        os.write(master, b"/quit\r")
+        t = time.time()
+        while proc.poll() is None and time.time() - t < 8:
+            drain(master, out)
+            try:
+                chunk = conn.recv(4096)
+                if chunk:
+                    buf += chunk
+            except (socket.timeout, ConnectionResetError, BrokenPipeError, OSError):
+                pass
+            time.sleep(0.05)
+        if proc.poll() is None:
+            print("live_mock: birc hung", file=sys.stderr)
+            return 1
         drain(master, out)
-        try:
-            chunk = conn.recv(4096)
-            if chunk:
-                buf += chunk
-        except (socket.timeout, ConnectionResetError, BrokenPipeError, OSError):
-            pass
-        time.sleep(0.05)
-    if proc.poll() is None:
-        proc.kill()
-        proc.wait()
-        conn.close()
+        text = out.decode("utf-8", "replace")
+        if proc.returncode != 0:
+            print(f"live_mock: exit {proc.returncode}\n{text}", file=sys.stderr)
+            return 1
+        if "birc=ok" not in text:
+            print(f"live_mock: missing birc=ok\n{text}", file=sys.stderr)
+            return 1
+        if b"NICK probe" not in buf or b"USER probe" not in buf or b"JOIN #t" not in buf:
+            print(f"live_mock: missing register in {buf!r}", file=sys.stderr)
+            return 1
+        if b"PONG :xyz" not in buf:
+            print(f"live_mock: missing PONG in {buf!r}", file=sys.stderr)
+            return 1
+        print("live_mock=ok")
+        return 0
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        proc.wait(timeout=2)
+        if conn is not None:
+            conn.close()
         srv.close()
-        print("live_mock: birc hung", file=sys.stderr)
-        return 1
-    drain(master, out)
-    conn.close()
-    srv.close()
-    os.close(master)
-    text = out.decode("utf-8", "replace")
-    if proc.returncode != 0:
-        print(f"live_mock: exit {proc.returncode}\n{text}", file=sys.stderr)
-        return 1
-    if "birc=ok" not in text:
-        print(f"live_mock: missing birc=ok\n{text}", file=sys.stderr)
-        return 1
-    if b"NICK probe" not in buf or b"USER probe" not in buf or b"JOIN #t" not in buf:
-        print(f"live_mock: missing register in {buf!r}", file=sys.stderr)
-        return 1
-    if b"PONG :xyz" not in buf:
-        print(f"live_mock: missing PONG in {buf!r}", file=sys.stderr)
-        return 1
-    print("live_mock=ok")
-    return 0
+        os.close(master)
 
 
 if __name__ == "__main__":

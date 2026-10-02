@@ -49,7 +49,7 @@ class Client:
         self.conn: socket.socket | None = None
         try:
             self.proc = subprocess.Popen(
-                [binary, "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
+                [binary, "--plain", "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
                  "--nick", "probe", "--channel", "#t", "--frames", "0",
                  "--sasl-user", USER, "--sasl-pass", SECRET],
                 stdin=slave, stdout=slave, stderr=slave, env=env,

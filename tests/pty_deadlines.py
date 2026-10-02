@@ -32,8 +32,17 @@ def pty_commands(line: str, inherited: bool = False) -> list[tuple[str, bool]]:
             tokens.append(token)
             continue
         for index, word in enumerate(tokens):
-            if Path(word).name == "python3" and index + 1 < len(tokens):
-                script = tokens[index + 1]
+            if Path(word).name == "python3":
+                script_index = index + 1
+                while script_index < len(tokens) and tokens[script_index] == "-u":
+                    script_index += 1
+                if script_index < len(tokens) and tokens[script_index] == "--":
+                    script_index += 1
+                if script_index == len(tokens):
+                    raise ValueError("missing Python script in Make plan")
+                script = tokens[script_index]
+                if script.startswith("-"):
+                    raise ValueError("unsupported Python option in Make plan")
                 if script.startswith("tests/pty/") and script.endswith(".py"):
                     commands.append((script, bounded(tokens[:index], inherited)))
             if Path(word).name == "sh" and tokens[index + 1:index + 2] == ["-c"]:
@@ -47,13 +56,26 @@ def parser_controls() -> None:
     for command in (f"python3 {script}", f"timeout 0 python3 {script}",
                     f"timeout inf python3 {script}",
                     f"sh -c 'timeout 0 python3 {script}'",
-                    f"timeout 5 true; python3 {script}"):
+                    f"timeout 5 true; python3 {script}",
+                    f"python3 -u {script}",
+                    f"timeout 0 python3 -u {script}",
+                    f"sh -c 'python3 -u {script}'"):
         assert pty_commands(command) == [(script, False)], command
     for command in (f"timeout 150 python3 {script}",
                     f"nix develop --command timeout 0.5s python3 {script}",
                     f"sh -c 'UBSAN_OPTIONS=halt_on_error=1 timeout 120 python3 {script}'",
-                    f"timeout 40 sh -c 'python3 {script}'"):
+                    f"timeout 40 sh -c 'python3 {script}'",
+                    f"timeout 120 python3 -u {script}",
+                    f"timeout 40 sh -c 'python3 -u {script}'",
+                    f"timeout 40 python3 -u -- {script}"):
         assert pty_commands(command) == [(script, True)], command
+    for command in (f"python3 -Q {script}", f"timeout 5 python3 -Q {script}",
+                    "python3 -u", "python3 --"):
+        try:
+            pty_commands(command)
+        except ValueError:
+            continue
+        raise AssertionError("malformed or unsupported Python invocation was ignored")
     print("pty_deadlines parser controls=ok")
 
 
@@ -64,7 +86,11 @@ def main() -> int:
         cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
         check=True, timeout=15,
     ).stdout
-    commands = [command for line in plan.splitlines() for command in pty_commands(line)]
+    try:
+        commands = [command for line in plan.splitlines() for command in pty_commands(line)]
+    except ValueError:
+        print("pty_deadlines: malformed or unsupported Python invocation in Make plan")
+        return 1
     assert commands, "Make's plan contains no Python PTY commands"
     missing = sorted({script for script, finite in commands if not finite})
     if missing:

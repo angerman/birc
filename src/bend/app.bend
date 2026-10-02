@@ -9,8 +9,8 @@ import ./clock.bend as Clock
 import ./replay.bend as Replay
 import ./auth_bridge.bend as AuthBridge
 
-def run_demo(+frames: U32, +cl: Cl.Client, +chan: String, force_tls: Bool) -> IO(Unit):
-  Net.run_offline(frames, cl, chan, force_tls)
+def run_demo(+frames: U32, +cl: Cl.Client, +chan: String, port: U32, force_tls: Bool) -> IO(Unit):
+  Net.run_offline(frames, cl, chan, port, force_tls)
 
 def load_replay(+path: String, +nick: String, +server: String) -> IO(Cl.Client):
   Replay.load(path, nick, server)
@@ -47,13 +47,13 @@ def demo_client(+nick: String) -> IO(Cl.Client):
     ts : String <- Clock.hhmmss()
     return Feed.feed_all(Cl.set_now(Cl.init(nick, "irc.birc.dev"), ts), Feed.demo_lines_for(nick))
 
-def main_offline(+frames: U32, +chan: String, +cl: Cl.Client, force_tls: Bool) -> IO(Unit):
-  run_demo(frames, cl, chan, force_tls)
+def main_offline(+frames: U32, +chan: String, +cl: Cl.Client, port: U32, force_tls: Bool) -> IO(Unit):
+  run_demo(frames, cl, chan, port, force_tls)
 
-def main_replay(+frames: U32, +nick: String, +chan: String, +path: String, force_tls: Bool) -> IO(Unit):
+def main_replay(+frames: U32, +nick: String, +chan: String, +path: String, port: U32, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- load_replay(path, nick, "replay")
-    main_offline(frames, chan, cl, force_tls)
+    main_offline(frames, chan, cl, port, force_tls)
 
 def main_dispatch.demo(
   +frames: U32,
@@ -71,7 +71,7 @@ def main_dispatch.demo(
     case True{}:
       do IO<Unit>:
         cl : Cl.Client <- demo_client(nick)
-        main_offline(frames, chan, cl, force_tls)
+        main_offline(frames, chan, cl, port, force_tls)
     case False{}:
       main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
 
@@ -91,7 +91,7 @@ def main_dispatch.on(
 ) -> IO(Unit):
   match has_replay:
     case True{}:
-      main_replay(frames, nick, chan, replay, force_tls)
+      main_replay(frames, nick, chan, replay, port, force_tls)
     case False{}:
       main_dispatch.demo(frames, demo, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
 

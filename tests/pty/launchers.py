@@ -48,7 +48,7 @@ def case(binary: str, mode: str, directory: str) -> None:
     args = ["--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
             "--nick", "probe", "--channel", "#t"] if mode in ("slow", "slowquit") else ["--demo"]
     proc = subprocess.Popen(
-        [binary, *args, "--frames", "0"], stdin=slave, stdout=slave, stderr=slave,
+        [binary, "--plain", *args, "--frames", "0"], stdin=slave, stdout=slave, stderr=slave,
         env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
              "BIRC_LINK_LOG": str(log), "BIRC_LAUNCH_PID": str(helper_pid), "PATH": directory},
     )

@@ -1330,10 +1330,10 @@ def smoke_go(n: Nat, ui: T.Ui, +st: Sess.Session) -> IO(Unit):
         result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result(got, st, None{})
         smoke_painted(result, u => s => smoke_go(p, u, s))
 
-def smoke(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String) -> IO(Unit):
+def smoke(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String, port: U32) -> IO(Unit):
   do IO<Unit>:
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
-    smoke_go(Sess.ticks_of(frames), ui, Sess.session_set_now(Sess.session_demo(cl, chan), ts))
+    smoke_go(Sess.ticks_of(frames), ui, Sess.session_set_now(Sess.session_demo_at(cl, chan, port), ts))
 
 def start_ui_go(
   ui: T.Ui,
@@ -1498,6 +1498,7 @@ def run_demo_go(
   +cl: Cl.Client,
   +chan: String,
   +ts: String,
+  port: U32,
   force_tls: Bool
 ) -> IO(Unit):
   +evt = evt0
@@ -1506,24 +1507,24 @@ def run_demo_go(
     Unit <- IO.spawn(Unit, Act.idle_start_tls(evt, cmd, frames, force_tls))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     on : Bool <- images_enabled()
-    open_watch(ui, Sess.session_set_media(Sess.session_set_now(Sess.session_demo(cl, chan), ts), M.initial(on)), 0, evt, cmd, ack, frames, "")
+    open_watch(ui, Sess.session_set_media(Sess.session_set_now(Sess.session_demo_at(cl, chan, port), ts), M.initial(on)), 0, evt, cmd, ack, frames, "")
 
-def run_demo_tty(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String, force_tls: Bool) -> IO(Unit):
+def run_demo_tty(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String, port: U32, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:
     evt0 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     cmd0 : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 64)
     ack : Chan(Unit) <- Chan.new(Unit, 1)
-    run_demo_go(evt0, cmd0, ack, frames, cl, chan, ts, force_tls)
+    run_demo_go(evt0, cmd0, ack, frames, cl, chan, ts, port, force_tls)
 
-def run_offline_pick(headless: Bool, +frames: U32, +cl: Cl.Client, +chan: String, +ts: String, force_tls: Bool) -> IO(Unit):
+def run_offline_pick(headless: Bool, +frames: U32, +cl: Cl.Client, +chan: String, +ts: String, port: U32, force_tls: Bool) -> IO(Unit):
   match headless:
     case True{}:
-      smoke(frames, cl, chan, ts)
+      smoke(frames, cl, chan, ts, port)
     case False{}:
-      run_demo_tty(frames, cl, chan, ts, force_tls)
+      run_demo_tty(frames, cl, chan, ts, port, force_tls)
 
-def run_offline(+frames: U32, +cl: Cl.Client, +chan: String, force_tls: Bool) -> IO(Unit):
+def run_offline(+frames: U32, +cl: Cl.Client, +chan: String, port: U32, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:
     ts : String <- Clock.hhmmss()
     t : U32 <- T.Timui.isatty()
-    run_offline_pick(U32.is_eq(t, 0), frames, cl, chan, ts, force_tls)
+    run_offline_pick(U32.is_eq(t, 0), frames, cl, chan, ts, port, force_tls)

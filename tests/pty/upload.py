@@ -96,7 +96,7 @@ class Client:
             env.pop(name, None)
         try:
             self.proc = subprocess.Popen(
-                [str(binary), "--connect", "127.0.0.1", "--port", str(self.server.getsockname()[1]),
+                [str(binary), "--plain", "--connect", "127.0.0.1", "--port", str(self.server.getsockname()[1]),
                  "--nick", "probe", "--channel", "#t", "--frames", "0"],
                 stdin=slave, stdout=slave, stderr=slave, env=env,
             )

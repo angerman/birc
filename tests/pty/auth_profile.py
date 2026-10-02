@@ -40,7 +40,7 @@ class Client:
         os.close(secret_w)
         self.wire, self.screen, self.event_bytes = bytearray(), bytearray(), bytearray()
         self.event_closed = False
-        args = [program, "--connect", "127.0.0.1", "--port", str(self.server.getsockname()[1]),
+        args = [program, "--plain", "--connect", "127.0.0.1", "--port", str(self.server.getsockname()[1]),
                 "--nick", "probe", "--channel", "#t", "--frames", "0",
                 "--sasl-user", "account", "--auth", mode]
         if mode != "sasl":

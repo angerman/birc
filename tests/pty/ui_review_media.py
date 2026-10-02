@@ -83,7 +83,7 @@ def main():
                'BIRC_IMAGES': 'off', 'BIRC_MEDIA_HELPER': helper, 'PATH': '/nonexistent-test-path'}
         for key in ('BIRC_DIE_AFTER_OPEN', 'BIRC_FRAME_PROFILE', 'TIMUI_TRACE'):
             env.pop(key, None)
-        proc = subprocess.Popen([birc, '--demo', '--frames', '0'], stdin=slave, stdout=slave, stderr=slave,
+        proc = subprocess.Popen([birc, '--plain', '--demo', '--frames', '0'], stdin=slave, stdout=slave, stderr=slave,
                                 env=env, close_fds=True)
         os.close(slave)
         try:

@@ -9,6 +9,7 @@ import fcntl
 import os
 import pty
 import select
+import signal
 import socket
 import struct
 import sys
@@ -51,6 +52,7 @@ def run(birc: str, mode: str, secs: float, rows: int = 30, cols: int = 100) -> N
             birc,
             [
                 birc,
+                "--plain",
                 "--connect",
                 "127.0.0.1",
                 "--port",
@@ -64,50 +66,68 @@ def run(birc: str, mode: str, secs: float, rows: int = 30, cols: int = 100) -> N
             ],
         )
     os.close(slave)
-    conn, _ = srv.accept()
-    conn.settimeout(0.001)
-    conn.sendall(b":irc.example.net 001 probe :Welcome\r\n:probe!p@h JOIN #t\r\n")
-    t0 = time.time()
-    sent = 0
-    outbytes = 0
-    while time.time() - t0 < secs:
-        outbytes += drain(master)
-        try:
-            conn.recv(65536)
-        except (socket.timeout, BlockingIOError, OSError):
-            pass
-        if mode == "flood":
-            conn.sendall(
-                (
-                    ":a!a@h PRIVMSG #t :flood line %06d with some text "
-                    "https://example.com/x *bold* `code`\r\n" % sent
-                ).encode()
-            )
-            sent += 1
-            time.sleep(0.01)
+    conn = None
+    reaped = False
+    try:
+        conn, _ = srv.accept()
+        conn.settimeout(0.001)
+        conn.sendall(b":irc.example.net 001 probe :Welcome\r\n:probe!p@h JOIN #t\r\n")
+        t0 = time.time()
+        sent = 0
+        outbytes = 0
+        while time.time() - t0 < secs:
+            outbytes += drain(master)
+            try:
+                conn.recv(65536)
+            except (socket.timeout, BlockingIOError, OSError):
+                pass
+            if mode == "flood":
+                conn.sendall(
+                    (
+                        ":a!a@h PRIVMSG #t :flood line %06d with some text "
+                        "https://example.com/x *bold* `code`\r\n" % sent
+                    ).encode()
+                )
+                sent += 1
+                time.sleep(0.01)
+            else:
+                time.sleep(0.02)
+        os.write(master, b"/quit\r")
+        t = time.time()
+        ru = None
+        while time.time() - t < 8:
+            drain(master)
+            p, _, ru = os.wait4(pid, os.WNOHANG)
+            if p:
+                reaped = True
+                break
+            time.sleep(0.05)
         else:
-            time.sleep(0.02)
-    os.write(master, b"/quit\r")
-    t = time.time()
-    ru = None
-    while time.time() - t < 8:
-        drain(master)
-        p, _, ru = os.wait4(pid, os.WNOHANG)
-        if p:
-            break
-        time.sleep(0.05)
-    else:
-        os.kill(pid, 9)
-        p, _, ru = os.wait4(pid, 0)
-    cpu = ru.ru_utime + ru.ru_stime
-    print(
-        f"{mode:5s} {rows}x{cols}: wall={secs:.0f}s cpu={cpu:.2f}s -> "
-        f"{100 * cpu / secs:.1f}% of one core; lines sent={sent}; "
-        f"tty bytes out={outbytes}"
-    )
-    os.close(master)
-    conn.close()
-    srv.close()
+            os.kill(pid, signal.SIGKILL)
+            _, _, ru = os.wait4(pid, 0)
+            reaped = True
+        cpu = ru.ru_utime + ru.ru_stime
+        print(
+            f"{mode:5s} {rows}x{cols}: wall={secs:.0f}s cpu={cpu:.2f}s -> "
+            f"{100 * cpu / secs:.1f}% of one core; lines sent={sent}; "
+            f"tty bytes out={outbytes}"
+        )
+    finally:
+        if not reaped:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                if os.waitpid(pid, os.WNOHANG)[0]:
+                    reaped = True
+                    break
+                time.sleep(0.01)
+            if not reaped:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+        if conn is not None:
+            conn.close()
+        srv.close()
+        os.close(master)
 
 
 def main() -> int:

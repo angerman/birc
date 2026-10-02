@@ -43,7 +43,7 @@ def spawn(birc, args):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     proc = subprocess.Popen(
-        [birc, *args],
+        [birc, "--plain", *args],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
         env={**os.environ, "TERM": "xterm-256color"},
     )

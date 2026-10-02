@@ -2956,6 +2956,163 @@ The M24 timestamp defect also stays open. Next work should address those
 existing diagnoses, not repeat TLS implementation or invent a cause.
 The changed devShell adds OpenSSL/CA inputs; reload existing development shells.
 
+## M26 — secure defaults and endpoint shorthand
+
+Approved scope: verified TLS by default; explicit `--plain`; mutually exclusive
+`--tls`/`--plain`; DNS/IPv4 `HOST:PORT` in the CLI, `/connect`, and Keychain
+profiles. Explicit ports never select transport. No IPv6 or plaintext fallback.
+
+- [x] RED: `/connect irc.example.net:7000` previously dialled the unsplit host
+  on 6667. The new Session guard failed with the exact malformed Dial
+  (`build/m26-connect-endpoint-red-20261002.log`).
+- [x] Share pure endpoint syntax and numeric port-conflict checks between Bend
+  CLI and slash commands. Preserve host spelling and terminal DNS root dots.
+- [x] Resolve CLI defaults once: TLS/6697, explicit plaintext/6667, or an
+  explicit port. Reject conflicting selectors and differing explicit ports
+  regardless of order; matching numeric values remain valid.
+- [x] `/connect HOST` inherits the Session port. Demo/replay initialization
+  receives the parsed port; the actor retains the launch transport. No new
+  Session fields, port-based mode inference, or hidden flag bits.
+- [x] Keychain profiles default TLS. `tls=false` explicitly selects plaintext;
+  wrapper selectors override the profile. Resolve shorthand before credential
+  lookup, pass the exact selected mode to the child, and preserve existing
+  plaintext credential safety gates. Both offline wrapper suites pass.
+- [x] Adapt existing plaintext mock launches with `--plain`; retain their
+  original assertions and deadlines. Extend owned-peer TLS coverage to default
+  mode, inline ports, conflicts, and saved-port inheritance.
+- [x] Keep the legacy upload fixture's explicit 6667 request scope by setting
+  its Session port explicitly. Its old implicit default failed the existing
+  duplicate-path guard after the approved secure-default change; the original
+  assertions remain intact.
+- [x] Keep the existing reconnect fixture's explicit 6667 endpoint by using
+  `session_demo_at(..., 6667)`. Its original manual/automatic reconnect checks
+  fail with the new implicit default and pass with the explicit fixture port
+  (`build/m26-m21-session-{red,green}-20261002.log`).
+- [x] Independent review: reject wrapper frame counts above the core's 65535
+  cap before Keychain access. New negative/positive offline controls pass.
+- [x] Repair verified live/CPU harness cleanup gaps on accept/send failures.
+  Owned fake-child negative/positive controls pass three consecutive runs;
+  original timing and measurement assertions remain unchanged.
+- [x] Fix the deadline-plan guard that skipped `python3 -u` PTY launches.
+  New bounded/unbounded and malformed invocation controls fail before the fix
+  and pass afterward (`build/m26-pty-deadlines-option-verified-green-20261002.log`).
+- [x] Existing diagnostic PTY exposed unknown slash commands being intercepted
+  as uploads. Both the old installed and new default-mode clients reproduce
+  the defect. Command-shaped bare `/name` now keeps command priority; explicit
+  `/upload /name` handles root files. Path quoting/escaping or another slash in
+  the verb keeps literal drop consent; embedded `://` does not mark path intent.
+  Sixteen negative/positive controls are RED then GREEN, with no filesystem
+  probes or changed diagnostic assertions (`build/m26-upload-dispatch-{red,green}-20261002.log`).
+- [x] Integrated `make proof`, endpoint/submit guards, upload/diagnostic/auth
+  scope guards, wrapper checks, compiler deadline guards, and FFI lint pass.
+  CLI/headless/nickname/replay checks pass on the final normal app. Logs:
+  `build/m26-pure-proof-final-20261002.log` (proof/endpoint/submit green; ends at
+  the preserved upload-fixture RED), `build/m26-remaining-pure-20261002.log`,
+  and `build/m26-final-app-cli-headless-20261002.log`.
+- [x] `timeout 720 make build-ui build/birc-output-limit` passes
+  (`build/m26-app-build-20261002.log`). Normal app SHA256
+  `5236dce860126af02a589b42c39ae2e367e34cc8b278524df63f4d0813919279`;
+  output-limit app SHA256
+  `99190750275bd029a1fa648a3050e258d2105711f5f9919a69f9a512ab929585`.
+  These are pre-dispatch-fix qualification tags, not the final release tags.
+- [x] Post-dispatch `timeout 1200 make proof test-upload-dispatch
+  test-upload-session test-upload-policy test-connect-endpoint test-perf-cleanup
+  test-pty-deadlines test-build-deadlines lint-ffi` passes; the fake-child cleanup
+  metrics are characterization evidence, not a performance benchmark
+  (`build/m26-dispatch-final-proof-pure-20261002.log`).
+- [x] Post-dispatch rebuild passes with the same 720 s group bound. Frozen
+  normal app SHA256 `ee4bad83b6f4290c8c0a3cf16400f450b6601aff578380d00c990d2b28e184ec`;
+  output-limit app SHA256 `f4aae19add3ea63a47cf5e816e08683a547cb28df457b749bf35a84837d34231`
+  (`build/m26-dispatch-final-app-build-20261002.log`). The C TLS source hash stays
+  unchanged from M25. Session dispatch and wrapper sources are frozen too.
+- [x] Unchanged diagnostic PTY passes three consecutive final-app runs with
+  original assertions/deadlines (`build/m26-diagnostic-final-run{1,2,3}-20261002.log`).
+- [x] All 21 owned-peer TLS cases pass three consecutive final-app runs with
+  exact before/after source/test/binary hashes
+  (`build/m26-tls-final-run{1,2,3}-20261002.log`).
+- [x] Final UI group: 21 suites pass three consecutive runs each on the frozen
+  normal/output-limit apps (`build/m26-group-a-final-*-run{1,2,3}-20261002.log`).
+  The unchanged full link suite also passes three runs; this does not resolve
+  the retained asynchronous-opener fixture finding below.
+- [x] Final connection group: 23 suites pass three consecutive runs each, with
+  unchanged script/app hashes and original bounds/assertions
+  (`build/m26-group-b-final-triple-20261002.log`).
+- [x] Final independent read-only review of the production delta finds no new
+  confirmed correctness/security defect or needless structural complexity.
+- [x] The four changed live/CPU/output/startup harnesses pass three runs each
+  in a quiet lane, without builds or other PTY groups
+  (`build/m26-quiet-live-perf-triple-20261002.log`). One output progress sample
+  reports PONG 1043.354 ms and `original_limit_met=false` for its 1000 ms marker;
+  the broader characterization assertion still passes. Do not treat that as
+  a strict latency green or infer a cause. Startup measurements use the binary,
+  not `--nix-run`, and do not diagnose the separate Nix lookup delay. Settled
+  direct-startup medians are 7.366 ms (demo) and 6.522 ms (live), with warmup
+  samples kept separate; no optimization claim. Script/app hashes are unchanged
+  and all owned children are reaped.
+- [x] Quiet strict group completes 22 variants with three greens each, then
+  stops at `output_progress` run 2: its slow case misses the unchanged six-second
+  end-marker guard (`bytes=28928`). Run 1 passes all four modes; run 2 passes
+  ordinary/large and the slow case's PONG checks. This is not the historical
+  PONG-deadline miss. Frozen hashes match and all owned children are reaped.
+  Retain `build/m26-group-c-final-output_progress-run{1,2}-20261002.log`;
+  do not call the interrupted strict aggregate green or infer a cause.
+- [x] A final clean reset of the original four-mode `output_progress` guard,
+  with observer tracing disabled, passes three consecutive runs. Original
+  per-run/group bounds are 45/180 s; app/fixture/imported-helper hashes match
+  before/after and all owned children are reaped
+  (`build/m26-output-progress-full-final-clean-triple-20261002.log`). Earlier
+  failures remain unexplained; these greens do not establish a fix or cause.
+- [x] Three consecutive greens for every changed PTY script on frozen source.
+  The independent inventory maps all 64 changed `tests/pty` scripts to 69
+  parameter invocations. All six changed PTY users outside that directory also
+  pass three runs: package, live mock, CPU/output/startup profiles, and the
+  fake-child cleanup controls. This is combined per-guard qualification, not
+  a claim that the interrupted strict runner or a new full `make check` passed.
+- [x] Remaining strict `output_failure` positive/negative controls and two
+  unchanged media delegates (`m20_media_cache`, `preview_retry`) each pass
+  three consecutive runs with original 30/45/40 s bounds and the pinned image
+  helper. All script/app/source/helper hashes match and owned jobs are reaped
+  (`build/m26-c-remaining-final-*-run{1,2,3}-20261002.log`). Together with A/B,
+  TLS, and the clean output-progress reset, this covers the complete 70-command
+  Make PTY plan plus the extra `wrapped_spans` guard. No full-check/ASan claim.
+- [x] `timeout 960 make build-package` succeeds with its inner 900 s bound and
+  unchanged lock file (`build/m26-final-nix-package-build-20261002.log`). Installed
+  output `/nix/store/71axidj8nisxkn03gnhwfaj76a6zcc37-birc-0.1.0`; unwrapped app
+  SHA256 `49b106924b7bef51cfc251cecb9b8b3f2894cc17548ed1b6f761cdd4eed57aab`.
+  Installed Keychain source matches the frozen wrapper hash exactly.
+- [x] Installed TLS/helper/Keychain/upload package guards pass with original
+  bounds 45/75/30/30 s. The changed local-image package harness passes three
+  consecutive runs (`build/m26-installed-*-package*-20261002.log`). All 21
+  installed TLS cases pass three consecutive runs with matching source/test/app
+  hashes (`build/m26-tls-installed-final-run{1,2,3}-20261002.log`).
+- [ ] Clean-tree `nix build .` cache reuse after commits.
+
+The separate M24 timestamp defect and unexplained cached Nix lookup delay stay
+open. This change does not claim to fix either issue. Tests must not use public
+IRC, real Keychain entries, private chat URLs, or the public upload service.
+
+Retained test evidence: the pre-dispatch upload suite's first run passed; its
+second run timed out during ordinary-message history recall. Isolated target
+runs passed on current/old apps (three each), then the unchanged full upload
+suite passed three quiet consecutive runs. The original timeout remains
+unexplained; no CPU/scheduling cause is claimed. A separate link fixture's
+0.2-second drain is not an asynchronous-opener completion fence: a controlled
+0.35-second opener yields false failures on current/old apps, with all 11 exact
+URLs arriving shortly afterward. Its original 10-of-11 group failure was not
+reproduced in the immediate-opener paired controls; that cause remains open.
+
+Strict-output evidence: isolated alternating slow cases pass 2/3 on the current
+app and 3/3 on the prior installed app; the current miss is again the unchanged
+six-second end-marker guard, with all PONG checks passed
+(`build/m26-output-progress-slow-paired-20261002.log`). A bounded standalone
+pre-assertion observer then passes current 3/3 and baseline 1/1, so it does not
+capture or explain the failure. Two observed passes contain old-layout
+`ESC[47;15H` marker output after the requested resize to 45 rows. The reused
+screen parser does not clamp CUP coordinates; its secondary missing marker
+cannot prove physical invisibility. Preserve the raw/metadata artifacts under
+`build/m26-progress-*`. No production change, expectation change, optimization,
+or root-cause claim follows from these inconclusive observations.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

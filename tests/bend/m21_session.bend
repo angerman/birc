@@ -19,7 +19,7 @@ def auto_cmd(pair: Sess.Session & Sess.NetCmd) -> String:
     case (_, c): Sess.show_netcmd(c)
 
 def disconnected(+endpoint: String) -> Sess.Session:
-  +dialed = Sess.st_of_keys(Sess.step_enter(Sess.session_demo(Cl.init("me", ""), ""), "/connect " ++ endpoint))
+  +dialed = Sess.st_of_keys(Sess.step_enter(Sess.session_demo_at(Cl.init("me", ""), "", 6667), "/connect " ++ endpoint))
   Sess.session_fail(Sess.session_online(dialed), "fixture disconnect")
 
 def enabled(+st: Sess.Session) -> Sess.Session:

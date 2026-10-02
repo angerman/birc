@@ -66,7 +66,7 @@ def startup_case(binary: str, mode: str) -> None:
             fcntl.fcntl(slave, fcntl.F_SETFL, flags)
     output = os.open(os.ttyname(slave), os.O_WRONLY | os.O_NOCTTY) if mode == "separate" else slave
     proc = subprocess.Popen(
-        [binary, "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
+        [binary, "--plain", "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave, stdout=output, stderr=output,
         env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
@@ -116,7 +116,7 @@ def case(binary: str, mode: str, directory: str) -> None:
     if mode == "separate":
         env["BIRC_FRAME_PROFILE"] = "1"
     proc = subprocess.Popen(
-        [binary, "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
+        [binary, "--plain", "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave, stdout=output, stderr=output, env=env,
     )

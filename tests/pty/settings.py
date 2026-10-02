@@ -37,7 +37,7 @@ def main() -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--demo", "--nick", "me", "--frames", "0"],
+        [birc, "--plain", "--demo", "--nick", "me", "--frames", "0"],
         stdin=slave,
         stdout=slave,
         stderr=slave,

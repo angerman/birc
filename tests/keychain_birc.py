@@ -33,7 +33,7 @@ def executable(path: Path, body: str) -> Path:
 
 def config(path: Path, *, host="127.0.0.1", relay=True, extra="", account="alice") -> Path:
     path.write_text('[profiles.test]\n' + f'host = {json.dumps(host)}\naccount = {json.dumps(account)}\n'
-                    + f'trusted_relay = {str(relay).lower()}\n' + extra)
+                    + f'trusted_relay = {str(relay).lower()}\ntls = false\n' + extra)
     path.chmod(0o600)
     return path
 
@@ -134,6 +134,7 @@ sys.exit(int((root / "child_code").read_text()))
         got = json.loads((root / "child").read_text())
         assert got["secret"] == secret and "--sasl-pass" not in got["argv"]
         assert got["argv"][:6] == ["--connect", "127.0.0.1", "--port", "6667", "--sasl-user", "alice"]
+        assert "--plain" in got["argv"], "relay plaintext must be explicit to the TLS-default client"
         assert got["argv"][-4:] == ["--frames", "1", "--channel", "#test"]
         assert "BIRC_SASL_PASS" not in got["env"] and "BIRC_SASL_USER" not in got["env"]
         assert not any(secret in value for value in got["env"].values())

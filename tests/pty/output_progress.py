@@ -31,7 +31,7 @@ def case(binary: str, mode: str) -> None:
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 200, 0, 0))
     writer = os.open(os.ttyname(slave), os.O_WRONLY | os.O_NONBLOCK | os.O_NOCTTY)
     proc = subprocess.Popen(
-        [binary, "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
+        [binary, "--plain", "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave, stdout=slave, stderr=slave,
         env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},

@@ -40,7 +40,7 @@ def run_one(
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     proc = subprocess.Popen(
-        [birc, *argv],
+        [birc, "--plain", *argv],
         stdin=slave,
         stdout=slave,
         stderr=slave,

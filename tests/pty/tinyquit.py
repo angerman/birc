@@ -39,7 +39,7 @@ def run(birc, rows, cols, resize_to, payload, label):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--demo", "--frames", "20000"],
+        [birc, "--plain", "--demo", "--frames", "20000"],
         stdin=slave,
         stdout=slave,
         stderr=slave,

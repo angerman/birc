@@ -11,7 +11,7 @@ def run(arguments):
     for name in ("BIRC_DIE_AFTER_OPEN", "BIRC_FRAME_PROFILE", "TIMUI_TRACE"):
         environment.pop(name, None)
     return subprocess.run(
-        [sys.argv[1], *arguments], stdin=subprocess.DEVNULL,
+        [sys.argv[1], "--plain", *arguments], stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         env=environment, timeout=8, check=False,
     )

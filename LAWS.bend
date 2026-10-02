@@ -26,21 +26,52 @@ import ./tests/bend/dns_validation_preds.bend as DnsValidation
 import ./src/bend/columns.bend as Columns
 import ./src/bend/upload.bend as Up
 import ./src/bend/transport_policy.bend as Transport
+import ./src/bend/endpoint.bend as Endpoint
 
-law secure_irc_port_requires_tls:
-  {Transport.enabled(False{}, 6697) == True{} : Bool}
+law default_irc_transport_is_tls:
+  {Transport.default_secure() == True{} : Bool}
 
-law tls_flag_requires_tls_on_other_ports:
-  {Transport.enabled(True{}, 6667) == True{} : Bool}
+law explicit_tls_keeps_plain_number_port:
+  {Transport.default_port(True{}, True{}, 6667) == 6667 : U32}
 
-law legacy_irc_port_is_plain_by_default:
-  {Transport.enabled(False{}, 6667) == False{} : Bool}
+law plain_default_uses_legacy_port:
+  {Transport.default_port(False{}, False{}, 6697) == 6667 : U32}
+
+law explicit_plain_keeps_secure_number_port:
+  {Transport.default_port(False{}, True{}, 6697) == 6697 : U32}
 
 law tls_default_keeps_explicit_port:
-  {Transport.default_port(True{}, True{}, 7000) == 7000 : U32}
+  for secure: Bool
+  for port: U32
+  {Transport.default_port(secure, True{}, port) == port : U32}
 
 law tls_default_uses_secure_port:
   {Transport.default_port(True{}, False{}, 6667) == 6697 : U32}
+
+law transport_selectors_cannot_conflict:
+  {Args.parse(["--plain", "--tls"]) == Args.Bad{"birc: --tls and --plain conflict"} : Args.Parsed}
+
+law endpoint_keeps_original_host_identity:
+  {Endpoint.parse("IRC.Example.:7000") == Done{Endpoint.Endpoint{"IRC.Example.", Some{7000}}} : Result<&2, &2, String, Endpoint.Endpoint>}
+
+law endpoint_same_explicit_ports_agree:
+  {Endpoint.select_port(Some{7000}, Some{7000}, 6697) == Some{7000} : Maybe<&2, U32>}
+
+law endpoint_differing_explicit_ports_refuse:
+  {Endpoint.select_port(Some{7000}, Some{7001}, 6697) == None{} : Maybe<&2, U32>}
+
+law endpoint_port_is_bounded:
+  {Endpoint.port("65536") == None{} : Maybe<&2, U32>}
+
+law endpoint_ipv6_is_not_supported:
+  {Endpoint.parse("[::1]:6697") == Fail{"bad endpoint"} : Result<&2, &2, String, Endpoint.Endpoint>}
+
+law unknown_command_is_not_implicit_upload:
+  for rest: String
+  {Sess.upload_input.parsed(Sub.CommandInput{Sub.Unknown{}, "NO_SUCH_COMMAND", rest}, "/NO_SUCH_COMMAND " ++ rest) == Sess.NotUpload{} : Sess.UploadInput}
+
+law path_shaped_drop_still_requires_upload_consent:
+  {Sess.upload_input.parsed(Sub.parse_input("/tmp/image.png"), "/tmp/image.png") == Sess.UploadPaths{["/tmp/image.png"]} : Sess.UploadInput}
 
 law upload_requires_physical_consent:
   {Up.consent_ok() == True{} : Bool}

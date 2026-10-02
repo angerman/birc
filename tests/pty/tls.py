@@ -228,7 +228,9 @@ def wrapper_launch(binary, config, security):
 
 
 class Live:
-    def __init__(self, binary, certs, folder, *, tls=True, auth=False, wrapper=False):
+    def __init__(self, binary, certs, folder, *, tls=True, explicit_tls=False,
+                 shorthand=False, duplicate_port=False, port_first=False,
+                 auth=False, wrapper=False):
         from split_identity import Screen
 
         self.folder, self.certs = folder, certs
@@ -242,9 +244,16 @@ class Live:
         self.master, slave = pty.openpty()
         self.saved = termios.tcgetattr(slave)
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-        args = [str(binary), "--connect", "127.0.0.1", "--port", str(self.server.getsockname()[1]),
+        port = str(self.server.getsockname()[1])
+        host = "127.0.0.1:" + port if shorthand or duplicate_port else "127.0.0.1"
+        connect_args = ["--connect", host]
+        port_args = [] if shorthand and not duplicate_port else ["--port", port]
+        endpoint_args = port_args + connect_args if port_first else connect_args + port_args
+        args = [str(binary), *endpoint_args,
                 "--nick", "probe", "--channel", "#t", "--frames", "0"]
-        if tls:
+        if not tls:
+            args += ["--plain"]
+        elif explicit_tls:
             args += ["--tls"]
         env = environment(certs)
         inherited = ()
@@ -463,6 +472,19 @@ def plaintext(client):
     client.until(lambda: b"PONG :plain-control\r\n" in client.wire, "unchanged plaintext PONG")
 
 
+def slash_endpoint(client):
+    client.accept()
+    client.welcome()
+    port = client.server.getsockname()[1]
+    for command in (f"/connect 127.0.0.1:{port}", "/connect 127.0.0.1"):
+        client.command(command)
+        client.accept()
+        client.welcome()
+        client.peer.send(b"PING :inherited-tls\r\n")
+        client.until(lambda: b"PONG :inherited-tls\r\n" in client.wire,
+                     "slash endpoint retained verified TLS and custom port")
+
+
 def connecting_quit(client):
     raw, _ = client.server.accept()
     raw.setblocking(False)
@@ -501,7 +523,7 @@ def rejected(binary, certs, folder, kind):
     trust = {"untrusted": "foreign.pem", "missing-ca": "missing.pem", "invalid-ca": "invalid.pem"}.get(kind, "ca.pem")
     env = environment(certs, trust)
     secret_r, event_r, event_w = auth_pipes(env)
-    args = [str(binary), "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]), "--tls",
+    args = [str(binary), "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
             "--nick", "probe", "--frames", "1", "--sasl-user", ACCOUNT.decode(), "--auth", "sasl"]
     peer, proc = None, None
     output = bytearray()
@@ -581,18 +603,57 @@ def rejected(binary, certs, folder, kind):
                 os.close(fd)
 
 
+def endpoint_conflicts(binary, certs, folder):
+    folder.mkdir()
+    for port_first in (False, True):
+        first, second = listen(), listen()
+        master, slave = pty.openpty()
+        saved = termios.tcgetattr(slave)
+        connect = ["--connect", "127.0.0.1:" + str(first.getsockname()[1])]
+        port = ["--port", str(second.getsockname()[1])]
+        arguments = port + connect if port_first else connect + port
+        process = None
+        try:
+            process = subprocess.Popen([str(binary), *arguments, "--frames", "1"],
+                stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment(certs))
+            output, error = process.communicate(timeout=5)
+            (folder / ("port-first" if port_first else "host-first")).write_bytes(output + error)
+            assert process.returncode == 2, "conflicting endpoint ports were not rejected by the CLI"
+            assert not output and b"\x1b" not in error, "conflicting endpoint painted a client frame"
+            assert not select.select([first, second], [], [], 0)[0], "conflicting endpoint opened a connection"
+            assert termios.tcgetattr(slave) == saved, "conflicting endpoint changed terminal state"
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=3)
+                process.stdout.close()
+                process.stderr.close()
+            os.close(master)
+            os.close(slave)
+            first.close()
+            second.close()
+
+
 def main(binary, openssl, selected):
     folder = Path(tempfile.mkdtemp(prefix="tls-pty-", dir=ROOT / "build"))
     success = False
     try:
         certs = Certificates(folder / "certs", openssl)
-        cases = (("trusted", trusted, {}), ("sasl", authenticated, {"auth": True}),
+        cases = (("trusted", trusted, {}),
+                 ("shorthand", trusted, {"shorthand": True}),
+                 ("explicit-tls", trusted, {"explicit_tls": True}),
+                 ("same-port-first", trusted, {"duplicate_port": True, "port_first": True}),
+                 ("same-port-last", trusted, {"duplicate_port": True}),
+                 ("slash-endpoint", slash_endpoint, {}),
+                 ("sasl", authenticated, {"auth": True}),
                  ("wrapper", authenticated, {"auth": True, "wrapper": True}),
                  ("reconnect", reconnect, {"auth": True}),
                  ("connecting-quit", connecting_quit, {"auth": True}),
-                 ("plaintext", plaintext, {"tls": False}))
+                 ("plaintext", plaintext, {"tls": False}),
+                 ("plain-shorthand", plaintext, {"tls": False, "shorthand": True}))
         rejected_cases = ("untrusted", "wronghost", "dns-only", "expired", "missing-ca", "invalid-ca", "non-tls", "stalled")
-        assert selected <= ({name for name, _, _ in cases} | set(rejected_cases)), "unknown TLS test case"
+        assert selected <= ({name for name, _, _ in cases} | set(rejected_cases) | {"conflicts"}), "unknown TLS test case"
         for name, case, options in cases:
             if selected and name not in selected:
                 continue
@@ -613,6 +674,13 @@ def main(binary, openssl, selected):
                 continue
             rejected(binary, certs, folder / kind, kind)
             print("tls_pty " + kind + "=ok", flush=True)
+        if not selected or "conflicts" in selected:
+            try:
+                endpoint_conflicts(binary, certs, folder / "conflicts")
+            except Exception:
+                print(f"tls_pty case=conflicts evidence={folder / 'conflicts'}", file=sys.stderr, flush=True)
+                raise
+            print("tls_pty conflicts=ok", flush=True)
         success = True
     finally:
         if success:

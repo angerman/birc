@@ -62,7 +62,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "default",
       show_parsed(Args.parse(Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay= sasl_user= sasl_pass="
+      "good:demo=True frames=0 host= port=6697 nick=birc chan=#birc replay= sasl_user= sasl_pass="
     )
     Unit <- E.must_eq(
       "connect",
@@ -87,17 +87,17 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "help",
       show_parsed(Args.parse(xs1("--help-irc"))),
-      "bad:usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls]"
+      "bad:usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls|--plain]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",
       show_parsed(Args.parse("--connect" <> "10.0.0.1" <> "--demo" <> Nil{})),
-      "good:demo=True frames=0 host=10.0.0.1 port=6667 nick=birc chan=#birc replay= sasl_user= sasl_pass="
+      "good:demo=True frames=0 host=10.0.0.1 port=6697 nick=birc chan=#birc replay= sasl_user= sasl_pass="
     )
     Unit <- E.must_eq(
       "replay",
       show_parsed(Args.parse(xs2("--replay", "fixtures/demo.irc"))),
-      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay=fixtures/demo.irc sasl_user= sasl_pass="
+      "good:demo=True frames=0 host= port=6697 nick=birc chan=#birc replay=fixtures/demo.irc sasl_user= sasl_pass="
     )
     Unit <- E.must_eq(
       "missing_replay",
@@ -107,12 +107,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "sasl_flags",
       show_parsed(Args.parse("--sasl-user" <> "alice" <> "--sasl-pass" <> "secret" <> Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay= sasl_user=alice sasl_pass=secret"
+      "good:demo=True frames=0 host= port=6697 nick=birc chan=#birc replay= sasl_user=alice sasl_pass=secret"
     )
     Unit <- E.must_eq(
       "sasl_flags_explicit_nick",
       show_parsed(Args.parse("--nick" <> "bob" <> "--sasl-user" <> "alice" <> "--sasl-pass" <> "secret" <> Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=bob chan=#birc replay= sasl_user=alice sasl_pass=secret"
+      "good:demo=True frames=0 host= port=6697 nick=bob chan=#birc replay= sasl_user=alice sasl_pass=secret"
     )
     Unit <- E.must_eq(
       "missing_sasl_user",
@@ -147,7 +147,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "copy_fin_empty",
       show_parsed(copy_fin2(Nil{}, Nil{})),
-      "good:demo=True frames=0 host= port=6667 nick=birc chan=#birc replay= sasl_user= sasl_pass="
+      "good:demo=True frames=0 host= port=6697 nick=birc chan=#birc replay= sasl_user= sasl_pass="
     )
     Unit <- E.must_eq(
       "argv65",

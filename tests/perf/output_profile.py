@@ -52,7 +52,7 @@ def case(binary: str, mode: str, whole_end: float) -> None:
     conn = None
     try:
         proc = subprocess.Popen(
-            [binary, "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
+            [binary, "--plain", "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
              "--nick", "probe", "--channel", "#t", "--frames", "0"],
             stdin=slave, stdout=slave, stderr=subprocess.PIPE,
             env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",

@@ -31,7 +31,7 @@ def client(birc: str, server: socket.socket, path: str):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
     process = subprocess.Popen(
-        [birc, "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
+        [birc, "--plain", "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "20000"],
         stdin=slave, stdout=slave, stderr=slave,
         env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": path},

@@ -50,7 +50,7 @@ def main() -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--demo", "--frames", "60000"],
+        [birc, "--plain", "--demo", "--frames", "60000"],
         stdin=slave,
         stdout=slave,
         stderr=slave,

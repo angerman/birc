@@ -50,7 +50,7 @@ def main() -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--connect", "127.0.0.1", "--port", str(port), "--nick", "probe",
+        [birc, "--plain", "--connect", "127.0.0.1", "--port", str(port), "--nick", "probe",
          "--channel", "#t", "--frames", "20000"],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
         env={**os.environ, "TERM": "xterm-256color"},

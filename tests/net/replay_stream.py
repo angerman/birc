@@ -21,7 +21,7 @@ def run(label, data, markers):
     read_fd, write_fd = os.pipe()
     try:
         result = subprocess.run(
-            [sys.argv[1], "--nick", "probe", "--replay", str(fixture), "--frames", "1"],
+            [sys.argv[1], "--plain", "--nick", "probe", "--replay", str(fixture), "--frames", "1"],
             stdin=read_fd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env, timeout=20, check=False,
         )
@@ -37,7 +37,7 @@ def run(label, data, markers):
 
 def fail_closed(label, fixture):
     result = subprocess.run(
-        [sys.argv[1], "--replay", str(fixture), "--frames", "1"],
+        [sys.argv[1], "--plain", "--replay", str(fixture), "--frames", "1"],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         env=env, timeout=20, check=False,
     )

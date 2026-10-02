@@ -83,7 +83,7 @@ def run(birc, label, resize, payload, artifacts, sandbox_home, whole_deadline):
               "state_wait_trace_available": False}
     with raw_path.open("wb") as raw:
         try:
-            proc = subprocess.Popen([birc, "--demo", "--frames", "20000"],
+            proc = subprocess.Popen([birc, "--plain", "--demo", "--frames", "20000"],
                                     stdin=slave, stdout=slave, stderr=slave,
                                     close_fds=True, env=env)
             os.close(slave)

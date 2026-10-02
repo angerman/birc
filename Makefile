@@ -10,7 +10,8 @@ NIX_FEATURES := --extra-experimental-features 'nix-command flakes'
 HOST ?=
 NICK ?= birc
 CHAN ?= \#birc
-PORT ?= 6667
+PORT ?=
+TRANSPORT ?= tls
 
 ifeq ($(BIRC_NIX_SHELL),1)
 NIXRUN :=
@@ -87,17 +88,27 @@ BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix
 
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
-.PHONY: test-keychain-tls test-build-tls test-tls-args test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
+.PHONY: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
 test-keychain-tls: ## Offline TLS profile selection, credential isolation, and literal child argv.
 	$(NIXRUN) timeout 30 python3 tests/keychain_tls.py
 
 test-build-tls: ## TLS compiler flags reach Bend binaries and invalidate cached builds correctly.
 	$(NIXRUN) timeout 30 python3 tests/build_tls.py
 
-test-tls-args: ## TLS port/default policy, explicit-port order, and legacy plaintext controls.
+test-tls-args: ## Secure defaults, mode conflicts, explicit-port order, and plaintext controls.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/tls_args.bend -o $(BLDDIR)/tls_args
 	$(NIXRUN) sh scripts/check-golden.sh tls_args=ok timeout 15 ./$(BLDDIR)/tls_args
+
+test-endpoint: ## Shared host:port syntax, DNS bounds, and conflicting-port controls.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/endpoint_demo.bend -o $(BLDDIR)/endpoint_demo
+	$(NIXRUN) sh scripts/check-golden.sh endpoint_demo=ok timeout 15 ./$(BLDDIR)/endpoint_demo
+
+test-connect-endpoint: ## Slash host:port parsing and saved-port inheritance without transport inference.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/connect_endpoint.bend -o $(BLDDIR)/connect_endpoint
+	$(NIXRUN) sh scripts/check-golden.sh connect_endpoint=ok timeout 15 ./$(BLDDIR)/connect_endpoint
 
 test-pty-tls: build-ui ## Owned loopback TLS: certificate/name checks, auth, reconnect, and bounded quit.
 	$(NIXRUN) timeout 120 python3 -u tests/pty/tls.py ./$(BLDDIR)/birc $(OPENSSL)
@@ -114,8 +125,8 @@ test-tls-native-ubsan: ## UBSan: native TLS verification, retry buffers, and eff
 lint-tls: ## Strict syntax-only lint of the actual TLS bridge and effect ABI fixture.
 	$(NIXRUN) timeout 60 sh -c '$$CC $(LINT_FFI_CFLAGS) -Werror=vla tests/tls_ffi.c'
 
-test-tls: test-keychain-tls test-build-tls test-tls-args test-tls-native test-pty-tls ## TLS policy, tooling, and loopback qualification; no public IRC or credentials.
-test-review-pure: test-keychain-tls test-build-tls test-tls-args test-tls-native
+test-tls: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native test-pty-tls ## TLS policy, tooling, and loopback qualification; no public IRC or credentials.
+test-review-pure: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native
 test-pty: test-pty-tls
 test-sanitizers: test-tls-native-ubsan
 lint-ffi: lint-tls
@@ -137,6 +148,14 @@ test-upload-session: ## Session consent, ordinary drafts/history/completion, and
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/upload_session.bend -o $(BLDDIR)/upload_session
 	$(NIXRUN) sh scripts/check-golden.sh upload_session=ok timeout 15 ./$(BLDDIR)/upload_session
+
+.PHONY: test-upload-dispatch
+test-upload-dispatch: ## Unknown slash commands keep priority over ambiguous local drops.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_dispatch.bend -o $(BLDDIR)/upload_dispatch
+	$(NIXRUN) sh scripts/check-golden.sh upload_dispatch=ok timeout 15 ./$(BLDDIR)/upload_dispatch
+
+test-review-pure: test-upload-dispatch
 
 test-upload-io: ## Literal helper selection and numeric-only failure diagnostics.
 	@mkdir -p $(BLDDIR)
@@ -161,7 +180,7 @@ test-upload-native-ubsan: ## UBSan: raw upload keys and fatal-output cleanup own
 test-pty-upload: build-ui ## Loopback upload consent, paste refusal, drafts, stale scope, and bounded quit.
 	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/birc
 
-test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
+test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-dispatch test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
 test-review-pure: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
 test-pty: test-pty-upload
 test-sanitizers: test-upload-native-ubsan
@@ -685,7 +704,7 @@ test-cli: build-ui ## Binary argv errors (no TimUI).
 	$(NIXRUN) sh -c './$(BLDDIR)/birc --replay /no/such/birc.replay >/dev/null 2>&1; test $$? -eq 1'
 
 test-live: build-ui ## Local mock: register + PONG + birc=ok, bounded timeout.
-	$(NIXRUN) python3 tests/live_mock.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 45 python3 tests/live_mock.py ./$(BLDDIR)/birc
 
 test-pty-flood: build-ui ## Pty: 400 server chunks (C1 deadlock).
 	$(NIXRUN) timeout 150 python3 tests/pty/chunk_flood.py ./$(BLDDIR)/birc 400
@@ -1031,7 +1050,7 @@ test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
 	$(NIXRUN) sh scripts/check-golden.sh paste_harness=ok ./$(BLDDIR)/paste_harness
 
 test-perf-cpu: build-ui ## 15 s idle/flood CPU (not in check).
-	$(NIXRUN) python3 tests/perf/cpu_pty.py ./$(BLDDIR)/birc
+	$(NIXRUN) timeout 120 python3 tests/perf/cpu_pty.py ./$(BLDDIR)/birc
 
 test-perf-tickrate: build-ui ## 600-frame idle tickrate (not in check).
 	$(NIXRUN) python3 tests/perf/tickrate_pty.py ./$(BLDDIR)/birc 600 30 100
@@ -1047,7 +1066,12 @@ test-perf-hardening: build-ui ## Profile production frame phases with scale repl
 test-perf-output: build-ui ## Measure stalled-output View/native phases and PONG latency (not in check).
 	$(NIXRUN) timeout 90 python3 tests/perf/output_profile.py ./$(BLDDIR)/birc
 
-.PHONY: test-startup-profile test-perf-startup
+.PHONY: test-startup-profile test-perf-startup test-perf-cleanup
+test-perf-cleanup: ## Owned PTY harness children and descriptors close on failed accept/send.
+	$(NIXRUN) timeout 30 python3 tests/perf_cleanup.py
+
+test-review-pure: test-perf-cleanup
+
 test-startup-profile: ## Check bounded startup timing, failure evidence, and child cleanup with owned mocks.
 	$(NIXRUN) timeout 60 python3 tests/perf/startup_profile.py --self-test
 
@@ -1095,10 +1119,11 @@ check: proof test lint-ffi test-paste-harness ## Proofs + protocol tests + UI sm
 run-demo: build-ui ## Offline TimUI demo with canned IRC transcript.
 	$(NIXRUN) ./$(BLDDIR)/birc --demo
 
-run: ## Live IRC client (needs HOST=…; rebuilds only if Bend/FFI sources changed).
-	@test -n "$(HOST)" || { printf '%s\n' 'usage: make run HOST=irc.example.net [NICK=birc] [CHAN=#birc] [PORT=6667]' >&2; exit 2; }
+run: ## Verified TLS IRC (HOST=host[:port]; TRANSPORT=plain explicitly selects plaintext).
+	@test -n "$(HOST)" || { printf '%s\n' 'usage: make run HOST=irc.example.net[:port] [NICK=birc] [CHAN=#birc] [PORT=6697] [TRANSPORT=tls|plain]' >&2; exit 2; }
+	@case "$(TRANSPORT)" in tls|plain) ;; *) printf '%s\n' 'TRANSPORT must be tls or plain' >&2; exit 2 ;; esac
 	@$(MAKE) build-ui
-	$(NIXRUN) ./$(BLDDIR)/birc --connect "$(HOST)" --port "$(PORT)" --nick "$(NICK)" --channel "$(CHAN)"
+	$(NIXRUN) ./$(BLDDIR)/birc --$(TRANSPORT) --connect "$(HOST)" $(if $(strip $(PORT)),--port "$(PORT)") --nick "$(NICK)" --channel "$(CHAN)"
 
 clean: ## Remove build artefacts (not sources or flake.lock).
 	rm -rf $(BLDDIR)

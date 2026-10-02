@@ -79,7 +79,7 @@ def main() -> int:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 50, 0, 0))
     proc = subprocess.Popen(
-        [birc, "--connect", "127.0.0.1", "--port", str(port), "--nick", "probe", "--channel", "#t", "--frames", "0"],
+        [birc, "--plain", "--connect", "127.0.0.1", "--port", str(port), "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave,
         stdout=slave,
         stderr=slave,

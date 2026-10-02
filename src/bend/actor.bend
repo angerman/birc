@@ -473,7 +473,7 @@ def actor_boot_tls(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Ch
   dial_begin(host, port, force_tls, nick, gen, evt, boot, True{}, has_sasl,
     st => writer_loop((writer_adopt(st, Out.budget_frames(frames)), AuthScope{host, port, has_sasl}), evt, cmd, boot, force_tls))
 
-# The startup fixture keeps its legacy entry point; port 6697 still selects TLS.
+# The startup fixture keeps its explicit plaintext entry point.
 def actor_boot(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool, frames: U32) -> IO(Unit):
   actor_boot_tls(host, port, nick, gen, evt, cmd, boot, has_sasl, frames, False{})
 

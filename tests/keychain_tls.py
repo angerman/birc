@@ -54,17 +54,98 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
             with patch.object(launcher, "load_secret", return_value=b"synthetic-tls-secret") as lookup, \
                     patch.object(launcher, "save_secret", side_effect=AssertionError("must not save without success")), \
                     redirect_stdout(output), redirect_stderr(output):
-                result = launcher.main(["--profile", "test", "--config", str(cfg), *args],
-                                       security="unused fake", birc=str(child),
-                                       prompt=lambda _: (_ for _ in ()).throw(AssertionError("must not prompt")),
-                                       platform="darwin")
+                try:
+                    result = launcher.main(["--profile", "test", "--config", str(cfg), *args],
+                                           security="unused fake", birc=str(child),
+                                           prompt=lambda _: (_ for _ in ()).throw(AssertionError("must not prompt")),
+                                           platform="darwin")
+                except SystemExit as error:
+                    result = error.code
             assert result == expected, output.getvalue()
             assert "synthetic-tls-secret" not in output.getvalue()
             if expected:
                 assert not lookup.called and not recorded.exists(), "refusal happened after credential access"
                 return output.getvalue(), None
             assert lookup.call_count == 1
-            return output.getvalue(), json.loads(recorded.read_text())
+            argv = json.loads(recorded.read_text())
+            queried = lookup.call_args.args[1]
+            assert queried.host == argv[argv.index("--connect") + 1]
+            assert queried.port == int(argv[argv.index("--port") + 1])
+            assert json.loads(queried.service.split(":", 1)[1]) == ["test", queried.host, queried.port]
+            assert ("--tls" in argv, "--plain" in argv) == (queried.tls, not queried.tls)
+            return output.getvalue(), argv
+
+        # (+) No mode metadata means TLS, before endpoint-bound credential access.
+        config(cfg)
+        default = launcher.read_profile(cfg, "test")
+        assert default.tls and default.port == 6697
+        _, args = run()
+        assert "--tls" in args and args[args.index("--port") + 1] == "6697"
+
+        # (-/+) Match the core frame cap before any credential access/prompt.
+        for cap in ("-1", "65536", "4294967295"):
+            run("--frames", cap, expected=1)
+        _, args = run("--frames", "65535")
+        assert args[args.index("--frames") + 1] == "65535"
+        _, args = run("--frames", "0")
+        assert args[args.index("--frames") + 1] == "0"
+
+        # (-/+) CLI modes override profiles, not just enable TLS. Plaintext still
+        # requires an explicit relay declaration or per-launch unsafe consent.
+        run("--plain", expected=1)
+        text, args = run("--plain", "--allow-insecure-auth")
+        assert "WARNING" in text and "--plain" in args
+        assert args[args.index("--port") + 1] == "6667"
+        downgraded = launcher.read_profile(cfg, "test", tls=False)
+        assert not downgraded.tls and downgraded.service != default.service
+        for flags in (("--tls", "--plain"), ("--plain", "--tls")):
+            run(*flags, expected=2)
+        for extra in ("tls=true\nport=7000\n", "port=7000\ntls=true\n"):
+            config(cfg, extra)
+            run("--plain", expected=1)
+            _, args = run("--plain", "--allow-insecure-auth")
+            assert "--plain" in args and args[args.index("--port") + 1] == "7000"
+        for extra in ("tls=false\nport=7000\n", "port=7000\ntls=false\n"):
+            config(cfg, extra)
+            _, args = run("--tls")
+            assert "--tls" in args and args[args.index("--port") + 1] == "7000"
+
+        # (+) Inline endpoint ports normalize before lookup and retain mode.
+        config(cfg, host="irc.invalid:07000")
+        inline = launcher.read_profile(cfg, "test")
+        assert inline.host == "irc.invalid" and inline.port == 7000 and inline.tls
+        _, args = run()
+        assert args[args.index("--connect") + 1] == "irc.invalid"
+        assert args[args.index("--port") + 1] == "7000"
+        config(cfg, "port=7000\n", host="irc.invalid")
+        assert launcher.read_profile(cfg, "test").service == inline.service
+        config(cfg, "port=7000\n", host="irc.invalid:7000")
+        assert launcher.read_profile(cfg, "test").service == inline.service
+        run()
+        config(cfg, "port=7001\n", host="irc.invalid:7000")
+        run(expected=1)
+        config(cfg, "tls=false\ntrusted_relay=true\n", host="127.0.0.1:6697")
+        _, args = run()
+        assert "--plain" in args and args[args.index("--port") + 1] == "6697"
+
+        # (-) No malformed/conflicting endpoint reaches Keychain or child launch.
+        for host in ("irc.invalid:", "irc.invalid:0", "irc.invalid:65536", "irc.invalid:-1",
+                     "irc.invalid:7:8", ":6697", "[::1]:6697", "irc.invalid:６６９７",
+                     ".irc.invalid", "irc..invalid", "irc.invalid..", "a" * 64 + ".invalid"):
+            config(cfg, host=host)
+            run(expected=1)
+        for port in ("true", "0", "65536", '"7000"'):
+            config(cfg, "port=" + port + "\n", host="irc.invalid:7000")
+            run(expected=1)
+        maximum = ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 61))
+        assert len(maximum) == 253
+        config(cfg, host=maximum + ".:65535")
+        profile = launcher.read_profile(cfg, "test")
+        assert profile.host == maximum + "." and profile.port == 65535
+        run()
+        for host in (maximum + "x", maximum + "x."):
+            config(cfg, host=host)
+            run(expected=1)
 
         # (+) TLS profiles resolve their default endpoint before credential lookup.
         config(cfg, "tls=true\n")
@@ -77,17 +158,25 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
         text, args = run("--allow-insecure-auth")
         assert "--tls" in args and "WARNING" not in text, "unsafe opt-in downgraded a TLS profile"
 
-        # (+) An explicit other port keeps TLS; 6697 cannot be downgraded.
+        # (+) An explicit port changes only the port, not the selected mode.
         config(cfg, "tls=true\nport=7000\n")
         _, args = run()
         assert "--tls" in args and args[args.index("--port") + 1] == "7000"
-        config(cfg, "tls=false\nport=6697\n")
+        config(cfg, "tls=true\nport=6697\n")
         assert launcher.read_profile(cfg, "test").tls
         _, args = run()
         assert "--tls" in args and args[args.index("--port") + 1] == "6697"
+        config(cfg, "tls=false\nport=6697\n")
+        assert not launcher.read_profile(cfg, "test").tls
+        run(expected=1)
+        _, args = run("--allow-insecure-auth")
+        assert "--plain" in args and args[args.index("--port") + 1] == "6697"
+        config(cfg, "port=6667\n")
+        _, args = run()
+        assert "--tls" in args and args[args.index("--port") + 1] == "6667"
 
         # (-/+) Legacy plaintext defaults and its explicit per-launch opt-in stay intact.
-        config(cfg)
+        config(cfg, "tls=false\n")
         plain = launcher.read_profile(cfg, "test")
         assert not plain.tls and plain.port == 6667
         run(expected=1)
@@ -106,7 +195,7 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
         assert "--tls" in args and args[args.index("--port") + 1] == "7000"
 
         # (+) Explicitly trusted IPv4 loopback relay remains valid without native TLS.
-        config(cfg, "trusted_relay=true\n", host="127.0.0.1")
+        config(cfg, "tls=false\ntrusted_relay=true\n", host="127.0.0.1")
         text, args = run()
         assert "WARNING" not in text and "--tls" not in args
 
@@ -114,6 +203,7 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
         for value in ('"true"', "1", "1.0"):
             config(cfg, "tls=" + value + "\n")
             run(expected=1)
+            run("--tls", expected=1)
         print("keychain_tls=ok")
 
 

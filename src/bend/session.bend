@@ -12,6 +12,7 @@ import ./typing.bend as Ty
 import ./media.bend as M
 import ./upload.bend as Up
 import ./view.bend as View
+import ./transport_policy.bend as Transport
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
@@ -429,8 +430,10 @@ def connect_apply.reconnect(+cl: Cl.Client, +net: NetState, +server: String, +po
 def connect_apply(+cl: Cl.Client, net: NetState, +port: U32, c: Sub.Conn) -> Cl.Client & String & NetCmd:
   match c:
     case Sub.ConnBad{}:
-      (Sub.echo_err(cl, "usage: /connect host [port]"), "", Cont{Nil{}})
+      (Sub.echo_err(cl, "usage: /connect host[:port] [port]"), "", Cont{Nil{}})
     case Sub.ConnOk{+host, port}:
+      connect_apply.st(cl, host, port, net)
+    case Sub.ConnDefault{+host}:
       connect_apply.st(cl, host, port, net)
     case Sub.ConnReconnect{}:
       connect_apply.reconnect(cl, net, Cl.server_of(cl), port)
@@ -496,11 +499,11 @@ def cmd_connect.got(triple: Cl.Client & String & NetCmd) -> NetCmd:
       c
 
 def cmd_connect(+net: NetState, +input: String) -> NetCmd:
-  cmd_connect.got(connect_apply(Cl.init("me", "s"), net, 6667, Sub.connect_from_input(input)))
+  cmd_connect.got(connect_apply(Cl.init("me", "s"), net, Transport.TLS_PORT(), Sub.connect_from_input(input)))
 
 def cmd_connect_ok() -> Bool:
   String.eq(show_netcmd(cmd_connect(Demo{}, "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
-    && String.eq(show_netcmd(cmd_connect(Online{}, "/connect irc.example.net")), "dial:irc.example.net:6667")
+    && String.eq(show_netcmd(cmd_connect(Online{}, "/connect irc.example.net")), "dial:irc.example.net:6697")
     && String.eq(show_netcmd(cmd_connect(Connecting{}, "/connect irc.example.net")), "cont")
     && String.eq(show_netcmd(cmd_connect(Demo{}, "/connect")), "cont")
 
@@ -1080,13 +1083,16 @@ def session_with_client_at(+cl: Cl.Client, +chan: String, +port: U32) -> Session
   Session{cl, False{}, Nil{}, "", False{}, chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, M.initial(True{})}
 
 def session_with_client(+cl: Cl.Client, +chan: String) -> Session:
-  session_with_client_at(cl, chan, 6667)
+  session_with_client_at(cl, chan, Transport.TLS_PORT())
 
 def session0(+nick: String, +host: String, +chan: String) -> Session:
   session_with_client(Cl.init(nick, host), chan)
 
+def session_demo_at(+cl: Cl.Client, +chan: String, port: U32) -> Session:
+  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, M.initial(True{})}
+
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
-  Session{cl, False{}, Nil{}, "", True{}, chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), 6667, M.initial(True{})}
+  session_demo_at(cl, chan, Transport.TLS_PORT())
 
 def session_online(+st: Session) -> Session:
   match st:
@@ -1844,15 +1850,23 @@ def upload_input.paths(got: Maybe<&2, List<&2, String>>, explicit: Bool, raw: St
     case None{}: Bool.pick(UploadInput, explicit || Up.looks_local_drop(raw), UploadBad{}, NotUpload{})
     case Some{paths}: UploadPaths{paths}
 
-def upload_input.unknown(known: Bool, +raw: String) -> UploadInput:
-  match known:
+# Bare /name is a command, not an ambiguous root-level file. A second slash
+# or literal path quoting/escaping in the verb marks a drop; later arguments
+# cannot supply that intent. Explicit /upload remains the root-file escape hatch.
+def upload_input.path_verb(+verb: String) -> Bool:
+  Bool.not(String.contains(verb, "://"))
+    && (String.contains(verb, "/") || String.contains(verb, "\\")
+      || String.contains(verb, "'") || String.contains(verb, "\""))
+
+def upload_input.unknown(command: Bool, +raw: String) -> UploadInput:
+  match command:
     case True{}: NotUpload{}
     case False{}: upload_input.paths(Up.parse_paths(raw, True{}), False{}, raw)
 
 def upload_input.parsed(input: Sub.Input, +raw: String) -> UploadInput:
   match input:
     case Sub.CommandInput{Sub.UploadCmd{}, _, rest}: upload_input.paths(Up.parse_paths(rest, False{}), True{}, raw)
-    case Sub.CommandInput{Sub.Unknown{}, verb, _}: upload_input.unknown(Sub.slash_known(verb), raw)
+    case Sub.CommandInput{Sub.Unknown{}, +verb, _}: upload_input.unknown(Sub.slash_known(verb) || Bool.not(upload_input.path_verb(verb)), raw)
     case Sub.PlainInput{_}: upload_input.paths(Up.parse_paths(raw, True{}), False{}, raw)
     case _: NotUpload{}
 

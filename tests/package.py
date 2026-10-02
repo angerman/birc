@@ -159,7 +159,7 @@ def wrapper_case(binary: Path, jpeg: Path, env: dict[str, str], log: Path, case:
     saved = termios.tcgetattr(slave)
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     try:
-        process = subprocess.Popen([str(binary), "--demo", "--frames", "0"],
+        process = subprocess.Popen([str(binary), "--plain", "--demo", "--frames", "0"],
             stdin=slave, stdout=slave, stderr=slave, env=env)
     except BaseException:
         os.close(master)
@@ -255,7 +255,7 @@ def main(argument: str) -> None:
         env = environment(root, fake_bin)
         help_result = run([str(binary), "--help-irc"], env)
         assert help_result.returncode == 2 and b"--connect" in help_result.stdout + help_result.stderr, "installed usage smoke failed"
-        demo_result = run([str(binary), "--demo", "--frames", "1"],
+        demo_result = run([str(binary), "--plain", "--demo", "--frames", "1"],
             {**env, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off"})
         assert demo_result.returncode == 0 and b"birc=ok" in demo_result.stdout + demo_result.stderr, "installed headless smoke failed"
         png, jpeg, payload = local_controls(helper, root, env)

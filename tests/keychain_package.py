@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="birc-keychain-package-") as temporary:
     bad_args = run([str(launcher), "--profile", "test", "--sasl-pass", marker], env)
     assert bad_args.returncode != 0 and marker.encode() not in bad_args.stdout + bad_args.stderr
     profile = root / "config.toml"
-    profile.write_text('[profiles.test]\nhost="irc.invalid"\naccount="test"\n')
+    profile.write_text('[profiles.test]\nhost="irc.invalid"\naccount="test"\ntls=false\n')
     profile.chmod(0o600)
     unsafe = run([str(launcher), "--profile", "test", "--config", str(profile)], env)
     assert unsafe.returncode != 0, "unsafe endpoint accepted without opt-in"

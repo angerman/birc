@@ -66,7 +66,28 @@ def public_text(value, limit: int, *, spaces=False) -> str:
     return value
 
 
-def read_profile(path: Path, name: str, *, tls=False) -> Profile:
+def profile_endpoint(value, separate_port, tls: bool) -> tuple[str, int]:
+    host, separator, digits = public_text(value, 260).partition(":")
+    canonical = host[:-1] if host.endswith(".") else host
+    if (not canonical or len(canonical) > 253 or not re.fullmatch(r"[A-Za-z0-9.-]+", host)
+            or any(not label or len(label) > 63 for label in canonical.split("."))):
+        raise Refusal("invalid profile endpoint")
+    inline = None
+    if separator:
+        if not re.fullmatch(r"[0-9]+", digits):
+            raise Refusal("invalid profile endpoint")
+        inline = int(digits)
+        if not 1 <= inline <= 65535:
+            raise Refusal("invalid profile endpoint")
+    if separate_port is not None and (type(separate_port) is not int or not 1 <= separate_port <= 65535):
+        raise Refusal("invalid profile metadata")
+    if inline is not None and separate_port is not None and inline != separate_port:
+        raise Refusal("conflicting profile ports")
+    port = separate_port if separate_port is not None else inline
+    return host, port if port is not None else (6697 if tls else 6667)
+
+
+def read_profile(path: Path, name: str, *, tls=None) -> Profile:
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name):
         raise Refusal("invalid profile name")
     try:
@@ -91,19 +112,15 @@ def read_profile(path: Path, name: str, *, tls=False) -> Profile:
             or any(not isinstance(row, dict) or set(row) - allowed
                    for row in document["profiles"].values())):
         raise Refusal("invalid profile metadata")
-    host = public_text(entry.get("host"), 253)
-    if not re.fullmatch(r"[A-Za-z0-9.-]+", host):
-        raise Refusal("invalid IPv4 host")
     account = public_text(entry.get("account"), 128)
-    profile_tls = entry.get("tls", False)
-    if type(profile_tls) is not bool:
+    profile_tls = entry.get("tls", True)
+    if type(profile_tls) is not bool or (tls is not None and type(tls) is not bool):
         raise Refusal("invalid profile metadata")
-    use_tls = tls or profile_tls
-    port = entry.get("port", 6697 if use_tls else 6667)
+    use_tls = profile_tls if tls is None else tls
+    host, port = profile_endpoint(entry.get("host"), entry.get("port"), use_tls)
     relay = entry.get("trusted_relay", False)
-    if type(port) is not int or not 1 <= port <= 65535 or type(relay) is not bool:
+    if type(relay) is not bool:
         raise Refusal("invalid profile metadata")
-    use_tls = use_tls or port == 6697
     nick = public_text(entry["nick"], 64) if "nick" in entry else ""
     auth = entry.get("auth", "sasl")
     if auth not in ("sasl", "nickserv", "sasl-nickserv"):
@@ -271,8 +288,7 @@ def launch(program: str, profile: Profile, secret: bytes, extra: list[str], secu
         env.update(BIRC_AUTH_SECRET_FD=str(secret_r), BIRC_AUTH_EVENT_FD=str(event_w))
         args = [program, "--connect", profile.host, "--port", str(profile.port),
                 "--sasl-user", profile.account, "--auth", profile.auth]
-        if profile.tls:
-            args.append("--tls")
+        args.append("--tls" if profile.tls else "--plain")
         if profile.nick:
             args.extend(["--nick", profile.nick])
         if profile.prefix:
@@ -312,8 +328,11 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
     parser.add_argument("--config", type=Path, help="metadata TOML; contains no passwords")
     parser.add_argument("--allow-insecure-auth", action="store_true",
                         help="allow plaintext credentials for this launch only")
-    parser.add_argument("--tls", action="store_true",
-                        help="use verified TLS; default to port 6697 unless the profile sets a port")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--tls", action="store_const", const=True, default=None, dest="tls",
+                      help="use verified TLS (default); keep an explicit profile port")
+    mode.add_argument("--plain", action="store_const", const=False, dest="tls",
+                      help="use plaintext IRC; keep an explicit profile port")
     parser.add_argument("--frames", type=int, help="forward birc frame cap")
     parser.add_argument("--channel", help="forward initial IRC channel")
     options = parser.parse_args(argv)
@@ -339,7 +358,7 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
             raise Refusal("authentication requires TLS or a trusted loopback relay; use --allow-insecure-auth to accept plaintext risk")
         extra = []
         if options.frames is not None:
-            if not 0 <= options.frames <= 0xffffffff:
+            if not 0 <= options.frames <= 65535:
                 raise Refusal("invalid frame cap")
             extra.extend(["--frames", str(options.frames)])
         if options.channel is not None:

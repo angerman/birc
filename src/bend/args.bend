@@ -3,6 +3,7 @@ import Base
 import ./buffer.bend as Cl
 import ./auth.bend as Auth
 import ./transport_policy.bend as Policy
+import ./endpoint.bend as Ep
 
 type AuthOptions is Data:
   AuthOptions{mode: Cl.AuthMode, prefix: String, success: String}
@@ -21,7 +22,7 @@ type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", 6667, "birc", "#birc", "", "", "", False{}, auth_options0(), False{}, False{}}
+  Cfg{True{}, 0, "", Policy.TLS_PORT(), "birc", "#birc", "", "", "", False{}, auth_options0(), Policy.default_secure(), False{}}
 
 def parse_u32.on(m: Maybe<&2, U32>) -> Num:
   match m:
@@ -83,12 +84,12 @@ def set_auth(+cfg: Cfg, auth: AuthOptions) -> Cfg:
     case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, _, tls, port_explicit}:
       Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
 
-def set_tls(+cfg: Cfg) -> Cfg:
+def set_secure(+cfg: Cfg, tls: Bool) -> Cfg:
   match cfg:
     case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, _, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, True{}, port_explicit}
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
 
-# Resolve defaults once, so --tls and --port have no order dependence.
+# Resolve defaults once; a port never selects the transport.
 def resolve_port(cfg: Cfg) -> Cfg:
   match cfg:
     case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, +tls, +port_explicit}:
@@ -110,7 +111,29 @@ def resolve_nick(+nick: String, explicit: Bool, +user: String) -> String:
 
 type Step is Data:
   Go{xs: List<&2, String>, cfg: Cfg}
+  Mode{xs: List<&2, String>, cfg: Cfg, secure: Bool}
   Stop{got: Parsed}
+
+def explicit_port(cfg: Cfg) -> Maybe<&2, U32>:
+  match cfg:
+    case Cfg{_, _, _, p, _, _, _, _, _, _, _, _, explicit}:
+      Bool.pick(Maybe<&2, U32>, explicit, Some{p}, None{})
+
+def args_port.selected(got: Maybe<&2, U32>, t: List<&2, String>, cfg: Cfg) -> Step:
+  match got:
+    case None{}: Stop{Bad{"birc: conflicting port values"}}
+    case Some{n}: Go{t, set_port(cfg, n)}
+
+def args_endpoint.port(inline: Maybe<&2, U32>, t: List<&2, String>, +cfg: Cfg, host: String) -> Step:
+  match inline:
+    case None{}: Go{t, set_host(cfg, host)}
+    case Some{+n}:
+      args_port.selected(Ep.select_port(Some{n}, explicit_port(cfg), n), t, set_host(cfg, host))
+
+def args_endpoint(got: Result<&2, &2, String, Ep.Endpoint>, t: List<&2, String>, cfg: Cfg) -> Step:
+  match got:
+    case Fail{msg}: Stop{Bad{"birc: --connect " ++ msg}}
+    case Done{Ep.Endpoint{host, port}}: args_endpoint.port(port, t, cfg, host)
 
 def FRAMES_MAX() -> U32:
   65535
@@ -125,12 +148,12 @@ def args_num_frames(+t: List<&2, String>, +cfg: Cfg, n: U32, over: Bool) -> Step
 def PORT_MAX() -> U32:
   65535
 
-def args_num_port(+t: List<&2, String>, +cfg: Cfg, n: U32, bad: Bool) -> Step:
+def args_num_port(+t: List<&2, String>, +cfg: Cfg, +n: U32, bad: Bool) -> Step:
   match bad:
     case True{}:
       Stop{Bad{"birc: --port out of range"}}
     case False{}:
-      Go{ t, set_port(cfg, n)}
+      args_port.selected(Ep.select_port(Some{n}, explicit_port(cfg), n), t, cfg)
 
 def args_num_which(+t: List<&2, String>, +cfg: Cfg, +n: U32, frames: Bool) -> Step:
   match frames:
@@ -167,7 +190,7 @@ def args_take(+xs: List<&2, String>, +cfg: Cfg, frames: Bool) -> Step:
 def args_word_set(+t: List<&2, String>, +cfg: Cfg, +h: String, host: Bool) -> Step:
   match host:
     case True{}:
-      Go{ t, set_host(cfg, h)}
+      args_endpoint(Ep.parse(h), t, cfg)
     case False{}:
       Go{ t, set_nick(cfg, h)}
 
@@ -255,7 +278,7 @@ def args_finish(valid: Bool, cfg: Cfg) -> Step:
     case False{}: Stop{Bad{"birc: NickServ authentication requires an exact --nickserv-prefix and control-free --nickserv-success"}}
 
 def USAGE() -> String:
-  "usage: birc [--frames N] [--connect HOST] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls]"
+  "usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls|--plain]"
 
 type Flag is Data:
   FDemo{}
@@ -272,13 +295,14 @@ type Flag is Data:
   FNickServSuccess{}
   FHelp{}
   FTls{}
+  FPlain{}
   FUnknown{}
 
 type FlagRow is Data:
   FlagRow{name: String, f: Flag}
 
 def flag_rows() -> List<&2, FlagRow>:
-  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--auth", FAuth{}} <> FlagRow{"--nickserv-prefix", FNickServPrefix{}} <> FlagRow{"--nickserv-success", FNickServSuccess{}} <> FlagRow{"--help-irc", FHelp{}} <> FlagRow{"--tls", FTls{}} <> Nil{}
+  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--auth", FAuth{}} <> FlagRow{"--nickserv-prefix", FNickServPrefix{}} <> FlagRow{"--nickserv-success", FNickServSuccess{}} <> FlagRow{"--help-irc", FHelp{}} <> FlagRow{"--tls", FTls{}} <> FlagRow{"--plain", FPlain{}} <> Nil{}
 
 def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
   match xs:
@@ -316,7 +340,9 @@ def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
     case FNickServSuccess{}:
       args_auth(t, cfg, 2)
     case FTls{}:
-      Go{t, set_tls(cfg)}
+      Mode{t, set_secure(cfg, True{}), True{}}
+    case FPlain{}:
+      Mode{t, set_secure(cfg, False{}), False{}}
     case FHelp{}:
       Stop{Bad{USAGE()}}
     case FUnknown{}:
@@ -329,8 +355,20 @@ def args_flag(+xs: List<&2, String>, +cfg: Cfg) -> Step:
     case Con{+h, t}:
       args_opt.do(t, cfg, h, flag_of(flag_rows(), h))
 
-# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed args_go
-def args_go(fuel: Nat, st: Step) -> Parsed:
+def mode_conflict.seen(seen: Maybe<&2, Bool>, secure: Bool) -> Bool:
+  match seen:
+    case None{}: False{}
+    case Some{True{}}: Bool.not(secure)
+    case Some{False{}}: secure
+
+def args_mode(t: List<&2, String>, cfg: Cfg, conflict: Bool) -> Step:
+  match conflict:
+    case False{}: args_flag(t, cfg)
+    case True{}: Stop{Bad{"birc: --tls and --plain conflict"}}
+
+# Explicit mode selection is parser-local, not an extra persistent Cfg field.
+# Mode consumes the next flag directly, keeping the existing fuel accounting.
+def args_go(fuel: Nat, st: Step, +seen: Maybe<&2, Bool>) -> Parsed:
   match fuel:
     case 0n:
       Bad{"birc: too many arguments"}
@@ -339,10 +377,12 @@ def args_go(fuel: Nat, st: Step) -> Parsed:
         case Stop{got}:
           got
         case Go{+xs, +cfg}:
-          args_go(p, args_flag(xs, cfg))
+          args_go(p, args_flag(xs, cfg), seen)
+        case Mode{xs, cfg, +secure}:
+          args_go(p, args_mode(xs, cfg, mode_conflict.seen(seen, secure)), Some{secure})
 
 def parse(+xs: List<&2, String>) -> Parsed:
-  args_go(64n, Go{ xs, cfg0()})
+  args_go(64n, Go{ xs, cfg0()}, None{})
 
 def copy_args(src: List<&1, String>, acc: List<&2, String>) -> List<&2, String>:
   match src:

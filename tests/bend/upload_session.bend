@@ -8,7 +8,7 @@ import ../../src/bend/upload.bend as U
 
 def online() -> Sess.Session:
   +cl = Feed.feed(Cl.init("me", "irc.example"), ":me!u@h JOIN :+#room")
-  Sess.session_online(Sess.session_with_client(Cl.set_active(cl, 1n), "+#room"))
+  Sess.session_online(Sess.session_with_client_at(Cl.set_active(cl, 1n), "+#room", 6667))
 
 def offered() -> Sess.Session:
   Sess.st_of_keys(Sess.step_enter(online(), "/upload '/tmp/private file.txt'"))

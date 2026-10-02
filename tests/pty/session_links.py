@@ -36,7 +36,7 @@ def main() -> None:
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
             child = subprocess.Popen(
-                [binary, "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
+                [binary, "--plain", "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
                  "--nick", "probe", "--channel", "#t", "--frames", "0"],
                 stdin=slave, stdout=slave, stderr=slave,
                 env={**os.environ, "TERM": "xterm-256color", "PATH": directory,

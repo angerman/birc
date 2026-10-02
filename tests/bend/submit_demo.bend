@@ -249,7 +249,7 @@ def main_on.body(+cl0: Cl.Client, +cl1: Cl.Client, +join_line: String) -> IO(Uni
     Unit <- E.must_eq("join_nbuf", trip_nbuf(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "2")
     Unit <- E.must_eq("join_self", trip_has_me(Sess.step_enter(Sess.session_demo(cl0, "#birc"), join_cmd())), "True")
     Unit <- E.must_eq("dial_demo", trip_cmd(Sess.step_enter(Sess.session_demo(cl0, "#birc"), "/connect irc.example.net 6668")), "dial:irc.example.net:6668")
-    Unit <- E.must_eq("redial_online", trip_cmd(Sess.step_enter(Sess.session_online(Sess.session0("me", "s", "#birc")), "/connect irc.example.net")), "dial:irc.example.net:6667")
+    Unit <- E.must_eq("redial_online", trip_cmd(Sess.step_enter(Sess.session_online(Sess.session0("me", "s", "#birc")), "/connect irc.example.net")), "dial:irc.example.net:6697")
     Unit <- E.must_eq("nodial_connecting", trip_cmd(Sess.step_enter(Sess.session0("me", "s", "#birc"), "/connect irc.example.net")), "cont:")
     Unit <- E.must_eq("hold_demo", cmd_head(Sess.hold_cmd(Sess.Demo{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:")
     Unit <- E.must_eq("hold_on", cmd_head(Sess.hold_cmd(Sess.Online{}, Sess.Cont{"JOIN #x" <> Nil{}})), "cont:JOIN #x")

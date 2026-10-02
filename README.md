@@ -15,7 +15,7 @@ whole client correct.
 - **Parked event loop**: Descriptor watchers wake one Bend `Chan(UiMsg)`. A one-second maintenance tick expires typing state and checks whether refused terminal output can resume; a full output queue does not cause a busy retry loop.
 - **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
 - **Verified IRC TLS**: OpenSSL checks certificate trust and the server name.
-  Port 6697 always uses TLS; `--tls` enables it on other ports.
+  TLS is the default; only `--plain` selects plaintext. Ports do not select mode.
 - **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
 - **Image previews**: New live image links expand inline. Explicit `/preview`
   accepts local files and HTTP(S) URLs. Common formats use a bounded,
@@ -214,12 +214,16 @@ make run HOST=irc.libera.chat PORT=6697 NICK=birc_user CHAN='#birc'
 ./build/birc --connect irc.libera.chat --tls --nick mynick --channel '#birc'
 ```
 
-`--tls` chooses port 6697 only when `--port` is absent. An explicit other port
-is retained. Port 6697 always uses TLS, even without `--tls`. Legacy launches
-without either TLS selection still default to plaintext port 6667.
-The `--tls` requirement persists across later connections. The slash command
-`/connect HOST` keeps its legacy port 6667 default, so use `/connect HOST 6697`
-or the network's explicit TLS port when switching secure servers.
+Verified TLS is the default, with port 6697. `--plain` explicitly selects
+plaintext, with port 6667. `--tls` explicitly selects the default secure mode;
+using both selectors is an error. A port never selects the transport:
+`--port 6667` still uses TLS unless `--plain` is present.
+`--connect HOST:PORT` and `/connect HOST:PORT` accept DNS names or IPv4 addresses.
+An additional port may match the inline port; conflicting values are rejected
+in either order. IPv6 is not supported.
+The selected transport persists across later connections. `/connect HOST`
+reuses the current port, including a custom port. `/reconnect` reuses the saved
+host and port. With Make, use `TRANSPORT=plain` for plaintext; `PORT` is optional.
 TLS failure does not retry with plaintext. TLS uses the Nix-provisioned CA
 bundle and verifies the hostname or IPv4 address; DNS names also use SNI.
 For a private CA, set `SSL_CERT_FILE` to its trusted PEM bundle. This changes
@@ -250,9 +254,10 @@ Run `./build/birc --help-irc` for a full summary:
 
 | Option | Argument | Description |
 |---|---|---|
-| `--connect` | `<host>` | IRC server hostname or IPv4 address |
-| `--port` | `<port>` | Server port (1–65535; default `6667`, or `6697` with `--tls`); 6697 always uses TLS |
-| `--tls` | — | Require verified TLS; keeps an explicitly selected port |
+| `--connect` | `<host[:port]>` | IRC server hostname or IPv4 address, with optional port |
+| `--port` | `<port>` | Server port (1–65535); does not change transport mode |
+| `--tls` | — | Verified TLS (default); default port 6697 |
+| `--plain` | — | Explicit plaintext; default port 6667; conflicts with `--tls` |
 | `--nick` | `<nick>` | IRC nickname (default: `birc`) |
 | `--channel` | `<channel>` | Initial channel to join upon registration (default: `#birc`) |
 | `--demo` | — | Run offline demo with canned mock activity |
@@ -283,16 +288,17 @@ nick = "mynick"
 auth = "sasl"
 ```
 
-`tls = true` selects native verified TLS and defaults to port 6697. An explicit
-profile port stays unchanged. Port 6697 forces TLS even with `tls = false`.
-You can also use the wrapper's `--tls` option; it resolves the same endpoint
-before looking up the endpoint-bound Keychain item. Without TLS selection,
-legacy profiles still default to plaintext port 6667.
+Profiles default to verified TLS and port 6697. `tls = false` explicitly selects
+plaintext and defaults to port 6667. An explicit profile port stays unchanged
+and never changes transport mode. The profile `host` also accepts `HOST:PORT`;
+an additional `port` must agree with it. The wrapper's `--tls` or `--plain`
+overrides the profile mode; using both is an error. It resolves the endpoint
+before looking up the endpoint-bound Keychain item.
 
 TLS profiles need no unsafe flag or local relay. A plaintext profile instead
 needs a declared trusted IPv4 loopback relay, or per-launch
 `--allow-insecure-auth`. For example, an existing trusted local TLS relay can
-use `host = "127.0.0.1"`, `port = 16667`, and `trusted_relay = true`.
+use `host = "127.0.0.1"`, `port = 16667`, `tls = false`, and `trusted_relay = true`.
 The wrapper does not create that relay or verify its TLS configuration.
 The owned profile file must be a regular file, not a symlink, and must not
 allow group or other users to write it. Password fields are rejected.
@@ -429,7 +435,7 @@ Type commands into the composer prompt:
 
 | Command | Description |
 |---|---|
-| `/connect <host> [port]` | Connect to an IRC server (from demo or offline mode) |
+| `/connect <host[:port]> [port]` | Connect using the launch transport; an omitted port reuses the current port |
 | `/reconnect` | Reconnect to the saved server and port |
 | `/join <channel>` | Join an IRC channel (e.g. `/join #bend`) |
 | `/part [channel]` | Leave the named channel, or the active channel if omitted |
@@ -536,6 +542,8 @@ Focus an online channel or query. Drop exact absolute paths or local
 
 Quotes and backslashes decode literal paths. They do not run a shell or
 expand variables, globs, or `~`. Up to eight files can be staged together.
+Bare `/name` is treated as a slash command, not an implicit root-level file
+drop. Use `/upload /name` or quote the path to remove that ambiguity.
 Images and other regular files are supported, through 32 MiB per file.
 Empty files, final symlinks, and nonregular files are refused.
 

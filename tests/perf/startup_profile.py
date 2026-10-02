@@ -130,7 +130,7 @@ def run_case(command: list[str], mode: str, history_rows: int, timeout: float,
                 server.listen(1)
                 server.setblocking(False)
                 port = server.getsockname()[1]
-                args += ["--connect", "127.0.0.1", "--port", str(port)]
+                args += ["--plain", "--connect", "127.0.0.1", "--port", str(port)]
                 if history_rows:
                     history = str(Path(directory, "history.log"))
                     with open(history, "x", encoding="utf-8") as fixture:

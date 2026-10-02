@@ -47,6 +47,7 @@ def run(birc, reset: bool) -> tuple[bool, bool, int | None]:
     proc = subprocess.Popen(
         [
             birc,
+            "--plain",
             "--connect",
             "127.0.0.1",
             "--port",

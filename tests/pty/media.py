@@ -152,7 +152,7 @@ class Live:
         if protocol == "kitty":
             env["BIRC_FORCE_IMAGE_PROTOCOL"] = "kitty"
         self.proc = subprocess.Popen(
-            [binary, "--connect", "127.0.0.1", "--port", str(self.listener.getsockname()[1]),
+            [binary, "--plain", "--connect", "127.0.0.1", "--port", str(self.listener.getsockname()[1]),
              "--nick", "probe", "--channel", "#t", "--frames", "0"],
             stdin=slave, stdout=slave, stderr=slave, env=env)
         os.close(slave)

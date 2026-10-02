@@ -53,6 +53,7 @@ def trial(birc: str) -> tuple[bool, float | None]:
     proc = subprocess.Popen(
         [
             birc,
+            "--plain",
             "--connect",
             "127.0.0.1",
             "--port",

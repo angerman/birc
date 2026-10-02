@@ -24,7 +24,7 @@ def main() -> int:
     srv.settimeout(10)
     t0 = time.time()
     proc = subprocess.Popen(
-        [birc, "--connect", "127.0.0.1", "--port", str(port),
+        [birc, "--plain", "--connect", "127.0.0.1", "--port", str(port),
          "--nick", "probe", "--channel", "#t", "--frames", "2"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
