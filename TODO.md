@@ -2363,7 +2363,7 @@ expectation correction receives user approval. Add failing and passing controls.
       the demo placeholder. Earlier settings assertions remain unchanged. The
       changed test passes three consecutive runs; configured-host models and
       loopback reconnect guards remain positive.
-- [ ] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
+- [x] V01 — Cross-review integrated fixes, proofs, focused guards, strict FFI,
       full `make check`, supported sanitizers, and installed Nix package.
 
 Concurrent ownership: state/protocol/history, runtime/DNS/replay, native/media,
@@ -2440,7 +2440,28 @@ The changed `timeout 180 make test-pty-settings` passes three consecutive
 runs: `build/m21_t02_settings_round{1,2,3}.log`. Steps 1–9 and clean shutdown
 are unchanged; no real IRC endpoint is dialed. `timeout 220 make proof`
 passes; log: `build/m21-approved-fixtures-proof-20261002.log`. Only tests and
-this checklist changed. A clean full aggregate check remains.
+this checklist changed; fixture checkpoint: `cb89d0c`.
+
+Final aggregate verification on that checkpoint: `timeout 2700 make -k check`
+passes (exit 0), including all three approved fixture cases, all pure/model and
+PTY gates, original laws, strict FFI lint and the paste harness. Log:
+`build/m21-approved-full-check-20261002.log`. Tests use `BIRC_HISTORY=none`
+and `BIRC_IMAGES=off` in the exact locked Nix-provisioned environment; no pins
+changed, and synthetic preview tests use owned local fixtures/helpers.
+Independent review found no further defect in the fixture changes. Production
+sources and packaging inputs are unchanged since the qualified package;
+`git diff ebcfbac -- src nix flake.nix flake.lock` is empty, and the installed
+image helper matches the checkout byte-for-byte. The prebuilt package and
+supported UBSan results above therefore still apply.
+The final pre-commit `timeout 220 make proof` also passes (exit 0); log:
+`build/m21-final-handoff-proof-20261002.log`.
+
+All M21 fixes, cleanup and approved fixture corrections are complete. Remaining
+coverage limits are explicit: ASan is unsupported on this Darwin-arm64 runtime,
+and independent kernel verification needs Lean v4.34.0 or `BENDTT`. The earlier
+isolated package paint timeout is unreproduced and its cause remains unknown;
+diagnostics now retain evidence, but this is not a claim that its cause was
+fixed. No owned build/test process remains. No push was made.
 
 ## Open decisions (resolve in M0/M4)
 
