@@ -2560,6 +2560,16 @@ Preview-retry passed three consecutive unchanged bounded reruns (exit 0):
 or deadline changed. Its original cause remains unknown; the failed raw-output
 substring alone cannot establish that the helper completion was lost.
 
+The final read-only audit confirms that the repeated output-progress failure
+is a socket-wire assertion, not a rendered substring. Its default `ordinary`
+case fails first, so that aggregate invocation does not execute `large`,
+`slow`, or `quit`. Existing profile exit 0 means diagnostic completion, not a
+passing one-second gate. The smallest next diagnostic is a committed,
+bounded, default-off numeric trace from inbound delivery through UI dequeue,
+feed/PONG enqueue, and writer send; use timestamps/counts only, never chat
+text. Reuse the View timer, then measure the unchanged case serially after
+builds stop. Do not optimize from whole-frame averages or weaken the deadline.
+
 `timeout 1200 make test-sanitizers test-auth-bridge-ubsan` passes all supported
 UBSan gates, including the full-app hostile corpus; log:
 `build/m22-sanitizers-20261002.log`. Full-app authentication PTY also passes
@@ -2602,23 +2612,31 @@ initialization delay. No real files are uploaded during tests.
   not claims about the server.
 - [x] Add and qualify bounded, default-off startup instrumentation before
   measuring. The instrumentation checkpoint precedes app/Nix measurements.
-- [ ] Measure cached Nix launch separately from installed-client first paint;
+- [x] Measure cached Nix launch separately from installed-client first paint;
   use demo, loopback IRC, and owned synthetic history only.
-- [ ] Identify and fix the measured cause, then repeat the same measurements.
-  Do not infer a cause from code inspection or compare cold builds with warm
-  launches.
-- [ ] Add a bounded HTTPS uploader with strict URL output, streaming limits,
+- [x] Report the measured split and its limits. No slow app initialization was
+  reproduced, so no app optimization or additional startup seam is justified.
+  After the user clarified tens of seconds, bounded evaluation-only controls
+  reproduced a 29.87 s project lookup and a 34.54 s direct locked derivation
+  lookup. Owned evaluator samples show waits for store protocol replies;
+  why those replies are slow remains unknown. Do not infer a cause from code
+  inspection or mix cold builds with warm launches.
+- [x] Add a bounded HTTPS uploader with strict URL output, streaming limits,
   safe numeric diagnostics, and offline failing/passing controls.
-- [ ] Recognize exact local dropped paths and `/upload PATH`, without shell
+- [x] Recognize exact local dropped paths and `/upload PATH`, without shell
   evaluation, raw-path IRC output, or composer-history leakage.
-- [ ] Require F8 confirmation per file; Esc cancels. Pasted text cannot
+- [x] Require F8 confirmation per file; Esc cancels. Pasted text cannot
   authorize an upload. Keep ordinary chat, completion, history, and navigation
   usable while one worker owns the pending request.
-- [ ] Bind completion to the confirmed endpoint and target; reject stale or
+- [x] Bind completion to the confirmed endpoint and target; reject stale or
   overlong URL sends without truncating them.
-- [ ] Add driver/package/usage support; qualify pure policy, mocked helpers,
-  and three consecutive actual-loop PTY runs.
-- [ ] Independent review, proof/lint, sanitizer checks, and updated Nix cache.
+- [x] Add driver/package/usage support, fixed Python/CA provisioning, helper
+  qualification, and a shell-reload notice without changing dependency pins.
+- [x] Qualify pure policy/session/helper-IO/status hints, native cancellation,
+  mocked helpers, and three consecutive actual-loop PTY runs.
+- [x] Qualify the installed uploader, trust defaults/overrides, clean PATH,
+  and the actual loop against fake helpers, not the public upload service.
+- [x] Independent review, proof/lint, supported sanitizer checks, and updated Nix cache.
 
 Startup harness self-tests passed three consecutive controlled runs, including
 raw/visible/profile capture, early exit and bounded timeout with child reaping:
@@ -2628,6 +2646,197 @@ log: `build/m23-startup-instrumentation-check-20261002.log`. Instrumentation
 does not change production sources and refuses to benchmark an unbuilt Nix
 output. First-visible timestamps mean observed mode-label paint, not complete
 physical-frame delivery.
+
+Instrumentation was committed before measurements (`01d7130`). The bounded
+cached comparison passed all 16 cases (four separately reported warm-ups and
+three settled samples for each installed/Nix demo/live mode), with no app
+build running. Log: `build/m23-startup-cached-nix-20261002.log`. The already
+built output was `/nix/store/gijifqaakdrx5wgwnhxcf6x13kxsr1wd-birc-0.1.0`.
+The first evaluator lookup took 2592.004 ms, not compilation. Settled first
+visible-paint medians were 13.326 ms installed versus 94.815 ms `nix run` for
+demo, and 12.309 ms versus 85.874 ms for loopback IRC. The paired launch-cost
+medians were 81.489 ms and 73.165 ms. Raw-mode-to-visible paint was about
+1.0–1.2 ms. These controls did not reproduce a long app initialization delay
+and do not explain the first evaluator lookup.
+
+After the controlled reset-on-quit guard was corrected and committed
+(`ff8158a`), the same installed app with an owned private 1024-row synthetic
+history had settled first-visible times 55.156/55.171/53.026 ms (median
+55.156 ms). Median raw-mode-to-visible paint was 43.341 ms and loopback
+registration 13.864 ms. Log:
+`build/m23-startup-synthetic-history-green-20261002.log`. No real history,
+Keychain, credentials, or public IRC traffic were used.
+
+The later frontend investigation used the committed external monotonic timer,
+default Nix settings, exact locked input sources, and no app builds. Minimal
+`nix eval --offline --expr 1` took 121.690 ms; the locked nixpkgs platform took
+1635.112 ms, app name 610.728 ms, and filtered app source path 1374.826 ms.
+Log: `build/m23-nix-frontend-source-phases-20261002.log`. An earlier project
+program lookup and direct locked app derivation lookup each hit their 40 s
+bounds; each owned evaluator was killed and reaped. Those timeouts are not
+verification passes. Log: `build/m23-nix-frontend-phase-warmup-20261002.log`.
+
+The next direct locked `app.drvPath` lookup completed in 34544.660 ms (exit 0),
+without compilation; log: `build/m23-nix-owned-drv-phase-20261002.log`. A
+one-second sample of that owned evaluator placed 613 of 749 main-thread
+samples (81.8%) in store protocol response processing, mostly kernel reads.
+Stacks include `RemoteStore::addTempRoot` and `isValidPathUncached` under
+`derivationStrict`. This fraction describes only the sampled second, not the
+full 34.54 s; idle GC-thread waits are excluded. Raw evidence:
+`build/m23-nix-owned-drv-sample-20261002.log`.
+
+The actual project app-program lookup also completed without a build in
+29873.954 ms (exit 0); log:
+`build/m23-nix-owned-project-program-phase-20261002.log`. Its one-second owned
+evaluator sample placed 702 of 758 main-thread samples (92.6%) in store reply
+processing; 695 ended in kernel reads. Raw evidence:
+`build/m23-nix-owned-project-program-sample-20261002.log`. An application
+compile overlapped this last measurement, so it is not an isolated performance
+comparison. Both samples locate a wait before birc starts; neither establishes
+why the store replies are delayed. No daemon, global setting, source pin, or
+per-invocation tuning change was made as a fix. A safe bounded reproduction is
+`timeout 60 nix --extra-experimental-features 'nix-command flakes' eval --offline
+--no-update-lock-file --raw .#apps.aarch64-darwin.default.program`; it evaluates
+only. Further store/daemon investigation needs separate scope. The fast
+installed-app controls above remain evidence against an app startup fix, not
+a claim that the frontend delay is solved.
+
+The independent immutable upload-helper review found no confirmed defect in
+the helper, pure consent/worker state, or helper IO boundary. Sixteen offline
+helper tests passed in 2.606 s; log:
+`build/m23-upload-independent-helper-review-20261002.log`. Integration must
+still guard exact one-line URL fit, F8 authorization against a pre-existing
+painted prompt, and permanent invalidation after target or connection changes.
+The new package guard checks installed source/Python/CA provenance and refuses
+invalid sources before network setup. The package PTY uses owned fake helpers
+and loopback IRC only. This is not yet a claim that M23 or the full aggregate
+passes. The previous full `make -k check` exited 2; its repeatable one-second
+burst-PONG miss also occurs on the verified pre-auth baseline.
+
+The uploader-only Nix build passes without building the app; log:
+`build/m23-upload-helper-only-build-20261002.log`. Its nixpkgs store source
+was resolved from the exact locked revision and independently hashed to
+the locked NAR hash (`build/m23-upload-nixpkgs-source-hash-20261002.log`).
+The installed output is
+`/nix/store/gnc97rsiznqrnnqhyzzph5df9df5mdz5-birc-upload`.
+The offline `tests/upload_package.py --helper` guard passes source/Python/CA
+provenance, unset/empty/custom CA trust, fixed usage/source diagnostics,
+and invalid regular/symlink/FIFO/directory inputs with an empty PATH; log:
+`build/m23-upload-installed-helper-green-20261002.log`. The same package
+guard correctly rejects the old client package without an uploader default;
+log: `build/m23-upload-package-pre-feature-red-20261002.log`.
+The final decoded-source client package build passes (exit 0):
+`build/m23-upload-decoded-final-nix-build-20261002.log`. Its output is
+`/nix/store/vrv9r7m3x9sggjwzkwlbzia4j1bwmgw2-birc-0.1.0`.
+Installed image, Keychain-wrapper, and upload guards all pass (exit 0):
+`build/m23-final-installed-{image,keychain,upload}-package-20261002.log`.
+They cover source/Python/CA provenance, unset/empty/custom trust, clean PATH,
+headless startup, local helper overrides, and pre-Keychain refusal. No public
+service or real Keychain is used. Installed-client upload PTY passes three
+consecutive unchanged runs, all twelve cases (exit 0):
+`build/m23-final-installed-upload-pty-{1,2,3}-20261002.log`.
+The immutable installed app hash is
+`f6fe033ae8cc2954f68713f864d995018d38a7c992ae1dbf20906af1d1b5a3fc`;
+the unchanged PTY script hash is
+`1564bfce1bcc9ce51c180e01a800b3856f1b8bc78741212190730e19ca95d010`.
+
+Final integration review findings and guards:
+
+- [x] Preserve the real draft when a batch advances. Put the warning in the
+  status row, never the composer. Session and actual-loop controls retain
+  drafts, history, completion, and normal chat while the worker is busy.
+- [x] Reject authorization before a completed warning frame. Coalesced
+  Enter/F8 cannot stage and approve a new request. Every next file resets
+  presentation, including duplicate paths. Pure guards cover deterministic
+  state ordering; queued-key PTY cases do not force scheduler ordering.
+  This is a completed-frame barrier, not proof of physical screen delivery
+  when terminal output is stalled.
+- [x] Restore native Enter-cleared drafts after ordinary key processing when
+  an upload key suppresses submission. The actual-loop draft guards pass.
+- [x] Keep malformed local-drop intent after quote/backslash decoding.
+  `fi''le:///tmp/private%FF.jpg` previously reached IRC and local history;
+  the failing actual-loop capture is
+  `build/m23-upload-normalized-uri-red-20261002.log`. Reuse the same literal
+  path lexer for intent, including partial malformed EOF and case-insensitive
+  file-URL refusal. Valid local URLs, ordinary prose, known commands, and
+  explicit `/msg` remain positive controls. Pure RED/GREEN logs:
+  `build/m23-upload-decoded-{policy,session}-{red,green}-20261002.log`.
+- [x] Keep one worker owner after cancellation, without send permission.
+  Scope invalidation is permanent across away-and-back transitions. Validate
+  exact helper response syntax and complete IRC line fit before ordinary
+  echo/send; reject failures without forwarding helper text.
+- [x] Keep fatal native output failures distinct from cancelable Escape.
+  Native failure returns F10 for mandatory shutdown. Ordinary Escape still
+  quits; selection consumes the first Escape before upload cancellation.
+  Native guards, UBSan guards, and unchanged Escape/resize controls pass.
+- [x] Apply only approved existing fixture changes: append `/upload` to the
+  command catalog and return three native Escape events without C-owned quit.
+  Other assertions are unchanged; compatibility guards pass.
+
+Final pure policy/session guards pass. Root proof, helper-IO, hint, and strict
+FFI lint pass (exit 0):
+`build/m23-upload-decoded-final-proof-lint-20261002.log`.
+The final repeated checkpoint also passes proof, lint, build-input/deadline
+guards, all sixteen offline helper tests, pure policy/Session/helper-IO/hint,
+and native upload guards:
+`build/m23-upload-final-checkpoint-20261002.log`.
+The final app built successfully; SHA-256 is
+`b25a07a8f13581cab2d2d4f88f91d11eb44a1a295500033e33107ffdec91608c`.
+All twelve upload PTY cases passed three consecutive runs with no test or
+binary edits between runs:
+`build/m23-upload-pty-decoded-final-run{1,2,3}-20261002.log`.
+The unchanged Escape/resize control also passed without rescue wakes and
+restored the tty:
+`build/m23-upload-decoded-ordinary-esc-control-20261002.log`.
+
+The first full-app UBSan compilation hit its 300-second compiler bound before
+runtime qualification. Log: `build/m23-upload-sanitizers-qualification-20261002.log`.
+The compiler bound is now 600 seconds; runtime test bounds and assertions are
+unchanged. The final `timeout 1200 make build-ui test-sanitizers` retry passes
+(exit 0): `build/m23-upload-decoded-final-sanitizers-20261002.log`.
+Supported UBSan guards include the full-app hostile PTY, upload keys, native
+output/cluster/history/media/selection/widgets, and bounded PNG decoding.
+ASan explicitly reports unsupported Darwin-arm64 interceptor startup
+(LLVM #58503); this is not ASan coverage. The normal rebuild retains the same
+qualified app hash. The twelve actual upload PTY cases also pass under UBSan
+(exit 0): `build/m23-upload-decoded-final-pty-ubsan-20261002.log`.
+Upload implementation checkpoint: `33e1783`.
+
+Final compatibility guards also pass (exit 0):
+`build/m23-upload-decoded-final-compat-20261002.log` checks bounded compiler
+recipes, the approved command-catalog expectation, submit, commands, and
+frame behavior. The prior full aggregate remains non-green for the unresolved
+burst-PONG gate; no aggregate success is claimed.
+
+The explicit default app cache check passes (exit 0):
+`timeout 180 nix --extra-experimental-features 'nix-command flakes' build .
+--no-update-lock-file --no-link --print-out-paths`. Log:
+`build/m23-final-default-nix-cache-20261002.log`.
+It returns the same final `vrv9r7m3x9sggjwzkwlbzia4j1bwmgw2` package with
+no rebuild. No dependency pins changed. The final proof and startup-harness
+self-test also pass (exit 0):
+`build/m23-final-handover-proof-startup-20261002.log`.
+
+## M24 — Mixed UTC and local timestamps (diagnosed)
+
+User reported chat timestamps about nine hours behind local join/reconnect
+rows. Source confirms a mixed-time-zone defect; individual wire tags were
+not supplied, so each reported row's origin is not independently verified.
+
+- [x] Trace IRCv3 `time` parsing, log selection, local clock, View, and history.
+  `irc.bend` extracts only eight clock characters after `T`.
+  `client.bend` passes that clock to PRIVMSG/NOTICE logs; `buffer.bend` prefers
+  it over `Client.now`. `clock_ffi.c` uses `localtime_r` for local/system rows.
+  View paints timestamps unchanged. The IRCv3 server-time specification
+  explicitly defines the tag as UTC:
+  https://ircv3.net/specs/extensions/server-time.
+- [x] Confirm history cannot safely be bulk-shifted. Current stored rows carry
+  only HH:MM:SS, not source date or time-zone origin. Tagged and locally
+  stamped rows are indistinguishable after storage.
+- [ ] Normalize valid server timestamps to the machine's local time zone,
+  using the event date for daylight-saving rules, without changing receipt
+  times or the exact wire message. Add UTC/local, day-rollover, DST, missing
+  tag, and invalid-tag controls. Diagnose first; no timestamp fix is claimed.
 
 ## Open decisions (resolve in M0/M4)
 
