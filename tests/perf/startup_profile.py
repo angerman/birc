@@ -175,7 +175,12 @@ def run_case(command: list[str], mode: str, history_rows: int, timeout: float,
                         connection, _ = server.accept()
                         connection.setblocking(False)
                     elif ready is connection:
-                        chunk = connection.recv(65536)
+                        try:
+                            chunk = connection.recv(65536)
+                        except ConnectionResetError:
+                            # Immediate quit can reset an unread mock welcome.
+                            # Startup markers and successful exit remain required.
+                            chunk = b""
                         if chunk:
                             append(wire, chunk, 16384)
                             if result["registration_ms"] is None and b"USER probe" in wire:
@@ -248,6 +253,15 @@ def self_test() -> None:
     positive = run_case([sys.executable, "-c", ready], "demo", 0, 3, time.monotonic() + 3)
     assert positive["status"] == "ok" and positive["raw_mode_ms"] is not None
     assert positive["first_visible_ms"] is not None and positive["frame_profile"]["view_us"] == 5
+    reset = ("import os,socket,struct,sys,termios,time,tty;"
+             "s=socket.socket();s.connect(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])));"
+             "s.sendall(b'USER probe 0 * :probe\\r\\n');old=termios.tcgetattr(0);tty.setraw(0);"
+             "os.write(1,b'connecting');os.read(0,6);"
+             "s.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0));s.close();"
+             "time.sleep(.05);termios.tcsetattr(0,termios.TCSANOW,old);"
+             "os.write(2,b'birc_profile frames=1 prepare_us=1 begin_us=2 draw_us=3 end_us=4 view_us=5\\n')")
+    closed = run_case([sys.executable, "-c", reset], "live", 0, 3, time.monotonic() + 3)
+    assert closed["status"] == "ok" and closed["registration_ms"] is not None
     early = run_case([sys.executable, "-c", "raise SystemExit(7)"], "demo", 0, 3, time.monotonic() + 3)
     assert early["status"] == "early_exit" and early["returncode"] == 7
     stalled = run_case([sys.executable, "-c", "import time;time.sleep(10)"], "demo", 0, 0.2,
