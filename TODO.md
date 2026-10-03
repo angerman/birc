@@ -4070,6 +4070,41 @@ handoff is implementation scope, not a request for another plan-only review.
   the single heavy lane after runtime integration). Measured root-cause
   and successful integrated default package/prebuild gates stay open;
   diagnostics are never completion.
+- Follow-up tool-loss re-delegation: both I2 and C8 second-review
+  follow-up sessions returned terminal WITHOUT changes (successor lost
+  all work tools except `web_search`/`write_todos`). Re-delegated as
+  fresh scoped natives `fix-i2-second` (on `f672365`) and `fix-c8-second`
+  (on `567b62d1`); handles retained on spawn return.
+- IPv6 transport returned (`635abc6` FFI + `8cfadf2` DNS glue, branch
+  `ipv6-transport-adapter`); H5 repair returned (`6c858f1`, worker
+  reports 33 laws green + both suites ok). Both pending parent review
+  against transport/H5 gates before integration. G6 `a504fca` verified
+  (G6.1-G6.4 shapes + `cap_notify_demo=ok` in repair worktree); queued
+  for ordered integration.
+- Second-review blockers (I2/C8/D): (I2a) `join_swap` validates `#+tail`,
+  not original identity: `CHANTYPES=*` lets `*log*`/`*LOG*` bypass
+  reserved policy — require original `Cl.target_wire`/canonical equality
+  before prefix substitution, keep advertised `$room` positive. (I2b)
+  `apply_key.neg` ignores `has_eq`: `-NICKLEN=garbage` resets 31→9 —
+  ignore malformed removal (primary-verified: `-PARAMETER` takes no
+  value), valid `-NICKLEN` resets. (I2c) `reset_statusmsg(-STATUSMSG)`
+  revives `@+`: explicit withdrawal must disable support (verified
+  primary default none + modern PREFIX-subset rule); setter must require
+  current PREFIX subset (`PREFIX=(o)^` + `STATUSMSG=@` must not authorize
+  `@`). ISUPPORT fixtures must join the Make test/check graph on
+  integration. (D-cap) repaired `set`/`set_ok` cap per supplied ServerId
+  without `Key.valid`: invalid/huge IDs each admit 16 — validate public
+  admission (invalid-ID set unchanged, `set_ok`/`focus_admits` false,
+  valid3 positive). (D-bi) `submit_lines` checks synthetic spelling, not
+  resolved `bi`: `(init,0n,"server",…)` emits while `submit_plain`
+  rejects active0 — require bi0/read-only resolved-pane rejection,
+  preserving real nonzero peer query `server` as positive (pure adapter
+  defect). (C8d) separate locks/accounting still exceed the budget even
+  sequentially; require both writer orders + interleaved/concurrent
+  totals under one shared lock/accounting. (C8e) UTF-8 envelope write vs
+  ASCII read breaks Unicode final-base hits — add Unicode miss/hit
+  exact-equality. I2/C8 sent as native-handle follow-ups; D fixed in
+  parent. Nothing here is fully repaired yet; no weakened tests.
 - I2 repair returned `f672365` (5 files, +453/−21, 9 new laws, worker
   reports proof green in its worktree); pending parent review against
   I2.1-I2.6/PREFIX/324 gates before integration. N9 worker admitted into
@@ -4077,6 +4112,10 @@ handoff is implementation scope, not a request for another plan-only review.
   (`01a10140-badb-7551-a7a7-bf6e55680c5b`) on `2b1033d` (pool 8/8 again).
   `fix-l1t-trace` = `main/fix-l1t-trace/16`
   (`01a10144-754c-7822-90e2-122468ef3e98`) on `cb4e99f`.
+  `fix-i2-second` = `main/fix-i2-second/17`
+  (`01a1014a-b094-78a0-be43-78cf4f712a51`);
+  `fix-c8-second` = `main/fix-c8-second/18`
+  (`01a1014a-b54a-7811-96e4-76e6154bda20`).
 - Proof gate diagnosis (D-repair commit blocked): plain `make proof`
   timed out at 180s under load 44; `--verdict` is unavailable (Lean
   kernel not in PATH — not a proof failure). Lane4's own 10 drafts laws
