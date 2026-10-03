@@ -4182,6 +4182,24 @@ handoff is implementation scope, not a request for another plan-only review.
   stays live. Shared G6 CAP owner must also preserve legitimate prereg
   `CAP * LS/ACK` (same primary spec as H5) without accepting peer prefix
   or wrong registered recipient.
+- C8 parent-fd race blocks acceptance (`254a0eb`): `cache_directory`
+  opens parentA then closes; `cache_write` reopens parentB for lock but
+  writes retainedA/cards — parent swap under held lock exceeds the
+  shared budget. Picks `922522f`/`31eba51`/`d25dfd9`/`3f772fd` remain a
+  checkpoint (verified: `media_cards=ok`, `media_image=ok`,
+  `cards_policy=ok`, `cards_view=ok`, existing image formats intact).
+  Scoped `fix-c8-third/24` (`01a1015f-4d37-7192-9e2d-426bcb3702f7`) owns
+  the one-parent-fd repair + stable-parent/parent-swap guards.
+- G6 star correction delivered to running `fix-g6-second/23`: prereg
+  star already supported (`cap_recipient_ok138`) — no invented fix;
+  exactly-one-CAP-END STAR/SASL-fold guard only. Remaining G6 defects:
+  uninitialized clock + malformed source gate (share
+  `Auth.server_source` via `Endpoint.host_ok`).
+- N9-second (eighth-scope FIFO eviction vs at-most-once: fail-closed
+  admission or Workspace-global-ID/history seed) and L1T-second
+  (pipe/orphan kill + isolated-baseline correlation) queued for the next
+  free slots. N9 return `9367c05`/`758291c` and L1T `727e0c8` stay
+  unaccepted until then.
 - G3 exact-SOH + H5-IO additions (messaged to running workers): G3 SOH
   branch is wire_style:165; whitelist-only supported style controls in
   chat text; metadata/TAB/CR/LF/NUL/ESC/OSC52 safety through BIRC2;
