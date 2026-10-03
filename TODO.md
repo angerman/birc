@@ -4391,6 +4391,24 @@ handoff is implementation scope, not a request for another plan-only review.
   observed, now `cap_notify_demo=ok`); merged-tree proof re-run TIMED
   OUT (124) under load avg 77-87 with 25 bend procs — retry with
   timing in flight, no deadline change; not attributed to source.
+- I2-live P2 sent (queued): CHANMODES duplicate-letter rejection across
+  combined classes via existing nodup helper; negative malformed
+  readvertisement after withdrawal keeps `cm_known=false` + whole-tail
+  hidden, positive unique `b,k,s,l` restores `hidden|50`; no fixture
+  conflicts. (P1 key-detector + held unsigned-k edit still stand.)
+- V6-fallback returned (`348fe16` dual policy + `connect_dual`, no FFI
+  changes; `2a36383` guards) on `repair-v6fb`; transport line
+  `635abc6` (FFI AF_INET6 dial/v6 UDP) → `8cfadf2` (AAAA-first DNS) →
+  `348fe16` → `2a36383` is entirely unintegrated (parent V6 is pure
+  policy `6156a5f`/`c2f8e09` only). Actor `dial_begin` wiring is
+  integrator-owned: `connect_dual` must precede TLS, never fallback on
+  TLS verification failure — parent follow-up after staging. FFI
+  native qualification via lane1/final gates (heavy lane).
+- H5 chain mapped (`e8b66b3` → `6c858f1` → `8b5000c` → `617ad61`);
+  parent stages it (new `-n`/proof/commit process) then spawns
+  H5-runtime (fraction exactness + disk IO/runtime) into the freed
+  slot. Order: sentinel proof -> commit -> stage H5 -> proof ->
+  commit -> spawn H5-runtime -> stage V6 -> proof -> commit.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
