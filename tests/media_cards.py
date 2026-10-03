@@ -784,6 +784,85 @@ finally:
     os.environ.clear()
     os.environ.update(saved)
 
+# Permanent: a released parent lock unblocks the writer. The held-lock skip
+# above must be lock-caused, not a standing refusal: same card, same
+# directory, lock released -> the entry lands.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    parent = root / "img"
+    seed = image.cache_directory(create=True)
+    assert seed is not None
+    os.close(seed)
+    parent_fd = image.cache_directory()
+    assert parent_fd is not None
+    held = None
+    try:
+        held = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+                       | os.O_CLOEXEC, 0o600, dir_fd=parent_fd)
+        os.fchmod(held, 0o600)
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        target = "https://example.test/relock-card"
+        cards.cache_write(target, b"<html></html>", target)
+        assert not (parent / "cards" / cards.cache_name(target)).exists()
+    finally:
+        if held is not None:
+            try:
+                os.close(held)
+            except OSError:
+                pass
+        try:
+            os.close(parent_fd)
+        except OSError:
+            pass
+    target = "https://example.test/relock-card"
+    cards.cache_write(target, b"<html></html>", target)
+    assert (parent / "cards" / cards.cache_name(target)).exists()
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# Permanent: an active staging file counts toward the shared budget for the
+# cards writer, like image.py's own scan. With limit 1 the orphan staging
+# entry fills the pool, so the card skips; with limit 2 it lands.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 1, 10 * 1024 * 1024
+        seed = image.cache_directory(create=True)
+        assert seed is not None
+        os.close(seed)
+        parent_fd = image.cache_directory()
+        assert parent_fd is not None
+        try:
+            stage = ".write-" + "ab" * 12 + ".tmp"
+            assert len(stage) == 35, stage
+            fd = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
+                         | os.O_CLOEXEC, 0o600, dir_fd=parent_fd)
+            try:
+                os.write(fd, b"01234567")
+            finally:
+                os.close(fd)
+        finally:
+            try:
+                os.close(parent_fd)
+            except OSError:
+                pass
+        parent = root / "img"
+        target = "https://example.test/staged-card"
+        cards.cache_write(target, b"<html></html>", target)
+        assert not (parent / "cards" / cards.cache_name(target)).exists()
+        image.MAX_CACHE_ENTRIES = 2
+        cards.cache_write(target, b"<html></html>", target)
+        assert (parent / "cards" / cards.cache_name(target)).exists()
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
 # The CLI prints exactly three sanitized lines and fails with a fixed message.
 ok = subprocess.run([sys.executable, str(HERE / "src/media/cards.py"),
                      "--local", str(fixtures / "og_basic.html")],

@@ -303,6 +303,7 @@ test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and
 test-review-pure: test-launch-channels test-reconnect-endpoint
 test-review-pure: test-server-id test-ipv6
 test-review-pure: test-drafts
+test-review-pure: test-media-cards test-cards-policy test-cards-view
 
 .PHONY: test-pty-upload-diagnostics
 test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.
@@ -379,6 +380,19 @@ lint-ffi: lint-tls
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
+
+test-media-cards: ## Bounded OpenGraph cards: fetch policy, shared cache budget, final-base hits.
+	$(NIXRUN) timeout 120 python3 tests/media_cards.py
+
+test-cards-policy: ## Card eligibility, scheduling, and fullscreen policy goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/cards_policy.bend -o $(BLDDIR)/cards_policy
+	$(NIXRUN) sh scripts/check-golden.sh cards_policy=ok ./$(BLDDIR)/cards_policy
+
+test-cards-view: ## Card visible scheduling and fullscreen view goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/cards_view.bend -o $(BLDDIR)/cards_view
+	$(NIXRUN) sh scripts/check-golden.sh cards_view=ok ./$(BLDDIR)/cards_view
 
 .PHONY: test-media-image-cache
 test-media-image-cache: ## Private bounded cache reuses validated remote assets without a network fetch.
