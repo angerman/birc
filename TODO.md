@@ -4269,6 +4269,17 @@ handoff is implementation scope, not a request for another plan-only review.
   merge. Freed slot went to `adapt-c8-session/29`
   (`01a10176-c4b8-7263-ae47-70f3a4b5c25a`). Next adapter owners
   (I2/G6/H5/N9-session) go out as repair workers return.
+- SessWS return REJECTED, not merged: independent re-review shows
+  Session byte-identical (`SHAba153b85`), still direct
+  `Drafts.submit_lines241`, whole-block `input_sensitive246`,
+  post-submit `Drafts.focus279`, gen0 reuse213, old composer266 — all
+  five negatives remain; tests cover only disconnected single-line,
+  bump-without-remove/readd, and store-only reset. Reported green is
+  not S1-S5 completion. Fresh `fix-sessws-s1s5` (all five + ONE seam,
+  tests-first, exact negatives + paired positives) is queued
+  FIRST-priority (spawn rejected `root_capacity_exhausted`; retry with
+  a fresh command ID on the next free slot — the burned ID must not be
+  reused). Mandatory isolation/privacy gate, not expanded scope.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
