@@ -477,6 +477,81 @@ def mode_dualdns(binary):
     assert received == [b"hello"], received
 
 
+def mode_dualdnslazy(binary):
+    seen = []
+    received6 = []
+    received4 = []
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.bind(("127.0.0.1", 0))
+    udp.settimeout(10)
+    port = udp.getsockname()[1]
+    tcp4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tcp4.bind(("127.0.0.1", port))
+    tcp4.listen(1)
+    tcp4.settimeout(10)
+    tcp6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    tcp6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        tcp6.bind(("::1", port))
+    except OSError:
+        udp.close()
+        tcp4.close()
+        tcp6.close()
+        print("dualdnslazy=skipped", flush=True)
+        return
+    tcp6.listen(1)
+    tcp6.settimeout(10)
+
+    def dns_server():
+        with udp:
+            query, peer = udp.recvfrom(512)
+            seen.append(query)
+            txid = query[0:2]
+            qname = b"\x01a\x00"
+            assert qname in query, query.hex()
+            tail = query[query.index(qname) + len(qname):]
+            assert tail[0:2] == b"\x00\x1c", ("expected exactly one AAAA", tail.hex())
+            header = txid + bytes([129, 128, 0, 1, 0, 1, 0, 0, 0, 0])
+            question = qname + bytes([0, 28, 0, 1])
+            answer = bytes([192, 12, 0, 28, 0, 1, 0, 0, 0, 1, 0, 16]) + RDATA_LOOP6
+            udp.sendto(header + question + answer, peer)
+
+    def tcp_server6():
+        with tcp6:
+            conn, _ = tcp6.accept()
+            with conn:
+                received6.append(echo_five(conn, "dualdnslazy"))
+
+    def tcp_server4():
+        with tcp4:
+            try:
+                conn, _ = tcp4.accept()
+            except socket.timeout:
+                return
+            with conn:
+                received4.append(echo_five(conn, "dualdnslazy-v4"))
+
+    udp_worker = threading.Thread(target=dns_server, daemon=True)
+    worker6 = threading.Thread(target=tcp_server6, daemon=True)
+    worker4 = threading.Thread(target=tcp_server4, daemon=True)
+    udp_worker.start()
+    worker6.start()
+    worker4.start()
+    try:
+        check("dualdnslazy=ok", run(binary, ["dualdnslazy", str(port)]))
+    finally:
+        udp_worker.join(timeout=10)
+        worker6.join(timeout=10)
+        worker4.join(timeout=10)
+        assert not udp_worker.is_alive(), "dualdnslazy dns stuck"
+        assert not worker6.is_alive(), "dualdnslazy v6 stuck"
+        assert not worker4.is_alive(), "dualdnslazy v4 stuck"
+    assert len(seen) == 1, ("healthy v6 must issue no A query", seen)
+    assert received6 == [b"hello"], received6
+    assert received4 == [], ("healthy v6 must not touch v4", received4)
+
+
 class Certificates:
     def __init__(self, folder, openssl):
         self.folder = folder
@@ -625,6 +700,7 @@ def main():
     mode_dualfb(binary)
     mode_dual6win(binary)
     mode_dualdns(binary)
+    mode_dualdnslazy(binary)
     with tempfile.TemporaryDirectory(prefix="birc-ipv6-transport-") as directory:
         certs = Certificates(Path(directory) / "certs", openssl)
         mode_tls(binary, certs, "tls6", True)

@@ -107,32 +107,6 @@ def should_fallback(first_failed: Bool, second: Maybe<&2, String>) -> Bool:
     case True{}:
       has_addr(second)
 
-# Attempt plan from gathered addresses. Both present dials the dual pair
-# (v6 first, TCP-failure fallback to v4); one present dials it alone; none
-# present fails the dial with the DNS error. The actor upgrades the winner
-# with the original hostname, never the IP.
-type DialPlan is Data:
-  DialNone{}
-  DialOne{ip: String}
-  DialDual{v6: String, v4: String}
-
-def dial_plan.v4(+v6: String, v4: Maybe<&2, String>) -> DialPlan:
-  match v4:
-    case Some{+ip4}:
-      DialDual{v6, ip4}
-    case None{}:
-      DialOne{v6}
-
-def dial_plan.no_v6(v4: Maybe<&2, String>) -> DialPlan:
-  match v4:
-    case Some{+ip4}:
-      DialOne{ip4}
-    case None{}:
-      DialNone{}
-
-def dial_plan(v6: Maybe<&2, String>, v4: Maybe<&2, String>) -> DialPlan:
-  match v6:
-    case Some{+ip6}:
-      dial_plan.v4(ip6, v4)
-    case None{}:
-      dial_plan.no_v6(v4)
+# Production dials lazily (AAAA, TCPv6, then A/TCPv4 only on TCP failure),
+# so no up-front attempt plan is shared here; first_of/should_fallback
+# above remain the pinned ordering/fallback predicates.

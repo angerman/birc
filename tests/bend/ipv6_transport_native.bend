@@ -598,6 +598,54 @@ def mode_dualdns(+port: U32) -> IO(Unit):
     r : Result<&1, &1, U32 & String, String> <- Dns.lookup_n_at("a", "127.0.0.1", port, 1, True{})
     dualdns_aaaa(r, port)
 
+# ---- dualdnslazy (healthy v6 dial issues exactly one AAAA, no A, no v4) ---
+def dualdnslazy_echo(pair: Socket & Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
+  match pair:
+    case (sock, r):
+      match r:
+        case Fail{_}:
+          do IO<Unit>:
+            Unit <- Socket.close(sock)
+            IO.die(Unit, 1, "dualdnslazy collect failed")
+        case Done{acc}:
+          do IO<Unit>:
+            Unit <- E.must_eq("dualdnslazy echo", bytes_show(acc), "104,101,108,108,111,")
+            Unit <- Socket.close(sock)
+            IO.print("dualdnslazy=ok")
+
+def dualdnslazy_sent(pair: Socket & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
+  match pair:
+    case (sock, r):
+      match r:
+        case Fail{_}:
+          do IO<Unit>:
+            Unit <- Socket.close(sock)
+            IO.die(Unit, 1, "dualdnslazy send failed")
+        case Done{_}:
+          do IO<Unit>:
+            got : Socket & Result<&1, &1, U32 & String, List<&2, U32>> <- collect5_start(sock)
+            dualdnslazy_echo(got)
+
+def dualdnslazy_sock(pair: Socket & String) -> IO(Unit):
+  match pair:
+    case (sock, +ip):
+      do IO<Unit>:
+        Unit <- E.must_eq("dualdnslazy ip", ip, "0:0:0:0:0:0:0:1")
+        sent : Socket & Result<&1, &1, U32 & String, Unit> <- Dns.TCP.send_for(sock, "hello", 2000)
+        dualdnslazy_sent(sent)
+
+def dualdnslazy_dialed(r: Result<&1, &1, U32 & String, Socket & String>) -> IO(Unit):
+  match r:
+    case Fail{_}:
+      IO.die(Unit, 1, "dualdnslazy dial failed")
+    case Done{pair}:
+      dualdnslazy_sock(pair)
+
+def mode_dualdnslazy(+port: U32) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&1, &1, U32 & String, Socket & String> <- Dns.dial_dual_at("a", "127.0.0.1", port, port, 2000)
+    dualdnslazy_dialed(r)
+
 # ---- tls6 (verified handshake over ::1, IP SAN path) --------------------
 
 def tls6_bytes(handle: Tls.Handle, xs: List<&2, U32>) -> IO(Unit):
@@ -793,12 +841,19 @@ def run_dualdns(+mode: String, +port: U32, is_x: Bool) -> IO(Unit):
     case False{}:
       run_tlsname(mode, port, String.eq(mode, "tls6name"))
 
+def run_dualdnslazy(+mode: String, +port: U32, is_x: Bool) -> IO(Unit):
+  match is_x:
+    case True{}:
+      mode_dualdnslazy(port)
+    case False{}:
+      run_dualdns(mode, port, String.eq(mode, "dualdns"))
+
 def run_dualwin(+mode: String, +port: U32, is_x: Bool) -> IO(Unit):
   match is_x:
     case True{}:
       mode_dual6win(port)
     case False{}:
-      run_dualdns(mode, port, String.eq(mode, "dualdns"))
+      run_dualdnslazy(mode, port, String.eq(mode, "dualdnslazy"))
 
 def run_dualfb(+mode: String, +port: U32, is_x: Bool) -> IO(Unit):
   match is_x:
