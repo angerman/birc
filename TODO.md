@@ -4300,6 +4300,30 @@ handoff is implementation scope, not a request for another plan-only review.
   earlier queued mention-boundary guard (decoded-text matching). No
   acceptance on green pure style fixtures without framed
   Feed/history regressions.
+- Integrated G6 chain (`ac12b39`/`1d5239f`/`5322e2f`/`d3592d6`) and N9
+  chain (`deb97e3`/`d3cfb0b`/`35720b9`/`4b7e0d0`/`dce75ca`) with
+  proof-junction resolutions (imports + tail laws/proofs kept both
+  sides); N9 `800f893` independently confirmed clean (fail-closed
+  admission, no eviction, max-advance; postrestore seed must use final
+  imported fresh `log_seq` before live dispatch — N9 runtime note).
+- Exact follow-up repairs FOLDED into runtime-integration initial tasks
+  (no more adapter-only rounds): (I2) `52582d4` loses valid
+  STATUSMSG-first declarations (`STATUSMSG=^` then `PREFIX=(o)^` ends
+  empty, either order/burst) — retain declared STATUSMSG, derive
+  effective PREFIX intersection on either update; paired both-order
+  positives, stale-`@` negatives both orders, malformed/valueless/
+  removal never authorize, `+#room` unchanged; keep `cm_known` false
+  after invalid CHANMODES while withdrawn, valid readvertisement alone
+  restores precision; register ISUPPORT goldens in Make. (G6) `480ec9f`
+  sentinel collision — observed offline `step_out(out0,0)` resets to
+  `Out{"",false,0}`, then backward `now=MAX` emits active as unseen —
+  add observed bit/discriminant; negative observed0→max quiet, positive
+  fresh out0-at-max + true max→4000 forward wrap.
+- Runtime integration starts after toolchain proof: parent owns one
+  adapter; freed slots to I2 live state, G6 CAP/typing (+sentinel fix),
+  H5 disk IO/runtime, N9 View/async (+seed note); SessWS30 + C8session29
+  own theirs. IPv6 `connect_dual` must actually precede TLS in Actor,
+  never fallback on arbitrary TLS verification failure.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
