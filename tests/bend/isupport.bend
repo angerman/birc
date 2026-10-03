@@ -150,6 +150,27 @@ def caret_cleared() -> Is.State:
 def caret_hat() -> Is.State:
   Is.apply_line(caret_cleared(), ":s 005 me STATUSMSG=^ :x")
 
+def known_map() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANMODES=b,k,s,l :x")
+
+def withdrawn() -> Is.State:
+  Is.apply_line(known_map(), ":s 005 me -CHANMODES :x")
+
+def readvertised() -> Is.State:
+  Is.apply_line(withdrawn(), ":s 005 me CHANMODES=b,k,s,l :x")
+
+def lifecycle_neg() -> Is.State:
+  Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me PREFIX=(o)^ :x")
+
+def lifecycle_pos() -> Is.State:
+  Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(o)^ :x"), ":s 005 me STATUSMSG=^ :x")
+
+def burst_order1() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(o)^ STATUSMSG=@ :x")
+
+def burst_order2() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ PREFIX=(o)^ :x")
+
 def nicklen31_show() -> String:
   "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=31 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
 
@@ -164,6 +185,15 @@ def burst_nostatus_show() -> String:
 
 def cleared_status_show() -> String:
   "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def known_show() -> String:
+  "isupport chantypes=#&+! status=@+ chanmodes=b,k,s,l modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def lifecycle_neg_show() -> String:
+  "isupport chantypes=#&+! status=@ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def burst_order1_show() -> String:
+  "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
 
 def repairs() -> IO(Unit):
   do IO<Unit>:
@@ -231,6 +261,41 @@ def second_review() -> IO(Unit):
     Unit <- E.must("kept ^ does not authorize @#room", Bool.not(Is.is_channel(Is.apply_line(caret_hat(), ":s 005 me STATUSMSG=@ :x"), "@#birc")))
     IO.pure(Unit, Unit{})
 
+def third_review() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must_eq("known CHANMODES golden", Is.show(known_map()), known_show())
+    Unit <- E.must("known CHANMODES is certain", Is.cm_known(known_map()))
+    Unit <- E.must_eq("known +lks finds key at 0", idx(Is.key_index(known_map(), "+lks", ["s3cret", "50"])), "0")
+    Unit <- E.must_eq("known l is flag", cls(known_map(), ch("l")), "flag")
+    Unit <- E.must_eq("known s is set-only", cls(known_map(), ch("s")), "set")
+    Unit <- E.must("known l takes no arg", Bool.not(Is.takes_arg(known_map(), ch("l"), True{})))
+    Unit <- E.must_eq("withdrawn show still defaults", Is.show(withdrawn()), default_updated_show())
+    Unit <- E.must("withdrawn CHANMODES is uncertain", Bool.not(Is.cm_known(withdrawn())))
+    Unit <- E.must_eq("withdrawn +lks hides all", idx(Is.key_index(withdrawn(), "+lks", ["s3cret", "50"])), "none")
+    Unit <- E.must_eq("withdrawn l is unknown", cls(withdrawn(), ch("l")), "unknown")
+    Unit <- E.must_eq("withdrawn k is unknown", cls(withdrawn(), ch("k")), "unknown")
+    Unit <- E.must_eq("withdrawn o stays arg", cls(withdrawn(), ch("o")), "arg")
+    Unit <- E.must("withdrawn l takes arg (unknown)", Is.takes_arg(withdrawn(), ch("l"), True{}))
+    Unit <- E.must("readvertised CHANMODES is certain", Is.cm_known(readvertised()))
+    Unit <- E.must_eq("readvertised +lks finds key at 0", idx(Is.key_index(readvertised(), "+lks", ["s3cret", "50"])), "0")
+    Unit <- E.must_eq("readvertised show matches known", Is.show(readvertised()), known_show())
+    Unit <- E.must_eq("lifecycle_neg show stores stale @", Is.show(lifecycle_neg()), lifecycle_neg_show())
+    Unit <- E.must("STATUSMSG=@ then PREFIX=(o)^ refuses @#room", Bool.not(Is.is_channel(lifecycle_neg(), "@#room")))
+    Unit <- E.must_eq("stale @ does not strip", Is.chan_target(lifecycle_neg(), "@#room"), "@#room")
+    Unit <- E.must("stale state refuses ^#room", Bool.not(Is.is_channel(lifecycle_neg(), "^#room")))
+    Unit <- E.must("plain #room still channel", Is.is_channel(lifecycle_neg(), "#room"))
+    Unit <- E.must_eq("lifecycle_pos show matches caret_hat", Is.show(lifecycle_pos()), caret_hat_show())
+    Unit <- E.must("PREFIX=(o)^ then STATUSMSG=^ permits ^#room", Is.is_channel(lifecycle_pos(), "^#room"))
+    Unit <- E.must_eq("authorized ^ strips", Is.chan_target(lifecycle_pos(), "^#room"), "#room")
+    Unit <- E.must("authorized ^ refuses @#room", Bool.not(Is.is_channel(lifecycle_pos(), "@#room")))
+    Unit <- E.must_eq("burst order1 show keeps @+", Is.show(burst_order1()), burst_order1_show())
+    Unit <- E.must("burst PREFIX-then-STATUSMSG=@ refuses @", Bool.not(Is.is_channel(burst_order1(), "@#room")))
+    Unit <- E.must_eq("burst order1 does not strip @", Is.chan_target(burst_order1(), "@#room"), "@#room")
+    Unit <- E.must_eq("burst order2 show stores @", Is.show(burst_order2()), lifecycle_neg_show())
+    Unit <- E.must("burst STATUSMSG=@-then-PREFIX refuses @", Bool.not(Is.is_channel(burst_order2(), "@#room")))
+    Unit <- E.must_eq("burst order2 does not strip @", Is.chan_target(burst_order2(), "@#room"), "@#room")
+    IO.pure(Unit, Unit{})
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- goldens()
@@ -240,4 +305,5 @@ def main() -> IO(Unit):
     Unit <- modes()
     Unit <- repairs()
     Unit <- second_review()
+    Unit <- third_review()
     IO.print("isupport=ok")

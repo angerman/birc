@@ -60,6 +60,27 @@ def audience() -> IO(Unit):
 def server_modes() -> Is.State:
   Is.apply_line(Is.defaults(), ":s 005 me CHANMODES=b,k,j,ilm PREFIX=(ov)@+ :are supported")
 
+def known_map() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANMODES=b,k,s,l :x")
+
+def withdrawn() -> Is.State:
+  Is.apply_line(known_map(), ":s 005 me -CHANMODES :x")
+
+def readvertised() -> Is.State:
+  Is.apply_line(withdrawn(), ":s 005 me CHANMODES=b,k,s,l :x")
+
+def lifecycle_neg() -> Is.State:
+  Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me PREFIX=(o)^ :x")
+
+def lifecycle_pos() -> Is.State:
+  Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(o)^ :x"), ":s 005 me STATUSMSG=^ :x")
+
+def burst_order1() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(o)^ STATUSMSG=@ :x")
+
+def burst_order2() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ PREFIX=(o)^ :x")
+
 def redact() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("precise +ovk hides only the key", joined(Is.redact_params(Is.defaults(), "#c", "+ovk", ["a", "b", "s3cret"])), "a|b|[channel key hidden]")
@@ -89,10 +110,34 @@ def redact() -> IO(Unit):
     Unit <- E.must("key never survives uncertain 324", Bool.not(String.contains(joined(Is.redact_line(Is.defaults(), ":s 324 me #c +oXk alice bob s3cret")), "s3cret")))
     IO.pure(Unit, Unit{})
 
+def third_review() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must_eq("known +lks redacts only the key", joined(Is.redact_params(known_map(), "#c", "+lks", ["s3cret", "50"])), "[channel key hidden]|50")
+    Unit <- E.must("key never survives known +lks", Bool.not(String.contains(joined(Is.redact_params(known_map(), "#c", "+lks", ["s3cret", "50"])), "s3cret")))
+    Unit <- E.must_eq("withdrawn +lks hides all", joined(Is.redact_params(withdrawn(), "#c", "+lks", ["s3cret", "50"])), "[channel key hidden]")
+    Unit <- E.must("key never survives withdrawn +lks", Bool.not(String.contains(joined(Is.redact_params(withdrawn(), "#c", "+lks", ["s3cret", "50"])), "s3cret")))
+    Unit <- E.must_eq("withdrawn +ovk hides all", joined(Is.redact_params(withdrawn(), "#c", "+ovk", ["a", "b", "s3cret"])), "[channel key hidden]")
+    Unit <- E.must_eq("withdrawn +o renders (no key)", joined(Is.redact_params(withdrawn(), "#c", "+o", ["bob"])), "bob")
+    Unit <- E.must_eq("readvertised +lks redacts only the key", joined(Is.redact_params(readvertised(), "#c", "+lks", ["s3cret", "50"])), "[channel key hidden]|50")
+    Unit <- E.must_eq("wire 324 known +lks precise", joined(Is.redact_line(known_map(), ":s 324 me #c +lks s3cret 50")), "[channel key hidden]|50")
+    Unit <- E.must_eq("wire 324 withdrawn +lks hides all", joined(Is.redact_line(withdrawn(), ":s 324 me #c +lks s3cret 50")), "[channel key hidden]")
+    Unit <- E.must("key never survives withdrawn 324", Bool.not(String.contains(joined(Is.redact_line(withdrawn(), ":s 324 me #c +lks s3cret 50")), "s3cret")))
+    Unit <- E.must_eq("lifecycle_neg resident +#room preserved", Is.chan_target_cl(lifecycle_neg(), plusroom(), "+#room"), "+#room")
+    Unit <- E.must_eq("lifecycle_neg stale @ does not strip", Is.chan_target_cl(lifecycle_neg(), base(), "@#room"), "@#room")
+    Unit <- E.must_eq("lifecycle_pos resident +#room preserved", Is.chan_target_cl(lifecycle_pos(), plusroom(), "+#room"), "+#room")
+    Unit <- E.must_eq("lifecycle_pos ^ strips", Is.chan_target_cl(lifecycle_pos(), base(), "^#room"), "#room")
+    Unit <- E.must_eq("lifecycle_pos @ does not strip", Is.chan_target_cl(lifecycle_pos(), base(), "@#room"), "@#room")
+    Unit <- E.must_eq("burst order1 resident +#room preserved", Is.chan_target_cl(burst_order1(), plusroom(), "+#room"), "+#room")
+    Unit <- E.must_eq("burst order1 @ does not strip", Is.chan_target_cl(burst_order1(), base(), "@#room"), "@#room")
+    Unit <- E.must_eq("burst order2 resident +#room preserved", Is.chan_target_cl(burst_order2(), plusroom(), "+#room"), "+#room")
+    Unit <- E.must_eq("burst order2 @ does not strip", Is.chan_target_cl(burst_order2(), base(), "@#room"), "@#room")
+    IO.pure(Unit, Unit{})
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- feed()
     Unit <- audience()
     Unit <- joins()
     Unit <- redact()
+    Unit <- third_review()
     IO.print("isupport_adapters=ok")

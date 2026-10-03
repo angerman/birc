@@ -13,19 +13,25 @@
 #
 # A `-TOKEN` burst entry removes that token: the field returns to its default
 # below, except `-STATUSMSG` which disables support entirely (the server
-# offers no STATUSMSG). A removal takes no value: `-TOKEN=value` is
-# malformed and keeps prior metadata. An empty `STATUSMSG=` instead clears
-# the audience entirely. A bare `STATUSMSG` with no `=` keeps the previous
-# value, like every other valueless token. A non-empty STATUSMSG must be a
-# subset of the current PREFIX sigils; otherwise the previous value is kept.
+# offers no STATUSMSG) and `-CHANMODES` which restores the compiled classes
+# but marks them uncertain (`cm_known` false) until a valid readvertisement.
+# A removal takes no value: `-TOKEN=value` is malformed and keeps prior
+# metadata. An empty `STATUSMSG=` instead clears the audience entirely. A bare
+# `STATUSMSG` with no `=` keeps the previous value, like every other valueless
+# token. A non-empty STATUSMSG must be a subset of the current PREFIX sigils;
+# otherwise the previous value is kept. Effective authorization always
+# intersects stored STATUSMSG with current PREFIX sigils, so a later PREFIX
+# change cannot leave a stale sigil authorized.
 #
 # This module never stores channel keys. `redact_*` only decides which MODE
 # arguments may render. Precise redaction needs every mode character
 # classified and exact argument accounting; anything uncertain hides every
-# argument, exactly like the client does today. `redact_wire`/`redact_line`
-# dispatch MODE (target/flags/args at 0/1/2:) from numeric 324
-# (recipient/target/flags/args at 0/1/2/3:); the 324 offsets stay correct
-# because the leading recipient param is accounted for.
+# argument, exactly like the client does today. After `-CHANMODES` only
+# prefix modes stay precise; every other mode is Unknown so key-bearing
+# `+lks`-style inputs hide all args until valid readvertisement.
+# `redact_wire`/`redact_line` dispatch MODE (target/flags/args at 0/1/2:)
+# from numeric 324 (recipient/target/flags/args at 0/1/2/3:); the 324 offsets
+# stay correct because the leading recipient param is accounted for.
 #
 # Integrator: thread one State per endpoint, reset it on endpoint change, feed
 # server lines through `feed` (source- and recipient-gated), gate JoinPlan
@@ -41,6 +47,10 @@
 # must first pass `Cl.target_wire` and canonical equality, so a swapped check
 # cannot admit reserved synthetics. If `valid` ever treats `#` specially,
 # teach it the advertised set instead.
+# Merge points (unchanged from f672365/cc7d169 plus new certainty/subset):
+# per-endpoint State, feed/join_admit/chan_target_cl/redact wiring, cm_eq
+# adoption, plus `cm_known`/`mode_class` uncertainty and `is_channel`/
+# `chan_target` PREFIX-subset intersection.
 #
 # Bend elaborates top-down here: every callee is defined before its caller,
 # and only self-recursion is used.
@@ -52,7 +62,7 @@ import ./irc_commands.bend as Commands
 import ./channel_policy.bend as Channels
 
 type Chans is Data:
-  Chans{types: String, status: String, list: String, arg: String, set: String, flag: String, per_line: U32, maxlist: String}
+  Chans{types: String, status: String, list: String, arg: String, set: String, flag: String, per_line: U32, maxlist: String, cm_known: Bool}
 
 type Priv is Data:
   Priv{modes: String, sigils: String, extra: String}
@@ -113,7 +123,7 @@ def dflt_maxlist() -> String:
   ""
 
 def default_chans() -> Chans:
-  Chans{dflt_types(), dflt_status(), dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), dflt_mpl(), dflt_maxlist()}
+  Chans{dflt_types(), dflt_status(), dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), dflt_mpl(), dflt_maxlist(), True{}}
 
 def dflt_modes() -> String:
   "ov"
@@ -248,20 +258,20 @@ def has_space(+s: String) -> Bool:
 def chantypes_ok(+val: String) -> Bool:
   Bool.not(String.is_empty(val)) && Nat.is_le(String.length(val), 8n) && all_symbols(val)
 
-def chantypes.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +val: String, ok: Bool) -> Chans:
+def chantypes.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +known: Bool, +val: String, ok: Bool) -> Chans:
   match ok:
-    case True{}: Chans{val, status, a, b, c, d, mpl, ml}
-    case False{}: Chans{types, status, a, b, c, d, mpl, ml}
+    case True{}: Chans{val, status, a, b, c, d, mpl, ml, known}
+    case False{}: Chans{types, status, a, b, c, d, mpl, ml, known}
 
 def chans_chantypes(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      chantypes.set(types, status, a, b, c, d, mpl, ml, val, has_eq && chantypes_ok(val))
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
+      chantypes.set(types, status, a, b, c, d, mpl, ml, known, val, has_eq && chantypes_ok(val))
 
-def statusmsg.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +val: String, ok: Bool) -> Chans:
+def statusmsg.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +known: Bool, +val: String, ok: Bool) -> Chans:
   match ok:
-    case True{}: Chans{types, val, a, b, c, d, mpl, ml}
-    case False{}: Chans{types, status, a, b, c, d, mpl, ml}
+    case True{}: Chans{types, val, a, b, c, d, mpl, ml, known}
+    case False{}: Chans{types, status, a, b, c, d, mpl, ml, known}
 
 # STATUSMSG must be a subset of the current PREFIX sigils: the server can
 # only authorize audiences its prefix modes define. Empty clears regardless.
@@ -279,8 +289,8 @@ def priv_sigils_only(+pv: Priv) -> String:
 
 def chans_statusmsg.sub(+ch: Chans, +sigils: String, +val: String, +has_eq: Bool) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      statusmsg.set(types, status, a, b, c, d, mpl, ml, val, has_eq && (String.is_empty(val) || (chantypes_ok(val) && statusmsg_subset(val, sigils))))
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
+      statusmsg.set(types, status, a, b, c, d, mpl, ml, known, val, has_eq && (String.is_empty(val) || (chantypes_ok(val) && statusmsg_subset(val, sigils))))
 
 def chans_statusmsg(+ch: Chans, +pv: Priv, +val: String, +has_eq: Bool) -> Chans:
   chans_statusmsg.sub(ch, priv_sigils_only(pv), val, has_eq)
@@ -290,15 +300,15 @@ def chanmodes.classes(+a: String, +b: String, +c: String, +d: String) -> Bool:
     && Nat.is_le(String.length(a), 32n) && Nat.is_le(String.length(b), 32n)
     && Nat.is_le(String.length(c), 32n) && Nat.is_le(String.length(d), 32n)
 
-def chans_chanmodes.keep(+types: String, +status: String, +oa: String, +ob: String, +oc: String, +od: String, +mpl: U32, +ml: String, +a: String, +b: String, +c: String, +d: String, ok: Bool) -> Chans:
+def chans_chanmodes.keep(+types: String, +status: String, +oa: String, +ob: String, +oc: String, +od: String, +mpl: U32, +ml: String, +known: Bool, +a: String, +b: String, +c: String, +d: String, ok: Bool) -> Chans:
   match ok:
-    case True{}: Chans{types, status, a, b, c, d, mpl, ml}
-    case False{}: Chans{types, status, oa, ob, oc, od, mpl, ml}
+    case True{}: Chans{types, status, a, b, c, d, mpl, ml, True{}}
+    case False{}: Chans{types, status, oa, ob, oc, od, mpl, ml, known}
 
 def chans_chanmodes.valid(+ch: Chans, +a: String, +b: String, +c: String, +d: String, ok: Bool) -> Chans:
   match ch:
-    case Chans{+types, +status, +oa, +ob, +oc, +od, +mpl, +ml}:
-      chans_chanmodes.keep(types, status, oa, ob, oc, od, mpl, ml, a, b, c, d, ok)
+    case Chans{+types, +status, +oa, +ob, +oc, +od, +mpl, +ml, +known}:
+      chans_chanmodes.keep(types, status, oa, ob, oc, od, mpl, ml, known, a, b, c, d, ok)
 
 def chans_chanmodes.parts(+ch: Chans, +parts: List<&2, String>) -> Chans:
   match parts:
@@ -311,15 +321,15 @@ def chans_chanmodes(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
     case False{}: ch
     case True{}: chans_chanmodes.parts(ch, String.split(val, Chr{44}))
 
-def chans_modes.got(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +got: Maybe<&2, U32>) -> Chans:
+def chans_modes.got(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +known: Bool, +got: Maybe<&2, U32>) -> Chans:
   match got:
-    case None{}: Chans{types, status, a, b, c, d, mpl, ml}
-    case Some{+n}: Chans{types, status, a, b, c, d, n, ml}
+    case None{}: Chans{types, status, a, b, c, d, mpl, ml, known}
+    case Some{+n}: Chans{types, status, a, b, c, d, n, ml, known}
 
 def chans_modes(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      chans_modes.got(types, status, a, b, c, d, mpl, ml, read_bounded(val, has_eq, 1, 64))
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
+      chans_modes.got(types, status, a, b, c, d, mpl, ml, known, read_bounded(val, has_eq, 1, 64))
 
 def maxlist_parts(+parts: List<&2, String>) -> Bool:
   match parts:
@@ -341,15 +351,15 @@ def maxlist_ok(+val: String) -> Bool:
     && Nat.is_le(List.length(&2, String, String.split(val, Chr{44})), 16n)
     && maxlist_items.go(String.split(val, Chr{44}))
 
-def chans_maxlist.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +val: String, ok: Bool) -> Chans:
+def chans_maxlist.set(+types: String, +status: String, +a: String, +b: String, +c: String, +d: String, +mpl: U32, +ml: String, +known: Bool, +val: String, ok: Bool) -> Chans:
   match ok:
-    case True{}: Chans{types, status, a, b, c, d, mpl, val}
-    case False{}: Chans{types, status, a, b, c, d, mpl, ml}
+    case True{}: Chans{types, status, a, b, c, d, mpl, val, known}
+    case False{}: Chans{types, status, a, b, c, d, mpl, ml, known}
 
 def chans_maxlist(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      chans_maxlist.set(types, status, a, b, c, d, mpl, ml, val, has_eq && maxlist_ok(val))
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
+      chans_maxlist.set(types, status, a, b, c, d, mpl, ml, known, val, has_eq && maxlist_ok(val))
 
 def parse_prefix.valid(+modes: String, +sigils: String, ok: Bool) -> Maybe<&2, Prefix>:
   match ok:
@@ -536,28 +546,28 @@ def cm_eq(+st: State, +a: String, +b: String) -> Bool:
 # change nothing.
 def reset_chantypes(+ch: Chans) -> Chans:
   match ch:
-    case Chans{_, +status, +a, +b, +c, +d, +mpl, +ml}:
-      Chans{dflt_types(), status, a, b, c, d, mpl, ml}
+    case Chans{_, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
+      Chans{dflt_types(), status, a, b, c, d, mpl, ml, known}
 
 def reset_statusmsg(+ch: Chans) -> Chans:
   match ch:
-    case Chans{+types, _, +a, +b, +c, +d, +mpl, +ml}:
-      Chans{types, "", a, b, c, d, mpl, ml}
+    case Chans{+types, _, +a, +b, +c, +d, +mpl, +ml, +known}:
+      Chans{types, "", a, b, c, d, mpl, ml, known}
 
 def reset_chanmodes(+ch: Chans) -> Chans:
   match ch:
-    case Chans{+types, +status, _, _, _, _, +mpl, +ml}:
-      Chans{types, status, dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), mpl, ml}
+    case Chans{+types, +status, _, _, _, _, +mpl, +ml, _}:
+      Chans{types, status, dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), mpl, ml, False{}}
 
 def reset_mpl(+ch: Chans) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, _, +ml}:
-      Chans{types, status, a, b, c, d, dflt_mpl(), ml}
+    case Chans{+types, +status, +a, +b, +c, +d, _, +ml, +known}:
+      Chans{types, status, a, b, c, d, dflt_mpl(), ml, known}
 
 def reset_maxlist(+ch: Chans) -> Chans:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, _}:
-      Chans{types, status, a, b, c, d, mpl, dflt_maxlist()}
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, _, +known}:
+      Chans{types, status, a, b, c, d, mpl, dflt_maxlist(), known}
 
 def reset_nicklen(+lim: Limits) -> Limits:
   match lim:
@@ -732,21 +742,25 @@ def is_channel.status(+types: String, +status: String, +t: String, pre: Bool) ->
     case False{}: False{}
     case True{}: head_in_types(types, t)
 
-def is_channel.first(+types: String, +status: String, +h: Char, +t: String) -> Bool:
-  has_char(types, h) || is_channel.status(types, status, t, has_char(status, h))
+def is_channel.first(+types: String, +status: String, +sigils: String, +h: Char, +t: String) -> Bool:
+  has_char(types, h) || is_channel.status(types, status, t, has_char(status, h) && has_char(sigils, h))
 
-def is_channel.head(+types: String, +status: String, +name: String) -> Bool:
+def is_channel.head(+types: String, +status: String, +sigils: String, +name: String) -> Bool:
   match name:
     case SNil{}: False{}
-    case SCon{+h, +t}: is_channel.first(types, status, h, t)
+    case SCon{+h, +t}: is_channel.first(types, status, sigils, h, t)
 
-def is_channel.ch(+ch: Chans, +name: String) -> Bool:
+def is_channel.pv(+types: String, +status: String, +pv: Priv, +name: String) -> Bool:
+  match pv:
+    case Priv{_, +sig, _}: is_channel.head(types, status, sig, name)
+
+def is_channel.ch(+ch: Chans, +pv: Priv, +name: String) -> Bool:
   match ch:
-    case Chans{+types, +status, _, _, _, _, _, _}: is_channel.head(types, status, name)
+    case Chans{+types, +status, _, _, _, _, _, _, _}: is_channel.pv(types, status, pv, name)
 
 def is_channel(+st: State, +name: String) -> Bool:
   match st:
-    case State{+ch, _, _, _, _, _}: is_channel.ch(ch, name)
+    case State{+ch, +pv, _, _, _, _}: is_channel.ch(ch, pv, name)
 
 def chan_target.tail(+s: String) -> String:
   match s:
@@ -758,18 +772,22 @@ def chan_target.strip(+s: String, strip: Bool) -> String:
     case True{}: chan_target.tail(s)
     case False{}: s
 
-def chan_target.head(+types: String, +status: String, +s: String) -> String:
+def chan_target.head(+types: String, +status: String, +sigils: String, +s: String) -> String:
   match s:
     case SNil{}: ""
-    case SCon{+h, +t}: chan_target.strip(SCon{h, t}, has_char(status, h) && head_in_types(types, t))
+    case SCon{+h, +t}: chan_target.strip(SCon{h, t}, has_char(status, h) && has_char(sigils, h) && head_in_types(types, t))
 
-def chan_target.ch(+ch: Chans, +s: String) -> String:
+def chan_target.pv(+types: String, +status: String, +pv: Priv, +s: String) -> String:
+  match pv:
+    case Priv{_, +sig, _}: chan_target.head(types, status, sig, s)
+
+def chan_target.ch(+ch: Chans, +pv: Priv, +s: String) -> String:
   match ch:
-    case Chans{+types, +status, _, _, _, _, _, _}: chan_target.head(types, status, s)
+    case Chans{+types, +status, _, _, _, _, _, _, _}: chan_target.pv(types, status, pv, s)
 
 def chan_target(+st: State, +s: String) -> String:
   match st:
-    case State{+ch, _, _, _, _, _}: chan_target.ch(ch, s)
+    case State{+ch, +pv, _, _, _, _}: chan_target.ch(ch, pv, s)
 
 # Resident-first audience routing (mirrors Cl.message_key): a `+` channel may
 # itself be named `+#room`, so an exact resident buffer keeps its full name
@@ -932,11 +950,27 @@ def mode_class.priv(+a: String, +b: String, +c: String, +d: String, +pv: Priv, +
   match pv:
     case Priv{+modes, _, _}: mode_class.pick(a, b, c, d, mode, has_char(modes, mode))
 
+def mode_class.pick_unknown(is_priv: Bool) -> ModeClass:
+  match is_priv:
+    case True{}: ArgMode{}
+    case False{}: Unknown{}
+
+def mode_class.unknown(+pv: Priv, +mode: Char) -> ModeClass:
+  match pv:
+    case Priv{+modes, _, _}: mode_class.pick_unknown(has_char(modes, mode))
+
+def mode_class.known(+a: String, +b: String, +c: String, +d: String, +pv: Priv, +mode: Char, +known: Bool) -> ModeClass:
+  match known:
+    case True{}: mode_class.priv(a, b, c, d, pv, mode)
+    case False{}: mode_class.unknown(pv, mode)
+
 def mode_class.in(+ch: Chans, +pv: Priv, +mode: Char) -> ModeClass:
   match ch:
-    case Chans{_, _, +a, +b, +c, +d, _, _}: mode_class.priv(a, b, c, d, pv, mode)
+    case Chans{_, _, +a, +b, +c, +d, _, _, +known}: mode_class.known(a, b, c, d, pv, mode, known)
 
 # Prefix modes always take a nick argument. Unknown modes are Unknown.
+# After -CHANMODES withdrawal the map is uncertain: only prefix modes stay
+# precise, every other mode is Unknown so key-bearing redaction hides all.
 def mode_class(+st: State, +mode: Char) -> ModeClass:
   match st:
     case State{+ch, +pv, _, _, _, _}: mode_class.in(ch, pv, mode)
@@ -1086,7 +1120,7 @@ def join_len.types(+types: String, +lim: Limits, +name: String) -> Bool:
 
 def join_len.check(+ch: Chans, +lim: Limits, +name: String) -> Bool:
   match ch:
-    case Chans{+types, _, _, _, _, _, _, _}: join_len.types(types, lim, name)
+    case Chans{+types, _, _, _, _, _, _, _, _}: join_len.types(types, lim, name)
 
 def join_len.lim(+ch: Chans, +lim: Limits, +name: String, upd: Bool) -> Bool:
   match upd:
@@ -1116,7 +1150,7 @@ def join_swap.head(+st: State, +name: String, +key: String, +types: String) -> B
 
 def join_swap.types(+st: State, +ch: Chans, +name: String, +key: String) -> Bool:
   match ch:
-    case Chans{+types, _, _, _, _, _, _, _}: join_swap.head(st, name, key, types)
+    case Chans{+types, _, _, _, _, _, _, _, _}: join_swap.head(st, name, key, types)
 
 def join_swap.upd(+st: State, +ch: Chans, +name: String, +key: String, upd: Bool) -> Bool:
   match upd:
@@ -1175,7 +1209,7 @@ def kicklen(+st: State) -> U32:
 
 def chans.per_line(+ch: Chans) -> U32:
   match ch:
-    case Chans{_, _, _, _, _, _, +mpl, _}: mpl
+    case Chans{_, _, _, _, _, _, +mpl, _, _}: mpl
 
 def modes_per_line(+st: State) -> U32:
   match st:
@@ -1183,7 +1217,7 @@ def modes_per_line(+st: State) -> U32:
 
 def chans.maxlist(+ch: Chans) -> String:
   match ch:
-    case Chans{_, _, _, _, _, _, _, +ml}: ml
+    case Chans{_, _, _, _, _, _, _, +ml, _}: ml
 
 def maxlist(+st: State) -> String:
   match st:
@@ -1192,6 +1226,14 @@ def maxlist(+st: State) -> String:
 def updated(+st: State) -> Bool:
   match st:
     case State{_, _, _, _, _, +upd}: upd
+
+def chans.known(+ch: Chans) -> Bool:
+  match ch:
+    case Chans{_, _, _, _, _, _, _, _, +known}: known
+
+def cm_known(+st: State) -> Bool:
+  match st:
+    case State{+ch, _, _, _, _, _}: chans.known(ch)
 
 def network(+st: State) -> String:
   match st:
@@ -1230,7 +1272,7 @@ def show.priv(+types: String, +status: String, +a: String, +b: String, +c: Strin
 
 def show.chans(+ch: Chans, +pv: Priv, +lim: Limits, +net: String, +cm: String, +upd: Bool) -> String:
   match ch:
-    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, _}:
       show.priv(types, status, a, b, c, d, mpl, ml, pv, lim, net, cm, upd)
 
 def show(+st: State) -> String:

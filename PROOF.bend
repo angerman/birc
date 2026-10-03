@@ -1437,3 +1437,27 @@ def Laws.isupport_statusmsg_requires_prefix_subset():
 
 def Laws.isupport_statusmsg_subset_accepted():
   {==}
+
+def Laws.isupport_chanmodes_withdrawal_uncertain():
+  {==}
+
+def Laws.isupport_chanmodes_withdrawal_hides_key():
+  {==}
+
+def Laws.isupport_chanmodes_known_precise():
+  {==}
+
+def Laws.isupport_lifecycle_stale_refused():
+  {==}
+
+def Laws.isupport_lifecycle_subset_accepted():
+  {==}
+
+def Laws.isupport_lifecycle_burst_order1_refuses():
+  {==}
+
+def Laws.isupport_lifecycle_burst_order2_refuses():
+  {==}
+
+def Laws.isupport_lifecycle_resident_preserved():
+  {==}

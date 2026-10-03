@@ -1204,3 +1204,35 @@ law isupport_statusmsg_requires_prefix_subset:
 # STATUSMSG=^ under PREFIX=(o)^ is accepted (subset).
 law isupport_statusmsg_subset_accepted:
   {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG= :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=^ :are supported")) == "isupport chantypes=#&+! status=^ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# `-CHANMODES` marks the map uncertain until valid readvertisement.
+law isupport_chanmodes_withdrawal_uncertain:
+  {Isupport.cm_known(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,l :are supported"), ":s 005 me -CHANMODES :are supported")) == False{} : Bool}
+
+# Withdrawn CHANMODES hides key-bearing +lks args entirely.
+law isupport_chanmodes_withdrawal_hides_key:
+  {Isupport.redact_params(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,l :are supported"), ":s 005 me -CHANMODES :are supported"), "#c", "+lks", ["s3cret", "50"]) == ["[channel key hidden]"] : List<&2, String>}
+
+# Known CHANMODES=b,k,s,l redacts only the key at index 0.
+law isupport_chanmodes_known_precise:
+  {Isupport.redact_params(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,l :are supported"), "#c", "+lks", ["s3cret", "50"]) == ["[channel key hidden]", "50"] : List<&2, String>}
+
+# Explicit STATUSMSG=@ then PREFIX=(o)^ leaves @ unauthorized.
+law isupport_lifecycle_stale_refused:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), "@#room") == False{} : Bool}
+
+# PREFIX=(o)^ then STATUSMSG=^ authorizes ^#room.
+law isupport_lifecycle_subset_accepted:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=^ :are supported"), "^#room") == True{} : Bool}
+
+# Single-line burst PREFIX-then-STATUSMSG=@ refuses @ (order-independent).
+law isupport_lifecycle_burst_order1_refuses:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(o)^ STATUSMSG=@ :are supported"), "@#room") == False{} : Bool}
+
+# Single-line burst STATUSMSG=@-then-PREFIX refuses @ (order-independent).
+law isupport_lifecycle_burst_order2_refuses:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ PREFIX=(o)^ :are supported"), "@#room") == False{} : Bool}
+
+# Exact resident +#room survives the STATUSMSG/PREFIX lifecycle transition.
+law isupport_lifecycle_resident_preserved:
+  {Isupport.chan_target_cl(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN +#room"), "+#room") == "+#room" : String}
