@@ -4075,6 +4075,60 @@ handoff is implementation scope, not a request for another plan-only review.
   all work tools except `web_search`/`write_todos`). Re-delegated as
   fresh scoped natives `fix-i2-second` (on `f672365`) and `fix-c8-second`
   (on `567b62d1`); handles retained on spawn return.
+- G3 return `1cf9028` (lane3 done; only lane1 original still active).
+  Filled both free slots: `integ-g3-wire/19`
+  (`01a10152-1f30-7262-8284-3513d4d7c03a`) for G3.1-G3.3 repair + live
+  /history integration, and `adapt-sess-ws/20`
+  (`01a10152-2554-7aa3-a49b-b75890097c75`) for Session/Workspace
+  drafts+multiserver adapters on frozen Drafts/Key/Sid/V6 interfaces.
+  Parent owns all merges. Pool 8/8 again.
+- H5 second review (H5.8): opaque-ID anchor mismatch in `6c858f1` —
+  cursor `oldest=opaqueT…Z` emits `timestamp=` instead of `msgid=`,
+  `a=b` yields None, explicit `msgid=a=b` rejected. Known-cursor fetch
+  must prefix `msgid=` under the incoming contract; bare user timestamp
+  parsing stays separate. Follow-up to the completed H5 handle rejected
+  (pool full); fresh `fix-h5-second` queued for the next free slot. H5
+  is not complete; no generic ambiguity in runtime.
+- I2d privacy guard delivered to running `fix-i2-second/17` via `queue`
+  mode (accepted; `followup` mode failed mapping twice). Lesson: live
+  natives take `queue`; completed handles need free slots for follow-up
+  successors.
+- Draft follow-ups (parent): centralize the duplicated
+  `Drafts.line_valid`/`Sub.send_text` check into one shared definition;
+  remove the unused `Chunks` import; NUL-line whole-send rejection
+  (valid line then NUL line → zero wires/self-echo) with paired two-line
+  Unicode exactness; invalid ServerId + empty composer fails closed;
+  nonzero `server` query stays writable (already guarded).
+- Causality correction: the proof-timeout note claimed pool load as the
+  cause; retry timing plus host load alone do not prove causality. The
+  load hypothesis is unproven — final qualification re-runs proof on a
+  quieter machine and records actual phase evidence. Performance remains
+  an unmeasured hypothesis throughout.
+- Lane1 64KiB review: no new correctness defect in the clamps, but
+  demand plaintext+TLS >4096 bursts ending PING, equal framing across
+  4096/65536/mixed CRLF+UTF8 segmentation, overlong-record-then-valid-
+  PING, stalled-writer deadline, and stale-generation guards.
+- IPv6 merge rule: preserve lane1 `sockaddr_storage`/family handling AND
+  the 64KiB cap plus lane1 traces; no whole-file overwrite of
+  `dns_ffi.c` (surgical merge with both sides' tests green).
+- Returned-source fix/test gates (not new feature scope): (V6-fb)
+  `8cfadf2` dns523-544 takes the first successful AAAA and skips A;
+  actor304 dials only that address, `after_conn280` reports failure —
+  dual-stack host with unrouted/refused IPv6 but healthy IPv4 regresses.
+  Require production resolve_ns-to-actor owned dual-stack test: AAAA ok
+  + IPv6 connect fails → A peer succeeds; healthy IPv6 wins. Keep
+  original-hostname TLS verification; never downgrade transport or
+  accept failed verification. IPv6 worker is terminal: scoped follow-up
+  queued for the next free slot; V6 is not accepted until then. (G3x)
+  `1cf9028` wire_style:169 SOH glue + 204-207 trailing lexeme + buffer/
+  history/restoration stripping + real Feed-BIRC2-View roundtrip —
+  messaged to running `integ-g3-wire/19`. (H5y) `6c858f1`
+  filter_unseen954-959 truncates combined seen to 100 mid-page (100
+  saved + 99 fresh then saved-tail reimports old ID): preserve immutable
+  original membership + page dedup or bounded-200 union; negative
+  99fresh+saved-tail→99, positive 100fresh→100. Folded into queued
+  `fix-h5-second` scope. (L1Tx) `c1a3534` run_phase pipe/descendant
+  defect — messaged to running `fix-l1t-trace/16`.
 - IPv6 transport returned (`635abc6` FFI + `8cfadf2` DNS glue, branch
   `ipv6-transport-adapter`); H5 repair returned (`6c858f1`, worker
   reports 33 laws green + both suites ok). Both pending parent review
@@ -4116,6 +4170,15 @@ handoff is implementation scope, not a request for another plan-only review.
   (`01a1014a-b094-78a0-be43-78cf4f712a51`);
   `fix-c8-second` = `main/fix-c8-second/18`
   (`01a1014a-b54a-7811-96e4-76e6154bda20`).
+  `fix-h5-second` = `main/fix-h5-second/21`
+  (`01a10154-3e5c-7011-b206-e6f3c8561637`) on `6c858f1` (H5.8+H5y).
+- C8-second returned `254a0eb` (shared lock/accounting + Unicode
+  envelope, worker reports both-writer-orders/interleaved/concurrent
+  green); pending parent review against C8d/C8e before integration.
+  V6-fallback follow-up still queued for the next free slot.
+- G6 `a504fca` grounded: `cap_notify_demo=ok` executed by the parent in
+  the repair worktree (not only worker-reported). Queued for ordered
+  integration with the remaining returns.
 - Proof gate diagnosis (D-repair commit blocked): plain `make proof`
   timed out at 180s under load 44; `--verdict` is unavailable (Lean
   kernel not in PATH — not a proof failure). Lane4's own 10 drafts laws
