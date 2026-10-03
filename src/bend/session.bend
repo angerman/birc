@@ -7,6 +7,7 @@ import ./client.bend as Feed
 import ./frame.bend as Fr
 import ./submit.bend as Sub
 import ./auth.bend as Auth
+import ./cap_notify.bend as CapNotify
 import ./split.bend as Sp
 import ./typing.bend as Ty
 import ./media.bend as M
@@ -53,12 +54,10 @@ def registration_client(seen: Bool, cl: Cl.Client, +line: String) -> Maybe<&2, C
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
 
-def handshake_lines(+nick: String, has_sasl: Bool) -> List<&2, String>:
-  match has_sasl:
-    case True{}:
-      "CAP LS 302" <> "CAP REQ :sasl" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
-    case False{}:
-      "CAP LS 302" <> "CAP REQ :server-time" <> "CAP REQ :message-tags" <> "CAP END" <> Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
+# Capability set and CAP END come from the single registration owner; the SASL
+# path adds no CAP END here because auth completion emits it through the owner.
+def handshake_lines(+nick: String, +has_sasl: Bool) -> List<&2, String>:
+  List.append(&2, String, "CAP LS 302" <> Nil{}, List.append(&2, String, CapNotify.req_lines(has_sasl), List.append(&2, String, CapNotify.cap_end_handshake(has_sasl), Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{})))
 
 type FoldAcc is Data:
   FoldAcc{cl: Cl.Client, pongs: List<&2, String>, now_ms: U32}

@@ -3,6 +3,7 @@ import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./irc_commands.bend as Commands
+import ./cap_notify.bend as CapNotify
 
 # ---- format helpers -----------------------------------------------------
 
@@ -727,6 +728,17 @@ def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
     case Irc.Message{_, _, +cmd, _, _}:
       Cl.client_log(cl, 0n, Cl.System{}, fmt_unk(cmd, Irc.msg_param(m, 0n)))
 
+def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
+  match e:
+    case CapNotify.NotifyOther{}: cl
+    case CapNotify.AccountOn{+nick, +account}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.account_on_text(nick, account))
+    case CapNotify.AccountOff{+nick}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.account_off_text(nick))
+    case CapNotify.AwayOn{+nick, +message}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.away_on_text(nick, message))
+    case CapNotify.AwayOff{+nick}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.away_off_text(nick))
+
+def feed_notify(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
+  feed_notify.event(cl, CapNotify.notify_event(m))
+
 def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd) -> Cl.Client:
   match c:
     case Irc.Ping{}:
@@ -760,8 +772,13 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
     case _:
       feed_unk(cl, m)
 
+def feed_msg.notify(+cl: Cl.Client, +m: Irc.Message, +from: String, notify: Bool) -> Cl.Client:
+  match notify:
+    case True{}: feed_notify(cl, m)
+    case False{}: feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m))
+
 def feed_msg.with(+cl: Cl.Client, +m: Irc.Message, +from: String) -> Cl.Client:
-  feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m))
+  feed_msg.notify(cl, m, from, CapNotify.is_notify(m))
 
 def feed_msg(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_msg.with(cl, m, msg_nick(m))

@@ -5,6 +5,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./endpoint.bend as Endpoint
 import ./base64.bend as B64
+import ./cap_notify.bend as CapNotify
 
 type Notice is Data:
   Quiet{}
@@ -29,7 +30,7 @@ def step.cap(e: Irc.SaslEvent) -> Reply:
     case Irc.SaslAck{}:
       Reply{Cl.AuthChallenge{}, "AUTHENTICATE PLAIN" <> Nil{}, Started{}}
     case Irc.SaslNak{}:
-      Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Rejected{}}
+      Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthCap{}, Cl.AuthDone{}), Rejected{}}
     case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthCap{})
@@ -39,7 +40,7 @@ def step.challenge(e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
     case Irc.SaslPlus{}:
       Reply{Cl.AuthResult{}, B64.authenticate_chunks(B64.sasl_plain(user, pass)), Quiet{}}
     case Irc.SaslFailure{}:
-      Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Failed{}}
+      Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthChallenge{}, Cl.AuthDone{}), Failed{}}
     case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthChallenge{})
@@ -47,9 +48,9 @@ def step.challenge(e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
 def step.result(e: Irc.SaslEvent) -> Reply:
   match e:
     case Irc.SaslSuccess{}:
-      Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Succeeded{}}
+      Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Succeeded{}}
     case Irc.SaslFailure{}:
-      Reply{Cl.AuthDone{}, "CAP END" <> Nil{}, Failed{}}
+      Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Failed{}}
     case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
     case _:
       unchanged(Cl.AuthResult{})
@@ -189,7 +190,7 @@ def sasl_trusted(event: Irc.SaslEvent, +cl: Cl.Client, +prefix: String, +m: Irc.
 
 def sasl_mode.cap(mode: Cl.AuthMode, +event: Irc.SaslEvent, +cl: Cl.Client) -> Reply:
   match mode event:
-    case Cl.SaslNickServ{} Irc.SaslNak{}: Reply{Cl.AuthNickWait{}, "CAP END" <> Nil{}, Fallback{}}
+    case Cl.SaslNickServ{} Irc.SaslNak{}: Reply{Cl.AuthNickWait{}, CapNotify.cap_end_for(Cl.AuthCap{}, Cl.AuthNickWait{}), Fallback{}}
     case _ _: step(Cl.AuthCap{}, event, Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl))
 
 def sasl_mode(phase: Cl.AuthPhase, mode: Cl.AuthMode, event: Irc.SaslEvent, +cl: Cl.Client) -> Reply:
@@ -214,7 +215,7 @@ def cap_unavailable(phase: Cl.AuthPhase, mode: Cl.AuthMode, +cl: Cl.Client, +pre
 
 def step_for.sasl(unavailable: Bool, phase: Cl.AuthPhase, mode: Cl.AuthMode, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Reply:
   match unavailable:
-    case True{}: Reply{Cl.AuthNickWait{}, "CAP END" <> Nil{}, Fallback{}}
+    case True{}: Reply{Cl.AuthNickWait{}, CapNotify.cap_end_for(Cl.AuthCap{}, Cl.AuthNickWait{}), Fallback{}}
     case False{}:
       +event = Irc.sasl_event(m)
       sasl_checked(sasl_trusted(event, cl, prefix, m), phase, mode, event, cl)

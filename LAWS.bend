@@ -37,6 +37,7 @@ import ./src/bend/server_id.bend as Sid
 import ./src/bend/ipv6.bend as V6
 import ./src/bend/drafts.bend as Drafts
 import ./src/bend/cards.bend as Cards
+import ./src/bend/cap_notify.bend as CapNotify
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -929,3 +930,30 @@ law cards_fullscreen_closed_without_token:
 
 law cards_fullscreen_zero_token_paints_nothing:
   {List.is_empty(&2, V.DrawOp, Cards.fullscreen_ops(24, 80, Cards.FullOn{Media.Inline{1n}, "u", 0})) == True{} : Bool}
+
+# LAW: one registration owner emits CAP END exactly on SASL terminal entry
+# transitions and the no-SASL handshake, and requests the notify set.
+law cap_end_single_owner:
+  {CapNotify.cap_end_single_owner_ok() == True{} : Bool}
+
+# LAW: only a CAP ACK enables a capability; LS, NAK, and chat never do.
+law caps_ack_only_enable:
+  {CapNotify.caps_ack_only_ok() == True{} : Bool}
+
+# LAW: well-formed ACCOUNT/AWAY lines parse to exact presence events and text.
+law notify_parse_golden:
+  {CapNotify.notify_parse_ok() == True{} : Bool}
+
+# LAW: malformed subjects, arities, and non-notify commands are not notifies.
+law notify_rejects_invalid:
+  {CapNotify.notify_reject_ok() == True{} : Bool}
+
+# LAW: outbound typing sends at most one line per step and stays quiet when
+# offline, untagged, mistargeted, overlong, or on a stale tick.
+law typing_out_bounded_quiet:
+  {CapNotify.out_bound_ok() == True{} : Bool}
+
+# LAW: outbound typing runs active, throttled refresh, single done, quiet, and
+# done-to-old on retarget, gated on negotiated message-tags.
+law typing_out_lifecycle:
+  {CapNotify.out_lifecycle_ok() == True{} : Bool}

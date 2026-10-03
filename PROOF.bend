@@ -12,6 +12,7 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./src/bend/media.bend as Media
 import ./src/bend/cards.bend as Cards
+import ./src/bend/cap_notify.bend as CapNotify
 import ./LAWS.bend as Laws
 
 def Laws.first_server_welcome_assigns_nickname():
@@ -1198,4 +1199,22 @@ def Laws.cards_fullscreen_closed_without_token():
   {==}
 
 def Laws.cards_fullscreen_zero_token_paints_nothing():
+  {==}
+
+def Laws.cap_end_single_owner():
+  {==}
+
+def Laws.caps_ack_only_enable():
+  {==}
+
+def Laws.notify_parse_golden():
+  {==}
+
+def Laws.notify_rejects_invalid():
+  {==}
+
+def Laws.typing_out_bounded_quiet():
+  {==}
+
+def Laws.typing_out_lifecycle():
   {==}
