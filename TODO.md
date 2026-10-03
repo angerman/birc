@@ -3492,6 +3492,10 @@ their own synthetic preference file is explicitly under test.
   `nix run . -- --connect HOST --nick NICK`. The user's actual resolved source
   is not known. Do not infer that this installed link or nickname assignment
   caused their report.
+  The user subsequently clarified that they use the local flake directly:
+  `nix run . -- --connect irc.libera.chat:6697 --nick NICK`. The earlier
+  unresolved registry reference no longer describes their reported launch.
+  The source revision of the already-running process is still not established.
 
 ## Image-marker diagnosis (2026-10-03)
 
@@ -3503,14 +3507,41 @@ their own synthetic preference file is explicitly under test.
   chat URL or put it in fixtures; use synthetic images and `.test` URLs.
 - [x] Verify Ghostty is recognized as Kitty graphics. Multiplexer detection
   strips image protocols, including explicit `TIMUI_IMAGE_PROTOCOL` selection.
-  No exact cause is established by the reported marker and absent log error.
+  The reported shell instead has `TERM=xterm-256color`,
+  `TERM_PROGRAM=Apple_Terminal`, and no `TIMUI_IMAGE_PROTOCOL` override. This
+  identity selects no image protocol and explains the no-error placeholder.
+  A per-launch `TIMUI_IMAGE_PROTOCOL=kitty` declares the actual Ghostty protocol.
+  The source of the shell's incorrect terminal identity has not been traced.
 - [x] Run `make test-media-image test-media-native test-media-portable`:
   synthetic formats/URL policy, native ownership/animation/clipping, and C99
   image/no-image controls all pass (`build/image-marker-synthetic-checks.log`).
-- [ ] Characterize automatic Ghostty detection, protocol `none`, and rejected
-  helper output in the final native app with an encoded synthetic URL.
-- [ ] Obtain the affected terminal's multiplexer status and capability
-  environment. The actual launched package/source remains unknown.
+- [x] Characterize the final native app with an encoded synthetic URL through
+  `make test-pty-image-marker PTY_APP=/Users/angerman/Projects/zw3rk/birc/build/birc`.
+  Three consecutive final six-case runs pass: automatic Ghostty emits a
+  PNG/Kitty placement and clears the pending marker; protocol `none` and
+  synthetic Ghostty+tmux retain the marker without an image error; rejected
+  helper output adds one image error to `*log*`. The reported environment
+  (`TERM=xterm-256color`, `TERM_PROGRAM=Apple_Terminal`, empty
+  `TIMUI_IMAGE_PROTOCOL`) selects no image protocol and reproduces the marker
+  without an image error after successful helper output. The same identity
+  with per-launch `TIMUI_IMAGE_PROTOCOL=kitty` emits a PNG/Kitty placement,
+  clears the marker, and has no image error. Exact helper arguments, private
+  diagnostics, helper reaping, and terminal restoration pass. Evidence:
+  `build/m27-image-marker-six-final-run{1,2,3}.log`; native SHA-256 `360c0ad9…`.
+  The known older `71ax…-birc-0.1.0` installed wrapper passes all six
+  fake-helper controls once (`build/image-marker-installed-six-checks.log`). This
+  does not identify the running app revision or test the user's image host.
+- [x] Obtain the affected terminal's multiplexer status, capability environment,
+  and launch reference: direct Ghostty, the Apple Terminal identity above, and
+  `nix run .`. No user shell settings were changed. The running app revision
+  remains unknown; no Nix package hot-cache claim follows from this diagnosis.
+- [x] Run `make proof PROOF_TIMEOUT=600` and `make test-build-deadlines
+  test-build-config test-pty-deadlines`: standard proof and driver guards pass
+  (`build/image-marker-standard-proof.log`, `build/image-marker-driver-checks.log`).
+- [x] Keep the separate placement bound explicit: native preview slots and
+  TimUI image placements are capped at eight per frame, including repeated
+  uses of one cached token. Additional placements can show a placeholder;
+  this limit does not explain the single-image report above.
 
 ## Open decisions (resolve in M0/M4)
 

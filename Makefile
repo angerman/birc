@@ -323,6 +323,11 @@ test-pty-deferred-redraw: $(PTY_BUILD) ## Last burst command paints, with bounde
 	$(NIXRUN) timeout 45 python3 tests/pty/deferred_redraw.py $(PTY_APP)
 test-pty: test-pty-deferred-redraw
 
+.PHONY: test-pty-image-marker
+test-pty-image-marker: $(PTY_BUILD) ## Ghostty images, no-graphics/multiplexer fallback, and rejected helper diagnostics.
+	$(NIXRUN) timeout 60 python3 tests/pty/image_marker.py $(PTY_APP)
+test-pty: test-pty-image-marker
+
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
 .PHONY: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
 test-keychain-tls: ## Offline TLS profile selection, credential isolation, and literal child argv.

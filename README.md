@@ -615,6 +615,8 @@ pixels (including an APNG fallback image), and 1,536,000 normalized pixels in
 total. The binary envelope is capped at 2 MiB before base64 encoding. The
 helper has an eight-second deadline.
 Bend allows one active helper, eight queued requests, and eight cached results.
+A frame can show at most eight image placements, including repeated uses of
+the same cached image.
 
 Kitty and iTerm2 handle animation in the terminal; birc does not add an
 animation timer. Sixel uses the first frame. Unsupported image terminals show
@@ -626,6 +628,17 @@ support can differ.
 Check `/log` for `image preview unavailable`; terminal-protocol fallback does
 not produce that error. Ghostty is recognized as a Kitty-graphics terminal,
 but tmux, screen, and zellij disable automatic image-protocol selection.
+Detection uses `TERM` and `TERM_PROGRAM`, not the window's appearance. If a
+Ghostty shell reports `TERM=xterm-256color` and `TERM_PROGRAM=Apple_Terminal`,
+birc selects no image protocol. Declare Ghostty's protocol for that launch:
+
+```sh
+TIMUI_IMAGE_PROTOCOL=kitty nix run . -- --connect irc.libera.chat:6697 --nick YOUR_NICK
+```
+
+Use this override only in a terminal that supports Kitty graphics. It does not
+enable multiplexer passthrough. Correcting the shell's terminal identity also
+restores automatic detection; do not set Ghostty's identity in Apple Terminal.
 
 Use `make shell` before invoking `./build/birc` directly. The Nix package defaults
 an unset helper variable to its absolute helper path. Use `BIRC_MEDIA_HELPER`
