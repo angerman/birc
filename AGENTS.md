@@ -69,6 +69,9 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/media.bend` | Image request identity, one-worker queue, and stale-result policy (pure) |
 | `src/bend/upload.bend` | Local path decoding, per-file consent, worker ownership, and fixed-origin results (pure) |
 | `src/bend/upload_io.bend` | Bounded uploader process; never forward child diagnostics |
+| `src/bend/theme.bend` | Named color themes; Dark preserves historic values (pure) |
+| `src/bend/emoji.bend` | View-only shortcode table; wire/history keep raw source (pure) |
+| `src/bend/notify.bend` / `notify_io.bend` | Per-event notification policy; bounded explicit-helper delivery |
 | `src/ffi/timui_ffi.c` | TimUI open/frame/close |
 | `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
 | `src/bend/endpoint.bend` | Shared DNS/IPv4 host:port syntax and conflicting-port checks |

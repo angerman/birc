@@ -1224,3 +1224,51 @@ def Laws.typing_out_unseen_first_tick():
 
 def Laws.cap_source_validated():
   {==}
+
+def Laws.theme_default_is_dark():
+  {==}
+
+def Laws.theme_dark_msg_preserved():
+  {==}
+
+def Laws.theme_dark_highlight_gold():
+  {==}
+
+def Laws.theme_dark_matches_view_style():
+  {==}
+
+def Laws.theme_mono_is_uniform():
+  {==}
+
+def Laws.theme_parse_light():
+  {==}
+
+def Laws.theme_parse_rejects_unknown():
+  {==}
+
+def Laws.theme_nick_default_preserved():
+  {==}
+
+def Laws.theme_light_status_ok():
+  {==}
+
+def Laws.emoji_table_has_seventy():
+  {==}
+
+def Laws.emoji_new_alias_resolves():
+  {==}
+
+def Laws.emoji_unknown_has_no_alias():
+  {==}
+
+def Laws.notify_disabled_is_silent():
+  {==}
+
+def Laws.notify_mention_requests():
+  {==}
+
+def Laws.notify_event_only_once():
+  {==}
+
+def Laws.notify_chatter_is_silent():
+  {==}

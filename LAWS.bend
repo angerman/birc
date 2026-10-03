@@ -38,6 +38,10 @@ import ./src/bend/ipv6.bend as V6
 import ./src/bend/drafts.bend as Drafts
 import ./src/bend/cards.bend as Cards
 import ./src/bend/cap_notify.bend as CapNotify
+import ./src/bend/links.bend as Links
+import ./src/bend/emoji.bend as Emoji
+import ./src/bend/theme.bend as Theme
+import ./src/bend/notify.bend as Notify
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -969,3 +973,51 @@ law typing_out_unseen_first_tick:
 # LS/ACK is preserved, and URL, delimiter, and empty-label sources fail.
 law cap_source_validated:
   {CapNotify.cap_source_ok() == True{} : Bool}
+
+law theme_default_is_dark:
+  {Theme.show(Theme.default()) == "dark" : String}
+
+law theme_dark_msg_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Msg{}) == 13158600 : U32}
+
+law theme_dark_highlight_gold:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Highlight{}) == 16766720 : U32}
+
+law theme_dark_matches_view_style:
+  {Theme.kind_fg(Theme.default(), Cl.Notice{}) == V.style_of(Cl.Notice{}) : U32}
+
+law theme_mono_is_uniform:
+  {Theme.kind_fg(Theme.Mono{}, Cl.Msg{}) == Theme.kind_fg(Theme.Mono{}, Cl.Error{}) : U32}
+
+law theme_parse_light:
+  {Theme.parse("light") == Some{Theme.Light{}} : Maybe<&2, Theme.Id>}
+
+law theme_parse_rejects_unknown:
+  {Theme.parse("neon") == None{} : Maybe<&2, Theme.Id>}
+
+law theme_nick_default_preserved:
+  {Theme.nick_row(Theme.default(), 0) == V.nick_color_idx(0) : U32}
+
+law theme_light_status_ok:
+  {Theme.status_ok(Theme.Light{}) == 31293 : U32}
+
+law emoji_table_has_seventy:
+  {List.length(&2, Emoji.Entry, Emoji.aliases()) == 70n : Nat}
+
+law emoji_new_alias_resolves:
+  {Links.alias.go(Emoji.aliases(), ":smile: ok") == Some{Links.Alias{"😄", " ok"}} : Maybe<&2, Links.Alias>}
+
+law emoji_unknown_has_no_alias:
+  {Links.alias.go(Emoji.aliases(), ":notanalias:") == None{} : Maybe<&2, Links.Alias>}
+
+law notify_disabled_is_silent:
+  {Notify.decide(Notify.off(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.off(), None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_mention_requests:
+  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [1n]}, Some{Notify.Req{"bob in #room", "hi"}}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_event_only_once:
+  {Notify.decide(Notify.step(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", ""), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [1n]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_chatter_is_silent:
+  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, False{}}, "", "") == (Notify.on(), None{}) : Notify.State & Maybe<&2, Notify.Req>}

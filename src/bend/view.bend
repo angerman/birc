@@ -6,6 +6,7 @@ import ./split.bend as Sp
 import ./links.bend as Links
 import ./columns.bend as Cols
 import ./media.bend as M
+import ./theme.bend as Theme
 
 # Live paint ops. C walks the list inside one Timui.frame (no packed wire).
 # Bend owns layout and assigns every line its y. Attr bits: bold=1, italic=4.
@@ -305,27 +306,35 @@ def nick_hash.go(s: String, +h: U32) -> U32:
 def nick_hash(+s: String) -> U32:
   nick_hash.go(s, 5381)
 
+# Canonical nick palette lives in theme.bend; the default theme keeps these values.
 def nick_color_idx(+idx: U32) -> U32:
-  match idx:
-    case 0: 16738914
-    case 1: 5635925
-    case 2: 16766770
-    case 3: 5547007
-    case 4: 13079039
-    case 5: 5635999
-    case 6: 16747674
-    case 7: 10485606
-    case 8: 16753920
-    case 9: 10079487
-    case 10: 14467071
-    case 11: 7526270
-    case 12: 16763030
-    case 13: 8576972
-    case 14: 16744652
-    case _: 14540253
+  Theme.nick_row(Theme.default(), idx)
 
 def nick_color(+nick: String) -> U32:
   nick_color_idx(U32.and(nick_hash(nick), 15))
+
+# Themed adapters. Existing painters keep style_of/nick_color/status_color;
+# the integrator threads a Theme.Id through ViewModel once Session owns it.
+def style_of_themed(+id: Theme.Id, k: Cl.LineKind) -> U32:
+  Theme.kind_fg(id, k)
+
+def nick_color_themed(+id: Theme.Id, +nick: String) -> U32:
+  Theme.nick_row(id, U32.and(nick_hash(nick), 15))
+
+def status_themed.on(+ok: U32, +err: U32, +warn: U32, +dim: U32, +online: Bool, +offline: Bool, +conn: Bool) -> U32:
+  match online:
+    case True{}: ok
+    case False{}:
+      match offline:
+        case True{}: err
+        case False{}:
+          match conn:
+            case True{}: warn
+            case False{}: dim
+
+def status_color_themed(+id: Theme.Id, +net: String) -> U32:
+  status_themed.on(Theme.status_ok(id), Theme.status_err(id), Theme.status_warn(id), Theme.status_dim(id),
+    String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
 
 def take_until_gt.cons(+h: Char, r: String & String) -> String & String:
   match r:

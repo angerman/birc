@@ -376,7 +376,7 @@ test-review-pure: test-keychain-tls test-build-tls test-tls-args test-endpoint t
 test-pty: test-pty-tls
 test-sanitizers: test-tls-native-ubsan
 lint-ffi: lint-tls
-.PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
+.PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
@@ -559,6 +559,15 @@ test-formatting: ## Rich style composition, emoji aliases, exact URLs, and raw-s
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/formatting_demo.bend -o $(BLDDIR)/formatting_demo
 	$(NIXRUN) sh scripts/check-golden.sh formatting_demo=ok ./$(BLDDIR)/formatting_demo
+
+test-theme: ## Theme palettes, desktop-notification policy, and extended emoji aliases.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/theme_demo.bend -o $(BLDDIR)/theme_demo
+	$(NIXRUN) sh scripts/check-golden.sh theme_demo=ok timeout 30 ./$(BLDDIR)/theme_demo
+	$(NIXRUN) timeout 180 bend tests/bend/theme_emoji.bend -o $(BLDDIR)/theme_emoji
+	$(NIXRUN) sh scripts/check-golden.sh theme_emoji=ok timeout 30 ./$(BLDDIR)/theme_emoji
+	$(NIXRUN) timeout 180 bend tests/bend/theme_notify.bend -o $(BLDDIR)/theme_notify
+	$(NIXRUN) sh scripts/check-golden.sh theme_notify=ok timeout 30 ./$(BLDDIR)/theme_notify
 
 test-formatting-painter: build-ui ## Actual terminal attributes, aliases, and opaque hyperlink targets.
 	$(NIXRUN) timeout 15 python3 tests/formatting_painter.py ./$(BLDDIR)/birc fixtures/formatting.irc
@@ -1259,7 +1268,7 @@ test-pty: test-pty-preview-retry
 .PHONY: test-output-shutdown test-output-progress test-pty-output-progress test-pty-output-failure
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
-test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-media-image ## Adversarial review regression gates.
+test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-theme test-media-image ## Adversarial review regression gates.
 test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
 test-review-pure: test-state-review test-runtime-review test-ui-review-native test-ui-review-view test-ui-review-output
 test-review-pure: test-m20

@@ -1,5 +1,6 @@
 # One lexical rule for displayed chat links and /links /open collection.
 import Base
+import ./emoji.bend as Emoji
 
 def alnum(h: Char) -> Bool:
   match h:
@@ -63,44 +64,21 @@ type Run is Data:
 type Alias is Data:
   Alias{text: String, rest: String}
 
-type AliasEntry is Data:
-  AliasEntry{name: String, text: String}
-
-# Exact case-sensitive table from timui.h/examples/chat_text.h. Substitution is
+# Emoji shortcode entries live in emoji.bend; the first 22 rows are the exact
+# case-sensitive table from timui.h/examples/chat_text.h. Substitution is
 # view-only: IRC/history retain shortcodes; cell selection copies their glyphs.
-def aliases() -> List<&2, AliasEntry>:
-  [AliasEntry{":eyes:", "👀"},
-   AliasEntry{":wave:", "👋"},
-   AliasEntry{":thumbsup:", "👍"},
-   AliasEntry{":thumbs-up:", "👍"},
-   AliasEntry{":+1:", "👍"},
-   AliasEntry{":tada:", "🎉"},
-   AliasEntry{":fire:", "🔥"},
-   AliasEntry{":rocket:", "🚀"},
-   AliasEntry{":heart:", "❤"},
-   AliasEntry{":sparkles:", "✨"},
-   AliasEntry{":bulb:", "💡"},
-   AliasEntry{":clap:", "👏"},
-   AliasEntry{":brain:", "🧠"},
-   AliasEntry{":zap:", "⚡"},
-   AliasEntry{":star:", "⭐"},
-   AliasEntry{":joy:", "🤣"},
-   AliasEntry{":raised_hands:", "🙌"},
-   AliasEntry{":bow:", "🙇"},
-   AliasEntry{":party:", "🥳"},
-   AliasEntry{":bug:", "🐛"},
-   AliasEntry{":globe:", "🌍"},
-   AliasEntry{":boom:", "💥"}]
+def aliases() -> List<&2, Emoji.Entry>:
+  Emoji.aliases()
 
 def alias.hit(found: Bool, +s: String, +name: String, text: String, other: Maybe<&2, Alias>) -> Maybe<&2, Alias>:
   match found:
     case True{}: Some{Alias{text, String.drop(s, String.length(name))}}
     case False{}: other
 
-def alias.go(xs: List<&2, AliasEntry>, +s: String) -> Maybe<&2, Alias>:
+def alias.go(xs: List<&2, Emoji.Entry>, +s: String) -> Maybe<&2, Alias>:
   match xs:
     case Nil{}: None{}
-    case Con{AliasEntry{+name, text}, t}:
+    case Con{Emoji.Entry{+name, text}, t}:
       alias.hit(String.starts_with(s, name), s, name, text, alias.go(t, s))
 
 def delimiter.double(double: Bool, s: String) -> String:
