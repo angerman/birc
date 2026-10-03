@@ -3653,6 +3653,118 @@ their own synthetic preference file is explicitly under test.
   installed helper, TLS, Keychain, and clean-environment tests once the default
   package succeeds. The full latest aggregate `make check` remains separate.
 
+## Muse parallel implementation handoff (2026-10-03)
+
+The user requests that Muse in the sibling tmux pane take over the full remaining
+docket, use a maximally parallel workflow with multiple concurrent subagents,
+and continue through implementation and verification. The coordinating agent
+will monitor this pane, review progress, and send follow-up instructions. This
+handoff is implementation scope, not a request for another plan-only review.
+
+### Baseline and verified evidence
+
+- Repository: `/Users/angerman/Projects/zw3rk/birc`, existing branch `master`.
+  Baseline commits: `4949dad` records the bounded Nix failure; `9b4997d` adds
+  cached visible-history images; `8b51c48` covers terminal identity;
+  `6d30d3a` fixes reconnect recovery with server-assigned nicknames. Preserve
+  these fixes and all unrelated user changes. Do not push.
+- Read this repository's current `AGENTS.md`, global
+  `/Users/angerman/.config/ai/AGENTS.md`, applicable `CONTEXT.md`, and (for C)
+  `/Users/angerman/.config/ai/C_GUIDELINES.md`. The old initial plaintext-only
+  scope has been superseded: verified TLS defaults to 6697; explicit `--plain`
+  defaults to 6667. Never weaken TLS verification or authentication isolation.
+- Already implemented: reconnect authentication and the full desired channel
+  set; private nonsecret preferences/autojoin profiles; IRC commands and
+  lossless ACTION/message splitting; date-aware local timestamps; TLS/default
+  endpoint parsing; confirmed uploads; diagnostic log; local text styling and
+  emoji aliases; bounded asynchronous live/history image previews and private
+  remote asset cache. Later roadmap features below are not implemented.
+- Final native app `build/birc` is built at `-O2`, SHA256
+  `b4d4657261dee67efa1dd71c418d0ff1de7b2dc4e98489106dd83be81cc399c1`.
+  Standard proof, strict native lint, relevant pure/media fixtures, helper
+  bounds/cache tests, native UBSan, and three consecutive final ten-case image
+  PTY runs passed. Commands/logs are in the preceding history-preview section.
+  This is not a latest full `make check` or a Nix package qualification.
+- Current default Nix build reached `buildPhase` and was canceled by its
+  900-second limit after 900.320 seconds; the cause/stage is not known. Read
+  `build/image-history-nix-prebuild.log` and preceding Nix follow-up. All three
+  observed owned build PIDs were gone at handoff. The old package link is M26,
+  not current source. The new image helper is cached and source-identical.
+- Existing diagnostic seams: `build-package-profiled`,
+  `test-package-build-profile`, `test-perf-startup`, `BIRC_FRAME_PROFILE=1`, and
+  owned-PID/monotonic timing controls. A profiled derivation is not the default
+  app cache. Do not blindly repeat the same long build or speculate about its
+  cause. Instrument, measure, hypothesize, fix, measure again, and validate.
+- `build/m27-locked-run.sh` captures a usable locked shell; explicitly set
+  `BEND_NO_TELEMETRY=1`. Its compiler/helper PATH predates provisioning updates.
+  Fresh `nix develop --no-update-lock-file` is preferred when available; verify
+  helper provenance and flags rather than assuming the captured PATH is current.
+
+### Full remaining implementation scope
+
+1. Diagnose/fix the Nix package build stall and measured startup lookup delays;
+   resolve the remaining PONG/output-progress timing misses without relaxing
+   deadlines. Successfully prebuild the default package and qualify installed
+   helpers, TLS trust/linkage, Keychain wrapper, and clean-environment startup.
+2. Implement server `005 ISUPPORT`, server-defined channel/mode metadata, and
+   nickname privileges. Preserve secret-safe channel-key handling.
+3. Implement native IRC wire formatting and colors in the view, with safe
+   reset/control handling and exact source/URL/history preservation. Existing
+   local Markdown-like styles and view-only aliases must keep working.
+4. Implement per-buffer drafts and multiline composition, including focus,
+   rename, close, paste, modal actions, UTF-8 clusters, and wire byte bounds.
+5. Implement full disk-history search and paging, plus server history where
+   negotiated/supported. Keep bounded IO, private files, endpoint isolation,
+   replay semantics, imported IDs, and history checkpoint guarantees.
+6. Implement IRCv3 account/away notifications and outgoing typing. General CAP
+   handling must share one registration/CAP-END owner with SASL; keep timers and
+   traffic bounded and prevent stale/offline sends.
+7. Implement multiple simultaneous servers and IPv6 endpoints, sockets, and
+   AAAA DNS. Use explicit server identity and generation for event routing;
+   isolate credentials, preferences, history, buffers, and reconnect intent.
+8. Implement fullscreen images and bounded OpenGraph cards, reusing media
+   ownership, public-destination checks, certificate verification, and cache
+   safety. Preserve automatic-image opt-out and unsupported-terminal logging.
+9. Implement themes, desktop notifications, and a larger view-only emoji alias
+   set. Preserve source/history, cluster-aware layout, per-event notification
+   identity, and credential/private-diagnostic controls.
+10. Complete the full latest `make check`, relevant sanitizers, native app/PTYS,
+    fresh adversarial defect/style/DRY review, updated usage/checklist evidence,
+    and default Nix hot-cache verification. Fix any discovered defects.
+
+### Parallel ownership and completion gates
+
+- Spawn multiple real concurrent subagents immediately for independent work.
+  Maximize useful concurrency within actual tool/resource limits. Announce
+  owners and concrete outputs; do not substitute parallel shell commands for
+  subagents or stop after writing a plan.
+- Suggested initial lanes: Nix/performance diagnostics; ISUPPORT policy;
+  wire-style parser; draft/multiline policy; CAP/history policy; IPv6/ServerId;
+  media/cards; palette/emoji/notification policy. Queue additional lanes if agent
+  limits require it, and keep unrelated lanes moving when one is blocked.
+- Use isolated worktrees if supported, or explicit disjoint file ownership.
+  One integrator owns shared `Client`/`Buffer`/`Session`/`Net`/`View` types and
+  their adapters. Keep one heavy native/Nix build lane; do not let concurrent
+  compilers overwrite shared `build/` outputs or erase failure evidence.
+- Use the root Makefile, locked Nix inputs, positive wall-clock bounds, and
+  visible logs. Keep important rules in `LAWS.bend`/`PROOF.bend`; run the standard
+  proof before Bend commits. No independent proof-kernel work is requested.
+- Add positive and negative regression tests with each fix. New/changed PTYs
+  need three consecutive runs against the exact final binary before commit.
+  Preserve existing assertions. If an expectation genuinely needs correction,
+  report the exact change and rationale to the coordinator for user approval;
+  past fixture approvals are not permission to weaken unrelated tests.
+- Never use real credentials, real Keychain writes, private supplied image URLs,
+  user uploads, public upload services, or global process arguments in tests.
+  Use synthetic files, fake helpers, and owned loopback peers. Do not introduce
+  hand-rolled cryptography, move source pins, or push upstream.
+- Keep implementations direct and bounded. Prefer shared pure policies over
+  speculative frameworks, duplicate paths, or unnecessary configuration layers.
+  Update `README.md`, `AGENTS.md`, and this checklist with verified facts.
+- Report lane progress, actual commits, exact test outcomes, and blockers to
+  the coordinating pane. Do not claim completion while any requested feature,
+  fresh review, full checks, or default package prebuild remains outstanding.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
