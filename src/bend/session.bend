@@ -15,6 +15,40 @@ import ./view.bend as View
 import ./transport_policy.bend as Transport
 import ./join_plan.bend as JoinPlan
 import ./preferences.bend as Prefs
+import ./irc_commands.bend as Commands
+
+# The first welcome names the nickname actually assigned by the server. A
+# requested nickname can differ because of server policy or length limits.
+# Admit it before authentication, membership policy and the Client feed share
+# that identity; malformed/peer/later-other welcomes must not poison the nick.
+def registration_nick(+nick: String) -> Bool:
+  Commands.word(nick) && Bool.not(Irc.starts_channel(nick)
+    || String.contains(nick, "*") || String.contains(nick, ",")
+    || String.contains(nick, "!") || String.contains(nick, "@")
+    || String.contains(nick, ":"))
+
+def registration_client.accept(allowed: Bool, cl: Cl.Client, nick: String) -> Maybe<&2, Cl.Client>:
+  match allowed:
+    case False{}: None{}
+    case True{}: Some{Cl.set_nick(cl, nick)}
+
+def registration_client.message(welcome: Bool, seen: Bool, +cl: Cl.Client, +line: String, +m: Irc.Message) -> Maybe<&2, Cl.Client>:
+  match welcome:
+    case False{}: Some{cl}
+    case True{}:
+      +nick = Irc.msg_param(m, 0n)
+      registration_client.accept(Auth.server_source(Irc.source_prefix(line))
+        && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n)
+        && registration_nick(nick) && Bool.not(String.is_empty(Irc.msg_param(m, 1n)))
+        && (Bool.not(seen) || Irc.ieq(nick, Cl.nick_of(cl))), cl, nick)
+
+def registration_client.parsed(parsed: Maybe<&2, Irc.Message>, seen: Bool, cl: Cl.Client, line: String) -> Maybe<&2, Cl.Client>:
+  match parsed:
+    case None{}: Some{cl}
+    case Some{+m}: registration_client.message(U32.is_eq(Irc.msg_num(m), 1), seen, cl, line, m)
+
+def registration_client(seen: Bool, cl: Cl.Client, +line: String) -> Maybe<&2, Cl.Client>:
+  registration_client.parsed(Irc.parse(line), seen, cl, line)
 
 def register_lines(+nick: String) -> List<&2, String>:
   Irc.format_nick(nick) <> Irc.format_user(nick) <> Nil{}
@@ -2128,13 +2162,22 @@ def live_step.fed(+fed: FoldAcc, typing: Ty.State, plan: JoinPlan.State) -> Live
 
 # Keep the original wire text for protocol/authentication/membership policy.
 # A local timestamp override affects only the display/history feed.
-def live_step(acc: LiveAcc, item: StampedLine) -> LiveAcc:
-  match acc:
-    case LiveAcc{FoldAcc{+cl, reversed, +now_ms}, typing, plan}:
-      match item:
-        case StampedLine{+line, stamp}:
+def live_step.registered(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>) -> LiveAcc:
+  match registered:
+    case None{}: acc
+    case Some{+cl}:
+      match acc:
+        case LiveAcc{FoldAcc{_, reversed, +now_ms}, typing, plan}:
           live_step.fed(fold_step.got_at(cl, reversed, now_ms, line, stamp),
             Ty.apply_line_for(typing, cl, line, now_ms), JoinPlan.received(plan, cl, line))
+
+def live_step(acc: LiveAcc, item: StampedLine) -> LiveAcc:
+  match acc:
+    case LiveAcc{FoldAcc{+cl, reversed, now_ms}, typing, +plan}:
+      match item:
+        case StampedLine{+line, stamp}:
+          live_step.registered(registration_client(JoinPlan.welcomed(plan), cl, line),
+            LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan}, line, stamp)
 
 def step_chunk_got(
   +draft: String,

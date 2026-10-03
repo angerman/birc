@@ -34,6 +34,18 @@ import ./src/bend/message_chunks.bend as Chunks
 import ./src/bend/join_plan.bend as JoinPlan
 import ./src/bend/history_startup.bend as StartupHistory
 
+law first_server_welcome_assigns_nickname:
+  {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
+
+law later_welcome_cannot_replace_nickname:
+  {Sess.registration_client(True{}, Cl.init("me", "s"), ":s 001 other :welcome") == None{} : Maybe<&2, Cl.Client>}
+
+law rejected_welcome_preserves_live_state:
+  for acc: Sess.LiveAcc
+  for line: String
+  for stamp: Maybe<&2, String>
+  {Sess.live_step.registered(None{}, acc, line, stamp) == acc : Sess.LiveAcc}
+
 law refused_startup_archive_keeps_current_client:
   for current: Cl.Client
   for snapshot: Cl.Client

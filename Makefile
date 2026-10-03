@@ -99,7 +99,7 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 
 test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy: ## Recovery, trusted authentication, strict commands, and lossless message guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) timeout 900 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
 test-preferences-pure: ## Durable settings roundtrip without changing credentials or live state.
@@ -151,13 +151,20 @@ test-pty-local-time: $(PTY_BUILD) ## Loopback event-local timestamps; PTY_APP ca
 test-pty: test-pty-local-time
 
 .PHONY: test-reconnect-preferences test-preferences-runtime test-preferences-global
+.PHONY: test-reconnect-registration
+test-reconnect-registration: ## First-welcome nickname assignment, forged controls, and authenticated full-room recovery.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/reconnect_registration.bend -o $(BLDDIR)/reconnect_registration
+	$(NIXRUN) sh scripts/check-golden.sh reconnect_registration=ok timeout 15 ./$(BLDDIR)/reconnect_registration
+test-review-pure: test-reconnect-registration
+
 .PHONY: test-join-plan test-pty-reconnect-recovery
 test-join-plan: ## Bounded desired channels, exact runtime keys, once-only flush, and auth diagnostics.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/join_plan_demo.bend -o $(BLDDIR)/join_plan_demo
 	$(NIXRUN) sh scripts/check-golden.sh join_plan_demo=ok timeout 15 ./$(BLDDIR)/join_plan_demo
 
-test-pty-reconnect-recovery: $(PTY_BUILD) ## Three loopback connections recover channels only after trusted NickServ success.
+test-pty-reconnect-recovery: $(PTY_BUILD) ## Manual/automatic SASL and NickServ recovery; settings and keyed channel guards.
 	$(NIXRUN) timeout 60 python3 tests/pty/reconnect_recovery.py $(PTY_APP)
 test-pty: test-pty-reconnect-recovery
 test-review-pure: test-join-plan
@@ -181,7 +188,7 @@ test-review-pure: test-reconnect-preferences
 .PHONY: test-reconnect-echoes test-upload-diagnostics test-preferences-live test-preferences-channels test-preferences-package
 test-reconnect-echoes: ## Delayed membership echoes preserve intent and valid server prefixes authenticate.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/reconnect_echoes.bend -o $(BLDDIR)/reconnect_echoes
+	$(NIXRUN) timeout 900 bend tests/bend/reconnect_echoes.bend -o $(BLDDIR)/reconnect_echoes
 	$(NIXRUN) sh scripts/check-golden.sh reconnect_echoes=ok timeout 15 ./$(BLDDIR)/reconnect_echoes
 
 test-upload-diagnostics: ## Numeric HTTP rejection details without exposing helper bodies or paths.

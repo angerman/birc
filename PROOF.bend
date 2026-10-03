@@ -12,6 +12,15 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.first_server_welcome_assigns_nickname():
+  {==}
+
+def Laws.later_welcome_cannot_replace_nickname():
+  {==}
+
+def Laws.rejected_welcome_preserves_live_state(acc, line, stamp):
+  {==}
+
 def Laws.refused_startup_archive_keeps_current_client(current, snapshot):
   {==}
 

@@ -24,7 +24,7 @@ def welcome_controls() -> IO(Unit):
     Unit <- E.must_eq("single-label server name may differ from dial host", R.wire(R.chunk(st, ":irc 001 me :welcome\r\n")), "JOIN #start")
     Unit <- E.must_eq("unprefixed welcome comes from the connection", R.wire(R.chunk(st, "001 me :welcome\r\n")), "JOIN #start")
     Unit <- E.must_eq("user-prefixed welcome cannot release JOIN", R.wire(R.chunk(st, ":peer!u@h 001 me :fake\r\n")), "")
-    Unit <- E.must_eq("wrong recipient cannot release JOIN", R.wire(R.chunk(st, ":irc 001 other :fake\r\n")), "")
+    Unit <- E.must_eq("first server welcome assigns nickname and releases JOIN", R.wire(R.chunk(st, ":irc 001 other :fake\r\n")), "JOIN #start")
     Unit <- E.must_eq("malformed server prefix cannot release JOIN", R.wire(R.chunk(st, ":https://evil.test 001 me :fake\r\n")), "")
     IO.pure(Unit, Unit{})
 
@@ -37,7 +37,7 @@ def nick_controls() -> IO(Unit):
     Unit <- E.must_eq("NickServ probes for valid single-label welcome", R.wire(R.chunk(st, ":irc 001 me :welcome\r\n")), "PRIVMSG NickServ :HELP")
     Unit <- E.must_eq("NickServ probes for valid unprefixed welcome", R.wire(R.chunk(st, "001 me :welcome\r\n")), "PRIVMSG NickServ :HELP")
     Unit <- E.must_eq("peer welcome cannot trigger NickServ probe", R.wire(R.chunk(st, ":peer!u@h 001 me :fake\r\n")), "")
-    Unit <- E.must_eq("other recipient cannot trigger NickServ probe", R.wire(R.chunk(st, ":irc 001 other :fake\r\n")), "")
+    Unit <- E.must_eq("first server welcome assigns nickname and triggers NickServ probe", R.wire(R.chunk(st, ":irc 001 other :fake\r\n")), "PRIVMSG NickServ :HELP")
     Unit <- E.must_eq("short-server welcome still requires exact NickServ identity", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n")), ":NickServ!hostile@evil.test NOTICE me :Help\r\n")), "")
     Unit <- E.must_eq("valid service confirmation releases short-server welcome", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n")), A.notice("Help") ++ A.notice("Account confirmed"))), "PRIVMSG NickServ :IDENTIFY account test-secret|JOIN #start")
     IO.pure(Unit, Unit{})

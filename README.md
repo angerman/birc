@@ -500,7 +500,8 @@ control buffer explicitly. `/split server` selects a private query named
 `server` if it exists; otherwise it keeps the legacy control-buffer alias.
 
 Live connections automatically reconnect to the saved host and port two seconds
-after an unexpected disconnect. A manual `/connect` cancels the pending retry.
+after an unexpected disconnect. `/connect` is refused while connecting or
+waiting for an automatic retry.
 Use `/set autoreconn off` to disable this behavior.
 
 Recovery remembers the desired channel set, not only the launch channel.
@@ -515,6 +516,9 @@ are part of the saved endpoint identity.
 On each connection birc starts authentication again. With configured
 credentials, it waits for welcome and verified SASL or NickServ success before
 joining. A rejected or untrusted authentication notice cannot release JOIN.
+The first valid server welcome establishes the assigned nickname, even if it
+differs from the requested nickname. Authentication and room recovery use that
+identity. A later conflicting welcome or a peer-forged welcome cannot change it.
 
 Ordinary messages, `/msg`, `/query`, `/notice`, and `/me` split into complete
 IRC lines when needed. Splits preserve text and common Unicode clusters.
@@ -617,6 +621,11 @@ animation timer. Sixel uses the first frame. Unsupported image terminals show
 a placeholder. A partially clipped iTerm2 image also shows a placeholder,
 because that protocol has no source-crop command. Terminal and multiplexer
 support can differ.
+
+`[img]` is also used while a request is pending or after preview rejection.
+Check `/log` for `image preview unavailable`; terminal-protocol fallback does
+not produce that error. Ghostty is recognized as a Kitty-graphics terminal,
+but tmux, screen, and zellij disable automatic image-protocol selection.
 
 Use `make shell` before invoking `./build/birc` directly. The Nix package defaults
 an unset helper variable to its absolute helper path. Use `BIRC_MEDIA_HELPER`

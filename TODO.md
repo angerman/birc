@@ -3440,6 +3440,78 @@ review runtime integration independently, and prebuild the Nix app. Do not
 call the later phases implemented. Tests force `BIRC_PREFERENCES=none` unless
 their own synthetic preference file is explicitly under test.
 
+## Reconnect registration review (2026-10-03)
+
+- [x] Reproduce the server-assigned nickname failure in pure Session and the
+  actual native app. A trusted first `001 Guest42` changed Client identity but
+  did not mark JoinPlan welcomed or start NickServ verification. Evidence:
+  `build/reconnect-report-registration-red.log` and
+  `build/reconnect-report-assigned-nick-red.log`.
+- [x] Normalize the first valid server welcome before Auth, JoinPlan, and
+  Client share it. Ignore malformed/peer/later-conflicting welcomes without
+  changing live state. Keep generic `fold_lines` and SASL `903` policy unchanged.
+- [x] New native Session regression passes, including full keyed automatic
+  SASL recovery and current-recipient NickServ verification
+  (`build/reconnect-report-registration-green-5.log`). Final expanded native
+  guards also pass for partial frames, malformed welcome parameters, collision
+  retries, and held-welcome release (`build/reconnect-report-final-pure-and-proof.log`).
+- [x] Obtain explicit approval and correct the three existing first-welcome
+  expectations: two JOIN replies and one NickServ probe. Peer/service-identity
+  and later-wrong-recipient guards remain unchanged.
+- [x] Rebuild the final `-O2` app and pass three consecutive expanded recovery
+  PTYs: nine cases and 27 owned connections cover manual/automatic SASL and
+  NickServ, automatic assigned nicknames, full surviving keyed rooms, actual
+  private settings, terminal restoration, and helper cleanup. Evidence:
+  `build/reconnect-report-app-build.log` and
+  `build/reconnect-report-final-pty-three-runs.log`. Native app SHA256:
+  `360c0ad980e8ef14fb5796d04e0534cf33888a240f532f6dac04332da8231298`.
+  No Nix package hot-cache status follows from this native build.
+- [x] Run final expanded native registration/auth/preferences guards and
+  standard proof: `make test-reconnect-registration test-reconnect-auth
+  test-reconnect-preferences proof PROOF_TIMEOUT=600` passes
+  (`build/reconnect-report-final-pure-and-proof.log`). No independent kernel
+  or full aggregate `make check` was run.
+- [x] Rerun the approved recovery/echo fixture corrections. The original
+  recovery compilation reached its 180-second limit without running assertions
+  (`build/reconnect-report-approved-existing-fixtures.log`). Both native suites
+  pass with a 900-second compiler bound and unchanged 15-second execution
+  bounds: `make test-reconnect-recovery test-reconnect-echoes`
+  (`build/reconnect-report-approved-existing-fixtures-retry.log`). The Make
+  recipes retain literal positive bounds; `make test-build-deadlines
+  test-build-config` passes. This is qualification, not a compiler performance
+  diagnosis.
+- [x] Resolve installed-artifact provenance: `build/package-birc` still targets
+  M26 store path `71axidj8nisxkn03gnhwfaj76a6zcc37-birc-0.1.0`; its source
+  `k17raik605ik2r0rs9s4m1msbw7pahx5-source` has no JoinPlan and recovers only
+  the launch channel. Its Keychain wrapper defaults to that package's app;
+  `BIRC_PROGRAM` can override it. The user reports `nix run birc -- birc
+  --connect … --nick …`; no matching `flake:birc` entry appears in the scoped
+  local registry check. Bounded offline metadata resolution also fails with
+  `cannot find flake 'flake:birc' in the flake registries`. The checkout's
+  direct app rejects an extra positional `birc`; its syntax is
+  `nix run . -- --connect HOST --nick NICK`. The user's actual resolved source
+  is not known. Do not infer that this installed link or nickname assignment
+  caused their report.
+
+## Image-marker diagnosis (2026-10-03)
+
+- [x] Trace `[img]`: queued requests, rejected previews, absent native images,
+  and terminal-protocol/crop fallbacks share the marker. Helper/payload rejection
+  logs `image preview unavailable`; terminal fallback does not.
+- [x] Verify percent-encoded spaces are preserved by the lexer and helper.
+  The image region itself means the URL was recognized. Do not fetch a private
+  chat URL or put it in fixtures; use synthetic images and `.test` URLs.
+- [x] Verify Ghostty is recognized as Kitty graphics. Multiplexer detection
+  strips image protocols, including explicit `TIMUI_IMAGE_PROTOCOL` selection.
+  No exact cause is established by the reported marker and absent log error.
+- [x] Run `make test-media-image test-media-native test-media-portable`:
+  synthetic formats/URL policy, native ownership/animation/clipping, and C99
+  image/no-image controls all pass (`build/image-marker-synthetic-checks.log`).
+- [ ] Characterize automatic Ghostty detection, protocol `none`, and rejected
+  helper output in the final native app with an encoded synthetic URL.
+- [ ] Obtain the affected terminal's multiplexer status and capability
+  environment. The actual launched package/source remains unknown.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

@@ -58,5 +58,5 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("repeated welcome does not repeat JOIN", wire(chunk(state(manual(base)), welcome())), "")
     Unit <- E.must_eq("new endpoint does not inherit channel additions or keys", wire(chunk(Sess.session_reconnected(enter(base, "/connect other.example 6667"), "12:02:00"), ":other.example 001 me :welcome\r\n")), "JOIN #start")
     Unit <- E.must_eq("peer-prefixed welcome cannot trigger JOIN", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":peer!u@h 001 me :fake\r\n")), "")
-    Unit <- E.must_eq("welcome for another nick cannot trigger JOIN", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":irc.example 001 someone :fake\r\n")), "")
+    Unit <- E.must_eq("first server welcome can assign another nick and trigger JOIN", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":irc.example 001 someone :fake\r\n")), "JOIN #start")
     IO.print("reconnect_recovery=ok")

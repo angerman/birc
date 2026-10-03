@@ -109,6 +109,10 @@ def sent(state: State) -> Bool:
   match state:
     case State{_, _, sent, _, _, _}: sent
 
+def welcomed(state: State) -> Bool:
+  match state:
+    case State{_, welcome, _, _, _, _}: welcome
+
 def reset.barrier(required: Bool, baseline: Nat) -> Barrier:
   match required:
     case False{}: NoAuth{}
