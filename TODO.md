@@ -4263,6 +4263,12 @@ handoff is implementation scope, not a request for another plan-only review.
   IO guard, prereg-star gate); handle retained on spawn return. No
   repair rounds remain queued; adapter owners (C8/I2/G6/H5/N9-session)
   go out as repair workers return.
+- SessWS adapters returned (`c7f5039` session_drafts + `b04f759`
+  workspace partitions, worker reports S1-S5 + laws + JS suites green,
+  native/PTY left to parent); pending parent S1-S5 review + shared-type
+  merge. Freed slot went to `adapt-c8-session/29`
+  (`01a10176-c4b8-7263-ae47-70f3a4b5c25a`). Next adapter owners
+  (I2/G6/H5/N9-session) go out as repair workers return.
   PROOF junction fix committed with its exact green evidence (114s
   `ALL PROOFS CHECK` run covered this content; only non-Bend files
   changed since).
