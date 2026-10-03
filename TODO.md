@@ -4540,6 +4540,44 @@ handoff is implementation scope, not a request for another plan-only review.
 - `integ-c8-live/38` FAILED at startup (tooling, no commits, clean
   tree at `88e695b`); respun immediately as `integ-c8-live2/39` on
   branch `c8-live2` with the identical initial task.
+- USER APPROVAL: standard proof to 600s (`make proof PROOF_TIMEOUT=600`
+  via locked runner); runtime/PONG/Nix/PTY deadlines unchanged; real
+  `bend PROOF.bend` qualifies, never check-only. Proof-600 running on
+  current tree; no proof-input edits while in flight.
+- SessWS `be1bd97` NOT ACCEPTED; exact blockers (all already in
+  `sessws-live/40` initial task — coverage confirmed, no follow-up
+  needed): S4 `replace_reset319-322` via `session_upload_draft1598-1601`
+  preserves Comp — `CompActive{"old ","/j",0n}` + host/port change +
+  `comp_step.active1084-1106` revives "old /join " (same-endpoint +
+  sibling positives); S3 `hist_after_lines.go235-238`/`multiline_finish277`
+  splits one raw block ("aa\nbb" recalls "bb", blanks/CRLF lost;
+  239-241 contains-guards not exact) — one exact item + one HistPrev,
+  mixed later-line IDENTIFY absent; S2 needs exact FIFO (now count2
+  only); S5 needs bare `/query alice` + rejected-composer; S1 gen1
+  repaired (preserve); centralize Session-owned supplied-submit/history
+  finish seam (`AD272-279`/`401-406` still copied); real runtime for
+  `net255` direct `step_keys`. Worker owns session/workspace/drafts
+  paths — parent does not edit them.
+- Parent G6-live: pure policy complete (worker + sentinel); binding
+  (Session Caps/OutState fields, tick drive, TAGMSG emission) touches
+  worker-owned session/net/app files, so parent implements pure
+  live-tick helpers + tests in `cap_notify.bend` (free) + exact binding
+  spec here, and binds when SessWS/C8 return. No worker-path edits.
+- G6 BINDING SPEC (parent, queued behind SessWS/C8-live returns):
+  `CapNotify.Reg{caps,out}` + `reg0/reg_on_line/reg_out` already exist
+  (worker); `reg_out` gates on `tags_ok(caps)` internally. (1) Session
+  gains one `reg: CapNotify.Reg` field (`reg0()` init, reset on
+  endpoint change with the other per-endpoint state). (2) Live CAP
+  lines: thread `reg_on_line(reg, server, nick, line)` through the
+  `FoldAcc` line fold beside `Feed.feed_at` (server/nick from the
+  Client). (3) Outbound typing: on `TypingTick` (net `on_typing_tick`
+  beside `session_expire_typing`) AND composer keystrokes, call
+  `reg_out(reg, now, online, target, composing)` with live `online`
+  (net Online), active target, nonempty-composer; queue returned
+  TAGMSG wires through the existing actor send path (SEND_CAP
+  budgeted). No new state path; no behavior when tags unnegotiated
+  (quiet by construction, guarded). Pure helper + JS guards in
+  `cap_notify.bend` first (free file), binding edits after.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
