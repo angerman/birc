@@ -4576,6 +4576,12 @@ handoff is implementation scope, not a request for another plan-only review.
 - I2 current: assertions-only, no weakening ✓; `SessIso` wrapper is a
   parent-merge instruction, NOT live binding — return gate: real state
   integration + Make registration + proof ownership at parent merge.
+- Proof-600 on `8d2a34c` TIMED OUT (124; log `build/proof-600-8d2a34c.log`,
+  71 bytes — bend prints verdict only at end; load 34-57 during window
+  with L1-heavy active) — `02fc1db` (C8 adapter) + `8d2a34c` (G6
+  helpers) are UNQUALIFIED until a green proof-600; cause unverified
+  (contention vs law-cost, no phase evidence). Retry on worker drain;
+  law bisection only if timeouts persist quiet.
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
