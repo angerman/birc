@@ -387,10 +387,10 @@ def notify_text(e: NotifyEvent) -> String:
 # idle-composing from idle-empty, and active refresh plus done covers the UX.
 
 type OutState is Data:
-  Out{target: String, live: Bool, sent_ms: U32}
+  Out{target: String, live: Bool, sent_ms: U32, seen: Bool}
 
 def out0() -> OutState:
-  Out{"", False{}, 0}
+  Out{"", False{}, 0, False{}}
 
 def OUT_REFRESH_MS() -> U32:
   3000
@@ -404,35 +404,39 @@ def out_target_ok(+target: String) -> Bool:
 
 def out_live(+st: OutState) -> Bool:
   match st:
-    case Out{_, +live, _}: live
+    case Out{_, +live, _, _}: live
 
 def out_target(+st: OutState) -> String:
   match st:
-    case Out{+target, _, _}: target
+    case Out{+target, _, _, _}: target
 
 def out_sent_ms(+st: OutState) -> U32:
   match st:
-    case Out{_, _, +sent}: sent
+    case Out{_, _, +sent, _}: sent
+
+def out_seen(+st: OutState) -> Bool:
+  match st:
+    case Out{_, _, _, +seen}: seen
 
 def step_out.refresh_due(+target: String, +sent_ms: U32, +now_ms: U32, +elapsed: U32, due: Bool) -> OutState & List<&2, String>:
   match due:
-    case True{}: (Out{target, True{}, now_ms}, typing_tag_line(target, "active") <> Nil{})
-    case False{}: (Out{target, True{}, sent_ms}, Nil{})
+    case True{}: (Out{target, True{}, now_ms, True{}}, typing_tag_line(target, "active") <> Nil{})
+    case False{}: (Out{target, True{}, sent_ms, True{}}, Nil{})
 
 def step_out.refresh(+target: String, +sent_ms: U32, +now_ms: U32, +elapsed: U32, stale: Bool) -> OutState & List<&2, String>:
   match stale:
-    case True{}: (Out{target, True{}, sent_ms}, Nil{})
+    case True{}: (Out{target, True{}, sent_ms, True{}}, Nil{})
     case False{}: step_out.refresh_due(target, sent_ms, now_ms, elapsed, U32.is_ge(elapsed, OUT_REFRESH_MS()))
 
 def step_out.compose(+target: String, live: Bool, +sent_ms: U32, +now_ms: U32, +elapsed: U32) -> OutState & List<&2, String>:
   match live:
-    case False{}: (Out{target, True{}, now_ms}, typing_tag_line(target, "active") <> Nil{})
+    case False{}: (Out{target, True{}, now_ms, True{}}, typing_tag_line(target, "active") <> Nil{})
     case True{}: step_out.refresh(target, sent_ms, now_ms, elapsed, U32.is_ge(elapsed, 2147483648))
 
 def step_out.idle(+target: String, live: Bool, +now_ms: U32) -> OutState & List<&2, String>:
   match live:
-    case True{}: (Out{target, False{}, now_ms}, typing_tag_line(target, "done") <> Nil{})
-    case False{}: (Out{target, False{}, now_ms}, Nil{})
+    case True{}: (Out{target, False{}, now_ms, True{}}, typing_tag_line(target, "done") <> Nil{})
+    case False{}: (Out{target, False{}, now_ms, True{}}, Nil{})
 
 def step_out.same(+target: String, live: Bool, +sent_ms: U32, +now_ms: U32, composing: Bool) -> OutState & List<&2, String>:
   match composing:
@@ -441,12 +445,12 @@ def step_out.same(+target: String, live: Bool, +sent_ms: U32, +now_ms: U32, comp
 
 def step_out.moved_idle(+target: String, +now_ms: U32, composing: Bool) -> OutState & List<&2, String>:
   match composing:
-    case True{}: (Out{target, True{}, now_ms}, typing_tag_line(target, "active") <> Nil{})
-    case False{}: (Out{target, False{}, now_ms}, Nil{})
+    case True{}: (Out{target, True{}, now_ms, True{}}, typing_tag_line(target, "active") <> Nil{})
+    case False{}: (Out{target, False{}, now_ms, True{}}, Nil{})
 
 def step_out.moved(+cur: String, live: Bool, +now_ms: U32, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match live:
-    case True{}: (Out{target, False{}, now_ms}, typing_tag_line(cur, "done") <> Nil{})
+    case True{}: (Out{target, False{}, now_ms, True{}}, typing_tag_line(cur, "done") <> Nil{})
     case False{}: step_out.moved_idle(target, now_ms, composing)
 
 def step_out.target(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, +target: String, composing: Bool, same: Bool) -> OutState & List<&2, String>:
@@ -457,31 +461,34 @@ def step_out.target(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, +targ
 def step_out.scope(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match valid:
     case True{}: step_out.target(cur, live, sent_ms, now_ms, target, composing, Irc.ieq(cur, target))
-    case False{}: (Out{"", False{}, now_ms}, Nil{})
+    case False{}: (Out{"", False{}, now_ms, True{}}, Nil{})
 
 # G6.5: the uninitialized state is unobserved, not a timestamp. sent_ms only
 # becomes a baseline after a first tick; without that, the half-range stale
 # veto would mistake the first observation at/after 2^31 for clock skew and
-# hold the span quiet until the clock wraps.
-def step_out.unseen(+cur: String, live: Bool, +sent_ms: U32) -> Bool:
-  match live:
+# hold the span quiet until the clock wraps. G6.6: observed-ness is an
+# explicit bit, not a field sniff: an observed offline reset lands on the
+# same Out{"",False{},0} shape as out0, so sniffing would mistake a backward
+# observed tick for a first observation and emit.
+def step_out.unseen(seen: Bool) -> Bool:
+  match seen:
     case True{}: False{}
-    case False{}: String.is_empty(cur) && U32.is_eq(sent_ms, 0)
+    case False{}: True{}
 
-def step_out.stale(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32) -> Bool:
-  U32.is_ge(U32.sub(now_ms, sent_ms), 2147483648) && Bool.not(step_out.unseen(cur, live, sent_ms))
+def step_out.stale(+sent_ms: U32, +now_ms: U32, seen: Bool) -> Bool:
+  U32.is_ge(U32.sub(now_ms, sent_ms), 2147483648) && Bool.not(step_out.unseen(seen))
 
 # G6.4: a tick older than the last send (clock skew) stays quiet AND keeps
 # its state on every path: no done/active send, no live flip, no sent_ms move.
 def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
   match stale:
-    case True{}: (Out{cur, live, sent_ms}, Nil{})
+    case True{}: (Out{cur, live, sent_ms, True{}}, Nil{})
     case False{}: step_out.scope(cur, live, sent_ms, now_ms, valid, target, composing)
 
 def step_out(+st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match st:
-    case Out{+cur, +live, +sent}:
-      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, step_out.stale(cur, live, sent, now_ms))
+    case Out{+cur, +live, +sent, +seen}:
+      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, step_out.stale(sent, now_ms, seen))
 
 # ---- session-owned registration state -------------------------------------
 # One value for the integrator to store: negotiated caps plus outbound typing.
@@ -685,8 +692,8 @@ def long_target.go(n: Nat) -> String:
 # G6.4 guards: stale ticks are quiet and preserve live/sent on the completion,
 # activation, and refresh paths; fresh completion/refresh still fire.
 def out_stale_ok() -> Bool:
-  +live: OutState = Out{"#a", True{}, 1000}
-  +idle: OutState = Out{"#a", False{}, 1000}
+  +live: OutState = Out{"#a", True{}, 1000, True{}}
+  +idle: OutState = Out{"#a", False{}, 1000, True{}}
   String.is_empty(step_text(step_out(live, 999, True{}, True{}, "#a", False{})))
     && step_live(step_out(live, 999, True{}, True{}, "#a", False{}))
     && U32.is_eq(step_sent_ms(step_out(live, 999, True{}, True{}, "#a", False{})), 1000)
@@ -700,7 +707,7 @@ def out_stale_ok() -> Bool:
     && String.eq(step_text(step_out(live, 4000, True{}, True{}, "#a", True{})), "@+typing=active TAGMSG #a")
 
 def out_bound_ok() -> Bool:
-  +live: OutState = Out{"#a", True{}, 1000}
+  +live: OutState = Out{"#a", True{}, 1000, True{}}
   String.is_empty(step_text(step_out(out0(), 2000, False{}, True{}, "#a", True{})))
     && String.is_empty(step_text(step_out(out0(), 2000, True{}, False{}, "#a", True{})))
     && String.is_empty(step_text(step_out(out0(), 2000, True{}, True{}, "", True{})))
@@ -802,9 +809,18 @@ def wrap_fire_ok(pair: OutState & List<&2, String>) -> Bool:
 # and unchanged; genuine forward U32 wrap stays live.
 def out_unseen_ok() -> Bool:
   first_tick_ok(step_out(out0(), 2147483648, True{}, True{}, "#a", True{}))
-    && stale_kept_ok(step_out(Out{"#a", True{}, 1000}, 999, True{}, True{}, "#a", True{}))
-    && wrap_quiet_ok(step_out(Out{"#a", True{}, 4294967295}, 100, True{}, True{}, "#a", True{}))
-    && wrap_fire_ok(step_out(Out{"#a", True{}, 4294967295}, 4000, True{}, True{}, "#a", True{}))
+    && stale_kept_ok(step_out(Out{"#a", True{}, 1000, True{}}, 999, True{}, True{}, "#a", True{}))
+    && wrap_quiet_ok(step_out(Out{"#a", True{}, 4294967295, True{}}, 100, True{}, True{}, "#a", True{}))
+    && wrap_fire_ok(step_out(Out{"#a", True{}, 4294967295, True{}}, 4000, True{}, True{}, "#a", True{}))
+
+# G6.6 guards: an observed offline reset (same shape as out0) stays quiet on
+# a backward tick to max; a truly fresh out0 at max still fires; a genuine
+# forward max -> 4000 wrap still fires.
+def out_sentinel_ok() -> Bool:
+  +obs = step_state(step_out(out0(), 0, False{}, True{}, "#a", False{}))
+  String.is_empty(step_text(step_out(obs, 4294967295, True{}, True{}, "#a", True{})))
+    && String.eq(step_text(step_out(out0(), 4294967295, True{}, True{}, "#a", True{})), "@+typing=active TAGMSG #a")
+    && wrap_fire_ok(step_out(Out{"#a", True{}, 4294967295, True{}}, 4000, True{}, True{}, "#a", True{}))
 
 # Malformed-source guards: the shared host validation admits a configured
 # single-label server and a valid dotted server, preserves prereg star LS/ACK,

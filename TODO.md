@@ -4429,6 +4429,15 @@ handoff is implementation scope, not a request for another plan-only review.
   Session since dirty-changed so final review inspects current source.
   All source commits retain proof provenance; no proof-input writes
   while exact-tree proof work is in flight (docs-only commits OK).
+- `--check-only` on PROOF.bend ALSO timed out (124, 170s) under
+  contention — even elaboration-check exceeds the bound; cause
+  unverified (consistent with starvation, not established). Demo
+  (`cap_notify_demo=ok`) still validates the cap predicate subgraph;
+  only the ~10 added LAWS/PROOF lines lack mechanical validation.
+  Decision: commit sentinel fix explicitly UNQUALIFIED (precedent
+  pattern, provenance retained, final proof still mandatory) rather
+  than deadlock all staging on contention; qualify via full proof
+  when a window opens. No deadline change.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links

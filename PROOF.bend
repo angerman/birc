@@ -1461,3 +1461,6 @@ def Laws.isupport_lifecycle_burst_order2_refuses():
 
 def Laws.isupport_lifecycle_resident_preserved():
   {==}
+
+def Laws.typing_out_observed_sentinel():
+  {==}

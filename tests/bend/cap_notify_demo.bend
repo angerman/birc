@@ -118,9 +118,23 @@ def g65_wrap_fire_ok(pair: Cap.OutState & List<&2, String>) -> Bool:
 
 def g65_unseen_ok() -> Bool:
   g65_first_ok(Cap.step_out(Cap.out0(), 2147483648, True{}, True{}, "#a", True{}))
-    && g65_stale_ok(Cap.step_out(Cap.Out{"#a", True{}, 1000}, 999, True{}, True{}, "#a", True{}))
-    && g65_wrap_quiet_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295}, 100, True{}, True{}, "#a", True{}))
-    && g65_wrap_fire_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295}, 4000, True{}, True{}, "#a", True{}))
+    && g65_stale_ok(Cap.step_out(Cap.Out{"#a", True{}, 1000, True{}}, 999, True{}, True{}, "#a", True{}))
+    && g65_wrap_quiet_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295, True{}}, 100, True{}, True{}, "#a", True{}))
+    && g65_wrap_fire_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295, True{}}, 4000, True{}, True{}, "#a", True{}))
+
+# Sentinel collision: an observed offline reset lands on the same
+# Out{"",False{},0} shape as out0, so a field-sniffing unseen test mistakes a
+# backward observed0 -> max tick for a first observation and emits active. The
+# observed state must stay quiet at max while a truly fresh out0 at max fires.
+def g66_observed_max_quiet_ok() -> Bool:
+  +obs = Cap.step_state(Cap.step_out(Cap.out0(), 0, False{}, True{}, "#a", False{}))
+  String.is_empty(Cap.step_text(Cap.step_out(obs, 4294967295, True{}, True{}, "#a", True{})))
+
+def g66_fresh_max_fire_ok() -> Bool:
+  String.eq(Cap.step_text(Cap.step_out(Cap.out0(), 4294967295, True{}, True{}, "#a", True{})), "@+typing=active TAGMSG #a")
+
+def g66_sentinel_ok() -> Bool:
+  g66_observed_max_quiet_ok() && g66_fresh_max_fire_ok()
 
 # Malformed sources: a configured single-label server and a valid dotted
 # server are trusted; URL, delimiter, and empty-label sources are not. A
@@ -190,8 +204,8 @@ def star_sasl_cap_end_ok() -> Bool:
 
 # G6.4: stale ticks stay quiet AND preserve live/sent state; fresh ticks act.
 def stale_quiet_ok() -> Bool:
-  +live: Cap.OutState = Cap.Out{"#a", True{}, 1000}
-  +idle: Cap.OutState = Cap.Out{"#a", False{}, 1000}
+  +live: Cap.OutState = Cap.Out{"#a", True{}, 1000, True{}}
+  +idle: Cap.OutState = Cap.Out{"#a", False{}, 1000, True{}}
   String.is_empty(Cap.step_text(Cap.step_out(live, 999, True{}, True{}, "#a", False{})))
     && Cap.step_live(Cap.step_out(live, 999, True{}, True{}, "#a", False{}))
     && U32.is_eq(Cap.step_sent_ms(Cap.step_out(live, 999, True{}, True{}, "#a", False{})), 1000)
@@ -220,6 +234,8 @@ def main() -> IO(Unit):
     Unit <- E.must("g63_hostile_notify", hostile_notify_ok())
     Unit <- E.must("g64_stale_quiet", stale_quiet_ok())
     Unit <- E.must("g65_unseen_first_tick", g65_unseen_ok())
+    Unit <- E.must("g66_observed_sentinel", g66_sentinel_ok())
+    Unit <- E.must("out_sentinel", Cap.out_sentinel_ok())
     Unit <- E.must("out_unseen", Cap.out_unseen_ok())
     Unit <- E.must("source_gate_validated", source_gate_ok())
     Unit <- E.must("cap_source", Cap.cap_source_ok())

@@ -1236,3 +1236,9 @@ law isupport_lifecycle_burst_order2_refuses:
 # Exact resident +#room survives the STATUSMSG/PREFIX lifecycle transition.
 law isupport_lifecycle_resident_preserved:
   {Isupport.chan_target_cl(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN +#room"), "+#room") == "+#room" : String}
+
+# LAW: an observed offline typing reset (same shape as out0) stays quiet on a
+# backward tick to max; a truly fresh out0 at max still fires; a genuine
+# forward max -> 4000 wrap still fires.
+law typing_out_observed_sentinel:
+  {CapNotify.out_sentinel_ok() == True{} : Bool}
