@@ -4541,6 +4541,20 @@ handoff is implementation scope, not a request for another plan-only review.
   TCP two-read/unarmed deadline; UDP self-skip; superseded staleness
   check must precede registration (adoption ordering alone
   insufficient).
+- C8 adapter staged (`02fc1db`: pass-through + CardFetched seams,
+  `session_cards_demo=ok`) and G6 live-tick bundle committed
+  (`8d2a34c`: `live_tick`/`live_composing` + accessors,
+  `cap_notify_demo=ok` incl. new `live_tick_bundle`; H5-runtime/33
+  concurrent `cap_notify.bend` region merges at integration).
+  Proof-600 with full log capture running on `8d2a34c`
+  (`build/proof-600-8d2a34c.log`); no proof-input edits in flight.
+- N9 `4dc55ba` HELD: both defects unchanged (buffer-order mark loss
+  `Session2409-2446`, per-request spawn `NotifyIO111-137`/no active
+  state); new 263-274 tests cover pending FIFO/count only. Both gates
+  already queued to worker32 (running); no respawn; enforce on return
+  source. Net/App/default-helper runtime absence pending separately.
+- I2 duplicate-CHANMODES reassertion gap still present at dirty source
+  (known P2, already queued to I2-live; not new).
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
