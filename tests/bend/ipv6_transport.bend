@@ -68,6 +68,12 @@ def show_maybe(m: Maybe<&2, String>) -> String:
     case None{}: "none"
     case Some{+ip}: "some:" ++ ip
 
+def show_plan(p: Dq.DialPlan) -> String:
+  match p:
+    case Dq.DialNone{}: "none"
+    case Dq.DialOne{+ip}: "one:" ++ ip
+    case Dq.DialDual{+v6, +v4}: "dual:" ++ v6 ++ "+" ++ v4
+
 def show_deferred_start(dial: Act.PendingDial, +gen: U32) -> String:
   match dial:
     case Act.PendingDial{+host, +port, _}: "starting:" ++ host ++ ":" ++ U32.show(port) ++ ":" ++ U32.show(gen)
@@ -108,6 +114,10 @@ def main() -> IO(Unit):
     Unit <- E.must("fallback needs fail+second", Dq.should_fallback(True{}, Some{"127.0.0.1"}))
     Unit <- E.must("fallback no second", Bool.not(Dq.should_fallback(True{}, None{})))
     Unit <- E.must("fallback no fail", Bool.not(Dq.should_fallback(False{}, Some{"127.0.0.1"})))
+    Unit <- E.must_eq("plan dual", show_plan(Dq.dial_plan(Some{"::1"}, Some{"127.0.0.1"})), "dual:::1+127.0.0.1")
+    Unit <- E.must_eq("plan v6 only", show_plan(Dq.dial_plan(Some{"::1"}, None{})), "one:::1")
+    Unit <- E.must_eq("plan v4 only", show_plan(Dq.dial_plan(None{}, Some{"127.0.0.1"})), "one:127.0.0.1")
+    Unit <- E.must_eq("plan none", show_plan(Dq.dial_plan(None{}, None{})), "none")
     Unit <- E.must("event current", Sess.event_current(Sess.FromNet{2, Sess.Chunk{Nil{}}} , 2))
     Unit <- E.must("event stale", Bool.not(Sess.event_current(Sess.FromNet{1, Sess.Chunk{Nil{}}} , 2)))
     Unit <- E.must("writerdone current", Sess.writer_done_current(Sess.FromNet{2, Sess.WriterDone{}} , 2))

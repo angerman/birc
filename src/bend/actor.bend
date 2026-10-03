@@ -285,8 +285,27 @@ def after_conn(
         pair : Tr.Conn & Bool <- register(sock, nick, has_sasl)
         after_reg(pair, gen, evt, boot, live, k)
 
-def after_dns(
-  r: Result<&1, &1, U32 & String, String>,
+def dial_after_sock(
+  pair: Socket & String,
+  +host: String,
+  +port: U32,
+  force_tls: Bool,
+  +nick: String,
+  +gen: U32,
+  +evt: Chan(Sess.UiMsg),
+  +boot: Chan(Boot),
+  live: Bool,
+  has_sasl: Bool,
+  k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)
+) -> IO(Unit):
+  match pair:
+    case (sock, _):
+      do IO<Unit>:
+        cr : Result<&1, &1, (U32 & String), Tr.Conn> <- Tr.upgrade(sock, host, force_tls)
+        after_conn(cr, nick, gen, evt, boot, live, has_sasl, k)
+
+def dial_after_dual(
+  r: Result<&1, &1, U32 & String, Socket & String>,
   +host: String,
   +port: U32,
   force_tls: Bool,
@@ -301,10 +320,8 @@ def after_dns(
   match r:
     case Fail{e}:
       arm_fail(live, boot, evt, gen, err_msg(e), k)
-    case Done{+ip}:
-      do IO<Unit>:
-        cr : Result<&1, &1, (U32 & String), Tr.Conn> <- Tr.connect_for(ip, port, host, force_tls)
-        after_conn(cr, nick, gen, evt, boot, live, has_sasl, k)
+    case Done{pair}:
+      dial_after_sock(pair, host, port, force_tls, nick, gen, evt, boot, live, has_sasl, k)
 
 def dial_begin(
   +host: String,
@@ -319,8 +336,8 @@ def dial_begin(
   k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
-    after_dns(r, host, port, force_tls, nick, gen, evt, boot, live, has_sasl, k)
+    r : Result<&1, &1, U32 & String, Socket & String> <- Dns.dial_dual(host, port, 1000)
+    dial_after_dual(r, host, port, force_tls, nick, gen, evt, boot, live, has_sasl, k)
 
 type AuthScope is Data:
   AuthScope{host: String, port: U32, enabled: Bool}

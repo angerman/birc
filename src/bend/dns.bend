@@ -512,6 +512,20 @@ def lookup_ns(rns: Result<&1, &1, U32 & String, String>, +host: String) -> IO(Re
         rnd : Result<&1, &1, U32 & String, U32> <- IO.random_u32()
         lookup_rnd(host, ns, DNS_PORT(), rnd, False{})
 
+def lookup_ns_aaaa(rns: Result<&1, &1, U32 & String, String>, +host: String) -> IO(Result<&1, &1, U32 & String, String>):
+  match rns:
+    case Fail{e}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Fail{e})
+    case Done{+ns}:
+      do IO<Result<&1, &1, U32 & String, String>>:
+        rnd : Result<&1, &1, U32 & String, U32> <- IO.random_u32()
+        lookup_rnd(host, ns, DNS_PORT(), rnd, True{})
+
+def lookup_aaaa(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    rns : Result<&1, &1, U32 & String, String> <- load_ns()
+    lookup_ns_aaaa(rns, host)
+
 def lookup_a(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
   do IO<Result<&1, &1, U32 & String, String>>:
     rns : Result<&1, &1, U32 & String, String> <- load_ns()
@@ -643,3 +657,92 @@ def connect_pair(+first_ip: String, +second_ip: String, +port: U32, +timeout: U3
 
 def connect_dual(+v6: String, +v4: String, +port: U32, +timeout: U32) -> IO(Result<&1, &1, U32 & String, Socket & String>):
   connect_pair(v6, v4, port, timeout)
+
+def dial_dual.one(+ip: String, +port: U32, +timeout: U32) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  do IO<Result<&1, &1, U32 & String, Socket & String>>:
+    cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ip, port, timeout)
+    dial_second_done(cr, ip)
+
+def dial_dual.has_v6(
+  +ip6: String,
+  r4: Result<&1, &1, U32 & String, String>,
+  +port: U32,
+  +timeout: U32
+) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match r4:
+    case Done{+ip4}:
+      connect_dual(ip6, ip4, port, timeout)
+    case Fail{_}:
+      dial_dual.one(ip6, port, timeout)
+
+def dial_dual.no_v6(
+  r4: Result<&1, &1, U32 & String, String>,
+  +port: U32,
+  +timeout: U32
+) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match r4:
+    case Done{+ip4}:
+      dial_dual.one(ip4, port, timeout)
+    case Fail{e}:
+      IO.pure(Result<&1, &1, U32 & String, Socket & String>, Fail{e})
+
+# Actuation mirrors Dq.dial_plan arm-for-arm (Results are linear, so the
+# decision table cannot be shared by value): dual, v6-only, v4-only, none.
+# Both-failed DNS reports the A error, mirroring the ordered resolver's
+# second-failure convention.
+def dial_dual.names(
+  r6: Result<&1, &1, U32 & String, String>,
+  r4: Result<&1, &1, U32 & String, String>,
+  +port: U32,
+  +timeout: U32
+) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match r6:
+    case Done{+ip6}:
+      dial_dual.has_v6(ip6, r4, port, timeout)
+    case Fail{_}:
+      dial_dual.no_v6(r4, port, timeout)
+
+def dial_dual.gathered(
+  r6: Result<&1, &1, U32 & String, String>,
+  +host: String,
+  +port: U32,
+  +timeout: U32
+) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  do IO<Result<&1, &1, U32 & String, Socket & String>>:
+    r4 : Result<&1, &1, U32 & String, String> <- lookup_a(host)
+    dial_dual.names(r6, r4, port, timeout)
+
+def dial_dual.host(+host: String, +port: U32, +timeout: U32) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  do IO<Result<&1, &1, U32 & String, Socket & String>>:
+    r6 : Result<&1, &1, U32 & String, String> <- lookup_aaaa(host)
+    dial_dual.gathered(r6, host, port, timeout)
+
+def dial_dual.validated(+host: String, +port: U32, +timeout: U32, valid: Bool) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match valid:
+    case True{}:
+      dial_dual.one(host, port, timeout)
+    case False{}:
+      IO.pure(Result<&1, &1, U32 & String, Socket & String>, Fail{(1, "ipv6")})
+
+def dial_dual.v6lit(+host: String, +port: U32, +timeout: U32, v6: Bool) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match v6:
+    case True{}:
+      dial_dual.validated(host, port, timeout, V6.valid_inner(host))
+    case False{}:
+      dial_dual.host(host, port, timeout)
+
+# Production dial entry: literals dial directly (v4 as-is, v6 validated);
+# names gather AAAA+A, dial the dual pair (v6 first, TCP-failure fallback),
+# and return the winning socket with its IP. TCP only: callers upgrade with
+# the original hostname, never the winning IP; no TLS-failure fallback and
+# no plaintext downgrade. Both-failed DNS reports the A error, mirroring
+# the ordered resolver's second-failure convention.
+def dial_dual.v4lit(+host: String, +port: U32, +timeout: U32, v4: Bool) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  match v4:
+    case True{}:
+      dial_dual.one(host, port, timeout)
+    case False{}:
+      dial_dual.v6lit(host, port, timeout, Wire.is_ipv6(host))
+
+def dial_dual(+host: String, +port: U32, +timeout: U32) -> IO(Result<&1, &1, U32 & String, Socket & String>):
+  dial_dual.v4lit(host, port, timeout, Wire.is_ipv4(host))
