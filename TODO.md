@@ -4555,6 +4555,18 @@ handoff is implementation scope, not a request for another plan-only review.
   source. Net/App/default-helper runtime absence pending separately.
 - I2 duplicate-CHANMODES reassertion gap still present at dirty source
   (known P2, already queued to I2-live; not new).
+- I2 NEW P3 SENT to I2-live/31: `/mode` sensitivity fallback
+  (`submit1393-1405`) special-cases only `+#` — rejected explicit
+  `+room +k :s3cret` misreads signed `+room` as implicit flags,
+  nonsensitive, secret enters recall (`Session1936`). Reuse
+  `Commands.mode.explicit101-104`; negative rejected explicit
+  +channel key stays sensitive; positives `+room +o bob`
+  nonsensitive, valid signed key inputs sensitive.
+- L1 `db932a5`: generation-tagged Pong + Session single-owner source
+  repaired; trace still per-mark sequence (not request identity);
+  blocking poll->write caveat remains known.
+- Root review ACCEPTS G3 `baef5f4` all-five source repairs; final path
+  qualification assigned to `g3-traversal/41` (already running).
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
