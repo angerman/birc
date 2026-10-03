@@ -4567,6 +4567,15 @@ handoff is implementation scope, not a request for another plan-only review.
   blocking poll->write caveat remains known.
 - Root review ACCEPTS G3 `baef5f4` all-five source repairs; final path
   qualification assigned to `g3-traversal/41` (already running).
+- L1 `db932a5` ACCEPTED: generation-gated reader PONG, no duplicate
+  Session owner, real `Fr.push_ex` rem/drop/None, shared FIFO/shutdown
+  ownership. Trace HELD (blocking poll->write, per-mark vs per-PING
+  identity). Sent worker37: dirty `server_id_demo.bend:46` paren fix +
+  reader/session exactly-one guards (queue5-PONG covers writer budget
+  only).
+- I2 current: assertions-only, no weakening ✓; `SessIso` wrapper is a
+  parent-merge instruction, NOT live binding — return gate: real state
+  integration + Make registration + proof ownership at parent merge.
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
