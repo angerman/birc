@@ -4252,6 +4252,48 @@ handoff is implementation scope, not a request for another plan-only review.
   H5y/H5q/IO-fixture coverage to verify in review); pending parent
   review before integration. Freed slot went to `fix-i2-third` (I2d +
   I2c-lifecycle); N9-second and L1T-second remain queued.
+- H5 `8b5000c` review residuals (kept open): malformed timestamp
+  validator478 unchanged, new positive test missing `.sss`, no direct
+  early-EOF IO guard; prereg star stays a shared-CAP integration gate.
+  Await `fix-h5-second` completion report, then fold leftovers into an
+  H5-completion round.
+- N9-second launched into C8-third's freed slot: `fix-n9-second/26`
+  (`01a10169-8ee0-76b1-a564-af9f65f1e57e`) on `758291c` (cross-scope
+  at-most-once + canonical Theme selector wiring). L1T-second and
+  H5-completion remain queued in that order.
+- SessWS blockers messaged to running `adapt-sess-ws/20`: (S1)
+  ServerId/epoch reuse admits stale Chunk/WriterDone after
+  remove-readd-redial — bounded per-slot epochs/tombstones or
+  non-reused incarnation + guards. (S2) multiline submit bypasses
+  `Session.can_send` in disconnected states (wires + clears) — one
+  shared submission seam + guards. (S3) endpoint replace clears drafts
+  but leaks Session composer/seed to the new endpoint — reset both,
+  same-endpoint retains. (L1d) deliberate double-PONG consumes two
+  SEND_CAP credits per PING (5 PINGs + 1 chat exceed 8): keep ONE live
+  PONG owner, pure/offline seam intact; the two-PONG trace expectation
+  encodes the defect and must not be accepted. Full 64-slot evt queue
+  still blocks actor post before reader answer: measure first-PONG
+  receipt under full/free queue, not UI-chain hops.
+- C8 checkpoint proof timed out again at 180s (second occurrence).
+  Deadline unchanged; diagnosing load-vs-cost with measured retries and
+  quieter-machine qualification before any conclusion.
+- SessWS S4/S5 + seam directive messaged to running `adapt-sess-ws/20`:
+  atomic submit-driven focus (reject before commit; admitted query
+  consumes command + loads destination draft) and per-line shared-Sub
+  privacy (later-line IDENTIFY/LOGIN absent from history/echo;
+  ordinary multiline exact). The worker MAY edit Session on its branch;
+  parent merges. No more parallel Session-logic copies.
+- C8 `04012db` independent checks passed (parent swaps, held/released
+  locks, staged competing writer, count/bytes, Unicode hit; no
+  residual): cherry-picked to parent, suite re-run in flight. Parent
+  adds permanent released-lock/active-stage guards next.
+- Proof discipline: no blind repeats, no deadline raise, one heavy
+  lane. Proof phases get actual instrumentation (real/user/sys + load
+  per run); the next full verification runs on unchanged source without
+  overlapping native/Nix compilers. Current Bend source stands
+  proof-green from the 114s run (`04012db` touches Python only).
+  Lightweight implementation/review continues while heavy
+  qualification is queued.
 - G3 exact-SOH + H5-IO additions (messaged to running workers): G3 SOH
   branch is wire_style:165; whitelist-only supported style controls in
   chat text; metadata/TAB/CR/LF/NUL/ESC/OSC52 safety through BIRC2;
