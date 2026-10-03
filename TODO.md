@@ -4579,9 +4579,18 @@ handoff is implementation scope, not a request for another plan-only review.
 - Proof-600 on `8d2a34c` TIMED OUT (124; log `build/proof-600-8d2a34c.log`,
   71 bytes — bend prints verdict only at end; load 34-57 during window
   with L1-heavy active) — `02fc1db` (C8 adapter) + `8d2a34c` (G6
-  helpers) are UNQUALIFIED until a green proof-600; cause unverified
-  (contention vs law-cost, no phase evidence). Retry on worker drain;
-  law bisection only if timeouts persist quiet.
+  helpers) are UNQUALIFIED until a green proof-600; cause unverified.
+  Diagnosis: paired LAWS/PROOF C8-only partition (14 laws, checker
+  requires completeness — subset PROOF alone reports 375 TODOs);
+  partition runs are diagnostic only, never qualification.
+- C8-live2/39 SENT concrete correction: delete the 111-line duplicate
+  links lexer, reuse accepted G3 `Ws.url_runs` + deps, adapt Cards +
+  `Media.media_run_hit` to that API; no placeholder merge point.
+- G3-traversal `c8c4035` ACCEPTED (30 guards: Fr->Session traversal
+  for MODE/mention/KICK incl. SOH/color/reset pairs + live media
+  pending/visible/job/open agreement). G3 line (9 commits
+  `1cf9028..c8c4035`) queued for parent integration with proof-600
+  after; freed slot held for follow-ups.
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
