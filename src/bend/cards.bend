@@ -1,0 +1,637 @@
+# SPDX-License-Identifier: Apache-2.0
+# Bounded view-only OpenGraph cards plus fullscreen image policy (pure).
+# Text cards render on every terminal; only fullscreen and thumbnails need
+# terminal image support. The helper owns fetching; Bend owns scheduling.
+import Base
+import ./links.bend as Links
+import ./buffer.bend as Cl
+import ./split.bend as Sp
+import ./media.bend as M
+import ./view.bend as V
+
+def CAP() -> Nat:
+  8n
+
+def TITLE_MAX() -> Nat:
+  128n
+
+def DESC_MAX() -> Nat:
+  256n
+
+def URL_MAX() -> Nat:
+  1024n
+
+def ROWS_MAX() -> Nat:
+  4n
+
+def MANUAL_BUF() -> String:
+  "*card*"
+
+def has_del.go(s: String) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{+h, t}: U32.is_eq(Char.to_u32(h), 127) || has_del.go(t)
+
+# The shared lexer already splits on bytes <= 32; only DEL can remain.
+def has_del(+s: String) -> Bool:
+  has_del.go(s)
+
+# Pure subset of the helper checks. Image URLs stay on the media worker;
+# the helper enforces ports, credentials, content type, and size fail-closed.
+def eligible_url(+url: String) -> Bool:
+  Links.is_url_prefix(url) && Bool.not(M.auto_url(url))
+    && Bool.not(String.is_empty(url)) && Nat.is_le(String.length(url), URL_MAX())
+    && Bool.not(has_del(url))
+
+def member(xs: List<&2, String>, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, t}: String.eq(h, url) || member(t, url)
+
+def targets_filter.keep(keep: Bool, +url: String, tail: List<&2, String>) -> List<&2, String>:
+  match keep:
+    case True{}: url <> tail
+    case False{}: tail
+
+def targets_filter(xs: List<&2, String>, +media: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+url, tail}:
+      targets_filter.keep(eligible_url(url) && Bool.not(member(media, url)),
+        url, targets_filter(tail, media))
+
+# Exact chat URLs minus anything the media worker already owns (automatic
+# images and explicit ![alt](url) intents). Code runs stay opaque via Links.
+def targets(+text: String) -> List<&2, String>:
+  List.take(&2, String, targets_filter(Links.extract(text), M.targets(text)), CAP())
+
+type Fields is Data:
+  Fields{title: String, desc: String, image: String}
+
+def fields_title(f: Fields) -> String:
+  match f:
+    case Fields{+title, _, _}: title
+
+def fields_desc(f: Fields) -> String:
+  match f:
+    case Fields{_, +desc, _}: desc
+
+def fields_image(f: Fields) -> String:
+  match f:
+    case Fields{_, _, +image}: image
+
+def field_at(xs: List<&2, String>, +n: Nat) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{+h, t}:
+      match n:
+        case 0n: h
+        case 1n+p: field_at(t, p)
+
+# A card thumbnail reference must be absolute HTTP(S); anything else stays a
+# text-only card. Empty means no thumbnail, never a raw-file fallback.
+def clean_image(+url: String) -> String:
+  Bool.pick(String, Links.is_url_prefix(url) && Nat.is_le(String.length(url), URL_MAX())
+    && Bool.not(has_del(url)), url, "")
+
+# The helper prints title, description, image on three sanitized single lines.
+# Missing lines are empty; overlong lines truncate to character bounds.
+def parse(+payload: String) -> Fields:
+  +xs = String.split(payload, Chr{10})
+  Fields{String.take(field_at(xs, 0n), TITLE_MAX()),
+    String.take(field_at(xs, 1n), DESC_MAX()), clean_image(field_at(xs, 2n))}
+
+type Target is Data:
+  CardInline{id: Nat}
+  CardManual{}
+
+type Candidate is Data:
+  Candidate{target: Target, url: String}
+
+type Request is Data:
+  Request{target: Target, url: String, generation: Nat, ticket: Nat}
+
+type Ready is Data:
+  Ready{target: Target, url: String, title: String, desc: String, image: String}
+
+# Text cards need no terminal image protocol, so there is no display gate.
+# Fullscreen below reuses Media support instead of a second report path.
+type State is Data:
+  State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>,
+    pending: List<&2, Request>, ready: List<&2, Ready>}
+
+def initial(on: Bool) -> State:
+  State{on, 1n, 1n, None{}, Nil{}, Nil{}}
+
+def empty() -> State:
+  initial(False{})
+
+def enabled(state: State) -> Bool:
+  match state:
+    case State{on, _, _, _, _, _}: on
+
+def generation(state: State) -> Nat:
+  match state:
+    case State{_, gen, _, _, _, _}: gen
+
+def pending_count(state: State) -> Nat:
+  match state:
+    case State{_, _, _, _, pending, _}: List.length(&2, Request, pending)
+
+def ready_count(state: State) -> Nat:
+  match state:
+    case State{_, _, _, _, _, ready}: List.length(&2, Ready, ready)
+
+def bounded(+state: State) -> Bool:
+  Nat.is_le(pending_count(state), CAP()) && Nat.is_le(ready_count(state), CAP())
+
+def target_eq(a: Target, b: Target) -> Bool:
+  match a:
+    case CardInline{+id}:
+      match b:
+        case CardInline{other}: Nat.is_eq(id, other)
+        case CardManual{}: False{}
+    case CardManual{}:
+      match b:
+        case CardInline{_}: False{}
+        case CardManual{}: True{}
+
+def manual(target: Target) -> Bool:
+  match target:
+    case CardManual{}: True{}
+    case CardInline{_}: False{}
+
+def ready_title(r: Ready) -> String:
+  match r:
+    case Ready{_, _, +title, _, _}: title
+
+def ready_url(r: Ready) -> String:
+  match r:
+    case Ready{_, +url, _, _, _}: url
+
+def ready_matches(e: Ready, +target: Target, +url: String) -> Bool:
+  match e:
+    case Ready{t, u, _, _, _}: target_eq(t, target) && String.eq(u, url)
+
+def ready_has(xs: List<&2, Ready>, +target: Target, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, t}: ready_matches(h, target, url) || ready_has(t, target, url)
+
+def ready_keep(hit: Bool, h: Ready, tail: List<&2, Ready>) -> List<&2, Ready>:
+  match hit:
+    case True{}: tail
+    case False{}: h <> tail
+
+def ready_without(xs: List<&2, Ready>, +target: Target, +url: String) -> List<&2, Ready>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: ready_keep(ready_matches(h, target, url), h, ready_without(t, target, url))
+
+def request_matches(req: Request, +target: Target, +url: String, +gen: Nat) -> Bool:
+  match req:
+    case Request{t, u, g, _}: target_eq(t, target) && String.eq(u, url) && Nat.is_eq(g, gen)
+
+def request_has(xs: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, t}: request_matches(h, target, url, gen) || request_has(t, target, url, gen)
+
+def active_has(active: Maybe<&2, Request>, +target: Target, +url: String, +gen: Nat) -> Bool:
+  match active:
+    case None{}: False{}
+    case Some{req}: request_matches(req, target, url, gen)
+
+def manual_saturated(state: State, +url: String) -> Bool:
+  match state:
+    case State{_, +gen, _, active, +pending, _}:
+      Nat.is_ge(List.length(&2, Request, pending), CAP())
+        && Bool.not(active_has(active, CardManual{}, url, gen) || request_has(pending, CardManual{}, url, gen))
+
+def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State:
+  match hit:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{on, +gen, +ticket, active, pending, +ready}:
+          State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
+            Bool.pick(List<&2, Ready>, manual(target), ready_without(ready, target, url), ready)}
+
+def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: String) -> State:
+  match eligible:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{on, +gen, +ticket, +active, +pending, +ready}:
+          enqueue.on(Nat.is_lt(List.length(&2, Request, pending), CAP())
+            && Bool.not(active_has(active, target, url, gen) || request_has(pending, target, url, gen))
+            && (manual(target) || Bool.not(ready_has(ready, target, url))),
+            State{on, gen, ticket, active, pending, ready}, target, url)
+
+# Manual sources mirror Media: any nonempty path or URL, helper-validated.
+def enqueue_allowed(+state: State, +target: Target, +url: String) -> Bool:
+  (enabled(state) || manual(target)) && Bool.not(String.is_empty(url))
+    && (manual(target) || eligible_url(url))
+
+def enqueue(+state: State, +target: Target, +url: String) -> State:
+  enqueue.eligible(enqueue_allowed(state, target, url), state, target, url)
+
+def enqueue_urls(urls: List<&2, String>, state: State, +target: Target) -> State:
+  match urls:
+    case Nil{}: state
+    case Con{url, t}: enqueue_urls(t, enqueue(state, target, url), target)
+
+def enqueue_candidates.go(xs: List<&2, Candidate>, state: State) -> State:
+  match xs:
+    case Nil{}: state
+    case Con{Candidate{target, url}, tail}: enqueue_candidates.go(tail, enqueue(state, target, url))
+
+def candidate_id(candidate: Candidate) -> Nat:
+  match candidate:
+    case Candidate{CardInline{id}, _}: id
+    case _: 0n
+
+def candidate_newest(a: Candidate, b: Candidate) -> Bool:
+  Nat.is_ge(candidate_id(a), candidate_id(b))
+
+def candidate_has(xs: List<&2, Candidate>, +target: Target, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{Candidate{t, u}, tail}: (target_eq(t, target) && String.eq(u, url)) || candidate_has(tail, target, url)
+
+def dedup.keep(duplicate: Bool, +candidate: Candidate, +seen: List<&2, Candidate>, k: List<&2, Candidate> -> List<&2, Candidate>) -> List<&2, Candidate>:
+  match duplicate:
+    case True{}: k(seen)
+    case False{}: candidate <> k(candidate <> seen)
+
+def dedup(xs: List<&2, Candidate>, +seen: List<&2, Candidate>) -> List<&2, Candidate>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Candidate{+target, +url}, tail}:
+      dedup.keep(candidate_has(seen, target, url), Candidate{target, url}, seen,
+        next => dedup(tail, next))
+
+# Text completions are cheap and carry no native token, so visible admission
+# needs newest-first dedup only, not the media visible/hidden partition.
+def newest(+xs: List<&2, Candidate>) -> List<&2, Candidate>:
+  List.take(&2, Candidate, dedup(List.sort(~Candidate, ~candidate_newest, xs), Nil{}), CAP())
+
+def enqueue_candidates(+xs: List<&2, Candidate>, state: State) -> State:
+  enqueue_candidates.go(newest(xs), state)
+
+def take_job(state: State) -> State & Maybe<&2, Request>:
+  match state:
+    case State{on, gen, ticket, Some{req}, pending, ready}:
+      (State{on, gen, ticket, Some{req}, pending, ready}, None{})
+    case State{on, gen, ticket, None{}, Nil{}, ready}:
+      (State{on, gen, ticket, None{}, Nil{}, ready}, None{})
+    case State{on, gen, ticket, None{}, Con{+req, pending}, ready}:
+      (State{on, gen, ticket, Some{req}, pending, ready}, Some{req})
+
+def take_job_allowed(allowed: Bool, state: State) -> State & Maybe<&2, Request>:
+  match allowed:
+    case False{}: (state, None{})
+    case True{}: take_job(state)
+
+# The physical worker remains owned until its completion, even after disable/reset.
+def reset(state: State) -> State:
+  match state:
+    case State{on, gen, ticket, active, _, _}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}}
+
+def set_enabled.pick(change: Bool, +state: State, on: Bool) -> State:
+  match change:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{_, gen, ticket, active, _, _}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}}
+
+def set_enabled(+state: State, +on: Bool) -> State:
+  set_enabled.pick(Bool.pick(Bool, on, Bool.not(enabled(state)), enabled(state)), state, on)
+
+def lines_have_id(xs: List<&2, Cl.Line>, +id: Nat) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{Cl.Line{_, _, _, _, n}, t}: Nat.is_eq(n, id) || lines_have_id(t, id)
+
+def target_in_buf(target: Target, +url: String, buf: Cl.Buffer) -> Bool:
+  match target:
+    case CardInline{id}:
+      match buf:
+        case Cl.Buffer{_, _, _, lines, _, _}: lines_have_id(lines, id)
+    case CardManual{}:
+      match buf:
+        case Cl.Buffer{name, _, topic, _, _, _}: String.eq(name, MANUAL_BUF()) && String.eq(topic, url)
+
+def target_in_bufs(bufs: List<&2, Cl.Buffer>, +target: Target, +url: String) -> Bool:
+  match bufs:
+    case Nil{}: False{}
+    case Con{buf, tail}: target_in_buf(target, url, buf) || target_in_bufs(tail, target, url)
+
+def alive(+client: Cl.Client, target: Target, url: String) -> Bool:
+  target_in_bufs(Cl.client_bufs(client), target, url)
+
+def pending_keep(hit: Bool, h: Request, tail: List<&2, Request>) -> List<&2, Request>:
+  match hit:
+    case True{}: h <> tail
+    case False{}: tail
+
+def keep_pending(xs: List<&2, Request>, +client: Cl.Client, +gen: Nat) -> List<&2, Request>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      match h:
+        case Request{target, url, g, _}:
+          pending_keep(Nat.is_eq(g, gen) && alive(client, target, url), h, keep_pending(t, client, gen))
+
+def keep_ready(xs: List<&2, Ready>, +client: Cl.Client) -> List<&2, Ready>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      match h:
+        case Ready{target, url, _, _, _}: ready_keep(Bool.not(alive(client, target, url)), h, keep_ready(t, client))
+
+def maintain(state: State, +client: Cl.Client) -> State:
+  match state:
+    case State{on, +gen, ticket, active, pending, ready}:
+      State{on, gen, ticket, active, keep_pending(pending, client, gen), keep_ready(ready, client)}
+
+def exact(active: Maybe<&2, Request>, +gen: Nat, +ticket: Nat, +url: String) -> Bool:
+  match active:
+    case None{}: False{}
+    case Some{Request{_, u, g, t}}: Nat.is_eq(g, gen) && Nat.is_eq(t, ticket) && String.eq(u, url)
+
+def accept.active(active: Maybe<&2, Request>, +on: Bool, +gen: Nat, +client: Cl.Client) -> Bool:
+  match active:
+    case None{}: False{}
+    case Some{Request{+target, url, g, _}}: Nat.is_eq(g, gen) && (on || manual(target)) && alive(client, target, url)
+
+def accept(state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> Bool:
+  match state:
+    case State{on, current, _, +active, _, _}: exact(active, gen, ticket, url) && accept.active(active, on, current, client)
+
+# Accepted completions always occupy their identity, even with empty fields,
+# so helper failures cannot cause retry loops. Stale results only release.
+def complete.on(hit: Bool, accepted: Bool, +state: State, +fields: Fields) -> State:
+  match hit:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready}:
+          match fields:
+            case Fields{+title, +desc, +image}:
+              State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, Ready>, accepted,
+                List.take(&2, Ready, Ready{target, url, title, desc, image} <> ready, CAP()), ready)}
+        case _: state
+
+def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String, +payload: String) -> State:
+  match state:
+    case State{_, _, _, +active, _, _}:
+      complete.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state, parse(payload))
+
+def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
+  match state:
+    case State{_, _, _, +active, _, _}:
+      complete.on(exact(active, gen, ticket, url), False{}, state, Fields{"", "", ""})
+
+def card_for.pick(hit: Bool, +h: Ready, rest: Maybe<&2, Ready>) -> Maybe<&2, Ready>:
+  match hit:
+    case True{}: Some{h}
+    case False{}: rest
+
+def card_for(xs: List<&2, Ready>, +target: Target, +url: String) -> Maybe<&2, Ready>:
+  match xs:
+    case Nil{}: None{}
+    case Con{+h, t}: card_for.pick(ready_matches(h, target, url), h, card_for(t, target, url))
+
+def card(state: State, target: Target, url: String) -> Maybe<&2, Ready>:
+  match state:
+    case State{_, _, _, _, _, ready}: card_for(ready, target, url)
+
+def urls_keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}: url <> tail
+    case False{}: tail
+
+def urls_ready(xs: List<&2, Ready>, +target: Target) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Ready{t, url, _, _, _}, tail}: urls_keep(target_eq(t, target), url, urls_ready(tail, target))
+
+def urls_pending(xs: List<&2, Request>, +target: Target, +gen: Nat) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Request{t, url, g, _}, tail}: urls_keep(target_eq(t, target) && Nat.is_eq(g, gen), url, urls_pending(tail, target, gen))
+
+def urls_active(active: Maybe<&2, Request>, target: Target, gen: Nat) -> List<&2, String>:
+  match active:
+    case None{}: Nil{}
+    case Some{req}: urls_pending([req], target, gen)
+
+def known_urls(state: State, +target: Target) -> List<&2, String>:
+  match state:
+    case State{_, +gen, _, active, pending, ready}:
+      List.append(&2, String, urls_ready(ready, target), List.append(&2, String,
+        urls_active(active, target, gen), urls_pending(pending, target, gen)))
+
+def observe_line.pick(hit: Bool, +state: State, id: Nat, text: String) -> State:
+  match hit:
+    case False{}: state
+    case True{}: enqueue_urls(targets(text), state, CardInline{id})
+
+def observe_lines(xs: List<&2, Cl.Line>, state: State, +after: Nat) -> State:
+  match xs:
+    case Nil{}: state
+    case Con{Cl.Line{kind, _, text, _, +id}, tail}:
+      observe_lines(tail, observe_line.pick(Nat.is_gt(id, after) && M.live_kind(kind), state, id, text), after)
+
+def observe_bufs(bufs: List<&2, Cl.Buffer>, state: State, +after: Nat) -> State:
+  match bufs:
+    case Nil{}: state
+    case Con{Cl.Buffer{_, _, _, lines, _, _}, tail}: observe_bufs(tail, observe_lines(lines, state, after), after)
+
+def observe.pick(online: Bool, +state: State, +client: Cl.Client, after: Nat) -> State:
+  match online:
+    case False{}: maintain(state, client)
+    case True{}: observe_bufs(Cl.client_bufs(client), maintain(state, client), after)
+
+def observe(state: State, +client: Cl.Client, after: Nat, online: Bool) -> State:
+  observe.pick(online, state, client, after)
+
+# ---- View adapters (synthetic rows only; Client and history stay raw) ----
+
+def nonempty.keep(empty: Bool, +h: String, tail: List<&2, String>) -> List<&2, String>:
+  match empty:
+    case True{}: tail
+    case False{}: h <> tail
+
+def nonempty(xs: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: nonempty.keep(String.is_empty(h), h, nonempty(t))
+
+def card_texts(r: Ready) -> List<&2, String>:
+  match r:
+    case Ready{_, +url, +title, +desc, +image}:
+      nonempty([Bool.pick(String, String.is_empty(title), url, title), desc,
+        Bool.pick(String, String.is_empty(image), "", "image: " ++ image)])
+
+def rows_for_texts(xs: List<&2, String>, +w: U32) -> List<&2, V.BodyRow>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: List.append(&2, V.BodyRow, V.wrapped_rows(Cl.System{}, "", h, w, False{}), rows_for_texts(t, w))
+
+# One ready card paints at most ROWS_MAX dim text rows. The image reference
+# linkifies through render_spans; thumbnails stay on the media worker.
+def rows_for(+r: Ready, +w: U32) -> List<&2, V.BodyRow>:
+  List.take(&2, V.BodyRow, rows_for_texts(card_texts(r), w), ROWS_MAX())
+
+def rows_for_target.maybe(m: Maybe<&2, Ready>, +w: U32) -> List<&2, V.BodyRow>:
+  match m:
+    case None{}: Nil{}
+    case Some{+r}: rows_for(r, w)
+
+def rows_for_target(state: State, +target: Target, +url: String, +w: U32) -> List<&2, V.BodyRow>:
+  rows_for_target.maybe(card(state, target, url), w)
+
+# ---- Visible admission (same panes, rows, mutes, and anchors as paint) ----
+
+def visible_urls(urls: List<&2, String>, +id: Nat) -> List<&2, Candidate>:
+  match urls:
+    case Nil{}: Nil{}
+    case Con{url, tail}: Candidate{CardInline{id}, url} <> visible_urls(tail, id)
+
+def visible_line.allowed(allowed: Bool, id: Nat, text: String) -> List<&2, Candidate>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}: visible_urls(targets(text), id)
+
+def visible_line(line: Maybe<&2, Cl.Line>) -> List<&2, Candidate>:
+  match line:
+    case None{}: Nil{}
+    case Some{Cl.Line{kind, _, text, _, +id}}:
+      visible_line.allowed(M.live_kind(kind) && Nat.is_gt(id, 0n), id, text)
+
+def line_at(lines: List<&2, Cl.Line>, index: Nat) -> Maybe<&2, Cl.Line>:
+  match lines:
+    case Nil{}: None{}
+    case Con{line, tail}:
+      match index:
+        case 0n: Some{line}
+        case 1n+p: line_at(tail, p)
+
+def visible_rows(rows: List<&2, V.AnchoredRow>, +lines: List<&2, Cl.Line>, +count: Nat) -> List<&2, Candidate>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{V.AnchoredRow{_, Cl.ScrollAt{after, _}}, tail}:
+      List.append(&2, Candidate,
+        visible_line(line_at(lines, Nat.sub(Nat.sub(count, after), 1n))),
+        visible_rows(tail, lines, count))
+
+def visible_crop(+rows: List<&2, V.AnchoredRow>, +lines: List<&2, Cl.Line>, +height: Nat, scroll: Cl.Scroll) -> List<&2, Candidate>:
+  +end = V.viewport_end(rows, height, scroll)
+  visible_rows(List.take(&2, V.AnchoredRow, List.drop(&2, V.AnchoredRow, rows, Nat.sub(end, height)), height),
+    lines, List.length(&2, Cl.Line, lines))
+
+def visible_buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State) -> List<&2, Candidate>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}:
+      match b:
+        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
+          visible_crop(V.anchored_lines_media(lines, name, w, show_ts, mutes, server,
+            List.length(&2, Cl.Line, lines), media), lines, height, scroll)
+
+def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State) -> List<&2, Candidate>:
+  match b:
+    case Cl.Buffer{name, _, _, _, _, _}:
+      visible_buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
+        b, height, w, show_ts, mutes, server, media)
+
+def visible_split(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, Candidate>:
+  match pair:
+    case (+r1, +r2):
+      match cl:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+          List.append(&2, Candidate,
+            visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
+              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media),
+            visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
+              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media))
+
+def visible_single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, Candidate>:
+  match cl:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+      visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
+        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media)
+
+def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
+  match split:
+    case Sp.Off{}: visible_single(cl, rows, cols, media)
+    case Sp.On{axis, first, second, _}:
+      visible_split(V.split_rects(axis, V.lay_body_rect(V.lay(rows, cols, 0))), cl, first, second, media)
+
+def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
+  newest(visible_panes(cl, rows, cols, split, media))
+
+# ---- Fullscreen images (one overlay; Bend owns open/close, C only paints) ----
+
+type Fullscreen is Data:
+  FullOff{}
+  FullOn{target: M.Target, url: String, token: U32}
+
+# Only accepted nonzero media tokens open, and only on supported terminals.
+# Unsupported terminals keep exact URL text plus the one media log line.
+def open_allowed(+media: M.State, +target: M.Target, +url: String) -> Bool:
+  M.supported(media) && Bool.not(U32.is_zero(M.token(media, target, url)))
+
+def open.on(allowed: Bool, +target: M.Target, +url: String, token: U32) -> Fullscreen:
+  match allowed:
+    case True{}: FullOn{target, url, token}
+    case False{}: FullOff{}
+
+def open(+media: M.State, +target: M.Target, +url: String) -> Fullscreen:
+  open.on(open_allowed(media, target, url), target, url, M.token(media, target, url))
+
+def close(+fs: Fullscreen) -> Fullscreen:
+  match fs:
+    case FullOff{}: FullOff{}
+    case FullOn{_, _, _}: FullOff{}
+
+def is_open(fs: Fullscreen) -> Bool:
+  match fs:
+    case FullOff{}: False{}
+    case FullOn{_, _, _}: True{}
+
+def token_of(fs: Fullscreen) -> U32:
+  match fs:
+    case FullOff{}: 0
+    case FullOn{_, _, +token}: token
+
+def fullscreen_h.on(+last: U32, +first: U32, ge: Bool) -> U32:
+  match ge:
+    case True{}: U32.add(U32.sub(last, first), 1)
+    case False{}: 0
+
+def fullscreen_h(+y: U32, +h: U32) -> U32:
+  fullscreen_h.on(V.inner_last(y, h), V.inner_min(y, h), U32.is_ge(V.inner_last(y, h), V.inner_min(y, h)))
+
+def fullscreen_ops.box(+box: V.Rect, +token: U32) -> List<&2, V.DrawOp>:
+  match box:
+    case V.Rect{+x, +y, +w, +h}:
+      V.OpBox{x, y, w, h} <> (V.OpMedia{V.inner_x(x), V.inner_min(y, h), V.inner_w(w),
+        fullscreen_h(y, h), 0, fullscreen_h(y, h), token} <> Nil{})
+
+def fullscreen_ops.token(+box: V.Rect, +token: U32) -> List<&2, V.DrawOp>:
+  match token:
+    case 0: Nil{}
+    case _: fullscreen_ops.box(box, token)
+
+def fullscreen_ops.paint(+box: V.Rect, +fs: Fullscreen) -> List<&2, V.DrawOp>:
+  match fs:
+    case FullOff{}: Nil{}
+    case FullOn{_, _, +token}: fullscreen_ops.token(box, token)
+
+# The overlay covers the body box with the accepted payload at native scale.
+# A zero token never reaches the painter, even if constructed by hand.
+def fullscreen_ops(+rows: U32, +cols: U32, +fs: Fullscreen) -> List<&2, V.DrawOp>:
+  fullscreen_ops.paint(V.lay_body_rect(V.lay(rows, cols, 0)), fs)

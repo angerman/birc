@@ -36,6 +36,7 @@ import ./src/bend/history_startup.bend as StartupHistory
 import ./src/bend/server_id.bend as Sid
 import ./src/bend/ipv6.bend as V6
 import ./src/bend/drafts.bend as Drafts
+import ./src/bend/cards.bend as Cards
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -889,3 +890,24 @@ law draft_entries_match_buffer_slots:
 
 law draft_control_query_coexist:
   {Drafts.coexist_ok() == True{} : Bool}
+# Cards are bounded, text-universal link previews; fullscreen reuses media tokens.
+law cards_queue_capped:
+  {Cards.pending_count(Cards.enqueue_urls(["http://x/1", "http://x/2", "http://x/3", "http://x/4", "http://x/5", "http://x/6", "http://x/7", "http://x/8", "http://x/9"], Cards.initial(True{}), Cards.CardInline{1n})) == 8n : Nat}
+
+law cards_image_urls_excluded:
+  {Cards.eligible_url("https://example.test/a.png") == False{} : Bool}
+
+law cards_page_urls_eligible:
+  {Cards.eligible_url("https://example.test/read") == True{} : Bool}
+
+law cards_code_opaque:
+  {List.is_empty(&2, String, Cards.targets("`https://example.test/read`")) == True{} : Bool}
+
+law cards_payload_title_bounded:
+  {String.length(Cards.fields_title(Cards.parse("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ++ "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ++ "\nd\n"))) == 128n : Nat}
+
+law cards_fullscreen_closed_without_token:
+  {Cards.open(Media.initial(True{}), Media.Inline{1n}, "https://x.test/a.png") == Cards.FullOff{} : Cards.Fullscreen}
+
+law cards_fullscreen_zero_token_paints_nothing:
+  {List.is_empty(&2, V.DrawOp, Cards.fullscreen_ops(24, 80, Cards.FullOn{Media.Inline{1n}, "u", 0})) == True{} : Bool}

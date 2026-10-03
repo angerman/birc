@@ -11,6 +11,7 @@ import ./src/bend/base64.bend as B64
 import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./src/bend/media.bend as Media
+import ./src/bend/cards.bend as Cards
 import ./LAWS.bend as Laws
 
 def Laws.first_server_welcome_assigns_nickname():
@@ -1158,4 +1159,23 @@ def Laws.draft_entries_match_buffer_slots():
   {==}
 
 def Laws.draft_control_query_coexist():
+def Laws.cards_queue_capped():
+  {==}
+
+def Laws.cards_image_urls_excluded():
+  {==}
+
+def Laws.cards_page_urls_eligible():
+  {==}
+
+def Laws.cards_code_opaque():
+  {==}
+
+def Laws.cards_payload_title_bounded():
+  {==}
+
+def Laws.cards_fullscreen_closed_without_token():
+  {==}
+
+def Laws.cards_fullscreen_zero_token_paints_nothing():
   {==}
