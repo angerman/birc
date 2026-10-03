@@ -1180,3 +1180,27 @@ law isupport_casemapping_ascii_strict:
 # Numeric 324 redacts the key at its recipient-shifted offsets.
 law isupport_324_redacts_key:
   {Isupport.redact_line(Isupport.defaults(), ":s 324 me #c +k s3cret") == ["[channel key hidden]"] : List<&2, String>}
+
+# CHANTYPES=* cannot admit the reserved *log* through a swapped check.
+law isupport_join_swap_rejects_log:
+  {Isupport.join_admit(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=* :are supported"), "*log*", "") == False{} : Bool}
+
+# CHANTYPES=* cannot admit *LOG* (canonical *log*) either.
+law isupport_join_swap_rejects_log_upper:
+  {Isupport.join_admit(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=* :are supported"), "*LOG*", "") == False{} : Bool}
+
+# A `-TOKEN=value` removal is malformed and keeps prior metadata.
+law isupport_neg_token_with_value_ignored:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me NICKLEN=31 :are supported"), ":s 005 me -NICKLEN=garbage :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=31 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# `-STATUSMSG` disables support instead of restoring @+.
+law isupport_neg_statusmsg_disables:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ :are supported"), ":s 005 me -STATUSMSG :are supported")) == "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# STATUSMSG=@ under PREFIX=(o)^ does not authorize @.
+law isupport_statusmsg_requires_prefix_subset:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG= :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=@ :are supported"), "@#room") == False{} : Bool}
+
+# STATUSMSG=^ under PREFIX=(o)^ is accepted (subset).
+law isupport_statusmsg_subset_accepted:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG= :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=^ :are supported")) == "isupport chantypes=#&+! status=^ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}

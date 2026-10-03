@@ -1419,3 +1419,21 @@ def Laws.isupport_casemapping_ascii_strict():
 
 def Laws.isupport_324_redacts_key():
   {==}
+
+def Laws.isupport_join_swap_rejects_log():
+  {==}
+
+def Laws.isupport_join_swap_rejects_log_upper():
+  {==}
+
+def Laws.isupport_neg_token_with_value_ignored():
+  {==}
+
+def Laws.isupport_neg_statusmsg_disables():
+  {==}
+
+def Laws.isupport_statusmsg_requires_prefix_subset():
+  {==}
+
+def Laws.isupport_statusmsg_subset_accepted():
+  {==}

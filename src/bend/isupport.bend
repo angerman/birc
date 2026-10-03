@@ -12,9 +12,12 @@
 # entirely: the server is authoritative once it speaks.
 #
 # A `-TOKEN` burst entry removes that token: the field returns to its default
-# below. An empty `STATUSMSG=` instead clears the audience entirely (the
-# server offers no STATUSMSG). A bare `STATUSMSG` with no `=` keeps the
-# previous value, like every other valueless token.
+# below, except `-STATUSMSG` which disables support entirely (the server
+# offers no STATUSMSG). A removal takes no value: `-TOKEN=value` is
+# malformed and keeps prior metadata. An empty `STATUSMSG=` instead clears
+# the audience entirely. A bare `STATUSMSG` with no `=` keeps the previous
+# value, like every other valueless token. A non-empty STATUSMSG must be a
+# subset of the current PREFIX sigils; otherwise the previous value is kept.
 #
 # This module never stores channel keys. `redact_*` only decides which MODE
 # arguments may render. Precise redaction needs every mode character
@@ -34,8 +37,10 @@
 # identity, and View completion so every identity uses the negotiated
 # CASEMAPPING; those shared modules are intentionally untouched here.
 # `join_admit` reuses `Channels.valid` for every non-head check by swapping an
-# advertised non-fixed head to `#` (one byte, same length); if `valid` ever
-# treats `#` specially, teach it the advertised set instead.
+# advertised non-fixed head to `#` (one byte, same length); the original name
+# must first pass `Cl.target_wire` and canonical equality, so a swapped check
+# cannot admit reserved synthetics. If `valid` ever treats `#` specially,
+# teach it the advertised set instead.
 #
 # Bend elaborates top-down here: every callee is defined before its caller,
 # and only self-recursion is used.
@@ -258,10 +263,27 @@ def statusmsg.set(+types: String, +status: String, +a: String, +b: String, +c: S
     case True{}: Chans{types, val, a, b, c, d, mpl, ml}
     case False{}: Chans{types, status, a, b, c, d, mpl, ml}
 
-def chans_statusmsg(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
+# STATUSMSG must be a subset of the current PREFIX sigils: the server can
+# only authorize audiences its prefix modes define. Empty clears regardless.
+def statusmsg_subset.go(+val: String, +sigils: String) -> Bool:
+  match val:
+    case SNil{}: True{}
+    case SCon{+h, +t}: has_char(sigils, h) && statusmsg_subset.go(t, sigils)
+
+def statusmsg_subset(+val: String, +sigils: String) -> Bool:
+  statusmsg_subset.go(val, sigils)
+
+def priv_sigils_only(+pv: Priv) -> String:
+  match pv:
+    case Priv{_, +sig, _}: sig
+
+def chans_statusmsg.sub(+ch: Chans, +sigils: String, +val: String, +has_eq: Bool) -> Chans:
   match ch:
     case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      statusmsg.set(types, status, a, b, c, d, mpl, ml, val, has_eq && (String.is_empty(val) || chantypes_ok(val)))
+      statusmsg.set(types, status, a, b, c, d, mpl, ml, val, has_eq && (String.is_empty(val) || (chantypes_ok(val) && statusmsg_subset(val, sigils))))
+
+def chans_statusmsg(+ch: Chans, +pv: Priv, +val: String, +has_eq: Bool) -> Chans:
+  chans_statusmsg.sub(ch, priv_sigils_only(pv), val, has_eq)
 
 def chanmodes.classes(+a: String, +b: String, +c: String, +d: String) -> Bool:
   all_letters(a) && all_letters(b) && all_letters(c) && all_letters(d)
@@ -509,7 +531,9 @@ def cm_eq(+st: State, +a: String, +b: String) -> Bool:
 
 # ---- token application ----------------------------------------------------
 
-# `-TOKEN` restores one field to its default. Unknown removals change nothing.
+# `-TOKEN` restores one field to its default, except `-STATUSMSG` which
+# disables support (the server offers no STATUSMSG). Unknown removals
+# change nothing.
 def reset_chantypes(+ch: Chans) -> Chans:
   match ch:
     case Chans{_, +status, +a, +b, +c, +d, +mpl, +ml}:
@@ -518,7 +542,7 @@ def reset_chantypes(+ch: Chans) -> Chans:
 def reset_statusmsg(+ch: Chans) -> Chans:
   match ch:
     case Chans{+types, _, +a, +b, +c, +d, +mpl, +ml}:
-      Chans{types, dflt_status(), a, b, c, d, mpl, ml}
+      Chans{types, "", a, b, c, d, mpl, ml}
 
 def reset_chanmodes(+ch: Chans) -> Chans:
   match ch:
@@ -582,7 +606,7 @@ def apply_parts(+upper: String, +val: String, +has_eq: Bool, +ch: Chans, +pv: Pr
     case "CHANNELLEN": State{ch, pv, limits_channel(lim, val, has_eq), net, cm, upd}
     case "TOPICLEN": State{ch, pv, limits_topic(lim, val, has_eq), net, cm, upd}
     case "KICKLEN": State{ch, pv, limits_kick(lim, val, has_eq), net, cm, upd}
-    case "STATUSMSG": State{chans_statusmsg(ch, val, has_eq), pv, lim, net, cm, upd}
+    case "STATUSMSG": State{chans_statusmsg(ch, pv, val, has_eq), pv, lim, net, cm, upd}
     case "NETWORK": State{ch, pv, lim, network.set(net, val, has_eq), cm, upd}
     case "CASEMAPPING": State{ch, pv, lim, net, casemap.set(cm, val, has_eq), upd}
     case "MAXLIST": State{chans_maxlist(ch, val, has_eq), pv, lim, net, cm, upd}
@@ -593,9 +617,16 @@ def apply_upper(+st: State, +upper: String, +val: String, +has_eq: Bool) -> Stat
     case State{+ch, +pv, +lim, +net, +cm, +upd}:
       apply_parts(upper, val, has_eq, ch, pv, lim, net, cm, upd)
 
+# A `-TOKEN` removal takes no value: `-NICKLEN` resets, but
+# `-NICKLEN=garbage` (or `-NICKLEN=`) is malformed and keeps prior metadata.
+def apply_key.reset(+st: State, +upper: String, +has_eq: Bool) -> State:
+  match has_eq:
+    case True{}: st
+    case False{}: reset_upper(st, String.drop(upper, 1n))
+
 def apply_key.neg(+st: State, +upper: String, +val: String, +has_eq: Bool, neg: Bool) -> State:
   match neg:
-    case True{}: reset_upper(st, String.drop(upper, 1n))
+    case True{}: apply_key.reset(st, upper, has_eq)
     case False{}: apply_upper(st, upper, val, has_eq)
 
 def apply_key(+st: State, +key: String, +val: String, +has_eq: Bool) -> State:
@@ -1070,10 +1101,13 @@ def join_len(+st: State, +name: String) -> Bool:
 # example `CHANTYPES=$`). The base check rejects those heads, so retry with
 # the advertised head swapped to `#`: one ASCII byte either way, which keeps
 # every other base rule (length, commas, word bounds, wire envelope) intact.
+# The swap validates the tail only; the original identity must first pass
+# the reserved/synthetic policy and canonical equality, so CHANTYPES=*
+# cannot admit *log*/*LOG* through a swapped #log* check.
 def join_swap.check(+st: State, +name: String, +key: String, +t: String, adv: Bool) -> Bool:
   match adv:
     case False{}: False{}
-    case True{}: Channels.valid("#" ++ t, key) && join_len(st, name)
+    case True{}: Cl.target_wire(name) && String.eq(name, Cl.target_name(name)) && Channels.valid("#" ++ t, key) && join_len(st, name)
 
 def join_swap.head(+st: State, +name: String, +key: String, +types: String) -> Bool:
   match name:

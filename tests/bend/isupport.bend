@@ -141,6 +141,27 @@ def caret() -> Is.State:
 def dollar() -> Is.State:
   Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=$ :are supported")
 
+def star() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=* :are supported")
+
+def caret_cleared() -> Is.State:
+  Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG= :x"), ":s 005 me PREFIX=(o)^ :x")
+
+def caret_hat() -> Is.State:
+  Is.apply_line(caret_cleared(), ":s 005 me STATUSMSG=^ :x")
+
+def nicklen31_show() -> String:
+  "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=31 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def caret_cleared_show() -> String:
+  "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def caret_hat_show() -> String:
+  "isupport chantypes=#&+! status=^ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def burst_nostatus_show() -> String:
+  "isupport chantypes=# status= chanmodes=eIbq,k,flj,CFLMPQScgimnprstz modes=4 prefix=(qaohv)~&@%+ extra= nicklen=16 channellen=64 topiclen=300 kicklen=300 network=ExampleNet casemapping=ascii maxlist=b:60,e:60,I:60 updated=true"
+
 def cleared_status_show() -> String:
   "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
 
@@ -148,7 +169,7 @@ def repairs() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("-NICKLEN resets the previous burst value", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -NICKLEN :x")), default_updated_show())
     Unit <- E.must_eq("-PREFIX restores modes, sigils, and extras", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(q)~ :x"), ":s 005 me -PREFIX :x")), default_updated_show())
-    Unit <- E.must_eq("-STATUSMSG restores the default audience", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me -STATUSMSG :x")), default_updated_show())
+    Unit <- E.must_eq("-STATUSMSG disables support", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me -STATUSMSG :x")), cleared_status_show())
     Unit <- E.must_eq("-CHANMODES restores the default classes", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me CHANMODES=eIbq,k,flj,CFLMPQScgimnprstz :x"), ":s 005 me -CHANMODES :x")), default_updated_show())
     Unit <- E.must_eq("-CASEMAPPING restores rfc1459", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=ascii :x"), ":s 005 me -CASEMAPPING :x")), default_updated_show())
     Unit <- E.must_eq("-UNKNOWN is ignored", Is.show(Is.apply_line(burst(), ":s 005 me -FOO :x")), Is.show(Is.apply_line(burst(), ":s 005 me :x")))
@@ -190,6 +211,26 @@ def repairs() -> IO(Unit):
       "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459-strict maxlist= updated=true")
     IO.pure(Unit, Unit{})
 
+def second_review() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must("advertised $room still joins", Is.join_admit(dollar(), "$room", ""))
+    Unit <- E.must("CHANTYPES=* rejects *log*", Bool.not(Is.join_admit(star(), "*log*", "")))
+    Unit <- E.must("CHANTYPES=* rejects *LOG*", Bool.not(Is.join_admit(star(), "*LOG*", "")))
+    Unit <- E.must("CHANTYPES=* rejects *log* with key", Bool.not(Is.join_admit(star(), "*log*", "s3cret")))
+    Unit <- E.must_eq("malformed -NICKLEN=garbage retains 31", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -NICKLEN=garbage :x")), nicklen31_show())
+    Unit <- E.must_eq("malformed -NICKLEN= retains 31", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -NICKLEN= :x")), nicklen31_show())
+    Unit <- E.must_eq("valid -NICKLEN resets 31 to 9", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -NICKLEN :x")), default_updated_show())
+    Unit <- E.must_eq("-STATUSMSG disables a burst value", Is.show(Is.apply_line(burst(), ":s 005 me -STATUSMSG :x")), burst_nostatus_show())
+    Unit <- E.must("disabled -STATUSMSG admits no audience", Bool.not(Is.is_channel(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me -STATUSMSG :x"), "@#birc")))
+    Unit <- E.must_eq("STATUSMSG=^ accepted under PREFIX=(o)^", Is.show(caret_hat()), caret_hat_show())
+    Unit <- E.must("narrow ^ authorizes ^#room", Is.is_channel(caret_hat(), "^#room"))
+    Unit <- E.must_eq("STATUSMSG=@ rejected under PREFIX=(o)^ keeps empty", Is.show(Is.apply_line(caret_cleared(), ":s 005 me STATUSMSG=@ :x")), caret_cleared_show())
+    Unit <- E.must("rejected @ does not authorize @#room", Bool.not(Is.is_channel(Is.apply_line(caret_cleared(), ":s 005 me STATUSMSG=@ :x"), "@#birc")))
+    Unit <- E.must_eq("STATUSMSG=@ rejected under PREFIX=(o)^ keeps ^", Is.show(Is.apply_line(caret_hat(), ":s 005 me STATUSMSG=@ :x")), caret_hat_show())
+    Unit <- E.must("kept ^ still authorizes ^#room", Is.is_channel(Is.apply_line(caret_hat(), ":s 005 me STATUSMSG=@ :x"), "^#room"))
+    Unit <- E.must("kept ^ does not authorize @#room", Bool.not(Is.is_channel(Is.apply_line(caret_hat(), ":s 005 me STATUSMSG=@ :x"), "@#birc")))
+    IO.pure(Unit, Unit{})
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- goldens()
@@ -198,4 +239,5 @@ def main() -> IO(Unit):
     Unit <- privileges()
     Unit <- modes()
     Unit <- repairs()
+    Unit <- second_review()
     IO.print("isupport=ok")
