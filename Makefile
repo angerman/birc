@@ -699,6 +699,10 @@ test-ipv6: ## Bracketed IPv6 endpoints, AAAA DNS, and dial-plan goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/server_id_ipv6.bend -o $(BLDDIR)/server_id_ipv6
 	$(NIXRUN) sh scripts/check-golden.sh server_id_ipv6=ok ./$(BLDDIR)/server_id_ipv6
+test-drafts: ## Per-buffer drafts + multiline composition goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/drafts_demo.bend -o $(BLDDIR)/drafts_demo
+	$(NIXRUN) sh scripts/check-golden.sh drafts_demo=ok ./$(BLDDIR)/drafts_demo
 
 test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)

@@ -1125,4 +1125,32 @@ def Laws.ipv6_endpoint_format():
   {==}
 
 def Laws.ipv6_dial_plan():
+def Laws.draft_store_roundtrip():
+  {==}
+
+def Laws.draft_missing_is_empty():
+  {==}
+
+def Laws.draft_rename_moves_text():
+  {==}
+
+def Laws.draft_overlong_text_rejected():
+  {==}
+
+def Laws.draft_lines_split_separators():
+  {==}
+
+def Laws.draft_single_line_routes_verbatim():
+  {==}
+
+def Laws.draft_multiline_plan_bounded():
+  {==}
+
+def Laws.draft_command_multiline_rejected():
+  {==}
+
+def Laws.draft_focus_stashes_and_loads():
+  {==}
+
+def Laws.draft_entries_match_buffer_slots():
   {==}

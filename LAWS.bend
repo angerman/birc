@@ -35,6 +35,7 @@ import ./src/bend/join_plan.bend as JoinPlan
 import ./src/bend/history_startup.bend as StartupHistory
 import ./src/bend/server_id.bend as Sid
 import ./src/bend/ipv6.bend as V6
+import ./src/bend/drafts.bend as Drafts
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -856,3 +857,32 @@ law ipv6_endpoint_format:
 
 law ipv6_dial_plan:
   {V6.dial_ok() == True{} : Bool}
+law draft_store_roundtrip:
+  {Drafts.roundtrip_ok() == True{} : Bool}
+
+law draft_missing_is_empty:
+  {Drafts.missing_ok() == True{} : Bool}
+
+law draft_rename_moves_text:
+  {Drafts.rename_ok() == True{} : Bool}
+
+law draft_overlong_text_rejected:
+  {Drafts.overcap_ok() == True{} : Bool}
+
+law draft_lines_split_separators:
+  {Drafts.split_ok() == True{} : Bool}
+
+law draft_single_line_routes_verbatim:
+  {Drafts.route_ok() == True{} : Bool}
+
+law draft_multiline_plan_bounded:
+  {Drafts.plan_ok() == True{} : Bool}
+
+law draft_command_multiline_rejected:
+  {Drafts.command_rejected_ok() == True{} : Bool}
+
+law draft_focus_stashes_and_loads:
+  {Drafts.focus_ok() == True{} : Bool}
+
+law draft_entries_match_buffer_slots:
+  {Drafts.entry_cap_ok() == True{} : Bool}
