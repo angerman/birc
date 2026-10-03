@@ -878,6 +878,14 @@ test-history-io: ## Streaming history keeps the newest records beyond one MiB.
 	$(NIXRUN) timeout 180 bend tests/bend/history_io.bend -o $(BLDDIR)/history_io
 	$(NIXRUN) sh scripts/check-golden.sh history_io=ok ./$(BLDDIR)/history_io
 
+test-history-search: ## Disk-history search/paging and draft/chathistory policy goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_search.bend -o $(BLDDIR)/history_search
+	$(NIXRUN) sh scripts/check-golden.sh history_search=ok ./$(BLDDIR)/history_search
+	$(NIXRUN) timeout 180 bend tests/bend/history_search_io.bend -o $(BLDDIR)/history_search_io
+	$(NIXRUN) sh scripts/check-golden.sh history_search_io=ok ./$(BLDDIR)/history_search_io
+test-review-pure: test-history-search
+
 test-link-commands: ## Repeated link enumeration and opening preserve numbering.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/link_commands_demo.bend -o $(BLDDIR)/link_commands_demo
@@ -1255,7 +1263,7 @@ test-pty: test-pty-ui-review-selection test-pty-ui-review-media
 test-pty: test-pty-m20-media-cache
 test-pty: test-pty-preview-retry
 
-.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
+.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
 .PHONY: test-pty-frame-links test-pty-launchers
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors

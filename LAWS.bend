@@ -43,6 +43,7 @@ import ./src/bend/emoji.bend as Emoji
 import ./src/bend/theme.bend as Theme
 import ./src/bend/notify.bend as Notify
 import ./src/bend/isupport.bend as Isupport
+import ./src/bend/history_search.bend as Hs
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -1242,3 +1243,157 @@ law isupport_lifecycle_resident_preserved:
 # forward max -> 4000 wrap still fires.
 law typing_out_observed_sentinel:
   {CapNotify.out_sentinel_ok() == True{} : Bool}
+
+law disk_search_rejects_empty_query:
+  {Hs.parse_query("") == None{} : Maybe<&2, Hs.DiskQuery>}
+
+law disk_search_target_prefix:
+  {Hs.parse_query("#birc: hello") == Some{Hs.DiskQuery{"hello", "#birc"}} : Maybe<&2, Hs.DiskQuery>}
+
+law disk_search_cursor_is_oldest_offset:
+  {Hs.next_cursor([Hs.DiskMatch{"#a", Cl.Line{Cl.Msg{}, "", "a", "", 0n}, 10n}, Hs.DiskMatch{"#a", Cl.Line{Cl.Msg{}, "", "b", "", 0n}, 4n}]) == 4n : Nat}
+
+law disk_import_preserves_log_seq:
+  {Cl.log_seq_of(Hs.import_page(Cl.init("me", "s"), "hi",
+    Hs.DiskPage{[Hs.DiskMatch{"#a", Cl.Line{Cl.Msg{}, "", "a", "", 0n}, 5n}], 5n, 1n, True{}})) == 0n : Nat}
+
+law chathistory_cap_detected:
+  {Hs.cap_offered(["draft/chathistory"]) == True{} : Bool}
+
+law chathistory_cap_absent:
+  {Hs.cap_offered(["sasl"]) == False{} : Bool}
+
+law chathistory_latest_needs_negotiation:
+  {Hs.latest(False{}, "#a", 10n) == None{} : Maybe<&2, String>}
+
+law chathistory_latest_valid:
+  {Hs.latest(True{}, "#a", 10n) == Some{"CHATHISTORY LATEST #a * 10"} : Maybe<&2, String>}
+
+law chathistory_rejects_synthetic_target:
+  {Hs.latest(True{}, "*search*", 10n) == None{} : Maybe<&2, String>}
+
+law history_cursor_initial_fetch_is_latest:
+  {Hs.fetch_older(Hs.cursor_new("#a"), True{}, 10n) == Hs.latest(True{}, "#a", 10n) : Maybe<&2, String>}
+
+law chathistory_batch_opens_on_valid_line:
+  {Hs.batch_open(":irc.test BATCH +r chathistory #a", "irc.test") == Some{Hs.ChatCollect{"r", "#a", True{}, Nil{}, False{}}} : Maybe<&2, Hs.ChatBatch>}
+
+law chathistory_batch_ignores_foreign_target:
+  {List.length(&2, Hs.BatchMsg, Hs.batch_messages(Hs.batch_line(Hs.ChatCollect{"r", "#a", True{}, Nil{}, False{}}, "me",
+    "@batch=r;msgid=m9 :x!u@h PRIVMSG #other :nope"))) == 0n : Nat}
+
+law chathistory_batch_requires_batch_tag:
+  {List.length(&2, Hs.BatchMsg, Hs.batch_messages(Hs.batch_line(Hs.ChatCollect{"r", "#a", True{}, Nil{}, False{}}, "me",
+    "@msgid=m9 :x!u@h PRIVMSG #a :hi"))) == 0n : Nat}
+
+law chathistory_batch_accepts_matching_tag:
+  {List.length(&2, Hs.BatchMsg, Hs.batch_messages(Hs.batch_line(Hs.ChatCollect{"r", "#a", True{}, Nil{}, False{}}, "me",
+    "@batch=r;msgid=m9 :x!u@h PRIVMSG #a :hi"))) == 1n : Nat}
+
+law history_cursor_before_moves_oldest_only:
+  {Hs.cursor_page(Hs.cursor_page(Hs.cursor_new("#a"), ["m1", "m2"], Hs.DirLatest{}), ["m0"], Hs.DirBefore{})
+    == Hs.HistoryCursor{"#a", "m0", "m2", ["m0", "m1", "m2"], 3n} : Hs.HistoryCursor}
+
+law history_cursor_after_moves_newest_only:
+  {Hs.cursor_page(Hs.cursor_page(Hs.cursor_new("#a"), ["m1", "m2"], Hs.DirLatest{}), ["m3"], Hs.DirAfter{})
+    == Hs.HistoryCursor{"#a", "m1", "m3", ["m3", "m1", "m2"], 3n} : Hs.HistoryCursor}
+
+law disk_scan_eof_truncated:
+  {Hs.scan_eof_truncated(5n, True{}) == True{} : Bool}
+
+law disk_scan_eof_complete:
+  {Hs.scan_eof_truncated(0n, True{}) == False{} : Bool}
+
+law chathistory_cap_accepts_server_self:
+  {Hs.cap_event(":irc.test CAP me ACK :draft/chathistory", "irc.test", "me", True{}) == Hs.ChathistoryAck{} : Hs.CapEvent}
+
+law chathistory_cap_rejects_user_prefix:
+  {Hs.cap_event(":alice!u@h CAP me ACK :draft/chathistory", "irc.test", "me", True{}) == Hs.ChathistoryOther{} : Hs.CapEvent}
+
+law chathistory_cap_rejects_wrong_recipient:
+  {Hs.cap_event(":irc.test CAP other ACK :draft/chathistory", "irc.test", "me", True{}) == Hs.ChathistoryOther{} : Hs.CapEvent}
+
+law chathistory_before_prefixes_msgid:
+  {Hs.before_line("#a", "m1", 25n) == Some{"CHATHISTORY BEFORE #a msgid=m1 25"} : Maybe<&2, String>}
+
+law chathistory_anchor_rejects_malformed:
+  {Hs.before_line("#a", "m 1", 25n) == None{} : Maybe<&2, String>}
+
+law chathistory_between_prefixes_both:
+  {Hs.between_line("#a", "m1", "2026-10-03T10:00:00Z", 10n)
+    == Some{"CHATHISTORY BETWEEN #a msgid=m1 timestamp=2026-10-03T10:00:00Z 10"} : Maybe<&2, String>}
+
+law chathistory_batch_open_rejects_user_prefix:
+  {Hs.batch_open(":alice!u@h BATCH +r chathistory #a", "irc.test") == None{} : Maybe<&2, Hs.ChatBatch>}
+
+law chathistory_private_rejects_third_party:
+  {List.length(&2, Hs.BatchMsg, Hs.batch_messages(Hs.batch_line(Hs.ChatCollect{"r", "bob", False{}, Nil{}, False{}}, "me",
+    "@batch=r;msgid=m9 :charlie!u@h PRIVMSG me :hi"))) == 0n : Nat}
+
+law chathistory_private_accepts_subject:
+  {List.length(&2, Hs.BatchMsg, Hs.batch_messages(Hs.batch_line(Hs.ChatCollect{"r", "bob", False{}, Nil{}, False{}}, "me",
+    "@batch=r;msgid=m1 :bob!u@h PRIVMSG me :hi"))) == 1n : Nat}
+
+law history_filter_dedups_within_batch:
+  {List.length(&2, Hs.BatchMsg, Hs.filter_unseen(Hs.cursor_new("#a"),
+    [Hs.BatchMsg{"m1", "", "t", "a"}, Hs.BatchMsg{"m1", "", "t", "a"}])) == 1n : Nat}
+
+law history_search_completion_admitted:
+  {Hs.search_completion_admitted(7n, 7n, 3n, 3n, "a:6667", "a:6667") == True{} : Bool}
+
+law history_search_completion_rejects_stale_gen:
+  {Hs.search_completion_admitted(7n, 7n, 2n, 3n, "a:6667", "a:6667") == False{} : Bool}
+
+law disk_file_admitted_private:
+  {Hs.disk_file_admitted(True{}, True{}, False{}, True{}) == True{} : Bool}
+
+law disk_file_rejects_symlink:
+  {Hs.disk_file_admitted(True{}, True{}, True{}, True{}) == False{} : Bool}
+
+law chat_negotiation_resets_on_endpoint_move:
+  {Hs.chat_negotiated(True{}, False{}, True{}) == False{} : Bool}
+
+law disk_search_needs_preference:
+  {Hs.disk_search_allowed(False{}, "build/x") == False{} : Bool}
+
+law history_fetch_older_opaque_stamp_stays_msgid:
+  {Hs.fetch_older(Hs.HistoryCursor{"#a", "opaqueT12345678Z", "m2", Nil{}, 2n}, True{}, 10n)
+    == Some{"CHATHISTORY BEFORE #a msgid=opaqueT12345678Z 10"} : Maybe<&2, String>}
+
+law history_fetch_older_equals_stays_msgid:
+  {Hs.fetch_older(Hs.HistoryCursor{"#a", "a=b", "m2", Nil{}, 2n}, True{}, 10n)
+    == Some{"CHATHISTORY BEFORE #a msgid=a=b 10"} : Maybe<&2, String>}
+
+law chathistory_explicit_msgid_accepts_equals:
+  {Hs.before_line("#a", "msgid=a=b", 10n) == Some{"CHATHISTORY BEFORE #a msgid=a=b 10"} : Maybe<&2, String>}
+
+law chathistory_around_accepts_explicit_stamp:
+  {Hs.around_line("#a", "timestamp=2026-10-03T10:00:00Z", 5n)
+    == Some{"CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00Z 5"} : Maybe<&2, String>}
+
+law history_filter_keeps_saved_tail_under_cap:
+  {List.length(&2, Hs.BatchMsg, Hs.filter_unseen_cap(Hs.HistoryCursor{"#a", "", "", ["s0", "s1"], 2n},
+    [Hs.BatchMsg{"f0", "", "t", "a"}, Hs.BatchMsg{"f1", "", "t", "a"}, Hs.BatchMsg{"s0", "", "t", "a"}], 2n)) == 2n : Nat}
+
+law chathistory_before_accepts_millis_stamp:
+  {Hs.before_line("#a", "2026-10-03T10:00:00.123Z", 25n)
+    == Some{"CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00.123Z 25"} : Maybe<&2, String>}
+
+law chathistory_explicit_stamp_accepts_millis:
+  {Hs.before_line("#a", "timestamp=2026-10-03T10:00:00.123Z", 10n)
+    == Some{"CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00.123Z 10"} : Maybe<&2, String>}
+
+law chathistory_anchor_rejects_bad_stamp_date:
+  {Hs.before_line("#a", "2026-13-03T10:00:00Z", 25n) == None{} : Maybe<&2, String>}
+
+law chathistory_explicit_stamp_rejects_bad_shape:
+  {Hs.before_line("#a", "timestamp=2026-10-03T10:00Z", 10n) == None{} : Maybe<&2, String>}
+
+law chathistory_cap_accepts_prereg_star:
+  {Hs.cap_event(":irc.test CAP * ACK :draft/chathistory", "irc.test", "me", False{}) == Hs.ChathistoryAck{} : Hs.CapEvent}
+
+law chathistory_cap_rejects_star_when_registered:
+  {Hs.cap_event(":irc.test CAP * ACK :draft/chathistory", "irc.test", "me", True{}) == Hs.ChathistoryOther{} : Hs.CapEvent}
+
+law chathistory_cap_rejects_wrong_recipient_prereg:
+  {Hs.cap_event(":irc.test CAP other ACK :draft/chathistory", "irc.test", "me", False{}) == Hs.ChathistoryOther{} : Hs.CapEvent}

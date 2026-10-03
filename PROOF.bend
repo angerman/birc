@@ -1464,3 +1464,141 @@ def Laws.isupport_lifecycle_resident_preserved():
 
 def Laws.typing_out_observed_sentinel():
   {==}
+
+def Laws.disk_search_rejects_empty_query():
+  {==}
+
+def Laws.disk_search_target_prefix():
+  {==}
+
+def Laws.disk_search_cursor_is_oldest_offset():
+  {==}
+
+def Laws.disk_import_preserves_log_seq():
+  {==}
+
+def Laws.chathistory_cap_detected():
+  {==}
+
+def Laws.chathistory_cap_absent():
+  {==}
+
+def Laws.chathistory_latest_needs_negotiation():
+  {==}
+
+def Laws.chathistory_latest_valid():
+  {==}
+
+def Laws.chathistory_rejects_synthetic_target():
+  {==}
+
+def Laws.history_cursor_initial_fetch_is_latest():
+  {==}
+
+def Laws.chathistory_batch_opens_on_valid_line():
+  {==}
+
+def Laws.chathistory_batch_ignores_foreign_target():
+  {==}
+
+def Laws.chathistory_batch_requires_batch_tag():
+  {==}
+
+def Laws.chathistory_batch_accepts_matching_tag():
+  {==}
+
+def Laws.history_cursor_before_moves_oldest_only():
+  {==}
+
+def Laws.history_cursor_after_moves_newest_only():
+  {==}
+
+def Laws.disk_scan_eof_truncated():
+  {==}
+
+def Laws.disk_scan_eof_complete():
+  {==}
+
+def Laws.chathistory_cap_accepts_server_self():
+  {==}
+
+def Laws.chathistory_cap_rejects_user_prefix():
+  {==}
+
+def Laws.chathistory_cap_rejects_wrong_recipient():
+  {==}
+
+def Laws.chathistory_before_prefixes_msgid():
+  {==}
+
+def Laws.chathistory_anchor_rejects_malformed():
+  {==}
+
+def Laws.chathistory_between_prefixes_both():
+  {==}
+
+def Laws.chathistory_batch_open_rejects_user_prefix():
+  {==}
+
+def Laws.chathistory_private_rejects_third_party():
+  {==}
+
+def Laws.chathistory_private_accepts_subject():
+  {==}
+
+def Laws.history_filter_dedups_within_batch():
+  {==}
+
+def Laws.history_search_completion_admitted():
+  {==}
+
+def Laws.history_search_completion_rejects_stale_gen():
+  {==}
+
+def Laws.disk_file_admitted_private():
+  {==}
+
+def Laws.disk_file_rejects_symlink():
+  {==}
+
+def Laws.chat_negotiation_resets_on_endpoint_move():
+  {==}
+
+def Laws.disk_search_needs_preference():
+  {==}
+
+def Laws.history_fetch_older_opaque_stamp_stays_msgid():
+  {==}
+
+def Laws.history_fetch_older_equals_stays_msgid():
+  {==}
+
+def Laws.chathistory_explicit_msgid_accepts_equals():
+  {==}
+
+def Laws.chathistory_around_accepts_explicit_stamp():
+  {==}
+
+def Laws.history_filter_keeps_saved_tail_under_cap():
+  {==}
+
+def Laws.chathistory_before_accepts_millis_stamp():
+  {==}
+
+def Laws.chathistory_explicit_stamp_accepts_millis():
+  {==}
+
+def Laws.chathistory_anchor_rejects_bad_stamp_date():
+  {==}
+
+def Laws.chathistory_explicit_stamp_rejects_bad_shape():
+  {==}
+
+def Laws.chathistory_cap_accepts_prereg_star():
+  {==}
+
+def Laws.chathistory_cap_rejects_star_when_registered():
+  {==}
+
+def Laws.chathistory_cap_rejects_wrong_recipient_prereg():
+  {==}
