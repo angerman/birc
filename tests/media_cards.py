@@ -599,6 +599,191 @@ finally:
     os.environ.clear()
     os.environ.update(saved)
 
+# C8c: one retained parent fd. Stable parent + fd-held parent .lock still
+# blocks the cards writer without writing or evicting.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    image.cache_write("https://example.test/c8c-kept-img", b"01234567")
+    kept_card = "https://example.test/c8c-kept-card"
+    cards.cache_write(kept_card, b"<html></html>", kept_card)
+    parent = root / "img"
+    cards_dir = parent / "cards"
+    before_imgs = sorted(p.name for p in parent.iterdir() if p.name.endswith(".img"))
+    before_cards = sorted(p.name for p in cards_dir.iterdir() if p.name.endswith(".card"))
+    assert len(before_imgs) == 1 and len(before_cards) == 1, (before_imgs, before_cards)
+    parent_fd = image.cache_directory()
+    assert parent_fd is not None
+    held = None
+    try:
+        held = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+                       | os.O_CLOEXEC, 0o600, dir_fd=parent_fd)
+        os.fchmod(held, 0o600)
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        blocked = "https://example.test/c8c-blocked"
+        cards.cache_write(blocked, b"<html></html>", blocked)
+        assert not (cards_dir / cards.cache_name(blocked)).exists()
+        assert sorted(p.name for p in parent.iterdir()
+                      if p.name.endswith(".img")) == before_imgs
+        assert sorted(p.name for p in cards_dir.iterdir()
+                      if p.name.endswith(".card")) == before_cards
+    finally:
+        if held is not None:
+            try:
+                os.close(held)
+            except OSError:
+                pass
+        try:
+            os.close(parent_fd)
+        except OSError:
+            pass
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8c: parent swap keeps the shared count correct. Holding the old parent
+# fd, renaming it aside, and creating a replacement before the writer's
+# lock/accounting must not split accounting (new, empty) from the write
+# (old, full): with limit 1 the old directory already holds one image, so
+# the card must skip and neither directory gains it.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 1, 10 * 1024 * 1024
+        image.cache_write("https://example.test/swap-img", b"01234567")
+        parent_path = root / "img"
+        assert len([p for p in parent_path.iterdir() if p.name.endswith(".img")]) == 1
+        orig_open = os.open
+        orig_cache_dir = image.cache_directory
+        swapped = []
+        calls = []
+
+        def counting_cache_dir(create=False):
+            calls.append(create)
+            return orig_cache_dir(create=create)
+
+        def hooked_open(path, flags, mode=0o777, *, dir_fd=None):
+            fd = orig_open(path, flags, mode, dir_fd=dir_fd)
+            name = path.decode() if isinstance(path, bytes) else path
+            if not swapped and name == "cards" and dir_fd is not None:
+                try:
+                    backup = root / "imgA"
+                    if parent_path.is_dir() and not backup.exists():
+                        os.rename(str(parent_path), str(backup))
+                        os.mkdir(str(parent_path), 0o700)
+                        swapped.append(backup)
+                except OSError:
+                    pass
+            return fd
+
+        os.open = hooked_open
+        image.cache_directory = counting_cache_dir
+        try:
+            target = "https://example.test/swap-card"
+            cards.cache_write(target, b"<html></html>", target)
+        finally:
+            os.open = orig_open
+            image.cache_directory = orig_cache_dir
+        assert swapped, "swap hook did not trigger"
+        assert len(calls) == 1, calls
+        backup = swapped[0]
+        old_cards = backup / "cards"
+        new_cards = parent_path / "cards"
+        old_imgs = [p for p in backup.iterdir() if p.name.endswith(".img")]
+        old_list = [p for p in old_cards.iterdir()
+                    if p.name.endswith(".card")] if old_cards.is_dir() else []
+        new_imgs = [p for p in parent_path.iterdir()
+                    if p.name.endswith(".img")] if parent_path.is_dir() else []
+        new_list = [p for p in new_cards.iterdir()
+                    if p.name.endswith(".card")] if new_cards.is_dir() else []
+        assert len(old_imgs) == 1, [p.name for p in old_imgs]
+        assert old_list == [], [p.name for p in old_list]
+        assert new_imgs == [], [p.name for p in new_imgs]
+        assert new_list == [], [p.name for p in new_list]
+        assert len(old_imgs) + len(old_list) == 1
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8c: parent swap keeps the shared bytes correct. The old directory's
+# image bytes plus the card would exceed the byte budget, while the empty
+# replacement would fit: the writer must account the pinned old parent and
+# skip, leaving both directories without the card.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 64, 250
+        img_data = b"i" * 150
+        card_data = b"x" * 100
+        card_final = "https://example.test/swap-bytes"
+        stored_len = len(card_final.encode("utf-8")) + 1 + len(card_data)
+        assert len(img_data) <= 250 and stored_len <= 250
+        assert len(img_data) + stored_len > 250
+        image.cache_write("https://example.test/swap-bytes-img", img_data)
+        parent_path = root / "img"
+        assert sum(p.stat().st_size for p in parent_path.iterdir()
+                   if p.name.endswith(".img")) == 150
+        orig_open = os.open
+        orig_cache_dir = image.cache_directory
+        swapped = []
+        calls = []
+
+        def counting_cache_dir(create=False):
+            calls.append(create)
+            return orig_cache_dir(create=create)
+
+        def hooked_open(path, flags, mode=0o777, *, dir_fd=None):
+            fd = orig_open(path, flags, mode, dir_fd=dir_fd)
+            name = path.decode() if isinstance(path, bytes) else path
+            if not swapped and name == "cards" and dir_fd is not None:
+                try:
+                    backup = root / "imgA"
+                    if parent_path.is_dir() and not backup.exists():
+                        os.rename(str(parent_path), str(backup))
+                        os.mkdir(str(parent_path), 0o700)
+                        swapped.append(backup)
+                except OSError:
+                    pass
+            return fd
+
+        os.open = hooked_open
+        image.cache_directory = counting_cache_dir
+        try:
+            cards.cache_write("https://example.test/swap-bytes-card", card_data, card_final)
+        finally:
+            os.open = orig_open
+            image.cache_directory = orig_cache_dir
+        assert swapped, "swap hook did not trigger"
+        assert len(calls) == 1, calls
+        backup = swapped[0]
+        old_cards = backup / "cards"
+        new_cards = parent_path / "cards"
+        old_imgs = [p for p in backup.iterdir() if p.name.endswith(".img")]
+        old_list = [p for p in old_cards.iterdir()
+                    if p.name.endswith(".card")] if old_cards.is_dir() else []
+        new_imgs = [p for p in parent_path.iterdir()
+                    if p.name.endswith(".img")] if parent_path.is_dir() else []
+        new_list = [p for p in new_cards.iterdir()
+                    if p.name.endswith(".card")] if new_cards.is_dir() else []
+        assert old_list == [], [p.name for p in old_list]
+        assert new_list == [], [p.name for p in new_list]
+        assert new_imgs == [], [p.name for p in new_imgs]
+        old_bytes = sum(p.stat().st_size for p in old_imgs) + sum(
+            p.stat().st_size for p in old_list)
+        assert old_bytes == 150, old_bytes
+        assert old_bytes <= 250
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
 # The CLI prints exactly three sanitized lines and fails with a fixed message.
 ok = subprocess.run([sys.executable, str(HERE / "src/media/cards.py"),
                      "--local", str(fixtures / "og_basic.html")],

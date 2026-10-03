@@ -130,31 +130,37 @@ def fetch(url, deadline, resolver=socket.getaddrinfo, connection=None):
     raise CardError("too many card redirects")
 
 
-def cache_directory(create=False):
-    """Private cards subdirectory of the image cache, descriptor-checked."""
-    parent = image.cache_directory(create=create)
-    fd = None
-    if parent is None:
-        return None
+def _open_cards(parent, create):
+    """Open the cards subdirectory pinned to one retained parent fd."""
+    if create:
+        try:
+            os.mkdir("cards", 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open("cards", flags, dir_fd=parent)
     try:
-        if create:
-            try:
-                os.mkdir("cards", 0o700, dir_fd=parent)
-            except FileExistsError:
-                pass
-        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-        fd = os.open("cards", flags, dir_fd=parent)
         info = os.fstat(fd)
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
                 or info.st_mode & 0o077):
             raise OSError("unsafe card cache directory")
-        return fd
     except (OSError, ValueError):
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+    return fd
+
+
+def cache_directory(create=False):
+    """Private cards subdirectory of the image cache, descriptor-checked."""
+    parent = image.cache_directory(create=create)
+    if parent is None:
+        return None
+    try:
+        return _open_cards(parent, create)
+    except (OSError, ValueError):
         return None
     finally:
         try:
@@ -263,7 +269,9 @@ def cache_write(url, data, final=None):
     one explicit budget (image.MAX_CACHE_ENTRIES / image.MAX_CACHE_BYTES)
     under one lock (the parent cache .lock): this writer counts both pools,
     evicts only its own oldest entries, and skips the write when image
-    payloads alone fill it.
+    payloads alone fill it. One retained parent fd pins the cards
+    subdirectory, the lock, and the usage scan to the same directory inode,
+    so a path swap between opens cannot split accounting from the write.
     """
     import fcntl
     import secrets
@@ -277,17 +285,16 @@ def cache_write(url, data, final=None):
     if (not 0 < len(data) <= MAX_HTML or len(stored) > image.MAX_CACHE_BYTES
             or image.MAX_CACHE_ENTRIES < 1):
         return
-    directory = cache_directory(create=True)
-    parent = lock = temporary_fd = None
+    parent = directory = lock = temporary_fd = None
     temporary = None
-    if directory is None:
-        return
     try:
-        # One shared lock: the parent cache .lock serializes image and card
-        # writers, so concurrent totals cannot exceed the shared budget.
-        parent = image.cache_directory()
+        # One shared lock on one retained parent fd: the cards directory,
+        # the lock, and the usage scan all derive from this fd, so concurrent
+        # writers serialize and a renamed parent cannot split them.
+        parent = image.cache_directory(create=True)
         if parent is None:
             return
+        directory = _open_cards(parent, True)
         lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
                        | os.O_CLOEXEC, 0o600, dir_fd=parent)
         image.cache_owned(os.fstat(lock))
@@ -357,7 +364,7 @@ def cache_write(url, data, final=None):
     except (OSError, ValueError):
         pass
     finally:
-        if temporary is not None and temporary_fd is not None:
+        if temporary is not None and temporary_fd is not None and directory is not None:
             try:
                 os.unlink(temporary, dir_fd=directory)
             except OSError:
