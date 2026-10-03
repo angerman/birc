@@ -4388,9 +4388,12 @@ handoff is implementation scope, not a request for another plan-only review.
   conflict, ask-first rule still applies).
 - Parent G6-sentinel fix in progress (uncommitted): `OutState` gains
   `seen` bit, `out_sentinel_ok` + law + demo `g66` guards (red
-  observed, now `cap_notify_demo=ok`); merged-tree proof re-run TIMED
-  OUT (124) under load avg 77-87 with 25 bend procs — retry with
-  timing in flight, no deadline change; not attributed to source.
+  observed, now `cap_notify_demo=ok`); merged-tree proof re-runs TIMED
+  OUT (124) under high load (avg 77-87, 25 bend procs; retry measured
+  real 3m0.5s user 1m16s sys 14.9s) — cause UNVERIFIED, no deadline
+  change. Wording correction: high load is context, not verified
+  causality. `--check-only` validation in flight; no proof-input
+  writes while exact-tree proof work runs.
 - I2-live P2 sent (queued): CHANMODES duplicate-letter rejection across
   combined classes via existing nodup helper; negative malformed
   readvertisement after withdrawal keeps `cm_known=false` + whole-tail
@@ -4409,6 +4412,23 @@ handoff is implementation scope, not a request for another plan-only review.
   H5-runtime (fraction exactness + disk IO/runtime) into the freed
   slot. Order: sentinel proof -> commit -> stage H5 -> proof ->
   commit -> spawn H5-runtime -> stage V6 -> proof -> commit.
+- V6 fixture review (parent): `connect_dual` is TCP-connect fallback
+  only (v6 -> v4 on TCP failure, socket+IP out, no TLS at that layer);
+  fixtures pin v6-wins-no-fallback, AAAA-then-A order, SNI carries DNS
+  hostname, wrong-host fails, owned loopback + synthetic certs with
+  bounded timeouts — no residual found; coordinator independently
+  reviews. Actor `dial_begin` generation-guarded wiring stays
+  integrator-owned (parent, after staging).
+- G3 inspection (owned worktree metadata only, no global args): HEAD
+  `1cf9028` 19:14, 16 dirty files, no src/tests writes in 25+ min BUT
+  `build/js` suite artifacts fresh at 20:38 (feed/diagnostic/dns JS
+  runs ≤13 min old) — active at a normal slow boundary under load, NOT
+  a stalled command; no cancellation. Four queued corrections await
+  consumption before return; no further queued notes.
+- Retained: lane1 unsafe stale/duplicate PONG acceptance blockers;
+  Session since dirty-changed so final review inspects current source.
+  All source commits retain proof provenance; no proof-input writes
+  while exact-tree proof work is in flight (docs-only commits OK).
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
