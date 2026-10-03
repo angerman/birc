@@ -15,6 +15,7 @@ TRANSPORT ?= tls
 PREFS_HELPER ?= birc-preferences
 BUILD_TIMEOUT ?= 300
 PROOF_TIMEOUT ?= 180
+PACKAGE_PLAN_TIMEOUT ?= 45
 
 ifeq ($(BIRC_NIX_SHELL),1)
 NIXRUN :=
@@ -517,7 +518,7 @@ build: build-proto build-ui ## Build protocol harness and TimUI client.
 .PHONY: build-package test-package test-keychain-package test-tls-package
 build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
+	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --option timeout 900 --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
 
 test-package: build-package ## Check installed helper overrides, local images, trust, and clean-environment startup.
 	$(NIXRUN) timeout 75 python3 tests/package.py ./$(BLDDIR)/package-birc
@@ -1360,7 +1361,12 @@ clean: ## Remove build artefacts (not sources or flake.lock).
 .PHONY: build-package-profiled test-package-build-profile
 build-package-profiled: ## Measure Nix codegen/native stages; separate package, not the default app cache.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file -L .\#birc-profiled --out-link $(BLDDIR)/package-birc-profiled
+	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --option timeout 900 --keep-failed --no-update-lock-file -L .\#birc-profiled --out-link $(BLDDIR)/package-birc-profiled
 
 test-package-build-profile: ## Default-off Nix timers preserve command order and fail-closed status.
-	$(NIXRUN) timeout 60 python3 tests/package_build_profile.py
+	$(NIXRUN) timeout 360 python3 tests/package_build_profile.py --eval-timeout $(PACKAGE_PLAN_TIMEOUT)
+
+.PHONY: test-bend-telemetry
+test-bend-telemetry: ## Offline compiler/Bun telemetry opt-out guards.
+	$(NIXRUN) timeout 15 python3 tests/bend_telemetry.py
+test-review-pure: test-bend-telemetry

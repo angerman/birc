@@ -197,12 +197,18 @@ make build-package
 ./build/package-birc/bin/birc --demo
 ```
 
-The installed package supplies its image and upload helpers. This bypasses
+The installed package supplies its image, upload, and preferences helpers. This bypasses
 Nix launch work; it does not fix a slow Nix store or daemon.
 
 `make build-package-profiled` reports coarse code-generation and native-compile
 times. Timers are off in the normal package. The profiled package is a separate
 build and does not populate the default app's cache.
+It also reports the owned code-generation process ID for scoped diagnostics.
+Failed profiled builds retain their temporary directory for inspection.
+Both package targets bound the Nix client and builder to 900 seconds.
+The recipe guard keeps its 45-second evaluation default; use
+`make test-package-build-profile PACKAGE_PLAN_TIMEOUT=300` for a bounded
+setup retry. Its six synthetic command-order and failure checks stay unchanged.
 
 ### 2. Offline Interactive Demo
 

@@ -3360,6 +3360,47 @@ Phase-1 evidence and handoff:
   startup archive admission/checkpointing, headless ordering, recovery auth,
   or preference/history/burst observers and bounded terminal cleanup. No
   independent proof kernel or full aggregate `make check` was run.
+- Core integration is committed as `df95f2c`; no push occurred. The profiled
+  package attempt stops at its 900-second limit with `codegen begin` as its
+  last stage marker, no completion/native marker, and clean cancellation
+  (`build/m27-profiled-package-measurement.log`). The default installed link
+  still points to M26 and lacks the preferences-helper default. Do not reuse
+  its older package checks as qualification of this source.
+- Scoped follow-up controls: pinned compiler startup with a fresh private
+  cache takes 0.85 seconds; the second pass takes 0.25 seconds. A separate
+  fresh-cache C-generation control reads the exact packaged source and finishes
+  in 51.27 seconds outside Nix. Its generated C hash
+  `2603d5dae14e54f802adc50c2b54307b232021db5bfecd48463e9714f5350f79`
+  exactly matches the file compiled into the final native app. No Clang or app
+  ran; `BEND_NO_TELEMETRY=1` disables version-check state/request. Imports are
+  local files and pinned Base. The default library-root metadata was not
+  isolated; future controls should set `BEND_LIB` to an owned empty directory.
+  These are separately
+  reported cold/warm controls, not an optimization comparison or a cache/sandbox
+  root-cause finding (`build/m27-compiler-startup-cold-control.log`,
+  `build/m27-cold-store-source-codegen-control.log`).
+- The compiler wrapper set Bun's `DO_NOT_TRACK` but not Bend's recognized
+  `BEND_NO_TELEMETRY` flag. The additional explicit opt-out has offline RED/
+  GREEN source/shell guards and prevents Bend's version-check state/request.
+  Its three-second request limit is not evidence for the package timeout's
+  cause. The changed provisioned wrapper requires a shell reload; the captured
+  wrapper can use the explicit flag while qualification continues.
+- Both package targets now have independent 900-second client/builder bounds,
+  with positive/negative deadline guards. The opt-in profile reports the owned
+  Bend PID and waits for that exact child; default command execution is unchanged.
+  Offline recipe evaluation also exceeded 45 seconds. An explicit bounded
+  300-second retry reaches all six unchanged synthetic ordering/failure cases;
+  they pass with the new PID/wait branch. The ordinary 45-second setup limit
+  remains, and nonpositive/oversized overrides are rejected. Evidence:
+  `build/m27-package-profile-pid-bounded-retry.log` and
+  `build/m27-profile-timeout-refusal.log`. The next measured package attempt can
+  sample only its reported owned PID; never inspect global command lines.
+- The final six-case guard also validates one positive numeric compiler PID per
+  profiled arm (`build/m27-package-profile-final-pid-guards.log`). Standard proof
+  passes again before committing the diagnostics
+  (`build/m27-pre-build-diagnostics-commit-proof.log`). The profiled target keeps
+  failed temporary directories so its generated-C state can be inspected if
+  it times out. No app source changed after terminal qualification.
 
 Before completion: freeze agent edits, run fresh proof and relevant pure/native
 checks, build the app, pass changed/new PTY guards three consecutive times,

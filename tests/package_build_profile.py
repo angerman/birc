@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """Evaluate pinned build recipes; run only synthetic compiler functions."""
+import argparse
 import json
 import re
 import subprocess
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--eval-timeout", type=int, default=45)
+args = parser.parse_args()
+if not 1 <= args.eval_timeout <= 300:
+    parser.error("evaluation timeout must be 1..300 seconds")
 
 
 expression = '''
@@ -13,9 +21,9 @@ let
 in { plain = packages.birc.buildPhase; timed = packages.birc-profiled.buildPhase; }
 '''
 result = subprocess.run(
-    ["nix", "--extra-experimental-features", "nix-command flakes", "eval",
+    ["nix", "--extra-experimental-features", "nix-command flakes", "--offline", "eval",
      "--no-update-lock-file", "--impure", "--json", "--expr", expression],
-    capture_output=True, timeout=45, check=True,
+    capture_output=True, timeout=args.eval_timeout, check=True,
 )
 phases = json.loads(result.stdout)
 assert "birc-build" not in phases["plain"], "ordinary build enabled timers"
@@ -42,6 +50,9 @@ clang() {{ printf 'synthetic-native\\n'; [ '{fail}' != clang ] || return 66; }}
         else:
             lines = got.stderr.decode().splitlines()
             assert lines[0] == "birc-build stage=codegen begin"
+            pids = [line for line in lines if "stage=codegen pid=" in line]
+            assert len(pids) == 1 and re.fullmatch(
+                r"birc-build stage=codegen pid=[1-9][0-9]*", pids[0])
             completed = re.findall(r"stage=(codegen|native) elapsed_s=\d+", got.stderr.decode())
             assert completed == {"none": ["codegen", "native"], "bend": [], "clang": ["codegen"]}[fail]
             assert ("birc-build stage=native begin" in lines) is (fail != "bend")

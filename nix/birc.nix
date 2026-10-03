@@ -29,7 +29,14 @@ in stdenv.mkDerivation {
       birc_stage_started=$SECONDS
       printf 'birc-build stage=codegen begin\n' >&2
     ''}
-    bend src/bend/app.bend -o birc_bend.c
+    ${if profileBuild then ''
+      bend src/bend/app.bend -o birc_bend.c &
+      birc_codegen_pid=$!
+      printf 'birc-build stage=codegen pid=%s\n' "$birc_codegen_pid" >&2
+      wait "$birc_codegen_pid"
+    '' else ''
+      bend src/bend/app.bend -o birc_bend.c
+    ''}
     ${lib.optionalString profileBuild ''
       printf 'birc-build stage=codegen elapsed_s=%s\n' "$((SECONDS - birc_stage_started))" >&2
       birc_stage_started=$SECONDS

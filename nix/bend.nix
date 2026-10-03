@@ -19,6 +19,8 @@ writeShellApplication {
     export CC="''${CC:-${clang}/bin/clang}"
     export BUN_INSTALL_CACHE_DIR="''${TMPDIR:-/tmp}/birc-bun-cache"
     export BUN_RUNTIME_TRANSPILER_CACHE_PATH="''${TMPDIR:-/tmp}/birc-bun-cache/transpiler"
+    # Bend's version check has a separate opt-out from Bun's crash telemetry.
+    export BEND_NO_TELEMETRY=1
     export DO_NOT_TRACK=1
     exec bun run "${bend-src}/bend2/main.ts" "$@"
   '';
