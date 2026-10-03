@@ -4280,6 +4280,10 @@ handoff is implementation scope, not a request for another plan-only review.
   FIRST-priority (spawn rejected `root_capacity_exhausted`; retry with
   a fresh command ID on the next free slot — the burned ID must not be
   reused). Mandatory isolation/privacy gate, not expanded scope.
+- I2-third returned `52582d4` (worker reports `cm_known` certainty +
+  PREFIX-subset intersection + guards); pending parent I2d/I2c-life
+  review before integration. Freed slot went to `fix-sessws-s1s5/30`
+  (`01a1017c-dc85-7701-a06f-980b059bfa66`) on `b04f759`.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
