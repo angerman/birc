@@ -4324,6 +4324,19 @@ handoff is implementation scope, not a request for another plan-only review.
   H5 disk IO/runtime, N9 View/async (+seed note); SessWS30 + C8session29
   own theirs. IPv6 `connect_dual` must actually precede TLS in Actor,
   never fallback on arbitrary TLS verification failure.
+- PROCESS GATE (unqualified marks): G6 picks `ac12b39`/`1d5239f`/
+  `5322e2f`/`d3592d6`, N9 picks `deb97e3`/`d3cfb0b`/`35720b9`/`4b7e0d0`/
+  `dce75ca`, I2 picks `fb0cb5a`/`c3394dc`/`68d97cb`/`ab3a2bf` remain as
+  source commits but are UNQUALIFIED until bounded `PROOF.bend` passes
+  on the exact merged tree; no reset. Future integrations use
+  `cherry-pick -n`/stage + bounded proof on the staged merge, then
+  commit. No stale baseline native/PTY or cached old package counts as
+  final qualification. Toolchain: bend derivation
+  `jdg69smprgzqs0qi54b40g915x0r8cxb` GC'd (reviewer 127 + local
+  confirm); reprovisioned locked shell yields
+  `/nix/store/vp83vc93fd31ykls5x39mjac3xjh08mw-bend`; captured runner
+  regeneration in progress; `bend --version` is not a flag (use
+  `bend --help` + real runs for verification).
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
