@@ -4462,12 +4462,23 @@ handoff is implementation scope, not a request for another plan-only review.
   candidate roundtrip on capable host. Improved resolver/TC/SNI kept;
   Actor fallback/stale-gen still pending (parent, after staging).
 - G3 return reviewed (`815f1eb`/`e8c8b26`/`00c026b`/`4e209fd`/
-  `bd6b6be` on `repair-g3`): media-boundary fix consumed (visible-text
-  scan), but NONE of the four queued corrections consumed (no
-  mention-decode, no mode/key normalization, no credential_echo, no
-  JoinPlan touch) — NOT accepted. Fresh `repair-g3b/34` launched on
-  `bd6b6be` with all four in its INITIAL task (tests-first, framed
-  Feed/history regressions mandatory).
+  `bd6b6be` on `repair-g3`): independent immutable re-review confirms
+  ALL FIVE blockers remain (Commands/Submit/Media/JoinPlan/Buffer
+  hashes identical to defective snapshot; client MODE cleanup runs
+  AFTER key classification) — parent media-consumed credit WITHDRAWN.
+  NOT merged as qualified. `repair-g3b/34` (four cases) cancelled and
+  respun as `repair-g3c` with ALL FIVE in its INITIAL task: (1) framed
+  MODE+324 styled flags/channels never persist key (normalize BEFORE
+  predicate); (2) styled self author + IDENTI<02>FY echoes silent,
+  peer IDENTIFY stays; (3) media same boundary-aware URL runs as
+  View/open (no SOH glue/infixed autofetch, genuine styled image
+  works); (4) decoded-text mentions (m<02>e hit, me<02>ow nohit,
+  color/reset pairs); (5) styled self-KICK clears membership + rejoin
+  intent, peer kick preserves. One shared seam; framed guards only.
+- Slot plan confirmed: V6/G3 freed slots to H5-runtime + fresh G3
+  repair; parent owns G6/V6 live integration (Caps/OutState Session
+  wiring + sentinel law already staged; Actor `dial_begin`
+  generation-guarded `connect_dual` before TLS after V6 staging).
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
