@@ -4075,6 +4075,8 @@ handoff is implementation scope, not a request for another plan-only review.
   I2.1-I2.6/PREFIX/324 gates before integration. N9 worker admitted into
   the freed slot: `main/fix-n9-return/15`
   (`01a10140-badb-7551-a7a7-bf6e55680c5b`) on `2b1033d` (pool 8/8 again).
+  `fix-l1t-trace` = `main/fix-l1t-trace/16`
+  (`01a10144-754c-7822-90e2-122468ef3e98`) on `cb4e99f`.
 - Proof gate diagnosis (D-repair commit blocked): plain `make proof`
   timed out at 180s under load 44; `--verdict` is unavailable (Lean
   kernel not in PATH — not a proof failure). Lane4's own 10 drafts laws
