@@ -3997,6 +3997,127 @@ handoff is implementation scope, not a request for another plan-only review.
   do not add atomics/locks speculatively. Commit correct default-off
   instrumentation, measure valid phase splits, then
   hypothesize/fix/re-measure per AGENTS performance rules.
+- Lane1 final trace guards (T5): short writes/errors currently ignored
+  while `seq` advances; EINTR retry is unbounded. Require finite
+  short-write/EAGAIN/EINTR injection handling and reject backwards
+  64-bit times including 10->8ms (`net_trace.py:138` presently permits
+  backwards under 60000).
+- Lane2 `e705405` return-review gates (I2.1-I2.6): `-TOKEN` removal
+  missing; `STATUSMSG=` cannot clear; wrong-recipient 005 alters policy;
+  strip removes interior prefix symbols (`a^b`->`ab` with `PREFIX=(o)^`,
+  `a^^` gains `o`) rather than only the leading run; `CHANTYPES=$` makes
+  `is_channel` true but `join_admit` via fixed `Channels.valid` rejects
+  `$room`. Require minimal hostile/legitimate guards before acceptance.
+  Docs note: modern `rfc1459-strict` is current standard;
+  legacy `strict-rfc1459` alias compatibility is optional, not a wrong
+  spelling. Numeric 324 redaction needs recipient-aware offsets before
+  integrating. Final hashes/details follow.
+- Native follow-ups launched (pool had 3 free): `fix-g6-return`
+  (G6.1-G6.4 on `cbf6f1a`, cap_notify/auth/client only) and
+  `feat-ipv6-transport` (socket/DNS/TLS adapters, transport/FFI/actor/DNS
+  only). Handles: `fix-g6-return` = `main/fix-g6-return/10`
+  (`01a10130-ed7c-7981-8699-58e9245efd25`); `feat-ipv6-transport` =
+  `main/feat-ipv6-transport/11`
+  (`01a10130-f37d-7881-a004-64b8c3c24f6c`) — messageable for follow-ups.
+  `fix-i2-return` = `main/fix-i2-return/12`
+  (`01a10134-cc78-7870-bd94-07a55f332cae`).
+  `fix-h5-return` = `main/fix-h5-return/13`
+  (`01a10135-bce3-7220-a6aa-cd3febcae324`) on `e8b66b3`;
+  `fix-c8-return` = `main/fix-c8-return/14`
+  (`01a10135-c05b-7a31-b87f-3a5a305a70d9`) on `4b6bfee`.
+  Parent keeps D1-D6 and Session/Workspace wiring.
+- Lane1 return gates (L1.1-L1.5, all read-only verified): (L1.1)
+  `nix/birc.nix:25-43` unconditionally emits stage timers in the default
+  `buildPhase`. Preserve default-off instrumentation. (L1.2) flake
+  removes `birc-profiled` (no `profiled` reference left). Preserve the
+  separate opt-in profiled path. (L1.3)
+  `tests/package_build_profile.py:30-32` flips guards to assert timers in
+  the default package ("must stay merged into default"). Do not change
+  existing tests to waive this requirement. (L1.4) Makefile
+  `PACKAGE_PLAN_TIMEOUT` 45→180 (parent baseline is 45). Restore the
+  unchanged deadline; diagnose/measure the eval path instead. (L1.5)
+  Makefile redirects `nix-load-warn.sh` stderr to `/dev/null`,
+  suppressing its only warning, and the script infers daemon scheduling
+  loss solely from host load. Retract that root-cause claim; do not
+  substitute a load warning for fixing/qualifying the measured package
+  stall. Full details follow.
+- Lane9 final gates (N9.4-N9.7, return commit `2b1033d`): (N9.4)
+  `notify-send` needs `--` before title/body (`Req{--help,B}` must stay
+  literal operands). (N9.5) suffix helper-name matching admits
+  `x-notify-send`/`notosascript` against the unknown-helper contract:
+  compare exact basename. (N9.6) theme duplicates default kind/status
+  palettes and the status branch tree in View: one canonical
+  table/selector with fixed-value guards. (N9.7) incoming Feed → BIRC2
+  load → production renderer emoji/style/source/URL roundtrip plus
+  provisioned async desktop delivery stay required. N9 repair routes to
+  a native worker when capacity frees (pool 8/8; queued after G6/H5/C8/
+  I2/IPv6).
+- Lane1 checkpoint `cb4e99f` is NOT an accepted package: all reviewed L1/T
+  defects remain, plus final gates (verified): new build-package driver
+  omits prior profiled `-L`/`--keep-failed`, hiding live stage marks and
+  dropping retained failure evidence; `test-nix-eval-profile` omits
+  `--full`, measuring only config/trivial/store queries while
+  `app_program`/`develop_true` stay gated; `run_phase` discards stderr
+  (`out, _`), buffers without a byte cap, and prints `nix_eval=ok` even
+  on failure/timeout. `develop_true` includes realization, not eval-only:
+  label it correctly, separate actual phases, keep bounded failure
+  evidence, never infer package success from trivial probes. Positive:
+  no `flake.lock`/bend pin move or binary shortcut found. N9 spawn
+  attempt rejected (`root_capacity_exhausted`): lane1's agent still
+  occupies its slot (running), so no slot actually freed — retry N9 with
+  a fresh command ID on the next real return; when G3 returns, admit the
+  L1/T instrumentation+measurement repair owner (else parent does it as
+  the single heavy lane after runtime integration). Measured root-cause
+  and successful integrated default package/prebuild gates stay open;
+  diagnostics are never completion.
+- I2 repair returned `f672365` (5 files, +453/−21, 9 new laws, worker
+  reports proof green in its worktree); pending parent review against
+  I2.1-I2.6/PREFIX/324 gates before integration. N9 worker admitted into
+  the freed slot: `main/fix-n9-return/15`
+  (`01a10140-badb-7551-a7a7-bf6e55680c5b`) on `2b1033d` (pool 8/8 again).
+- Proof gate diagnosis (D-repair commit blocked): plain `make proof`
+  timed out at 180s under load 44; `--verdict` is unavailable (Lean
+  kernel not in PATH — not a proof failure). Lane4's own 10 drafts laws
+  passed in 46.8s in their worktree, so the timeout is load-suspect, not
+  predicate-suspect. Measuring one timed plain run before any other
+  conclusion; the 180s deadline stays unchanged.
+- Proof green on retry: `ALL PROOFS CHECK`, real 149s / user 83s — the
+  earlier 180s timeout was pool-load-induced (load 44, real >> user), not
+  a predicate defect. Deadline unchanged; margin is thin under a full
+  pool, so final qualification re-runs proof on a quieter machine.
+- C8 repair returned (`2e8f10f1` helper + `567b62d1` policy/laws, worker
+  reports scoped guards green); pending parent review against C8.1-C8.6
+  before integration. Freed slot goes to the L1/T
+  instrumentation+measurement repair owner now (scope is fully specified
+  and orthogonal) instead of waiting for G3.
+- Lane2 final gates (hashes verified: source `c408c3a8…5d418`, tests
+  `922b2be4…6cb51`, `0263accc…4d47e`): `PREFIX=(oo)@+` passes validation
+  (equal lengths, letters/symbols) and creates a non-inverse mapping
+  (`mode_for(+) = o` but `sigil_for(o) = @` via first-match `index_of`).
+  Reject duplicate modes or sigils, retain the previous valid setting;
+  accept unique `(ov)@+`. Earlier `-TOKEN`/empty-`STATUSMSG`
+  /wrong-recipient/interior-sigil/advertised-`CHANTYPES` gates stand.
+  Integrating `chan_target` must preserve an exact resident `+#room`
+  before `STATUSMSG` fallback; use negotiated casemapping consistently
+  for all buffer/roster/draft identities.
+- Architecture guard (applied): `server_id` imports Session and the
+  repaired Drafts needs server identity, so a naive
+  Session→Drafts→server_id→Session cycle must not become the design.
+  Identity types live below Session in leaf `server_key.bend` (no
+  imports); `server_id` routing wrappers and Drafts reuse that one
+  canonical identity type; Workspace/top-level adapters own routing
+  integration. No duplicated identity types, no new framework.
+- Draft focus/endpoint integration gates (D7-D8, central wiring): (D7)
+  `focus` preserves rejected typed text but returns no admission signal;
+  tab/click/split wiring must keep the old active buffer on a rejected
+  save or the old composer can be sent in the new room. Pure module
+  exports the shared `focus_admits` check; Session moves focus only when
+  it admits. Require negative over-byte/over-line/full-store
+  active-buffer+composer preservation and positive successful-switch
+  guards. (D8) clear ServerId-scoped drafts on endpoint/slot replacement
+  via `replace_endpoint`, retaining same-endpoint reconnect drafts;
+  ServerId alone is not an endpoint identity. Pure text-preservation
+  behavior itself is not claimed broken.
 
 ## Open decisions (resolve in M0/M4)
 
