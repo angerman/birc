@@ -36,10 +36,15 @@ def has_del.go(s: String) -> Bool:
 def has_del(+s: String) -> Bool:
   has_del.go(s)
 
+# Cards are public-HTTPS only, like the helper's initial and redirect policy.
+# Plaintext pages never schedule; plaintext thumbnails stay text-only below.
+def is_https(+s: String) -> Bool:
+  String.starts_with(s, "https://")
+
 # Pure subset of the helper checks. Image URLs stay on the media worker;
 # the helper enforces ports, credentials, content type, and size fail-closed.
 def eligible_url(+url: String) -> Bool:
-  Links.is_url_prefix(url) && Bool.not(M.auto_url(url))
+  is_https(url) && Bool.not(M.auto_url(url))
     && Bool.not(String.is_empty(url)) && Nat.is_le(String.length(url), URL_MAX())
     && Bool.not(has_del(url))
 
@@ -88,10 +93,11 @@ def field_at(xs: List<&2, String>, +n: Nat) -> String:
         case 0n: h
         case 1n+p: field_at(t, p)
 
-# A card thumbnail reference must be absolute HTTP(S); anything else stays a
+# A card thumbnail reference must be absolute HTTPS; anything else stays a
 # text-only card. Empty means no thumbnail, never a raw-file fallback.
+# Overlong references are rejected, never truncated to a different URL.
 def clean_image(+url: String) -> String:
-  Bool.pick(String, Links.is_url_prefix(url) && Nat.is_le(String.length(url), URL_MAX())
+  Bool.pick(String, is_https(url) && Nat.is_le(String.length(url), URL_MAX())
     && Bool.not(has_del(url)), url, "")
 
 # The helper prints title, description, image on three sanitized single lines.
@@ -433,29 +439,18 @@ def known_urls(state: State, +target: Target) -> List<&2, String>:
       List.append(&2, String, urls_ready(ready, target), List.append(&2, String,
         urls_active(active, target, gen), urls_pending(pending, target, gen)))
 
-def observe_line.pick(hit: Bool, +state: State, id: Nat, text: String) -> State:
-  match hit:
-    case False{}: state
-    case True{}: enqueue_urls(targets(text), state, CardInline{id})
-
-def observe_lines(xs: List<&2, Cl.Line>, state: State, +after: Nat) -> State:
-  match xs:
-    case Nil{}: state
-    case Con{Cl.Line{kind, _, text, _, +id}, tail}:
-      observe_lines(tail, observe_line.pick(Nat.is_gt(id, after) && M.live_kind(kind), state, id, text), after)
-
-def observe_bufs(bufs: List<&2, Cl.Buffer>, state: State, +after: Nat) -> State:
-  match bufs:
-    case Nil{}: state
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, tail}: observe_bufs(tail, observe_lines(lines, state, after), after)
-
-def observe.pick(online: Bool, +state: State, +client: Cl.Client, after: Nat) -> State:
+# Scheduling consumes bounded visible candidates only (visible_candidates):
+# exact panes, rows, mutes, anchors, eligibility, and media exclusion are
+# settled there. There is no all-buffer scan; unlisted buffers never schedule.
+# Integrator: replace the old (client, after, online) call with
+# observe(state, client, visible_candidates(client, rows, cols, split, media), online).
+def observe.pick(online: Bool, +state: State, +client: Cl.Client, +candidates: List<&2, Candidate>) -> State:
   match online:
     case False{}: maintain(state, client)
-    case True{}: observe_bufs(Cl.client_bufs(client), maintain(state, client), after)
+    case True{}: enqueue_candidates(candidates, maintain(state, client))
 
-def observe(state: State, +client: Cl.Client, after: Nat, online: Bool) -> State:
-  observe.pick(online, state, client, after)
+def observe(+state: State, +client: Cl.Client, +candidates: List<&2, Candidate>, online: Bool) -> State:
+  observe.pick(online, state, client, candidates)
 
 # ---- View adapters (synthetic rows only; Client and history stay raw) ----
 
@@ -596,6 +591,25 @@ def close(+fs: Fullscreen) -> Fullscreen:
   match fs:
     case FullOff{}: FullOff{}
     case FullOn{_, _, _}: FullOff{}
+
+# Paint must re-validate the stored token against current Media state before
+# emitting it. Disable/reset/eviction clear ready rows (M.reset and
+# M.set_enabled both drop them, and every generation bump clears ready), so a
+# token mismatch closes those; M.alive closes endpoint or source removal; and
+# M.supported closes terminal-capability loss. Integrator: call maintain_full
+# with the live Media state and Client on every frame before fullscreen_ops.
+def maintain_full.keep(ok: Bool, +fs: Fullscreen) -> Fullscreen:
+  match ok:
+    case True{}: fs
+    case False{}: FullOff{}
+
+def maintain_full(+fs: Fullscreen, +media: M.State, +client: Cl.Client) -> Fullscreen:
+  match fs:
+    case FullOff{}: FullOff{}
+    case FullOn{+target, +url, +token}:
+      maintain_full.keep(M.supported(media) && Bool.not(U32.is_zero(token))
+        && U32.is_eq(M.token(media, target, url), token) && M.alive(client, target, url),
+        FullOn{target, url, token})
 
 def is_open(fs: Fullscreen) -> Bool:
   match fs:

@@ -60,10 +60,21 @@ def long_title() -> String:
 def overlong() -> String:
   "https://x.test/" ++ long_title() ++ long_title() ++ long_title() ++ long_title() ++ long_title() ++ long_title() ++ long_title() ++ long_title()
 
+def exact1024() -> String:
+  String.take(overlong(), 1024n)
+
+def over1025() -> String:
+  String.take(overlong(), 1025n)
+
+def many(+n: Nat) -> List<&2, C.Candidate>:
+  match n:
+    case 0n: Nil{}
+    case 1n+p: C.Candidate{C.CardInline{n}, "https://x.test/o" ++ Nat.show(n)} <> many(p)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("page URL eligible", C.eligible_url(page()))
-    Unit <- E.must("http page eligible", C.eligible_url("http://example.test/post?id=1#part"))
+    Unit <- E.must("http page rejected", Bool.not(C.eligible_url("http://example.test/post?id=1#part")))
     Unit <- E.must("query page eligible", C.eligible_url("https://example.test/no-image?name=photo.png"))
     Unit <- E.must("image URL not a card", Bool.not(C.eligible_url(image())))
     Unit <- E.must("image query not a card", Bool.not(C.eligible_url("https://example.test/photo.JPEG?token=exact")))
@@ -72,6 +83,9 @@ def main() -> IO(Unit):
     Unit <- E.must("overlong fixture exceeds bound", Nat.is_gt(String.length(overlong()), 1024n))
     Unit <- E.must("overlong URL not eligible", Bool.not(C.eligible_url(overlong())))
     Unit <- E.must("DEL rejected", Bool.not(C.eligible_url("https://x.test/re" ++ SCon{Chr{127}, "ad"})))
+    Unit <- E.must_eq("exact-1024 length", Nat.show(String.length(exact1024())), "1024")
+    Unit <- E.must("exact-1024 page eligible", C.eligible_url(exact1024()))
+    Unit <- E.must("1025 page rejected", Bool.not(C.eligible_url(over1025())))
     Unit <- E.must_eq("page extracted", String.join(C.targets("see " ++ page() ++ " now"), "|"), page())
     Unit <- E.must_eq("image excluded from targets", String.join(C.targets("see " ++ image() ++ " now"), "|"), "")
     Unit <- E.must_eq("mixed keeps page only", String.join(C.targets(image() ++ " " ++ page()), "|"), page())
@@ -87,7 +101,10 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("title truncates to 128", Nat.show(String.length(C.fields_title(C.parse(long_title() ++ long_title() ++ "\nd\n")))), "128")
     Unit <- E.must_eq("desc truncates to 256", Nat.show(String.length(C.fields_desc(C.parse("t\n" ++ long_title() ++ long_title() ++ long_title() ++ "\n")))), "256")
     Unit <- E.must_eq("non-http image dropped", C.fields_image(C.parse("t\nd\nfile:///tmp/i.png")), "")
+    Unit <- E.must_eq("http image dropped", C.fields_image(C.parse("t\nd\nhttp://example.test/i.png")), "")
     Unit <- E.must_eq("overlong image dropped", C.fields_image(C.parse("t\nd\n" ++ overlong())), "")
+    Unit <- E.must_eq("exact-1024 image preserved", C.fields_image(C.parse("t\nd\n" ++ exact1024())), exact1024())
+    Unit <- E.must_eq("1025 image dropped", C.fields_image(C.parse("t\nd\n" ++ over1025())), "")
     Unit <- E.must_eq("queue bound", Nat.show(C.pending_count(fill(12n, C.initial(True{})))), "8")
     Unit <- E.must("bounded queue", C.bounded(fill(12n, C.initial(True{}))))
     Unit <- E.must("full manual queue reported", C.manual_saturated(fill(12n, C.initial(True{})), "https://x.test/manual"))
@@ -111,9 +128,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("dropped line purges ready state", Nat.show(C.ready_count(C.maintain(C.complete(active(), client(), 1n, 1n, page(), "T\nD\n"), Cl.init("me", "s")))), "0")
     +query : Cl.Client = Feed.feed(Cl.init("me", "s"), ":alice!u@h PRIVMSG me :see " ++ page())
     Unit <- E.must_eq("query rename retains stable-ID ready entry", Nat.show(C.ready_count(C.maintain(C.complete(active(), query, 1n, 1n, page(), "T\nD\n"), Feed.feed(query, ":alice!u@h NICK :bob")))), "1")
-    Unit <- E.must_eq("historical IDs do not schedule", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), 1n, True{}))), "0")
-    Unit <- E.must_eq("offline IDs do not schedule", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), 0n, False{}))), "0")
-    Unit <- E.must_eq("fresh live ID schedules", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), 0n, True{}))), "1")
-    Unit <- E.must_eq("LinkResult cannot recurse", Nat.show(C.pending_count(C.observe(C.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.LinkResult{}, "", page(), "", 1n}]), 0n, True{}))), "0")
-    Unit <- E.must_eq("only chat event kinds allowed", Nat.show(C.pending_count(C.observe(C.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Notice{}, "", page(), "", 1n}, Cl.Line{Cl.Error{}, "", page(), "", 2n}, Cl.Line{Cl.System{}, "", page(), "", 3n}, Cl.Line{Cl.Action{}, "", page(), "", 4n}, Cl.Line{Cl.Self{}, "", page(), "", 5n}, Cl.Line{Cl.Highlight{}, "", page(), "", 6n}]), 0n, True{}))), "3")
+    Unit <- E.must_eq("unlisted buffers never schedule", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), Nil{}, True{}))), "0")
+    Unit <- E.must_eq("visible candidate schedules", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), [C.Candidate{C.CardInline{1n}, page()}], True{}))), "1")
+    Unit <- E.must_eq("offline candidates do not schedule", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), [C.Candidate{C.CardInline{1n}, page()}], False{}))), "0")
+    Unit <- E.must_eq("offline observe purges dead ready", Nat.show(C.ready_count(C.observe(C.complete(active(), client(), 1n, 1n, page(), "T\nD\n"), Cl.init("me", "s"), Nil{}, False{}))), "0")
+    Unit <- E.must_eq("http candidate rejected", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), [C.Candidate{C.CardInline{1n}, "http://example.test/read"}], True{}))), "0")
+    Unit <- E.must_eq("image candidate rejected", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), [C.Candidate{C.CardInline{1n}, image()}], True{}))), "0")
+    Unit <- E.must_eq("duplicate candidates schedule once", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), [C.Candidate{C.CardInline{1n}, page()}, C.Candidate{C.CardInline{1n}, page()}], True{}))), "1")
+    Unit <- E.must_eq("candidates capped at eight", Nat.show(C.pending_count(C.observe(C.initial(True{}), client(), many(10n), True{}))), "8")
     IO.print("cards_policy=ok")

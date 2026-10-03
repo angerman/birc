@@ -1168,6 +1168,24 @@ def Laws.cards_image_urls_excluded():
 def Laws.cards_page_urls_eligible():
   {==}
 
+def Laws.cards_http_rejected():
+  {==}
+
+def Laws.cards_http_image_dropped():
+  {==}
+
+def Laws.cards_observe_ignores_unlisted_buffers():
+  {==}
+
+def Laws.cards_observe_schedules_visible_candidate():
+  {==}
+
+def Laws.cards_fullscreen_closes_when_unsupported():
+  {==}
+
+def Laws.cards_fullscreen_closes_on_eviction():
+  {==}
+
 def Laws.cards_code_opaque():
   {==}
 

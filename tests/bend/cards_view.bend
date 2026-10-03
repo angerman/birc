@@ -79,6 +79,15 @@ def set_named(+cl: Cl.Client, name: String) -> Cl.Client:
 def ready_media() -> M.State:
   M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/a.png", 7}], M.Supported{}}
 
+def card_client() -> Cl.Client:
+  Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])
+
+def retokened() -> M.State:
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/a.png", 9}], M.Supported{}}
+
+def relocated() -> M.State:
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/other.png", 7}], M.Supported{}}
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("full card paints three rows", Nat.show(List.length(&2, V.BodyRow, C.rows_for(full_card(), 80))), "3")
@@ -109,6 +118,11 @@ def main() -> IO(Unit):
     +split : Cl.Client = Feed.feed(Feed.feed(channel("#a"), ":me!u@h JOIN #b"), ":alice!u@h PRIVMSG #a :see https://x.test/pa")
     +split_both : Cl.Client = Feed.feed(split, ":bob!u@h PRIVMSG #b :see https://x.test/pb")
     Unit <- E.must_eq("split panes admit both", Nat.show(List.length(&2, C.Candidate, C.visible_candidates(split_both, 24, 80, Sp.On{Sp.SideBySide{}, "#a", "#b", 0}, M.empty()))), "2")
+    +nonchat : Cl.Client = Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.LinkResult{}, "", page(), "", 1n}, Cl.Line{Cl.Notice{}, "", page(), "", 2n}, Cl.Line{Cl.Error{}, "", page(), "", 3n}, Cl.Line{Cl.System{}, "", page(), "", 4n}])
+    Unit <- E.must_eq("non-chat rows never schedule", cand_shape(C.visible_candidates(nonchat, 24, 80, Sp.Off{}, M.empty())), "")
+    +mixed : Cl.Client = Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Notice{}, "", page(), "", 1n}, Cl.Line{Cl.Error{}, "", page(), "", 2n}, Cl.Line{Cl.System{}, "", page(), "", 3n}, Cl.Line{Cl.Action{}, "", page(), "", 4n}, Cl.Line{Cl.Self{}, "", page(), "", 5n}, Cl.Line{Cl.Highlight{}, "", page(), "", 6n}])
+    Unit <- E.must_eq("only chat rows schedule", cand_shape(C.visible_candidates(mixed, 24, 80, Sp.Off{}, M.empty())), "6:" ++ page() ++ "|5:" ++ page() ++ "|4:" ++ page())
+    Unit <- E.must_eq("plaintext rows never schedule", cand_shape(C.visible_candidates(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see http://example.test/read", "alice", 1n}]), 24, 80, Sp.Off{}, M.empty())), "")
     Unit <- E.must_eq("closed paints nothing", ops_shape(C.fullscreen_ops(24, 80, C.FullOff{})), "")
     Unit <- E.must_eq("zero token paints nothing", ops_shape(C.fullscreen_ops(24, 80, C.FullOn{M.Inline{1n}, "https://x.test/a.png", 0})), "")
     Unit <- E.must("unsupported terminal stays closed", Bool.not(C.is_open(C.open(M.set_supported(ready_media(), False{}), M.Inline{1n}, "https://x.test/a.png"))))
@@ -120,6 +134,16 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("overlay covers body", ops_shape(C.fullscreen_ops(24, 80, full)), "box:0,1,62,21;media:1,2,60,19,0,19,7;")
     Unit <- E.must_eq("tiny overlay covers body", ops_shape(C.fullscreen_ops(5, 10, full)), "box:0,1,5,2;media:1,1,3,2,0,2,7;")
     Unit <- E.must("close returns to chat", Bool.not(C.is_open(C.close(full))))
+    Unit <- E.must("retained token stays open", C.is_open(C.maintain_full(full, ready_media(), card_client())))
+    Unit <- E.must_eq("retained token paints", ops_shape(C.fullscreen_ops(24, 80, C.maintain_full(full, ready_media(), card_client()))), "box:0,1,62,21;media:1,2,60,19,0,19,7;")
+    Unit <- E.must("unsupported terminal closes", Bool.not(C.is_open(C.maintain_full(full, M.set_supported(ready_media(), False{}), card_client()))))
+    Unit <- E.must("reset closes", Bool.not(C.is_open(C.maintain_full(full, M.reset(ready_media()), card_client()))))
+    Unit <- E.must("disable closes", Bool.not(C.is_open(C.maintain_full(full, M.set_enabled(ready_media(), False{}), card_client()))))
+    Unit <- E.must("eviction closes", Bool.not(C.is_open(C.maintain_full(full, M.initial(True{}), card_client()))))
+    Unit <- E.must("retoken closes", Bool.not(C.is_open(C.maintain_full(full, retokened(), card_client()))))
+    Unit <- E.must("relocated source closes", Bool.not(C.is_open(C.maintain_full(full, relocated(), card_client()))))
+    Unit <- E.must("removed source closes", Bool.not(C.is_open(C.maintain_full(full, ready_media(), Cl.init("me", "s")))))
+    Unit <- E.must("closed stays closed", Bool.not(C.is_open(C.maintain_full(C.FullOff{}, ready_media(), card_client()))))
     Unit <- E.must_eq("cards need no image protocol", Nat.show(C.pending_count(C.enqueue(C.initial(True{}), C.CardInline{1n}, page()))), "1")
     Unit <- E.must_eq("card opt-out is silent", Nat.show(C.pending_count(C.enqueue(C.initial(False{}), C.CardInline{1n}, page()))), "0")
     IO.print("cards_view=ok")

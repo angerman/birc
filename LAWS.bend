@@ -892,13 +892,31 @@ law draft_control_query_coexist:
   {Drafts.coexist_ok() == True{} : Bool}
 # Cards are bounded, text-universal link previews; fullscreen reuses media tokens.
 law cards_queue_capped:
-  {Cards.pending_count(Cards.enqueue_urls(["http://x/1", "http://x/2", "http://x/3", "http://x/4", "http://x/5", "http://x/6", "http://x/7", "http://x/8", "http://x/9"], Cards.initial(True{}), Cards.CardInline{1n})) == 8n : Nat}
+  {Cards.pending_count(Cards.enqueue_urls(["https://x/1", "https://x/2", "https://x/3", "https://x/4", "https://x/5", "https://x/6", "https://x/7", "https://x/8", "https://x/9"], Cards.initial(True{}), Cards.CardInline{1n})) == 8n : Nat}
 
 law cards_image_urls_excluded:
   {Cards.eligible_url("https://example.test/a.png") == False{} : Bool}
 
 law cards_page_urls_eligible:
   {Cards.eligible_url("https://example.test/read") == True{} : Bool}
+
+law cards_http_rejected:
+  {Cards.eligible_url("http://example.test/read") == False{} : Bool}
+
+law cards_http_image_dropped:
+  {Cards.fields_image(Cards.parse("t\nd\nhttp://example.test/i.png")) == "" : String}
+
+law cards_observe_ignores_unlisted_buffers:
+  {Cards.pending_count(Cards.observe(Cards.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://example.test/read", "alice", 1n}]), Nil{}, True{})) == 0n : Nat}
+
+law cards_observe_schedules_visible_candidate:
+  {Cards.pending_count(Cards.observe(Cards.initial(True{}), Cl.init("me", "s"), [Cards.Candidate{Cards.CardInline{1n}, "https://example.test/read"}], True{})) == 1n : Nat}
+
+law cards_fullscreen_closes_when_unsupported:
+  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.set_supported(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, False{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
+
+law cards_fullscreen_closes_on_eviction:
+  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
 
 law cards_code_opaque:
   {List.is_empty(&2, String, Cards.targets("`https://example.test/read`")) == True{} : Bool}
