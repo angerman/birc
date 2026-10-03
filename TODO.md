@@ -4177,6 +4177,8 @@ handoff is implementation scope, not a request for another plan-only review.
   `fix-c8-third` = `main/fix-c8-third/24` (above);
   `fix-i2-third` = `main/fix-i2-third/25`
   (`01a10162-da20-7d60-be2f-96e496de7bbd`).
+  `fix-h5-completion` = `main/fix-h5-completion/28`
+  (`01a10176-3879-7f31-8593-be035acdf0b8`).
   `fix-h5-second` = `main/fix-h5-second/21`
   (`01a10154-3e5c-7011-b206-e6f3c8561637`) on `6c858f1` (H5.8+H5y).
 - G6 second review (G6.5+G6-star, queued follow-up; G6 worker terminal,
@@ -4254,6 +4256,13 @@ handoff is implementation scope, not a request for another plan-only review.
   integration. Freed slot went to `fix-l1t-second/27`
   (`01a10175-6e34-7f51-9ff4-4077898ce3b0`) on `727e0c8`. H5-completion
   remains queued next.
+- G6-second returned `480ec9f` (worker reports uninitialized-clock +
+  shared source-gate + exactly-one-CAP-END fixes, shapes unchanged);
+  pending parent review before integration. Freed slot went to
+  `fix-h5-completion` (timestamp validator, `.sss` positive, early-EOF
+  IO guard, prereg-star gate); handle retained on spawn return. No
+  repair rounds remain queued; adapter owners (C8/I2/G6/H5/N9-session)
+  go out as repair workers return.
   PROOF junction fix committed with its exact green evidence (114s
   `ALL PROOFS CHECK` run covered this content; only non-Bend files
   changed since).
