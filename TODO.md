@@ -4479,6 +4479,11 @@ handoff is implementation scope, not a request for another plan-only review.
   repair; parent owns G6/V6 live integration (Caps/OutState Session
   wiring + sentinel law already staged; Actor `dial_begin`
   generation-guarded `connect_dual` before TLS after V6 staging).
+- V6 chain committed UNQUALIFIED (`368c854`; staged proof timed out,
+  cause unverified). Process note: a docs `git commit` swept the V6
+  stage into a docs message; immediately soft-split into `33106a7`
+  (docs) + `368c854` (V6) with identical content — use path-scoped
+  `git commit <paths>` while a stage sits in the index.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
