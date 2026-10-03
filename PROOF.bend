@@ -1159,6 +1159,8 @@ def Laws.draft_entries_match_buffer_slots():
   {==}
 
 def Laws.draft_control_query_coexist():
+  {==}
+
 def Laws.cards_queue_capped():
   {==}
 
