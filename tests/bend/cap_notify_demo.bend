@@ -202,6 +202,26 @@ def star_sasl_cap_end_ok() -> Bool:
     && fold_903_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> Nil{}))
     && fold_after_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> ":s CAP me ACK :sasl" <> Nil{}))
 
+# Live tick bundle for the Session/Net binding: composing is a nonempty
+# composer on a valid target; online + negotiated tags + composing emits
+# active; offline resets quietly; empty draft ends with done; untagged or
+# mistargeted ticks stay quiet.
+def live_tagged() -> Cap.Reg:
+  Cap.Reg{Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags"), Cap.out0()}
+
+def live_tick_ok() -> Bool:
+  +fire_tx = Cap.reg_text(Cap.live_tick(live_tagged(), 1000, True{}, "#a", "hi"))
+  +dark_tx = Cap.reg_text(Cap.live_tick(live_tagged(), 1000, False{}, "#a", "hi"))
+  +dark_target = Cap.reg_target(Cap.step_reg(Cap.live_tick(live_tagged(), 1000, False{}, "#a", "hi")))
+  +live1 = Cap.step_reg(Cap.live_tick(live_tagged(), 1000, True{}, "#a", "hi"))
+  +idle_tx = Cap.reg_text(Cap.live_tick(live1, 1100, True{}, "#a", ""))
+  +untagged_tx = Cap.reg_text(Cap.live_tick(Cap.reg0(), 1000, True{}, "#a", "hi"))
+  +mistargeted_tx = Cap.reg_text(Cap.live_tick(live_tagged(), 1000, True{}, "a b", "hi"))
+  String.eq(fire_tx, "@+typing=active TAGMSG #a")
+    && String.is_empty(dark_tx) && String.eq(dark_target, "")
+    && String.eq(idle_tx, "@+typing=done TAGMSG #a")
+    && String.is_empty(untagged_tx) && String.is_empty(mistargeted_tx)
+
 # G6.4: stale ticks stay quiet AND preserve live/sent state; fresh ticks act.
 def stale_quiet_ok() -> Bool:
   +live: Cap.OutState = Cap.Out{"#a", True{}, 1000, True{}}
@@ -240,4 +260,5 @@ def main() -> IO(Unit):
     Unit <- E.must("source_gate_validated", source_gate_ok())
     Unit <- E.must("cap_source", Cap.cap_source_ok())
     Unit <- E.must("star_sasl_cap_end_once", star_sasl_cap_end_ok())
+    Unit <- E.must("live_tick_bundle", live_tick_ok())
     IO.print("cap_notify_demo=ok")

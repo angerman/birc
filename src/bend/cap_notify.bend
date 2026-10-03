@@ -514,6 +514,27 @@ def reg_out(+reg: Reg, +now_ms: U32, online: Bool, +target: String, composing: B
     case Reg{+caps, +out}:
       reg_out.done(caps, step_out(out, now_ms, online, tags_ok(caps), target, composing))
 
+def step_reg(pair: Reg & List<&2, String>) -> Reg:
+  match pair:
+    case (+reg, _): reg
+
+def reg_text(pair: Reg & List<&2, String>) -> String:
+  match pair:
+    case (_, +xs): String.concat(xs)
+
+def reg_target(+reg: Reg) -> String:
+  match reg:
+    case Reg{_, +out}: out_target(out)
+
+# Live tick bundle for the Session/Net binding: composing is a nonempty
+# composer on a valid target. The binding stores the returned Reg and sends
+# at most one wire through the bounded actor path.
+def live_composing(+target: String, +draft: String) -> Bool:
+  out_target_ok(target) && Bool.not(String.is_empty(draft))
+
+def live_tick(+reg: Reg, +now_ms: U32, online: Bool, +target: String, +draft: String) -> Reg & List<&2, String>:
+  reg_out(reg, now_ms, online, target, live_composing(target, draft))
+
 # ---- law/test predicates ---------------------------------------------------
 
 def list_has.go(xs: List<&2, String>, +want: String) -> Bool:
