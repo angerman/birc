@@ -4,6 +4,11 @@
 # notifications are opt-in until a default helper is provisioned. Unknown
 # helper names fail closed without spawning. Helper output is never copied
 # into diagnostics; only the safe stage label and numeric code are kept.
+#
+# Open runtime gates (N9.3): default desktop-helper provisioning, async
+# delivery (send runs one bounded synchronous Process.run), and Session
+# dispatch of Notify events. This module is policy + argv only, not a
+# completed desktop feature.
 import Base
 import ./notify.bend as Notify
 import ./diagnostic.bend as Diagnostic
@@ -18,8 +23,18 @@ def program() -> IO(Maybe<&2, String>):
     got : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_NOTIFY_HELPER")
     return program.env(got)
 
-def ends_with(+s: String, +suffix: String) -> Bool:
-  String.starts_with(String.reverse(s), String.reverse(suffix))
+# Basename of a helper path: the segment after the last slash. Suffix
+# matching is forbidden: x-notify-send must not select notify-send.
+def base_last.go(xs: List<&2, String>, +acc: String) -> String:
+  match xs:
+    case Nil{}: acc
+    case Con{h, t}: base_last.go(t, h)
+
+def base_of(+program: String) -> String:
+  base_last.go(String.split(program, Chr{47}), "")
+
+def is_helper(+program: String, +name: String) -> Bool:
+  String.eq(base_of(program), name)
 
 # AppleScript string escaping: backslash and double quote only.
 def esc.go(+s: String) -> String:
@@ -35,16 +50,18 @@ def quote(+s: String) -> String:
 def script(+title: String, +body: String) -> String:
   "display notification " ++ quote(esc.go(body)) ++ " with title " ++ quote(esc.go(title))
 
+# notify-send takes "--" before title/body so a literal "--help" title is
+# data, never a flag.
 def args_for.kind(+req: Notify.Req, send: Bool, osa: Bool) -> List<&1, String>:
   match send:
-    case True{}: Notify.req_title(req) <> Notify.req_body(req) <> Nil{}
+    case True{}: "--" <> Notify.req_title(req) <> Notify.req_body(req) <> Nil{}
     case False{}:
       match osa:
         case True{}: "-e" <> script(Notify.req_title(req), Notify.req_body(req)) <> Nil{}
         case False{}: Nil{}
 
 def args_for(+program: String, +req: Notify.Req) -> List<&1, String>:
-  args_for.kind(req, ends_with(program, "notify-send"), ends_with(program, "osascript"))
+  args_for.kind(req, is_helper(program, "notify-send"), is_helper(program, "osascript"))
 
 def send_result(got: Result<&1, &1, U32 & String, U32 & (String & String)>) -> Maybe<&2, String>:
   Diagnostic.process_result("notify", got)

@@ -140,3 +140,22 @@ def status_dim(+id: Id) -> U32:
     case Dark{}: 10526880
     case Light{}: 6710886
     case Mono{}: MONO_FG()
+
+# Canonical status selector: one table plus one predicate set. View keeps
+# a thin adapter until the integrator threads Theme.Id through ViewModel
+# (merge point: View.status_color/status_color_themed delegate here, and
+# View.style_of delegates to kind_fg like nick_color_idx already does).
+def status_of.on(+ok: U32, +err: U32, +warn: U32, +dim: U32, +online: Bool, +offline: Bool, +conn: Bool) -> U32:
+  match online:
+    case True{}: ok
+    case False{}:
+      match offline:
+        case True{}: err
+        case False{}:
+          match conn:
+            case True{}: warn
+            case False{}: dim
+
+def status_of(+id: Id, +net: String) -> U32:
+  status_of.on(status_ok(id), status_err(id), status_warn(id), status_dim(id),
+    String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
