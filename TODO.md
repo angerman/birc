@@ -4438,6 +4438,39 @@ handoff is implementation scope, not a request for another plan-only review.
   pattern, provenance retained, final proof still mandatory) rather
   than deadlock all staging on contention; qualify via full proof
   when a window opens. No deadline change.
+- Lane1 pins (drop old blockers): actor `af2c4fe3` gen-tagged
+  Sess.Pong + writer574-577 gen gate FIXED; Session `b552db39`
+  duplicate removal FIXED (current dirty source). net_trace residual:
+  final QUIT stage5 misattributed to PONG (registration[1..5] +
+  fastPONG[3,4,5,1,2] + QUIT[3,4,5] reports delayed QUIT hop2_3=1000ms
+  vs PONG-sent 12ms); reader path no longer causally orders UI stage2
+  before 3/4/5 — needs true request identity/branch semantics, late
+  QUIT must not alter PING metrics; keep exact quitcap PONG counts.
+  HELD for approval: two net_demo PONG->empty/JOIN-only expectations;
+  acceptance needs reply + replacement current/stale, split/drop,
+  5PING+chat guards. FullUIqueue is bounded-memory backpressure
+  measurement limitation, never permission to drop data or add
+  unbounded queues.
+- V6 CORRECTION: parent earlier no-residual claim WITHDRAWN for
+  fixtures. `2a36383` has two final native gates: (a) native
+  collector parks only two recvs with no timer/post-receive deadline
+  (1+1+3 fails, late completion succeeds, silence waits outer 20s not
+  2s) — needs bounded deadline-owned loop with close + 1+1+3/2+3 vs
+  open-silent/late/EOF pairs for TCP and TLS (single-read still);
+  (b) UDP candidate bind failure self-reports unsupported, harness
+  green-skips — independently probe host AF_INET6 UDP, then require
+  candidate roundtrip on capable host. Improved resolver/TC/SNI kept;
+  Actor fallback/stale-gen still pending (parent, after staging).
+- G3 return reviewed (`815f1eb`/`e8c8b26`/`00c026b`/`4e209fd`/
+  `bd6b6be` on `repair-g3`): media-boundary fix consumed (visible-text
+  scan), but NONE of the four queued corrections consumed (no
+  mention-decode, no mode/key normalization, no credential_echo, no
+  JoinPlan touch) — NOT accepted. Fresh `repair-g3b/34` launched on
+  `bd6b6be` with all four in its INITIAL task (tests-first, framed
+  Feed/history regressions mandatory).
+- H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
+  cause unverified) and `adapt-h5-runtime/33` launched with exact
+  .sss/descriptor/ticket/CAP gates (fixture flips held).
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
