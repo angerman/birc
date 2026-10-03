@@ -4484,6 +4484,32 @@ handoff is implementation scope, not a request for another plan-only review.
   stage into a docs message; immediately soft-split into `33106a7`
   (docs) + `368c854` (V6) with identical content — use path-scoped
   `git commit <paths>` while a stage sits in the index.
+- USER APPROVALS (all three groups) RECEIVED and SENT to H5-runtime
+  (`adapt-h5-runtime/33`) and I2-live (`adapt-i2-live/31`) native
+  handles: (1) H5 four fixtures + two laws to `.000Z` + rejection
+  guards; (2) NEW unsigned-k expectation to hidden (non-key visible
+  kept); (3) two net_demo PONG expectations to empty/JOIN-only for ONE
+  gen-checked reader owner + replacement exact-one/current-stale/
+  split-drop/5PING+chat guards. LANE1 CORRECTION NOTE (workflow child,
+  no messaging — enforce on returned source/tests): approval (3)
+  applies; nothing else waived (assertions, timing, proofs, finals).
+- C8 verdict: worker29 returns adapters only (`25d89ad`/`88e695b`:
+  `net.bend` CardFetched pass-through, fullscreen/paint out of scope)
+  — NOT the completed feature. Parent integrates the adapter chain,
+  then spawns a C8-LIVE owner (free slot held) for real Net/App loop
+  wiring: replace pass-through, thread retained cards/full state one
+  canonical path, schedule/accept completions, paint overlay, bind
+  fullscreen entry/exit, provision birc-cards in default shell/package;
+  preserve media path/opt-out/unsupported-terminal behavior; no copied
+  submission pipeline.
+- V6 Actor wiring plan (parent, in progress): `Dns.lookup_a` is A-only
+  but no public AAAA entry exists — add `Dns.lookup_aaaa` (mirror);
+  `dial_begin` keeps literal dispatch (v4 direct, v6 validate-direct),
+  gathers both IPs for names, `connect_dual` TCP pair, `Tr.upgrade`
+  with ORIGINAL host (SNI/verify, never IP), existing continuations;
+  gen stable in the sequential do-block (no Chan interleaves) so the
+  fallback is inherently current-generation; pure plan helper
+  JS-tested, IO glue covered by transport/native suites.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
