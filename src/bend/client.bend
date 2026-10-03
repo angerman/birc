@@ -736,8 +736,8 @@ def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
     case CapNotify.AwayOn{+nick, +message}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.away_on_text(nick, message))
     case CapNotify.AwayOff{+nick}: Cl.client_log(cl, 0n, Cl.System{}, CapNotify.away_off_text(nick))
 
-def feed_notify(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
-  feed_notify.event(cl, CapNotify.notify_event(m))
+def feed_notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
+  feed_notify.event(cl, CapNotify.notify_event(Cl.server_of(cl), prefix, m))
 
 def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd) -> Cl.Client:
   match c:
@@ -772,27 +772,29 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
     case _:
       feed_unk(cl, m)
 
-def feed_msg.notify(+cl: Cl.Client, +m: Irc.Message, +from: String, notify: Bool) -> Cl.Client:
+def feed_msg.notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, notify: Bool) -> Cl.Client:
   match notify:
-    case True{}: feed_notify(cl, m)
+    case True{}: feed_notify(cl, prefix, m)
     case False{}: feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m))
 
-def feed_msg.with(+cl: Cl.Client, +m: Irc.Message, +from: String) -> Cl.Client:
-  feed_msg.notify(cl, m, from, CapNotify.is_notify(m))
+def feed_msg.with(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String) -> Cl.Client:
+  feed_msg.notify(cl, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m))
 
-def feed_msg(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
-  feed_msg.with(cl, m, msg_nick(m))
+def feed_msg(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
+  feed_msg.with(cl, prefix, m, msg_nick(m))
 
 def feed.on(+cl: Cl.Client, m: Maybe<&2, Irc.Message>) -> Cl.Client:
   match m:
     case None{}:
       feed_none(cl)
     case Some{msg}:
-      feed_msg(cl, msg)
+      # Prefix-less entry: no full-prefix attestation is possible. Live paths
+      # (feed/feed_at) always thread the real wire prefix below.
+      feed_msg(cl, "", msg)
 
-def feed.server_notice.on(server_notice: Bool, +cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
+def feed.server_notice.on(server_notice: Bool, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
   match server_notice:
-    case False{}: feed_msg(cl, m)
+    case False{}: feed_msg(cl, prefix, m)
     case True{}:
       feed_priv.write.notice(cl, 0n, msg_nick(m), Irc.msg_param(m, 1n), Irc.msg_time(m))
 
@@ -804,7 +806,7 @@ def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message
       +target = Cl.message_key(cl, Irc.msg_param(msg, 0n))
       feed.server_notice.on(Irc.ieq(Irc.msg_command(msg), "NOTICE")
         && Irc.ieq(target, Cl.nick_of(cl)) && Irc.source_is_server(prefix, Cl.server_of(cl))
-        && wire_name(from) && Bool.not(Cl.is_muted_client(cl, from, target)), cl, msg)
+        && wire_name(from) && Bool.not(Cl.is_muted_client(cl, from, target)), cl, prefix, msg)
 
 def feed(+cl: Cl.Client, +line: String) -> Cl.Client:
   Cl.stamp_logs(feed.server_notice(cl, Irc.source_prefix(line), Irc.parse(line)))

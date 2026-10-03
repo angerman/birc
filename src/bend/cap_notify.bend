@@ -92,15 +92,21 @@ type CapKind is Data:
   CapLs{}
   CapAck{}
   CapNak{}
+  CapDel{}
   CapOther{}
 
 type CapEvent is Data:
   CapEvent{kind: CapKind, caps: List<&2, String>}
 
+def cap_kind.del(+sub: String, del: Bool) -> CapKind:
+  match del:
+    case True{}: CapDel{}
+    case False{}: CapOther{}
+
 def cap_kind.ls(+sub: String, ls: Bool) -> CapKind:
   match ls:
     case True{}: CapLs{}
-    case False{}: CapOther{}
+    case False{}: cap_kind.del(sub, Irc.ieq(sub, "DEL"))
 
 def cap_kind.nak(+sub: String, nak: Bool) -> CapKind:
   match nak:
@@ -124,13 +130,24 @@ def cap_caps_text.star(+m: Irc.Message, star: Bool) -> String:
 def cap_caps_text(+m: Irc.Message) -> String:
   cap_caps_text.star(m, Irc.ieq(Irc.msg_param(m, 1n), "LS") && String.eq(Irc.msg_param(m, 2n), "*"))
 
+# G6.1: CAP state changes only on lines from the connection server addressed
+# to our current nick (or the established '*' registration recipient). A peer
+# user cannot set our caps, and another recipient's negotiation is not ours.
+# Server shape follows feed.server_notice: dotted or configured names without
+# user/host markers. An empty prefix carries no attestation and stays shut.
+def cap_recipient_ok(+m: Irc.Message, +nick: String) -> Bool:
+  Irc.ieq(Irc.msg_param(m, 0n), nick) || String.eq(Irc.msg_param(m, 0n), "*")
+
+def cap_trusted(+prefix: String, +server: String, +nick: String, +m: Irc.Message) -> Bool:
+  Irc.source_is_server(prefix, server) && cap_recipient_ok(m, nick)
+
 def cap_event.gated(+m: Irc.Message, ok: Bool) -> CapEvent:
   match ok:
     case False{}: CapEvent{CapOther{}, Nil{}}
     case True{}: CapEvent{cap_kind(Irc.msg_param(m, 1n)), Commands.words(cap_caps_text(m))}
 
-def cap_event(+m: Irc.Message) -> CapEvent:
-  cap_event.gated(m, Irc.ieq(Irc.msg_command(m), "CAP"))
+def cap_event(+server: String, +nick: String, +prefix: String, +m: Irc.Message) -> CapEvent:
+  cap_event.gated(m, Irc.ieq(Irc.msg_command(m), "CAP") && cap_trusted(prefix, server, nick, m))
 
 # Servers may advertise values ('sasl=PLAIN'); match the bare name too.
 def cap_match.one(+have: String, +want: String) -> Bool:
@@ -155,27 +172,59 @@ def caps_enable(+caps: Caps, +name: String) -> Caps:
     case Caps{+st, +mt, +ac, +aw, +sa}:
       Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL())}
 
+# G6.2: removal mirrors enable. A DEL line clears every listed cap, and a
+# '-' entry inside an ACK clears that one cap; other caps are untouched.
+def caps_disable(+caps: Caps, +name: String) -> Caps:
+  match caps:
+    case Caps{+st, +mt, +ac, +aw, +sa}:
+      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL()))}
+
+def cap_negated(+name: String) -> Bool:
+  String.starts_with(name, "-")
+
+def cap_bare.neg(+name: String, neg: Bool) -> String:
+  match neg:
+    case True{}: String.drop(name, 1n)
+    case False{}: name
+
+def cap_bare(+name: String) -> String:
+  cap_bare.neg(name, cap_negated(name))
+
+def caps_apply_entry.neg(+caps: Caps, +bare: String, neg: Bool) -> Caps:
+  match neg:
+    case True{}: caps_disable(caps, bare)
+    case False{}: caps_enable(caps, bare)
+
+def caps_apply_entry(+caps: Caps, +name: String) -> Caps:
+  caps_apply_entry.neg(caps, cap_bare(name), cap_negated(name))
+
 def caps_apply_list(xs: List<&2, String>, +caps: Caps) -> Caps:
   match xs:
     case Nil{}: caps
-    case Con{+h, t}: caps_apply_list(t, caps_enable(caps, h))
+    case Con{+h, t}: caps_apply_list(t, caps_apply_entry(caps, h))
+
+def caps_clear_list(xs: List<&2, String>, +caps: Caps) -> Caps:
+  match xs:
+    case Nil{}: caps
+    case Con{+h, t}: caps_clear_list(t, caps_disable(caps, cap_bare(h)))
 
 def caps_apply.kind(+caps: Caps, +xs: List<&2, String>, kind: CapKind) -> Caps:
   match kind:
     case CapAck{}: caps_apply_list(xs, caps)
+    case CapDel{}: caps_clear_list(xs, caps)
     case _: caps
 
 def caps_apply(+caps: Caps, e: CapEvent) -> Caps:
   match e:
     case CapEvent{+kind, +xs}: caps_apply.kind(caps, xs, kind)
 
-def caps_apply_line.parsed(+caps: Caps, m: Maybe<&2, Irc.Message>) -> Caps:
+def caps_apply_line.parsed(+caps: Caps, +server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>) -> Caps:
   match m:
     case None{}: caps
-    case Some{+msg}: caps_apply(caps, cap_event(msg))
+    case Some{+msg}: caps_apply(caps, cap_event(server, nick, Irc.source_prefix(line), msg))
 
-def caps_apply_line(+caps: Caps, +line: String) -> Caps:
-  caps_apply_line.parsed(caps, Irc.parse(line))
+def caps_apply_line(+caps: Caps, +server: String, +nick: String, +line: String) -> Caps:
+  caps_apply_line.parsed(caps, server, nick, line, Irc.parse(line))
 
 def tags_ok(+caps: Caps) -> Bool:
   match caps:
@@ -253,22 +302,29 @@ def notify_event.cmd(+nick: String, +m: Irc.Message, account: Bool) -> NotifyEve
     case True{}: account_event(nick, m)
     case False{}: notify_event.away(nick, m, Irc.ieq(Irc.msg_command(m), "AWAY"))
 
+# G6.3: presence is a user statement. A server-like full prefix (dotted or
+# configured name without user/host markers) can never be an ACCOUNT/AWAY
+# subject, even when its bare nick looks innocent. Bare ambiguous nicks stay
+# users, matching Irc.source_is_server; empty nicks still fail below.
+def notify_prefix_ok(+prefix: String, +server: String) -> Bool:
+  Bool.not(Irc.source_is_server(prefix, server))
+
 def notify_event.checked(+m: Irc.Message, +nick: String, ok: Bool) -> NotifyEvent:
   match ok:
     case True{}: notify_event.cmd(nick, m, Irc.ieq(Irc.msg_command(m), "ACCOUNT"))
     case False{}: NotifyOther{}
 
-def notify_event(+m: Irc.Message) -> NotifyEvent:
+def notify_event(+server: String, +prefix: String, +m: Irc.Message) -> NotifyEvent:
   +nick = notify_nick(m)
-  notify_event.checked(m, nick, notify_nick_ok(nick))
+  notify_event.checked(m, nick, notify_nick_ok(nick) && notify_prefix_ok(prefix, server))
 
 def is_notify.event(e: NotifyEvent) -> Bool:
   match e:
     case NotifyOther{}: False{}
     case _: True{}
 
-def is_notify(+m: Irc.Message) -> Bool:
-  is_notify.event(notify_event(m))
+def is_notify(+server: String, +prefix: String, +m: Irc.Message) -> Bool:
+  is_notify.event(notify_event(server, prefix, m))
 
 def account_on_text(+nick: String, +account: String) -> String:
   nick ++ " signed in as " ++ account
@@ -326,6 +382,10 @@ def out_target(+st: OutState) -> String:
   match st:
     case Out{+target, _, _}: target
 
+def out_sent_ms(+st: OutState) -> U32:
+  match st:
+    case Out{_, _, +sent}: sent
+
 def step_out.refresh_due(+target: String, +sent_ms: U32, +now_ms: U32, +elapsed: U32, due: Bool) -> OutState & List<&2, String>:
   match due:
     case True{}: (Out{target, True{}, now_ms}, typing_tag_line(target, "active") <> Nil{})
@@ -371,10 +431,17 @@ def step_out.scope(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid:
     case True{}: step_out.target(cur, live, sent_ms, now_ms, target, composing, Irc.ieq(cur, target))
     case False{}: (Out{"", False{}, now_ms}, Nil{})
 
+# G6.4: a tick older than the last send (clock skew) stays quiet AND keeps
+# its state on every path: no done/active send, no live flip, no sent_ms move.
+def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
+  match stale:
+    case True{}: (Out{cur, live, sent_ms}, Nil{})
+    case False{}: step_out.scope(cur, live, sent_ms, now_ms, valid, target, composing)
+
 def step_out(+st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match st:
     case Out{+cur, +live, +sent}:
-      step_out.scope(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing)
+      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, U32.is_ge(U32.sub(now_ms, sent), 2147483648))
 
 # ---- session-owned registration state -------------------------------------
 # One value for the integrator to store: negotiated caps plus outbound typing.
@@ -387,9 +454,9 @@ type Reg is Data:
 def reg0() -> Reg:
   Reg{caps0(), out0()}
 
-def reg_on_line(+reg: Reg, +line: String) -> Reg:
+def reg_on_line(+reg: Reg, +server: String, +nick: String, +line: String) -> Reg:
   match reg:
-    case Reg{+caps, +out}: Reg{caps_apply_line(caps, line), out}
+    case Reg{+caps, +out}: Reg{caps_apply_line(caps, server, nick, line), out}
 
 def reg_out.done(+caps: Caps, pair: OutState & List<&2, String>) -> Reg & List<&2, String>:
   match pair:
@@ -438,14 +505,40 @@ def cap_end_single_owner_ok() -> Bool:
     && list_has(req_lines(False{}), "CAP REQ :away-notify")
 
 def caps_parse_ok() -> Bool:
-  +acked = caps_apply_line(caps0(), ":s CAP me ACK :message-tags account-notify")
-  +lsed = caps_apply_line(caps0(), ":s CAP me LS * :away-notify")
-  +naked = caps_apply_line(caps0(), ":s CAP me NAK :message-tags")
-  +chat = caps_apply_line(caps0(), ":alice!u@h PRIVMSG me :CAP ACK message-tags")
+  +acked = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify")
+  +lsed = caps_apply_line(caps0(), "s", "me", ":s CAP me LS * :away-notify")
+  +naked = caps_apply_line(caps0(), "s", "me", ":s CAP me NAK :message-tags")
+  +chat = caps_apply_line(caps0(), "s", "me", ":alice!u@h PRIVMSG me :CAP ACK message-tags")
   tags_ok(acked) && account_ok(acked) && Bool.not(away_ok(acked))
     && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed))
     && Bool.not(tags_ok(naked))
     && Bool.not(tags_ok(chat))
+
+# G6.1 guards: user prefixes and foreign recipients never enable; our server
+# addressing us (or the '*' registration recipient) does.
+def cap_trust_ok() -> Bool:
+  +legit = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags")
+  +star = caps_apply_line(caps0(), "s", "me", ":s CAP * ACK :message-tags")
+  +spoof = caps_apply_line(caps0(), "s", "me", ":alice!u@h CAP me ACK :message-tags")
+  +other = caps_apply_line(caps0(), "s", "me", ":s CAP other ACK :message-tags")
+  +bare = caps_apply_line(caps0(), "s", "me", "CAP me ACK :message-tags")
+  tags_ok(legit) && tags_ok(star)
+    && Bool.not(tags_ok(spoof)) && Bool.not(tags_ok(other)) && Bool.not(tags_ok(bare))
+
+# G6.2 guards: DEL clears, '-cap' inside ACK clears, enable still works, and
+# untouched caps survive a removal.
+def caps_removal_ok() -> Bool:
+  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify away-notify")
+  +neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags")
+  +del = caps_apply_line(on, "s", "me", ":s CAP me DEL :account-notify away-notify")
+  +reack = caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags")
+  +direct = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapDel{}, "message-tags" <> Nil{}})
+  +direct_neg = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapAck{}, "-message-tags" <> Nil{}})
+  tags_ok(on) && account_ok(on) && away_ok(on)
+    && Bool.not(tags_ok(neg)) && account_ok(neg) && away_ok(neg)
+    && tags_ok(del) && Bool.not(account_ok(del)) && Bool.not(away_ok(del))
+    && tags_ok(reack)
+    && Bool.not(tags_ok(direct)) && Bool.not(tags_ok(direct_neg))
 
 def caps_ack_only_ok() -> Bool:
   Bool.not(tags_ok(caps0())) && Bool.not(account_ok(caps0())) && Bool.not(away_ok(caps0()))
@@ -457,7 +550,7 @@ def caps_ack_only_ok() -> Bool:
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapOther{}, "message-tags" <> Nil{}})))
     && has_cap(Commands.words("sasl=PLAIN message-tags"), "sasl")
     && Bool.not(has_cap(Commands.words("not-sasl"), "sasl"))
-    && caps_parse_ok()
+    && caps_parse_ok() && cap_trust_ok() && caps_removal_ok()
 
 def is_account_on(e: NotifyEvent, +nick: String, +account: String) -> Bool:
   match e:
@@ -485,11 +578,11 @@ def is_other(e: NotifyEvent) -> Bool:
     case _: False{}
 
 def notify_parse_ok() -> Bool:
-  is_account_on(notify_event(Irc.Message{"", "alice", "ACCOUNT", 0, "alice123" <> Nil{}}), "alice", "alice123")
-    && is_account_off(notify_event(Irc.Message{"", "alice", "ACCOUNT", 0, "*" <> Nil{}}), "alice")
-    && is_away_on(notify_event(Irc.Message{"", "bob", "AWAY", 0, "out to lunch" <> Nil{}}), "bob", "out to lunch")
-    && is_away_off(notify_event(Irc.Message{"", "bob", "AWAY", 0, Nil{}}), "bob")
-    && is_account_on(notify_event(Irc.Message{"", "alice", "account", 0, "alice123" <> Nil{}}), "alice", "alice123")
+  is_account_on(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "alice123" <> Nil{}}), "alice", "alice123")
+    && is_account_off(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "*" <> Nil{}}), "alice")
+    && is_away_on(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, "out to lunch" <> Nil{}}), "bob", "out to lunch")
+    && is_away_off(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, Nil{}}), "bob")
+    && is_account_on(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "account", 0, "alice123" <> Nil{}}), "alice", "alice123")
     && String.eq(notify_text(AccountOn{"alice", "alice123"}), "alice signed in as alice123")
     && String.eq(notify_text(AccountOff{"alice"}), "alice signed out")
     && String.eq(notify_text(AwayOn{"bob", "out to lunch"}), "bob is away: out to lunch")
@@ -497,18 +590,28 @@ def notify_parse_ok() -> Bool:
     && String.eq(notify_text(AwayOff{"bob"}), "bob is back")
     && String.eq(notify_text(NotifyOther{}), "")
 
+# G6.3 guards: server-like full prefixes never become user presence, for both
+# ACCOUNT and AWAY; user prefixes still do.
+def notify_source_ok() -> Bool:
+  is_other(notify_event("s", "s", Irc.Message{"", "s", "AWAY", 0, "maintenance" <> Nil{}}))
+    && is_other(notify_event("irc.example.com", "irc.example.com", Irc.Message{"", "irc.example.com", "AWAY", 0, "maintenance" <> Nil{}}))
+    && is_other(notify_event("s", "s", Irc.Message{"", "s", "ACCOUNT", 0, "alice123" <> Nil{}}))
+    && is_away_on(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, "out" <> Nil{}}), "bob", "out")
+    && is_account_on(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "alice123" <> Nil{}}), "alice", "alice123")
+
 def notify_reject_ok() -> Bool:
-  is_other(notify_event(Irc.Message{"", "", "ACCOUNT", 0, "alice123" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "#room", "ACCOUNT", 0, "alice123" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "*", "AWAY", 0, "gone" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "a b", "AWAY", 0, "gone" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "alice", "ACCOUNT", 0, Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "alice", "ACCOUNT", 0, "a" <> "b" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "alice", "ACCOUNT", 0, "" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "bob", "AWAY", 0, "a" <> "b" <> Nil{}}))
-    && is_other(notify_event(Irc.Message{"", "alice", "PRIVMSG", 0, "me" <> "hi" <> Nil{}}))
-    && Bool.not(is_notify(Irc.Message{"", "alice", "PRIVMSG", 0, "me" <> "hi" <> Nil{}}))
-    && is_notify(Irc.Message{"", "alice", "ACCOUNT", 0, "alice123" <> Nil{}})
+  is_other(notify_event("s", "alice!u@h", Irc.Message{"", "", "ACCOUNT", 0, "alice123" <> Nil{}}))
+    && is_other(notify_event("s", "alice!u@h", Irc.Message{"", "#room", "ACCOUNT", 0, "alice123" <> Nil{}}))
+    && is_other(notify_event("s", "bob!u@h", Irc.Message{"", "*", "AWAY", 0, "gone" <> Nil{}}))
+    && is_other(notify_event("s", "bob!u@h", Irc.Message{"", "a b", "AWAY", 0, "gone" <> Nil{}}))
+    && is_other(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, Nil{}}))
+    && is_other(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "a" <> "b" <> Nil{}}))
+    && is_other(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "" <> Nil{}}))
+    && is_other(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, "a" <> "b" <> Nil{}}))
+    && is_other(notify_event("s", "alice!u@h", Irc.Message{"", "alice", "PRIVMSG", 0, "me" <> "hi" <> Nil{}}))
+    && Bool.not(is_notify("s", "alice!u@h", Irc.Message{"", "alice", "PRIVMSG", 0, "me" <> "hi" <> Nil{}}))
+    && is_notify("s", "alice!u@h", Irc.Message{"", "alice", "ACCOUNT", 0, "alice123" <> Nil{}})
+    && notify_source_ok()
 
 def step_text(pair: OutState & List<&2, String>) -> String:
   match pair:
@@ -530,10 +633,31 @@ def step_state(pair: OutState & List<&2, String>) -> OutState:
   match pair:
     case (+st, _): st
 
+def step_sent_ms(pair: OutState & List<&2, String>) -> U32:
+  match pair:
+    case (+st, _): out_sent_ms(st)
+
 def long_target.go(n: Nat) -> String:
   match n:
     case 0n: ""
     case 1n+p: "x" ++ long_target.go(p)
+
+# G6.4 guards: stale ticks are quiet and preserve live/sent on the completion,
+# activation, and refresh paths; fresh completion/refresh still fire.
+def out_stale_ok() -> Bool:
+  +live: OutState = Out{"#a", True{}, 1000}
+  +idle: OutState = Out{"#a", False{}, 1000}
+  String.is_empty(step_text(step_out(live, 999, True{}, True{}, "#a", False{})))
+    && step_live(step_out(live, 999, True{}, True{}, "#a", False{}))
+    && U32.is_eq(step_sent_ms(step_out(live, 999, True{}, True{}, "#a", False{})), 1000)
+    && String.is_empty(step_text(step_out(idle, 999, True{}, True{}, "#a", True{})))
+    && Bool.not(step_live(step_out(idle, 999, True{}, True{}, "#a", True{})))
+    && U32.is_eq(step_sent_ms(step_out(idle, 999, True{}, True{}, "#a", True{})), 1000)
+    && String.is_empty(step_text(step_out(live, 999, True{}, True{}, "#a", True{})))
+    && step_live(step_out(live, 999, True{}, True{}, "#a", True{}))
+    && U32.is_eq(step_sent_ms(step_out(live, 999, True{}, True{}, "#a", True{})), 1000)
+    && String.eq(step_text(step_out(live, 2000, True{}, True{}, "#a", False{})), "@+typing=done TAGMSG #a")
+    && String.eq(step_text(step_out(live, 4000, True{}, True{}, "#a", True{})), "@+typing=active TAGMSG #a")
 
 def out_bound_ok() -> Bool:
   +live: OutState = Out{"#a", True{}, 1000}
@@ -551,6 +675,7 @@ def out_bound_ok() -> Bool:
     && step_bounded(step_out(out0(), 2000, True{}, True{}, "#a", True{}))
     && step_bounded(step_out(live, 2000, True{}, True{}, "#a", False{}))
     && step_bounded(step_out(live, 2000, True{}, True{}, "#b", True{}))
+    && out_stale_ok()
 
 def reg_quiet(pair: Reg & List<&2, String>) -> Bool:
   match pair:
@@ -565,13 +690,14 @@ def reg_live(pair: Reg & List<&2, String>) -> Bool:
     case (_, +xs): String.eq(String.concat(xs), "@+typing=active TAGMSG #a")
 
 # No negotiated tags, no sends: the same tick is quiet before ACK and live
-# after it, and a NAK-only server stays quiet.
+# after it, and a NAK-only server stays quiet. Hostile CAP lines never arm it.
 def reg_gating_ok() -> Bool:
   +bare = reg0()
-  +acked = reg_on_line(reg_on_line(bare, ":s CAP me LS :message-tags"), ":s CAP me ACK :message-tags")
-  +naked = reg_on_line(bare, ":s CAP me NAK :message-tags")
+  +acked = reg_on_line(reg_on_line(bare, "s", "me", ":s CAP me LS :message-tags"), "s", "me", ":s CAP me ACK :message-tags")
+  +naked = reg_on_line(bare, "s", "me", ":s CAP me NAK :message-tags")
+  +spoofed = reg_on_line(bare, "s", "me", ":alice!u@h CAP me ACK :message-tags")
   +bare_quiet = reg_quiet(reg_out(bare, 1000, True{}, "#a", True{}))
-  bare_quiet && reg_denied(reg_out(naked, 1000, True{}, "#a", True{})) && reg_live(reg_out(acked, 1000, True{}, "#a", True{}))
+  bare_quiet && reg_denied(reg_out(naked, 1000, True{}, "#a", True{})) && reg_denied(reg_out(spoofed, 1000, True{}, "#a", True{})) && reg_live(reg_out(acked, 1000, True{}, "#a", True{}))
 
 def out_lifecycle.after_retarget(pair: OutState & List<&2, String>, +acc: Bool) -> Bool:
   match pair:
