@@ -4520,6 +4520,23 @@ handoff is implementation scope, not a request for another plan-only review.
   (needs respin, no merge); lanes 2-7 READY at known commits (all
   since integrated/superseded); lanes 8-9 reports missing. No new
   integration input; lane1 heavy/build ownership unchanged.
+- Timed proof split (10 cores): real 3m0.6s user 1m30.6s sys 15.6s —
+  59% of one core; still consistent with starvation under load AND
+  with grown proof cost; cause UNVERIFIED. Retry in quieter windows;
+  bisect laws if timeouts persist after drain.
+- Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
+  dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
+  guards, trace identity, orphan fixture, default-off instrumentation,
+  measure/fix/re-measure, latest default prebuild) and
+  `integ-c8-live/38` on clean `88e695b` (real Net/App/fullscreen/
+  package wiring + boundary gap on the shared URL-runs seam).
+  Shared-seam requirement queued to `repair-g3c/35`.
+- V6 REVISION DONE (`aba2f98`, UNQUALIFIED): lazy AAAA->TCPv6, A->TCPv4
+  only on TCP failure; `DialPlan` + JS guards dropped; existing seam
+  only (`connect_dual` stays tested, off production path). New native
+  `dualdnslazy` mode + harness guard (exactly one AAAA, v6 echo, v4
+  silent): `test-ipv6-transport` GREEN incl. `dualdnslazy=ok` (owned
+  loopback, bounded); `ipv6_transport=ok` glue green.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
