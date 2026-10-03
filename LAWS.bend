@@ -44,6 +44,8 @@ import ./src/bend/theme.bend as Theme
 import ./src/bend/notify.bend as Notify
 import ./src/bend/isupport.bend as Isupport
 import ./src/bend/history_search.bend as Hs
+import ./src/bend/session_cards.bend as SessionCards
+import ./src/bend/cards_view.bend as CardsView
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -1397,3 +1399,48 @@ law chathistory_cap_rejects_star_when_registered:
 
 law chathistory_cap_rejects_wrong_recipient_prereg:
   {Hs.cap_event(":irc.test CAP other ACK :draft/chathistory", "irc.test", "me", False{}) == Hs.ChathistoryOther{} : Hs.CapEvent}
+
+# The cards adapter schedules bounded visible work through Session
+# dispatch, keeps worker ownership and the stale-result policy, and
+# re-validates fullscreen on every observe/complete/settle and every paint.
+law cards_adapter_demo_schedules_nothing:
+  {SessionCards.ad_pending(SessionCards.observe_visible(SessionCards.wrap(Sess.session_demo(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")))) == 0n : Nat}
+
+law cards_adapter_stopping_schedules_nothing:
+  {SessionCards.ad_pending(SessionCards.observe_visible(SessionCards.wrap(Sess.session_set_net(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t"), Sess.Stopping{False{}})))) == 0n : Nat}
+
+law cards_adapter_online_schedules_visible_page:
+  {SessionCards.ad_pending(SessionCards.observe_visible(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t"))))) == 1n : Nat}
+
+law cards_adapter_disabled_schedules_nothing:
+  {SessionCards.ad_pending(SessionCards.observe_visible(SessionCards.set_enabled(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t"))), False{}))) == 0n : Nat}
+
+law cards_adapter_exact_completion_accepted:
+  {SessionCards.accept_result(SessionCards.with_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, Cards.FullOff{}), 1n, 1n, "https://x.test/read") == True{} : Bool}
+
+law cards_adapter_wrong_ticket_rejected:
+  {SessionCards.accept_result(SessionCards.with_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, Cards.FullOff{}), 1n, 2n, "https://x.test/read") == False{} : Bool}
+
+law cards_adapter_stale_completion_stores_nothing:
+  {SessionCards.ad_ready(SessionCards.complete(SessionCards.with_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, Cards.FullOff{}), 1n, 2n, "https://x.test/read", "T\nD\n")) == 0n : Nat}
+
+law cards_adapter_endpoint_reset_drops_queue:
+  {SessionCards.ad_pending(SessionCards.reset_endpoint(SessionCards.with_cards(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), Cards.State{True{}, 1n, 1n, None{}, [Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}], Nil{}}, Cards.FullOff{}))) == 0n : Nat}
+
+law cards_adapter_endpoint_reset_closes_fullscreen:
+  {SessionCards.ad_full(SessionCards.reset_endpoint(SessionCards.with_cards(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), Cards.initial(True{}), Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7}))) == Cards.FullOff{} : Cards.Fullscreen}
+
+law cards_adapter_fullscreen_needs_live_token:
+  {SessionCards.ad_full(SessionCards.open_full(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}]), "#t"))), Media.Inline{1n}, "https://x.test/a.png")) == Cards.FullOff{} : Cards.Fullscreen}
+
+law cards_adapter_key_step_preserves_wire:
+  {SessionCards.wire_ok(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), "hello") == True{} : Bool}
+
+law cards_adapter_chunk_step_preserves_wire:
+  {SessionCards.chunk_ok(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), Fr.string_to_octets("PING :abc\r\n"), 0) == True{} : Bool}
+
+law cards_view_overlay_revalidates_stale_token:
+  {List.is_empty(&2, V.DrawOp, CardsView.overlay_ops(Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7}, Media.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}]), 24, 80)) == True{} : Bool}
+
+law cards_adapter_exact_url_preserved:
+  {Cards.known_urls(SessionCards.ad_cards(SessionCards.observe_visible(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/r?a=b#frag", "alice", 1n}]), "#t"))))), Cards.CardInline{1n}) == ["https://x.test/r?a=b#frag"] : List<&2, String>}

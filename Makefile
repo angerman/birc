@@ -303,7 +303,7 @@ test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and
 test-review-pure: test-launch-channels test-reconnect-endpoint
 test-review-pure: test-server-id test-ipv6 test-ipv6-glue test-ipv6-transport
 test-review-pure: test-drafts
-test-review-pure: test-media-cards test-cards-policy test-cards-view
+test-review-pure: test-media-cards test-cards-policy test-cards-view test-session-cards
 
 .PHONY: test-pty-upload-diagnostics
 test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.
@@ -393,6 +393,12 @@ test-cards-view: ## Card visible scheduling and fullscreen view goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/cards_view.bend -o $(BLDDIR)/cards_view
 	$(NIXRUN) sh scripts/check-golden.sh cards_view=ok ./$(BLDDIR)/cards_view
+
+.PHONY: test-session-cards
+test-session-cards: ## Cards/fullscreen Session adapter goldens (JS): scheduling, worker, stale paths, closure, wire.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/session_cards_demo.bend -o $(BLDDIR)/session_cards_demo.js
+	$(NIXRUN) sh scripts/check-golden.sh session_cards_demo=ok timeout 60 bun $(BLDDIR)/session_cards_demo.js
 
 .PHONY: test-media-image-cache
 test-media-image-cache: ## Private bounded cache reuses validated remote assets without a network fetch.

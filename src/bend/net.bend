@@ -1007,6 +1007,9 @@ def on_msg_go(
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
     case Sess.MediaFetched{+generation, +ticket, +url, payload}:
       on_media(Sess.session_accept_media_result(st, generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
+    # C8-SESSION-ADAPTER: pass-through until the parent merge threads the
+    # cards adapter state through the loop; then route to CardsNet.on_card.
+    case Sess.CardFetched{_, _, _, _}: k((ui, st, gen, False{}))
     case Sess.UploadFetched{+request, result, error, http_status}:
       on_upload(upload_owned(Sess.session_upload(st), request), ui, st, request, result, error, http_status, evt, cmd, ack, gen, k)
     case Sess.PreferencesLoaded{_, _, _}: k((ui, st, gen, False{}))

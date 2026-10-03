@@ -324,6 +324,7 @@ type UiMsg is Data:
   UiError{msg: String}
   TypingTick{now_ms: U32}
   MediaFetched{generation: Nat, ticket: Nat, url: String, payload: String}
+  CardFetched{generation: Nat, ticket: Nat, url: String, payload: String}
   UploadFetched{request: Up.Request, result: String, error: U32, http_status: U32}
   PreferencesLoaded{ticket: Nat, snapshot: Maybe<&2, Prefs.Preferences>, code: U32}
   PreferencesSaved{ticket: Nat, code: U32}

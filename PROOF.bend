@@ -13,6 +13,8 @@ import ./src/bend/outbound.bend as Act
 import ./src/bend/media.bend as Media
 import ./src/bend/cards.bend as Cards
 import ./src/bend/cap_notify.bend as CapNotify
+import ./src/bend/session_cards.bend as SessionCards
+import ./src/bend/cards_view.bend as CardsView
 import ./LAWS.bend as Laws
 
 def Laws.first_server_welcome_assigns_nickname():
@@ -1601,4 +1603,46 @@ def Laws.chathistory_cap_rejects_star_when_registered():
   {==}
 
 def Laws.chathistory_cap_rejects_wrong_recipient_prereg():
+  {==}
+
+def Laws.cards_adapter_demo_schedules_nothing():
+  {==}
+
+def Laws.cards_adapter_stopping_schedules_nothing():
+  {==}
+
+def Laws.cards_adapter_online_schedules_visible_page():
+  {==}
+
+def Laws.cards_adapter_disabled_schedules_nothing():
+  {==}
+
+def Laws.cards_adapter_exact_completion_accepted():
+  {==}
+
+def Laws.cards_adapter_wrong_ticket_rejected():
+  {==}
+
+def Laws.cards_adapter_stale_completion_stores_nothing():
+  {==}
+
+def Laws.cards_adapter_endpoint_reset_drops_queue():
+  {==}
+
+def Laws.cards_adapter_endpoint_reset_closes_fullscreen():
+  {==}
+
+def Laws.cards_adapter_fullscreen_needs_live_token():
+  {==}
+
+def Laws.cards_adapter_key_step_preserves_wire():
+  {==}
+
+def Laws.cards_adapter_chunk_step_preserves_wire():
+  {==}
+
+def Laws.cards_view_overlay_revalidates_stale_token():
+  {==}
+
+def Laws.cards_adapter_exact_url_preserved():
   {==}
