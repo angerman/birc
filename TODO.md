@@ -4284,6 +4284,22 @@ handoff is implementation scope, not a request for another plan-only review.
   PREFIX-subset intersection + guards); pending parent I2d/I2c-life
   review before integration. Freed slot went to `fix-sessws-s1s5/30`
   (`01a1017c-dc85-7701-a06f-980b059bfa66`) on `b04f759`.
+- G3 acceptance blockers (fresh review; send in INITIAL repair task if
+  running worker returns without consuming queues — queued messages
+  alone are not completion): (a) styled MODE/`324` key flags bypass
+  `mode_has_key` raw validation and leak keys to history — normalize
+  protocol channel/mode atoms before the shared predicate; paired
+  MODE/324 styled negatives + ordinary `+k` redaction / non-key
+  visibility positives. (b) `credential_echo` raw author vs canonical:
+  styled `:m<02>e!u@h` / `IDENTI<02>FY` evade suppression into own
+  chat/history — normalize classifier author + displayed credential
+  verb; peer ordinary IDENTIFY stays chat. (c) JoinPlan raw KICK
+  channel/victim vs canonical — styled self-KICK keeps rejoin intent;
+  one shared canonical protocol-atom seam for
+  Client/Auth/Submit/JoinPlan/I2, styled nonsecret chat intact. Plus
+  earlier queued mention-boundary guard (decoded-text matching). No
+  acceptance on green pure style fixtures without framed
+  Feed/history regressions.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
