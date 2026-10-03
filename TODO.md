@@ -3401,6 +3401,38 @@ Phase-1 evidence and handoff:
   (`build/m27-pre-build-diagnostics-commit-proof.log`). The profiled target keeps
   failed temporary directories so its generated-C state can be inspected if
   it times out. No app source changed after terminal qualification.
+- Diagnostics/privacy/builder bounds are committed as `f5b0b66`; no push.
+  A basic offline Nix expression takes 0.54 seconds
+  (`build/m27-nix-basic-eval-control.log`). A second measured package attempt
+  builds the new Bend wrapper and reaches codegen with owned PID 54804
+  (`build/m27-profiled-package-owned-pid.log`), but its observed UTC elapsed
+  budget exceeds 900 seconds while the timeout process remains alive. The
+  exact timeout/clock discrepancy is not diagnosed; do not attribute it to
+  sleep, clock changes, or a compiler fault without evidence.
+  Root locates only the owned log writer and its child chain, records PID/
+  parent/state/CPU-time/elapsed metadata without command arguments, then stops
+  verified owned Nix PID 34475. Cancellation returns, and both Nix/compiler
+  PIDs are gone. One CPU snapshot is not a marginal rate or a bottleneck proof.
+  No codegen completion, native stage, new birc package, or retained failed
+  directory is confirmed from this canceled attempt. The default package link
+  remains `/nix/store/71axidj8nisxkn03gnhwfaj76a6zcc37-birc-0.1.0` (M26).
+- The new provisioned Bend wrapper exists at
+  `/nix/store/vp83vc93fd31ykls5x39mjac3xjh08mw-bend/bin/bend`; its actual script
+  exports both opt-out flags. This is a cached compiler wrapper, not a cached
+  IRC app. Final standard proof passes again
+  (`build/m27-final-handover-proof.log`). No package/default app cache or full
+  aggregate-check completion follows. Reload the Nix development shell to use
+  the new wrapper. All owned build/compiler processes are stopped at handoff.
+
+Next diagnostic: keep app source frozen; add default-off load/check/emit/write
+timers using the pinned compiler's exported `book_nil`, `book_load`,
+`book_valid`, and `compile_book` pipeline. Retain the CLI's hole refusal and
+owned output-file safety; do not run the app. Compare consumed, bounded
+controls in the Nix build context, with telemetry disabled and `BEND_LIB` set
+to an owned empty directory. Sample only reported owned PIDs twice to compute
+CPU deltas. Reconcile UTC wall budget and process timeout before another long
+attempt. Default prebuild and installed-helper/clean-PATH/TLS qualification
+remain required; do not rerun the same build blindly or claim a root cause.
 
 Before completion: freeze agent edits, run fresh proof and relevant pure/native
 checks, build the app, pass changed/new PTY guards three consecutive times,
