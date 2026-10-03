@@ -4,10 +4,14 @@
 
 The parent owns scheduling and the output limit. This helper also has a total
 deadline, so a helper adopted during application exit cannot run indefinitely.
-Only validated public addresses are contacted, including after redirects.
-HTTPS is verified with the standard library against the original host name.
+Cards are public-HTTPS only: the initial page, every redirect hop, and every
+thumbnail reference must be HTTPS. Only validated public addresses are
+contacted, including after redirects. HTTPS is verified with the standard
+library against the original host name.
 Card HTML uses a private subdirectory of the image cache; local previews
-never enter the disk cache.
+never enter the disk cache. Images and cards share one explicit bounded
+media budget (image.MAX_CACHE_ENTRIES / image.MAX_CACHE_BYTES): this writer
+counts both pools and evicts only its own oldest entries.
 """
 
 import html
@@ -33,8 +37,8 @@ MAX_DESC = 256
 MAX_IMAGE = 1024
 MAX_META_TAGS = 200
 MAX_TAG_BYTES = 2048
-MAX_CACHE_ENTRIES = 64
-MAX_CACHE_BYTES = 16 * 1024 * 1024
+# No independent cards budget: the shared media budget lives in image.py
+# (MAX_CACHE_ENTRIES / MAX_CACHE_BYTES) and covers images plus cards.
 MAX_CACHE_SCAN = 256
 TIMEOUT = 8
 REDIRECTS = 3
@@ -49,6 +53,23 @@ class CardError(Exception):
     pass
 
 
+def url_parts(url):
+    """Cards require public HTTPS; ports, credentials, and length stay shared."""
+    scheme, host, port, path = image.url_parts(url)
+    if scheme != "https":
+        raise CardError("card URL must use HTTPS")
+    return scheme, host, port, path
+
+
+def destination(url, resolver=socket.getaddrinfo):
+    """HTTPS-only destination with the shared public-address checks."""
+    scheme, host, port, path = url_parts(url)
+    addresses = resolver(host, port, type=socket.SOCK_STREAM)
+    if not addresses or any(not image.public_address(item[4][0]) for item in addresses):
+        raise CardError("card host must resolve only to public addresses")
+    return scheme, host, port, path, addresses
+
+
 def fetch(url, deadline, resolver=socket.getaddrinfo, connection=None):
     """Mirror the image fetch policy with HTML bounds and content checks."""
     if connection is None:
@@ -57,7 +78,7 @@ def fetch(url, deadline, resolver=socket.getaddrinfo, connection=None):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise CardError("card fetch timed out")
-        scheme, host, port, path, addresses = image.destination(url, resolver)
+        scheme, host, port, path, addresses = destination(url, resolver)
         client = connection(scheme, host, port, addresses, remaining)
         try:
             client.request("GET", path, headers={
@@ -143,6 +164,19 @@ def cache_name(url):
     return hashlib.sha256(url.encode("utf-8")).hexdigest() + ".card"
 
 
+def cache_split(data):
+    """New entries store the final base on the first line; legacy entries are raw HTML."""
+    head, separator, rest = data.partition(b"\n")
+    if not separator or len(head) > 4096:
+        return data, None
+    try:
+        text = head.decode("ascii")
+        url_parts(text)
+    except (UnicodeDecodeError, image.ImageError, CardError):
+        return data, None
+    return rest, text
+
+
 def cache_read(url):
     directory = cache_directory()
     fd = None
@@ -154,7 +188,7 @@ def cache_read(url):
                      dir_fd=directory)
         info = os.fstat(fd)
         image.cache_owned(info)
-        if not 0 < info.st_size <= MAX_HTML:
+        if not 0 < info.st_size <= MAX_HTML + 4097:
             return None
         os.fchmod(fd, 0o600)
         info = os.fstat(fd)
@@ -168,7 +202,8 @@ def cache_read(url):
         if (image.cache_identity(os.fstat(fd)) != image.cache_identity(info)
                 or image.cache_identity(current) != image.cache_identity(info)):
             return None
-        return bytes(data)
+        html, base = cache_split(bytes(data))
+        return html, base or url
     except (OSError, ValueError):
         return None
     finally:
@@ -180,11 +215,49 @@ def cache_read(url):
                     pass
 
 
-def cache_write(url, data):
-    """Best-effort bounded FIFO for fetched page HTML."""
+def image_usage(parent):
+    """Bounded (count, bytes) of image payloads in the shared parent cache."""
+    count = total = 0
+    try:
+        with os.scandir(parent) as scan:
+            for index, entry in enumerate(scan):
+                if index >= image.MAX_CACHE_SCAN:
+                    return None
+                name = entry.name
+                if not (len(name) == 68 and name.endswith(".img")
+                        and all(c in "0123456789abcdef" for c in name[:64])):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    image.cache_owned(info)
+                except OSError:
+                    return None
+                count += 1
+                total += info.st_size
+    except OSError:
+        return None
+    return count, total
+
+
+def cache_write(url, data, final=None):
+    """Best-effort bounded FIFO for fetched page HTML under the shared budget.
+
+    The stored entry preserves the final fetch base so cache hits resolve
+    relative thumbnails exactly like the first fetch. Images and cards share
+    one explicit budget: this writer counts both pools, evicts only its own
+    oldest entries, and skips the write when image payloads alone fill it.
+    """
     import fcntl
     import secrets
-    if not 0 < len(data) <= min(MAX_HTML, MAX_CACHE_BYTES) or MAX_CACHE_ENTRIES < 1:
+    if final is None:
+        final = url
+    try:
+        url_parts(final)
+    except (image.ImageError, CardError):
+        final = url
+    stored = final.encode("utf-8") + b"\n" + data
+    if (not 0 < len(data) <= MAX_HTML or len(stored) > image.MAX_CACHE_BYTES
+            or image.MAX_CACHE_ENTRIES < 1):
         return
     directory = cache_directory(create=True)
     lock = temporary_fd = None
@@ -197,6 +270,19 @@ def cache_write(url, data):
         image.cache_owned(os.fstat(lock))
         os.fchmod(lock, 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        parent = image.cache_directory()
+        if parent is None:
+            return
+        try:
+            usage = image_usage(parent)
+        finally:
+            os.close(parent)
+        if usage is None:
+            return
+        img_count, img_bytes = usage
+        if (img_count + 1 > image.MAX_CACHE_ENTRIES
+                or img_bytes + len(stored) > image.MAX_CACHE_BYTES):
+            return
         target = cache_name(url)
         try:
             previous = os.stat(target, dir_fd=directory, follow_symlinks=False)
@@ -225,8 +311,8 @@ def cache_write(url, data):
                 entries.append((info.st_mtime_ns, name, info))
         entries.sort(key=lambda item: (item[0], item[1]))
         total = sum(item[2].st_size for item in entries)
-        while entries and (len(entries) + 1 > MAX_CACHE_ENTRIES
-                           or total + len(data) > MAX_CACHE_BYTES):
+        while entries and (img_count + len(entries) + 1 > image.MAX_CACHE_ENTRIES
+                           or img_bytes + total + len(stored) > image.MAX_CACHE_BYTES):
             _, name, info = entries.pop(0)
             if image.cache_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) != image.cache_identity(info):
                 raise OSError("card cache changed")
@@ -236,7 +322,7 @@ def cache_write(url, data):
         temporary_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
                                | os.O_CLOEXEC, 0o600, dir_fd=directory)
         os.fchmod(temporary_fd, 0o600)
-        view = memoryview(data)
+        view = memoryview(stored)
         while view:
             count = os.write(temporary_fd, view)
             if count <= 0:
@@ -292,13 +378,13 @@ def meta_fields(document):
 
 
 def card_image(raw, base):
-    """Absolute HTTP(S) thumbnail references only; the rest stay text-only."""
+    """Absolute HTTPS thumbnail references only; the rest stay text-only."""
     if not raw or len(raw) > MAX_IMAGE:
         return ""
     try:
         target = urljoin(base, raw.strip())
-        image.url_parts(target)
-    except image.ImageError:
+        url_parts(target)
+    except (image.ImageError, CardError):
         return ""
     if len(target) > MAX_IMAGE:
         return ""
@@ -317,21 +403,26 @@ def parse_html(data, base):
         match = TITLE_TAG.search(document)
         title = match.group(1) if match else ""
     desc = found.get("og:description", found.get("description", ""))
-    return (clean(title, MAX_TITLE), clean(desc, MAX_DESC),
-            card_image(clean(found.get("og:image", ""), MAX_IMAGE), base))
+    raw_image = found.get("og:image", "")
+    if len(raw_image) > MAX_IMAGE:
+        thumbnail = ""
+    else:
+        thumbnail = card_image(clean(raw_image, MAX_IMAGE), base)
+    return (clean(title, MAX_TITLE), clean(desc, MAX_DESC), thumbnail)
 
 
 def encode_remote(url, deadline, resolver=socket.getaddrinfo, connection=None):
-    image.url_parts(url)
-    data = cache_read(url)
-    if data is not None:
+    url_parts(url)
+    cached = cache_read(url)
+    if cached is not None:
+        data, base = cached
         try:
-            return parse_html(data, url)
+            return parse_html(data, base)
         except Exception:
             pass  # Never trust cached bytes without the same bounded parse.
     data, final = fetch(url, deadline, resolver, connection)
     result = parse_html(data, final)
-    cache_write(url, data)
+    cache_write(url, data, final)
     return result
 
 
@@ -365,7 +456,7 @@ def main(args):
     elif len(args) == 2 and args[0] == "--local":
         title, desc, thumbnail = parse_html(read_local(args[1]), "https://local.invalid/")
     else:
-        raise CardError("usage: birc-cards <HTTP-or-HTTPS-page-URL> | --local <path>")
+        raise CardError("usage: birc-cards <HTTPS-page-URL> | --local <path>")
     print(title)
     print(desc)
     print(thumbnail)

@@ -126,6 +126,27 @@ for response in (Response(404), Response(headers={"Content-Encoding": "gzip"}),
     assert connections[-1].closed
 rejected(lambda: cards.fetch("https://example.test/read", time.monotonic() - 1,
                              public, Connection))
+# C8.3: cards are public-HTTPS only, at the initial URL and after redirects.
+rejected(lambda: cards.destination("http://example.test/read", public))
+responses[:] = [Response(data=page)]
+before = len(connections)
+rejected(lambda: fetched("http://example.test/read"))
+assert len(connections) == before and len(responses) == 1
+responses[:] = [Response(302, headers={"Location": "http://example.test/next"})]
+rejected(fetched)
+saved_cache = os.environ.get("BIRC_IMAGE_CACHE")
+os.environ["BIRC_IMAGE_CACHE"] = "none"
+try:
+    responses[:] = [Response(data=page)]
+    before = len(connections)
+    rejected(lambda: cards.encode_remote("http://example.test/read",
+                                         time.monotonic() + 2, public, Connection))
+    assert len(connections) == before
+finally:
+    if saved_cache is None:
+        del os.environ["BIRC_IMAGE_CACHE"]
+    else:
+        os.environ["BIRC_IMAGE_CACHE"] = saved_cache
 
 
 def parsed(data, base="https://example.test/read"):
@@ -165,6 +186,17 @@ assert parsed(b'<meta property="og:image" content="file:///tmp/i.png">')[2] == "
 assert parsed(b'<meta property="og:image" content="https://me:s@example.test/i.png">')[2] == ""
 assert parsed(b'<meta property="og:image" content="https://example.test:9999/i.png">')[2] == ""
 assert parsed(b'<meta property="og:image" content="' + b"https://example.test/" + b"q" * 2000 + b'">')[2] == ""
+# C8.2: overlong thumbnails are rejected before truncation; exact-1024 survives.
+exact1024 = "https://example.test/" + "q" * 1003
+assert len(exact1024) == 1024
+assert parsed(b'<meta property="og:image" content="' + exact1024.encode() + b'">')[2] == exact1024
+over1025 = "https://example.test/" + "q" * 1004
+assert len(over1025) == 1025
+assert parsed(b'<meta property="og:image" content="' + over1025.encode() + b'">')[2] == ""
+assert cards.card_image("q" * 1025, "https://example.test/read") == ""
+assert cards.card_image(exact1024, "https://example.test/read") == exact1024
+# C8.3: plaintext thumbnails stay text-only, like any other non-HTTPS target.
+assert parsed(b'<meta property="og:image" content="http://example.test/i.png">')[2] == ""
 
 fixtures = HERE / "fixtures/cards"
 assert parsed((fixtures / "og_basic.html").read_bytes()) == (
@@ -223,10 +255,10 @@ try:
     before = len(connections)
     assert cards.encode_remote(url, time.monotonic() + 2, public, Connection) == ("", "", "")
     assert len(connections) == before
-    # Eviction keeps the newest entries under the configured bounds.
-    saved_entries, saved_bytes = cards.MAX_CACHE_ENTRIES, cards.MAX_CACHE_BYTES
+    # Eviction keeps the newest entries under the shared media budget.
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
     try:
-        cards.MAX_CACHE_ENTRIES, cards.MAX_CACHE_BYTES = 2, 10 * 1024 * 1024
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 2, 10 * 1024 * 1024
         for index in range(4):
             responses[:] = [Response(data=page)]
             cards.encode_remote("https://example.test/e%d" % index,
@@ -234,7 +266,7 @@ try:
         names = sorted(path.name for path in cached.iterdir() if path.name.endswith(".card"))
         assert len(names) == 2, names
     finally:
-        cards.MAX_CACHE_ENTRIES, cards.MAX_CACHE_BYTES = saved_entries, saved_bytes
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
     os.environ["BIRC_IMAGE_CACHE"] = "none"
     responses[:] = [Response(data=page)]
     before = len(connections)
@@ -242,6 +274,62 @@ try:
                                time.monotonic() + 2, public, Connection) == ("T", "", "")
     assert len(connections) == before + 1
     assert cards.cache_directory() is None
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8.1: a cache hit resolves relative thumbnails against the same final base
+# as the first fetch, even across cross-origin/directory redirects.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    first_url = "https://example.test/dir/page"
+    moved = (b'<html><head><meta property="og:title" content="Moved">'
+             b'<meta property="og:image" content="thumb.png"></head></html>')
+    responses[:] = [Response(302, headers={"Location": "/other/final"}),
+                    Response(data=moved)]
+    before = len(connections)
+    first = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert first == ("Moved", "", "https://example.test/other/thumb.png"), first
+    assert len(connections) == before + 2
+    before = len(connections)
+    second = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert len(connections) == before
+    assert second == first, (second, first)
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8.4: images and cards share one explicit bounded media budget. The cards
+# writer counts both pools, evicts only its own oldest entries, and skips a
+# write (without evicting) when image payloads alone fill the budget.
+assert not hasattr(cards, "MAX_CACHE_ENTRIES") and not hasattr(cards, "MAX_CACHE_BYTES")
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 4, 10 * 1024 * 1024
+        for index in range(3):
+            image.cache_write("https://example.test/img%d" % index, b"01234567")
+        parent = root / "img"
+        assert len([p for p in parent.iterdir() if p.name.endswith(".img")]) == 3
+        for index in range(2):
+            responses[:] = [Response(data=page)]
+            assert cards.encode_remote("https://example.test/c%d" % index,
+                                       time.monotonic() + 2, public, Connection) == ("T", "", "")
+        assert len([p for p in parent.iterdir() if p.name.endswith(".img")]) == 3
+        cards_dir = parent / "cards"
+        card_names = sorted(p.name for p in cards_dir.iterdir() if p.name.endswith(".card"))
+        assert len(card_names) == 1, card_names
+        image.cache_write("https://example.test/img3", b"01234567")
+        responses[:] = [Response(data=page)]
+        assert cards.encode_remote("https://example.test/c9",
+                                   time.monotonic() + 2, public, Connection) == ("T", "", "")
+        assert sorted(p.name for p in cards_dir.iterdir()
+                      if p.name.endswith(".card")) == card_names
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
 finally:
     os.environ.clear()
     os.environ.update(saved)
