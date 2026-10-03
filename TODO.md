@@ -4510,6 +4510,16 @@ handoff is implementation scope, not a request for another plan-only review.
   gen stable in the sequential do-block (no Chan interleaves) so the
   fallback is inherently current-generation; pure plan helper
   JS-tested, IO glue covered by transport/native suites.
+- V6 Actor wiring DONE (`283bc4b`, UNQUALIFIED): `dial_begin` via
+  `dial_dual` + `Tr.upgrade(original host)`; `Dq.dial_plan` JS-pinned
+  (`ipv6_transport=ok`, red-then-green); linear-Result actuation
+  mirrors the table arm-for-arm; literals/DNS-error/timeout/
+  continuation semantics preserved; no TLS-failure fallback, no
+  downgrade. Native/live/PTY IO coverage at final qualification.
+- Initial 9-lane workflow reconciled completed: lane1 FAILED no-commit
+  (needs respin, no merge); lanes 2-7 READY at known commits (all
+  since integrated/superseded); lanes 8-9 reports missing. No new
+  integration input; lane1 heavy/build ownership unchanged.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
