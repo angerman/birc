@@ -26,6 +26,7 @@
           birc = pkgs.callPackage ./nix/birc.nix { inherit bend; };
         in {
           inherit bend birc;
+          birc-profiled = birc.override { profileBuild = true; };
           default = birc;
         });
 

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3, openssl, cacert }:
+{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3, openssl, cacert
+, profileBuild ? false }:
 
 let
   media = callPackage ./media.nix {};
@@ -24,11 +25,23 @@ in stdenv.mkDerivation {
 
   buildPhase = ''
     runHook preBuild
+    ${lib.optionalString profileBuild ''
+      birc_stage_started=$SECONDS
+      printf 'birc-build stage=codegen begin\n' >&2
+    ''}
     bend src/bend/app.bend -o birc_bend.c
+    ${lib.optionalString profileBuild ''
+      printf 'birc-build stage=codegen elapsed_s=%s\n' "$((SECONDS - birc_stage_started))" >&2
+      birc_stage_started=$SECONDS
+      printf 'birc-build stage=native begin\n' >&2
+    ''}
     clang -std=c11 -O2 -pthread -w -Isrc/ui -Isrc/ffi \
       -isystem ${lib.getDev openssl}/include birc_bend.c \
       -L${lib.getLib openssl}/lib -Wl,-rpath,${lib.getLib openssl}/lib \
       -lssl -lcrypto -o birc
+    ${lib.optionalString profileBuild ''
+      printf 'birc-build stage=native elapsed_s=%s\n' "$((SECONDS - birc_stage_started))" >&2
+    ''}
     runHook postBuild
   '';
 

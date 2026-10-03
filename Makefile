@@ -1127,3 +1127,11 @@ run: ## Verified TLS IRC (HOST=host[:port]; TRANSPORT=plain explicitly selects p
 
 clean: ## Remove build artefacts (not sources or flake.lock).
 	rm -rf $(BLDDIR)
+
+.PHONY: build-package-profiled test-package-build-profile
+build-package-profiled: ## Measure Nix codegen/native stages; separate package, not the default app cache.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --no-update-lock-file -L .\#birc-profiled --out-link $(BLDDIR)/package-birc-profiled
+
+test-package-build-profile: ## Default-off Nix timers preserve command order and fail-closed status.
+	$(NIXRUN) timeout 60 python3 tests/package_build_profile.py
