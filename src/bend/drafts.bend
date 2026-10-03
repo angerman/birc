@@ -21,9 +21,21 @@ import ./buffer.bend as Cl
 import ./message_chunks.bend as Chunks
 import ./irc_commands.bend as Commands
 import ./submit.bend as Sub
+import ./split.bend as Sp
+import ./server_key.bend as Key
 
 type Draft is Data:
-  Draft{name: String, text: String}
+  Draft{server: Key.ServerId, name: String, text: String}
+
+# Canonical buffer identity. The control buffer is "*server*" exactly like
+# Split.name_at(cl, 0n) (pinned by the control-key test); every other buffer
+# keeps target_name. A peer query named "server" therefore never collides
+# with the control draft. Callers pass Split.name_at(cl, i) for resolved
+# buffers, or key_of for typed names with an explicit control flag.
+def key_of(control: Bool, +raw: String) -> String:
+  match control:
+    case True{}: "*server*"
+    case False{}: Cl.target_name(raw)
 
 type Drafts is Data:
   Drafts{entries: List<&2, Draft>}
@@ -138,8 +150,10 @@ def fits(+text: String) -> Bool:
 
 # ---- store ------------------------------------------------------------
 # Lookup uses RFC 1459 casemapping like buf_find, so a draft follows the
-# buffer it was typed in. An empty text clears the entry instead of
-# storing a blank draft.
+# buffer it was typed in. Keys are canonical (key_of) and server-scoped:
+# (server, "*server*") is the control draft, (server, "server") a peer
+# query, and different servers never share entries. An empty text clears
+# the entry instead of storing a blank draft.
 
 def find_entry.rest(cont: Maybe<&2, String>, +text: String, hit: Bool) -> Maybe<&2, String>:
   match hit:
@@ -148,20 +162,20 @@ def find_entry.rest(cont: Maybe<&2, String>, +text: String, hit: Bool) -> Maybe<
     case False{}:
       cont
 
-def find_entry.go(xs: List<&2, Draft>, +name: String) -> Maybe<&2, String>:
+def find_entry.go(xs: List<&2, Draft>, +server: Key.ServerId, +key: String) -> Maybe<&2, String>:
   match xs:
     case Nil{}:
       None{}
     case Con{h, +t}:
       match h:
-        case Draft{+stored, +text}:
-          +cont = find_entry.go(t, name)
-          find_entry.rest(cont, text, Irc.ieq(stored, name))
+        case Draft{+srv, +stored, +text}:
+          +cont = find_entry.go(t, server, key)
+          find_entry.rest(cont, text, Key.eq(srv, server) && Irc.ieq(stored, key))
 
-def find_entry(+ds: Drafts, +name: String) -> Maybe<&2, String>:
+def find_entry(+ds: Drafts, +server: Key.ServerId, +key: String) -> Maybe<&2, String>:
   match ds:
     case Drafts{+entries}:
-      find_entry.go(entries, Cl.target_name(name))
+      find_entry.go(entries, server, key)
 
 def get.on(found: Maybe<&2, String>) -> String:
   match found:
@@ -170,8 +184,8 @@ def get.on(found: Maybe<&2, String>) -> String:
     case Some{+text}:
       text
 
-def get(+ds: Drafts, +name: String) -> String:
-  get.on(find_entry(ds, name))
+def get(+ds: Drafts, +server: Key.ServerId, +key: String) -> String:
+  get.on(find_entry(ds, server, key))
 
 def has.on(found: Maybe<&2, String>) -> Bool:
   match found:
@@ -180,188 +194,248 @@ def has.on(found: Maybe<&2, String>) -> Bool:
     case Some{_}:
       True{}
 
-def has(+ds: Drafts, +name: String) -> Bool:
-  has.on(find_entry(ds, name))
+def has(+ds: Drafts, +server: Key.ServerId, +key: String) -> Bool:
+  has.on(find_entry(ds, server, key))
 
-def remove_entry.keep(+rest: List<&2, Draft>, +stored: String, +text: String, hit: Bool) -> List<&2, Draft>:
+def remove_entry.keep(+rest: List<&2, Draft>, +srv: Key.ServerId, +stored: String, +text: String, hit: Bool) -> List<&2, Draft>:
   match hit:
     case True{}:
       rest
     case False{}:
-      Draft{stored, text} <> rest
+      Draft{srv, stored, text} <> rest
 
-def remove_entry.go(xs: List<&2, Draft>, +name: String) -> List<&2, Draft>:
+def remove_entry.go(xs: List<&2, Draft>, +server: Key.ServerId, +key: String) -> List<&2, Draft>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, +t}:
       match h:
-        case Draft{+stored, +text}:
-          remove_entry.keep(remove_entry.go(t, name), stored, text, Irc.ieq(stored, name))
+        case Draft{+srv, +stored, +text}:
+          remove_entry.keep(remove_entry.go(t, server, key), srv, stored, text, Key.eq(srv, server) && Irc.ieq(stored, key))
 
-def clear(+ds: Drafts, +raw: String) -> Drafts:
+def clear(+ds: Drafts, +server: Key.ServerId, +key: String) -> Drafts:
   match ds:
     case Drafts{+entries}:
-      Drafts{remove_entry.go(entries, Cl.target_name(raw))}
+      Drafts{remove_entry.go(entries, server, key)}
 
-def drop(+ds: Drafts, +name: String) -> Drafts:
-  clear(ds, name)
+def drop(+ds: Drafts, +server: Key.ServerId, +key: String) -> Drafts:
+  clear(ds, server, key)
 
-def replace_entry.picked(+rest: List<&2, Draft>, replaced: Bool, +stored: String, +old: String, +name: String, +text: String, hit: Bool) -> List<&2, Draft> & Bool:
+def replace_entry.picked(+rest: List<&2, Draft>, replaced: Bool, +srv: Key.ServerId, +stored: String, +old: String, +server: Key.ServerId, +key: String, +text: String, hit: Bool) -> List<&2, Draft> & Bool:
   match hit:
     case True{}:
-      (Draft{name, text} <> rest, True{})
+      (Draft{server, key, text} <> rest, True{})
     case False{}:
-      (Draft{stored, old} <> rest, replaced)
+      (Draft{srv, stored, old} <> rest, replaced)
 
-def replace_entry.keep(pair: List<&2, Draft> & Bool, +stored: String, +old: String, +name: String, +text: String, hit: Bool) -> List<&2, Draft> & Bool:
+def replace_entry.keep(pair: List<&2, Draft> & Bool, +srv: Key.ServerId, +stored: String, +old: String, +server: Key.ServerId, +key: String, +text: String, hit: Bool) -> List<&2, Draft> & Bool:
   match pair:
     case (+rest, +replaced):
-      replace_entry.picked(rest, replaced, stored, old, name, text, hit)
+      replace_entry.picked(rest, replaced, srv, stored, old, server, key, text, hit)
 
-def replace_entry.go(+xs: List<&2, Draft>, +name: String, +text: String) -> List<&2, Draft> & Bool:
+def replace_entry.go(+xs: List<&2, Draft>, +server: Key.ServerId, +key: String, +text: String) -> List<&2, Draft> & Bool:
   match xs:
     case Nil{}:
       (Nil{}, False{})
     case Con{h, +t}:
       match h:
-        case Draft{+stored, +old}:
-          replace_entry.keep(replace_entry.go(t, name, text), stored, old, name, text, Irc.ieq(stored, name))
+        case Draft{+srv, +stored, +old}:
+          replace_entry.keep(replace_entry.go(t, server, key, text), srv, stored, old, server, key, text, Key.eq(srv, server) && Irc.ieq(stored, key))
 
-def set.grow(+rest: List<&2, Draft>, +name: String, +text: String, replaced: Bool) -> List<&2, Draft>:
+def set.grow(+rest: List<&2, Draft>, +server: Key.ServerId, +key: String, +text: String, replaced: Bool) -> List<&2, Draft>:
   match replaced:
     case True{}:
       rest
     case False{}:
-      Draft{name, text} <> rest
+      Draft{server, key, text} <> rest
 
-def set.append(pair: List<&2, Draft> & Bool, +name: String, +text: String) -> List<&2, Draft>:
+def set.append(pair: List<&2, Draft> & Bool, +server: Key.ServerId, +key: String, +text: String) -> List<&2, Draft>:
   match pair:
     case (+rest, +replaced):
-      set.grow(rest, name, text, replaced)
+      set.grow(rest, server, key, text, replaced)
 
-def set.stored(+entries: List<&2, Draft>, +name: String, +text: String) -> List<&2, Draft>:
-  set.append(replace_entry.go(entries, name, text), name, text)
+def set.stored(+entries: List<&2, Draft>, +server: Key.ServerId, +key: String, +text: String) -> List<&2, Draft>:
+  set.append(replace_entry.go(entries, server, key, text), server, key, text)
 
-def set.admit(fits_text: Bool, +ds: Drafts, +name: String) -> Bool:
+def count_server.hit(+tail: Nat, hit: Bool) -> Nat:
+  match hit:
+    case True{}:
+      Nat.add(tail, 1n)
+    case False{}:
+      tail
+
+def count_server.go(xs: List<&2, Draft>, +server: Key.ServerId, +n: Nat) -> Nat:
+  match xs:
+    case Nil{}:
+      n
+    case Con{h, +t}:
+      match h:
+        case Draft{+srv, _, _}:
+          count_server.hit(count_server.go(t, server, n), Key.eq(srv, server))
+
+def count_server(+ds: Drafts, +server: Key.ServerId) -> Nat:
+  match ds:
+    case Drafts{+entries}:
+      count_server.go(entries, server, 0n)
+
+def set.admit(fits_text: Bool, +ds: Drafts, +server: Key.ServerId, +key: String) -> Bool:
   match fits_text:
     case False{}:
       False{}
     case True{}:
-      has(ds, name) || Nat.is_lt(count(ds), ENTRY_CAP())
+      has(ds, server, key) || Nat.is_lt(count_server(ds, server), ENTRY_CAP())
 
-def set.replace.stored(+entries: List<&2, Draft>, +name: String, +text: String, admitted: Bool) -> Drafts:
+def set.replace.stored(+entries: List<&2, Draft>, +server: Key.ServerId, +key: String, +text: String, admitted: Bool) -> Drafts:
   match admitted:
     case False{}:
       Drafts{entries}
     case True{}:
-      Drafts{set.stored(entries, name, text)}
+      Drafts{set.stored(entries, server, key, text)}
 
-def set.replace(+ds: Drafts, +name: String, +text: String, admitted: Bool) -> Drafts:
+def set.replace(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, admitted: Bool) -> Drafts:
   match ds:
     case Drafts{+entries}:
-      set.replace.stored(entries, name, text, admitted)
+      set.replace.stored(entries, server, key, text, admitted)
 
-def set.named(+ds: Drafts, +name: String, +text: String, empty: Bool) -> Drafts:
+def set.named(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, empty: Bool) -> Drafts:
   match empty:
     case True{}:
-      clear(ds, name)
+      clear(ds, server, key)
     case False{}:
-      set.replace(ds, name, text, set.admit(fits(text), ds, name))
+      set.replace(ds, server, key, text, set.admit(fits(text), ds, server, key))
 
-def set(+ds: Drafts, +raw: String, +text: String) -> Drafts:
-  +name = Cl.target_name(raw)
-  set.named(ds, name, text, String.is_empty(name) || String.is_empty(text))
+def set(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String) -> Drafts:
+  set.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
 
-def set_ok.named(+ds: Drafts, +name: String, +text: String, empty: Bool) -> Bool:
+def set_ok.named(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, empty: Bool) -> Bool:
   match empty:
     case True{}:
       True{}
     case False{}:
-      set.admit(fits(text), ds, name)
+      set.admit(fits(text), ds, server, key)
 
-def set_ok(+ds: Drafts, +raw: String, +text: String) -> Bool:
-  +name = Cl.target_name(raw)
-  set_ok.named(ds, name, text, String.is_empty(name) || String.is_empty(text))
+def set_ok(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String) -> Bool:
+  set_ok.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
 
 # ---- rename / close / prune -------------------------------------------
-# Rename mirrors feed_nick: the draft follows an accepted query rename, and
-# an existing draft under the new name wins over the moved one, like the
-# coalesced buffer keeps its surviving head. Close drops the entry.
-# `retain` prunes drafts for buffers that no longer exist, including the
-# server buffer at index 0 which buf_find skips.
+# Rename mirrors feed_nick.query: the draft follows an accepted *query*
+# rename only. Both ends must satisfy the shared query-source predicate,
+# so channel drafts never move and the control draft ("*server*") is never
+# a rename party. An existing draft under the new name wins over the moved
+# one, like the coalesced buffer keeps its surviving head. Close drops the
+# entry. `retain` prunes same-server drafts for buffers that no longer
+# exist; residency uses Split.name_at, so index 0 resolves to "*server*".
 
-def rename.occupied(+ds: Drafts, +to: String, +text: String, occupied: Bool) -> Drafts:
+def rename.occupied(+ds: Drafts, +server: Key.ServerId, +to: String, +text: String, occupied: Bool) -> Drafts:
   match occupied:
     case True{}:
       ds
     case False{}:
-      set(ds, to, text)
+      set(ds, server, to, text)
 
-def rename.place(+ds: Drafts, +to: String, +text: String) -> Drafts:
-  rename.occupied(ds, to, text, has(ds, to))
+def rename.place(+ds: Drafts, +server: Key.ServerId, +to: String, +text: String) -> Drafts:
+  rename.occupied(ds, server, to, text, has(ds, server, to))
 
-def rename.carry(+ds: Drafts, +from: String, +to: String, carried: Maybe<&2, String>) -> Drafts:
+def rename.carry(+ds: Drafts, +server: Key.ServerId, +from: String, +to: String, carried: Maybe<&2, String>) -> Drafts:
   match carried:
     case None{}:
       ds
     case Some{+text}:
-      rename.place(clear(ds, from), to, text)
+      rename.place(clear(ds, server, from), server, to, text)
 
-def rename.move(+ds: Drafts, +from: String, +to: String, allowed: Bool) -> Drafts:
+def rename.move(+ds: Drafts, +server: Key.ServerId, +from: String, +to: String, allowed: Bool) -> Drafts:
   match allowed:
     case False{}:
       ds
     case True{}:
-      rename.carry(ds, from, to, find_entry(ds, from))
+      rename.carry(ds, server, from, to, find_entry(ds, server, from))
 
-def rename(+ds: Drafts, +from_raw: String, +to_raw: String) -> Drafts:
-  rename.move(ds, Cl.target_name(from_raw), Cl.target_name(to_raw), Cl.nick_rename_allowed(from_raw, to_raw))
+def rename(+ds: Drafts, +server: Key.ServerId, +from_key: String, +to_key: String) -> Drafts:
+  rename.move(ds, server, from_key, to_key,
+    Cl.is_query_name(from_key) && Cl.is_query_name(to_key) && Cl.nick_rename_allowed(from_key, to_key))
 
-def resident.or(+tail: Bool, hit: Bool) -> Bool:
-  match hit:
-    case True{}:
-      True{}
-    case False{}:
-      tail
-
-def resident(+bufs: List<&2, Cl.Buffer>, +name: String) -> Bool:
+def resident.go(+cl: Cl.Client, bufs: List<&2, Cl.Buffer>, +i: Nat, +key: String) -> Bool:
   match bufs:
     case Nil{}:
       False{}
-    case Con{h, +t}:
-      match h:
-        case Cl.Buffer{+n, _, _, _, _, _}:
-          resident.or(resident(t, name), Irc.ieq(n, name))
+    case Con{_, +t}:
+      Irc.ieq(Sp.name_at(cl, i), key) || resident.go(cl, t, Nat.add(i, 1n), key)
 
-def retain_entry.keep(+rest: List<&2, Draft>, +name: String, +text: String, keep: Bool) -> List<&2, Draft>:
+def resident(+cl: Cl.Client, +key: String) -> Bool:
+  resident.go(cl, Cl.client_bufs(cl), 0n, key)
+
+def retain_entry.keep(+rest: List<&2, Draft>, +srv: Key.ServerId, +name: String, +text: String, keep: Bool) -> List<&2, Draft>:
   match keep:
     case True{}:
-      Draft{name, text} <> rest
+      Draft{srv, name, text} <> rest
     case False{}:
       rest
 
-def retain_entry.go(xs: List<&2, Draft>, +cl: Cl.Client) -> List<&2, Draft>:
+def retain_entry.go(xs: List<&2, Draft>, +server: Key.ServerId, +cl: Cl.Client) -> List<&2, Draft>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, +t}:
       match h:
-        case Draft{+name, +text}:
-          retain_entry.keep(retain_entry.go(t, cl), name, text, resident(Cl.client_bufs(cl), name))
+        case Draft{+srv, +name, +text}:
+          retain_entry.keep(retain_entry.go(t, server, cl), srv, name, text,
+            Bool.not(Key.eq(srv, server)) || resident(cl, name))
 
-def retain(+ds: Drafts, +cl: Cl.Client) -> Drafts:
+def retain(+ds: Drafts, +server: Key.ServerId, +cl: Cl.Client) -> Drafts:
   match ds:
     case Drafts{+entries}:
-      Drafts{retain_entry.go(entries, cl)}
+      Drafts{retain_entry.go(entries, server, cl)}
+
+# Endpoint/slot replacement drops that server's drafts: a ServerId alone is
+# not an endpoint identity, so a replaced slot must not inherit the old
+# room's composers. Same-endpoint reconnects retain drafts. Other servers'
+# entries are never touched.
+def replace_endpoint.keep(+rest: List<&2, Draft>, +srv: Key.ServerId, +name: String, +text: String, drop: Bool) -> List<&2, Draft>:
+  match drop:
+    case True{}:
+      rest
+    case False{}:
+      Draft{srv, name, text} <> rest
+
+def replace_endpoint.go(xs: List<&2, Draft>, +server: Key.ServerId, +same: Bool) -> List<&2, Draft>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, +t}:
+      match h:
+        case Draft{+srv, +name, +text}:
+          replace_endpoint.keep(replace_endpoint.go(t, server, same), srv, name, text,
+            Key.eq(srv, server) && Bool.not(same))
+
+def replace_endpoint(+ds: Drafts, +server: Key.ServerId, same_endpoint: Bool) -> Drafts:
+  match ds:
+    case Drafts{+entries}:
+      Drafts{replace_endpoint.go(entries, server, same_endpoint)}
 
 # ---- focus ------------------------------------------------------------
 # Stash the outgoing buffer text, then load the incoming buffer text.
 # The integrator calls this before tab, click, and split-focus moves.
+# A stash the store rejects (over-byte, over-line, full) is preserved:
+# the store stays unchanged and the composer keeps the typed text
+# instead of loading the next draft.
 
-def focus(+ds: Drafts, +cur: String, +cur_text: String, +next: String) -> Drafts & String:
-  +stashed = set(ds, cur, cur_text)
-  (stashed, get(stashed, next))
+# Shared admission check for focus moves: Session changes the active buffer
+# only when this admits. A rejected save keeps the old active buffer while
+# the composer keeps the typed text, so the old composer can never be sent
+# in the new room.
+def focus_admits(+ds: Drafts, +server: Key.ServerId, +cur: String, +cur_text: String) -> Bool:
+  String.is_empty(cur_text) || set_ok(ds, server, cur, cur_text)
+
+def focus.kept(+ds: Drafts, +server: Key.ServerId, +cur: String, +cur_text: String, +next: String, keep: Bool) -> Drafts & String:
+  match keep:
+    case True{}:
+      (ds, cur_text)
+    case False{}:
+      +stashed = set(ds, server, cur, cur_text)
+      (stashed, get(stashed, server, next))
+
+def focus(+ds: Drafts, +server: Key.ServerId, +cur: String, +cur_text: String, +next: String) -> Drafts & String:
+  focus.kept(ds, server, cur, cur_text, next, Bool.not(focus_admits(ds, server, cur, cur_text)))
 
 # ---- routing ----------------------------------------------------------
 
@@ -419,6 +493,14 @@ def plan_line.wires(chunks: Maybe<&2, List<&2, String>>, +target: String, +notic
     case Some{+xs}:
       Some{wire_each(xs, target, notice)}
 
+# Single validation source shared by the wire plan and the reject reason,
+# mirroring Sub.send_text.valid: an invalid word, rejected framing, or an
+# over-limit target head is a target failure, never a cluster failure.
+def line_valid(+target: String, +clean: String, +notice: Bool) -> Bool:
+  +name = Cl.target_name(target)
+  Commands.word(name) && Commands.framing(clean)
+    && Nat.is_lt(Irc.utf8_len(Sub.message_wire(name, "", notice)), Irc.LINE_MAX())
+
 def plan_line.valid(valid: Bool, +cl: Cl.Client, +name: String, +clean: String, +notice: Bool, +overhead: Nat) -> Maybe<&2, List<&2, String>>:
   match valid:
     case False{}:
@@ -430,7 +512,7 @@ def plan_line(+cl: Cl.Client, +target: String, +body: String, +notice: Bool) -> 
   +clean = Irc.strip_ctl(body)
   +name = Cl.target_name(target)
   +overhead = Irc.utf8_len(Sub.message_wire(name, "", notice))
-  plan_line.valid(Commands.word(name) && Commands.framing(clean) && Nat.is_lt(overhead, Irc.LINE_MAX()), cl, name, clean, notice, overhead)
+  plan_line.valid(line_valid(target, clean, notice), cl, name, clean, notice, overhead)
 
 def plan_each.ok(+tail: Maybe<&2, List<&2, String>>, +head: List<&2, String>) -> Maybe<&2, List<&2, String>>:
   match tail:
@@ -549,12 +631,20 @@ def reject_reason.sensitive(sensitive: Bool) -> String:
     case False{}:
       "message cluster exceeds IRC line limit"
 
+def reject_reason.cause(caused: Bool, +cl: Cl.Client, +name: String, +clean: String, +notice: Bool) -> String:
+  match caused:
+    case False{}:
+      "message target exceeds IRC line limit"
+    case True{}:
+      reject_reason.sensitive(Sub.message_sensitive(cl, name, clean, notice))
+
 def reject_reason.bad(bad: Maybe<&2, String>, +cl: Cl.Client, +target: String, +notice: Bool) -> String:
   match bad:
     case None{}:
       "message cluster exceeds IRC line limit"
     case Some{+line}:
-      reject_reason.sensitive(Sub.message_sensitive(cl, Cl.target_name(target), Irc.strip_ctl(line), notice))
+      +clean = Irc.strip_ctl(line)
+      reject_reason.cause(line_valid(target, clean, notice), cl, Cl.target_name(target), clean, notice)
 
 def reject_reason.command(command: Bool, +cl: Cl.Client, +target: String, +lines: List<&2, String>, +notice: Bool) -> String:
   match command:
@@ -580,35 +670,58 @@ def submit_lines.empty(+cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&
     case False{}:
       submit_lines.gated(cl, bi, target, lines, notice, submit_ready(cl, target, lines, notice))
 
+# Synthetic targets (control, log) are read-only like submit_plain: the send
+# is rejected with no wire output and the caller's draft stays untouched
+# (after_submit runs only on accepted sends).
+def submit_lines.synthetic(synth: Bool, +cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool) -> Cl.Client & List<&2, String>:
+  match synth:
+    case True{}:
+      (Sub.echo_err(cl, "read-only buffer"), Nil{})
+    case False{}:
+      submit_lines.empty(cl, bi, target, lines, notice, List.is_empty(&2, String, lines))
+
 def submit_lines(+cl: Cl.Client, +bi: Nat, +target: String, +text: String, +notice: Bool) -> Cl.Client & List<&2, String>:
   +lines = nonempty(split_lines(text))
-  submit_lines.empty(cl, bi, target, lines, notice, List.is_empty(&2, String, lines))
+  submit_lines.synthetic(Cl.target_is_synthetic(Cl.target_name(target)), cl, bi, target, lines, notice)
 
 # ---- modal ------------------------------------------------------------
 # A pending modal (upload consent) blocks Enter in session; the typed text
 # is still stashed per buffer so focus moves cannot lose it. The warning
 # itself never replaces a draft.
 
-def stash_modal(+ds: Drafts, +name: String, +typed: String) -> Drafts:
-  set(ds, name, typed)
+def stash_modal(+ds: Drafts, +server: Key.ServerId, +key: String, +typed: String) -> Drafts:
+  set(ds, server, key, typed)
 
-def after_submit(+ds: Drafts, +name: String) -> Drafts:
-  clear(ds, name)
+def after_submit(+ds: Drafts, +server: Key.ServerId, +key: String) -> Drafts:
+  clear(ds, server, key)
 
 # ---- proof-facing predicates ------------------------------------------
 
+def s0() -> Key.ServerId:
+  Key.ServerId{0n}
+
 def roundtrip_ok() -> Bool:
-  String.eq(get(set(empty(), "#room", "hi"), "#room"), "hi")
+  String.eq(get(set(empty(), s0(), "#room", "hi"), s0(), "#room"), "hi")
 
 def missing_ok() -> Bool:
-  String.eq(get(empty(), "#room"), "")
+  String.eq(get(empty(), s0(), "#room"), "")
 
 def rename_ok() -> Bool:
-  +moved = rename(set(empty(), "alice", "hi"), "alice", "bob")
-  String.eq(get(moved, "bob"), "hi") && Bool.not(has(moved, "alice"))
+  +moved = rename(set(empty(), s0(), "alice", "hi"), s0(), "alice", "bob")
+  +chan = rename(set(empty(), s0(), "#a", "x"), s0(), "#a", "#b")
+  +ctl = rename(set(empty(), s0(), key_of(True{}, "server"), "c"), s0(), key_of(True{}, "server"), "bob")
+  String.eq(get(moved, s0(), "bob"), "hi") && Bool.not(has(moved, s0(), "alice"))
+    && String.eq(get(chan, s0(), "#a"), "x") && Bool.not(has(chan, s0(), "#b"))
+    && String.eq(get(ctl, s0(), key_of(True{}, "server")), "c") && Bool.not(has(ctl, s0(), "bob"))
+
+def coexist_ok() -> Bool:
+  +ds = set(set(empty(), s0(), key_of(True{}, "server"), "C"), s0(), key_of(False{}, "server"), "Q")
+  +moved = rename(ds, s0(), key_of(False{}, "server"), "bob")
+  String.eq(get(ds, s0(), key_of(True{}, "server")), "C") && String.eq(get(ds, s0(), key_of(False{}, "server")), "Q")
+    && String.eq(get(moved, s0(), "bob"), "Q") && String.eq(get(moved, s0(), key_of(True{}, "server")), "C")
 
 def overcap_ok() -> Bool:
-  String.eq(get(set(empty(), "#room", Irc.stars.go(4097n)), "#room"), "")
+  String.eq(get(set(empty(), s0(), "#room", Irc.stars.go(4097n)), s0(), "#room"), "")
 
 def split_ok() -> Bool:
   String.eq(String.join(split_lines("a\r\nb\rc\nd"), "|"), "a|b|c|d")
@@ -645,13 +758,22 @@ def plan_none.got(+wires: Maybe<&2, List<&2, String>>) -> Bool:
 def command_rejected_ok() -> Bool:
   plan_none.got(plan(Cl.init("me", "s"), "#room", "/join #x\nhi", False{}))
 
-def focus.get(pair: Drafts & String, +name: String, +want: String) -> Bool:
+def focus.get(pair: Drafts & String, +key: String, +want: String) -> Bool:
   match pair:
     case (+ds, +loaded):
-      String.eq(get(ds, name), want) && String.eq(loaded, "")
+      String.eq(get(ds, s0(), key), want) && String.eq(loaded, "")
+
+def focus.kept_ok(pair: Drafts & String, +key: String, +want: String, +typed: String) -> Bool:
+  match pair:
+    case (+ds, +loaded):
+      String.eq(get(ds, s0(), key), want) && String.eq(loaded, typed)
 
 def focus_ok() -> Bool:
-  focus.get(focus(set(empty(), "#a", "aa"), "#a", "aa2", "#b"), "#a", "aa2")
+  +big = Irc.stars.go(4097n)
+  focus.get(focus(set(empty(), s0(), "#a", "aa"), s0(), "#a", "aa2", "#b"), "#a", "aa2")
+    && focus.kept_ok(focus(set(empty(), s0(), "#a", "aa"), s0(), "#a", big, "#b"), "#a", "aa", big)
+    && focus_admits(set(empty(), s0(), "#a", "aa"), s0(), "#a", "aa2")
+    && Bool.not(focus_admits(set(empty(), s0(), "#a", "aa"), s0(), "#a", big))
 
 def entry_cap_ok() -> Bool:
   Nat.is_eq(ENTRY_CAP(), Cl.MAX_BUFFERS())

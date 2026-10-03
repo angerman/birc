@@ -886,3 +886,6 @@ law draft_focus_stashes_and_loads:
 
 law draft_entries_match_buffer_slots:
   {Drafts.entry_cap_ok() == True{} : Bool}
+
+law draft_control_query_coexist:
+  {Drafts.coexist_ok() == True{} : Bool}

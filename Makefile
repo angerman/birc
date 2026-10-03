@@ -302,6 +302,7 @@ test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 test-review-pure: test-launch-channels test-reconnect-endpoint
 test-review-pure: test-server-id test-ipv6
+test-review-pure: test-drafts
 
 .PHONY: test-pty-upload-diagnostics
 test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.

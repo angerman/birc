@@ -2,32 +2,33 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/server_id.bend as Sid
+import ../../src/bend/server_key.bend as Key
 import ../../src/bend/session.bend as Sess
 
-def s0() -> Sid.ServerId:
-  Sid.ServerId{0n}
+def s0() -> Key.ServerId:
+  Key.ServerId{0n}
 
-def s1() -> Sid.ServerId:
-  Sid.ServerId{1n}
+def s1() -> Key.ServerId:
+  Key.ServerId{1n}
 
-def s2() -> Sid.ServerId:
-  Sid.ServerId{2n}
+def s2() -> Key.ServerId:
+  Key.ServerId{2n}
 
-def s3() -> Sid.ServerId:
-  Sid.ServerId{3n}
+def s3() -> Key.ServerId:
+  Key.ServerId{3n}
 
-def s4() -> Sid.ServerId:
-  Sid.ServerId{4n}
+def s4() -> Key.ServerId:
+  Key.ServerId{4n}
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must("first valid", Sid.valid(Sid.first()))
-    Unit <- E.must("slot0", U32.is_eq(Sid.slot(Sid.first()), 0))
-    Unit <- E.must("slot3", U32.is_eq(Sid.slot(Sid.next(Sid.next(Sid.next(Sid.first())))), 3))
-    Unit <- E.must("chain valid", Sid.valid(Sid.next(Sid.next(Sid.next(Sid.first())))))
-    Unit <- E.must("bound refused", Bool.not(Sid.valid(Sid.next(Sid.next(Sid.next(Sid.next(Sid.first())))))))
-    Unit <- E.must("eq self", Sid.eq(s0(), s0()))
-    Unit <- E.must("eq other", Bool.not(Sid.eq(s0(), s1())))
+    Unit <- E.must("first valid", Key.valid(Key.first()))
+    Unit <- E.must("slot0", U32.is_eq(Key.slot(Key.first()), 0))
+    Unit <- E.must("slot3", U32.is_eq(Key.slot(Key.next(Key.next(Key.next(Key.first())))), 3))
+    Unit <- E.must("chain valid", Key.valid(Key.next(Key.next(Key.next(Key.first())))))
+    Unit <- E.must("bound refused", Bool.not(Key.valid(Key.next(Key.next(Key.next(Key.next(Key.first())))))))
+    Unit <- E.must("eq self", Key.eq(s0(), s0()))
+    Unit <- E.must("eq other", Bool.not(Key.eq(s0(), s1())))
     Unit <- E.must_eq("bump", U32.show(Sid.bump(7)), "8")
     Unit <- E.must("stale", Sid.is_stale(7, 8))
     Unit <- E.must("current gen", Bool.not(Sid.is_stale(8, 8)))
@@ -88,7 +89,7 @@ def main() -> IO(Unit):
     Unit <- E.must("cmd invalid id", Bool.not(Sid.cmd_current(Sid.dial_for(s4(), "h", 6697, 3, "me"), s4(), 3)))
     Unit <- E.must("evt invalid id", Bool.not(Sid.evt_current(Sid.RoutedMsg{s4(), Sess.UiKey{}}, s4(), 4)))
     Unit <- E.must("done invalid id", Bool.not(Sid.writer_done_current(Sid.RoutedMsg{s4(), Sess.FromNet{4, Sess.WriterDone{}}}, s4(), 4)))
-    Unit <- E.must("eq no narrow", Bool.not(Sid.eq(s0(), Sid.ServerId{Nat.add(4294967295n, 1n)})))
+    Unit <- E.must("eq no narrow", Bool.not(Key.eq(s0(), Key.ServerId{Nat.add(4294967295n, 1n)})))
     Unit <- E.must("reconnect case exact", Bool.not(Sid.reconnect_ok(Sid.Intent{s0(), 4, "h", 6697, False{}}, s0(), 4, Sid.Scope{"H", 6697, False{}})))
     Unit <- E.must("reconnect v6 exact", Sid.reconnect_ok(Sid.Intent{s1(), 2, "::1", 6697, True{}}, s1(), 2, Sid.Scope{"::1", 6697, True{}}))
     Unit <- E.must("reconnect invalid id", Bool.not(Sid.reconnect_ok(Sid.Intent{s4(), 4, "h", 6697, False{}}, s4(), 4, Sid.Scope{"h", 6697, False{}})))
