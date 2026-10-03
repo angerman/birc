@@ -1272,3 +1272,39 @@ def Laws.notify_event_only_once():
 
 def Laws.notify_chatter_is_silent():
   {==}
+
+def Laws.notify_old_id_is_silent():
+  {==}
+
+def Laws.notify_seed_covers_history():
+  {==}
+
+def Laws.notify_scope_isolated():
+  {==}
+
+def Laws.notify_title_redacts_author():
+  {==}
+
+def Laws.notify_title_strips_controls():
+  {==}
+
+def Laws.theme_status_dark_online():
+  {==}
+
+def Laws.theme_status_dark_offline():
+  {==}
+
+def Laws.theme_status_dark_connecting():
+  {==}
+
+def Laws.theme_status_dark_other():
+  {==}
+
+def Laws.theme_status_matches_view():
+  {==}
+
+def Laws.emoji_birc2_load_keeps_source():
+  {==}
+
+def Laws.emoji_production_renders_glyph():
+  {==}

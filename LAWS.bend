@@ -1011,13 +1011,49 @@ law emoji_unknown_has_no_alias:
   {Links.alias.go(Emoji.aliases(), ":notanalias:") == None{} : Maybe<&2, Links.Alias>}
 
 law notify_disabled_is_silent:
-  {Notify.decide(Notify.off(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.off(), None{}) : Notify.State & Maybe<&2, Notify.Req>}
+  {Notify.decide(Notify.off(), Notify.NotifyEvent{1n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.off(), None{}) : Notify.State & Maybe<&2, Notify.Req>}
 
 law notify_mention_requests:
-  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [1n]}, Some{Notify.Req{"bob in #room", "hi"}}) : Notify.State & Maybe<&2, Notify.Req>}
+  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s:1", 1n}]}, Some{Notify.Req{"bob in #room", "hi"}}) : Notify.State & Maybe<&2, Notify.Req>}
 
 law notify_event_only_once:
-  {Notify.decide(Notify.step(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", ""), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [1n]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+  {Notify.decide(Notify.step(Notify.on(), Notify.NotifyEvent{1n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", ""), Notify.NotifyEvent{1n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s:1", 1n}]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
 
 law notify_chatter_is_silent:
-  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "bob", "#room", "hi", False{}, False{}}, "", "") == (Notify.on(), None{}) : Notify.State & Maybe<&2, Notify.Req>}
+  {Notify.decide(Notify.on(), Notify.NotifyEvent{1n, "s:1", "bob", "#room", "hi", False{}, False{}}, "", "") == (Notify.on(), None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_old_id_is_silent:
+  {Notify.decide(Notify.step(Notify.on(), Notify.NotifyEvent{5n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", ""), Notify.NotifyEvent{3n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s:1", 5n}]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_seed_covers_history:
+  {Notify.decide(Notify.seed(Notify.on(), "s:1", 9n), Notify.NotifyEvent{9n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s:1", 9n}]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_scope_isolated:
+  {Notify.decide(Notify.step(Notify.on(), Notify.NotifyEvent{4n, "s:1", "bob", "#room", "hi", False{}, True{}}, "", ""), Notify.NotifyEvent{4n, "s:2", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s:2", 4n}, Notify.Mark{"s:1", 4n}]}, Some{Notify.Req{"bob in #room", "hi"}}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_title_redacts_author:
+  {Notify.title_of(Notify.NotifyEvent{1n, "s:1", "alice", "#t", "hi", True{}, False{}}, "alice", "pw") == "[redacted] (private)" : String}
+
+law notify_title_strips_controls:
+  {Notify.title_of(Notify.NotifyEvent{1n, "s:1", "b\nob", "#t", "hi", False{}, True{}}, "", "") == "bob in #t" : String}
+
+law theme_status_dark_online:
+  {Theme.status_of(Theme.Dark{}, "online · 3ms") == 5635925 : U32}
+
+law theme_status_dark_offline:
+  {Theme.status_of(Theme.Dark{}, "offline") == 16223340 : U32}
+
+law theme_status_dark_connecting:
+  {Theme.status_of(Theme.Dark{}, "connecting") == 15720050 : U32}
+
+law theme_status_dark_other:
+  {Theme.status_of(Theme.Dark{}, "demo") == 10526880 : U32}
+
+law theme_status_matches_view:
+  {Theme.status_of(Theme.Dark{}, "connecting") == V.status_color("connecting") : U32}
+
+law emoji_birc2_load_keeps_source:
+  {Hist.parse_line_for("e:1", "BIRC2\te:1\t#t\tMSG\t\ta\t:smile: x") == Some{Hist.Entry{"#t", Cl.Line{Cl.Msg{}, "", ":smile: x", "a", 0n}}} : Maybe<&2, Hist.HistEntry>}
+
+law emoji_production_renders_glyph:
+  {V.spans_text(V.line_spans_for(Cl.Msg{}, ":smile:")) == "😄" : String}

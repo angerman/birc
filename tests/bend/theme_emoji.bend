@@ -53,6 +53,92 @@ def each_resolves(xs: List<&2, Emoji.Entry>) -> Bool:
     case Con{Emoji.Entry{name, text}, t}:
       String.eq(rendered(name), "0[" ++ text ++ "]") && each_resolves(t)
 
+# N9.7: incoming Feed -> BIRC2 load -> production renderer roundtrip.
+def no_line() -> Cl.Line:
+  Cl.Line{Cl.Msg{}, "", "", "", 0n}
+
+def fed_chan() -> Cl.Client:
+  Feed.feed(Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN #t"),
+    ":alice!u@h PRIVMSG #t :hi :smile: *bold* https://x.test/a")
+
+def buf_lines(+got: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
+  match got:
+    case None{}: Nil{}
+    case Some{Cl.Buffer{_, _, _, lines, _, _}}: lines
+
+def chan_lines(+cl: Cl.Client) -> List<&2, Cl.Line>:
+  buf_lines(Cl.nth_buf(Cl.client_bufs(cl), 1n))
+
+def last_line.go(xs: List<&2, Cl.Line>, +acc: Cl.Line) -> Cl.Line:
+  match xs:
+    case Nil{}: acc
+    case Con{h, t}: last_line.go(t, h)
+
+def stored_line() -> Cl.Line:
+  last_line.go(chan_lines(fed_chan()), no_line())
+
+def stored_text() -> String:
+  line_text(stored_line())
+
+def endpoint() -> String:
+  "irc.test:6697"
+
+def record() -> String:
+  H.serialize_line_for(endpoint(), "#t", stored_line())
+
+def record_body() -> String:
+  String.take(record(), Nat.sub(String.length(record()), 1n))
+
+def loaded_line.got(got: Maybe<&2, H.HistEntry>) -> Cl.Line:
+  match got:
+    case None{}: no_line()
+    case Some{e}: H.entry_line(e)
+
+def loaded_line() -> Cl.Line:
+  loaded_line.got(H.parse_line_for(endpoint(), record_body()))
+
+def line_kind(+ln: Cl.Line) -> String:
+  match ln:
+    case Cl.Line{kind, _, _, _, _}: H.serialize_kind(kind)
+
+def line_author(+ln: Cl.Line) -> String:
+  match ln:
+    case Cl.Line{_, _, _, author, _}: author
+
+def prod(+text: String) -> List<&2, V.SpanOp>:
+  V.line_spans_for(Cl.Msg{}, text)
+
+def prod_show(+text: String) -> String:
+  show(prod(text))
+
+def prod_text(+text: String) -> String:
+  spans_text(prod(text))
+
+def has_link.go(xs: List<&2, V.SpanOp>, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{V.Lnk{+u, _}, t}: String.eq(u, url) || has_link.go(t, url)
+    case Con{_, t}: has_link.go(t, url)
+
+def has_bold.go(xs: List<&2, V.SpanOp>, +word: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{V.Spn{1, +text}, t}: String.eq(text, word) || has_bold.go(t, word)
+    case Con{_, t}: has_bold.go(t, word)
+
+def has_nick.go(xs: List<&2, V.SpanOp>, +nick: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{V.Col{_, _, +text}, t}: String.eq(text, nick) || has_nick.go(t, nick)
+    case Con{_, t}: has_nick.go(t, nick)
+
+def fed_code() -> Cl.Client:
+  Feed.feed(Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN #t"),
+    ":bob!u@h PRIVMSG #t ::check: `:smile:` :nope: https://x.test/a.")
+
+def stored_code() -> String:
+  line_text(last_line.go(chan_lines(fed_code()), no_line()))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("table has 70 entries", Nat.show(List.length(&2, Emoji.Entry, Emoji.aliases())), "70")
@@ -79,4 +165,21 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("wide alias keeps rendered source count", Nat.show(V.rows_chars(V.wrap_line(Cl.Line{Cl.Msg{}, "", ":smile:👩‍💻x", "", 0n}, 4, False{}))), "5")
     Unit <- E.must_eq("one-column alias keeps rendered source count", Nat.show(V.rows_chars(V.wrap_line(Cl.Line{Cl.Msg{}, "", ":smile:👩‍💻x", "", 0n}, 1, False{}))), "5")
     Unit <- E.must("new alias resize anchor", narrow_new_alias())
+    Unit <- E.must_eq("feed keeps raw source", stored_text(), "<alice> hi :smile: *bold* https://x.test/a")
+    Unit <- E.must_eq("birc2 record keeps raw source", record(),
+      "BIRC2\tirc.test:6697\t#t\tMSG\t\talice\t<alice> hi :smile: *bold* https://x.test/a\n")
+    Unit <- E.must_eq("birc2 load restores text", line_text(loaded_line()), stored_text())
+    Unit <- E.must_eq("birc2 load restores kind", line_kind(loaded_line()), "MSG")
+    Unit <- E.must_eq("birc2 load restores author", line_author(loaded_line()), "alice")
+    Unit <- E.must_eq("production renders glyph and styles",
+      prod_text(line_text(loaded_line())), "<alice> hi 😄 bold https://x.test/a")
+    Unit <- E.must("production keeps exact url", has_link.go(prod(line_text(loaded_line())), "https://x.test/a"))
+    Unit <- E.must("production keeps bold style", has_bold.go(prod(line_text(loaded_line())), "bold"))
+    Unit <- E.must("production colors nick", has_nick.go(prod(line_text(loaded_line())), "alice"))
+    Unit <- E.must_eq("production spans exact", prod_show(line_text(loaded_line())),
+      "0[<]1[alice]0[> hi 😄 ]1[bold]0[ ]L[https://x.test/a][https://x.test/a]")
+    Unit <- E.must_eq("code feed keeps raw source", stored_code(), "<bob> :check: `:smile:` :nope: https://x.test/a.")
+    Unit <- E.must_eq("production keeps code opaque", prod_text(stored_code()), "<bob> ✅ :smile: :nope: https://x.test/a.")
+    Unit <- E.must("production trims url punctuation", has_link.go(prod(stored_code()), "https://x.test/a"))
+    Unit <- E.must("unknown alias has no link", Bool.not(has_link.go(prod(":nope: here"), ":nope:")))
     IO.print("theme_emoji=ok")
