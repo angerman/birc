@@ -4520,10 +4520,27 @@ handoff is implementation scope, not a request for another plan-only review.
   (needs respin, no merge); lanes 2-7 READY at known commits (all
   since integrated/superseded); lanes 8-9 reports missing. No new
   integration input; lane1 heavy/build ownership unchanged.
-- Timed proof split (10 cores): real 3m0.6s user 1m30.6s sys 15.6s —
-  59% of one core; still consistent with starvation under load AND
-  with grown proof cost; cause UNVERIFIED. Retry in quieter windows;
-  bisect laws if timeouts persist after drain.
+- QUALIFIED (proof-600): `timeout 600 bend PROOF.bend` via locked
+  runner reports ALL PROOFS CHECK (exit 0); Bend sources identical
+  between proof tree and current HEAD (`git diff` empty, docs-only
+  commits after) — lifts UNQUALIFIED from sentinel `66f6a46`, H5
+  `5313e0d`, V6 `368c854`, V6 wiring `283bc4b`, V6 lazy `aba2f98`.
+  Cause wording: green establishes an adequate budget ONLY; prior
+  180s-timeout root cause stays UNVERIFIED (no phase/profile
+  evidence); no bisect needed merely because proof succeeded. Future
+  integrations: proof-600 qualifies.
+- G3c return reviewed (`936c5cc` 38 guards + `baef5f4` fix): source
+  fixes REAL (`proto_atom` shared seam, `mode_has_key` normalizes
+  BEFORE predicate, `Ws.url_runs` shared seam) but only credentials
+  traverse Fr->Session — NOT final per the production-path bar.
+  Spawned `g3-traversal` top-up on `baef5f4` (Session-chunk traversal
+  for MODE/mention/KICK, live media path; all 38 preserved).
+- V6 final native gates SENT to `recover-l1/37` (raw evidence
+  preserved): dualdnslazy resolver must stay open + fail on extra A;
+  missing-AAAA/NXDOMAIN/refused6-healthy-A via real `dial_dual_at`;
+  TCP two-read/unarmed deadline; UDP self-skip; superseded staleness
+  check must precede registration (adoption ordering alone
+  insufficient).
 - Spawned `recover-l1/37` (ONE heavy lane: surgical port of lane1
   dirty fixes onto `27a6fb4`, approved net_demo flips + replacement
   guards, trace identity, orphan fixture, default-off instrumentation,
