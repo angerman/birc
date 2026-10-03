@@ -3902,6 +3902,101 @@ handoff is implementation scope, not a request for another plan-only review.
   regressions; repair before acceptance, then qualify with native
   evidence. Final app must actually exercise drafts, multiserver/IPv6
   transports/DNS, notifications/typing, history, styles, and media/UX.
+- Lane5 history_search return-review gates (H5.1-H5.4, read-only verified):
+  (H5.1) `batch_collect.msg` (lines 568-584) admits on command+target+msgid
+  without requiring `@batch` equals the collect `ref`: live/other-batch
+  messages pollute `ChatCollect`. Require hostile/valid batch (−/+) guards.
+  (H5.2) `cursor_note.add` (720-722) never moves a nonempty `oldest` and
+  unconditionally overwrites `newest`: ingesting an older page corrupts both
+  ends. Require backward/forward cursor (−/+) guards. (H5.3)
+  `search_loop.empty` (304-314) finishes on empty bytes regardless of
+  `remaining`: early EOF with `remaining>0` returns partial `DiskFound`
+  success instead of a truncation signal. Require truncated/complete-file
+  (−/+) guards. (H5.4) `cap_event` (406-408) gates on command+offer without
+  server/current-recipient trust (same shape as G6.1). Require
+  hostile/valid CAP (−/+) guards.
+- Lane9 notify return-review gates (N9.1-N9.3, read-only verified):
+  (N9.1) header promises at-most-once per event id but `seen` is a 64-entry
+  FIFO (`remember`, line 84) and `theme_notify` line 88 explicitly asserts
+  "evicted id notifies again" after 70 events. Require old/replayed
+  /historical events stay silent while new live events notify, with bounded
+  state and server-scoped identity or a Workspace-owned global id (Client
+  `log_seq` is per-Client, not global across future servers); the
+  renotify test expectation must be corrected, not the behavior weakened.
+  (N9.2) `title_of` (lines 62-69) concatenates raw author/target with no
+  sanitize/redact/bound while bodies get `Diagnostic.text` + 160 cap.
+  Require bounded sanitized/redacted title before metadata handoff.
+  (N9.3) default desktop helper/provisioning, async delivery, and Session
+  dispatch stay runtime gates, not a completed desktop feature.
+- Lane5 final gates (H5.5-H5.7, hashes verified: source `fbc20616…0308fb`,
+  test `81305ca7…9b38a0`): (H5.5) `before/after/around/between_line` emit
+  the raw anchor with no `msgid=`/`timestamp=` prefix — wire-incompatible
+  per the chathistory spec (verified `msgid=m1` / `timestamp=...`,
+  `draft/chathistory` negotiation, unprefixed batch type). Require exact
+  BEFORE/AFTER/AROUND/BETWEEN output and malformed-ref rejection (−/+).
+  (H5.6) batch open/close check command/arity/kind/target/ref with no
+  trusted full-server-prefix check; private batches need sender-vs-subject
+  validation (requested `bob` must reject `charlie -> me`, not just check
+  target `me`). Require hostile/valid open/close (−/+) guards. (H5.7)
+  `filter_unseen` compares every item against the original cursor, so
+  duplicate fresh IDs survive: require `[m1,m1]→one`, `[m1,m2]→two`.
+  Cursor boundary fixes must use requested direction/page order, never
+  lexical sort of opaque IDs. Still-open required gates (not proven
+  regressions): disk private-file admission at bare `File.open` (line
+  364), ticket+endpoint+generation admission, negotiation reset, disk-IO
+  preference checks. Executed +/− tests and native live integration stay
+  required.
+- Lane8 cards/fullscreen gates (C8.1-C8.6, `cards.py` hash verified
+  `5db0e274…9d2acc`): (C8.1) fetched HTML resolves against the final URL
+  but the cache stores HTML only and cache hits re-resolve against the
+  original URL: relative `og:image` changes after cross-origin/directory
+  redirects. Require fake redirected-relative-thumbnail first/cache-hit
+  exact-equality guards, preserving the final base or bounded normalized
+  fields. (C8.2) `parse_html` calls `card_image(clean(raw,1024))` so the
+  inner length check never fires: a 1025-char URL becomes an accepted
+  different 1024 URL. Reject overlong, preserve exact-1024; the current
+  2000-char test may only hit `MAX_TAG_BYTES`. (C8.3) HTTP is admitted in
+  `cards.bend` policy (`eligible_url` + test) and helper
+  `image.url_parts`/`destination`. Enforce requested public-HTTPS at
+  initial and redirect policy. (C8.4) cards cache adds independent
+  64-entry/16-MiB atop image 64/64-MiB (shared total 128/80-MiB). Keep one
+  explicit bounded media budget; reuse cache ownership/eviction policy
+  where practical. (C8.5) `FullOn` stores `(target,url,token)` with
+  open-time-only support/token checks; paint re-emits the stored token
+  with no Media retention/support/generation re-validation. Require
+  current checks or closure on disable/reset/eviction/endpoint/source
+  removal. (C8.6) `observe` scans all buffers while `visible_candidates`
+  filters: integrate only bounded visible unmuted eligible scheduling.
+- Build-lane note honored: parent lightweight checks use executed JS
+  variants (`bend -o build/*.js` + `bun`); native qualification routes
+  through the single heavy lane without overlapping lane1; the registered
+  `test-server-id`/`test-ipv6` recipes keep repo-conventional native
+  builds with unchanged 180s deadlines.
+- V2-V5 repairs integrated and proven: bracket-gated `parse_any` with
+  preserved Endpoint errors; `Nat`-compared `ServerId.eq` with fail-closed
+  `current_id` on all route/admission predicates; exact
+  `endpoint_exact` on the credential-retaining reconnect path; 6 new laws
+  + proofs + `test-server-id`/`test-ipv6` Make targets wired into
+  `test-review-pure`. `server_id_demo=ok`, `server_id_ipv6=ok` (JS + Make
+  native), `make proof` ALL PROOFS CHECK (227 laws).
+- Lane1 numeric-trace gates (T1-T4, stderr claim read-only verified):
+  (T1) `clock_ffi.c` claims no stalled-reader parking but uses blocking
+  `write(stderr)` with EINTR-only retry: a full undrained pipe hangs the
+  native IO loop. Require bounded no-block instrumentation plus an owned
+  full-stderr-pipe negative PONG/quit deadline guard and a normal drained
+  numeric-line positive. (T2) trace helper sends `/quit` before
+  reverse-selecting last5/4/3/2/1, so stage5 (every `send_line` incl.
+  QUIT) pollutes PONG chains: unrelated QUIT120/130/140 changes reported
+  hop2->3 from 10ms to 100ms. Capture cutoff at confirmed PONG before
+  QUIT and correlate one chain; unrelated later Cont/send must not alter
+  PONG measurements. (T3) Actor/Net trace AFTER `Chan.send`: a full
+  channel parks the sender so receiver2/4 can precede sender1/3. Add
+  pressured-channel characterization before requiring stage order or
+  interpreting gaps. (T4) the pinned runtime serializes normal effects
+  and `net_trace_run` does no `io_work`: no verified trace-global race —
+  do not add atomics/locks speculatively. Commit correct default-off
+  instrumentation, measure valid phase splits, then
+  hypothesize/fix/re-measure per AGENTS performance rules.
 
 ## Open decisions (resolve in M0/M4)
 
