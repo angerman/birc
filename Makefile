@@ -35,6 +35,8 @@ test%: export BIRC_IMAGES ?= off
 check: export BIRC_IMAGES ?= off
 test%: export BIRC_PREFERENCES := none
 check: export BIRC_PREFERENCES := none
+test%: export BIRC_IMAGE_CACHE := none
+check: export BIRC_IMAGE_CACHE := none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-feed-bench test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
@@ -376,6 +378,12 @@ lint-ffi: lint-tls
 test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
 
+.PHONY: test-media-image-cache
+test-media-image-cache: ## Private bounded cache reuses validated remote assets without a network fetch.
+	$(NIXRUN) timeout 30 python3 tests/media_image_cache.py
+
+test-review-pure: test-media-image-cache
+
 .PHONY: test-upload test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-upload-native-ubsan test-pty-upload test-upload-package
 test-upload-helper: ## Offline upload transport: source, TLS, streaming, deadlines, and safe URL output.
 	$(NIXRUN) timeout 30 python3 tests/upload.py
@@ -461,6 +469,33 @@ test-media-policy: ## Bounded image requests, opt-out, stale results, and exact 
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/media_policy.bend -o $(BLDDIR)/media_policy
 	$(NIXRUN) sh scripts/check-golden.sh media_policy=ok ./$(BLDDIR)/media_policy
+
+.PHONY: test-media-terminal
+test-media-terminal: ## Unsupported terminals preserve URLs, skip helpers, and log once.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_terminal.bend -o $(BLDDIR)/media_terminal.js
+	$(NIXRUN) sh scripts/check-golden.sh media_terminal=ok timeout 30 bun $(BLDDIR)/media_terminal.js
+
+test-review-pure: test-media-terminal
+
+.PHONY: test-media-history test-pty-history-images
+test-media-history: ## Visible restored images share live admission without changing history or focus.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/media_history.bend -o $(BLDDIR)/media_history.js
+	$(NIXRUN) sh scripts/check-golden.sh media_history=ok timeout 30 bun $(BLDDIR)/media_history.js
+
+test-pty-history-images: $(PTY_BUILD) ## Pty: async visible history images, shared worker, opt-out, and stale results.
+	$(NIXRUN) timeout 75 python3 tests/pty/history_images.py $(PTY_APP)
+
+test-review-pure: test-media-history
+test-pty: test-pty-history-images
+
+.PHONY: test-media-regressions-js
+# Existing pure assertions use a second backend without repeated native
+# optimization. The production app and terminal guards still use normal -O2.
+test-media-regressions-js: ## Run unchanged media, viewport, and state fixtures with the JS backend.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu; for guard in media_policy media_view media_anchor media_branches viewport_tail m20_media m20_state ui_review_view; do timeout 180 bend tests/bend/$$guard.bend -o $(BLDDIR)/$${guard}_review.js; sh scripts/check-golden.sh $${guard}=ok timeout 30 bun $(BLDDIR)/$${guard}_review.js; done'
 
 test-media-view: ## Image rows share wrapping, scrolling, split panes, and resize coordinates.
 	@mkdir -p $(BLDDIR)

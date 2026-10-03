@@ -3543,6 +3543,88 @@ their own synthetic preference file is explicitly under test.
   uses of one cached token. Additional placements can show a placeholder;
   this limit does not explain the single-image report above.
 
+## Unsupported-terminal preview policy (2026-10-03)
+
+- [x] Adopt the requested policy: no image helper or blank image area when no
+  terminal image protocol is detected; preserve ordinary chat text and URLs.
+  Report one fixed explanation in `*log*` on the first eligible preview intent.
+  Keep the user's automatic-image preference separate from terminal support.
+- [x] Obtain approval for unsupported-terminal PTY expectation updates and
+  Media state-constructor adaptations; preserve supported/malformed assertions.
+- [x] Add a read-only native capability effect and query it once before UI
+  startup. Any selected Kitty/iTerm2/Sixel protocol qualifies; do not probe the
+  terminal, poll each frame, or change the vendored TimUI fallback renderer.
+- [x] Implement and qualify pure request suppression and one-shot diagnostics,
+  including invalid commands, off/on settings, reset, reconnect, and stale work.
+- [x] Rebuild the final native app; pass native/pure guards, standard proof,
+  and three consecutive final PTY runs. Do not claim the Nix package is cached.
+  Unsupported cases call no helper, reserve no image rows, preserve the URL,
+  and report exactly once. Supported and malformed-image assertions remain.
+
+## Cached history image previews (2026-10-03)
+
+- [x] Accept requested scope: show saved-history images inline, reuse downloaded
+  assets, and fetch cache misses asynchronously through the live preview path.
+  Apply the unsupported-terminal policy and preserve `/images on|off`.
+- [x] Admit only visible restored chat messages through Media's existing
+  bounded queue; cover tab/scroll/import/reconnect and stale completions.
+  Keep replay/demo offline and never fetch a whole archive at startup.
+- [x] Cache only validated remote source files with private permissions, hashed
+  URL names, 64-entry/64-MiB FIFO bounds, and best-effort safe IO. Revalidate and
+  normalize hits; corruption falls back to the guarded network path. Local
+  previews bypass persistence; `BIRC_IMAGE_CACHE=none` disables the disk cache.
+- [x] Guard same-key replacement at capacity: refresh must not evict an
+  unrelated cached asset. Guard exclusive-create collisions: failed staging
+  creation must not delete a pre-existing file. Both new negative controls
+  failed before their fixes and passed afterward with synthetic files only.
+- [x] Guard visible-token retention against hidden live completions at capacity
+  and prevent pending helper work from starting after `/quit`. Explicit manual
+  previews keep their existing behavior; active workers remain deadline-owned.
+- [x] Qualify cache +/- tests, shared worker and startup/history regressions,
+  standard proof, and final native PTY guards three consecutive times.
+  Tests use only synthetic assets, fake helpers, and owned loopback IRC peers.
+- [x] Preserve failing controls: the old app did not start a helper for visible
+  restored images (`build/history-images-red.log`) and retained unsupported
+  image placeholders (`build/m27-image-unsupported-red.log`). Cache misses/hits,
+  unsafe paths/files, corruption, FIFO limits, same-key replacement, and staging
+  collisions have synthetic positive and negative guards.
+- [x] Resolve two new PTY fixture preconditions without changing production
+  behavior or weakening assertions. Preview admission adds rows above the
+  preserved bottom anchor; the new resize fixture must scroll the URL into
+  view before resizing. The new endpoint fixture must declare its desired
+  channel; an explicit empty saved channel list correctly overrides launch
+  intent. Add a pure anchor characterization and keep the original resize,
+  rejoin, stale-result, and checkpoint assertions. Evidence:
+  `build/image-history-final-pty-1.log`,
+  `build/history-images-resize-debug.log`, and
+  `build/image-history-final-pty-2.log`.
+- [x] Verify the final source in the captured locked Nix environment
+  (`sh build/m27-locked-run.sh`), with telemetry disabled and bounded commands:
+  - `timeout 1260 make build-ui BUILD_TIMEOUT=900`: final `-O2` native app passes
+    (`build/image-history-native-build.log`). SHA256:
+    `b4d4657261dee67efa1dd71c418d0ff1de7b2dc4e98489106dd83be81cc399c1`.
+  - `make test-media-terminal test-media-history`: both JS-backend pure fixtures
+    pass; final expanded history guards include the resize precondition
+    (`build/image-history-core-checks.log`,
+    `build/image-history-anchor-pure-check.log`). An initial native fixture
+    compile reached its deadline before assertions; this is not a test pass.
+  - `make test-media-regressions-js`: eight unchanged media, viewport, and state
+    fixture goldens pass (`build/image-history-existing-pure-checks.log`).
+  - `timeout 300 make proof lint-ffi test-media-native test-media-portable
+    test-media-native-ubsan test-media-image test-media-image-cache
+    test-media-image-bounds test-build-deadlines test-pty-deadlines`: all pass,
+    including standard `ALL PROOFS CHECK`, C99 image/no-image controls, UBSan,
+    formats/animation/public-fetch bounds, and driver deadlines
+    (`build/image-history-final-checks.log`). No independent proof kernel used.
+  - `make test-pty-image-marker test-pty-history-images
+    PTY_APP=/Users/angerman/Projects/zw3rk/birc/build/birc`: ten native cases pass
+    three consecutive times against that exact final binary, with unchanged
+    final fixtures. History and live traffic share one physical worker while
+    navigation and PING/PONG continue. Opt-out/unsupported/stale controls,
+    exact URLs, history checkpoints, terminal restoration, and helper cleanup
+    pass (`build/image-history-final-pty-{3,4,5}.log`).
+  No full aggregate `make check` or Nix package hot-cache qualification was run.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |

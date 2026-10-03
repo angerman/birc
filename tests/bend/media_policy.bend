@@ -68,7 +68,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("queue bound", Nat.show(M.pending_count(fill(12n, M.initial(True{})))), "8")
     Unit <- E.must("bounded queue", M.bounded(fill(12n, M.initial(True{}))))
     Unit <- E.must("full manual queue reported", M.manual_saturated(fill(12n, M.initial(True{})), "https://x.test/manual.png"))
-    Unit <- E.must("active manual duplicate is not saturation", Bool.not(M.manual_saturated(M.State{True{}, 1n, 20n, Some{M.Request{M.Manual{}, "https://x.test/manual.png", 1n, 19n}}, [M.Request{M.Inline{1n}, "a", 1n, 1n}, M.Request{M.Inline{1n}, "b", 1n, 2n}, M.Request{M.Inline{1n}, "c", 1n, 3n}, M.Request{M.Inline{1n}, "d", 1n, 4n}, M.Request{M.Inline{1n}, "e", 1n, 5n}, M.Request{M.Inline{1n}, "f", 1n, 6n}, M.Request{M.Inline{1n}, "g", 1n, 7n}, M.Request{M.Inline{1n}, "h", 1n, 8n}], Nil{}}, "https://x.test/manual.png")))
+    Unit <- E.must("active manual duplicate is not saturation", Bool.not(M.manual_saturated(M.State{True{}, 1n, 20n, Some{M.Request{M.Manual{}, "https://x.test/manual.png", 1n, 19n}}, [M.Request{M.Inline{1n}, "a", 1n, 1n}, M.Request{M.Inline{1n}, "b", 1n, 2n}, M.Request{M.Inline{1n}, "c", 1n, 3n}, M.Request{M.Inline{1n}, "d", 1n, 4n}, M.Request{M.Inline{1n}, "e", 1n, 5n}, M.Request{M.Inline{1n}, "f", 1n, 6n}, M.Request{M.Inline{1n}, "g", 1n, 7n}, M.Request{M.Inline{1n}, "h", 1n, 8n}], Nil{}, M.Supported{}}, "https://x.test/manual.png")))
     Unit <- E.must_eq("worker starts first request", job_of(M.take_job(queued())), "1:1:https://x.test/a.png")
     Unit <- E.must_eq("one worker only", job_of(M.take_job(active())), "none")
     Unit <- E.must_eq("active duplicate suppressed", Nat.show(M.pending_count(M.enqueue(active(), M.Inline{1n}, "https://x.test/a.png"))), "0")

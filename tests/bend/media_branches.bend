@@ -48,7 +48,7 @@ def corpus() -> String:
   "alice: 7 " ++ image_url() ++ ordinary_links(15n) ++ " tail"
 
 def media(id: Nat) -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{id}, image_url(), 7}]}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{id}, image_url(), 7}], M.Supported{}}
 
 def fallback_lines() -> List<&2, Cl.Line>:
   [Cl.Line{Cl.Highlight{}, "12:34:56", "alice: **bold** _italic_ :eyes: 漢👩‍💻 " ++ image_url(), "alice", 1n},

@@ -238,7 +238,18 @@ law media_queue_capped:
   {Media.pending_count(Media.enqueue_urls(["http://x/1.png", "http://x/2.png", "http://x/3.png", "http://x/4.png", "http://x/5.png", "http://x/6.png", "http://x/7.png", "http://x/8.png", "http://x/9.png"], Media.initial(True{}), Media.Inline{1n})) == 8n : Nat}
 
 law media_reset_hides_old_active:
-  {List.is_empty(&2, String, Media.known_urls(Media.reset(Media.State{True{}, 1n, 2n, Some{Media.Request{Media.Inline{1n}, "http://x/a.png", 1n, 1n}}, Nil{}, Nil{}}), Media.Inline{1n})) == True{} : Bool}
+  {List.is_empty(&2, String, Media.known_urls(Media.reset(Media.State{True{}, 1n, 2n, Some{Media.Request{Media.Inline{1n}, "http://x/a.png", 1n, 1n}}, Nil{}, Nil{}, Media.Supported{}}), Media.Inline{1n})) == True{} : Bool}
+
+# Unsupported terminal capability must block requests before helper admission.
+law media_unsupported_no_request:
+  for +on: Bool
+  for +target: Media.Target
+  for +url: String
+  {Media.pending_count(Media.enqueue(Media.set_supported(Media.initial(on), False{}), target, url)) == 0n : Nat}
+
+law media_unsupported_keeps_preference:
+  for on: Bool
+  {Media.enabled(Media.set_supported(Media.initial(on), False{})) == on : Bool}
 
 law media_virtual_rows_resize:
   {Nat.is_eq(V.rows_chars(V.media_rows(7, 1)), V.rows_chars(V.media_rows(7, 80))) == True{} : Bool}

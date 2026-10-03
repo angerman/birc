@@ -41,6 +41,14 @@ law Timui.open:
 def Timui.open():
   import "../ffi/timui_ffi.c"
 
+# Query the selected terminal protocol once at startup. Bend owns whether to
+# request/render media and the user-facing diagnostic; no terminal probe here.
+law Timui.image_supported:
+  Ui -> IO(Ui & U32)
+
+def Timui.image_supported(ui):
+  import "../ffi/timui_ffi.c"
+
 # Default-off View timing under the existing BIRC_FRAME_PROFILE flag.
 # Sequence this mark before constructing the pure ViewModel.
 law Timui.view_begin:

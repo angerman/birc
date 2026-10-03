@@ -30,6 +30,8 @@ from preferences import Screen
 URL = "https://image-marker.test/Screenshot%202026-10-03%20at%202.26.53%E2%80%AFAM.png"
 PRIVATE = "PRIVATE-IMAGE-MARKER-HELPER-BODY"
 ERROR = "image preview unavailable"
+UNSUPPORTED = "image previews disabled: terminal image protocol is unavailable"
+UNSUPPORTED_MODES = {"none", "mux", "masked"}
 HELPER = r'''
 import json, os, signal, sys
 from pathlib import Path
@@ -131,7 +133,10 @@ class Live:
             self.server.setblocking(False)
             self.master, slave = pty.openpty()
             self.saved = termios.tcgetattr(slave)
-            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+            # Keep the original URL on one body row in the no-image controls,
+            # so an adjacent row also proves no blank image box was reserved.
+            columns = 200 if mode in UNSUPPORTED_MODES else 120
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, columns, 0, 0))
             env = {name: value for name, value in os.environ.items()
                    if not name.startswith(("BIRC_", "TIMUI_"))
                    and name not in {"TMUX", "STY", "ZELLIJ", "SSH_CONNECTION", "KITTY_WINDOW_ID", "TERM_PROGRAM"}}
@@ -217,15 +222,18 @@ class Live:
         assert self.proc.wait(timeout=1) == 0, "image fixture did not quit cleanly"
         assert termios.tcgetattr(self.master) == self.saved, "terminal state was not restored"
         rows = self.ledger()
-        assert [row["event"] for row in rows] == ["start", "done"], "helper ownership was not completed once"
-        assert all(row["args"] == [URL] and row["pgid"] == self.proc.pid for row in rows), "helper source/scope changed"
-        assert rows[0]["pid"] == rows[1]["pid"], "helper lifecycle identity changed"
-        try:
-            os.kill(rows[0]["pid"], 0)
-        except ProcessLookupError:
-            pass
+        if self.mode in UNSUPPORTED_MODES:
+            assert not rows, "unsupported terminal invoked an image helper before shutdown"
         else:
-            raise AssertionError("owned helper was not reaped")
+            assert [row["event"] for row in rows] == ["start", "done"], "helper ownership was not completed once"
+            assert all(row["args"] == [URL] and row["pgid"] == self.proc.pid for row in rows), "helper source/scope changed"
+            assert rows[0]["pid"] == rows[1]["pid"], "helper lifecycle identity changed"
+            try:
+                os.kill(rows[0]["pid"], 0)
+            except ProcessLookupError:
+                pass
+            else:
+                raise AssertionError("owned helper was not reaped")
         self.finished = True
 
     def close(self):
@@ -259,6 +267,74 @@ class Live:
                 self.master = None
 
 
+def row_with(live, text):
+    for row in range(30, 0, -1):
+        cells = "".join(live.terminal.screen.cells.get((row, col), " ") for col in range(1, 201))
+        if text in cells:
+            return row
+    return None
+
+
+def no_image(live):
+    assert not live.ledger(), "unsupported terminal invoked an image helper"
+    assert "[img]" not in live.terminal.screen.text(), "unsupported terminal retained an image placeholder"
+    assert not live.terminal.graphics, "unsupported terminal emitted image escapes"
+    assert ERROR not in live.terminal.screen.text(), "unsupported terminal reported an image failure"
+
+
+def plain_image(live, marker):
+    live.send((":alice!u@h PRIVMSG #t :" + URL).encode())
+    live.send((":alice!u@h PRIVMSG #t :" + marker).encode())
+    live.until(lambda: row_with(live, URL) is not None and row_with(live, marker) is not None,
+               "unchanged URL and following ordinary message")
+    # The actor round trip also gives the UI a completed event after the URL.
+    live.send(("PING :" + marker).encode())
+    live.until(lambda: ("PONG :" + marker + "\r\n").encode() in live.wire, "unsupported image PONG")
+    no_image(live)
+    assert row_with(live, marker) == row_with(live, URL) + 1, "unsupported terminal reserved an image box"
+
+
+def explanation(live):
+    live.command("/log")
+    live.until(lambda: UNSUPPORTED in live.terminal.screen.text(), "unsupported terminal log explanation")
+    text = live.terminal.screen.text()
+    assert text.count(UNSUPPORTED) == 1, "unsupported terminal explanation repeated"
+    assert ERROR not in text, "unsupported terminal emitted a helper error"
+    no_image(live)
+
+
+def unsupported_case(live):
+    plain_image(live, "IMAGE-AFTER-FIRST")
+    explanation(live)
+    live.command("/join #t")
+    plain_image(live, "IMAGE-AFTER-REPEAT")
+    live.command("/images off")
+    plain_image(live, "IMAGE-AFTER-OFF")
+    live.command("/preview " + URL)
+    live.until(lambda: "*preview*" in live.terminal.screen.text()
+               and "IMAGE-MARKER-BEGIN" not in live.terminal.screen.text(), "manual preview intent")
+    no_image(live)
+    live.command("/images on")
+    live.command("/join #t")
+    plain_image(live, "IMAGE-AFTER-ON")
+    fcntl.ioctl(live.master, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 180, 0, 0))
+    os.kill(live.proc.pid, signal.SIGWINCH)
+    plain_image(live, "IMAGE-AFTER-RESIZE")
+    live.command("/reconnect")
+    live.conn.close()
+    live.conn = None
+    live.wire.clear()
+    live.lines.clear()
+    live.until(lambda: live.conn is not None, "unsupported reconnect", 8)
+    live.until(lambda: b"USER probe" in live.wire, "unsupported reconnect registration")
+    live.send(b":irc 001 probe :Welcome again")
+    live.until(lambda: b"JOIN #t\r\n" in live.wire, "unsupported reconnect JOIN")
+    live.send(b":probe!u@h JOIN :#t")
+    live.command("/join #t")
+    plain_image(live, "IMAGE-AFTER-RECONNECT")
+    explanation(live)
+
+
 def run_case(binary, folder, mode):
     live = Live(binary, folder, mode)
     try:
@@ -270,6 +346,12 @@ def run_case(binary, folder, mode):
         live.command("/join #t")
         live.send(b":alice!u@h PRIVMSG #t :IMAGE-MARKER-BEGIN")
         live.until(lambda: "IMAGE-MARKER-BEGIN" in live.terminal.screen.text(), "selected channel paint")
+        if mode in UNSUPPORTED_MODES:
+            unsupported_case(live)
+            live.finish()
+            print(f"image_marker {mode}=ok exact_url=True helper_calls=0 placeholder=False "
+                  "log_explanations=1 log_errors=0 kitty_transmits=0 terminal_restored=True children_reaped=True", flush=True)
+            return
         live.send((":alice!u@h PRIVMSG #t :" + URL).encode())
         live.until(live.helper_done, "offline helper completion")
         if mode in ("ghostty", "declared"):

@@ -68,17 +68,17 @@ def long_lines(n: Nat, +id: Nat) -> List<&2, Cl.Line>:
 
 def inline_pending() -> M.State:
   M.State{True{}, 1n, 3n, Some{M.Request{M.Inline{1n}, B.image_url(), 1n, 1n}},
-    [M.Request{M.Inline{17n}, B.image_url(), 1n, 2n}], Nil{}}
+    [M.Request{M.Inline{17n}, B.image_url(), 1n, 2n}], Nil{}, M.Supported{}}
 
 def inline_ready() -> M.State:
   M.State{True{}, 1n, 3n, None{}, Nil{},
-    [M.Ready{M.Inline{1n}, B.image_url(), 7}, M.Ready{M.Inline{17n}, B.image_url(), 9}]}
+    [M.Ready{M.Inline{1n}, B.image_url(), 7}, M.Ready{M.Inline{17n}, B.image_url(), 9}], M.Supported{}}
 
 def manual_pending() -> M.State:
-  M.State{False{}, 1n, 2n, Some{M.Request{M.Manual{}, B.image_url(), 1n, 1n}}, Nil{}, Nil{}}
+  M.State{False{}, 1n, 2n, Some{M.Request{M.Manual{}, B.image_url(), 1n, 1n}}, Nil{}, Nil{}, M.Supported{}}
 
 def manual_ready() -> M.State:
-  M.State{False{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Manual{}, B.image_url(), 9}]}
+  M.State{False{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Manual{}, B.image_url(), 9}], M.Supported{}}
 
 def manual_diagnostics() -> List<&2, Cl.Line>:
   [Cl.Line{Cl.Error{}, "12:34:56", "image preview unavailable", "", 18n},

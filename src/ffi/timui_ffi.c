@@ -30,6 +30,9 @@ typedef uint64_t Loc;
 #ifndef CID_TIMUI_OPEN
 #define CID_TIMUI_OPEN CID(Timui.open)
 #endif
+#ifndef CID_TIMUI_IMAGE_SUPPORTED
+#define CID_TIMUI_IMAGE_SUPPORTED CID(Timui.image_supported)
+#endif
 #ifndef CID_TIMUI_VIEW_BEGIN
 #define CID_TIMUI_VIEW_BEGIN CID(Timui.view_begin)
 #endif
@@ -458,6 +461,18 @@ static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
   else
     image_placeholder_(ui, timui_intersect_rect_(visible, timui_root(frame)));
 }
+
+#if CID_TIMUI_IMAGE_SUPPORTED
+Term timui_image_supported_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  (void)w;
+  return io_tup(e, f[0],
+      (Term)(timui_image_protocol(ui) != TIMUI_IMAGE_PROTOCOL_NONE ? 1u : 0u));
+}
+static void __attribute__((constructor)) timui_image_supported_use(void) {
+  io_eff(CID_TIMUI_IMAGE_SUPPORTED, timui_image_supported_run, 0);
+}
+#endif
 
 static int birc_u32_list(Env e, Term xs, uint32_t *vals, int max);
 #if CID_TIMUI_MEDIA_ADD

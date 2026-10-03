@@ -10,6 +10,7 @@ import ./src/bend/session.bend as Sess
 import ./src/bend/base64.bend as B64
 import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
+import ./src/bend/media.bend as Media
 import ./LAWS.bend as Laws
 
 def Laws.first_server_welcome_assigns_nickname():
@@ -202,6 +203,17 @@ def Laws.media_queue_capped():
   {==}
 
 def Laws.media_reset_hides_old_active():
+  {==}
+
+def media_unsupported_no_request.eligible(eligible: Bool, +on: Bool, +target: Media.Target, +url: String) -> {Media.pending_count(Media.enqueue.eligible(eligible, Media.set_supported(Media.initial(on), False{}), target, url)) == 0n : Nat}:
+  match eligible:
+    case False{}: {==}
+    case True{}: {==}
+
+def Laws.media_unsupported_no_request(on, target, url):
+  media_unsupported_no_request.eligible(Media.enqueue_allowed(Media.set_supported(Media.initial(on), False{}), target, url), on, target, url)
+
+def Laws.media_unsupported_keeps_preference(on):
   {==}
 
 def Laws.media_virtual_rows_resize():

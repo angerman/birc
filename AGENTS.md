@@ -76,7 +76,7 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/transport.bend` / `src/bend/tls.bend` | Affine plaintext/TLS connection dispatch and TLS effect declarations |
 | `src/ffi/tls_ffi.c` | Verified OpenSSL transport; no IRC parsing or authentication policy |
 | `src/ffi/clock_ffi.c` | Local clock for log timestamps |
-| `src/media/image.py` | Bounded HTTP(S) image helper; normalized frames, no temporary files |
+| `src/media/image.py` | Bounded HTTP(S)/local image helper; normalized frames and private remote-asset cache |
 | `src/media/upload.py` | Confirmed, bounded streaming uploads to `0x0.st` |
 | `src/ui/timui.h` | Vendored single-header TUI |
 | `LAWS.bend` / `PROOF.bend` | Laws and proofs |
@@ -130,6 +130,23 @@ silent flake/source pin updates. Routine Nix work uses
   before registration; `BIRC_PREFERENCES=none` keeps the direct startup path.
 - `*log*` is lazy, read-only, app-session state: reserve one of 16 buffer slots, keep at most 128 rows of 512 characters, and preserve it across endpoint changes. Error mirrors keep their original event IDs and never steal focus. Log rows never enter chat history. Helper diagnostics include only safe stage labels and numeric codes; never log child output. A history-save failure goes directly to the log and schedules a coalesced repaint, not a persisted chat error or another save. Normalize wire targets before reserved-name validation and lookup; share target predicates with submission. Generic local lookups must still resolve synthetic tabs. Preserve the `NOTICE *` broadcast exception.
 - Images use one bounded helper worker, eight pending requests, and eight cached results. Production View uploads only accepted nonzero `OpMedia` tokens; pending/failed intents draw placeholders, never a raw-file fallback. Bend's prospective completion supplies retained payload tokens to native admission; native FIFO must not evict a token that Bend still owns. Legacy `OpImage` adapters are for characterization/law tests only. Decode/ingestion does not allocate terminal image IDs or write output; an accepted frame owns its copied media. Late completions release the active worker but cannot restore disabled/stale previews. Kitty/iTerm animation is terminal-side; do not add an app animation timer.
+- Query terminal image support once after opening the UI. No selected protocol
+  means no image helper or placeholder area; preserve exact URL text and report
+  one fixed explanation in the lazy log. Support never changes the saved image
+  preference. Visible saved-history chat uses the live bounded media path;
+  replay/demo stays offline. Use exact painted panes, mute filters, row anchors,
+  and stable event IDs. Preserve selected visible results at cache capacity,
+  reject hidden completions before native ingestion when no slot is available,
+  and never start a queued image worker after Stopping. Manual previews remain
+  explicit intent.
+- The optional remote-source cache uses private owned files, exact-URL hashed
+  names, and 64-entry/64-MiB FIFO bounds plus one atomic staging file of at most
+  8 MiB. Decode and normalize every hit. Cache failures fall back to guarded
+  fetching; local previews never enter the disk cache. Refuse symlinked paths,
+  unsafe ownership, nonregular files, and nonprivate directories without
+  changing unrelated directory permissions. `BIRC_IMAGE_CACHE=none` disables
+  persistence; tests isolate or disable cache access. Never clean up a staging
+  file whose exclusive creation failed.
 - Native cells store complete UTF-8 clusters in buffer-owned arenas. Bare cell copies must not transfer arena attachments. Bend layout, native tabs, and FFI clipping use the same TimUI common-cluster boundaries and widths, not scalar sums. Selection appends complete clusters with checked growth; failure leaves the previous clipboard unchanged. OSC8 targets are exact through 1024 bytes; decline larger targets.
 - Bend keeps clusters whole across source style runs, with the leading character's style. Word wrapping prefers complete IRC spaces; oversized words/URLs hard-wrap. Hidden boundary spaces still contribute to source-character anchors. Tab-label byte clipping must retain complete common clusters.
 - History append creates `0600` files and repairs owned regular files via descriptor `fchmod` before writing. Reject final symlinks, nonregular files, and foreign ownership; never change the global umask. Keep the foreign append effect in `history_io.bend`, not the proof-facing History module.

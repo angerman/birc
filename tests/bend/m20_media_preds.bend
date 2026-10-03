@@ -23,7 +23,7 @@ def client() -> Cl.Client:
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 8n}
 
 def full() -> M.State:
-  M.State{True{}, 1n, 9n, None{}, Nil{}, M.Ready{M.Manual{}, "manual.png", 8} <> ready(7n)}
+  M.State{True{}, 1n, 9n, None{}, Nil{}, M.Ready{M.Manual{}, "manual.png", 8} <> ready(7n), M.Supported{}}
 
 def started(pair: M.State & Maybe<&2, M.Request>) -> M.State:
   match pair:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Load and normalize one image. No temporary files, shell, cookies, or proxies.
+"""Load and normalize one image. No shell, cookies, proxies, or decode files.
 
 The parent owns scheduling and the output limit. This helper also has a total
 deadline, so a helper adopted during application exit cannot run indefinitely.
@@ -8,10 +8,13 @@ Only validated public addresses are contacted, including after redirects.
 """
 
 import base64
+import fcntl
+import hashlib
 import http.client
 import io
 import ipaddress
 import os
+import secrets
 import signal
 import socket
 import ssl
@@ -25,6 +28,9 @@ from urllib.parse import quote, urljoin, urlsplit
 from PIL import Image, ImageOps, PngImagePlugin
 
 MAX_DOWNLOAD = 8 * 1024 * 1024
+MAX_CACHE_ENTRIES = 64
+MAX_CACHE_BYTES = 64 * 1024 * 1024
+MAX_CACHE_SCAN = 256
 MAX_LOCAL_BYTES = 16 * 1024 * 1024
 MAX_PIXELS = 16 * 1024 * 1024
 MAX_SOURCE_FRAME_PIXELS = 32 * 1024 * 1024
@@ -59,7 +65,8 @@ def public_address(value):
     return address.is_global and not address.is_multicast
 
 
-def destination(url, resolver=socket.getaddrinfo):
+def url_parts(url):
+    """Validate even an offline cache hit, without resolving its host."""
     if len(url) > 4096 or any(ord(char) <= 32 or ord(char) == 127 for char in url):
         raise ImageError("invalid image URL")
     parsed = urlsplit(url)
@@ -71,13 +78,211 @@ def destination(url, resolver=socket.getaddrinfo):
     port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
     if port != (443 if parsed.scheme == "https" else 80):
         raise ImageError("image URL must use the standard HTTP or HTTPS port")
-    addresses = resolver(host, port, type=socket.SOCK_STREAM)
-    if not addresses or any(not public_address(item[4][0]) for item in addresses):
-        raise ImageError("image host must resolve only to public addresses")
     path = quote(parsed.path or "/", safe="/%:@!$&'()*+,;=-._~")
     if parsed.query:
         path += "?" + quote(parsed.query, safe="/%?:@!$&'()*+,;=-._~")
-    return parsed.scheme, host, port, path, addresses
+    return parsed.scheme, host, port, path
+
+
+def destination(url, resolver=socket.getaddrinfo):
+    scheme, host, port, path = url_parts(url)
+    addresses = resolver(host, port, type=socket.SOCK_STREAM)
+    if not addresses or any(not public_address(item[4][0]) for item in addresses):
+        raise ImageError("image host must resolve only to public addresses")
+    return scheme, host, port, path, addresses
+
+
+def cache_directory(create=False):
+    explicit = os.environ.get("BIRC_IMAGE_CACHE")
+    if explicit in ("", "none"):
+        return None
+    base = os.environ.get("XDG_CACHE_HOME", "")
+    if not os.path.isabs(base):
+        base = os.path.expanduser("~/.cache")
+    path = explicit if explicit is not None else os.path.join(base, "birc", "images")
+    fd = None
+    try:
+        # Descriptor-relative traversal does not follow a swapped/symlinked
+        # parent. An override must already be private; never chmod its folder.
+        path = os.path.abspath(os.path.expanduser(path))
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        fd = os.open("/", flags)
+        for component in path.split("/"):
+            if not component:
+                continue
+            if create:
+                try:
+                    os.mkdir(component, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            previous_fd = fd
+            fd = os.open(component, flags, dir_fd=previous_fd)
+            os.close(previous_fd)
+        info = os.fstat(fd)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077):
+            raise OSError("unsafe image cache directory")
+        return fd
+    except (OSError, ValueError):
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        return None
+
+
+def cache_owned(info):
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+        raise OSError("unsafe image cache file")
+
+
+def cache_identity(info):
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def cache_name(url):
+    # Names/side metadata never store the requested URL or chat metadata.
+    # The validated image's original source bytes remain intact.
+    return hashlib.sha256(url.encode("utf-8")).hexdigest() + ".img"
+
+
+def cache_read(url):
+    directory = cache_directory()
+    fd = None
+    if directory is None:
+        return None
+    try:
+        name = cache_name(url)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                     dir_fd=directory)
+        info = os.fstat(fd)
+        cache_owned(info)
+        if not 0 < info.st_size <= MAX_DOWNLOAD:
+            return None
+        os.fchmod(fd, 0o600)
+        info = os.fstat(fd)
+        data = bytearray()
+        while len(data) < info.st_size:
+            chunk = os.read(fd, min(65536, info.st_size - len(data)))
+            if not chunk:
+                return None
+            data.extend(chunk)
+        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        if cache_identity(os.fstat(fd)) != cache_identity(info) or cache_identity(current) != cache_identity(info):
+            return None
+        return bytes(data)
+    except (OSError, ValueError):
+        return None
+    finally:
+        for opened in (fd, directory):
+            if opened is not None:
+                try:
+                    os.close(opened)
+                except OSError:
+                    pass
+
+
+def cache_write(url, data):
+    """Best-effort bounded FIFO, serialized across cooperating helpers.
+
+    Steady cache files use at most 64 MiB; atomic replacement can temporarily
+    retain the old target plus one additional staging file of at most 8 MiB.
+    Orphaned staging files count toward the next writer's eviction budget.
+    """
+    if not 0 < len(data) <= min(MAX_DOWNLOAD, MAX_CACHE_BYTES) or MAX_CACHE_ENTRIES < 1:
+        return
+    directory = cache_directory(create=True)
+    lock = temporary_fd = None
+    temporary = None
+    if directory is None:
+        return
+    try:
+        lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+                       | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        cache_owned(os.fstat(lock))
+        os.fchmod(lock, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        target = cache_name(url)
+        try:
+            previous = os.stat(target, dir_fd=directory, follow_symlinks=False)
+            cache_owned(previous)
+        except FileNotFoundError:
+            previous = None
+        entries = []
+        with os.scandir(directory) as scan:
+            for index, entry in enumerate(scan):
+                if index >= MAX_CACHE_SCAN:
+                    raise OSError("image cache scan limit")
+                name = entry.name
+                image = len(name) == 68 and name.endswith(".img") and all(c in "0123456789abcdef" for c in name[:64])
+                staging = len(name) == 35 and name.startswith(".write-") and name.endswith(".tmp") and all(c in "0123456789abcdef" for c in name[7:-4])
+                if not image and not staging:
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                cache_owned(info)
+                if name == target:
+                    if previous is None or cache_identity(info) != cache_identity(previous):
+                        raise OSError("image cache changed")
+                    continue  # Replacement reuses this entry's slot and bytes.
+                entries.append((info.st_mtime_ns, name, info))
+        # A crashed writer can leave a staging file; no live writer owns one
+        # while this lock is held. Include it in accounting/eviction too.
+        entries.sort(key=lambda item: (item[0], item[1]))
+        total = sum(item[2].st_size for item in entries)
+        while entries and (len(entries) + 1 > MAX_CACHE_ENTRIES or total + len(data) > MAX_CACHE_BYTES):
+            _, name, info = entries.pop(0)
+            if cache_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) != cache_identity(info):
+                raise OSError("image cache changed")
+            os.unlink(name, dir_fd=directory)
+            total -= info.st_size
+        temporary = ".write-" + secrets.token_hex(12) + ".tmp"
+        temporary_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                               | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        os.fchmod(temporary_fd, 0o600)
+        view = memoryview(data)
+        while view:
+            count = os.write(temporary_fd, view)
+            if count <= 0:
+                raise OSError("short image cache write")
+            view = view[count:]
+        try:
+            current = os.stat(target, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            current = None
+        if ((previous is None) != (current is None)
+                or (current is not None and cache_identity(current) != cache_identity(previous))):
+            raise OSError("image cache changed")
+        os.replace(temporary, target, src_dir_fd=directory, dst_dir_fd=directory)
+        temporary = None
+    except (OSError, ValueError):
+        pass
+    finally:
+        if temporary is not None and temporary_fd is not None:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except OSError:
+                pass
+        for fd in (temporary_fd, lock, directory):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+def encode_remote(url, deadline):
+    url_parts(url)
+    data = cache_read(url)
+    if data is not None:
+        try:
+            return encode(data)
+        except Exception:
+            pass  # Never trust cached bytes without the same bounded decode.
+    data = fetch(url, deadline)
+    result = encode(data)
+    cache_write(url, data)
+    return result
 
 
 class PinnedHTTP(http.client.HTTPConnection):
@@ -264,12 +469,11 @@ def main(args):
     signal.signal(signal.SIGALRM, signal.SIG_DFL)
     signal.alarm(TIMEOUT)
     if len(args) == 1:
-        data = fetch(args[0], time.monotonic() + TIMEOUT)
+        result = encode_remote(args[0], time.monotonic() + TIMEOUT)
     elif len(args) == 2 and args[0] == "--local":
-        data = read_local(args[1])
+        result = encode(read_local(args[1]))
     else:
         raise ImageError("usage: birc-image <HTTP-or-HTTPS-image-URL> | --local <path>")
-    result = encode(data)
     print(result)
 
 

@@ -42,7 +42,7 @@ def preview(+name: String) -> Sess.Session:
 
 def preview_live.pending(media: M.State) -> Bool:
   match media:
-    case M.State{_, _, _, _, Con{M.Request{M.Manual{}, url, _, _}, Nil{}}, _}: String.eq(url, "/tmp/m20.png")
+    case M.State{_, _, _, _, Con{M.Request{M.Manual{}, url, _, _}, Nil{}}, _, _}: String.eq(url, "/tmp/m20.png")
     case _: False{}
 
 def preview_live(+name: String) -> Bool:

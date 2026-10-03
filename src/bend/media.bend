@@ -70,36 +70,77 @@ type Target is Data:
   Inline{id: Nat}
   Manual{}
 
+type Candidate is Data:
+  Candidate{target: Target, url: String}
+
 type Request is Data:
   Request{target: Target, url: String, generation: Nat, ticket: Nat}
 
 type Ready is Data:
   Ready{target: Target, url: String, token: U32}
 
+# Terminal support is independent of the user's automatic-preview preference.
+# Reported is sticky for the lifetime of an unsupported UI, including reconnect.
+type Display is Data:
+  Supported{}
+  Unsupported{}
+  Reported{}
+
 type State is Data:
-  State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>, pending: List<&2, Request>, ready: List<&2, Ready>}
+  State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>, pending: List<&2, Request>, ready: List<&2, Ready>, display: Display}
 
 def initial(on: Bool) -> State:
-  State{on, 1n, 1n, None{}, Nil{}, Nil{}}
+  State{on, 1n, 1n, None{}, Nil{}, Nil{}, Supported{}}
 
 def empty() -> State:
   initial(False{})
 
 def enabled(state: State) -> Bool:
   match state:
-    case State{on, _, _, _, _, _}: on
+    case State{on, _, _, _, _, _, _}: on
+
+def supported(state: State) -> Bool:
+  match state:
+    case State{_, _, _, _, _, _, Supported{}}: True{}
+    case _: False{}
+
+def reported(state: State) -> Bool:
+  match state:
+    case State{_, _, _, _, _, _, Reported{}}: True{}
+    case _: False{}
+
+def unsupported_text() -> String:
+  "image previews disabled: terminal image protocol is unavailable"
+
+def set_supported.display(on: Bool, display: Display) -> Display:
+  match on:
+    case True{}: Supported{}
+    case False{}:
+      match display:
+        case Reported{}: Reported{}
+        case _: Unsupported{}
+
+# Install the opened UI's capability once, before any request is observed.
+# If a worker is already owned, disabling support keeps it until completion.
+def set_supported(+state: State, +on: Bool) -> State:
+  match state:
+    case State{enabled, +gen, ticket, active, pending, ready, display}:
+      +changed = Bool.pick(Bool, on, Bool.not(supported(state)), supported(state))
+      State{enabled, Bool.pick(Nat, changed, 1n+gen, gen), ticket, active,
+        Bool.pick(List<&2, Request>, on, pending, Nil{}),
+        Bool.pick(List<&2, Ready>, on, ready, Nil{}), set_supported.display(on, display)}
 
 def generation(state: State) -> Nat:
   match state:
-    case State{_, gen, _, _, _, _}: gen
+    case State{_, gen, _, _, _, _, _}: gen
 
 def pending_count(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, pending, _}: List.length(&2, Request, pending)
+    case State{_, _, _, _, pending, _, _}: List.length(&2, Request, pending)
 
 def ready_count(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, _, ready}: List.length(&2, Ready, ready)
+    case State{_, _, _, _, _, ready, _}: List.length(&2, Ready, ready)
 
 def bounded(+state: State) -> Bool:
   Nat.is_le(pending_count(state), CAP()) && Nat.is_le(ready_count(state), CAP())
@@ -155,7 +196,7 @@ def active_has(active: Maybe<&2, Request>, +target: Target, +url: String, +gen: 
 
 def manual_saturated(state: State, +url: String) -> Bool:
   match state:
-    case State{_, +gen, _, active, +pending, _}:
+    case State{_, +gen, _, active, +pending, _, _}:
       Nat.is_ge(List.length(&2, Request, pending), CAP())
         && Bool.not(active_has(active, Manual{}, url, gen) || request_has(pending, Manual{}, url, gen))
 
@@ -164,43 +205,153 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
     case False{}: state
     case True{}:
       match state:
-        case State{on, +gen, +ticket, active, pending, +ready}:
+        case State{on, +gen, +ticket, active, pending, +ready, display}:
           State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
-            Bool.pick(List<&2, Ready>, manual(target), ready_without(ready, target, url), ready)}
+            Bool.pick(List<&2, Ready>, manual(target), ready_without(ready, target, url), ready), display}
+
+def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: String) -> State:
+  match eligible:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{+on, +gen, +ticket, +active, +pending, +ready, Supported{}}:
+          enqueue.on(Nat.is_lt(List.length(&2, Request, pending), CAP())
+            && Bool.not(active_has(active, target, url, gen) || request_has(pending, target, url, gen))
+            && (manual(target) || Bool.not(ready_has(ready, target, url))),
+            State{on, gen, ticket, active, pending, ready, Supported{}}, target, url)
+        case State{on, gen, ticket, active, _, _, _}:
+          State{on, gen, ticket, active, Nil{}, Nil{}, Reported{}}
+
+def enqueue_allowed(+state: State, +target: Target, +url: String) -> Bool:
+  (enabled(state) || manual(target)) && Bool.not(String.is_empty(url))
+    && (manual(target) || Links.is_url_prefix(url))
 
 def enqueue(+state: State, +target: Target, +url: String) -> State:
-  match state:
-    case State{+on, +gen, _, +active, +pending, +ready}:
-      enqueue.on((on || manual(target)) && (manual(target) || Links.is_url_prefix(url))
-        && Nat.is_lt(List.length(&2, Request, pending), CAP())
-        && Bool.not(active_has(active, target, url, gen) || request_has(pending, target, url, gen))
-        && (manual(target) || Bool.not(ready_has(ready, target, url))), state, target, url)
+  enqueue.eligible(enqueue_allowed(state, target, url), state, target, url)
 
 def enqueue_urls(urls: List<&2, String>, state: State, +target: Target) -> State:
   match urls:
     case Nil{}: state
     case Con{url, t}: enqueue_urls(t, enqueue(state, target, url), target)
 
+def enqueue_candidates.go(xs: List<&2, Candidate>, state: State) -> State:
+  match xs:
+    case Nil{}: state
+    case Con{Candidate{target, url}, tail}: enqueue_candidates.go(tail, enqueue(state, target, url))
+
+def candidate_id(candidate: Candidate) -> Nat:
+  match candidate:
+    case Candidate{Inline{id}, _}: id
+    case _: 0n
+
+def candidate_newest(a: Candidate, b: Candidate) -> Bool:
+  Nat.is_ge(candidate_id(a), candidate_id(b))
+
+def candidate_known(state: State, candidate: Candidate) -> Bool:
+  match state:
+    case State{_, +gen, _, active, pending, ready, Supported{}}:
+      match candidate:
+        case Candidate{+target, +url}:
+          ready_has(ready, target, url) || active_has(active, target, url, gen)
+            || request_has(pending, target, url, gen)
+    case _: False{}
+
+def candidate_partition.keep(keep: Bool, candidate: Candidate, tail: List<&2, Candidate>) -> List<&2, Candidate>:
+  match keep:
+    case False{}: tail
+    case True{}: candidate <> tail
+
+def candidate_partition(xs: List<&2, Candidate>, +state: State, +keep_known: Bool) -> List<&2, Candidate>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+head, tail}:
+      +known = candidate_known(state, head)
+      candidate_partition.keep((known && keep_known) || (Bool.not(known) && Bool.not(keep_known)),
+        head, candidate_partition(tail, state, keep_known))
+
+def candidate_has(xs: List<&2, Candidate>, +target: Target, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{Candidate{t, u}, tail}: (target_eq(t, target) && String.eq(u, url)) || candidate_has(tail, target, url)
+
+def newest_candidates.unique.keep(duplicate: Bool, +candidate: Candidate, +seen: List<&2, Candidate>, k: List<&2, Candidate> -> List<&2, Candidate>) -> List<&2, Candidate>:
+  match duplicate:
+    case True{}: k(seen)
+    case False{}: candidate <> k(candidate <> seen)
+
+def newest_candidates.unique(xs: List<&2, Candidate>, +seen: List<&2, Candidate>) -> List<&2, Candidate>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Candidate{+target, +url}, tail}:
+      newest_candidates.unique.keep(candidate_has(seen, target, url), Candidate{target, url}, seen,
+        next => newest_candidates.unique(tail, next))
+
+# Retain visible previews before admitting new ones. In split panes, expansion
+# must not let fresh text evict a visible token and repeatedly collapse/refetch it.
+def newest_candidates(+xs: List<&2, Candidate>, +state: State) -> List<&2, Candidate>:
+  List.take(&2, Candidate, newest_candidates.unique(List.append(&2, Candidate,
+    List.sort(~Candidate, ~candidate_newest, candidate_partition(xs, state, True{})),
+    List.sort(~Candidate, ~candidate_newest, candidate_partition(xs, state, False{}))), Nil{}), CAP())
+
+def visible_ready(xs: List<&2, Ready>, +selected: List<&2, Candidate>, +keep_selected: Bool) -> List<&2, Ready>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Ready{+target, +url, token}, tail}:
+      +hit = candidate_has(selected, target, url)
+      ready_keep(Bool.not((hit && keep_selected) || (Bool.not(hit) && Bool.not(keep_selected))),
+        Ready{target, url, token}, visible_ready(tail, selected, keep_selected))
+
+# The completion FIFO remains unchanged. Refresh its bounded priority only for
+# this visible-admission path, so a new preview evicts a hidden result first.
+def enqueue_candidates(+xs: List<&2, Candidate>, state: State) -> State:
+  match state:
+    case State{on, gen, ticket, active, pending, +ready, display}:
+      enqueue_candidates.go(xs, State{on, gen, ticket, active, pending,
+        List.append(&2, Ready, visible_ready(ready, xs, True{}), visible_ready(ready, xs, False{})), display})
+
+def visible_result.active(active: Maybe<&2, Request>, +selected: List<&2, Candidate>) -> Bool:
+  match active:
+    case None{}: False{}
+    case Some{Request{+target, url, _, _}}: manual(target) || candidate_has(selected, target, url)
+
+# A full visible cache must not be displaced by an unrelated hidden completion.
+# Manual requests are explicit user intent, including automatic previews off.
+# Token-zero failures occupy the same identities and must not cause retry loops.
+def visible_result_allowed(state: State, +selected: List<&2, Candidate>) -> Bool:
+  match state:
+    case State{_, _, _, active, _, ready, _}:
+      Nat.is_lt(List.length(&2, Ready, visible_ready(ready, selected, True{})), CAP())
+        || visible_result.active(active, selected)
+
 def take_job(state: State) -> State & Maybe<&2, Request>:
   match state:
-    case State{on, gen, ticket, Some{req}, pending, ready}:
-      (State{on, gen, ticket, Some{req}, pending, ready}, None{})
-    case State{on, gen, ticket, None{}, Nil{}, ready}:
-      (State{on, gen, ticket, None{}, Nil{}, ready}, None{})
-    case State{on, gen, ticket, None{}, Con{+req, pending}, ready}:
-      (State{on, gen, ticket, Some{req}, pending, ready}, Some{req})
+    case State{on, gen, ticket, active, _, _, Unsupported{}}:
+      (State{on, gen, ticket, active, Nil{}, Nil{}, Unsupported{}}, None{})
+    case State{on, gen, ticket, active, _, _, Reported{}}:
+      (State{on, gen, ticket, active, Nil{}, Nil{}, Reported{}}, None{})
+    case State{on, gen, ticket, Some{req}, pending, ready, Supported{}}:
+      (State{on, gen, ticket, Some{req}, pending, ready, Supported{}}, None{})
+    case State{on, gen, ticket, None{}, Nil{}, ready, Supported{}}:
+      (State{on, gen, ticket, None{}, Nil{}, ready, Supported{}}, None{})
+    case State{on, gen, ticket, None{}, Con{+req, pending}, ready, Supported{}}:
+      (State{on, gen, ticket, Some{req}, pending, ready, Supported{}}, Some{req})
+
+def take_job_allowed(allowed: Bool, state: State) -> State & Maybe<&2, Request>:
+  match allowed:
+    case False{}: (state, None{})
+    case True{}: take_job(state)
 
 # The physical worker remains owned until its completion, even after disable/reset.
 def reset(state: State) -> State:
   match state:
-    case State{on, gen, ticket, active, _, _}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}}
+    case State{on, gen, ticket, active, _, _, display}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}, display}
 
 def set_enabled.pick(change: Bool, +state: State, on: Bool) -> State:
   match change:
     case False{}: state
     case True{}:
       match state:
-        case State{_, gen, ticket, active, _, _}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}}
+        case State{_, gen, ticket, active, _, _, display}: State{on, (gen + 1n : Nat), ticket, active, Nil{}, Nil{}, display}
 
 def set_enabled(+state: State, +on: Bool) -> State:
   set_enabled.pick(Bool.pick(Bool, on, Bool.not(enabled(state)), enabled(state)), state, on)
@@ -249,8 +400,8 @@ def keep_ready(xs: List<&2, Ready>, +client: Cl.Client) -> List<&2, Ready>:
 
 def maintain(state: State, +client: Cl.Client) -> State:
   match state:
-    case State{on, +gen, ticket, active, pending, ready}:
-      State{on, gen, ticket, active, keep_pending(pending, client, gen), keep_ready(ready, client)}
+    case State{on, +gen, ticket, active, pending, ready, display}:
+      State{on, gen, ticket, active, keep_pending(pending, client, gen), keep_ready(ready, client), display}
 
 def exact(active: Maybe<&2, Request>, +gen: Nat, +ticket: Nat, +url: String) -> Bool:
   match active:
@@ -264,22 +415,30 @@ def accept.active(active: Maybe<&2, Request>, +on: Bool, +gen: Nat, +client: Cl.
 
 def accept(state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> Bool:
   match state:
-    case State{on, current, _, +active, _, _}: exact(active, gen, ticket, url) && accept.active(active, on, current, client)
+    case State{on, current, _, +active, _, _, Supported{}}: exact(active, gen, ticket, url) && accept.active(active, on, current, client)
+    case _: False{}
 
 def complete.on(hit: Bool, accepted: Bool, +state: State, token: U32) -> State:
   match hit:
     case False{}: state
     case True{}:
       match state:
-        case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready}:
+        case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
           State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, Ready>, accepted,
-            List.take(&2, Ready, Ready{target, url, token} <> ready, CAP()), ready)}
+            List.take(&2, Ready, Ready{target, url, token} <> ready, CAP()), ready), display}
         case _: state
 
 def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String, token: U32) -> State:
   match state:
-    case State{_, _, _, +active, _, _}:
+    case State{_, _, _, +active, _, _, _}:
       complete.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state, token)
+
+# Declined native admission releases only the exact physical worker. It cannot
+# add a failed placeholder, evict a retained token, or clear a different worker.
+def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
+  match state:
+    case State{_, _, _, +active, _, _, _}:
+      complete.on(exact(active, gen, ticket, url), False{}, state, 0)
 
 # Zero denotes a placeholder, never native payload ownership. Compute this on
 # the prospective completion with token zero before admitting its new payload.
@@ -293,7 +452,8 @@ def retained_tokens.ready(xs: List<&2, Ready>) -> List<&2, U32>:
 
 def retained_tokens(state: State) -> List<&2, U32>:
   match state:
-    case State{_, _, _, _, _, ready}: retained_tokens.ready(ready)
+    case State{_, _, _, _, _, ready, Supported{}}: retained_tokens.ready(ready)
+    case _: Nil{}
 
 def token_from(xs: List<&2, Ready>, +target: Target, +url: String) -> U32:
   match xs:
@@ -304,7 +464,8 @@ def token_from(xs: List<&2, Ready>, +target: Target, +url: String) -> U32:
 
 def token(state: State, target: Target, url: String) -> U32:
   match state:
-    case State{_, _, _, _, _, ready}: token_from(ready, target, url)
+    case State{_, _, _, _, _, ready, Supported{}}: token_from(ready, target, url)
+    case _: 0
 
 def urls_ready(xs: List<&2, Ready>, +target: Target) -> List<&2, String>:
   match xs:
@@ -323,9 +484,10 @@ def urls_active(active: Maybe<&2, Request>, target: Target, gen: Nat) -> List<&2
 
 def known_urls(state: State, +target: Target) -> List<&2, String>:
   match state:
-    case State{_, +gen, _, active, pending, ready}:
+    case State{_, +gen, _, active, pending, ready, Supported{}}:
       List.append(&2, String, urls_ready(ready, target), List.append(&2, String,
         urls_active(active, target, gen), urls_pending(pending, target, gen)))
+    case _: Nil{}
 
 def live_kind(kind: Cl.LineKind) -> Bool:
   match kind:

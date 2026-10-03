@@ -9,6 +9,37 @@ static int media_read(TimuiTransport *transport, void *data, size_t size) {
   (void)transport; (void)data; (void)size; return 0;
 }
 
+static int image_support_probe(void) {
+  static const TimuiImageProtocol protocols[] = {
+    TIMUI_IMAGE_PROTOCOL_NONE, TIMUI_IMAGE_PROTOCOL_KITTY,
+    TIMUI_IMAGE_PROTOCOL_ITERM2, TIMUI_IMAGE_PROTOCOL_SIXEL
+  };
+  SinkFixture fixture; Timui ui = {0}; BircUi state = {0}, before;
+  Env env = {0}; Term fields[1]; size_t i;
+  CHECK(fixture_start(&fixture) == 0);
+  ui.fd.write_fd = fixture.fds[0][1]; install_writer(&ui);
+  ui.cfg.userdata = &state;
+  ui.caps.flags = TIMUI_CAP_TRUECOLOR | TIMUI_CAP_OSC8_HYPERLINKS;
+  ui.caps.colors = 256; ui.caps.width = 80; ui.caps.height = 24;
+  fields[0] = io_hand((uint64_t)(uintptr_t)&ui);
+  memcpy(&before, &state, sizeof before);
+  for (i = 0; i < sizeof protocols / sizeof protocols[0]; i++) {
+    TimuiCaps caps;
+    timui_force_image_protocol(&ui, protocols[i]);
+    memcpy(&caps, &ui.caps, sizeof caps);
+    CHECK(timui_image_supported_run(env, fields, NULL) == (Term)(i != 0));
+    CHECK(fields[0] == io_hand((uint64_t)(uintptr_t)&ui));
+    CHECK(timui_image_protocol(&ui) == protocols[i]);
+    CHECK(memcmp(&caps, &ui.caps, sizeof caps) == 0);
+    CHECK(memcmp(&before, &state, sizeof state) == 0);
+    CHECK(ui.id_head == NULL);
+    CHECK(attempts[0] == 0 && attempts[1] == 0);
+    CHECK(captured_len[0] == 0 && captured_len[1] == 0);
+  }
+  CHECK(fixture_stop(&fixture) == 0);
+  return 0;
+}
+
 static const unsigned char media_png[33] = {
   137,80,78,71,13,10,26,10,0,0,0,13,'I','H','D','R',
   0,0,0,1,0,0,0,1,8,6,0,0,0,0,0,0,0
@@ -109,6 +140,7 @@ static int cache_frame_ownership(void) {
 }
 int main(void) {
   media_debug = fdopen(dup(STDERR_FILENO), "w");
+  CHECK(image_support_probe() == 0);
   CHECK(cache_frame_ownership() == 0);
   if (media_debug) fclose(media_debug);
   puts("media_ffi=ok"); return 0;

@@ -26,10 +26,10 @@ def active_buf(cl: Cl.Client) -> Cl.Buffer:
     case Cl.Client{_, _, bufs, active, _, _, _, _}: V.active_buf.on(Cl.nth_buf(bufs, active))
 
 def active_media() -> M.State:
-  M.State{False{}, 1n, 2n, Some{M.Request{M.Manual{}, url(), 1n, 1n}}, Nil{}, Nil{}}
+  M.State{False{}, 1n, 2n, Some{M.Request{M.Manual{}, url(), 1n, 1n}}, Nil{}, Nil{}, M.Supported{}}
 
 def ready_inline() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, url(), 9}]}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, url(), 9}], M.Supported{}}
 
 def manual_session() -> Sess.Session:
   Sess.session_set_media(Sess.session_demo(client(Sub.submit(Cl.init("me", "s"), "/preview " ++ url())), ""), active_media())
@@ -106,7 +106,7 @@ def first_line(lines: List<&2, Cl.Line>) -> Cl.Line:
     case Con{h, _}: h
 
 def split_media() -> M.State:
-  M.State{True{}, 1n, 3n, None{}, Nil{}, [M.Ready{M.Inline{1n}, url(), 11}, M.Ready{M.Inline{2n}, "https://x/b.gif", 22}]}
+  M.State{True{}, 1n, 3n, None{}, Nil{}, [M.Ready{M.Inline{1n}, url(), 11}, M.Ready{M.Inline{2n}, "https://x/b.gif", 22}], M.Supported{}}
 
 def split_client.of(cl: Cl.Client) -> Cl.Client:
   match cl:

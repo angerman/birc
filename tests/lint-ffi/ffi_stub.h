@@ -82,6 +82,7 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_TIMUI_MEDIA_CLEAR 46u
 #define CID_SYS_MEDIA_PROGRAM 47u
 #define CID_TIMUI_VIEW_BEGIN 48u
+#define CID_TIMUI_IMAGE_SUPPORTED 49u
 #ifndef THR
 #define THR
 #endif

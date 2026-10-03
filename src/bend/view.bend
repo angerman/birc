@@ -1487,6 +1487,87 @@ def focused_rect.on(+body: Rect, split: Sp.State) -> Rect:
 def focused_rect(+rows: U32, +cols: U32, split: Sp.State) -> Rect:
   focused_rect.on(lay_body_rect(lay(rows, cols, 0)), split)
 
+def visible_media.urls(urls: List<&2, String>, +id: Nat) -> List<&2, M.Candidate>:
+  match urls:
+    case Nil{}: Nil{}
+    case Con{url, tail}: M.Candidate{M.Inline{id}, url} <> visible_media.urls(tail, id)
+
+def visible_media.line.allowed(allowed: Bool, id: Nat, text: String) -> List<&2, M.Candidate>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}: visible_media.urls(M.targets(text), id)
+
+def visible_media.line(line: Maybe<&2, Cl.Line>) -> List<&2, M.Candidate>:
+  match line:
+    case None{}: Nil{}
+    case Some{Cl.Line{kind, _, text, _, +id}}:
+      visible_media.line.allowed(M.live_kind(kind) && Nat.is_gt(id, 0n), id, text)
+
+def visible_media.line_at(lines: List<&2, Cl.Line>, index: Nat) -> Maybe<&2, Cl.Line>:
+  match lines:
+    case Nil{}: None{}
+    case Con{line, tail}:
+      match index:
+        case 0n: Some{line}
+        case 1n+p: visible_media.line_at(tail, p)
+
+def visible_media.rows(rows: List<&2, AnchoredRow>, +lines: List<&2, Cl.Line>, +count: Nat) -> List<&2, M.Candidate>:
+  match rows:
+    case Nil{}: Nil{}
+    case Con{AnchoredRow{_, Cl.ScrollAt{after, _}}, tail}:
+      List.append(&2, M.Candidate,
+        visible_media.line(visible_media.line_at(lines, Nat.sub(Nat.sub(count, after), 1n))),
+        visible_media.rows(tail, lines, count))
+
+def visible_media.crop(+rows: List<&2, AnchoredRow>, +lines: List<&2, Cl.Line>, +height: Nat, scroll: Cl.Scroll) -> List<&2, M.Candidate>:
+  +end = viewport_end(rows, height, scroll)
+  visible_media.rows(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height),
+    lines, List.length(&2, Cl.Line, lines))
+
+def visible_media.buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State) -> List<&2, M.Candidate>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}:
+      match b:
+        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
+          visible_media.crop(anchored_lines_media(lines, name, w, show_ts, mutes, server,
+            List.length(&2, Cl.Line, lines), media), lines, height, scroll)
+
+def visible_media.buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State) -> List<&2, M.Candidate>:
+  match b:
+    case Cl.Buffer{name, _, _, _, _, _}:
+      visible_media.buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
+        b, height, w, show_ts, mutes, server, media)
+
+def visible_media.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, M.Candidate>:
+  match pair:
+    case (+r1, +r2):
+      match cl:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+          List.append(&2, M.Candidate,
+            visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
+              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media),
+            visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
+              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media))
+
+def visible_media.single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, M.Candidate>:
+  match cl:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+      visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
+        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media)
+
+def visible_media.panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
+  match split:
+    case Sp.Off{}: visible_media.single(cl, rows, cols, media)
+    case Sp.On{axis, first, second, _}:
+      visible_media.split(split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media)
+
+# Admission shares the painted panes, wrapped rows, mute filters and anchors.
+# A partly visible image row retains its source event even if its URL is above
+# the viewport. Stable nonzero IDs also admit rows imported from history.
+def visible_media_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
+  M.newest_candidates(visible_media.panes(cl, rows, cols, split, media), media)
+
 def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   match move:
     case False{}: cl

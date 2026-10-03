@@ -30,8 +30,8 @@ def fixture_text(links: Nat, seed: Nat) -> String:
 
 def fixture_state(ready: Bool, +seed: Nat) -> M.State:
   match ready:
-    case False{}: M.State{False{}, seed, seed, None{}, Nil{}, Nil{}}
-    case True{}: M.State{True{}, seed, seed, None{}, Nil{}, [M.Ready{M.Inline{1n}, image_url(), 7}]}
+    case False{}: M.State{False{}, seed, seed, None{}, Nil{}, Nil{}, M.Supported{}}
+    case True{}: M.State{True{}, seed, seed, None{}, Nil{}, [M.Ready{M.Inline{1n}, image_url(), 7}], M.Supported{}}
 
 def count_rows(rows: Bool, text: String, media: M.State) -> Nat:
   match rows:

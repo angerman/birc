@@ -17,7 +17,8 @@ whole client correct.
 - **Verified IRC TLS**: OpenSSL checks certificate trust and the server name.
   TLS is the default; only `--plain` selects plaintext. Ports do not select mode.
 - **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
-- **Image previews**: New live image links expand inline. Explicit `/preview`
+- **Image previews**: Live and visible saved-history image links expand inline.
+  A private bounded disk cache reuses downloaded assets. Explicit `/preview`
   accepts local files and HTTP(S) URLs. Common formats use a bounded,
   provisioned decoder; supported Kitty/iTerm2 terminals can play animations.
 - **Confirmed file uploads**: Exact local file drops and `/upload` stage a
@@ -590,10 +591,13 @@ there is an interactive buffer; it remains an exit diagnostic.
 
 ### Images and privacy
 
-Automatic previews apply to new live messages with direct PNG, JPEG, GIF,
-WebP, BMP, TIFF, or AVIF links, or Markdown `![alt](URL)` image links. Saved
-history, replay, and demo messages do not trigger automatic requests. Sent
-messages and stored history keep the exact original text and URL.
+Automatic previews apply to new live messages and visible saved-history messages
+with direct PNG, JPEG, GIF, WebP, BMP, TIFF, or AVIF links, or Markdown
+`![alt](URL)` image links. History uses the same bounded asynchronous preview
+worker as live messages. Changing tabs or scrolling admits older visible images;
+startup does not fetch every archived link. Replay and demo messages do not
+trigger automatic requests. Sent messages and stored history keep the exact
+original text and URL.
 
 Fetching an image discloses your IP address to its host. Use `/images off` or
 start with `BIRC_IMAGES=off` to prevent automatic requests. Disabling previews
@@ -618,16 +622,31 @@ Bend allows one active helper, eight queued requests, and eight cached results.
 A frame can show at most eight image placements, including repeated uses of
 the same cached image.
 
-Kitty and iTerm2 handle animation in the terminal; birc does not add an
-animation timer. Sixel uses the first frame. Unsupported image terminals show
-a placeholder. A partially clipped iTerm2 image also shows a placeholder,
-because that protocol has no source-crop command. Terminal and multiplexer
-support can differ.
+Successfully decoded remote image files are also cached privately in
+`$XDG_CACHE_HOME/birc/images`, or `~/.cache/birc/images` when unset. The disk cache
+keeps at most 64 files and 64 MiB, evicting the oldest stored files. Atomic writes
+can use one extra staging file of at most 8 MiB. Its names
+are URL hashes; it stores no separate URL metadata. Cache hits are decoded and normalized
+again without contacting the host. Missing or corrupt entries are fetched
+asynchronously. Cache failures do not prevent a valid preview. Local files are
+not copied into this cache. The cache directory must be private and owned by
+the current user. Symlinks anywhere in its path disable cache access; ordinary
+cache IO failures fall back to fetching. Set `BIRC_IMAGE_CACHE=none` to disable
+disk caching, or set it to an explicit cache directory. This does not disable
+network fetches; use `/images off` to disable automatic previews.
 
-`[img]` is also used while a request is pending or after preview rejection.
-Check `/log` for `image preview unavailable`; terminal-protocol fallback does
-not produce that error. Ghostty is recognized as a Kitty-graphics terminal,
-but tmux, screen, and zellij disable automatic image-protocol selection.
+Kitty and iTerm2 handle animation in the terminal; birc does not add an
+animation timer. Sixel uses the first frame. If no terminal image protocol is
+detected, birc keeps URLs as normal chat text, skips image helpers, and records
+one explanation in `*log*` when a preview is requested. This applies to automatic
+and explicit previews. It does not change the saved `/images on|off` preference.
+
+Supported terminals can still show `[img]` while loading, after preview
+rejection, or for an unsupported crop. A partially clipped iTerm2 image uses
+that fallback because its protocol has no source-crop command. Check `/log` for
+`image preview unavailable` after helper rejection. Terminal and multiplexer
+support can differ. Ghostty is recognized as a Kitty-graphics terminal, but
+tmux, screen, and zellij disable automatic image-protocol selection.
 Detection uses `TERM` and `TERM_PROGRAM`, not the window's appearance. If a
 Ghostty shell reports `TERM=xterm-256color` and `TERM_PROGRAM=Apple_Terminal`,
 birc selects no image protocol. Declare Ghostty's protocol for that launch:

@@ -1940,10 +1940,47 @@ def session_media(st: Session) -> M.State:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, media, +plan, +edits}: media
 
-def session_set_media(st: Session, media: M.State) -> Session:
+def media_diagnostic(report: Bool, cl: Cl.Client) -> Cl.Client:
+  match report:
+    case False{}: cl
+    case True{}: Cl.diagnostic(cl, Cl.System{}, M.unsupported_text())
+
+def session_set_media(st: Session, +media: M.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, _, +plan, +edits}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, before, +plan, +edits}:
+      Session{media_diagnostic(Bool.not(M.reported(before)) && M.reported(media), cl), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits}
+
+def visible_media_net(net: NetState) -> Bool:
+  match net:
+    case Demo{}: False{}
+    case Stopping{_}: False{}
+    case _: True{}
+
+def session_observe_visible_media.allowed(allowed: Bool, +st: Session) -> Session:
+  match allowed:
+    case False{}: st
+    case True{}:
+      match st:
+        case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _}:
+          +current = M.maintain(media, cl)
+          session_set_media(st, M.enqueue_candidates(View.visible_media_candidates(cl, rows, cols, split, current), current))
+
+def session_observe_visible_media(+st: Session) -> Session:
+  session_observe_visible_media.allowed(visible_media_net(session_net(st)) && M.enabled(session_media(st)), st)
+
+def session_accept_media_result(+st: Session, +generation: Nat, +ticket: Nat, +url: String) -> Bool:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _}:
+      M.accept(media, cl, generation, ticket, url)
+        && M.visible_result_allowed(media, View.visible_media_candidates(cl, rows, cols, split, media))
+
+def media_job_net(net: NetState) -> Bool:
+  match net:
+    case Stopping{_}: False{}
+    case _: True{}
+
+def session_media_job_allowed(+st: Session) -> Bool:
+  media_job_net(session_net(st))
 
 def online_media(net: NetState) -> Bool:
   match net:
@@ -1961,17 +1998,23 @@ def images_intent.parsed(+st: Session, intent: Maybe<&2, Bool>) -> Session:
 def images_intent(+st: Session, +arg: String) -> Session:
   images_intent.parsed(st, Sub.images_arg(arg))
 
+def preview_intent.accepted(accepted: Bool, +st: Session, +source: String) -> Session:
+  match accepted:
+    case False{}: st
+    case True{}:
+      +current = M.maintain(session_media(st), session_cl(st))
+      +full = M.manual_saturated(current, source)
+      +media = M.enqueue(current, M.Manual{}, source)
+      +next = session_set_media(st, M.maintain(media, session_cl(st)))
+      Bool.pick(Session, full, session_error(next, "image preview queue is full; try again"), next)
+
 def media_intent.parsed(+st: Session, input: Sub.Input) -> Session:
   match input:
     case Sub.CommandInput{Sub.ImagesCmd{}, _, rest}: images_intent(st, Irc.drop_spaces(rest))
     case Sub.CommandInput{Sub.PreviewCmd{}, _, +rest}:
       +arg = Irc.drop_spaces(rest)
       +source = Bool.pick(String, Sub.is_http_pfx(arg), arg, Sub.preview_local_path(arg))
-      +current = M.maintain(session_media(st), session_cl(st))
-      +full = M.manual_saturated(current, source) && M.alive(session_cl(st), M.Manual{}, source)
-      +media = M.enqueue(current, M.Manual{}, source)
-      +next = session_set_media(st, M.maintain(media, session_cl(st)))
-      Bool.pick(Session, full, session_error(next, "image preview queue is full; try again"), next)
+      preview_intent.accepted(Bool.not(String.is_empty(source)) && M.alive(session_cl(st), M.Manual{}, source), st, source)
     case _: st
 
 def media_intent(enter: Bool, +st: Session, typed: String) -> Session:

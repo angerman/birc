@@ -876,8 +876,15 @@ def media_stage.job(pair: M.State & Maybe<&2, M.Request>, ui: T.Ui, +st: Sess.Se
 
 def media_stage(acc: T.Ui & Sess.Session & U32 & Bool, old_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match acc:
-    case (ui, +st, gen, more):
-      media_stage.job(M.take_job(M.maintain(Sess.session_media(st), Sess.session_cl(st))), ui, st, gen, more, old_gen, evt, k)
+    case (ui, +st, gen, pending):
+      # Restored and newly visible chat shares the live request/worker path.
+      # Admission is pure; IO starts only after the completed frame/event.
+      +observed = Sess.session_observe_visible_media(st)
+      do IO<Unit>:
+        repaint : Bool <- more_schedule(pending, False{},
+          Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), Cl.log_seq_of(Sess.session_cl(st))), evt)
+        media_stage.job(M.take_job_allowed(Sess.session_media_job_allowed(observed),
+          M.maintain(Sess.session_media(observed), Sess.session_cl(observed))), ui, observed, gen, repaint, old_gen, evt, k)
 
 def upload_run.result(result: String & U32 & U32, request: Up.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match result:
@@ -958,7 +965,7 @@ def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticke
 def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match accepted:
     case False{}:
-      k((ui, Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)), gen, False{}))
+      k((ui, Sess.session_set_media(st, M.reject(Sess.session_media(st), generation, ticket, url)), gen, False{}))
     case True{}:
       do IO<Unit>:
         pair : T.Ui & U32 <- T.Timui.media_add(ui, payload,
@@ -999,7 +1006,7 @@ def on_msg_go(
     case Sess.Reconnect{+host, port, scheduled_gen}:
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
     case Sess.MediaFetched{+generation, +ticket, +url, payload}:
-      on_media(M.accept(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
+      on_media(Sess.session_accept_media_result(st, generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
     case Sess.UploadFetched{+request, result, error, http_status}:
       on_upload(upload_owned(Sess.session_upload(st), request), ui, st, request, result, error, http_status, evt, cmd, ack, gen, k)
     case Sess.PreferencesLoaded{_, _, _}: k((ui, st, gen, False{}))
@@ -1325,8 +1332,9 @@ def watch_start(
         Unit <- IO.spawn(Unit, winch_watch(w, evt))
         Unit <- IO.spawn(Unit, typing_watch(evt))
         scheduled : Bool <- more_schedule(False{}, False{}, more, evt)
-        preferences_stage((ui, st, gen, scheduled), ctx, evt, cmd, ack,
-          next => watch_start.boot(next, frames, evt, cmd, ack, hist_path))
+        media_stage((ui, st, gen, scheduled), M.generation(Sess.session_media(st)), evt,
+          observed => preferences_stage(observed, ctx, evt, cmd, ack,
+            next => watch_start.boot(next, frames, evt, cmd, ack, hist_path)))
 
 def watch_die(e: U32 & String, ui: T.Ui) -> IO(Unit):
   match e:
@@ -1412,11 +1420,19 @@ def open_tty(
     case (ui, tr):
       watch_go(tr, wr, ui, st, gen, evt, cmd, ack, frames, hist_path, ctx)
 
+def open_watch.supported(support: T.Ui & U32, +st: Sess.Session, +gen: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), frames: U32, hist_path: String, +ctx: PrefLive.Context) -> IO(Unit):
+  match support:
+    case (ui, flag):
+      +configured = Sess.session_set_media(st, M.set_supported(Sess.session_media(st), T.flag_on(flag)))
+      do IO<Unit>:
+        wr : Result<&1, &1, U32 & String, T.Winch> <- T.Winch.open()
+        pair : T.Ui & Result<&1, &1, U32 & String, T.Tty> <- T.Timui.tty(ui)
+        open_tty(pair, PrefLive.hold(PrefLive.waiting(ctx), configured), gen, evt, cmd, ack, frames, wr, hist_path, ctx)
+
 def open_watch.context(ui: T.Ui, +st: Sess.Session, +gen: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), frames: U32, hist_path: String, +ctx: PrefLive.Context) -> IO(Unit):
   do IO<Unit>:
-    wr : Result<&1, &1, U32 & String, T.Winch> <- T.Winch.open()
-    pair : T.Ui & Result<&1, &1, U32 & String, T.Tty> <- T.Timui.tty(ui)
-    open_tty(pair, PrefLive.hold(PrefLive.waiting(ctx), st), gen, evt, cmd, ack, frames, wr, hist_path, ctx)
+    support : T.Ui & U32 <- T.Timui.image_supported(ui)
+    open_watch.supported(support, st, gen, evt, cmd, ack, frames, hist_path, ctx)
 
 def open_watch.ready(options: PrefWorker.Options, ui: T.Ui, +st: Sess.Session, +gen: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), frames: U32, +hist_path: String) -> IO(Unit):
   open_watch.context(ui, st, gen, evt, cmd, ack, frames, hist_path, PrefLive.initial(options, st, gen, hist_path))
