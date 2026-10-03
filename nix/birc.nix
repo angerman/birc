@@ -4,6 +4,7 @@
 let
   media = callPackage ./media.nix {};
   upload = callPackage ./upload.nix {};
+  preferences = callPackage ./preferences.nix {};
 in stdenv.mkDerivation {
   pname = "birc";
   version = "0.1.0";
@@ -38,6 +39,7 @@ in stdenv.mkDerivation {
     wrapProgram $out/bin/birc \
       --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image" \
       --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload" \
+      --set-default BIRC_PREFS_HELPER "${preferences}/bin/birc-preferences" \
       --set-default SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt"
     cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
     makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
