@@ -1144,3 +1144,39 @@ law isupport_join_admit_unupdated:
 
 law isupport_join_admit_server_bound:
   {Isupport.join_admit(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# CHANNELLEN=18 :are supported"), "&local", "") == False{} : Bool}
+
+# A `-TOKEN` burst entry restores that field to its compiled-in default.
+law isupport_neg_token_resets_default:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me NICKLEN=31 :are supported"), ":s 005 me -NICKLEN :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# An empty STATUSMSG= clears the audience instead of keeping it.
+law isupport_empty_statusmsg_clears:
+  {Isupport.show(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG= :are supported")) == "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# A 005 burst for another nick leaves policy (and `updated`) untouched.
+law isupport_wrong_recipient_ignored:
+  {Isupport.feed_state(Isupport.defaults(), Cl.init("me", "s"), ":s 005 mallory PREFIX=(q)~ :are supported") == Isupport.defaults() : Isupport.State}
+
+# Stripping removes only the leading sigil run, never interior sigils.
+law isupport_strip_keeps_interior_sigils:
+  {Isupport.strip(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(o)^ :are supported"), "a^b") == "a^b" : String}
+
+# A CHANTYPES-advertised type joins even outside the fixed set.
+law isupport_advertised_chantypes_join:
+  {Isupport.join_admit(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=$ :are supported"), "$room", "") == True{} : Bool}
+
+# Duplicate PREFIX modes keep the previous valid setting.
+law isupport_duplicate_prefix_rejected:
+  {Isupport.show(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(oo)@+ :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# An exact resident +#room keeps its name; only audiences strip.
+law isupport_chan_target_prefers_resident:
+  {Isupport.chan_target_cl(Isupport.defaults(), Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN +#room"), "+#room") == "+#room" : String}
+
+# Negotiated ascii keeps [ distinct from {.
+law isupport_casemapping_ascii_strict:
+  {Isupport.cm_eq(Isupport.apply_line(Isupport.defaults(), ":s 005 me CASEMAPPING=ascii :are supported"), "a[b", "a{b") == False{} : Bool}
+
+# Numeric 324 redacts the key at its recipient-shifted offsets.
+law isupport_324_redacts_key:
+  {Isupport.redact_line(Isupport.defaults(), ":s 324 me #c +k s3cret") == ["[channel key hidden]"] : List<&2, String>}

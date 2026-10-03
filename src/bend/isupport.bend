@@ -11,15 +11,31 @@
 # the standard CHANMODES classes. A received PREFIX replaces the sigil set
 # entirely: the server is authoritative once it speaks.
 #
+# A `-TOKEN` burst entry removes that token: the field returns to its default
+# below. An empty `STATUSMSG=` instead clears the audience entirely (the
+# server offers no STATUSMSG). A bare `STATUSMSG` with no `=` keeps the
+# previous value, like every other valueless token.
+#
 # This module never stores channel keys. `redact_*` only decides which MODE
 # arguments may render. Precise redaction needs every mode character
 # classified and exact argument accounting; anything uncertain hides every
-# argument, exactly like the client does today.
+# argument, exactly like the client does today. `redact_wire`/`redact_line`
+# dispatch MODE (target/flags/args at 0/1/2:) from numeric 324
+# (recipient/target/flags/args at 0/1/2/3:); the 324 offsets stay correct
+# because the leading recipient param is accounted for.
 #
 # Integrator: thread one State per endpoint, reset it on endpoint change, feed
-# server lines through `feed` (source-gated), gate JoinPlan admission through
-# `join_admit`, and render MODE/324 arguments through `redact_*`. `apply_line`
+# server lines through `feed` (source- and recipient-gated), gate JoinPlan
+# admission through `join_admit`, route message audiences through
+# `chan_target_cl` (exact resident first, STATUSMSG fallback second), and
+# render MODE/324 arguments through `redact_wire`/`redact_line`. `apply_line`
 # is parse-only and trusts its caller; use `feed` for wire input.
+# Adopt `cm_eq`/`cm_fold` in Client/Buffer lookup, roster compare, draft
+# identity, and View completion so every identity uses the negotiated
+# CASEMAPPING; those shared modules are intentionally untouched here.
+# `join_admit` reuses `Channels.valid` for every non-head check by swapping an
+# advertised non-fixed head to `#` (one byte, same length); if `valid` ever
+# treats `#` specially, teach it the advertised set instead.
 #
 # Bend elaborates top-down here: every callee is defined before its caller,
 # and only self-recursion is used.
@@ -66,19 +82,71 @@ type RankPh is Data:
   RankStr{}
   RankHit{h: Char, is_sig: Bool}
 
+# Granular defaults: `-TOKEN` removal restores exactly one of these.
+def dflt_types() -> String:
+  "#&+!"
+
+def dflt_status() -> String:
+  "@+"
+
+def dflt_cm_a() -> String:
+  "b"
+
+def dflt_cm_b() -> String:
+  "k"
+
+def dflt_cm_c() -> String:
+  "l"
+
+def dflt_cm_d() -> String:
+  "imnpst"
+
+def dflt_mpl() -> U32:
+  3
+
+def dflt_maxlist() -> String:
+  ""
+
 def default_chans() -> Chans:
-  Chans{"#&+!", "@+", "b", "k", "l", "imnpst", 3, ""}
+  Chans{dflt_types(), dflt_status(), dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), dflt_mpl(), dflt_maxlist()}
+
+def dflt_modes() -> String:
+  "ov"
+
+def dflt_sigils() -> String:
+  "@+"
+
+def dflt_extra() -> String:
+  "~&%"
 
 def default_priv() -> Priv:
-  Priv{"ov", "@+", "~&%"}
+  Priv{dflt_modes(), dflt_sigils(), dflt_extra()}
 
 # RFC 2812 NICKLEN 9; the other lengths are common modern values and stay
 # unenforced until a 005 burst arrives.
+def dflt_nicklen() -> U32:
+  9
+
+def dflt_chanlen() -> U32:
+  50
+
+def dflt_topiclen() -> U32:
+  390
+
+def dflt_kicklen() -> U32:
+  390
+
 def default_limits() -> Limits:
-  Limits{9, 50, 390, 390}
+  Limits{dflt_nicklen(), dflt_chanlen(), dflt_topiclen(), dflt_kicklen()}
+
+def dflt_network() -> String:
+  ""
+
+def dflt_casemap() -> String:
+  "rfc1459"
 
 def defaults() -> State:
-  State{default_chans(), default_priv(), default_limits(), "", "rfc1459", False{}}
+  State{default_chans(), default_priv(), default_limits(), dflt_network(), dflt_casemap(), False{}}
 
 def HIDDEN() -> String:
   "[channel key hidden]"
@@ -193,7 +261,7 @@ def statusmsg.set(+types: String, +status: String, +a: String, +b: String, +c: S
 def chans_statusmsg(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
   match ch:
     case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml}:
-      statusmsg.set(types, status, a, b, c, d, mpl, ml, val, has_eq && chantypes_ok(val))
+      statusmsg.set(types, status, a, b, c, d, mpl, ml, val, has_eq && (String.is_empty(val) || chantypes_ok(val)))
 
 def chanmodes.classes(+a: String, +b: String, +c: String, +d: String) -> Bool:
   all_letters(a) && all_letters(b) && all_letters(c) && all_letters(d)
@@ -266,9 +334,17 @@ def parse_prefix.valid(+modes: String, +sigils: String, ok: Bool) -> Maybe<&2, P
     case True{}: Some{Prefix{modes, sigils}}
     case False{}: None{}
 
+# Duplicate modes or sigils would make sigil_for/mode_for non-inverse
+# (first match wins each way), so the whole PREFIX is rejected.
+def nodup.go(+s: String) -> Bool:
+  match s:
+    case SNil{}: True{}
+    case SCon{+h, +t}: Bool.not(has_char(t, h)) && nodup.go(t)
+
 def parse_prefix.done(+modes: String, +sigils: String) -> Maybe<&2, Prefix>:
   parse_prefix.valid(modes, sigils, Bool.not(String.is_empty(modes)) && Nat.is_le(String.length(modes), 8n)
-    && all_letters(modes) && all_symbols(sigils) && Nat.is_eq(String.length(modes), String.length(sigils)))
+    && all_letters(modes) && all_symbols(sigils) && Nat.is_eq(String.length(modes), String.length(sigils))
+    && nodup.go(modes) && nodup.go(sigils))
 
 def parse_prefix.go(+s: String, +acc: String) -> Maybe<&2, Prefix>:
   match s:
@@ -364,8 +440,14 @@ def casemap_ascii(+val: String, ascii: Bool) -> String:
     case True{}: "ascii"
     case False{}: casemap_strict(val, Irc.ieq(val, "rfc1459-strict"))
 
+# The legacy `strict-rfc1459` spelling names the same mapping; accept it.
+def casemap_legacy(+val: String, legacy: Bool) -> String:
+  match legacy:
+    case True{}: "rfc1459-strict"
+    case False{}: casemap_ascii(val, Irc.ieq(val, "ascii"))
+
 def casemap_value(+val: String) -> String:
-  casemap_ascii(val, Irc.ieq(val, "ascii"))
+  casemap_legacy(val, Irc.ieq(val, "strict-rfc1459"))
 
 def casemap.gated(+cm: String, +canon: String, ok: Bool) -> String:
   match ok:
@@ -378,7 +460,117 @@ def casemap.keep(+cm: String, +canon: String, +has_eq: Bool) -> String:
 def casemap.set(+cm: String, +val: String, +has_eq: Bool) -> String:
   casemap.keep(cm, casemap_value(val), has_eq)
 
+# ---- negotiated casemapping compare ---------------------------------------
+# ascii folds A-Z only; rfc1459-strict adds []\ <-> {|} but not ^~;
+# rfc1459 (the default) also folds ^ <-> ~ via Irc.rfc1459.
+
+def strict_code.rb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 125
+    case False{}: n
+
+def strict_code.bs(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 124
+    case False{}: strict_code.rb(n, U32.is_eq(n, 93))
+
+def strict_code.lb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 123
+    case False{}: strict_code.bs(n, U32.is_eq(n, 92))
+
+def strict_code(+n: U32) -> U32:
+  strict_code.lb(n, U32.is_eq(n, 91))
+
+def strict_char(+c: Char) -> Char:
+  match c:
+    case Chr{n}: Chr{strict_code(n)}
+
+def strict.go(+s: String) -> String:
+  match s:
+    case SNil{}: SNil{}
+    case SCon{+h, t}: SCon{strict_char(h), strict.go(t)}
+
+def strict_fold(+s: String) -> String:
+  strict.go(String.to_upper(s))
+
+def cm_fold.cm(+cm: String, +s: String) -> String:
+  match cm:
+    case "ascii": String.to_upper(s)
+    case "rfc1459-strict": strict_fold(s)
+    case _: Irc.rfc1459(s)
+
+def cm_fold(+st: State, +s: String) -> String:
+  match st:
+    case State{_, _, _, _, +cm, _}: cm_fold.cm(cm, s)
+
+def cm_eq(+st: State, +a: String, +b: String) -> Bool:
+  String.eq(cm_fold(st, a), cm_fold(st, b))
+
 # ---- token application ----------------------------------------------------
+
+# `-TOKEN` restores one field to its default. Unknown removals change nothing.
+def reset_chantypes(+ch: Chans) -> Chans:
+  match ch:
+    case Chans{_, +status, +a, +b, +c, +d, +mpl, +ml}:
+      Chans{dflt_types(), status, a, b, c, d, mpl, ml}
+
+def reset_statusmsg(+ch: Chans) -> Chans:
+  match ch:
+    case Chans{+types, _, +a, +b, +c, +d, +mpl, +ml}:
+      Chans{types, dflt_status(), a, b, c, d, mpl, ml}
+
+def reset_chanmodes(+ch: Chans) -> Chans:
+  match ch:
+    case Chans{+types, +status, _, _, _, _, +mpl, +ml}:
+      Chans{types, status, dflt_cm_a(), dflt_cm_b(), dflt_cm_c(), dflt_cm_d(), mpl, ml}
+
+def reset_mpl(+ch: Chans) -> Chans:
+  match ch:
+    case Chans{+types, +status, +a, +b, +c, +d, _, +ml}:
+      Chans{types, status, a, b, c, d, dflt_mpl(), ml}
+
+def reset_maxlist(+ch: Chans) -> Chans:
+  match ch:
+    case Chans{+types, +status, +a, +b, +c, +d, +mpl, _}:
+      Chans{types, status, a, b, c, d, mpl, dflt_maxlist()}
+
+def reset_nicklen(+lim: Limits) -> Limits:
+  match lim:
+    case Limits{_, +ch, +tp, +kk}: Limits{dflt_nicklen(), ch, tp, kk}
+
+def reset_chanlen(+lim: Limits) -> Limits:
+  match lim:
+    case Limits{+nick, _, +tp, +kk}: Limits{nick, dflt_chanlen(), tp, kk}
+
+def reset_topiclen(+lim: Limits) -> Limits:
+  match lim:
+    case Limits{+nick, +ch, _, +kk}: Limits{nick, ch, dflt_topiclen(), kk}
+
+def reset_kicklen(+lim: Limits) -> Limits:
+  match lim:
+    case Limits{+nick, +ch, +tp, _}: Limits{nick, ch, tp, dflt_kicklen()}
+
+def reset_parts(+upper: String, +ch: Chans, +pv: Priv, +lim: Limits, +net: String, +cm: String, +upd: Bool) -> State:
+  match upper:
+    case "CHANTYPES": State{reset_chantypes(ch), pv, lim, net, cm, upd}
+    case "PREFIX": State{ch, default_priv(), lim, net, cm, upd}
+    case "CHANMODES": State{reset_chanmodes(ch), pv, lim, net, cm, upd}
+    case "MODES": State{reset_mpl(ch), pv, lim, net, cm, upd}
+    case "NICKLEN": State{ch, pv, reset_nicklen(lim), net, cm, upd}
+    case "CHANNELLEN": State{ch, pv, reset_chanlen(lim), net, cm, upd}
+    case "TOPICLEN": State{ch, pv, reset_topiclen(lim), net, cm, upd}
+    case "KICKLEN": State{ch, pv, reset_kicklen(lim), net, cm, upd}
+    case "STATUSMSG": State{reset_statusmsg(ch), pv, lim, net, cm, upd}
+    case "NETWORK": State{ch, pv, lim, dflt_network(), cm, upd}
+    case "CASEMAPPING": State{ch, pv, lim, net, dflt_casemap(), upd}
+    case "MAXLIST": State{reset_maxlist(ch), pv, lim, net, cm, upd}
+    case _: State{ch, pv, lim, net, cm, upd}
+
+def reset_upper(+st: State, +upper: String) -> State:
+  match st:
+    case State{+ch, +pv, +lim, +net, +cm, +upd}:
+      reset_parts(upper, ch, pv, lim, net, cm, upd)
 
 def apply_parts(+upper: String, +val: String, +has_eq: Bool, +ch: Chans, +pv: Priv, +lim: Limits, +net: String, +cm: String, +upd: Bool) -> State:
   match upper:
@@ -401,8 +593,13 @@ def apply_upper(+st: State, +upper: String, +val: String, +has_eq: Bool) -> Stat
     case State{+ch, +pv, +lim, +net, +cm, +upd}:
       apply_parts(upper, val, has_eq, ch, pv, lim, net, cm, upd)
 
+def apply_key.neg(+st: State, +upper: String, +val: String, +has_eq: Bool, neg: Bool) -> State:
+  match neg:
+    case True{}: reset_upper(st, String.drop(upper, 1n))
+    case False{}: apply_upper(st, upper, val, has_eq)
+
 def apply_key(+st: State, +key: String, +val: String, +has_eq: Bool) -> State:
-  apply_upper(st, String.to_upper(key), val, has_eq)
+  apply_key.neg(st, String.to_upper(key), val, has_eq, String.starts_with(key, "-"))
 
 def apply_kv(+st: State, kv: KV) -> State:
   match kv:
@@ -450,17 +647,35 @@ def apply_parsed(+st: State, +parsed: Maybe<&2, Irc.Message>) -> State:
 def apply_line(+st: State, +line: String) -> State:
   apply_parsed(st, Irc.parse(line))
 
-# ---- feed adapter (source-gated) ------------------------------------------
+# ---- feed adapter (source- and recipient-gated) ---------------------------
 
-def feed.gated(+st: State, +cl: Cl.Client, +line: String, ok: Bool) -> State & Cl.Client:
+# A 005 burst is addressed to one nick in its first param. A burst for
+# another nick (misdirected or forged) must not alter our policy; compare
+# with the negotiated casemapping. Non-005 lines are unaffected: apply_msg
+# ignores them either way.
+def recipient_ok.msg(+st: State, +me: String, +m: Irc.Message, is005: Bool) -> Bool:
+  match is005:
+    case False{}: True{}
+    case True{}: cm_eq(st, Irc.msg_param(m, 0n), me)
+
+def recipient_ok(+st: State, +me: String, +m: Irc.Message) -> Bool:
+  recipient_ok.msg(st, me, m, is_005(m))
+
+def feed.gated(+st: State, +cl: Cl.Client, +line: String, +m: Irc.Message, ok: Bool) -> State & Cl.Client:
   match ok:
-    case True{}: (apply_line(st, line), Feed.feed(cl, line))
+    case True{}: (apply_msg(st, m), Feed.feed(cl, line))
     case False{}: (st, Feed.feed(cl, line))
 
-# Only the configured connection server may set metadata. A peer-prefixed
-# 005 still logs to the server buffer exactly as today, but changes no state.
+def feed_parsed(+st: State, +cl: Cl.Client, +line: String, +parsed: Maybe<&2, Irc.Message>, source_ok: Bool) -> State & Cl.Client:
+  match parsed:
+    case None{}: (st, Feed.feed(cl, line))
+    case Some{+m}: feed.gated(st, cl, line, m, source_ok && recipient_ok(st, Cl.nick_of(cl), m))
+
+# Only the configured connection server may set metadata, and only through
+# a burst addressed to our own nick. Anything else still logs to the server
+# buffer exactly as today, but changes no state (not even `updated`).
 def feed(+st: State, +cl: Cl.Client, +line: String) -> State & Cl.Client:
-  feed.gated(st, cl, line, Irc.source_is_server(Irc.source_prefix(line), Cl.server_of(cl)))
+  feed_parsed(st, cl, line, Irc.parse(line), Irc.source_is_server(Irc.source_prefix(line), Cl.server_of(cl)))
 
 def feed_state.pair(pair: State & Cl.Client) -> State:
   match pair:
@@ -525,6 +740,17 @@ def chan_target(+st: State, +s: String) -> String:
   match st:
     case State{+ch, _, _, _, _, _}: chan_target.ch(ch, s)
 
+# Resident-first audience routing (mirrors Cl.message_key): a `+` channel may
+# itself be named `+#room`, so an exact resident buffer keeps its full name
+# and only a non-resident audience falls back to STATUSMSG stripping.
+def chan_target_cl.found(+st: State, +s: String, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case Some{_}: s
+    case None{}: chan_target(st, s)
+
+def chan_target_cl(+st: State, +cl: Cl.Client, +s: String) -> String:
+  chan_target_cl.found(st, s, Cl.buf_find(cl, s))
+
 # ---- nick privileges ------------------------------------------------------
 
 def priv_sigils(+pv: Priv) -> String:
@@ -536,6 +762,8 @@ def strip_set(+st: State) -> String:
     case State{_, +pv, _, _, _, _}: priv_sigils(pv)
 
 # Two fuel steps per character: read the head, then act on the membership test.
+# Only the leading sigil run is stripped; the first plain character keeps the
+# whole untouched tail, so interior sigils (`a^b`) survive.
 def strip.go(fuel: Nat, ph: StripPh, +sig: String, s: String) -> String:
   match fuel:
     case 0n: ""
@@ -548,7 +776,7 @@ def strip.go(fuel: Nat, ph: StripPh, +sig: String, s: String) -> String:
         case StripHit{h, is_sig}:
           match is_sig:
             case True{}: strip.go(p, StripStr{}, sig, s)
-            case False{}: SCon{h, strip.go(p, StripStr{}, sig, s)}
+            case False{}: SCon{h, s}
 
 def strip_go(+sig: String, +s: String) -> String:
   strip.go(Nat.add(1n, Nat.mul(2n, String.length(s))), StripStr{}, sig, s)
@@ -783,6 +1011,37 @@ def redact_params(+st: State, +target: String, +flags: String, +args: List<&2, S
 def redact_msg(+st: State, +m: Irc.Message) -> List<&2, String>:
   redact_params(st, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), List.drop(&2, String, Irc.msg_params(m), 2n))
 
+def is_324(+m: Irc.Message) -> Bool:
+  U32.is_eq(Irc.msg_num(m), 324)
+
+# Numeric 324 carries a leading recipient param (`324 me #c +k secret`), so
+# its target/flags/args sit one slot later than a MODE command's.
+def redact_324(+st: State, +m: Irc.Message) -> List<&2, String>:
+  redact_params(st, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n), List.drop(&2, String, Irc.msg_params(m), 3n))
+
+def redact_wire.num(+st: State, +m: Irc.Message, is324: Bool) -> List<&2, String>:
+  match is324:
+    case True{}: redact_324(st, m)
+    case False{}: Irc.msg_params(m)
+
+def redact_wire.mode(+st: State, +m: Irc.Message, mode: Bool) -> List<&2, String>:
+  match mode:
+    case True{}: redact_msg(st, m)
+    case False{}: redact_wire.num(st, m, is_324(m))
+
+# Wire entry: MODE and 324 return the redacted argument tail; any other
+# message returns its params unchanged (nothing mode-shaped to redact).
+def redact_wire(+st: State, +m: Irc.Message) -> List<&2, String>:
+  redact_wire.mode(st, m, String.eq(Irc.msg_command(m), "MODE"))
+
+def redact_line.parsed(+st: State, +parsed: Maybe<&2, Irc.Message>) -> List<&2, String>:
+  match parsed:
+    case None{}: Nil{}
+    case Some{+m}: redact_wire(st, m)
+
+def redact_line(+st: State, +line: String) -> List<&2, String>:
+  redact_line.parsed(st, Irc.parse(line))
+
 # ---- join admission adapter -----------------------------------------------
 
 def first_in_types(+types: String, +name: String) -> Bool:
@@ -807,13 +1066,42 @@ def join_len(+st: State, +name: String) -> Bool:
   match st:
     case State{+ch, _, +lim, _, _, +upd}: join_len.lim(ch, lim, name, upd)
 
+# A server may advertise channel types outside the fixed `#&+!` set (for
+# example `CHANTYPES=$`). The base check rejects those heads, so retry with
+# the advertised head swapped to `#`: one ASCII byte either way, which keeps
+# every other base rule (length, commas, word bounds, wire envelope) intact.
+def join_swap.check(+st: State, +name: String, +key: String, +t: String, adv: Bool) -> Bool:
+  match adv:
+    case False{}: False{}
+    case True{}: Channels.valid("#" ++ t, key) && join_len(st, name)
+
+def join_swap.head(+st: State, +name: String, +key: String, +types: String) -> Bool:
+  match name:
+    case SNil{}: False{}
+    case SCon{+h, +t}: join_swap.check(st, name, key, t, has_char(types, h))
+
+def join_swap.types(+st: State, +ch: Chans, +name: String, +key: String) -> Bool:
+  match ch:
+    case Chans{+types, _, _, _, _, _, _, _}: join_swap.head(st, name, key, types)
+
+def join_swap.upd(+st: State, +ch: Chans, +name: String, +key: String, upd: Bool) -> Bool:
+  match upd:
+    case False{}: False{}
+    case True{}: join_swap.types(st, ch, name, key)
+
+def join_swap(+st: State, +name: String, +key: String) -> Bool:
+  match st:
+    case State{+ch, _, _, _, _, +upd}: join_swap.upd(st, ch, name, key, upd)
+
 def join_admit.base(+st: State, +name: String, +key: String, base: Bool) -> Bool:
   match base:
-    case False{}: False{}
+    case False{}: join_swap(st, name, key)
     case True{}: join_len(st, name)
 
-# Base channel policy always applies. Server bounds (types, CHANNELLEN) add
-# on only after a 005 burst, so an absent burst changes nothing.
+# Base channel policy applies first; server bounds (types, CHANNELLEN) add
+# on only after a 005 burst, so an absent burst changes nothing. A base
+# rejection retries through the advertised-type swap above, so `is_channel`
+# and `join_admit` agree on every advertised type.
 def join_admit(+st: State, +name: String, +key: String) -> Bool:
   join_admit.base(st, name, key, Channels.valid(name, key))
 

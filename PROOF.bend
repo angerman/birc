@@ -1392,3 +1392,30 @@ def Laws.isupport_join_admit_unupdated():
 
 def Laws.isupport_join_admit_server_bound():
   {==}
+
+def Laws.isupport_neg_token_resets_default():
+  {==}
+
+def Laws.isupport_empty_statusmsg_clears():
+  {==}
+
+def Laws.isupport_wrong_recipient_ignored():
+  {==}
+
+def Laws.isupport_strip_keeps_interior_sigils():
+  {==}
+
+def Laws.isupport_advertised_chantypes_join():
+  {==}
+
+def Laws.isupport_duplicate_prefix_rejected():
+  {==}
+
+def Laws.isupport_chan_target_prefers_resident():
+  {==}
+
+def Laws.isupport_casemapping_ascii_strict():
+  {==}
+
+def Laws.isupport_324_redacts_key():
+  {==}

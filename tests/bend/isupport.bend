@@ -135,6 +135,61 @@ def modes() -> IO(Unit):
     Unit <- E.must_eq("removed key keeps its index", idx(Is.key_index(Is.defaults(), "-k", ["s3cret"])), "0")
     IO.pure(Unit, Unit{})
 
+def caret() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(o)^ :are supported")
+
+def dollar() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=$ :are supported")
+
+def cleared_status_show() -> String:
+  "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true"
+
+def repairs() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must_eq("-NICKLEN resets the previous burst value", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -NICKLEN :x")), default_updated_show())
+    Unit <- E.must_eq("-PREFIX restores modes, sigils, and extras", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(q)~ :x"), ":s 005 me -PREFIX :x")), default_updated_show())
+    Unit <- E.must_eq("-STATUSMSG restores the default audience", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG=@ :x"), ":s 005 me -STATUSMSG :x")), default_updated_show())
+    Unit <- E.must_eq("-CHANMODES restores the default classes", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me CHANMODES=eIbq,k,flj,CFLMPQScgimnprstz :x"), ":s 005 me -CHANMODES :x")), default_updated_show())
+    Unit <- E.must_eq("-CASEMAPPING restores rfc1459", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=ascii :x"), ":s 005 me -CASEMAPPING :x")), default_updated_show())
+    Unit <- E.must_eq("-UNKNOWN is ignored", Is.show(Is.apply_line(burst(), ":s 005 me -FOO :x")), Is.show(Is.apply_line(burst(), ":s 005 me :x")))
+    Unit <- E.must_eq("lowercase removal is accepted", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me NICKLEN=31 :x"), ":s 005 me -nicklen :x")), default_updated_show())
+    Unit <- E.must_eq("empty STATUSMSG= clears the audience", Is.show(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG= :are supported")), cleared_status_show())
+    Unit <- E.must_eq("empty STATUSMSG= clears a burst value", Is.show(Is.apply_line(burst(), ":s 005 me STATUSMSG= :are supported")),
+      "isupport chantypes=# status= chanmodes=eIbq,k,flj,CFLMPQScgimnprstz modes=4 prefix=(qaohv)~&@%+ extra= nicklen=16 channellen=64 topiclen=300 kicklen=300 network=ExampleNet casemapping=ascii maxlist=b:60,e:60,I:60 updated=true")
+    Unit <- E.must("cleared STATUSMSG admits no audience", Bool.not(Is.is_channel(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG= :x"), "@#birc")))
+    Unit <- E.must_eq("bare STATUSMSG keeps the previous audience", Is.show(Is.apply_line(Is.defaults(), ":s 005 me STATUSMSG :are supported")), default_updated_show())
+    Unit <- E.must_eq("duplicate prefix modes are rejected", Is.show(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(oo)@+ :are supported")), default_updated_show())
+    Unit <- E.must_eq("duplicate prefix sigils are rejected", Is.show(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(ov)@@ :are supported")), default_updated_show())
+    Unit <- E.must_eq("duplicate prefix keeps the previous valid setting", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(q)~ :x"), ":s 005 me PREFIX=(oo)@+ :x")),
+      "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(q)~ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true")
+    Unit <- E.must_eq("unique (ov)@+ is accepted", Is.show(Is.apply_line(Is.apply_line(Is.defaults(), ":s 005 me PREFIX=(q)~ :x"), ":s 005 me PREFIX=(ov)@+ :x")),
+      "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true")
+    Unit <- E.must_eq("strip keeps an interior sigil", Is.strip(caret(), "a^b"), "a^b")
+    Unit <- E.must_eq("strip keeps trailing sigils", Is.strip(caret(), "a^^"), "a^^")
+    Unit <- E.must_eq("strip stops at the first plain char", Is.strip(caret(), "^a^b"), "a^b")
+    Unit <- E.must_eq("strip removes only the leading run", Is.strip(caret(), "^^a"), "a")
+    Unit <- E.must_eq("strip keeps a sigil-only tail word", Is.strip(Is.defaults(), "@a+b"), "a+b")
+    Unit <- E.must("trailing sigils grant no mode", Bool.not(Is.has_mode(caret(), "a^^", ch("o"))))
+    Unit <- E.must("leading sigil grants its mode", Is.has_mode(caret(), "^alice", ch("o")))
+    Unit <- E.must("advertised $room is a channel", Is.is_channel(dollar(), "$room"))
+    Unit <- E.must("advertised $room joins", Is.join_admit(dollar(), "$room", ""))
+    Unit <- E.must("advertised $room joins with a key", Is.join_admit(dollar(), "$room", "s3cret"))
+    Unit <- E.must("unadvertised #room is not a channel", Bool.not(Is.is_channel(dollar(), "#room")))
+    Unit <- E.must("unadvertised #room does not join", Bool.not(Is.join_admit(dollar(), "#room", "")))
+    Unit <- E.must("unupdated $room does not join", Bool.not(Is.join_admit(Is.defaults(), "$room", "")))
+    Unit <- E.must("advertised $ rejects comma names", Bool.not(Is.join_admit(dollar(), "$a,$b", "")))
+    Unit <- E.must("advertised $ rejects bare type", Bool.not(Is.join_admit(dollar(), "$", "")))
+    Unit <- E.must("default folds [ with {", Is.cm_eq(Is.defaults(), "a[b", "a{b"))
+    Unit <- E.must("default folds ^ with ~", Is.cm_eq(Is.defaults(), "^", "~"))
+    Unit <- E.must("default folds case", Is.cm_eq(Is.defaults(), "Alice", "alice"))
+    Unit <- E.must("ascii folds case", Is.cm_eq(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=ascii :x"), "Alice", "alice"))
+    Unit <- E.must("ascii keeps [ distinct from {", Bool.not(Is.cm_eq(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=ascii :x"), "a[b", "a{b")))
+    Unit <- E.must("strict folds [ with {", Is.cm_eq(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=rfc1459-strict :x"), "a[b", "a{b"))
+    Unit <- E.must("strict keeps ^ distinct from ~", Bool.not(Is.cm_eq(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=rfc1459-strict :x"), "^", "~")))
+    Unit <- E.must_eq("legacy strict alias is accepted", Is.show(Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=strict-rfc1459 :x")),
+      "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459-strict maxlist= updated=true")
+    IO.pure(Unit, Unit{})
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- goldens()
@@ -142,4 +197,5 @@ def main() -> IO(Unit):
     Unit <- channels()
     Unit <- privileges()
     Unit <- modes()
+    Unit <- repairs()
     IO.print("isupport=ok")
