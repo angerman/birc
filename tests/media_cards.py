@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic-only card fetch and parse controls; never contact a page host."""
+import fcntl
 import importlib.util
 import io
 import os
@@ -9,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -300,6 +302,64 @@ finally:
     os.environ.clear()
     os.environ.update(saved)
 
+# C8e: the envelope writes UTF-8, so cache_split must read UTF-8. Valid
+# Unicode redirect path/host hits resolve against the final base, exactly
+# like the first fetch; the ASCII positive above keeps passing unchanged.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    first_url = "https://example.test/dir/page"
+    moved = ("<html><head><meta property=\"og:title\" content=\"Moved\">"
+             "<meta property=\"og:image\" content=\"thumb.png\"></head></html>").encode("utf-8")
+    responses[:] = [Response(302, headers={"Location": "/caf\u00e9/final"}),
+                    Response(data=moved)]
+    before = len(connections)
+    first = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert first == ("Moved", "", "https://example.test/caf\u00e9/thumb.png"), first
+    assert len(connections) == before + 2
+    before = len(connections)
+    second = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert len(connections) == before
+    assert second == first, (second, first)
+    assert second[2] == "https://example.test/caf\u00e9/thumb.png", second
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    first_url = "https://example.test/start"
+    moved = ("<html><head><meta property=\"og:title\" content=\"Host\">"
+             "<meta property=\"og:image\" content=\"/pic.png\"></head></html>").encode("utf-8")
+    responses[:] = [Response(302, headers={"Location": "https://m\u00fcnchen.test/final"}),
+                    Response(data=moved)]
+    before = len(connections)
+    first = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert first == ("Host", "", "https://m\u00fcnchen.test/pic.png"), first
+    assert len(connections) == before + 2
+    before = len(connections)
+    second = cards.encode_remote(first_url, time.monotonic() + 2, public, Connection)
+    assert len(connections) == before
+    assert second == first, (second, first)
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8e: envelope unit guards — valid bases round-trip exactly, while legacy
+# and hostile first lines stay raw HTML.
+assert cards.cache_split(b"https://example.test/f\n<body>") == (b"<body>", "https://example.test/f")
+assert cards.cache_split("https://example.test/caf\u00e9/f\n<body>".encode("utf-8")) == (
+    b"<body>", "https://example.test/caf\u00e9/f")
+extreme = "https://example.test/" + "\U0001d11e" * (4096 - len("https://example.test/"))
+assert len(extreme) == 4096
+assert cards.cache_split(extreme.encode("utf-8") + b"\n<body>") == (b"<body>", extreme)
+assert cards.cache_split(b"no-newline-here") == (b"no-newline-here", None)
+assert cards.cache_split(b"http://example.test/f\n<body>") == (
+    b"http://example.test/f\n<body>", None)
+assert cards.cache_split(b"\xff\xfe\n<body>") == (b"\xff\xfe\n<body>", None)
+assert cards.cache_split(b"Just some text\n<html>") == (b"Just some text\n<html>", None)
+assert cards.cache_split(b"https://example.test/" + b"q" * 20000 + b"\n<body>")[1] is None
+
 # C8.4: images and cards share one explicit bounded media budget. The cards
 # writer counts both pools, evicts only its own oldest entries, and skips a
 # write (without evicting) when image payloads alone fill the budget.
@@ -314,6 +374,9 @@ try:
             image.cache_write("https://example.test/img%d" % index, b"01234567")
         parent = root / "img"
         assert len([p for p in parent.iterdir() if p.name.endswith(".img")]) == 3
+        for index in range(3):
+            os.utime(parent / image.cache_name("https://example.test/img%d" % index),
+                     ns=(index + 1, index + 1))
         for index in range(2):
             responses[:] = [Response(data=page)]
             assert cards.encode_remote("https://example.test/c%d" % index,
@@ -326,8 +389,210 @@ try:
         responses[:] = [Response(data=page)]
         assert cards.encode_remote("https://example.test/c9",
                                    time.monotonic() + 2, public, Connection) == ("T", "", "")
+        # C8d: the shared budget covers both writer orders. The fourth image
+        # evicts the oldest image (never the card), so the combined total is
+        # 4, not the 5 entries image-only accounting produced; the new card
+        # then replaces the oldest card within the same budget.
+        images = sorted(p.name for p in parent.iterdir() if p.name.endswith(".img"))
+        assert images == sorted(image.cache_name("https://example.test/img%d" % i)
+                                for i in (1, 2, 3)), images
         assert sorted(p.name for p in cards_dir.iterdir()
-                      if p.name.endswith(".card")) == card_names
+                      if p.name.endswith(".card")) == [
+                          cards.cache_name("https://example.test/c9")]
+        combined = len(images) + len([p for p in cards_dir.iterdir()
+                                      if p.name.endswith(".card")])
+        assert combined == 4, combined
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8.4 (kept): when image payloads alone fill the shared budget, the cards
+# writer skips without writing or evicting; the fetch itself still succeeds
+# because the cache is best-effort.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 4, 10 * 1024 * 1024
+        for index in range(4):
+            image.cache_write("https://example.test/full%d" % index, b"01234567")
+        parent = root / "img"
+        before = sorted(p.name for p in parent.iterdir() if p.name.endswith(".img"))
+        assert len(before) == 4, before
+        responses[:] = [Response(data=page)]
+        assert cards.encode_remote("https://example.test/skipped",
+                                   time.monotonic() + 2, public, Connection) == ("T", "", "")
+        assert sorted(p.name for p in parent.iterdir()
+                      if p.name.endswith(".img")) == before
+        cards_dir = parent / "cards"
+        assert not cards_dir.is_dir() or not [
+            p for p in cards_dir.iterdir() if p.name.endswith(".card")]
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8d: sequential cards->image writes stay within the shared count budget; a
+# full cards pool makes image writes skip without evicting cards, and a
+# fitting image still lands.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 4, 10 * 1024 * 1024
+        for index in range(4):
+            responses[:] = [Response(data=page)]
+            cards.encode_remote("https://example.test/k%d" % index,
+                                time.monotonic() + 2, public, Connection)
+        parent = root / "img"
+        before = sorted(p.name for p in (parent / "cards").iterdir()
+                        if p.name.endswith(".card"))
+        assert len(before) == 4, before
+        image.cache_write("https://example.test/late", b"01234567")
+        assert not (parent / image.cache_name("https://example.test/late")).exists()
+        assert sorted(p.name for p in (parent / "cards").iterdir()
+                      if p.name.endswith(".card")) == before
+        image.MAX_CACHE_ENTRIES = 8
+        image.cache_write("https://example.test/fits", b"01234567")
+        assert (parent / image.cache_name("https://example.test/fits")).exists()
+        total = len([p for p in parent.iterdir() if p.name.endswith(".img")]) + len(
+            [p for p in (parent / "cards").iterdir() if p.name.endswith(".card")])
+        assert total == 5, total
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8d: the shared byte budget also covers both writers. The image writer
+# evicts its own oldest payload to fit, never a card.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 64, 400
+        cards.cache_write("https://example.test/b0", b"x" * 100,
+                          "https://example.test/b0")
+        cards.cache_write("https://example.test/b1", b"y" * 100,
+                          "https://example.test/b1")
+        parent = root / "img"
+        used = sum(p.stat().st_size for p in (parent / "cards").iterdir()
+                   if p.name.endswith(".card"))
+        assert used == 2 * (len("https://example.test/b0") + 1 + 100), used
+        image.cache_write("https://example.test/a", b"a" * 100)
+        first = parent / image.cache_name("https://example.test/a")
+        assert first.exists()
+        os.utime(first, ns=(1, 1))
+        image.cache_write("https://example.test/b", b"b" * 100)
+        assert not first.exists(), "image writer must evict its own oldest bytes"
+        assert (parent / image.cache_name("https://example.test/b")).exists()
+        total = sum(p.stat().st_size for p in parent.iterdir()
+                    if p.name.endswith(".img")) + sum(
+                        p.stat().st_size for p in (parent / "cards").iterdir()
+                        if p.name.endswith(".card"))
+        assert total <= 400, total
+        assert len([p for p in (parent / "cards").iterdir()
+                    if p.name.endswith(".card")]) == 2
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8d: interleaved image/card writes keep every intermediate combined total
+# within the shared budget.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 4, 10 * 1024 * 1024
+        parent = root / "img"
+        for index in range(6):
+            responses[:] = [Response(data=page)]
+            cards.encode_remote("https://example.test/w%d" % index,
+                                time.monotonic() + 2, public, Connection)
+            image.cache_write("https://example.test/v%d" % index, b"01234567")
+            total = len([p for p in parent.iterdir() if p.name.endswith(".img")])
+            cards_dir = parent / "cards"
+            if cards_dir.is_dir():
+                total += len([p for p in cards_dir.iterdir()
+                              if p.name.endswith(".card")])
+            assert total <= 4, (index, total)
+    finally:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8d: one shared lock. While the parent cache lock is held, both the image
+# and the card writers skip without writing or evicting; the fetch itself
+# still succeeds because the cache is best-effort.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    image.cache_write("https://example.test/kept", b"01234567")
+    parent = root / "img"
+    assert (parent / image.cache_name("https://example.test/kept")).exists()
+    responses[:] = [Response(data=page)]
+    cards.encode_remote("https://example.test/kept-card",
+                        time.monotonic() + 2, public, Connection)
+    cards_dir = parent / "cards"
+    before = sorted(p.name for p in cards_dir.iterdir() if p.name.endswith(".card"))
+    assert len(before) == 1, before
+    with (parent / ".lock").open("r+b") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        image.cache_write("https://example.test/blocked-img", b"01234567")
+        responses[:] = [Response(data=page)]
+        assert cards.encode_remote("https://example.test/blocked-card",
+                                   time.monotonic() + 2, public, Connection) == ("T", "", "")
+        assert not (parent / image.cache_name("https://example.test/blocked-img")).exists()
+        assert sorted(p.name for p in cards_dir.iterdir()
+                      if p.name.endswith(".card")) == before
+        assert (parent / image.cache_name("https://example.test/kept")).exists()
+finally:
+    os.environ.clear()
+    os.environ.update(saved)
+
+# C8d: concurrent image and card writers stay within the shared budget; the
+# one lock serializes accounting so racing totals cannot exceed it.
+saved = dict(os.environ)
+try:
+    root = isolated_cache(os.environ)
+    saved_entries, saved_bytes = image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES
+    try:
+        image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = 8, 10 * 1024 * 1024
+        errors = []
+
+        def hammer(worker):
+            try:
+                for index in range(8):
+                    image.cache_write("https://example.test/t%d-i%d" % (worker, index),
+                                      b"01234567")
+                    blob = "https://example.test/t%d-c%d" % (worker, index)
+                    cards.cache_write(blob, b"<html></html>", blob)
+            except Exception as error:  # Writers are best-effort; threads report.
+                errors.append(error)
+
+        threads = [threading.Thread(target=hammer, args=(worker,)) for worker in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+            assert not thread.is_alive()
+        assert not errors, errors
+        parent = root / "img"
+        total = len([p for p in parent.iterdir() if p.name.endswith(".img")])
+        cards_dir = parent / "cards"
+        if cards_dir.is_dir():
+            total += len([p for p in cards_dir.iterdir() if p.name.endswith(".card")])
+        assert total <= 8, total
     finally:
         image.MAX_CACHE_ENTRIES, image.MAX_CACHE_BYTES = saved_entries, saved_bytes
 finally:

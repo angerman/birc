@@ -10,8 +10,9 @@ contacted, including after redirects. HTTPS is verified with the standard
 library against the original host name.
 Card HTML uses a private subdirectory of the image cache; local previews
 never enter the disk cache. Images and cards share one explicit bounded
-media budget (image.MAX_CACHE_ENTRIES / image.MAX_CACHE_BYTES): this writer
-counts both pools and evicts only its own oldest entries.
+media budget (image.MAX_CACHE_ENTRIES / image.MAX_CACHE_BYTES) under one
+lock (the parent cache .lock): this writer counts both pools and evicts
+only its own oldest entries.
 """
 
 import html
@@ -37,6 +38,9 @@ MAX_DESC = 256
 MAX_IMAGE = 1024
 MAX_META_TAGS = 200
 MAX_TAG_BYTES = 2048
+# The envelope head is the UTF-8 final base: at most 4096 characters (the
+# shared URL limit), which can expand to four bytes per character on disk.
+MAX_BASE_BYTES = 4 * 4096
 # No independent cards budget: the shared media budget lives in image.py
 # (MAX_CACHE_ENTRIES / MAX_CACHE_BYTES) and covers images plus cards.
 MAX_CACHE_SCAN = 256
@@ -165,12 +169,16 @@ def cache_name(url):
 
 
 def cache_split(data):
-    """New entries store the final base on the first line; legacy entries are raw HTML."""
+    """New entries store the final base on the first line; legacy entries are raw HTML.
+
+    The envelope writes UTF-8, so the split reads UTF-8: a valid Unicode
+    redirect base resolves hits exactly like the first fetch.
+    """
     head, separator, rest = data.partition(b"\n")
-    if not separator or len(head) > 4096:
+    if not separator or len(head) > MAX_BASE_BYTES:
         return data, None
     try:
-        text = head.decode("ascii")
+        text = head.decode("utf-8")
         url_parts(text)
     except (UnicodeDecodeError, image.ImageError, CardError):
         return data, None
@@ -188,7 +196,7 @@ def cache_read(url):
                      dir_fd=directory)
         info = os.fstat(fd)
         image.cache_owned(info)
-        if not 0 < info.st_size <= MAX_HTML + 4097:
+        if not 0 < info.st_size <= MAX_HTML + MAX_BASE_BYTES + 1:
             return None
         os.fchmod(fd, 0o600)
         info = os.fstat(fd)
@@ -216,7 +224,11 @@ def cache_read(url):
 
 
 def image_usage(parent):
-    """Bounded (count, bytes) of image payloads in the shared parent cache."""
+    """Bounded (count, bytes) of image payloads in the shared parent cache.
+
+    Orphaned staging files count exactly like image.py's own scan: no live
+    writer owns one while the shared lock is held.
+    """
     count = total = 0
     try:
         with os.scandir(parent) as scan:
@@ -224,8 +236,12 @@ def image_usage(parent):
                 if index >= image.MAX_CACHE_SCAN:
                     return None
                 name = entry.name
-                if not (len(name) == 68 and name.endswith(".img")
-                        and all(c in "0123456789abcdef" for c in name[:64])):
+                payload = (len(name) == 68 and name.endswith(".img")
+                           and all(c in "0123456789abcdef" for c in name[:64]))
+                staging = (len(name) == 35 and name.startswith(".write-")
+                           and name.endswith(".tmp")
+                           and all(c in "0123456789abcdef" for c in name[7:-4]))
+                if not payload and not staging:
                     continue
                 try:
                     info = entry.stat(follow_symlinks=False)
@@ -244,8 +260,10 @@ def cache_write(url, data, final=None):
 
     The stored entry preserves the final fetch base so cache hits resolve
     relative thumbnails exactly like the first fetch. Images and cards share
-    one explicit budget: this writer counts both pools, evicts only its own
-    oldest entries, and skips the write when image payloads alone fill it.
+    one explicit budget (image.MAX_CACHE_ENTRIES / image.MAX_CACHE_BYTES)
+    under one lock (the parent cache .lock): this writer counts both pools,
+    evicts only its own oldest entries, and skips the write when image
+    payloads alone fill it.
     """
     import fcntl
     import secrets
@@ -260,23 +278,22 @@ def cache_write(url, data, final=None):
             or image.MAX_CACHE_ENTRIES < 1):
         return
     directory = cache_directory(create=True)
-    lock = temporary_fd = None
+    parent = lock = temporary_fd = None
     temporary = None
     if directory is None:
         return
     try:
-        lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
-                       | os.O_CLOEXEC, 0o600, dir_fd=directory)
-        image.cache_owned(os.fstat(lock))
-        os.fchmod(lock, 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # One shared lock: the parent cache .lock serializes image and card
+        # writers, so concurrent totals cannot exceed the shared budget.
         parent = image.cache_directory()
         if parent is None:
             return
-        try:
-            usage = image_usage(parent)
-        finally:
-            os.close(parent)
+        lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+                       | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        image.cache_owned(os.fstat(lock))
+        os.fchmod(lock, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        usage = image_usage(parent)
         if usage is None:
             return
         img_count, img_bytes = usage
@@ -345,7 +362,7 @@ def cache_write(url, data, final=None):
                 os.unlink(temporary, dir_fd=directory)
             except OSError:
                 pass
-        for fd in (temporary_fd, lock, directory):
+        for fd in (temporary_fd, lock, parent, directory):
             if fd is not None:
                 try:
                     os.close(fd)

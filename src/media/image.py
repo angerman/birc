@@ -147,6 +147,55 @@ def cache_name(url):
     return hashlib.sha256(url.encode("utf-8")).hexdigest() + ".img"
 
 
+def cards_usage(directory):
+    """Bounded (count, bytes) of card payloads in the private subdirectory.
+
+    Images and cards share one explicit budget under this directory's lock.
+    A missing subdirectory means no cards yet; any scan failure returns None
+    so the writer skips instead of exceeding the shared budget.
+    """
+    subdir = None
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        try:
+            subdir = os.open("cards", flags, dir_fd=directory)
+        except FileNotFoundError:
+            return 0, 0
+        info = os.fstat(subdir)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077):
+            return None
+        count = total = 0
+        with os.scandir(subdir) as scan:
+            for index, entry in enumerate(scan):
+                if index >= MAX_CACHE_SCAN:
+                    return None
+                name = entry.name
+                page = (len(name) == 69 and name.endswith(".card")
+                        and all(c in "0123456789abcdef" for c in name[:64]))
+                staging = (len(name) == 35 and name.startswith(".write-")
+                           and name.endswith(".tmp")
+                           and all(c in "0123456789abcdef" for c in name[7:-4]))
+                if not page and not staging:
+                    continue
+                try:
+                    entry_info = entry.stat(follow_symlinks=False)
+                    cache_owned(entry_info)
+                except OSError:
+                    return None
+                count += 1
+                total += entry_info.st_size
+        return count, total
+    except OSError:
+        return None
+    finally:
+        if subdir is not None:
+            try:
+                os.close(subdir)
+            except OSError:
+                pass
+
+
 def cache_read(url):
     directory = cache_directory()
     fd = None
@@ -189,6 +238,9 @@ def cache_write(url, data):
     Steady cache files use at most 64 MiB; atomic replacement can temporarily
     retain the old target plus one additional staging file of at most 8 MiB.
     Orphaned staging files count toward the next writer's eviction budget.
+    Images and cards share one explicit budget under this directory's lock:
+    this writer counts both pools, evicts only its own oldest entries, and
+    skips the write when cards alone fill it.
     """
     if not 0 < len(data) <= min(MAX_DOWNLOAD, MAX_CACHE_BYTES) or MAX_CACHE_ENTRIES < 1:
         return
@@ -203,6 +255,13 @@ def cache_write(url, data):
         cache_owned(os.fstat(lock))
         os.fchmod(lock, 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        other = cards_usage(directory)
+        if other is None:
+            raise OSError("shared media budget unreadable")
+        other_count, other_bytes = other
+        if (other_count + 1 > MAX_CACHE_ENTRIES
+                or other_bytes + len(data) > MAX_CACHE_BYTES):
+            return  # Cards alone fill the shared budget: skip without evicting.
         target = cache_name(url)
         try:
             previous = os.stat(target, dir_fd=directory, follow_symlinks=False)
@@ -230,7 +289,8 @@ def cache_write(url, data):
         # while this lock is held. Include it in accounting/eviction too.
         entries.sort(key=lambda item: (item[0], item[1]))
         total = sum(item[2].st_size for item in entries)
-        while entries and (len(entries) + 1 > MAX_CACHE_ENTRIES or total + len(data) > MAX_CACHE_BYTES):
+        while entries and (other_count + len(entries) + 1 > MAX_CACHE_ENTRIES
+                           or other_bytes + total + len(data) > MAX_CACHE_BYTES):
             _, name, info = entries.pop(0)
             if cache_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) != cache_identity(info):
                 raise OSError("image cache changed")
