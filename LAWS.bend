@@ -42,6 +42,7 @@ import ./src/bend/links.bend as Links
 import ./src/bend/emoji.bend as Emoji
 import ./src/bend/theme.bend as Theme
 import ./src/bend/notify.bend as Notify
+import ./src/bend/isupport.bend as Isupport
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -1105,3 +1106,41 @@ law emoji_birc2_load_keeps_source:
 
 law emoji_production_renders_glyph:
   {V.spans_text(V.line_spans_for(Cl.Msg{}, ":smile:")) == "😄" : String}
+
+# ISUPPORT defaults reproduce the fixed client behavior exactly.
+law isupport_defaults_golden:
+  {Isupport.show(Isupport.defaults()) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=false" : String}
+
+# Malformed token values keep the previous setting (fail closed).
+law isupport_malformed_prefix_ignored:
+  {Isupport.show(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(ov)@ :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+law isupport_prefix_rank_order:
+  {Nat.is_eq(Isupport.rank(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(qaohv)~&@%+ :are supported"), "~alice"), 5n) == True{} : Bool}
+
+law isupport_default_strip_matches_roster:
+  {Isupport.strip(Isupport.defaults(), "@+alice") == "alice" : String}
+
+law isupport_unknown_mode_takes_arg:
+  {Isupport.takes_arg(Isupport.defaults(), Chr{88}, False{}) == True{} : Bool}
+
+law isupport_precise_key_redaction:
+  {Isupport.redact_params(Isupport.defaults(), "#c", "+ovk", ["a", "b", "s3cret"]) == ["a", "b", "[channel key hidden]"] : List<&2, String>}
+
+law isupport_uncertain_mode_hides_all:
+  {Isupport.redact_params(Isupport.defaults(), "#c", "+oXk", ["a", "b", "s3cret"]) == ["[channel key hidden]"] : List<&2, String>}
+
+law isupport_ordinary_mode_renders:
+  {Isupport.redact_params(Isupport.defaults(), "#c", "+o", ["bob"]) == ["bob"] : List<&2, String>}
+
+law isupport_peer_005_ignored:
+  {Isupport.feed_state(Isupport.defaults(), Cl.init("me", "s"), ":mallory!u@h 005 me PREFIX=(q)~ :x") == Isupport.defaults() : Isupport.State}
+
+law isupport_server_005_applied:
+  {Isupport.show(Isupport.feed_state(Isupport.defaults(), Cl.init("me", "s"), ":s 005 me PREFIX=(q)~ NETWORK=X :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(q)~ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network=X casemapping=rfc1459 maxlist= updated=true" : String}
+
+law isupport_join_admit_unupdated:
+  {Isupport.join_admit(Isupport.defaults(), "#room", "") == True{} : Bool}
+
+law isupport_join_admit_server_bound:
+  {Isupport.join_admit(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# CHANNELLEN=18 :are supported"), "&local", "") == False{} : Bool}

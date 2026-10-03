@@ -1356,3 +1356,39 @@ def Laws.emoji_birc2_load_keeps_source():
 
 def Laws.emoji_production_renders_glyph():
   {==}
+
+def Laws.isupport_defaults_golden():
+  {==}
+
+def Laws.isupport_malformed_prefix_ignored():
+  {==}
+
+def Laws.isupport_prefix_rank_order():
+  {==}
+
+def Laws.isupport_default_strip_matches_roster():
+  {==}
+
+def Laws.isupport_unknown_mode_takes_arg():
+  {==}
+
+def Laws.isupport_precise_key_redaction():
+  {==}
+
+def Laws.isupport_uncertain_mode_hides_all():
+  {==}
+
+def Laws.isupport_ordinary_mode_renders():
+  {==}
+
+def Laws.isupport_peer_005_ignored():
+  {==}
+
+def Laws.isupport_server_005_applied():
+  {==}
+
+def Laws.isupport_join_admit_unupdated():
+  {==}
+
+def Laws.isupport_join_admit_server_bound():
+  {==}
