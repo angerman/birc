@@ -2,6 +2,7 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
+import ./irc_commands.bend as Commands
 
 # ---- format helpers -----------------------------------------------------
 
@@ -644,6 +645,19 @@ def num_kind(xs: List<&2, NumRow>, +n: U32) -> NumK:
         case NumRow{+code, +k}:
           Bool.pick(NumK, U32.is_eq(code, n), k, num_kind(t, n))
 
+def feed_num.key_mode.reply(+cl: Cl.Client, +m: Irc.Message, key: Bool) -> Cl.Client:
+  match key:
+    case False{}: feed_num.other(cl, 324, Irc.msg_last(m), False{})
+    case True{}: feed_num.other(cl, 324,
+      Irc.msg_param(m, 1n) ++ " " ++ Irc.msg_param(m, 2n) ++ " [channel key hidden]", False{})
+
+def feed_num.other_reply(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
+  match num:
+    case 324:
+      feed_num.key_mode.reply(cl, m, Commands.mode_has_key(Irc.Message{"", "", "MODE", 0,
+        List.drop(&2, String, Irc.msg_params(m), 1n)}))
+    case _: feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
+
 def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
   match k:
     case N001{}:
@@ -657,7 +671,7 @@ def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Clien
     case N433{}:
       feed_num.n433.cl(cl, m, num)
     case NOther{}:
-      feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
+      feed_num.other_reply(cl, m, num)
 
 def feed_numeric(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
@@ -696,10 +710,17 @@ def first_param(+ps: List<&2, String>) -> String:
     case Con{+h, _}:
       h
 
+# Until ISUPPORT supplies complete mode-argument metadata, hide all mode
+# arguments when they contain a channel key. Never guess its argument index.
+def feed_mode.params(key: Bool, +m: Irc.Message) -> List<&2, String>:
+  match key:
+    case False{}: Irc.msg_params(m)
+    case True{}: [Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), "[channel key hidden]"]
+
 def feed_mode(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
     case Irc.Message{_, +nick, _, _, +ps}:
-      feed_mode.got(cl, nick, ps, wire_find(cl, first_param(ps)))
+      feed_mode.got(cl, nick, feed_mode.params(Commands.mode_has_key(m), m), wire_find(cl, first_param(ps)))
 
 def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
@@ -770,6 +791,32 @@ def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message
 
 def feed(+cl: Cl.Client, +line: String) -> Cl.Client:
   Cl.stamp_logs(feed.server_notice(cl, Irc.source_prefix(line), Irc.parse(line)))
+
+# Live IO resolves UTC server-time into local time without changing the wire
+# line used by authentication, typing, and connection recovery. None leaves
+# the pure parser unchanged; Some{""} uses the receipt-time fallback.
+def feed_at.message(m: Maybe<&2, Irc.Message>, +stamp: String) -> Maybe<&2, Irc.Message>:
+  match m:
+    case None{}: None{}
+    case Some{msg}:
+      match msg:
+        case Irc.Message{_, nick, command, numeric, params}:
+          Some{Irc.Message{stamp, nick, command, numeric, params}}
+
+def feed_at.stamped(+cl: Cl.Client, +line: String, +stamp: String) -> Cl.Client:
+  match cl:
+    case Cl.Client{_, _, _, _, +now, _, _, _}:
+      # JOIN/PART/etc use the client clock, while chat uses Message.time.
+      # Restore the receipt clock afterward so one historical event cannot
+      # timestamp later untagged events or user commands.
+      Cl.set_now(Cl.stamp_logs(feed.server_notice(
+        Cl.set_now(cl, Bool.pick(String, String.is_empty(stamp), now, stamp)),
+        Irc.source_prefix(line), feed_at.message(Irc.parse(line), stamp))), now)
+
+def feed_at(+cl: Cl.Client, +line: String, stamp: Maybe<&2, String>) -> Cl.Client:
+  match stamp:
+    case None{}: feed(cl, line)
+    case Some{value}: feed_at.stamped(cl, line, value)
 
 # ---- demo / show --------------------------------------------------------
 

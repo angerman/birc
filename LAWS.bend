@@ -27,6 +27,70 @@ import ./src/bend/columns.bend as Columns
 import ./src/bend/upload.bend as Up
 import ./src/bend/transport_policy.bend as Transport
 import ./src/bend/endpoint.bend as Endpoint
+import ./src/bend/utc_time.bend as Utc
+import ./src/bend/preferences.bend as Prefs
+import ./src/bend/irc_commands.bend as Commands
+import ./src/bend/message_chunks.bend as Chunks
+import ./src/bend/join_plan.bend as JoinPlan
+import ./src/bend/history_startup.bend as StartupHistory
+
+law refused_startup_archive_keeps_current_client:
+  for current: Cl.Client
+  for snapshot: Cl.Client
+  {StartupHistory.install.allowed(False{}, current, snapshot) == current : Cl.Client}
+
+law absent_startup_target_keeps_current_client:
+  for current: Cl.Client
+  for line: Cl.Line
+  {StartupHistory.restore.at(None{}, current, line) == current : Cl.Client}
+
+law held_recovery_has_no_wire_output:
+  {JoinPlan.flush(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n}, Cl.init("me", "s")) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
+
+law completed_recovery_does_not_repeat:
+  {JoinPlan.flush(JoinPlan.demo("#room"), Cl.init("me", "s")) == JoinPlan.Flush{JoinPlan.demo("#room"), Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
+
+law old_authentication_cannot_release_recovery:
+  {JoinPlan.ready(JoinPlan.NeedAuth{0n, JoinPlan.Unreported{}}, Cl.init("me", "s")) == False{} : Bool}
+
+law reset_keeps_key_revision_and_hold:
+  {JoinPlan.reset(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, True{}, JoinPlan.NoAuth{}, True{}, 3n}, Cl.init("me", "s")) == JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], False{}, False{}, JoinPlan.NoAuth{}, True{}, 3n} : JoinPlan.State}
+
+law new_endpoint_discards_previous_channel_keys:
+  {JoinPlan.endpoint(False{}, JoinPlan.State{[JoinPlan.Channel{"#old", "key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n}, "#new", Cl.init("me", "s")) == JoinPlan.State{[JoinPlan.Channel{"#new", ""}], False{}, False{}, JoinPlan.NoAuth{}, False{}, 3n} : JoinPlan.State}
+
+law delayed_membership_echo_cannot_erase_intent:
+  {JoinPlan.received(JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n}, Cl.init("me", "s"), ":me!u@h PART #room :old departure") == JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n} : JoinPlan.State}
+
+law server_time_invalid_calendar_is_rejected:
+  {Utc.parse("2023-02-29T00:00:00Z") == None{} : Maybe<&2, Utc.Utc>}
+
+law server_time_retains_complete_utc_event:
+  {Utc.parse("2024-02-29T23:59:59.123Z") == Some{Utc.Utc{2024, 2, 29, 23, 59, 59}} : Maybe<&2, Utc.Utc>}
+
+law server_time_leap_second_is_preserved:
+  {Utc.parse("2012-06-30T23:59:60.419Z") == Some{Utc.Utc{2012, 6, 30, 23, 59, 60}} : Maybe<&2, Utc.Utc>}
+
+law duplicate_server_time_is_invalid:
+  {Utc.line_stamp("@time=2024-01-01T00:00:00Z;time=2024-01-01T01:00:00Z :s NOTICE me :text") == Utc.Invalid{} : Utc.Stamp}
+
+law captured_image_preference_is_preserved:
+  for cl: Cl.Client
+  for images: Bool
+  for channels: List<&2, String>
+  {Prefs.images(Prefs.capture(cl, images, channels)) == images : Bool}
+
+law raw_command_cannot_inject_line:
+  {Commands.raw("PASS x\r\nQUIT :x") == None{} : Maybe<&2, String>}
+
+law explicit_empty_topic_is_sent:
+  {Commands.topic("#room", "#other :") == Some{"TOPIC #other :"} : Maybe<&2, String>}
+
+law message_chunks_preserve_combining_cluster:
+  {Chunks.split("éx", 3n) == Some{["é", "x"]} : Maybe<&2, List<&2, String>>}
+
+law notice_credentials_do_not_enter_composer_history:
+  {Sub.input_sensitive(Cl.init("me", "s"), "/notice NickServ :IDENTIFY secret") == True{} : Bool}
 
 law default_irc_transport_is_tls:
   {Transport.default_secure() == True{} : Bool}

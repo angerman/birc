@@ -6,6 +6,8 @@ import ./client.bend as Feed
 import ./links.bend as Links
 import ./endpoint.bend as Endpoint
 import ./diagnostic.bend as Diagnostic
+import ./irc_commands.bend as Commands
+import ./message_chunks.bend as Chunks
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -107,12 +109,7 @@ def echo_sys(+cl: Cl.Client, +msg: String) -> Cl.Client:
 def echo_err_server(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, 0n, Cl.Error{}, msg)
 
-# Fit only the body after reserving the complete target envelope. The same
-# fitted value supplies the wire line and local echo/history.
-def fit_body(+body: String, budget: Nat) -> String:
-  +clean = Irc.strip_ctl(body)
-  Irc.clamp_line.go(Nat.add(1n, Nat.mul(2n, String.length(clean))), Irc.ClStr{}, budget, clean, "")
-
+# One exact line for proof-facing callers. Live sends plan complete chunks.
 type MessageBody is Data:
   MessageBody{body: String, wire: String}
 
@@ -120,8 +117,9 @@ def prepare_message.fits(fits: Bool, +target: String, body: String, overhead: Na
   match fits:
     case False{}: None{}
     case True{}:
-      +fitted = fit_body(body, Nat.sub(Irc.LINE_MAX(), overhead))
-      Some{MessageBody{fitted, Irc.format_privmsg(target, fitted)}}
+      +clean = Irc.strip_ctl(body)
+      Bool.pick(Maybe<&2, MessageBody>, Commands.framing(clean) && Nat.is_le(Irc.utf8_len(clean), Nat.sub(Irc.LINE_MAX(), overhead)),
+        Some{MessageBody{clean, Irc.format_privmsg(target, clean)}}, None{})
 
 def prepare_message(+target: String, body: String) -> Maybe<&2, MessageBody>:
   +clean = Cl.target_name(target)
@@ -132,8 +130,13 @@ def credential_wire(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bool:
   match parsed:
     case None{}: False{}
     case Some{+m}:
-      Irc.ieq(Irc.msg_command(m), "PRIVMSG")
-        && credential_message(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
+      +verb = Irc.msg_command(m)
+      ((Irc.ieq(verb, "PRIVMSG") || Irc.ieq(verb, "NOTICE"))
+        && credential_message(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n)))
+        || Irc.ieq(verb, "PASS") || Irc.ieq(verb, "AUTHENTICATE") || Irc.ieq(verb, "OPER")
+        || Irc.ieq(verb, "IDENTIFY") || Irc.ieq(verb, "LOGIN")
+        || ((credential_target(cl, verb) || Irc.ieq(verb, "NS") || Irc.ieq(verb, "CHANSERV") || Irc.ieq(verb, "CS"))
+          && credential_body(String.join(Irc.msg_params(m), " ")))
 
 def credential_echo.parsed(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bool:
   match parsed:
@@ -146,19 +149,79 @@ def credential_echo.parsed(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bo
 def credential_echo(+cl: Cl.Client, +line: String) -> Bool:
   credential_echo.parsed(cl, Irc.parse(line))
 
-def echo_message(private: Bool, cl: Cl.Client, bi: Nat, body: String) -> Cl.Client:
-  match private:
-    case True{}: echo_self(cl, bi, "[credential command sent]")
+def message_wire(+target: String, +body: String, notice: Bool) -> String:
+  Bool.pick(String, notice, "NOTICE " ++ target ++ " :" ++ body, Irc.format_privmsg(target, body))
+
+def credential_chunks(xs: List<&2, String>, +cl: Cl.Client, +target: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+body, rest}: credential_message(cl, target, body) || credential_chunks(rest, cl, target)
+
+def message_sensitive.parts(parts: Maybe<&2, List<&2, String>>, +cl: Cl.Client, target: String) -> Bool:
+  match parts:
+    case None{}: False{}
+    case Some{xs}: credential_chunks(xs, cl, target)
+
+def message_sensitive.fits(fits: Bool, +cl: Cl.Client, target: String, body: String, overhead: Nat) -> Bool:
+  match fits:
+    case False{}: False{}
+    case True{}: message_sensitive.parts(Chunks.split(body, Nat.sub(Irc.LINE_MAX(), overhead)), cl, target)
+
+# A later chunk can start a service command although the original text did
+# not. Use the same planned-wire predicate before sending and saving a draft.
+def message_sensitive(+cl: Cl.Client, +target: String, +body: String, +notice: Bool) -> Bool:
+  +clean = Irc.strip_ctl(body)
+  +name = Cl.target_name(target)
+  +overhead = Irc.utf8_len(message_wire(name, "", notice))
+  credential_message(cl, name, clean)
+    || message_sensitive.fits(Nat.is_lt(overhead, Irc.LINE_MAX()), cl, name, clean, overhead)
+
+def echo_text.notice(notice: Bool, +cl: Cl.Client, +bi: Nat, +body: String) -> Cl.Client:
+  match notice:
+    case True{}: Cl.client_log_author_ts(cl, bi, Cl.Notice{}, "", Feed.fmt_msg(Cl.nick_of(cl), body), Cl.nick_of(cl))
     case False{}: echo_self(cl, bi, body)
 
-def send_message.prepared(prepared: Maybe<&2, MessageBody>, +cl: Cl.Client, +bi: Nat) -> Cl.Client & List<&2, String>:
-  match prepared:
-    case None{}: (echo_err(cl, "message target exceeds IRC line limit"), empty_out())
-    case Some{MessageBody{body, +wire}}:
-      (echo_message(credential_wire(cl, Irc.parse(wire)), cl, bi, body), wire <> Nil{})
+def echo_text(private: Bool, notice: Bool, cl: Cl.Client, bi: Nat, body: String) -> Cl.Client:
+  match private:
+    case True{}: echo_self(cl, bi, "[credential command sent]")
+    case False{}: echo_text.notice(notice, cl, bi, body)
+
+def send_chunks.tail(pair: Cl.Client & List<&2, String>, wire: String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl, outs): (cl, wire <> outs)
+
+def send_chunks(xs: List<&2, String>, +cl: Cl.Client, +bi: Nat, +target: String, +private: Bool, +notice: Bool) -> Cl.Client & List<&2, String>:
+  match xs:
+    case Nil{}: (cl, Nil{})
+    case Con{+body, rest}:
+      send_chunks.tail(send_chunks(rest, echo_text(private, notice, cl, bi, body), bi, target, private, notice), message_wire(target, body, notice))
+
+def send_text.parts(parts: Maybe<&2, List<&2, String>>, +cl: Cl.Client, bi: Nat, target: String, +private: Bool, notice: Bool) -> Cl.Client & List<&2, String>:
+  match parts:
+    case None{}:
+      (echo_err(cl, Bool.pick(String, private, "credential command exceeds IRC line limit", "message cluster exceeds IRC line limit")), Nil{})
+    case Some{xs}: send_chunks(xs, cl, bi, target, private, notice)
+
+def message_parts(private: Bool, +body: String, cap: Nat) -> Maybe<&2, List<&2, String>>:
+  match private:
+    case True{}: Bool.pick(Maybe<&2, List<&2, String>>, Nat.is_le(Irc.utf8_len(body), cap), Some{body <> Nil{}}, None{})
+    case False{}: Chunks.split(body, cap)
+
+def send_text.valid(valid: Bool, +cl: Cl.Client, bi: Nat, +target: String, +body: String, +private: Bool, notice: Bool, overhead: Nat) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "message target exceeds IRC line limit"), Nil{})
+    case True{}:
+      send_text.parts(message_parts(private, body, Nat.sub(Irc.LINE_MAX(), overhead)), cl, bi, target, private, notice)
+
+def send_text(+cl: Cl.Client, bi: Nat, +target: String, +body: String, +notice: Bool) -> Cl.Client & List<&2, String>:
+  +clean = Irc.strip_ctl(body)
+  +name = Cl.target_name(target)
+  +overhead = Irc.utf8_len(message_wire(name, "", notice))
+  send_text.valid(Commands.word(name) && Commands.framing(clean) && Nat.is_lt(overhead, Irc.LINE_MAX()),
+    cl, bi, name, clean, message_sensitive(cl, name, clean, notice), notice, overhead)
 
 def send_message(cl: Cl.Client, bi: Nat, target: String, body: String) -> Cl.Client & List<&2, String>:
-  send_message.prepared(prepare_message(target, body), cl, bi)
+  send_text(cl, bi, target, body, False{})
 
 # ---- /join --------------------------------------------------------------
 
@@ -386,6 +449,55 @@ def submit_query.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & Lis
 def submit_query(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_query.words(cl, take_word(Irc.drop_spaces(rest)))
 
+# Explicit protocol commands do not guess or alter incoming channel state.
+def submit_wire(+cl: Cl.Client, line: Maybe<&2, String>, usage: String) -> Cl.Client & List<&2, String>:
+  match line:
+    case None{}: (echo_err(cl, usage), Nil{})
+    case Some{wire}: (cl, wire <> Nil{})
+
+def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
+  match bufs:
+    case Nil{}: False{}
+    case Con{Cl.Buffer{+name, +channel, _, _, _, _}, rest}:
+      (channel && Irc.ieq(name, target)) || mode_resident(rest, target)
+
+def mode_command.named(named: Bool, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
+  match named:
+    case True{}: Commands.word_command("MODE", args, 1n, 14n)
+    case False{}: Commands.mode(Cl.active_buf_name(cl), Cl.nick_of(cl), args)
+
+# Existing +channels win over implicit flags. An unseen ambiguous +local
+# query remains expressible as /raw MODE +local; +i stays an implicit flag.
+def mode_command.words(+cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (first, _): mode_command.named(mode_resident(Cl.client_bufs(cl), first), cl, args)
+
+def mode_command(+cl: Cl.Client, +args: String) -> Maybe<&2, String>:
+  mode_command.words(cl, args, Irc.take_until_space(args))
+
+def submit_mode(+cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
+  submit_wire(cl, mode_command(cl, args), "usage: /mode [target] [modes [args]]")
+
+def submit_notice.got(pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl, None{}): (echo_err(cl, "buffer limit reached"), Nil{})
+    case (cl, Some{+i}): send_text(Cl.set_active(cl, i), i, target, body, True{})
+
+def submit_notice.valid(valid: Bool, +cl: Cl.Client, +target: String, body: String) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "usage: /notice target text"), Nil{})
+    case True{}:
+      submit_notice.got(Cl.buf_get(cl, Cl.message_key(cl, target), Cl.target_channel(target), True{}), target, body)
+
+def submit_notice.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+target, +body):
+      submit_notice.valid(Commands.word(target) && Commands.framing(body) && Bool.not(Cl.target_is_synthetic(target) || String.is_empty(body)),
+        cl, target, Commands.trailing(body))
+
+def submit_notice(cl: Cl.Client, rest: String) -> Cl.Client & List<&2, String>:
+  submit_notice.words(cl, take_word(rest))
+
 # ---- /nick /me /quit /unknown -------------------------------------------
 
 def submit_nick.on(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
@@ -401,18 +513,30 @@ def submit_nick(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
 def ctcp_action(+rest: String) -> String:
   SCon{Chr{1}, "ACTION " ++ rest ++ SCon{Chr{1}, SNil{}}}
 
-# Reserve the complete CTCP envelope before fitting its text. Clamping the
-# assembled line can delete the closing SOH and echo text that was not sent.
-def ctcp_action_body(+rest: String, budget: Nat) -> String:
-  fit_body(rest, budget)
+# Each action chunk reserves its complete envelope, including the closing SOH.
+def send_action_chunks(xs: List<&2, String>, +cl: Cl.Client, +target: String) -> Cl.Client & List<&2, String>:
+  match xs:
+    case Nil{}: (cl, Nil{})
+    case Con{+body, rest}:
+      send_chunks.tail(send_action_chunks(rest, echo_action(cl, Cl.active_of(cl), body), target), Irc.format_privmsg(target, ctcp_action(body)))
+
+def submit_me.parts(parts: Maybe<&2, List<&2, String>>, cl: Cl.Client, target: String) -> Cl.Client & List<&2, String>:
+  match parts:
+    case None{}: (echo_err(cl, "action cluster exceeds IRC line limit"), Nil{})
+    case Some{xs}: send_action_chunks(xs, cl, target)
+
+def submit_me.clean(valid: Bool, cl: Cl.Client, target: String, body: String, budget: Nat) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "action contains an invalid framing character"), Nil{})
+    case True{}: submit_me.parts(Chunks.split(body, budget), cl, target)
 
 def submit_me.budget(+cl: Cl.Client, +tgt: String, +rest: String, +overhead: Nat, fits: Bool) -> Cl.Client & List<&2, String>:
   match fits:
     case False{}:
       (echo_err(cl, "action target exceeds IRC line limit"), empty_out())
     case True{}:
-      +body = ctcp_action_body(rest, Nat.sub(Irc.LINE_MAX(), overhead))
-      (echo_action(cl, Cl.active_of(cl), body), one_out(Irc.format_privmsg(tgt, ctcp_action(body))))
+      +body = Irc.strip_ctl(rest)
+      submit_me.clean(Commands.framing(body), cl, tgt, body, Nat.sub(Irc.LINE_MAX(), overhead))
 
 def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client & List<&2, String>:
   match on_server:
@@ -421,7 +545,7 @@ def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client 
     case False{}:
       +tgt = Irc.strip_ctl(Cl.active_buf_name(cl))
       +overhead = Irc.utf8_len(Irc.format_privmsg(tgt, ctcp_action("")))
-      submit_me.budget(cl, tgt, rest, overhead, Nat.is_le(overhead, Irc.LINE_MAX()))
+      submit_me.budget(cl, tgt, rest, overhead, Commands.word(tgt) && Nat.is_lt(overhead, Irc.LINE_MAX()))
 
 def active_is_synthetic(+cl: Cl.Client) -> Bool:
   Cl.target_is_synthetic(Cl.active_buf_name(cl))
@@ -1056,6 +1180,17 @@ type Slash is Data:
   ImagesCmd{}
   UploadCmd{}
   LogCmd{}
+  WhoisCmd{}
+  WhoCmd{}
+  ListCmd{}
+  NamesCmd{}
+  TopicCmd{}
+  ModeCmd{}
+  KickCmd{}
+  InviteCmd{}
+  AwayCmd{}
+  NoticeCmd{}
+  RawCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -1091,6 +1226,18 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"unsplit", Unknown{}}
     <> SlashRow{"focus", Unknown{}}
     <> SlashRow{"upload", UploadCmd{}}
+    <> SlashRow{"whois", WhoisCmd{}}
+    <> SlashRow{"who", WhoCmd{}}
+    <> SlashRow{"list", ListCmd{}}
+    <> SlashRow{"names", NamesCmd{}}
+    <> SlashRow{"topic", TopicCmd{}}
+    <> SlashRow{"mode", ModeCmd{}}
+    <> SlashRow{"kick", KickCmd{}}
+    <> SlashRow{"invite", InviteCmd{}}
+    <> SlashRow{"away", AwayCmd{}}
+    <> SlashRow{"notice", NoticeCmd{}}
+    <> SlashRow{"raw", RawCmd{}}
+    <> SlashRow{"quote", RawCmd{}}
     <> Nil{}
 
 def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
@@ -1137,17 +1284,97 @@ def parse_input.empty(+input: String, empty: Bool) -> Input:
 def parse_input(+input: String) -> Input:
   parse_input.empty(input, String.is_empty(input))
 
+# Durable-setting admission shares the submission parsers. A successful edit
+# matters even when its value is unchanged; show-only and rejected inputs do not.
+def preference_key(k: SettingKey) -> Maybe<&2, String>:
+  match k:
+    case KeyJoins{}: Some{"joins"}
+    case KeyTs{}: Some{"ts"}
+    case KeyMotd{}: Some{"motd"}
+    case KeyHist{}: Some{"history"}
+    case KeyAutoreconn{}: Some{"autoreconn"}
+    case KeyBell{}: Some{"bell"}
+    case _: None{}
+
+def preference_set.boolean(parsed: Maybe<&2, Bool>, key: SettingKey) -> Maybe<&2, String>:
+  match parsed:
+    case None{}: None{}
+    case Some{_}: preference_key(key)
+
+def preference_set.cap(parsed: Maybe<&2, U32>) -> Maybe<&2, String>:
+  match parsed:
+    case None{}: None{}
+    case Some{_}: Some{"hist_cap"}
+
+def preference_set.key(key: SettingKey, value: String) -> Maybe<&2, String>:
+  match key:
+    case KeyHistCap{}: preference_set.cap(U32.read(value))
+    case _: preference_set.boolean(parse_bool(value), key)
+
+def preference_set.words(pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (key, value): preference_set.key(parse_key(key), Irc.drop_spaces(value))
+
+def preference_toggle.words(pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    # submit_toggle intentionally uses only its first word.
+    case (key, _): preference_key(parse_key(key))
+
+def preference_mute.present(present: Bool) -> Maybe<&2, String>:
+  match present:
+    case False{}: None{}
+    case True{}: Some{"mutes"}
+
+def preference_mute.words(pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    # submit_mute/unmute likewise accept one nonempty first word.
+    case (nick, _): preference_mute.present(Bool.not(String.is_empty(nick)))
+
+def preference_images(parsed: Maybe<&2, Bool>) -> Maybe<&2, String>:
+  match parsed:
+    case None{}: None{}
+    case Some{_}: Some{"images"}
+
+def preference_intent(input: Input) -> Maybe<&2, String>:
+  match input:
+    case CommandInput{SetCmd{}, _, rest}: preference_set.words(take_word(rest))
+    case CommandInput{ToggleCmd{}, _, rest}: preference_toggle.words(take_word(Irc.drop_spaces(rest)))
+    case CommandInput{MuteCmd{}, _, rest}: preference_mute.words(take_word(Irc.drop_spaces(rest)))
+    case CommandInput{UnmuteCmd{}, _, rest}: preference_mute.words(take_word(Irc.drop_spaces(rest)))
+    case CommandInput{ImagesCmd{}, _, rest}: preference_images(images_arg(Irc.drop_spaces(rest)))
+    case _: None{}
+
 def input_sensitive.words(+cl: Cl.Client, pair: String & String) -> Bool:
   match pair:
-    case (target, body): credential_message(cl, target, body)
+    case (target, body): message_sensitive(cl, target, body, False{})
+
+def input_sensitive.notice_words(+cl: Cl.Client, pair: String & String) -> Bool:
+  match pair:
+    case (target, body): message_sensitive(cl, target, Commands.trailing(body), True{})
+
+def input_sensitive.join_words(pair: String & String) -> Bool:
+  match pair:
+    case (_, keys): Bool.not(String.is_empty(keys))
+
+def input_sensitive.mode_wire(wire: Maybe<&2, String>) -> Bool:
+  match wire:
+    case None{}: False{}
+    case Some{line}: Commands.mode_has_key.line(line)
 
 # Classify the original input against its original active buffer. Submission
 # and simultaneous navigation can change focus before history is retained.
 def input_sensitive.parsed(+cl: Cl.Client, input: Input) -> Bool:
   match input:
-    case PlainInput{body}: credential_message(cl, Cl.active_buf_name(cl), body)
+    case PlainInput{body}: message_sensitive(cl, Cl.active_buf_name(cl), body, False{})
     case CommandInput{Msg{}, _, rest}: input_sensitive.words(cl, take_word(rest))
     case CommandInput{QueryCmd{}, _, rest}: input_sensitive.words(cl, take_word(Irc.drop_spaces(rest)))
+    case CommandInput{NoticeCmd{}, _, rest}: input_sensitive.notice_words(cl, take_word(rest))
+    # Channel keys are runtime-only, including manual keyed joins.
+    case CommandInput{Join{}, _, rest}: input_sensitive.join_words(take_word(rest))
+    case CommandInput{ModeCmd{}, _, rest}: input_sensitive.mode_wire(mode_command(cl, rest))
+    # Raw/quote may carry authentication commands unknown to this client.
+    # Keep the complete escape hatch outside composer history; it has no echo.
+    case CommandInput{RawCmd{}, _, _}: True{}
     case _: False{}
 
 def input_sensitive(+cl: Cl.Client, +raw: String) -> Bool:
@@ -1180,6 +1407,17 @@ def command_needs_connection(cmd: Slash, +rest: String) -> Bool:
     case Msg{}: True{}
     case Nick{}: True{}
     case Me{}: True{}
+    case WhoisCmd{}: True{}
+    case WhoCmd{}: True{}
+    case ListCmd{}: True{}
+    case NamesCmd{}: True{}
+    case TopicCmd{}: True{}
+    case ModeCmd{}: True{}
+    case KickCmd{}: True{}
+    case InviteCmd{}: True{}
+    case AwayCmd{}: True{}
+    case NoticeCmd{}: True{}
+    case RawCmd{}: True{}
     case QueryCmd{}: query_needs_connection(take_word(rest))
     case _: False{}
 
@@ -1233,6 +1471,28 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       (Cl.log_open(cl), empty_out())
     case UploadCmd{}:
       (echo_err(cl, "upload requires an active session confirmation"), empty_out())
+    case WhoisCmd{}:
+      submit_wire(cl, Commands.whois(rest), "usage: /whois [server] nick[,nick]")
+    case WhoCmd{}:
+      submit_wire(cl, Commands.who(Cl.active_buf_name(cl), rest), "usage: /who [mask [o]]")
+    case ListCmd{}:
+      submit_wire(cl, Commands.list(rest), "usage: /list [channels [server]]")
+    case NamesCmd{}:
+      submit_wire(cl, Commands.names(Cl.active_buf_name(cl), rest), "usage: /names [channels [server]]")
+    case TopicCmd{}:
+      submit_wire(cl, Commands.topic(Cl.active_buf_name(cl), rest), "usage: /topic [#channel] [:text]")
+    case ModeCmd{}:
+      submit_mode(cl, rest)
+    case KickCmd{}:
+      submit_wire(cl, Commands.kick(Cl.active_buf_name(cl), rest), "usage: /kick [#channel] nick [reason]")
+    case InviteCmd{}:
+      submit_wire(cl, Commands.invite(Cl.active_buf_name(cl), rest), "usage: /invite nick [#channel]")
+    case AwayCmd{}:
+      submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
+    case NoticeCmd{}:
+      submit_notice(cl, rest)
+    case RawCmd{}:
+      submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
     case Unknown{}:
       submit_unknown(cl, verb)
 

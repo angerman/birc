@@ -337,6 +337,48 @@ def auth_scope_dial(scope: AuthScope, +host: String, +port: U32) -> AuthScope:
       AuthScope{initial_host, initial_port,
         enabled && String.eq(initial_host, host) && U32.is_eq(initial_port, port)}
 
+type PendingDial is Data:
+  PendingDial{host: String, port: U32, nick: String}
+
+type Deferred is Data:
+  Deferred{pending: Maybe<&2, PendingDial>, gen: U32, scope: AuthScope}
+
+type DeferredStep is Data:
+  Waiting{state: Deferred}
+  Starting{dial: PendingDial, gen: U32, scope: AuthScope, initial: Bool}
+  Released{gen: U32, scope: AuthScope}
+
+def deferred_initial(+host: String, +port: U32, nick: String, has_sasl: Bool) -> Deferred:
+  Deferred{Some{PendingDial{host, port, nick}}, 1, AuthScope{host, port, has_sasl}}
+
+def deferred_begin.pending(pending: Maybe<&2, PendingDial>, +gen: U32, scope: AuthScope) -> DeferredStep:
+  match pending:
+    case None{}: Released{gen, scope}
+    case Some{dial}: Starting{dial, gen, scope, U32.is_eq(gen, 1)}
+
+def deferred_begin(ok: Bool, st: Deferred) -> DeferredStep:
+  match ok:
+    case False{}: Waiting{st}
+    case True{}:
+      match st:
+        case Deferred{pending, gen, scope}: deferred_begin.pending(pending, gen, scope)
+
+# Until Begin, Cont cannot leak registration/chat bytes and Dial only changes
+# the pending endpoint. Leaving the credential scope is permanent even here.
+def deferred_command(cmd: Sess.NetCmd, st: Deferred) -> DeferredStep:
+  match cmd:
+    case Sess.Dial{+host, +port, gen, nick}:
+      match st:
+        case Deferred{_, _, scope}:
+          Waiting{Deferred{Some{PendingDial{host, port, nick}}, gen, auth_scope_dial(scope, host, port)}}
+    case Sess.Drop{}:
+      match st:
+        case Deferred{_, gen, scope}: Waiting{Deferred{None{}, gen, scope}}
+    case Sess.Begin{+wanted}:
+      match st:
+        case Deferred{pending, +gen, scope}: deferred_begin(U32.is_eq(wanted, gen), Deferred{pending, gen, scope})
+    case _: Waiting{st}
+
 type Writer is Type:
   Writer{socket: Maybe<&1, Tr.Conn>, gen: U32, pending: List<&2, String>, budget: Out.Budget, scheduled: Bool}
 
@@ -432,6 +474,7 @@ def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Cha
   match c:
     case Sess.Cont{outs}: writer_queue(st, outs, evt, cmd, next => k((next, scope)))
     case Sess.OpenUrl{_}: k((st, scope))
+    case Sess.Begin{_}: k((st, scope))
     case Sess.Pump{pgen}:
       match st:
         case Writer{sock, +gen, pending, budget, scheduled}:
@@ -481,3 +524,31 @@ def idle_start_tls(+evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), frames: U32,
   do IO<Unit>:
     boot : Chan(Boot) <- Chan.new(Boot, 1)
     writer_loop((Writer{None{}, 0, Nil{}, Out.budget_frames(frames), False{}}, AuthScope{"", 0, False{}}), evt, cmd, boot, force_tls)
+
+def deferred_adopt(step: DeferredStep, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +budget: Out.Budget, +force_tls: Bool, next: Deferred -> IO(Unit)) -> IO(Unit):
+  match step:
+    case Waiting{state}: next(state)
+    case Released{gen, scope}:
+      writer_loop((Writer{None{}, gen, Nil{}, budget, False{}}, scope), evt, cmd, boot, force_tls)
+    case Starting{PendingDial{host, port, nick}, gen, +scope, initial}:
+      dial_begin(host, port, force_tls, nick, gen, evt, boot, initial, auth_scope_enabled(scope),
+        got => writer_loop((writer_adopt(got, budget), scope), evt, cmd, boot, force_tls))
+
+def deferred_received(got: Maybe<&1, Sess.NetCmd>, st: Deferred, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), boot: Chan(Boot), budget: Out.Budget, force_tls: Bool, next: Deferred -> IO(Unit)) -> IO(Unit):
+  match got:
+    case None{}:
+      match st:
+        case Deferred{_, gen, _}: writer_done(evt, gen)
+    case Some{command}: deferred_adopt(deferred_command(command, st), evt, cmd, boot, budget, force_tls, next)
+
+@unsafe
+def deferred_loop(st: Deferred, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +budget: Out.Budget, +force_tls: Bool) -> IO(Unit):
+  do IO<Unit>:
+    got : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+    deferred_received(got, st, evt, cmd, boot, budget, force_tls,
+      next => deferred_loop(next, evt, cmd, boot, budget, force_tls))
+
+# Only the pref-enabled startup uses this permission gate. The existing direct
+# launch and demo idle paths keep their registration and Boot behavior.
+def deferred_start_tls(host: String, port: U32, nick: String, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), boot: Chan(Boot), has_sasl: Bool, frames: U32, force_tls: Bool) -> IO(Unit):
+  deferred_loop(deferred_initial(host, port, nick, has_sasl), evt, cmd, boot, Out.budget_frames(frames), force_tls)

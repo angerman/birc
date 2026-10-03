@@ -411,12 +411,19 @@ def read_chunk(bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: 
     case Nil{}: state
     case Con{byte, t}: read_chunk(t, read_step(endpoint, cap, state, byte), endpoint, cap)
 
-def read_finish(f: File, state: ReadState, now: String) -> IO(Cl.Client):
+def read_finish.client(snapshot: Bool, cl: Cl.Client, now: String) -> Cl.Client:
+  match snapshot:
+    case True{}: cl
+    case False{}: Cl.reconnect_markers(cl, now)
+
+# A worker snapshot spends its bounded row capacity only on archive records.
+# The UI adds its divider after import, when spare capacity is known.
+def read_finish.mode(snapshot: Bool, f: File, state: ReadState, now: String) -> IO(Cl.Client):
   match state:
     case ReadState{cl, _, _, _}:
       do IO<Cl.Client>:
         Unit <- File.close(f)
-        return Cl.reconnect_markers(cl, now)
+        return read_finish.client(snapshot, cl, now)
 
 def read_failure_text(error: U32 & String, +stage: String) -> String:
   match error:
@@ -424,62 +431,78 @@ def read_failure_text(error: U32 & String, +stage: String) -> String:
 
 # A failed load does not replace the current client or lose completed records.
 # Close the descriptor before adding its visible, credential-free diagnostic.
-def read_failure(f: File, state: ReadState, now: String, error: U32 & String, stage: String) -> IO(Cl.Client):
-  do IO<Cl.Client>:
-    cl : Cl.Client <- read_finish(f, state, now)
-    return Cl.client_log(cl, 0n, Cl.Error{}, read_failure_text(error, stage))
+def read_error(snapshot: Bool, cl: Cl.Client, error: U32 & String, stage: String) -> Cl.Client:
+  match snapshot:
+    case True{}: Cl.diagnostic(cl, Cl.Error{}, read_failure_text(error, stage))
+    case False{}: Cl.client_log(cl, 0n, Cl.Error{}, read_failure_text(error, stage))
 
-def read_loop.empty(empty: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+def read_failure.mode(+snapshot: Bool, f: File, state: ReadState, now: String, error: U32 & String, stage: String) -> IO(Cl.Client):
+  do IO<Cl.Client>:
+    cl : Cl.Client <- read_finish.mode(snapshot, f, state, now)
+    return read_error(snapshot, cl, error, stage)
+
+def read_loop.empty.mode(empty: Bool, snapshot: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
-    case True{}: read_finish(f, state, now)
+    case True{}: read_finish.mode(snapshot, f, state, now)
     case False{}: next(f, read_chunk(bytes, state, endpoint, cap), Nat.sub(remaining, List.length(&2, U32, bytes)))
 
-def read_loop.got(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+def read_loop.got.mode(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, snapshot: Bool, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:
-    case (f, Fail{error}): read_failure(f, state, now, error, "read failed; only completed records were restored")
-    case (f, Done{+bytes}): read_loop.empty(Nat.is_eq(List.length(&2, U32, bytes), 0n), f, bytes, state, endpoint, cap, now, remaining, next)
+    case (f, Fail{error}): read_failure.mode(snapshot, f, state, now, error, "read failed; only completed records were restored")
+    case (f, Done{+bytes}): read_loop.empty.mode(Nat.is_eq(List.length(&2, U32, bytes), 0n), snapshot, f, bytes, state, endpoint, cap, now, remaining, next)
 
-def read_loop.read(done: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+def read_loop.got(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  read_loop.got.mode(pair, False{}, state, endpoint, cap, now, remaining, next)
+
+def read_loop.read.mode(done: Bool, +snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match done:
-    case True{}: read_finish(f, state, now)
+    case True{}: read_finish.mode(snapshot, f, state, now)
     case False{}:
       do IO<Cl.Client>:
         pair : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, U32.from_nat(Cl.clamp_nat(remaining, 4096n)))
-        read_loop.got(pair, state, endpoint, cap, now, remaining, next)
+        read_loop.got.mode(pair, snapshot, state, endpoint, cap, now, remaining, next)
 
 # The file's initial size bounds the loop. Appends during loading cannot keep it
 # alive forever. Short reads still consume the full snapshot; state holds at most 8192 bytes and
 # MAX_BUFFERS * min(cap, SCROLL_CAP) lines, regardless of file size.
-def read_loop(fuel: Nat, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat) -> IO(Cl.Client):
+def read_loop.mode(fuel: Nat, +snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat) -> IO(Cl.Client):
   match fuel:
-    case 0n: read_finish(f, state, now)
+    case 0n: read_finish.mode(snapshot, f, state, now)
     case 1n+p:
-      read_loop.read(Nat.is_eq(remaining, 0n), f, state, endpoint, cap, now, remaining,
-        f2 => st2 => rest => read_loop(p, f2, st2, endpoint, cap, now, rest))
+      read_loop.read.mode(Nat.is_eq(remaining, 0n), snapshot, f, state, endpoint, cap, now, remaining,
+        f2 => st2 => rest => read_loop.mode(p, snapshot, f2, st2, endpoint, cap, now, rest))
 
-def read_size(pair: File & Result<&1, &1, U32 & String, U32>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+def read_size.mode(pair: File & Result<&1, &1, U32 & String, U32>, snapshot: Bool, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
   match pair:
-    case (f, Fail{error}): read_failure(f, ReadState{cl, Nil{}, 0n, False{}}, now, error, "size unavailable")
-    case (f, Done{+size}): read_loop(1n+U32.to_nat(size), f, ReadState{cl, Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
+    case (f, Fail{error}): read_failure.mode(snapshot, f, ReadState{cl, Nil{}, 0n, False{}}, now, error, "size unavailable")
+    case (f, Done{+size}): read_loop.mode(1n+U32.to_nat(size), snapshot, f, ReadState{cl, Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
 
 # ENOENT is the normal first-run case on this POSIX runtime. Other open
 # failures must be visible; an inaccessible history file is not an empty one.
-def read_open.error(missing: Bool, cl: Cl.Client, error: U32 & String) -> IO(Cl.Client):
+def read_open.error.mode(missing: Bool, snapshot: Bool, cl: Cl.Client, error: U32 & String) -> IO(Cl.Client):
   match missing:
     case True{}: IO.pure(Cl.Client, cl)
-    case False{}: IO.pure(Cl.Client, Cl.client_log(cl, 0n, Cl.Error{}, read_failure_text(error, "open failed")))
+    case False{}: IO.pure(Cl.Client, read_error(snapshot, cl, error, "open failed"))
 
-def read_open.failed(error: U32 & String, cl: Cl.Client) -> IO(Cl.Client):
+def read_open.failed.mode(error: U32 & String, snapshot: Bool, cl: Cl.Client) -> IO(Cl.Client):
   match error:
-    case (+code, +msg): read_open.error(U32.is_eq(code, 2), cl, (code, msg))
+    case (+code, +msg): read_open.error.mode(U32.is_eq(code, 2), snapshot, cl, (code, msg))
 
-def read_open(result: Result<&1, &1, U32 & String, File>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+def read_open.mode(result: Result<&1, &1, U32 & String, File>, +snapshot: Bool, cl: Cl.Client, +endpoint: String, +cap: U32, +now: String) -> IO(Cl.Client):
   match result:
-    case Fail{error}: read_open.failed(error, cl)
+    case Fail{error}: read_open.failed.mode(error, snapshot, cl)
     case Done{f}:
       do IO<Cl.Client>:
         pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
-        read_size(pair, cl, endpoint, cap, now)
+        read_size.mode(pair, snapshot, cl, endpoint, cap, now)
+
+def read_open(result: Result<&1, &1, U32 & String, File>, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+  read_open.mode(result, False{}, cl, endpoint, cap, now)
+
+def history_snapshot_client(+path: String, +endpoint: String, +cap: U32, cl: Cl.Client) -> IO(Cl.Client):
+  do IO<Cl.Client>:
+    result : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+    read_open.mode(result, True{}, cl, endpoint, cap, "")
 
 def save_error(error: U32 & String, +stage: String) -> String:
   match error:

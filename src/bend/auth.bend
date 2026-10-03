@@ -3,6 +3,7 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
+import ./endpoint.bend as Endpoint
 import ./base64.bend as B64
 
 type Notice is Data:
@@ -106,6 +107,18 @@ def valid_config(mode: Cl.AuthMode, +prefix: String, +success: String) -> Bool:
 def credentials_valid(+cl: Cl.Client) -> Bool:
   Cl.client_has_credentials(cl) && secret_clean(Cl.client_sasl_user(cl)) && secret_clean(Cl.client_sasl_pass(cl))
 
+# A configured credential profile gates channel recovery, even when its current
+# exchange fails. A past success must never stand in for this connection's one.
+def join_required.config(config: Cl.AuthConfig, +cl: Cl.Client) -> Bool:
+  match config:
+    case Cl.AuthDisabled{}: False{}
+    case Cl.AuthConfig{_, host, +port, _, _}:
+      Cl.client_has_credentials(cl) && String.eq(host, Cl.server_of(cl))
+        && U32.is_gt(port, 0) && U32.is_le(port, 65535)
+
+def join_required(+cl: Cl.Client) -> Bool:
+  join_required.config(Cl.client_auth_config(cl), cl)
+
 def identify_line(+cl: Cl.Client) -> String:
   "PRIVMSG " ++ Cl.client_auth_service(cl) ++ " :IDENTIFY " ++ Cl.client_sasl_user(cl) ++ " " ++ Cl.client_sasl_pass(cl)
 
@@ -118,8 +131,14 @@ def nick_start(+cl: Cl.Client) -> Reply:
   +line = identify_line(cl)
   nick_start.fits(word_clean(Cl.client_sasl_user(cl)) && word_clean(Cl.client_sasl_pass(cl)) && Irc.line_ok(line), line)
 
+def server_source(+prefix: String) -> Bool:
+  # RFC 2812 permits single-label server names and a missing prefix (the
+  # connection's origin). TLS/endpoint scope verifies the peer, not this name.
+  # A user prefix, URL, or another recipient still cannot advance control state.
+  String.is_empty(prefix) || Endpoint.host_ok(prefix)
+
 def server_control(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
-  Irc.source_is_server(prefix, Cl.server_of(cl)) && Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl))
+  server_source(prefix) && Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl))
 
 def trusted_notice(config: Cl.AuthConfig, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match config:
@@ -158,13 +177,13 @@ def nick_probed(ok: Bool, +cl: Cl.Client) -> Reply:
     case True{}: nick_start(cl)
     case False{}: unchanged(Cl.AuthNickProbe{})
 
-# AUTHENTICATE may omit its prefix. Numerics must name our current nickname
-# and originate from a server-shaped prefix, not a nick!user@host source.
+# Server controls may omit their prefix. Numerics must name our current
+# nickname; CAP also allows its established broadcast recipient '*'.
 def sasl_trusted(event: Irc.SaslEvent, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match event:
-    case Irc.SaslPlus{}: String.is_empty(prefix) || Irc.source_is_server(prefix, Cl.server_of(cl))
-    case Irc.SaslAck{}: (String.is_empty(prefix) || Irc.source_is_server(prefix, Cl.server_of(cl))) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
-    case Irc.SaslNak{}: (String.is_empty(prefix) || Irc.source_is_server(prefix, Cl.server_of(cl))) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
+    case Irc.SaslPlus{}: server_source(prefix)
+    case Irc.SaslAck{}: server_source(prefix) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
+    case Irc.SaslNak{}: server_source(prefix) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
     case Irc.SaslOther{}: False{}
     case _: server_control(cl, prefix, m)
 

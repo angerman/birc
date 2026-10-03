@@ -2833,10 +2833,11 @@ not supplied, so each reported row's origin is not independently verified.
 - [x] Confirm history cannot safely be bulk-shifted. Current stored rows carry
   only HH:MM:SS, not source date or time-zone origin. Tagged and locally
   stamped rows are indistinguishable after storage.
-- [ ] Normalize valid server timestamps to the machine's local time zone,
+- [x] Normalize valid server timestamps to the machine's local time zone,
   using the event date for daylight-saving rules, without changing receipt
   times or the exact wire message. Add UTC/local, day-rollover, DST, missing
-  tag, and invalid-tag controls. Diagnose first; no timestamp fix is claimed.
+  tag, and invalid-tag controls. Implemented with focused pure/native guards in
+  M27; its final three-run terminal qualification remains open below.
 
 ## M25 — Native verified IRC TLS
 
@@ -3120,6 +3121,251 @@ screen parser does not clamp CUP coordinates; its secondary missing marker
 cannot prove physical invisibility. Preserve the raw/metadata artifacts under
 `build/m26-progress-*`. No production change, expectation change, optimization,
 or root-cause claim follows from these inconclusive observations.
+
+## M27 — approved recovery and feature roadmap
+
+Implement in bounded phases. Keep credentials bound to the exact server
+endpoint. Do not silently substitute a feature subset for this roadmap.
+
+### Phase 1 — recovery, settings, commands, and timestamps
+
+The first eight items are implemented and have focused regression guards.
+Final terminal and package qualification remains separate and open below.
+
+- [x] Track the full desired channel set, including later `/join` commands and
+  transient JOIN keys; remove intent on accepted PART/close or self-KICK.
+- [x] Reset authentication on every connection and rejoin only after welcome
+  and verified authentication success when credentials are configured.
+- [x] Add positive and negative reconnect, trusted NickServ, SASL, and endpoint
+  isolation guards. Do not weaken trusted-prefix checks or invent a fallback.
+- [x] Save UI preferences, mute rules, image preference, and per-endpoint
+  autojoin channel names in a private, versioned file. Never save passwords or
+  JOIN keys there. Preserve malformed, unknown, or unsafe existing files.
+- [x] Add optional saved autojoin channels to Keychain auth profiles.
+- [x] Add `/whois`, `/who`, `/list`, `/names`, `/topic`, `/mode`, `/kick`,
+  `/invite`, `/away`, `/notice`, `/raw`, and `/quote`, with strict wire bounds,
+  argument validation, and secret-safe logs and composer history.
+- [x] Split long ordinary messages and notices without losing Unicode clusters
+  or text. The user approved `/me` splitting and its old truncation expectation.
+- [x] Convert live UTC server-time tags to date-aware local time. Invalid tags
+  use local receipt time; retain raw wire lines for protocol and auth checks.
+- [ ] Add Make targets, laws where applicable, documentation, proof, bounded
+  pure/native tests, three consecutive changed PTY runs, and a Nix prebuild.
+
+### Later phases — remaining approved features
+
+- [ ] Multiple simultaneous servers and IPv6 endpoints/transport/DNS.
+- [ ] Server `005 ISUPPORT`, channel modes, and nickname privileges.
+- [ ] Per-buffer drafts and multiline composition.
+- [ ] Full disk-history search and paging; server history where supported.
+- [ ] IRCv3 account/away notifications and outgoing typing.
+- [ ] Native IRC wire formatting and colors in the view.
+- [ ] Fullscreen images and OpenGraph cards.
+- [ ] Themes, desktop notifications, and a larger view-only emoji alias set.
+- [ ] Investigate remaining PONG/output-progress timing misses and variable
+  cached Nix lookup delay. Instrument and measure before changing performance.
+
+Later-phase dependency order (verified against current source):
+
+- ISUPPORT/roster policy, wire-format parsing, and emoji/palette data can start
+  as separate pure modules. Coordinate Client/Buffer and View/FFI integration;
+  current `005` is omitted, nickname sigils are fixed, and input strips styles.
+- A per-buffer draft store and multiline send policy can be built separately;
+  one Session owner must integrate focus, rename, close, and modal input.
+- General CAP policy and bounded disk-history query/cursor work are orthogonal.
+  Account/away, outgoing typing, and server history follow CAP integration;
+  they must not compete with SASL for `CAP END` ownership.
+- Fullscreen projection and bounded OpenGraph policy/helpers can reuse media
+  ownership. Themes and notifications should use stable renderer/event seams.
+- IPv6 syntax/native sockets precede AAAA DNS integration. A pure Workspace and
+  ServerId model can proceed separately; multiserver routing needs one Net and
+  Session integration owner. Current network events carry generation, not a
+  server identity. These are plans, not implemented features.
+
+Current owners: separate agents handle reconnect/auth, commands/splitting,
+and preferences. The root handles live timestamp normalization, shared build
+and runtime integration, documentation, and final qualification. A fresh
+adversarial review must precede completion. Existing test expectations change
+only with explicit approval; mechanical type adapters preserve assertions.
+
+Phase-1 evidence and handoff:
+
+- Recovery baseline REDs show launch-only JOIN and premature JOIN next to
+  NickServ HELP. New pure guards are GREEN for the full desired set, runtime
+  keys, repeated authentication, and trusted-success gating. Reset itself was
+  already correct; do not claim that as a repaired defect.
+- Commands and ordinary/ACTION splitting have RED-to-GREEN guards. The user
+  approved the command catalog, ACTION, and older `state_review_send`
+  truncation expectations. The latter now checks complete text, every wire
+  bound, ordered echoes/history, zero-budget rejection, and a fitting target.
+- Adversarial review found a service credential verb created at a later split
+  boundary. Planned-chunk checks now reject the entire send and suppress
+  composer retention. Ordinary-user positive controls remain intact.
+- Incoming channel key MODE and numeric 324 replies previously leaked keys
+  into chat/history. `test-mode-privacy` now passes while non-key MODE and
+  arbitrary message text remain unchanged.
+- New UTC/calendar, local-clock, and native UBSan guards pass. Additional RED
+  guards cover non-chat event stamps, invalid leap-second locations, and
+  leading-space tag bypass; fixes retain receipt time and original wire lines.
+  The existing pure `server_time_demo` UTC parser expectations stay unchanged.
+- `timeout 240 make proof` passed once during integration
+  (`build/m27-proof-first.log`), the standard checker only. Rerun after the
+  source freeze. This does not certify the final app or mathematical validity.
+- Private preference helper and initial pure/IO/Keychain-channel tests pass.
+  Async edit-wins, scope distinction, and bounded quit drain are integrated;
+  final terminal qualification remains pending. The user approved the four changed absent-endpoint `scope 0`
+  expectations. Canonical saved endpoint wire expectations stay unchanged.
+- Nix now provisions `birc-preferences`; lock inputs were not moved. Reload
+  the development shell for its PATH. Explicit helper paths allow the current
+  checks to continue. The final native app is rebuilt; the default installed
+  package still points to M26 until the new Nix build succeeds.
+- HTML upload diagnosis uses owned fixtures: synthetic HTML succeeds with a mock
+  HTTP 200 URL; 403/415/418 and invalid replies all produce code 5. Live HTTP
+  status was discarded, so the user's precise failure is not known. A new
+  numeric-only diagnostic envelope now preserves valid HTTP rejection codes;
+  malformed envelopes/body/path/OS text remain hidden. Actual-app integration
+  still needs qualification. Official
+  service sources have configurable MIME/UA/network filters; no real upload
+  or blanket HTML-ban claim was made.
+- Fresh independent review reproduced two membership echo races: a delayed
+  self-JOIN revived accepted PART intent; FIFO old PART then new JOIN erased
+  the newer key. Desired membership now belongs to accepted local/raw commands,
+  not their inbound echoes. Self-KICK still removes intent. New guards pass.
+- RFC-valid short or absent connection-server prefixes formerly blocked welcome
+  and SASL CAP handling. Shared server-source syntax now accepts those forms;
+  auth phase/current-recipient and exact NickServ notice identity stay intact.
+- Preference review reproduced lost pre-read endpoint edits, same-value explicit
+  settings overwritten by late reads, and bare channel-prefix acceptance.
+  Regressions guide a bounded deferred-scope queue, explicit accepted-intent
+  mask, and consistent nonempty channel names. Runtime qualification remains.
+- Launch-channel review reproduced a valid CSV list producing no JOINs. Args
+  and JoinPlan now share one strict, all-or-nothing names-only parser. Empty
+  input means no channels; malformed members and lists above 14 are rejected.
+  Helper/profile channel bounds match the 505-byte individual JOIN budget.
+- Case-only endpoint changes previously retained runtime keys and old chat
+  state. Session now uses exact host spelling and port, as credentials and
+  preferences do. History keeps its existing case-equivalent hostname lookup;
+  its explicit fixture is unchanged. Archive lookup does not restore keys or
+  credentials.
+- A startup characterization confirmed that history loaded before preferences.
+  A later `history off` did not undo that read; a later smaller cap did not trim
+  restored rows. Settings-before-history ordering is now implemented with
+  lower-level guards; final terminal qualification remains.
+- The chosen correction gates only preference-enabled live startup: paint and
+  process local input, resolve settings once, read an auth-free bounded archive
+  on a worker, merge without trimming local rows or evicting local tabs, then
+  send one generation-scoped Begin to the deferred actor. Unknown-policy reads
+  fail closed for history; `none` preserves direct startup. Retained startup
+  status rows flush under the resolved policy before archive checkpointing.
+  Cap/history changes invalidate the completed request and requeue after that
+  worker releases. Headless preparation calls the helper once before history
+  and registration. The frozen native app now builds; final terminal checks remain.
+- New review counterexamples reproduced active-plus-pending preference scopes
+  exceeding the 16-scope bound, and returned endpoints staying held forever.
+  Runtime/Live ES guards now pass; once-only global policy also survives an
+  initial failed read and later endpoint changes.
+- ACTION review reproduced a zero-body-budget send and a malformed leading-
+  colon target. Shared target validation and strict positive budget now pass
+  nine new guards, without changing existing assertions. Mixed UTF-8 cluster
+  and complete long-message controls also pass.
+- Raw JOIN review reproduced sending a 15th desired channel that reconnect
+  would omit. Admission is now atomic; refused commands keep prior keys,
+  revision, buffers, and membership, report the limit, and send no wire. New
+  negative and positive capacity controls pass.
+- Candidate app generation completed, but its original 300-second C compile
+  timed out. A separate bounded 600-second C retry succeeded. BUILD_TIMEOUT is
+  now configurable (default 300) for a bounded central-driver retry; no compile
+  bottleneck or optimization cause is claimed. The candidate passes one actual
+  loopback run each for local timestamps, upload diagnostics, and three-
+  connection manual/automatic recovery. These are not the final startup build
+  or the required three changed-PTY runs.
+- The new local-time test initially treated incremental terminal output as
+  plain text. The captured screen showed the correct timestamp; its observer
+  now checks screen cells with unchanged expected text and deadlines.
+- A quiet standard proof run passed (`build/m27-proof-quiet-after-startup.log`).
+  An earlier run reached its 180-second inner deadline; no cause is inferred.
+- Standard proof checks also passed after the recovery laws were added
+  (`build/m27-proof-second.log`). The integrated Net module has no type errors;
+  its direct checker rejects foreign/unsafe dependencies as expected. The new
+  candidate app build is not final qualification or a Nix prebuild.
+- Final startup guards pass through the root Make targets, including the
+  facade, single-read headless preparation, owned worker completions, archive
+  admission, and new refusal laws (`build/m27-startup-snapshot-frozen-guards.log`,
+  `build/m27-startup-laws-final-check.log`). The native facade and canceled/held
+  actor guards passed before the narrow snapshot/divider delta. Final app
+  qualification remains pending.
+- An owned 1024-record worker fixture reproduced a temporary divider removing
+  the oldest allowed archive row. Snapshot reads now spend their row budget
+  only on archive records. Startup adds fresh-ID dividers only to imported
+  targets with spare capacity; local-only and diagnostic-only targets remain
+  unchanged. The 1023/1024, failed-read, legacy-reader, and divider controls pass.
+  Eight now-unused forwarding functions were removed; the ordinary entry and
+  existing injected-error test seam stay intact. No old assertion changed.
+- The final Nix build reached buildPhase but hit its 900-second outer deadline
+  (`build/m27-nix-final-prebuild.log`). No new package was installed. Its final
+  log does not distinguish Bend from Clang time. A separate frozen-source C
+  generation succeeds in 97.61 seconds (`build/m27-final-app-codegen-diagnostic.log`).
+  The bounded native compile also succeeds in 223.69 seconds
+  (`build/m27-final-native-app-compile.log`). Do not infer a
+  bottleneck or claim the default app is hot-cached from this evidence.
+  New terminal tests can select an app via `PTY_APP`; native and terminal checks
+  run serially in the central build lane. The private helper/provisioning was
+  committed as `e635c5d`; no push occurred. Final app qualification is pending.
+- Eleven frozen-source ES fixture goldens pass; the existing submit fixture
+  needed only a `Begin` command type adapter, with all assertions unchanged.
+  Standard proof, strict FFI lint, native/UBSan local clock, private helper,
+  and fake Keychain checks pass. The first final terminal pass reaches a new
+  preferences observer failure after local-time, recovery, and upload greens.
+  That new observer now avoids redundant commands and carries partial ANSI/UTF-8
+  input; both preferences scripts pass their seven native cases. Assertions for
+  durable settings, scope, privacy, deadlines, and cleanup remain intact.
+- Further redraw review found a production guarantee gap: the second immediate
+  frame can accept the final command with no remaining input, but its changed
+  state is not scheduled for repaint. The captured screen stayed old while the
+  durable setting changed. The original `-O2` app reproduces this twice with one
+  physical settings/bell burst; single-command, idle, and halt controls pass,
+  including failure-path terminal restore/reap. The actual callback guard is
+  RED for drained-hot input and passes all eight assertions after the narrow
+  `more || (hot && !halt)` coalesced-continuation correction. One immediate
+  redraw, ACK/output/generation, and halt policy remain unchanged. The exact
+  success-token newline adapter and all eight native callback guards pass
+  (`build/m27-final-repaint-build-and-pty.log`). The final `-O2` app builds and
+  all six terminal suites pass three consecutive runs, including the four-case
+  drained-redraw guard. Its native hash is
+  `d0de07407f253132f6da1c0da0df16acb32437bff7251b9bacee770d189be239`.
+  Children are reaped and terminal state is restored. Do not count the observer
+  correction as fixing the app gap. Default-package qualification remains open.
+- The pre-repaint native app and five new terminal scripts pass three quiet
+  consecutive runs (`build/m27-final-pty-three-runs-corrected.log`), with native
+  hash `021fbca83bbb8ddac8d06ac5fc462aa4fb91d5547fe68279e4c2e69a105a609a`.
+  This is baseline evidence, not qualification of the later repaint change.
+  The new callback fixture needs the established unexecuted App retention arm
+  for complete FFI constructor IDs. Its initial native `-O2` stage reached the
+  300-second bound; diagnostic `-O0` generation/runtime and actual `-O2` app
+  terminal tests are separate checks, not an optimization or bottleneck claim.
+- Default-off Nix codegen/native stage instrumentation has six synthetic
+  success/failure guards. Its profiled derivation is separate and cannot
+  establish default-app hot-cache status. No optimization or bottleneck claim
+  follows before measuring the package stages.
+- Final core checks: standard proof passes with `PROOF_TIMEOUT=600` after the
+  default 180-second attempt times out. Strict FFI lint, golden-runner controls,
+  build configuration/TLS flags, 102 compiler deadlines, 76 terminal deadlines,
+  and native clock UBSan pass (`build/m27-final-pre-core-commit-checks-retry.log`).
+  No law or assertion was changed for the retry. The same batch then stops at
+  the package timer test's 45-second Nix evaluation deadline, before its fake
+  compiler cases run. Its earlier six-case GREEN remains separate evidence;
+  do not describe this final batch as wholly GREEN. The Make proof deadline is
+  configurable and rejects nonpositive values; the ordinary default stays 180.
+- Final read-only reviews find no blocker in repaint/ACK/output ownership,
+  startup archive admission/checkpointing, headless ordering, recovery auth,
+  or preference/history/burst observers and bounded terminal cleanup. No
+  independent proof kernel or full aggregate `make check` was run.
+
+Before completion: freeze agent edits, run fresh proof and relevant pure/native
+checks, build the app, pass changed/new PTY guards three consecutive times,
+review runtime integration independently, and prebuild the Nix app. Do not
+call the later phases implemented. Tests force `BIRC_PREFERENCES=none` unless
+their own synthetic preference file is explicitly under test.
 
 ## Open decisions (resolve in M0/M4)
 

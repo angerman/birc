@@ -32,9 +32,17 @@ USER_AGENT = "birc/0.1 (IRC client; confirmed local file upload)"
 class UploadError(Exception):
     """Fixed diagnostics: 1 usage, 2 source, 3 changed, 4 IO, 5 reply, 6 time."""
 
-    def __init__(self, code):
+    def __init__(self, code, *, http_status=0):
         self.code = code
+        self.http_status = (http_status if code == 5 and type(http_status) is int
+                            and 100 <= http_status <= 599 and http_status != 200 else 0)
         super().__init__(code)
+
+
+def diagnostic(error):
+    """A fixed numeric envelope, never a server reason/body or local path."""
+    detail = f", http:{error.http_status}" if error.http_status else ""
+    return f"birc-upload: failed (code:{error.code}{detail})"
 
 
 def remaining(deadline, sock=None):
@@ -140,7 +148,9 @@ def upload(path, *, connection=http.client.HTTPSConnection, deadline=None):
         # response. Retain the socket object while its response file owns it.
         sock = client.sock
         response = client.getresponse()
-        if response.status != 200 or response.getheader("Content-Encoding", "identity").lower() != "identity":
+        if response.status != 200:
+            raise UploadError(5, http_status=response.status)
+        if response.getheader("Content-Encoding", "identity").lower() != "identity":
             raise UploadError(5)
         length = response.getheader("Content-Length")
         if length is not None and (not length.isascii() or not length.isdecimal() or len(length) > 10 or int(length) > MAX_RESPONSE):
@@ -180,7 +190,7 @@ if __name__ == "__main__":
     try:
         main(sys.argv[1:])
     except UploadError as error:
-        print(f"birc-upload: failed (code:{error.code})", file=sys.stderr)
+        print(diagnostic(error), file=sys.stderr)
         sys.exit(error.code)
     except (Exception, KeyboardInterrupt):
         print("birc-upload: failed (code:4)", file=sys.stderr)

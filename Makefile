@@ -12,6 +12,9 @@ NICK ?= birc
 CHAN ?= \#birc
 PORT ?=
 TRANSPORT ?= tls
+PREFS_HELPER ?= birc-preferences
+BUILD_TIMEOUT ?= 300
+PROOF_TIMEOUT ?= 180
 
 ifeq ($(BIRC_NIX_SHELL),1)
 NIXRUN :=
@@ -22,11 +25,15 @@ endif
 BLDDIR := build
 APP := src/bend/app.bend
 PROTO := tests/bend/proto_demo.bend
+PTY_APP ?= ./$(BLDDIR)/birc
+PTY_BUILD = $(if $(filter ./$(BLDDIR)/birc,$(PTY_APP)),build-ui)
 
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 test%: export BIRC_IMAGES ?= off
 check: export BIRC_IMAGES ?= off
+test%: export BIRC_PREFERENCES := none
+check: export BIRC_PREFERENCES := none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-feed-bench test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
@@ -85,7 +92,228 @@ build-proto: ## Build the Bend protocol self-test binary.
 # Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
 # birc usage is --help-irc (args.bend).
 BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
-BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix
+BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix nix/preferences.nix
+
+.PHONY: test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy test-preferences test-preferences-pure test-preferences-helper test-preferences-io test-keychain-channels test-utc-time test-clock-local test-clock-local-native test-clock-local-native-ubsan
+
+test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy: ## Recovery, trusted authentication, strict commands, and lossless message guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+
+test-preferences-pure: ## Durable settings roundtrip without changing credentials or live state.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_demo.bend -o $(BLDDIR)/preferences_demo
+	$(NIXRUN) sh scripts/check-golden.sh preferences_demo=ok timeout 15 ./$(BLDDIR)/preferences_demo
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_io_demo.bend -o $(BLDDIR)/preferences_io_demo
+	$(NIXRUN) sh scripts/check-golden.sh preferences_io_demo=ok timeout 15 ./$(BLDDIR)/preferences_io_demo
+
+test-preferences-helper: ## Owned private files, safe atomic replacement, and strict schemas.
+	$(NIXRUN) timeout 45 python3 tests/preferences.py
+
+test-preferences-io: ## Real bounded helper IO, safe diagnostics, and disabled no-write control.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_io_driver.bend -o $(BLDDIR)/preferences_io_driver
+	$(NIXRUN) timeout 45 python3 tests/preferences_io.py ./$(BLDDIR)/preferences_io_driver
+
+test-keychain-channels: ## Saved channel names and exact explicit CLI override, without JOIN keys.
+	$(NIXRUN) timeout 30 python3 tests/keychain_channels.py
+
+test-preferences: test-preferences-pure test-preferences-helper test-preferences-io test-keychain-channels ## Private preferences and saved endpoint channel names.
+
+test-utc-time: ## Valid complete UTC dates and invalid/missing/duplicate server-time tags.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/utc_time.bend -o $(BLDDIR)/utc_time
+	$(NIXRUN) sh scripts/check-golden.sh utc_time=ok timeout 15 ./$(BLDDIR)/utc_time
+
+test-clock-local: test-utc-time test-clock-local-native ## Local log timestamps use the event date and preserve raw protocol input.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/clock_local_demo.bend -o $(BLDDIR)/clock_local_demo
+	$(NIXRUN) env TZ=Asia/Seoul sh scripts/check-golden.sh clock_local_demo=ok timeout 15 ./$(BLDDIR)/clock_local_demo
+
+test-clock-local-native: ## libc date conversion, DST boundaries, leap seconds, and numeric FFI tuple ABI.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Itests/lint-ffi tests/clock_local.c -o $(BLDDIR)/clock_local'
+	$(NIXRUN) sh scripts/check-golden.sh clock_local=ok timeout 15 ./$(BLDDIR)/clock_local
+
+test-clock-local-native-ubsan: ## UBSan qualification of native local timestamp conversion.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -g -Werror=vla -pedantic -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Itests/lint-ffi tests/clock_local.c -o $(BLDDIR)/clock_local_ubsan'
+	$(NIXRUN) env UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh clock_local=ok timeout 15 ./$(BLDDIR)/clock_local_ubsan
+
+test-review-pure: test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy test-preferences test-clock-local
+test-sanitizers: test-clock-local-native-ubsan
+
+.PHONY: test-pty-local-time
+test-pty-local-time: $(PTY_BUILD) ## Loopback event-local timestamps; PTY_APP can select an installed build.
+	$(NIXRUN) timeout 30 python3 tests/pty/local_time.py $(PTY_APP)
+test-pty: test-pty-local-time
+
+.PHONY: test-reconnect-preferences test-preferences-runtime test-preferences-global
+.PHONY: test-join-plan test-pty-reconnect-recovery
+test-join-plan: ## Bounded desired channels, exact runtime keys, once-only flush, and auth diagnostics.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/join_plan_demo.bend -o $(BLDDIR)/join_plan_demo
+	$(NIXRUN) sh scripts/check-golden.sh join_plan_demo=ok timeout 15 ./$(BLDDIR)/join_plan_demo
+
+test-pty-reconnect-recovery: $(PTY_BUILD) ## Three loopback connections recover channels only after trusted NickServ success.
+	$(NIXRUN) timeout 60 python3 tests/pty/reconnect_recovery.py $(PTY_APP)
+test-pty: test-pty-reconnect-recovery
+test-review-pure: test-join-plan
+
+test-reconnect-preferences: ## Async channel loading, runtime key revisions, offline removal, and auth barrier.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/reconnect_preferences.bend -o $(BLDDIR)/reconnect_preferences
+	$(NIXRUN) sh scripts/check-golden.sh reconnect_preferences=ok timeout 15 ./$(BLDDIR)/reconnect_preferences
+
+test-preferences-runtime: ## Bounded coalescing, stale completion isolation, and edit-wins loading.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_runtime_demo.bend -o $(BLDDIR)/preferences_runtime_demo
+	$(NIXRUN) sh scripts/check-golden.sh preferences_runtime_demo=ok timeout 15 ./$(BLDDIR)/preferences_runtime_demo
+
+test-preferences-global: ## Offline global settings never create a fabricated server profile.
+	$(NIXRUN) timeout 45 python3 tests/preferences_global.py
+
+test-preferences: test-preferences-runtime test-preferences-global
+test-review-pure: test-reconnect-preferences
+
+.PHONY: test-reconnect-echoes test-upload-diagnostics test-preferences-live test-preferences-channels test-preferences-package
+test-reconnect-echoes: ## Delayed membership echoes preserve intent and valid server prefixes authenticate.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/reconnect_echoes.bend -o $(BLDDIR)/reconnect_echoes
+	$(NIXRUN) sh scripts/check-golden.sh reconnect_echoes=ok timeout 15 ./$(BLDDIR)/reconnect_echoes
+
+test-upload-diagnostics: ## Numeric HTTP rejection details without exposing helper bodies or paths.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/upload_diagnostics.bend -o $(BLDDIR)/upload_diagnostics
+	$(NIXRUN) sh scripts/check-golden.sh upload_diagnostics=ok timeout 15 ./$(BLDDIR)/upload_diagnostics
+	$(NIXRUN) timeout 45 python3 tests/upload_diagnostics.py
+
+test-preferences-live: ## Stored channel scope, explicit overrides, and Session preference application.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_live_demo.bend -o $(BLDDIR)/preferences_live_demo.js
+	$(NIXRUN) sh scripts/check-golden.sh preferences_live_demo=ok timeout 30 bun $(BLDDIR)/preferences_live_demo.js
+
+.PHONY: test-preferences-return-live
+test-preferences-return-live: ## A returning endpoint restores cached names and releases held JOINs once.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/preferences_return_live.bend -o $(BLDDIR)/preferences_return_live.js
+	$(NIXRUN) sh scripts/check-golden.sh preferences_return_live=ok timeout 30 bun $(BLDDIR)/preferences_return_live.js
+test-preferences: test-preferences-return-live
+
+.PHONY: test-history-startup test-history-startup-divider test-startup-headless test-startup-headless-io test-action-budget-admission
+test-history-startup test-history-startup-divider test-startup-headless: ## Startup snapshot preservation, bounded dividers, and once-only settings.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@)).js
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 30 bun $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@)).js
+
+test-startup-headless-io: ## Owned archive and one fake helper resolve history policy before headless registration.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/startup_headless_io.bend -o $(BLDDIR)/startup_headless_io.js
+	$(NIXRUN) timeout 45 python3 tests/startup_headless.py bun $(BLDDIR)/startup_headless_io.js
+test-action-budget-admission: ## Reject zero ACTION body budgets and malformed wire targets.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/action_budget.bend -o $(BLDDIR)/action_budget.js
+	$(NIXRUN) sh scripts/check-golden.sh action_budget=ok timeout 30 bun $(BLDDIR)/action_budget.js
+test-review-pure: test-history-startup test-history-startup-divider test-startup-headless test-startup-headless-io test-action-budget-admission
+
+.PHONY: test-join-capacity
+test-join-capacity: ## Raw/local JOIN admission is atomic at the 14-channel recovery limit.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/join_capacity.bend -o $(BLDDIR)/join_capacity.js
+	$(NIXRUN) sh scripts/check-golden.sh join_capacity=ok timeout 30 bun $(BLDDIR)/join_capacity.js
+test-review-pure: test-join-capacity
+
+.PHONY: test-live-context test-live-context-io test-history-startup-io test-deferred-actor
+test-live-context: ## Generation-scoped startup gate and stale archive admission guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/live_context.bend -o $(BLDDIR)/live_context.js
+	$(NIXRUN) sh scripts/check-golden.sh live_context=ok timeout 30 bun $(BLDDIR)/live_context.js
+
+test-live-context-io: ## Native archive completions, no-write controls, and import checkpoint effects.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/live_context_io.bend -o $(BLDDIR)/live_context_io.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/live_context_io.c -o $(BLDDIR)/live_context_io'
+	$(NIXRUN) timeout 180 python3 tests/live_context.py ./$(BLDDIR)/live_context_io
+
+test-history-startup-io: ## Owned archive worker preserves exact endpoint and typed request identity.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_startup_io.bend -o $(BLDDIR)/history_startup_io.js
+	$(NIXRUN) timeout 35 python3 tests/history_startup_io.py bun $(BLDDIR)/history_startup_io.js
+
+.PHONY: test-history-startup-boundary
+test-history-startup-boundary: ## Full 1024-row startup snapshots retain their oldest allowed archive record.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/history_startup_boundary.bend -o $(BLDDIR)/history_startup_boundary.js
+	$(NIXRUN) timeout 45 python3 tests/history_startup_boundary.py bun $(BLDDIR)/history_startup_boundary.js
+
+test-deferred-actor: ## Held and canceled native actors close without dialing and acknowledge the writer.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/deferred_actor.bend -o $(BLDDIR)/deferred_actor.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_actor.c -o $(BLDDIR)/deferred_actor'
+	$(NIXRUN) sh scripts/check-golden.sh deferred_actor=ok timeout 20 ./$(BLDDIR)/deferred_actor
+
+.PHONY: test-deferred-frame test-deferred-frame-native
+# Keep this callback diagnostic unoptimized; the actual application and
+# burst-command PTY guard are separately qualified with the normal -O2 build.
+DEFERRED_FRAME_CFLAGS ?= -std=c11 -O0 -pthread -w
+test-deferred-frame: ## Last-frame changes defer one repaint, preserving ACK, output, idle, and halt policy.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/deferred_frame.bend -o $(BLDDIR)/deferred_frame.c
+	$(MAKE) test-deferred-frame-native
+
+test-deferred-frame-native: ## Compile/run the existing generated callback guard; BUILD_TIMEOUT bounds retries.
+	@test -s $(BLDDIR)/deferred_frame.c
+	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(DEFERRED_FRAME_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_frame.c -o $(BLDDIR)/deferred_frame'
+	$(NIXRUN) sh scripts/check-golden.sh 'deferred_frame=ok cases=8' timeout 20 ./$(BLDDIR)/deferred_frame
+test-review-pure: test-deferred-frame
+
+test-review-pure: test-live-context test-live-context-io test-history-startup-io test-history-startup-boundary test-deferred-actor
+
+test-preferences-channels: ## Channel prefixes require a name and never contain persisted JOIN keys.
+	$(NIXRUN) timeout 45 python3 tests/preferences_channels.py
+
+test-preferences-package: ## Provisioned preference helper uses literal arguments and private synthetic files.
+	$(NIXRUN) timeout 60 python3 tests/preferences_package.py $(PREFS_HELPER)
+
+.PHONY: test-session-preferences-intent
+test-session-preferences-intent: ## Accepted settings commands retain explicit intent even when values do not change.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/session_preferences_intent.bend -o $(BLDDIR)/session_preferences_intent
+	$(NIXRUN) sh scripts/check-golden.sh session_preferences_intent=ok timeout 15 ./$(BLDDIR)/session_preferences_intent
+
+test-preferences: test-preferences-live test-preferences-channels test-preferences-package
+test-review-pure: test-reconnect-echoes test-upload-diagnostics test-session-preferences-intent
+
+.PHONY: test-launch-channels test-reconnect-endpoint
+test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and exact host/port runtime scope.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
+test-review-pure: test-launch-channels test-reconnect-endpoint
+
+.PHONY: test-pty-upload-diagnostics
+test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.
+	$(NIXRUN) timeout 40 python3 tests/pty/upload_diagnostics.py $(PTY_APP)
+test-pty: test-pty-upload-diagnostics
+
+.PHONY: test-pty-preferences
+test-pty-preferences: $(PTY_BUILD) ## Delayed preference read, same-value edits, channel scope, and latest-save quit.
+	$(NIXRUN) timeout 90 python3 tests/pty/preferences.py $(PTY_APP)
+test-pty: test-pty-preferences
+
+.PHONY: test-pty-preferences-history
+test-pty-preferences-history: $(PTY_BUILD) ## Saved history policy and caps apply before restore, without duplicate appends.
+	$(NIXRUN) timeout 100 python3 tests/pty/preferences_history.py $(PTY_APP)
+test-pty: test-pty-preferences-history
+
+.PHONY: test-pty-recovery-settings
+test-pty-recovery-settings: test-pty-local-time test-pty-reconnect-recovery test-pty-upload-diagnostics test-pty-preferences test-pty-preferences-history test-pty-deferred-redraw ## Recovery/settings terminal qualification; optional PTY_APP selects the app.
+
+.PHONY: test-pty-deferred-redraw
+test-pty-deferred-redraw: $(PTY_BUILD) ## Last burst command paints, with bounded idle frames and restored shutdown.
+	$(NIXRUN) timeout 45 python3 tests/pty/deferred_redraw.py $(PTY_APP)
+test-pty: test-pty-deferred-redraw
 
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
 .PHONY: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
@@ -280,7 +508,7 @@ $(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) $(BUILD_INPUTS) $(BLDDIR)/build-co
 	$(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c
 
 $(BLDDIR)/birc: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
+	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
 
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
@@ -961,7 +1189,8 @@ test-review-pure: test-m20
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
 proof: ## Check LAWS via PROOF.bend (Bend proof checker).
-	$(NIXRUN) timeout 180 bend PROOF.bend
+	@test "$(PROOF_TIMEOUT)" -gt 0 2>/dev/null || { printf '%s\n' 'PROOF_TIMEOUT must be a positive number of seconds' >&2; exit 2; }
+	$(NIXRUN) timeout $(PROOF_TIMEOUT) bend PROOF.bend
 
 .PHONY: proof-kernel
 proof-kernel: ## Independently check proofs with BendTT (requires Lean or BENDTT).

@@ -4,6 +4,7 @@ import ./buffer.bend as Cl
 import ./auth.bend as Auth
 import ./transport_policy.bend as Policy
 import ./endpoint.bend as Ep
+import ./channel_policy.bend as Channels
 
 type AuthOptions is Data:
   AuthOptions{mode: Cl.AuthMode, prefix: String, success: String}
@@ -204,12 +205,17 @@ def args_word_con(+xs: List<&2, String>, +cfg: Cfg, host: Bool) -> Step:
 def args_word(+xs: List<&2, String>, +cfg: Cfg, host: Bool) -> Step:
   args_word_con(xs, cfg, host)
 
+def args_chan.valid(parsed: Maybe<&2, List<&2, String>>, xs: List<&2, String>, cfg: Cfg, chan: String) -> Step:
+  match parsed:
+    case None{}: Stop{Bad{"birc: invalid channel list"}}
+    case Some{_}: Go{xs, set_chan(cfg, chan)}
+
 def args_chan_con(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   match xs:
     case Nil{}:
       Stop{Bad{"birc: missing value"}}
     case Con{+h, t}:
-      Go{ t, set_chan(cfg, h)}
+      args_chan.valid(Channels.launch_names(h), t, cfg, h)
 
 def args_chan(+xs: List<&2, String>, +cfg: Cfg) -> Step:
   args_chan_con(xs, cfg)

@@ -56,6 +56,7 @@ class Profile(NamedTuple):
     relay: bool
     service: str
     tls: bool
+    channels: tuple[str, ...] | None = None
 
 
 def public_text(value, limit: int, *, spaces=False) -> str:
@@ -87,6 +88,26 @@ def profile_endpoint(value, separate_port, tls: bool) -> tuple[str, int]:
     return host, port if port is not None else (6697 if tls else 6667)
 
 
+def profile_channels(value) -> tuple[str, ...]:
+    """Only channel names; joining keys are never stored in profile metadata."""
+    if not isinstance(value, list) or len(value) > 14:
+        raise Refusal("invalid profile channels")
+    names = tuple(public_text(name, 505) for name in value)
+    if (any(len(name) <= 1 or name[0] not in "#&+!" or "," in name for name in names)
+            or len(set(names)) != len(names)):
+        raise Refusal("invalid profile channels")
+    return names
+
+
+def channel_csv(value) -> str:
+    """Bounded, exact names-only CLI list; empty means no initial channels."""
+    if value == "":
+        return ""
+    original = public_text(value, 7083)
+    profile_channels(original.split(","))
+    return original
+
+
 def read_profile(path: Path, name: str, *, tls=None) -> Profile:
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name):
         raise Refusal("invalid profile name")
@@ -107,7 +128,7 @@ def read_profile(path: Path, name: str, *, tls=None) -> Profile:
         raise Refusal("invalid profile file")
     entry = document["profiles"].get(name)
     allowed = {"host", "port", "account", "nick", "auth", "nickserv_prefix",
-               "nickserv_success", "trusted_relay", "tls"}
+               "nickserv_success", "trusted_relay", "tls", "channels"}
     if (not isinstance(entry, dict)
             or any(not isinstance(row, dict) or set(row) - allowed
                    for row in document["profiles"].values())):
@@ -137,7 +158,8 @@ def read_profile(path: Path, name: str, *, tls=None) -> Profile:
     elif "nickserv_prefix" in entry or "nickserv_success" in entry:
         raise Refusal("NickServ trust requires an explicit authentication mode")
     service = "birc.auth.v1:" + json.dumps([name, host, port], separators=(",", ":"))
-    return Profile(host, port, account, nick, auth, prefix, confirmation, relay, service, use_tls)
+    channels = profile_channels(entry["channels"]) if "channels" in entry else None
+    return Profile(host, port, account, nick, auth, prefix, confirmation, relay, service, use_tls, channels)
 
 
 def secret_bytes(value: str) -> bytes:
@@ -294,6 +316,8 @@ def launch(program: str, profile: Profile, secret: bytes, extra: list[str], secu
         if profile.prefix:
             args.extend(["--nickserv-prefix", profile.prefix,
                          "--nickserv-success", profile.confirmation])
+        if profile.channels is not None and "--channel" not in extra:
+            args.extend(["--channel", ",".join(profile.channels)])
         args.extend(extra)
         child = subprocess.Popen(args, env=env, pass_fds=(secret_r, event_w))
         os.close(secret_r)
@@ -362,7 +386,7 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
                 raise Refusal("invalid frame cap")
             extra.extend(["--frames", str(options.frames)])
         if options.channel is not None:
-            extra.extend(["--channel", public_text(options.channel, 128)])
+            extra.extend(["--channel", channel_csv(options.channel)])
         secret = load_secret(security, profile)
         save = secret is None
         if save:

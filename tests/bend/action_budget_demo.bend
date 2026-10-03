@@ -31,6 +31,26 @@ def action_result(pair: Cl.Client & List<&2, String>, +target: String, +want: St
 def action(+body: String, +want: String) -> Bool:
   action_result(Sub.submit(channel("#room"), "/me " ++ body), "#room", want)
 
+def action_wires(xs: List<&2, String>, parts: List<&2, String>) -> Bool:
+  match xs parts:
+    case Nil{} Nil{}: True{}
+    case Con{+wire, rest} Con{+text, tail}:
+      String.eq(wire, Irc.format_privmsg("#room", Sub.ctcp_action(text)))
+        && Irc.line_ok(wire) && action_wires(rest, tail)
+    case _ _: False{}
+
+def action_echoes(parts: List<&2, String>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{body, rest}: "* me " ++ body ++ "|" ++ action_echoes(rest)
+
+def split_action.result(pair: Cl.Client & List<&2, String>, +parts: List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, wires): action_wires(wires, parts) && String.eq(CL.buf_texts(cl, 1n), action_echoes(parts))
+
+def split_action(+body: String, +parts: List<&2, String>) -> Bool:
+  String.eq(String.concat(parts), body) && split_action.result(Sub.submit(channel("#room"), "/me " ++ body), parts)
+
 def oversize_result(pair: Cl.Client & List<&2, String>) -> Bool:
   match pair:
     case (+cl, outs):
@@ -44,11 +64,11 @@ def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("short_action", action("waves", "waves"))
     Unit <- E.must("exact_ascii_action", action(Irc.stars.go(486n), Irc.stars.go(486n)))
-    Unit <- E.must("long_ascii_action", action(Irc.stars.go(507n), Irc.stars.go(486n)))
+    Unit <- E.must("long_ascii_action", split_action(Irc.stars.go(507n), [Irc.stars.go(486n), Irc.stars.go(21n)]))
     Unit <- E.must("exact_utf8_action", action(repeat(162n, Chr{28450}), repeat(162n, Chr{28450})))
-    Unit <- E.must("long_utf8_action", action(repeat(163n, Chr{28450}), repeat(162n, Chr{28450})))
-    Unit <- E.must("partial_utf8_action", action(Irc.stars.go(485n) ++ "é", Irc.stars.go(485n)))
-    Unit <- E.must("four_byte_action", action(repeat(123n, Chr{128512}), repeat(121n, Chr{128512})))
+    Unit <- E.must("long_utf8_action", split_action(repeat(163n, Chr{28450}), [repeat(162n, Chr{28450}), "漢"]))
+    Unit <- E.must("partial_utf8_action", split_action(Irc.stars.go(485n) ++ "é", [Irc.stars.go(485n), "é"]))
+    Unit <- E.must("four_byte_action", split_action(repeat(123n, Chr{128512}), [repeat(121n, Chr{128512}), repeat(2n, Chr{128512})]))
     Unit <- E.must("line_injection_action", action("hi" ++ SCon{Chr{13}, SCon{Chr{10}, "there"}}, "hithere"))
     Unit <- E.must("oversize_target", oversize_target())
     IO.print("action_budget_demo=ok")

@@ -41,7 +41,7 @@ def halt(triple: Sess.Session & Sess.NetCmd & Bool) -> Bool:
 
 def history(st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, Sess.Hist{lines, _}, _, _, _, _, _, _, _}: String.join(lines, "|")
+    case Sess.Session{_, _, _, _, _, _, _, Sess.Hist{lines, _}, _, _, _, _, _, _, _, _, _}: String.join(lines, "|")
 
 def line_texts(lines: List<&2, Cl.Line>) -> String:
   match lines:
@@ -128,7 +128,7 @@ def completion.word(got: Maybe<&2, Sess.CompWord>) -> String:
 
 def completion(st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _}: completion.word(Sess.comp_word(comp))
+    case Sess.Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _, _, _}: completion.word(Sess.comp_word(comp))
 
 def batch_tab() -> Sess.Session:
   complete_tab(Sess.session_set_client(batch_busy(), nick_client()), "a")

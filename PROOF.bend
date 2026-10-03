@@ -12,6 +12,57 @@ import ./src/bend/typing.bend as Ty
 import ./src/bend/outbound.bend as Act
 import ./LAWS.bend as Laws
 
+def Laws.refused_startup_archive_keeps_current_client(current, snapshot):
+  {==}
+
+def Laws.absent_startup_target_keeps_current_client(current, line):
+  {==}
+
+def Laws.held_recovery_has_no_wire_output():
+  {==}
+
+def Laws.completed_recovery_does_not_repeat():
+  {==}
+
+def Laws.old_authentication_cannot_release_recovery():
+  {==}
+
+def Laws.reset_keeps_key_revision_and_hold():
+  {==}
+
+def Laws.new_endpoint_discards_previous_channel_keys():
+  {==}
+
+def Laws.delayed_membership_echo_cannot_erase_intent():
+  {==}
+
+def Laws.server_time_invalid_calendar_is_rejected():
+  {==}
+
+def Laws.server_time_retains_complete_utc_event():
+  {==}
+
+def Laws.server_time_leap_second_is_preserved():
+  {==}
+
+def Laws.duplicate_server_time_is_invalid():
+  {==}
+
+def Laws.captured_image_preference_is_preserved(cl, images, channels):
+  {==}
+
+def Laws.raw_command_cannot_inject_line():
+  {==}
+
+def Laws.explicit_empty_topic_is_sent():
+  {==}
+
+def Laws.message_chunks_preserve_combining_cluster():
+  {==}
+
+def Laws.notice_credentials_do_not_enter_composer_history():
+  {==}
+
 def Laws.default_irc_transport_is_tls():
   {==}
 

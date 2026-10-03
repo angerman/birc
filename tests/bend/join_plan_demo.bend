@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: Apache-2.0
+# Bounded, explicit desired membership and per-connection readiness.
+import Base
+import ./expect.bend as E
+import ../../src/bend/irc.bend as Irc
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/join_plan.bend as P
+
+def plan(pair: P.State & List<&2, String>) -> P.State:
+  match pair:
+    case (state, _): state
+
+def wire(state: P.State) -> String:
+  match state:
+    case P.State{desired, _, _, _, _, _}: String.join(P.lines(desired), "|")
+
+def lines(got: P.Flush) -> String:
+  match got:
+    case P.Flush{_, outs, _}: String.join(outs, "|")
+
+def notice(got: P.Flush) -> String:
+  match got:
+    case P.Flush{_, _, P.Quiet{}}: "quiet"
+    case P.Flush{_, _, P.Held{}}: "held"
+    case P.Flush{_, _, P.Failed{}}: "failed"
+
+def flushed(got: P.Flush) -> P.State:
+  match got:
+    case P.Flush{state, _, _}: state
+
+def channels(n: Nat, state: P.State) -> P.State:
+  match n:
+    case Zero{}: state
+    case Succ{+rest}: channels(rest, P.remember(state, "#c" ++ Nat.show(rest), "", True{}))
+
+def capacity_controls() -> IO(Unit):
+  +full = channels(14n, P.initial(""))
+  do IO<Unit>:
+    Unit <- E.must("all fourteen channel slots are retained", Nat.is_eq(List.length(&2, String, P.desired_names(full)), 14n))
+    Unit <- E.must("fifteenth channel cannot grow the plan", Nat.is_eq(List.length(&2, String, P.desired_names(P.remember(full, "#extra", "", True{}))), 14n))
+    Unit <- E.must_eq("existing channel key can update at capacity", wire(P.seed(P.remember(full, "#c0", "new-key", True{}), "#c0" <> Nil{})), "JOIN #c0 new-key")
+    Unit <- E.must("invalid whitespace/key cannot create intent", Nat.is_eq(List.length(&2, String, P.desired_names(P.remember(P.initial(""), "#bad name", "key", True{}))), 0n))
+    IO.pure(Unit, Unit{})
+
+def auth_controls() -> IO(Unit):
+  +cl = Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6667, "", "", "account", "secret")
+  +waiting = P.received(P.reset(P.initial("#start"), cl), cl, ":irc.example 001 me :welcome")
+  +held = flushed(P.flush(waiting, cl))
+  do IO<Unit>:
+    Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
+    Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
+    Unit <- E.must_eq("repeat wait is silent", notice(P.flush(held, cl)), "quiet")
+    Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), "failed")
+    Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), "")
+    Unit <- E.must_eq("repeat auth failure is silent", notice(P.flush(flushed(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), Cl.set_auth(cl, Cl.AuthDone{}))), "quiet")
+    IO.pure(Unit, Unit{})
+
+def key_controls() -> IO(Unit):
+  +state = plan(P.outbound(P.demo("#start"), "JOIN #one,#two first-key,second-key" <> Nil{}))
+  do IO<Unit>:
+    Unit <- E.must_eq("leading-colon key preserves its IRC value", P.channel_line("#one", ":key"), "JOIN #one ::key")
+    Unit <- E.must_eq("normal key remains a normal parameter", P.channel_line("#one", "key"), "JOIN #one key")
+    Unit <- E.must_eq("each target retains its matching runtime key", wire(P.seed(state, "#one" <> "#two" <> Nil{})), "JOIN #one first-key|JOIN #two second-key")
+    Unit <- E.must("explicit same-name key update advances revision", Nat.is_gt(P.revision(plan(P.outbound(state, "JOIN #one changed-key" <> Nil{}))), P.revision(state)))
+    IO.pure(Unit, Unit{})
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- key_controls()
+    Unit <- capacity_controls()
+    Unit <- auth_controls()
+    IO.print("join_plan_demo=ok")

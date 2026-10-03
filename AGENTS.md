@@ -58,6 +58,12 @@ silent flake/source pin updates. Routine Nix work uses
 | `src/bend/outbound.bend` | Pure send-cap batches and finite credits |
 | `src/bend/replay.bend` | Bounded file-snapshot replay through the live byte framer |
 | `src/bend/history_io.bend` | Private history append effects; keep foreign IO outside proof-facing History |
+| `src/bend/history_startup.bend` / `history_startup_io.bend` | Auth-free startup snapshots, nontrimming import, and fresh-ID dividers |
+| `src/bend/live_context.bend` / `startup_headless.bend` | Settings-before-history startup policy and generation-scoped actor release |
+| `src/bend/preferences_runtime.bend` / `preferences_live.bend` | Bounded settings queue, edit-wins loading, and quit drain |
+| `src/launcher/preferences_birc.py` | Private nonsecret settings file and literal helper protocol |
+| `src/bend/join_plan.bend` | Desired membership, transient keys, and welcome/auth recovery barrier |
+| `src/bend/irc_commands.bend` / `message_chunks.bend` | Shared command validation and lossless cluster-safe wire chunks |
 | `src/bend/links.bend` | Shared URL lexical rules (pure) |
 | `src/bend/diagnostic.bend` | Bounded log text/redaction and numeric helper diagnostics (pure) |
 | `src/bend/media.bend` | Image request identity, one-worker queue, and stale-result policy (pure) |
@@ -78,6 +84,9 @@ silent flake/source pin updates. Routine Nix work uses
 ## Engineering
 
 - Fail closed: missing targets exit nonzero.
+- Never list global process command lines during diagnostics; they can contain
+  credentials. Inspect only owned process IDs and non-argument fields such as
+  executable, elapsed time, and CPU usage. Never log command-line secrets.
 - TLS verifies the certificate chain and original requested DNS hostname or IP
   SAN before IRC registration. DNS names use SNI. The native operation owns a
   five-second setup/handshake deadline; reads check buffered plaintext before parking.
@@ -109,6 +118,16 @@ silent flake/source pin updates. Routine Nix work uses
 - Log lines carry author identity and stable global IDs. Never infer new events by comparing rendered text/timestamps. Reconnect dividers are `Reconnect`, not a substring test; `Reconnecting` preserves same-endpoint intent through dialing. Unread names and alert levels are separate fields.
 - Scroll uses one message-and-character anchor (`ScrollAt{after, tail}`). View wrapping supplies both paint rows and navigation bounds. Never clamp live navigation by logical line count or store width-dependent row offsets.
 - `BIRC2` history includes the hostname and port. The IO reader rejects ambiguous legacy records, reads bounded chunks to the initial file size, and retains recent records. Save the current event before loading a changed endpoint; install the loaded client as the next history checkpoint so restored rows are not appended again. Replay uses the same byte framer as live input, reads the initial file snapshot in bounded chunks, preserves a final unterminated record, and fails closed on size/read/early-EOF errors.
+- Preference-enabled startup paints first, resolves settings, reads an auth-free
+  archive worker snapshot, and sends one generation-scoped `Begin`. Unknown
+  settings policy cannot read/write history without accepted explicit intent.
+  Import preserves current rows, IDs, metadata, and tabs. Report owned worker
+  diagnostics before capturing the archive cutoff; add dividers only to
+  imported targets with spare capacity. The postimport client is the checkpoint
+  before completion-paint input, so imported rows are not saved again but new
+  input still is. Box wide continuation state: the pinned Bend backend permits
+  at most 247 flattened capture words. Headless resolves the same policy once
+  before registration; `BIRC_PREFERENCES=none` keeps the direct startup path.
 - `*log*` is lazy, read-only, app-session state: reserve one of 16 buffer slots, keep at most 128 rows of 512 characters, and preserve it across endpoint changes. Error mirrors keep their original event IDs and never steal focus. Log rows never enter chat history. Helper diagnostics include only safe stage labels and numeric codes; never log child output. A history-save failure goes directly to the log and schedules a coalesced repaint, not a persisted chat error or another save. Normalize wire targets before reserved-name validation and lookup; share target predicates with submission. Generic local lookups must still resolve synthetic tabs. Preserve the `NOTICE *` broadcast exception.
 - Images use one bounded helper worker, eight pending requests, and eight cached results. Production View uploads only accepted nonzero `OpMedia` tokens; pending/failed intents draw placeholders, never a raw-file fallback. Bend's prospective completion supplies retained payload tokens to native admission; native FIFO must not evict a token that Bend still owns. Legacy `OpImage` adapters are for characterization/law tests only. Decode/ingestion does not allocate terminal image IDs or write output; an accepted frame owns its copied media. Late completions release the active worker but cannot restore disabled/stale previews. Kitty/iTerm animation is terminal-side; do not add an app animation timer.
 - Native cells store complete UTF-8 clusters in buffer-owned arenas. Bare cell copies must not transfer arena attachments. Bend layout, native tabs, and FFI clipping use the same TimUI common-cluster boundaries and widths, not scalar sums. Selection appends complete clusters with checked growth; failure leaves the previous clipboard unchanged. OSC8 targets are exact through 1024 bytes; decline larger targets.

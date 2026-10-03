@@ -79,6 +79,8 @@ whole client correct.
 | [`src/bend/client_laws.bend`](src/bend/client_laws.bend) | Bend 2 | Feed inspectors, invariants, and client law predicates |
 | [`src/bend/replay.bend`](src/bend/replay.bend) | Bend 2 | Bounded file-snapshot replay through the live byte framer |
 | [`src/bend/submit.bend`](src/bend/submit.bend) | Bend 2 | User slash-command parsing and outbound line formatting |
+| [`src/bend/irc_commands.bend`](src/bend/irc_commands.bend) / [`message_chunks.bend`](src/bend/message_chunks.bend) | Bend 2 | Shared command validation and lossless cluster-safe wire splitting |
+| [`src/bend/join_plan.bend`](src/bend/join_plan.bend) / [`channel_policy.bend`](src/bend/channel_policy.bend) | Bend 2 | Desired channels, transient keys, and authentication-gated recovery |
 | [`src/bend/frame.bend`](src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
 | [`src/bend/dns.bend`](src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
 | [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
@@ -89,6 +91,9 @@ whole client correct.
 | [`src/bend/diagnostic.bend`](src/bend/diagnostic.bend) | Bend 2 | Bounded private diagnostic text and safe helper results |
 | [`src/bend/columns.bend`](src/bend/columns.bend) | Bend 2 | Terminal column widths and common cluster boundaries for wrapping |
 | [`src/bend/history_io.bend`](src/bend/history_io.bend) | Bend 2 | Private history append effects, separate from proof-facing history rules |
+| [`src/bend/history_startup.bend`](src/bend/history_startup.bend) / [`history_startup_io.bend`](src/bend/history_startup_io.bend) | Bend 2 | Auth-free snapshots, nontrimming import, and fresh-ID startup dividers |
+| [`src/bend/preferences_runtime.bend`](src/bend/preferences_runtime.bend) / [`preferences_live.bend`](src/bend/preferences_live.bend) | Bend 2 | Bounded settings queue, edit-wins loading, and quit drain |
+| [`src/bend/live_context.bend`](src/bend/live_context.bend) / [`startup_headless.bend`](src/bend/startup_headless.bend) | Bend 2 | Settings-before-history ordering and generation-scoped connection release |
 | [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
 | [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
@@ -98,11 +103,11 @@ whole client correct.
 | [`src/bend/net.bend`](src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
 | [`src/bend/args.bend`](src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
 | [`src/bend/timui.bend`](src/bend/timui.bend) | Bend 2 | Bend handles and effect declarations for TimUI FFI |
-| [`src/bend/clock.bend`](src/bend/clock.bend) | Bend 2 | Timestamp formatting (`HH:MM:SS`) from seconds-of-day |
+| [`src/bend/clock.bend`](src/bend/clock.bend) / [`utc_time.bend`](src/bend/utc_time.bend) | Bend 2 | Receipt timestamps and complete UTC event-date validation |
 | [`src/ffi/timui_ffi.c`](src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/bend/tls.bend`](src/bend/tls.bend) / [`src/ffi/tls_ffi.c`](src/ffi/tls_ffi.c) | Bend 2 / C11 | Bounded, verified OpenSSL TLS transport |
-| [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | POSIX `local_secs` clock reader |
+| [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | Local receipt clock and date-aware UTC-to-local conversion |
 | [`src/media/image.py`](src/media/image.py) | Python | Bounded HTTP(S)/local image loading and normalization with Pillow |
 | [`src/bend/upload.bend`](src/bend/upload.bend) / [`src/bend/upload_io.bend`](src/bend/upload_io.bend) | Bend 2 | Per-file consent, worker ownership, scoped completion, and bounded helper calls |
 | [`src/media/upload.py`](src/media/upload.py) | Python | Fixed-origin HTTPS file upload with streamed input and checked URL output |
@@ -128,6 +133,7 @@ laws check concrete examples, not all possible inputs. Current coverage includes
 - **`sasl_idle_no_reply`**, **`sasl_done_no_reply`**: No control event can send credentials before authentication is enabled or restart a completed exchange.
 - **`auth_preserves_settings`**, **`timestamp_preserves_log_sequence`**: Authentication changes preserve settings; assigning timestamps preserves log identity.
 - **`actor_zero_split`**, **`actor_exhausted_keeps_pending`**: Zero credit cannot emit or discard pending lines, for any queue.
+- **`refused_startup_archive_keeps_current_client`**, **`absent_startup_target_keeps_current_client`**, **`captured_image_preference_is_preserved`**: Quantified refusal and preference-field preservation. Additional recovery, timestamp, command, and chunk laws check concrete examples.
 - **`framer_roundtrip`**, **`flood_buffers`**, **`scroll_bounds`**, **`log_chrono`**, **`tokenize_*`**: Concrete framing, cap, scroll, ordering, and tokenization examples. `flood_server_clean` checks that rejected JOINs add server diagnostics; it does not prove general absence of corruption.
 - **`narrow_cluster_source_count`**, **`wide_cluster_source_count`**: Concrete source-length checks for a multi-codepoint emoji with and without a narrow-pane replacement.
 - **`tokenize_unclosed_source_order`**, **`code_span_dim`**: Concrete source-order checks for three unmatched markers and the live dim attribute for one code span.
@@ -136,6 +142,9 @@ Verify all proofs at any time:
 ```sh
 make proof
 ```
+
+The default deadline is 180 seconds. Use `make proof PROOF_TIMEOUT=600` for a
+bounded retry on a slower machine; this does not change the laws or checker.
 
 The normal gate uses Bend's checker. `make proof-kernel` also requests the
 independent BendTT kernel. It needs Lean v4.34.0 or a configured `BENDTT`;
@@ -190,6 +199,10 @@ make build-package
 
 The installed package supplies its image and upload helpers. This bypasses
 Nix launch work; it does not fix a slow Nix store or daemon.
+
+`make build-package-profiled` reports coarse code-generation and native-compile
+times. Timers are off in the normal package. The profiled package is a separate
+build and does not populate the default app's cache.
 
 ### 2. Offline Interactive Demo
 
@@ -259,7 +272,7 @@ Run `./build/birc --help-irc` for a full summary:
 | `--tls` | — | Verified TLS (default); default port 6697 |
 | `--plain` | — | Explicit plaintext; default port 6667; conflicts with `--tls` |
 | `--nick` | `<nick>` | IRC nickname (default: `birc`) |
-| `--channel` | `<channel>` | Initial channel to join upon registration (default: `#birc`) |
+| `--channel` | `<channel[,channel…]>` | Initial channels (default: `#birc`); an empty argument joins none |
 | `--demo` | — | Run offline demo with canned mock activity |
 | `--replay` | `<file>` | Feed an IRC log capture into the client and launch UI |
 | `--frames` | `<n>` | Run for `n` frames/ticks (headless batch test if stdin not a tty) |
@@ -286,6 +299,7 @@ tls = true
 account = "myaccount"
 nick = "mynick"
 auth = "sasl"
+channels = ["#birc", "#work"] # optional names only; never JOIN keys
 ```
 
 Profiles default to verified TLS and port 6697. `tls = false` explicitly selects
@@ -294,6 +308,9 @@ and never changes transport mode. The profile `host` also accepts `HOST:PORT`;
 an additional `port` must agree with it. The wrapper's `--tls` or `--plain`
 overrides the profile mode; using both is an error. It resolves the endpoint
 before looking up the endpoint-bound Keychain item.
+An explicit `--channel` overrides profile channels. Without that flag or a
+profile list, birc can use the channel names saved for the exact host and port.
+An explicitly saved empty list means no automatic JOIN.
 
 TLS profiles need no unsafe flag or local relay. A plaintext profile instead
 needs a declared trusted IPv4 loopback relay, or per-launch
@@ -361,7 +378,9 @@ the composer remains visible. Prefer the wrapper for private password entry.
 ### Stored history
 
 History records use `BIRC2` and include the server hostname and port. Different
-endpoints do not share chat buffers or stored history. The in-memory `*log*`
+hosts or ports do not share stored history. Archive lookup ignores hostname
+case; credentials, runtime keys, and preferences use exact host spelling and
+port. An endpoint change clears live chat buffers. The in-memory `*log*`
 belongs to the app session and survives endpoint changes. The reader scans the file to its
 initial size, keeps only the configured recent records, and rejects malformed
 or overlong records. An incomplete final record is not loaded.
@@ -437,10 +456,21 @@ Type commands into the composer prompt:
 |---|---|
 | `/connect <host[:port]> [port]` | Connect using the launch transport; an omitted port reuses the current port |
 | `/reconnect` | Reconnect to the saved server and port |
-| `/join <channel>` | Join an IRC channel (e.g. `/join #bend`) |
+| `/join <channel[,channel…]> [key[,key…]]` | Join channels; retain at most 14 desired channels for recovery |
 | `/part [channel]` | Leave the named channel, or the active channel if omitted |
 | `/close [buffer]` | Close a query or local tab, or leave a channel; the server buffer cannot close |
 | `/msg <target> <text>` | Send a private message to a nick or channel |
+| `/notice <target> <text>` | Send a notice without a reply request |
+| `/whois [server] <nick[,nick…]>` | Request user information |
+| `/who [mask] [flags]` | Request matching users; defaults to the active channel |
+| `/list [channels] [server]` | Request channel listings |
+| `/names [channels] [server]` | Request nicknames; defaults to the active channel |
+| `/topic [channel] [text]` | Query or set a channel topic; `:` clears it |
+| `/mode [target] [modes] [args]` | Query or change modes; defaults to the active target |
+| `/kick [channel] <nick> [reason]` | Remove a user from a channel |
+| `/invite <nick> [channel]` | Invite a user; defaults to the active channel |
+| `/away [text]` | Set an away message; omitted text clears it |
+| `/raw <command>` / `/quote <command>` | Send one validated IRC command; no prefix or tags |
 | `/search <query>` | Search all buffer scrollback and open the results in `*search*` |
 | `/log` | Open the read-only diagnostic buffer; also works offline |
 | `/links` | List links from the focused buffer |
@@ -467,10 +497,67 @@ Live connections automatically reconnect to the saved host and port two seconds
 after an unexpected disconnect. A manual `/connect` cancels the pending retry.
 Use `/set autoreconn off` to disable this behavior.
 
+Recovery remembers the desired channel set, not only the launch channel.
+Accepted `/join` adds intent; PART, closing a channel, and a self-KICK remove it.
+The desired set holds at most 14 channels; an overflowing JOIN is rejected
+without a partial send or state change.
+An offline PART can cancel a future rejoin without sending a wire command.
+JOIN keys stay in memory for that endpoint and do not enter history or saved
+preferences. A new endpoint clears runtime keys and credentials. Its saved
+channel names can then supply fresh autojoin intent. Host spelling and port
+are part of the saved endpoint identity.
+On each connection birc starts authentication again. With configured
+credentials, it waits for welcome and verified SASL or NickServ success before
+joining. A rejected or untrusted authentication notice cannot release JOIN.
+
+Ordinary messages, `/msg`, `/query`, `/notice`, and `/me` split into complete
+IRC lines when needed. Splits preserve text and common Unicode clusters.
+Every action chunk has its own complete CTCP ACTION envelope. A cluster that
+cannot fit rejects the entire message. Credential commands are never split
+or truncated. `/raw` and `/quote` reject line injection, enforce the 510-byte
+payload and 15-parameter limits, and never enter composer history.
+Channel key MODE arguments are hidden in chat and disk history. Ordinary
+message text is not globally redacted. Until complete server mode metadata is
+available, a key-bearing MODE row hides all arguments rather than guessing
+which one is the key.
+
+Live server-time tags are UTC event times. birc converts their complete date
+and time into your local timezone, including date-specific daylight saving
+time. Invalid tags use local receipt time. Untagged messages use receipt time.
+Previously saved history contains only `HH:MM:SS`, without a date or timezone;
+it cannot be safely converted retroactively.
+
 Runtime preferences changed by `/set` or `/toggle`, scoped mutes, and
-`/images on|off` are session-only. They reset when birc restarts. Chat history
-persists separately; the Keychain launcher reads saved auth profiles from
-`config.toml` and passwords from Keychain. That file does not store UI settings.
+`/images on|off` use a separate private, versioned preferences file:
+`$XDG_CONFIG_HOME/birc/preferences.toml`, or `~/.config/birc/preferences.toml`.
+Set `BIRC_PREFERENCES` to another path, or `none` to disable preference IO.
+`BIRC_PREFS_HELPER` can select a literal executable path; an empty value uses
+the provisioned default. It is not a shell command.
+The file contains UI settings and per-endpoint channel names, not passwords
+or JOIN keys. The Keychain launcher still reads auth profiles from `config.toml`
+and passwords from Keychain; chat history uses its own file.
+
+Interactive preference loading runs after the first paint. Explicit settings edits made
+during loading win over stored values. Explicit `--channel`, `BIRC_IMAGES`,
+and `BIRC_HISTORY_LINES` take precedence. New files use `0600`; malformed,
+unknown-version, symlinked, foreign-owned, or unsafe writable files are not
+overwritten. Failures use numeric diagnostics in `*log*`.
+
+On live startup, settings resolve before history loads and the first connection
+starts. Local input and quit remain available while the helper or history
+worker runs. A failed settings read does not restore or write history under an
+unknown policy; an explicit `/set history on` can enable it. Headless startup
+resolves the same policy before registration. `BIRC_PREFERENCES=none` keeps the
+direct startup path. Later endpoint reads load channel names, not stale global
+settings. History file IO has no hard cancellation guarantee on remote file
+systems.
+Restored targets get a `Reconnected:` divider when a row is available. A full
+buffer keeps its retained rows instead of removing one for the divider.
+
+One helper owns at most 16 distinct endpoint scopes, including its active job.
+Normal quit waits up to
+22 seconds for pending saves. If requested changes cannot be saved, birc
+restores the terminal and exits nonzero with a fixed warning.
 
 ### Diagnostic log
 
@@ -574,7 +661,9 @@ Use `make shell` before running `./build/birc` directly. An existing shell
 must be reloaded to find the new uploader. `BIRC_UPLOAD_HELPER` is a literal
 executable-path override for development and offline tests, not a shell
 command. An explicitly empty value uses `birc-upload` from PATH.
-Runtime UI settings remain session-only.
+Upload code 5 means an HTTP rejection or an invalid service reply. A verified
+numeric HTTP status appears in `*log*` when available. Response bodies,
+private paths, and arbitrary helper diagnostics stay hidden.
 
 ---
 
@@ -587,6 +676,8 @@ make shell                 # Enter the locked Nix development environment
 make check                 # Proofs + pure tests + FFI lints + UI smoke
 make proof                 # Run Bend formal proof checker (PROOF.bend)
 make test-pty              # Run the PTY integration suite
+make test-pty-recovery-settings # Focused recovery, settings, history, timestamp, and upload checks
+make test-preferences      # Private settings helper and runtime guards
 make test-live             # Run mock IRC socket handshake test
 make test-package          # Installed wrapper, local images, helper overrides, offline CA
 make check-hardening       # Bounded hostile, sanitizer, and performance checks
@@ -599,6 +690,7 @@ make test-pty-tls          # Owned loopback TLS, authentication, reconnect, and 
 make test-tls-package      # Installed CA selection, pinned libraries, and clean-PATH failures
 make test-auth-bridge-ubsan # Authentication pipe guard with UBSan
 make test-perf-startup      # Separate cached nix run launch time from first client paint
+make build-package-profiled # Opt-in Nix codegen/native stage timing; not the default package
 make test-upload           # Public-upload guards, owned helpers, and loopback IRC only
 make test-upload-package   # Installed uploader trust/provenance and loopback override
 make clean                 # Remove build artifacts
