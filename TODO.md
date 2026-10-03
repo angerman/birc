@@ -4200,6 +4200,35 @@ handoff is implementation scope, not a request for another plan-only review.
   (pipe/orphan kill + isolated-baseline correlation) queued for the next
   free slots. N9 return `9367c05`/`758291c` and L1T `727e0c8` stay
   unaccepted until then.
+- I2d FAILED in `cc7d169` (return unaccepted, fresh repair queued):
+  `reset_chanmodes547-550` restores compiled `b,k,l,imnpst` without a
+  certainty bit, so prior `CHANMODES=b,k,s,l` then withdrawal plus
+  `+lks [s3cret,50]` yields `[s3cret,[channel key hidden]]`, exposing
+  the actual key. The queued `fix-i2-third` must preserve unknown arity
+  after withdrawal and conservatively hide key-bearing args until valid
+  readvertisement (paired known-map exact-redaction positive). Queue
+  accepted the I2d message but the return did not implement it.
+- I2c lifecycle residual (folded into queued `fix-i2-third`, not a new
+  feature): `STATUSMSG=@` explicitly valid, then `PREFIX=(o)^` leaves
+  raw `@` authorized (`PREFIX602` updates only `pv`;
+  `is_channel735`/`chan_target761` never intersect current sigils), and
+  the `caret_cleared` fixture clears status first so it misses the
+  order. Require negative explicit `STATUSMSG=@` then `PREFIX=(o)^`
+  refuses `@#room`, positive `PREFIX=(o)^` then `STATUSMSG=^` permits
+  `^#room`; effective STATUSMSG authorization stays a current-PREFIX
+  subset on both changes including order-independent 005 token bursts.
+  Retain exact-resident channel precedence and actual `+#room`
+  identities; preserve all established baseline fixtures — new
+  candidate guards characterize this transition.
+- N9 replay counterexample confirmed: `s0/id1, s1..s8/id1`, then
+  `s0/id1` notifies again; the `evictedid` test covers only 70 events
+  on ONE scope. N9-second scope adds this cross-scope guard; bound ≤8
+  and retained-scope-fresh-ID positive remain.
+- Adapter parallelization plan: runtime workers (G3-wire, SessWS, V6,
+  H5-second, G6-second, C8-third) keep implementing without waiting for
+  every pure-policy merge. Once interfaces freeze, parallelize I2/G6/H5
+  and C8/N9 Session adapters within actually available slots; parent
+  owns shared types and all final merges.
 - G3 exact-SOH + H5-IO additions (messaged to running workers): G3 SOH
   branch is wire_style:165; whitelist-only supported style controls in
   chat text; metadata/TAB/CR/LF/NUL/ESC/OSC52 safety through BIRC2;
