@@ -8,8 +8,9 @@
 # Bounded state: one high-water mark per scope (at most SCOPE_CAP scopes).
 # Live event ids are monotonic per scope, so an id at or below the mark is
 # old, replayed, or historical and stays silent; an id above the mark is a
-# new live event and notifies exactly once. Eviction of a scope entry only
-# forgets that scope's mark; ids within a retained scope never renotify.
+# new live event and notifies exactly once. Admission fails closed: an
+# unknown scope past the bound is neither notified nor tracked, so the
+# table never evicts (and never forgets) an admitted scope's mark.
 # Session seeds the mark from history before live dispatch (see seed), so
 # restored rows stay silent without a per-event table.
 #
@@ -123,10 +124,32 @@ def fresh.got(+id: Nat, got: Maybe<&2, Nat>) -> Bool:
     case None{}: True{}
     case Some{hi}: fresh.hi(id, hi)
 
-# Unknown scopes are new (first contact notifies); known scopes notify
-# only above their high-water mark.
+def is_known.got(got: Maybe<&2, Nat>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def is_known(+st: State, +scope: String) -> Bool:
+  is_known.got(hi_of(st, scope))
+
+def room_for(+st: State) -> Bool:
+  Nat.is_lt(List.length(&2, Mark, marks(st)), SCOPE_CAP())
+
+# A scope is admitted when already tracked, or when the table has room.
+# Unknown scopes past the bound fail closed: silent and untracked.
+def admitted(+st: State, +scope: String) -> Bool:
+  is_known(st, scope) || room_for(st)
+
+# Unknown scopes are new (first contact notifies) only while admitted;
+# past the bound they stay silent. Known scopes notify only above their
+# high-water mark.
+def fresh.ok(+st: State, +scope: String, +id: Nat, ok: Bool) -> Bool:
+  match ok:
+    case True{}: fresh.got(id, hi_of(st, scope))
+    case False{}: False{}
+
 def fresh(+st: State, +scope: String, +id: Nat) -> Bool:
-  fresh.got(id, hi_of(st, scope))
+  fresh.ok(st, scope, id, admitted(st, scope))
 
 def bump.set(hit: Bool, +s: String, +hi: Nat, +id: Nat) -> Mark:
   match hit:
@@ -142,16 +165,27 @@ def bumped(xs: List<&2, Mark>, +scope: String, +id: Nat) -> List<&2, Mark>:
     case Nil{}: Nil{}
     case Con{h, t}: bump.one(h, scope, id) <> bumped(t, scope, id)
 
-def remember.known(+st: State, +scope: String, +id: Nat, known: Bool) -> State:
+def bumped_state(+st: State, +scope: String, +id: Nat) -> State:
   match st:
-    case Notify{en, seen}:
-      match known:
-        case True{}: Notify{en, bumped(seen, scope, id)}
-        case False{}: Notify{en, List.take(&2, Mark, Mark{scope, id} <> seen, SCOPE_CAP())}
+    case Notify{en, seen}: Notify{en, bumped(seen, scope, id)}
+
+def prepended_state(+st: State, +scope: String, +id: Nat) -> State:
+  match st:
+    case Notify{en, seen}: Notify{en, List.take(&2, Mark, Mark{scope, id} <> seen, SCOPE_CAP())}
+
+def remember.admit(+st: State, +scope: String, +id: Nat, room: Bool) -> State:
+  match room:
+    case True{}: prepended_state(st, scope, id)
+    case False{}: st
+
+def remember.known(+st: State, +scope: String, +id: Nat, hit: Bool) -> State:
+  match hit:
+    case True{}: bumped_state(st, scope, id)
+    case False{}: remember.admit(st, scope, id, room_for(st))
 
 # Recording an id advances that scope's mark (never backwards) and keeps
-# the table bounded. Within a retained scope, eviction cannot renotify:
-# evicted ids sit at or below the mark.
+# the table bounded. A full table rejects unknown scopes instead of
+# evicting: admitted marks are never forgotten, so replays stay silent.
 def remember.got(+st: State, +scope: String, +id: Nat, got: Maybe<&2, Nat>) -> State:
   match got:
     case None{}: remember.known(st, scope, id, False{})

@@ -141,10 +141,14 @@ def status_dim(+id: Id) -> U32:
     case Light{}: 6710886
     case Mono{}: MONO_FG()
 
-# Canonical status selector: one table plus one predicate set. View keeps
-# a thin adapter until the integrator threads Theme.Id through ViewModel
-# (merge point: View.status_color/status_color_themed delegate here, and
-# View.style_of delegates to kind_fg like nick_color_idx already does).
+# Canonical status selector: one table plus one predicate set.
+# Merge point (integrator owns view.bend): live View still duplicates these
+# tables. Rewire View.style_of(k) to kind_fg(Theme.default(), k),
+# View.status_color(net) to status_of(Theme.default(), net), and
+# View.status_color_themed(id, net) to status_of(id, net), deleting
+# View.status_themed.on; nick_color_idx already delegates to nick_row.
+# The theme_dark_*/theme_status_* laws and theme_demo adapter guards pin
+# both sides of that swap, so it is behavior-preserving by construction.
 def status_of.on(+ok: U32, +err: U32, +warn: U32, +dim: U32, +online: Bool, +offline: Bool, +conn: Bool) -> U32:
   match online:
     case True{}: ok
