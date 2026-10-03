@@ -4269,6 +4269,14 @@ handoff is implementation scope, not a request for another plan-only review.
   merge. Freed slot went to `adapt-c8-session/29`
   (`01a10176-c4b8-7263-ae47-70f3a4b5c25a`). Next adapter owners
   (I2/G6/H5/N9-session) go out as repair workers return.
+- G3 media-boundary defect messaged to running `integ-g3-wire/19`:
+  `media68` re-lexes visible text, discarding source boundaries, so
+  SOH-fabricated or style-suffixed URLs can schedule fetches for links
+  that paint nonclickable (unsolicited media). Require the SAME
+  boundary-aware URL runs for view/`/open`/media with image-markdown
+  /code rules retained; negative fabricated URLs → no request, positive
+  genuine styled URL → exact original + one request. Pure adapters are
+  not full implementation until real Net/app entry points use them.
   PROOF junction fix committed with its exact green evidence (114s
   `ALL PROOFS CHECK` run covered this content; only non-Bend files
   changed since).
