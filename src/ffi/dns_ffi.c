@@ -16,15 +16,22 @@
 #include <sys/types.h>
 #include <unistd.h>
 /* park=1: EAGAIN waits again (TCP reader). park=0: EAGAIN is None (DNS). */
-static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_in *src) {
-  char host[INET_ADDRSTRLEN];
+static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_storage *src) {
+  char host[INET6_ADDRSTRLEN];
   Term xs = term_pak(CID_NIL, 0);
   u64 i;
   u64 nn = (u64)n;
-  u32 port = (u32)ntohs(src->sin_port);
+  u32 port = 0;
   host[0] = '\0';
-  if (src->sin_family == AF_INET)
-    (void)inet_ntop(AF_INET, &src->sin_addr, host, (socklen_t)sizeof host);
+  if (src->ss_family == AF_INET) {
+    const struct sockaddr_in *v4 = (const struct sockaddr_in *)src;
+    port = (u32)ntohs(v4->sin_port);
+    (void)inet_ntop(AF_INET, &v4->sin_addr, host, (socklen_t)sizeof host);
+  } else if (src->ss_family == AF_INET6) {
+    const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)src;
+    port = (u32)ntohs(v6->sin6_port);
+    (void)inet_ntop(AF_INET6, &v6->sin6_addr, host, (socklen_t)sizeof host);
+  }
   for (i = nn; i > 0; i -= 1)
     xs = io_node(e, CID_CON, data[i - 1], xs);
   return io_done(e, io_box(e, CID_SOME,
@@ -34,7 +41,7 @@ static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_in 
 static Term recv_more(Env e, IoWork *w);
 static Term recv_try(Env e, int fd, u32 max, IoWork *w, int park) {
   uint8_t *data;
-  struct sockaddr_in src;
+  struct sockaddr_storage src;
   socklen_t slen;
   ssize_t n;
   u32 code;
@@ -105,25 +112,37 @@ static Term tcp_connect_for_more(Env e, IoWork *w) {
   return io_done(e, io_hand((u64)fd));
 }
 Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
-  struct sockaddr_in dst;
+  struct sockaddr_storage dst;
+  socklen_t dstlen = 0;
   u64 len = 0;
   char *host = io_cstr(e, f[0], &len);
   int fd = -1;
   int err = EINVAL;
   memset(&dst, 0, sizeof dst);
-  dst.sin_family = AF_INET;
-  dst.sin_port = htons((uint16_t)(u32)f[1]);
-  if (host && strlen(host) == len && (u32)f[1] <= 65535u &&
-      (u32)f[2] != 0 && inet_pton(AF_INET, host, &dst.sin_addr) == 1) {
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    err = fd < 0 ? errno : 0;
+  if (host && strlen(host) == len && (u32)f[1] <= 65535u && (u32)f[2] != 0) {
+    struct sockaddr_in *v4 = (struct sockaddr_in *)&dst;
+    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&dst;
+    if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+      v4->sin_family = AF_INET;
+      v4->sin_port = htons((uint16_t)(u32)f[1]);
+      dstlen = (socklen_t)sizeof *v4;
+      fd = socket(AF_INET, SOCK_STREAM, 0);
+      err = fd < 0 ? errno : 0;
+    } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+      /* Inner literals only; callers strip parse_any brackets first. */
+      v6->sin6_family = AF_INET6;
+      v6->sin6_port = htons((uint16_t)(u32)f[1]);
+      dstlen = (socklen_t)sizeof *v6;
+      fd = socket(AF_INET6, SOCK_STREAM, 0);
+      err = fd < 0 ? errno : 0;
+    }
   }
   free(host);
   if (fd >= 0) {
     int flags = fcntl(fd, F_GETFL);
     if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
       err = errno;
-    else if (connect(fd, (struct sockaddr *)&dst, (socklen_t)sizeof dst) != 0)
+    else if (connect(fd, (struct sockaddr *)&dst, dstlen) != 0)
       err = errno;
   }
   if (err == EINPROGRESS || err == EWOULDBLOCK || err == EINTR) {
@@ -148,7 +167,8 @@ typedef struct {
   size_t sent;
   u64 deadline;
   int datagram;
-  struct sockaddr_in dst;
+  struct sockaddr_storage dst;
+  socklen_t dstlen;
 } BircWrite;
 
 static Term birc_write_end(Env e, IoWork *w, u32 code) {
@@ -172,7 +192,7 @@ static Term birc_write_more(Env e, IoWork *w) {
       return birc_write_end(e, w, (u32)ETIMEDOUT);
     if (out->datagram)
       n = sendto(fd, out->bytes, out->size, 0,
-                 (struct sockaddr *)&out->dst, (socklen_t)sizeof out->dst);
+                 (struct sockaddr *)&out->dst, out->dstlen);
     else
       n = send(fd, out->bytes + out->sent, out->size - out->sent, 0);
     if (n < 0) {
@@ -250,11 +270,20 @@ Term send_octets_for_run(Env e, Term *f, IoWork *w) {
   if (!host || strlen(host) != hlen || (u32)f[2] > 65535u || (u32)f[4] == 0)
     err = EINVAL;
   else if (host[0] != '\0') {
+    struct sockaddr_in *v4 = (struct sockaddr_in *)&out->dst;
+    struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)&out->dst;
     out->datagram = 1;
-    out->dst.sin_family = AF_INET;
-    out->dst.sin_port = htons((uint16_t)(u32)f[2]);
-    if (inet_pton(AF_INET, host, &out->dst.sin_addr) != 1)
+    if (inet_pton(AF_INET, host, &v4->sin_addr) == 1) {
+      v4->sin_family = AF_INET;
+      v4->sin_port = htons((uint16_t)(u32)f[2]);
+      out->dstlen = (socklen_t)sizeof *v4;
+    } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
+      v6->sin6_family = AF_INET6;
+      v6->sin6_port = htons((uint16_t)(u32)f[2]);
+      out->dstlen = (socklen_t)sizeof *v6;
+    } else {
       err = EINVAL;
+    }
   }
   free(host);
   return err != 0 ? birc_write_end(e, w, err) : birc_write_more(e, w);

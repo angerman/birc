@@ -301,7 +301,7 @@ test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and
 	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 test-review-pure: test-launch-channels test-reconnect-endpoint
-test-review-pure: test-server-id test-ipv6
+test-review-pure: test-server-id test-ipv6 test-ipv6-glue test-ipv6-transport
 test-review-pure: test-drafts
 test-review-pure: test-media-cards test-cards-policy test-cards-view
 
@@ -723,6 +723,16 @@ test-ipv6: ## Bracketed IPv6 endpoints, AAAA DNS, and dial-plan goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/server_id_ipv6.bend -o $(BLDDIR)/server_id_ipv6
 	$(NIXRUN) sh scripts/check-golden.sh server_id_ipv6=ok ./$(BLDDIR)/server_id_ipv6
+
+test-ipv6-glue: ## AAAA-first query dispatch goldens via the JS backend.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ipv6_transport.bend -o $(BLDDIR)/ipv6_transport.js
+	$(NIXRUN) sh scripts/check-golden.sh ipv6_transport=ok timeout 30 bun $(BLDDIR)/ipv6_transport.js
+
+test-ipv6-transport: ## Dual fallback, prod DNS/TCP, v6 UDP, stream deadlines, verified TLS/SNI.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/ipv6_transport_native.bend -o $(BLDDIR)/ipv6_transport_native
+	$(NIXRUN) timeout 120 python3 tests/ipv6_transport.py ./$(BLDDIR)/ipv6_transport_native $(OPENSSL)
 test-drafts: ## Per-buffer drafts + multiline composition goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/drafts_demo.bend -o $(BLDDIR)/drafts_demo

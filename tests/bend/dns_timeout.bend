@@ -18,5 +18,5 @@ def check_to(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    r : Result<&1, &1, U32 & String, String> <- Dns.lookup_n("example.test", "127.0.0.2", 1)
+    r : Result<&1, &1, U32 & String, String> <- Dns.lookup_n("example.test", "127.0.0.2", 53, 1, False{})
     check_to(r)

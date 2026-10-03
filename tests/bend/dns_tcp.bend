@@ -16,7 +16,7 @@ def connected(r: Result<&1, &1, U32 & String, Socket>, q: Result<&1, &1, U32 & S
         case Fail{_}: IO.die(Unit, 1, "query encode failed")
         case Done{+xs}:
           do IO<Unit>:
-            answer : Result<&1, &1, U32 & String, String> <- Dns.lookup_tcp_sock(sock, 1, "a", xs)
+            answer : Result<&1, &1, U32 & String, String> <- Dns.lookup_tcp_sock(sock, 1, "a", xs, False{})
             show(answer)
 
 def port_read(got: Maybe<&2, U32>) -> IO(Unit):

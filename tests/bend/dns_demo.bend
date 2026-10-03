@@ -274,14 +274,23 @@ def check_host(+host: String) -> IO(Unit):
     r : Result<&1, &1, U32 & String, String> <- Dns.resolve(host)
     check_id_r(host, r)
 
-def check_v6_r(r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+# Valid inner literals resolve directly (v6 dial); colon garbage and
+# bracketed text still fail closed with "ipv6". Brackets stay at parse_any.
+def check_v6_r(+host: String, r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+  match r:
+    case Done{+ip}:
+      E.must_eq("resolve_v6 " ++ host, ip, host)
+    case Fail{_}:
+      IO.die(Unit, 1, "v6 literal was refused: " ++ host)
+
+def check_v6_bad_r(+host: String, r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
   match r:
     case Done{_}:
-      IO.die(Unit, 1, "ipv6 literal was accepted")
+      IO.die(Unit, 1, "invalid v6 was accepted: " ++ host)
     case Fail{e}:
       match e:
         case (_, +msg):
-          E.must_eq("resolve_v6", msg, "ipv6")
+          E.must_eq("resolve_v6_bad " ++ host, msg, "ipv6")
 
 def check_enc_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit):
   match r:
@@ -395,5 +404,13 @@ def main() -> IO(Unit):
     Unit <- check_host("127.0.0.1")
     Unit <- check_host("1.1.1.1")
     v6 : Result<&1, &1, U32 & String, String> <- Dns.resolve("::1")
-    Unit <- check_v6_r(v6)
+    Unit <- check_v6_r("::1", v6)
+    full : Result<&1, &1, U32 & String, String> <- Dns.resolve("2001:db8:0:0:0:0:0:1")
+    Unit <- check_v6_r("2001:db8:0:0:0:0:0:1", full)
+    gap2 : Result<&1, &1, U32 & String, String> <- Dns.resolve("1::2::3")
+    Unit <- check_v6_bad_r("1::2::3", gap2)
+    dotted : Result<&1, &1, U32 & String, String> <- Dns.resolve("::ffff:1.2.3.4")
+    Unit <- check_v6_bad_r("::ffff:1.2.3.4", dotted)
+    bracketed : Result<&1, &1, U32 & String, String> <- Dns.resolve("[::1]")
+    Unit <- check_v6_bad_r("[::1]", bracketed)
     IO.print("dns_demo=ok")
