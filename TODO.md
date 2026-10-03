@@ -3625,6 +3625,34 @@ their own synthetic preference file is explicitly under test.
     pass (`build/image-history-final-pty-{3,4,5}.log`).
   No full aggregate `make check` or Nix package hot-cache qualification was run.
 
+### Nix prebuild follow-up (2026-10-03)
+
+- [x] Retry the current source through the central `make build-package` target,
+  with visible build logs, locked inputs, independent 900-second client/builder
+  bounds, and an external 960-second monotonic supervisor. Before the attempt,
+  a one-second timeout control exits 124 in 1.033 seconds. No pins or build
+  recipes changed. Recorded UTC and monotonic elapsed time agree for this run;
+  this does not explain the earlier timer discrepancy.
+- [x] Verify the packaged source snapshot matches current source files
+  (ignored local `__pycache__` directories are absent from the Git snapshot).
+  The updated image helper builds successfully at
+  `/nix/store/2fyfxazrgs8cd7r4p7iidar3jjfncqg5-birc-image`, and its installed
+  `image.py` is byte-identical to this checkout.
+- [ ] Complete the default client package and installed-package qualification.
+  This attempt reaches `buildPhase`, then the outer 900-second bound cancels
+  Nix. Make exits 2 after 900.320 seconds; its child command exits 124.
+  Evidence: `build/image-history-nix-prebuild.log`. The ordinary build log does
+  not distinguish Bend from Clang time; no compiler-stage or root-cause claim
+  follows. The expected output
+  `/nix/store/zc2y88k3pj122dc3fhh6zsl1w0253md4-birc-0.1.0/bin/birc` is absent.
+  The existing package link still points to the older `71ax…` M26 package.
+  All three observed owned Make/timeout/Nix PIDs are gone after cancellation.
+  The native app remains built and tested, but this is not a Nix hot cache.
+- [ ] Diagnose the unresolved package build with the existing default-off stage
+  instrumentation and owned-PID controls before another long retry. Complete
+  installed helper, TLS, Keychain, and clean-environment tests once the default
+  package succeeds. The full latest aggregate `make check` remains separate.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
