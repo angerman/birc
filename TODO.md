@@ -3765,6 +3765,144 @@ handoff is implementation scope, not a request for another plan-only review.
   the coordinating pane. Do not claim completion while any requested feature,
   fresh review, full checks, or default package prebuild remains outstanding.
 
+### Lane status (Muse pane, 2026-10-03)
+
+- Phase 1 running (7 isolated worktrees, base `3565392`): lane1 Nix/perf
+  diagnostics + heavy build; lane2 ISUPPORT; lane3 wire styles; lane4
+  drafts/multiline; lane5 history search; lane6 CAP/account/typing; lane7
+  multiserver/IPv6. Integrator: Muse parent session (owns shared
+  `Client`/`Buffer`/`Session`/`Net`/`View` merges; workflow synthesis reports
+  conflicts).
+- Phase 2 queued (root pool 8/8 full, native spawn rejected
+  `root_capacity_exhausted`): lane8 fullscreen images + bounded OpenGraph
+  cards; lane9 themes + desktop notifications + larger view-only emoji
+  aliases. Queued as entries 8-9 of the launched workflow parallel batch;
+  they start automatically when a slot frees. Retry as native isolated
+  spawns with fresh command IDs if the workflow queue does not admit them.
+- Acceptance gates (all required before completion): measured Nix build-stall
+  fix + startup/PONG timing fixes without relaxed deadlines; default package
+  prebuild + helper/TLS/Keychain/clean-env qualification; all ten scope
+  items implemented with positive + negative tests (new/changed PTYs 3x on
+  the exact final binary); fresh adversarial defect/style/DRY review; full
+  latest `make check` + sanitizers + native app/PTYs; default Nix hot-cache
+  verification. No push.
+- Quality follow-up: lane1 prompt contradiction corrected (lane1 IS the sole
+  bounded heavy build lane; lanes 2-9 use bounded JS-backend pure fixtures
+  via `bend -o build/<name>.js` + `bun`, no native compiler runs). Live lane
+  messaging is unsupported: the advertised `subagent_send_message` contract
+  takes a spawn-returned native handle, workflow children have none, and
+  peer listing shows no alternate route; four distinct shapes (agent
+  path/id x queue/followup/minimal) all returned `invalid_input`. No further
+  messaging retries. The correction stands as `LANE_CORRECTION.md` in each
+  running worktree root, and every clarification is carried into explicit
+  follow-up requests when each lane returns. No running work is cancelled
+  for messaging. Lane1 evidence paths:
+  `build/image-history-nix-prebuild.log`, `build/m27-locked-run.sh` (parent
+  checkout only; copy into worktree, never write back). Entries 8-9 (media
+  fullscreen/cards, themes/notifications/emoji) stay explicitly pending
+  until real workers are admitted; verified by watching for
+  `workflow-agent/8` and `/9`; any entry resolving
+  `not_admitted`/incomplete gets a native isolated replacement spawn with a
+  fresh command ID and the corrected prompt. A package built on the baseline
+  is only a checkpoint; final qualification runs on integrated source. All
+  integration and test gates remain open.
+- Verified lane state: lane3 `wire_style.bend` + tests (+ `view` mods);
+  lane4 `drafts.bend` emerging; lane5 `history_search.bend` + tests; lane6
+  `cap_notify.bend` + tests (also touching shared `auth`/`client`/`session`
+  — integrator owns those merges); lane7 `server_id`/`ipv6` + tests. Lanes
+  1-2 no code changes yet at inspection time.
+- Binding lane-return review findings (read-only verified against current
+  snapshots; re-verify at return; no live-regression claims while
+  integration is pending). Lane6 `cap_notify.bend`: (G6.1) `cap_event`
+  gates only on command `CAP` — `:alice!u@h CAP me ACK :message-tags` and
+  `:s CAP other ACK :message-tags` enable Reg typing; require
+  connection-server prefix + current-recipient checks with hostile
+  (−) / legitimate (+) guards. (G6.2) `caps_apply` OR-only accumulates —
+  ACK `-message-tags` / DEL never clear; require cap-removal (−) /
+  enable (+) guards. (G6.3) `notify_event` validates nick shape only —
+  `:s AWAY :maintenance` becomes user `AwayOn`; require full-prefix
+  server-like (−) / user (+) guards. `Reg` is not stored/called by
+  Session in the snapshot, so G6.1/G6.2 are pure-policy defects. Lane3
+  `wire_style.bend`: (G3.1) per-seg first/last-run boundary check only —
+  `https://x.test.` + bold control + `evil` can retain a shorter clickable
+  target; require punctuation/adjacent-style (−) guards against
+  glued-visible-text linkification with exact-text (+) preservation.
+  (G3.2) `wire_drop` silently deletes SOH inside the catch-all, gluing
+  `htt<SOH>ps://x.test` into a clickable URL against the header comment;
+  require disallowed-control (−) guards with SOH as boundary. (G3.3)
+  inspect actual client/history sanitization: styles currently vanish on
+  the incoming/history path and lane3 touches only `view*`; incoming
+  /history integration stays an explicitly open item until demonstrated,
+  never silently accepted. Enforced at lane-return review or implemented
+  in the parent before final gates; detailed source hashes/lines to
+  follow from the coordinator.
+- Review evidence hashes verified identical in current snapshots:
+  lane6 `cap_notify.bend` `c9bbf23f…5d41a0`, test `9fecb03b…39b93fe`;
+  lane3 `wire_style.bend` `971df74d…995b49b`, test `e5b8fa49…749b988`.
+  (G6.4) `step_out(Out{"#a",True,1000},999,…,False)` emits `done` and
+  clobbers `sent_ms` 1000→999; idle `Out` at 1000 with stale composing at
+  999 emits `active`. Stale suppression exists only on the active-refresh
+  path (`cap_notify` lines 334-362), contradicting lane6 LAWS lines
+  858-861 ("stays quiet … on a stale tick"). Require: stale ticks quiet
+  AND state-preserving, plus fresh refresh/completion (+) controls. No
+  introduced change to SASL CAP-END/welcome/reconnect barriers (good);
+  Reg Session/reset/generation/composer integration stays open. Wire:
+  SOH glue at line 165 and run-index guard at 207 still present (hash
+  equality). SOH survives `sanitize_in` (`irc.bend` 492-495) while view
+  glues across it, so a view-created link disagrees with `/links` on
+  original text. Require: SOH as lexical boundary with painted byte
+  suppressed; URL source suffix + shared `Links` trimming instead of
+  last-run index; (+) real URL, CTCP ACTION, punctuation-followed-by-space,
+  combining-cluster, ZWJ-toggle guards. Live buffer sanitize
+  (`buffer.bend` 1230) and history serialization (`history.bend` 79) still
+  strip styles — incoming/history integration stays open. Lane6 also
+  extended `LAWS.bend` (866 vs 838 lines) — integrator owns that merge.
+  Reviewers ran checker-only (exit 0); no rendering tests or native
+  qualification — repair before acceptance, then qualify.
+- Returned-evidence review (lane4 `de0f716`, lane7 `3fc8b03`; 2/9 done,
+  lanes 8-9 verified admitted as `workflow-agent/8-9`, pool 8/8 full).
+  Lane4 returned `complete:true` with live Session/Net/View integration +
+  make wiring open; lane7 with proof citation, Net/Actor threading, native
+  AF_INET6, and `/connect`/UI + 3x PTY open. Neither is a complete
+  user-visible feature. Ordered parent integration: `3fc8b03`
+  cherry-picked clean as `6156a5f` (4 new files, zero modifications);
+  in-parent suite verification pending locked-shell probe. `de0f716`
+  held unintegrated pending identity repair.
+- Drafts repair blockers (D1-D6, all read-only verified): (D1) name-only
+  `Draft{name,text}` collides control `server` at index0 with legal peer
+  query `server` across get/set/retain/rename; test covers only the
+  control draft. (D2) `rename` reuses `nick_rename_allowed`, which accepts
+  `#room` via `target_wire`, so channel drafts move; use the shared
+  query-source predicate, keep channel drafts unchanged, test ordinary
+  query rename. (D3) reuse `Split.name_at` control identity (`*server*`
+  at index0, LAWS 618) consistently in lookup/retain. (D4) `focus`
+  set-then-get drops rejected outgoing text while loading the next draft;
+  add over-byte/over-line/full-store (−) guards and preserve rejected
+  input. (D5) `submit_lines` gates only on plan readiness, bypassing
+  `submit_plain` synthetic/control read-only gates (`submit.bend`
+  1511-1516); keep drafts on disabled/rejected sends. (D6)
+  `reject_reason` maps invalid-target/NUL plan failures to
+  cluster/credential-limit strings; consolidate `plan_line`/`send_text`
+  validation so causes are not misreported. Require unambiguous
+  server-scoped buffer identity, control/query distinction through
+  focus/retain/rename/close, and coexistence + peer-rename (−/+) guards.
+- ServerId/IPv6 repair blockers (V2-V5, all read-only verified against
+  `6156a5f`): (V2) `parse_any.fallback` tries IPv6 on ALL `Endpoint`
+  failures, discarding bad-port errors despite its comment; route only
+  bracketed input to IPv6, retain bad port for DNS/IPv4 `:tls`, `:0`,
+  `:65536` (−) plus positive DNS/bracketed-v6 ports (+). (V3)
+  route/admission predicates use narrowing `U32.from_nat` `eq` with no
+  `valid` gate, accepting invalid ID4 (and wrap collisions); fail closed
+  at dispatcher or predicates; guard ID3 current/stale generations and
+  invalid/reused slots. (V4) `same_scope` case-folds hosts while
+  `credential_scope_ok` is exact; secrets must keep exact endpoint
+  transitions, never case-folded scope. (V5) ServerId/IPv6 laws, proof,
+  and Make registration pending. Native sockets/DNS/TLS/workspace
+  integration remains required. Source-review findings, not live
+  regressions; repair before acceptance, then qualify with native
+  evidence. Final app must actually exercise drafts, multiserver/IPv6
+  transports/DNS, notifications/typing, history, styles, and media/UX.
+
 ## Open decisions (resolve in M0/M4)
 
 | ID | Question | Default |
