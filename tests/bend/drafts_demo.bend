@@ -25,6 +25,15 @@ def s0() -> Key.ServerId:
 def s1() -> Key.ServerId:
   Key.ServerId{1n}
 
+def s3() -> Key.ServerId:
+  Key.ServerId{3n}
+
+def bad4() -> Key.ServerId:
+  Key.ServerId{4n}
+
+def huge() -> Key.ServerId:
+  Key.ServerId{Nat.add(4294967295n, 1n)}
+
 def ctl() -> String:
   D.key_of(True{}, "server")
 
@@ -124,6 +133,11 @@ def reason_ok(pair: Cl.Client & List<&2, String>, +needle: String) -> Bool:
   match pair:
     case (+cl, +outs):
       List.is_empty(&2, String, outs) && String.contains(CL.buf_texts(cl, 1n), needle)
+
+def reason0_ok(pair: Cl.Client & List<&2, String>, +needle: String) -> Bool:
+  match pair:
+    case (+cl, +outs):
+      List.is_empty(&2, String, outs) && String.contains(CL.buf_texts(cl, 0n), needle)
 
 def focus_loaded(pair: D.Drafts & String) -> String:
   match pair:
@@ -240,6 +254,13 @@ def main() -> IO(Unit):
     Unit <- E.must("endpoint replacement drops server drafts", Bool.not(D.has(D.replace_endpoint(D.set(D.empty(), s0(), "#a", "aa"), s0(), False{}), s0(), "#a")))
     Unit <- E.must("endpoint replacement keeps other servers", D.has(D.replace_endpoint(D.set(D.set(D.empty(), s0(), "#a", "aa"), s1(), "#a", "one"), s0(), False{}), s1(), "#a"))
     Unit <- E.must("same-endpoint reconnect keeps drafts", D.has(D.replace_endpoint(D.set(D.empty(), s0(), "#a", "aa"), s0(), True{}), s0(), "#a"))
+    Unit <- E.must("invalid-id set changes nothing", Nat.is_eq(D.count(D.set(D.empty(), bad4(), "#a", "x")), 0n))
+    Unit <- E.must("huge-id set changes nothing", Nat.is_eq(D.count(D.set(D.empty(), huge(), "#a", "x")), 0n))
+    Unit <- E.must("invalid-id set_ok is false", Bool.not(D.set_ok(D.empty(), bad4(), "#a", "x")))
+    Unit <- E.must("invalid-id focus rejects", Bool.not(D.focus_admits(D.empty(), bad4(), "#a", "x")))
+    Unit <- E.must_eq("valid3 set works", D.get(D.set(D.empty(), s3(), "#a", "aa"), s3(), "#a"), "aa")
+    Unit <- E.must("pane0 submit is read-only", reason0_ok(D.submit_lines(Cl.init("me", "s"), 0n, "server", "hi\nyo", False{}), "read-only buffer"))
+    Unit <- E.must("nonzero peer server query sends", submit_lines_ok(D.submit_lines(cl, 1n, "server", "hi", False{}), "hi", 1n))
     Unit <- E.must("roundtrip law holds", D.roundtrip_ok())
     Unit <- E.must("rename law holds", D.rename_ok())
     Unit <- E.must("coexist law holds", D.coexist_ok())

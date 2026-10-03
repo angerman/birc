@@ -304,8 +304,18 @@ def set.named(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, e
     case False{}:
       set.replace(ds, server, key, text, set.admit(fits(text), ds, server, key))
 
+# Public admission validates the server first: an invalid id admits nothing
+# and changes nothing, so invalid/huge ids cannot each smuggle in a full
+# store beside the four valid servers.
+def set.valid(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, ok: Bool) -> Drafts:
+  match ok:
+    case True{}:
+      set.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
+    case False{}:
+      ds
+
 def set(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String) -> Drafts:
-  set.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
+  set.valid(ds, server, key, text, Key.valid(server))
 
 def set_ok.named(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String, empty: Bool) -> Bool:
   match empty:
@@ -315,7 +325,7 @@ def set_ok.named(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String
       set.admit(fits(text), ds, server, key)
 
 def set_ok(+ds: Drafts, +server: Key.ServerId, +key: String, +text: String) -> Bool:
-  set_ok.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
+  Key.valid(server) && set_ok.named(ds, server, key, text, String.is_empty(key) || String.is_empty(text))
 
 # ---- rename / close / prune -------------------------------------------
 # Rename mirrors feed_nick.query: the draft follows an accepted *query*
@@ -424,7 +434,7 @@ def replace_endpoint(+ds: Drafts, +server: Key.ServerId, same_endpoint: Bool) ->
 # the composer keeps the typed text, so the old composer can never be sent
 # in the new room.
 def focus_admits(+ds: Drafts, +server: Key.ServerId, +cur: String, +cur_text: String) -> Bool:
-  String.is_empty(cur_text) || set_ok(ds, server, cur, cur_text)
+  Key.valid(server) && (String.is_empty(cur_text) || set_ok(ds, server, cur, cur_text))
 
 def focus.kept(+ds: Drafts, +server: Key.ServerId, +cur: String, +cur_text: String, +next: String, keep: Bool) -> Drafts & String:
   match keep:
@@ -680,9 +690,20 @@ def submit_lines.synthetic(synth: Bool, +cl: Cl.Client, +bi: Nat, +target: Strin
     case False{}:
       submit_lines.empty(cl, bi, target, lines, notice, List.is_empty(&2, String, lines))
 
+# The resolved pane gates like the target spelling: buffer 0 and
+# read-only synthetic panes reject, mirroring submit_plain on the active
+# buffer. A real nonzero pane keeps a peer query named "server" sendable.
+def submit_lines.resolved(+cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool, pane_ok: Bool) -> Cl.Client & List<&2, String>:
+  match pane_ok:
+    case True{}:
+      submit_lines.synthetic(Cl.target_is_synthetic(Cl.target_name(target)), cl, bi, target, lines, notice)
+    case False{}:
+      (Sub.echo_err(cl, "read-only buffer"), Nil{})
+
 def submit_lines(+cl: Cl.Client, +bi: Nat, +target: String, +text: String, +notice: Bool) -> Cl.Client & List<&2, String>:
   +lines = nonempty(split_lines(text))
-  submit_lines.synthetic(Cl.target_is_synthetic(Cl.target_name(target)), cl, bi, target, lines, notice)
+  submit_lines.resolved(cl, bi, target, lines, notice,
+    Bool.not(Nat.is_eq(bi, 0n)) && Bool.not(Cl.target_is_synthetic(Sp.name_at(cl, bi))))
 
 # ---- modal ------------------------------------------------------------
 # A pending modal (upload consent) blocks Enter in session; the typed text
