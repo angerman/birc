@@ -4236,6 +4236,21 @@ handoff is implementation scope, not a request for another plan-only review.
   every pure-policy merge. Once interfaces freeze, parallelize I2/G6/H5
   and C8/N9 Session adapters within actually available slots; parent
   owns shared types and all final merges.
+- Feature-vs-policy line (no premature completion): C8 helper/cache,
+  I2 metadata, G6 Reg/typing/notify, H5 disk/server paging, and N9
+  theme/async/helper are NOT user features until live Session/Net/View
+  wiring stores and dispatches them. Explicit runtime-adapter owners
+  per scope go out as slots open (queue: C8-session, I2-session,
+  G6-session, H5-session, N9-session after the in-flight repair
+  rounds); parent merges all shared Session/Workspace fields and
+  preserves one canonical submission/CAP/media/event-identity path.
+  Final native app/PTYs + installed Nix checks run LAST on the exact
+  integrated source.
+- V6-fallback has `348fe16`; production fallback/native fixtures get
+  reviewed on return. L1T-second and H5-completion queue stays open.
+  PROOF junction fix committed with its exact green evidence (114s
+  `ALL PROOFS CHECK` run covered this content; only non-Bend files
+  changed since).
 - Lane1 URGENT return blocker (verified in dirty worktree): reader fast
   path posts untagged `Sess.Cont` (`reader_answer`, no generation) and
   `writer_command` accepts `Cont` with no gen check while `Pump` checks
