@@ -957,3 +957,15 @@ law typing_out_bounded_quiet:
 # done-to-old on retarget, gated on negotiated message-tags.
 law typing_out_lifecycle:
   {CapNotify.out_lifecycle_ok() == True{} : Bool}
+
+# LAW: the first tick from the uninitialized typing state is a live observation
+# at any clock value; an established backward tick stays quiet and unchanged;
+# genuine forward U32 wrap stays live.
+law typing_out_unseen_first_tick:
+  {CapNotify.out_unseen_ok() == True{} : Bool}
+
+# LAW: CAP trust and presence exclusion share the validated host gate: a
+# configured single-label server and a valid dotted server count, prereg star
+# LS/ACK is preserved, and URL, delimiter, and empty-label sources fail.
+law cap_source_validated:
+  {CapNotify.cap_source_ok() == True{} : Bool}

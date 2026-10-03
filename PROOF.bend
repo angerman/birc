@@ -1218,3 +1218,9 @@ def Laws.typing_out_bounded_quiet():
 
 def Laws.typing_out_lifecycle():
   {==}
+
+def Laws.typing_out_unseen_first_tick():
+  {==}
+
+def Laws.cap_source_validated():
+  {==}

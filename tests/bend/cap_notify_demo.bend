@@ -93,6 +93,101 @@ def hostile_notify_ok() -> Bool:
     && Bool.not(String.contains(server_text(dot_away), "is away"))
     && String.contains(server_text(user_away), "bob is away: out to lunch")
 
+# G6.5: the uninitialized typing state is unobserved, not a timestamp: the first
+# composing tick at now=2^31 emits active; an established backward tick stays
+# quiet and unchanged; genuine forward U32 wrap stays live.
+def g65_first_ok(pair: Cap.OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.eq(String.concat(xs), "@+typing=active TAGMSG #a") && Cap.out_live(st) && U32.is_eq(Cap.out_sent_ms(st), 2147483648)
+
+def g65_stale_ok(pair: Cap.OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.is_empty(String.concat(xs)) && Cap.out_live(st) && U32.is_eq(Cap.out_sent_ms(st), 1000)
+
+def g65_wrap_quiet_ok(pair: Cap.OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.is_empty(String.concat(xs)) && Cap.out_live(st) && U32.is_eq(Cap.out_sent_ms(st), 4294967295)
+
+def g65_wrap_fire_ok(pair: Cap.OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.eq(String.concat(xs), "@+typing=active TAGMSG #a") && Cap.out_live(st) && U32.is_eq(Cap.out_sent_ms(st), 4000)
+
+def g65_unseen_ok() -> Bool:
+  g65_first_ok(Cap.step_out(Cap.out0(), 2147483648, True{}, True{}, "#a", True{}))
+    && g65_stale_ok(Cap.step_out(Cap.Out{"#a", True{}, 1000}, 999, True{}, True{}, "#a", True{}))
+    && g65_wrap_quiet_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295}, 100, True{}, True{}, "#a", True{}))
+    && g65_wrap_fire_ok(Cap.step_out(Cap.Out{"#a", True{}, 4294967295}, 4000, True{}, True{}, "#a", True{}))
+
+# Malformed sources: a configured single-label server and a valid dotted
+# server are trusted; URL, delimiter, and empty-label sources are not. A
+# valid single-label server is never user presence.
+def source_gate_ok() -> Bool:
+  +single = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags")
+  +dotted = Cap.caps_apply_line(Cap.caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags")
+  +url = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags")
+  +colon = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags")
+  +comma = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags")
+  +empty_label = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a..b CAP me ACK :message-tags")
+  +hub = Feed.feed(Cl.init("me", "s"), ":hub AWAY :nightly restart")
+  Cap.tags_ok(single) && Cap.tags_ok(dotted)
+    && Bool.not(Cap.tags_ok(url)) && Bool.not(Cap.tags_ok(colon)) && Bool.not(Cap.tags_ok(comma)) && Bool.not(Cap.tags_ok(empty_label))
+    && String.contains(server_text(hub), "AWAY") && Bool.not(String.contains(server_text(hub), "is away"))
+
+def ph_cap(+p: Cl.AuthPhase) -> Bool:
+  match p:
+    case Cl.AuthCap{}: True{}
+    case _: False{}
+
+def ph_challenge(+p: Cl.AuthPhase) -> Bool:
+  match p:
+    case Cl.AuthChallenge{}: True{}
+    case _: False{}
+
+def ph_result(+p: Cl.AuthPhase) -> Bool:
+  match p:
+    case Cl.AuthResult{}: True{}
+    case _: False{}
+
+def ph_done(+p: Cl.AuthPhase) -> Bool:
+  match p:
+    case Cl.AuthDone{}: True{}
+    case _: False{}
+
+def fold_ls_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +xs): ph_cap(Cl.get_auth(cl)) && String.is_empty(String.concat(xs))
+
+def fold_ack_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +xs): ph_challenge(Cl.get_auth(cl)) && String.eq(String.concat(xs), "AUTHENTICATE PLAIN")
+
+def fold_plus_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +xs): ph_result(Cl.get_auth(cl)) && String.eq(String.concat(xs), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw==")
+
+def fold_903_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +xs): ph_done(Cl.get_auth(cl)) && String.eq(String.concat(xs), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw==CAP END")
+
+def fold_after_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +xs): ph_done(Cl.get_auth(cl)) && String.eq(String.concat(xs), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw==CAP END")
+
+# STAR-to-SASL fold: one registration/CAP-END owner across the star and SASL
+# paths — no CAP END until the terminal SASL entry, then exactly one, and a
+# duplicate post-terminal ACK emits no second CAP END.
+def star_sasl_cap_end_ok() -> Bool:
+  +c0 = credentials()
+  fold_ls_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> Nil{}))
+    && fold_ack_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> Nil{}))
+    && fold_plus_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> "AUTHENTICATE +" <> Nil{}))
+    && fold_903_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> Nil{}))
+    && fold_after_ok(Sess.fold_lines(c0, ":s CAP * LS :sasl message-tags" <> ":s CAP * ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> ":s CAP me ACK :sasl" <> Nil{}))
+
 # G6.4: stale ticks stay quiet AND preserve live/sent state; fresh ticks act.
 def stale_quiet_ok() -> Bool:
   +live: Cap.OutState = Cap.Out{"#a", True{}, 1000}
@@ -124,4 +219,9 @@ def main() -> IO(Unit):
     Unit <- E.must("g62_cap_removal", cap_removal_ok())
     Unit <- E.must("g63_hostile_notify", hostile_notify_ok())
     Unit <- E.must("g64_stale_quiet", stale_quiet_ok())
+    Unit <- E.must("g65_unseen_first_tick", g65_unseen_ok())
+    Unit <- E.must("out_unseen", Cap.out_unseen_ok())
+    Unit <- E.must("source_gate_validated", source_gate_ok())
+    Unit <- E.must("cap_source", Cap.cap_source_ok())
+    Unit <- E.must("star_sasl_cap_end_once", star_sasl_cap_end_ok())
     IO.print("cap_notify_demo=ok")

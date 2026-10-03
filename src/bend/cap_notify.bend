@@ -9,6 +9,7 @@ import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./irc_commands.bend as Commands
+import ./endpoint.bend as Endpoint
 
 # ---- capability registry ------------------------------------------------
 
@@ -130,16 +131,26 @@ def cap_caps_text.star(+m: Irc.Message, star: Bool) -> String:
 def cap_caps_text(+m: Irc.Message) -> String:
   cap_caps_text.star(m, Irc.ieq(Irc.msg_param(m, 1n), "LS") && String.eq(Irc.msg_param(m, 2n), "*"))
 
-# G6.1: CAP state changes only on lines from the connection server addressed
-# to our current nick (or the established '*' registration recipient). A peer
-# user cannot set our caps, and another recipient's negotiation is not ours.
-# Server shape follows feed.server_notice: dotted or configured names without
-# user/host markers. An empty prefix carries no attestation and stays shut.
+# G6.1: CAP state changes only on lines from a validated server source
+# addressed to our current nick (or the established '*' registration
+# recipient). A peer user cannot set our caps, and another recipient's
+# negotiation is not ours. An empty prefix carries no attestation and stays
+# shut.
 def cap_recipient_ok(+m: Irc.Message, +nick: String) -> Bool:
   Irc.ieq(Irc.msg_param(m, 0n), nick) || String.eq(Irc.msg_param(m, 0n), "*")
 
+# Source validation mirrors Auth.server_source through the shared
+# Endpoint.host_ok primitive: single-label and dotted servers alike are
+# well-formed (RFC 2812); URLs, delimiters, and empty labels fail. (auth.bend
+# already depends on this module for CAP END, so the shared piece is the
+# Endpoint primitive, not the module.) Peer binding stays at the transport
+# and endpoint scope, not in this name. server remains in the signature for
+# the integrator's endpoint scope; the trust decision is the host validation.
+def server_source(+prefix: String) -> Bool:
+  Endpoint.host_ok(prefix)
+
 def cap_trusted(+prefix: String, +server: String, +nick: String, +m: Irc.Message) -> Bool:
-  Irc.source_is_server(prefix, server) && cap_recipient_ok(m, nick)
+  server_source(prefix) && cap_recipient_ok(m, nick)
 
 def cap_event.gated(+m: Irc.Message, ok: Bool) -> CapEvent:
   match ok:
@@ -148,6 +159,23 @@ def cap_event.gated(+m: Irc.Message, ok: Bool) -> CapEvent:
 
 def cap_event(+server: String, +nick: String, +prefix: String, +m: Irc.Message) -> CapEvent:
   cap_event.gated(m, Irc.ieq(Irc.msg_command(m), "CAP") && cap_trusted(prefix, server, nick, m))
+
+def cap_kind_of(e: CapEvent) -> CapKind:
+  match e:
+    case CapEvent{+kind, _}: kind
+
+def cap_is_ls(k: CapKind) -> Bool:
+  match k:
+    case CapLs{}: True{}
+    case _: False{}
+
+def cap_kind_line.parsed(+server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>) -> CapKind:
+  match m:
+    case None{}: CapOther{}
+    case Some{+msg}: cap_kind_of(cap_event(server, nick, Irc.source_prefix(line), msg))
+
+def cap_kind_line(+server: String, +nick: String, +line: String) -> CapKind:
+  cap_kind_line.parsed(server, nick, line, Irc.parse(line))
 
 # Servers may advertise values ('sasl=PLAIN'); match the bare name too.
 def cap_match.one(+have: String, +want: String) -> Bool:
@@ -302,12 +330,12 @@ def notify_event.cmd(+nick: String, +m: Irc.Message, account: Bool) -> NotifyEve
     case True{}: account_event(nick, m)
     case False{}: notify_event.away(nick, m, Irc.ieq(Irc.msg_command(m), "AWAY"))
 
-# G6.3: presence is a user statement. A server-like full prefix (dotted or
-# configured name without user/host markers) can never be an ACCOUNT/AWAY
-# subject, even when its bare nick looks innocent. Bare ambiguous nicks stay
-# users, matching Irc.source_is_server; empty nicks still fail below.
+# G6.3: presence is a user statement. A validated server source (dotted or
+# single-label alike) can never be an ACCOUNT/AWAY subject, even when its
+# bare nick looks innocent. Bare ambiguous nicks stay users, matching the
+# shared host gate; empty nicks still fail below.
 def notify_prefix_ok(+prefix: String, +server: String) -> Bool:
-  Bool.not(Irc.source_is_server(prefix, server))
+  Bool.not(server_source(prefix))
 
 def notify_event.checked(+m: Irc.Message, +nick: String, ok: Bool) -> NotifyEvent:
   match ok:
@@ -431,6 +459,18 @@ def step_out.scope(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid:
     case True{}: step_out.target(cur, live, sent_ms, now_ms, target, composing, Irc.ieq(cur, target))
     case False{}: (Out{"", False{}, now_ms}, Nil{})
 
+# G6.5: the uninitialized state is unobserved, not a timestamp. sent_ms only
+# becomes a baseline after a first tick; without that, the half-range stale
+# veto would mistake the first observation at/after 2^31 for clock skew and
+# hold the span quiet until the clock wraps.
+def step_out.unseen(+cur: String, live: Bool, +sent_ms: U32) -> Bool:
+  match live:
+    case True{}: False{}
+    case False{}: String.is_empty(cur) && U32.is_eq(sent_ms, 0)
+
+def step_out.stale(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32) -> Bool:
+  U32.is_ge(U32.sub(now_ms, sent_ms), 2147483648) && Bool.not(step_out.unseen(cur, live, sent_ms))
+
 # G6.4: a tick older than the last send (clock skew) stays quiet AND keeps
 # its state on every path: no done/active send, no live flip, no sent_ms move.
 def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
@@ -441,7 +481,7 @@ def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid
 def step_out(+st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match st:
     case Out{+cur, +live, +sent}:
-      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, U32.is_ge(U32.sub(now_ms, sent), 2147483648))
+      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, step_out.stale(cur, live, sent, now_ms))
 
 # ---- session-owned registration state -------------------------------------
 # One value for the integrator to store: negotiated caps plus outbound typing.
@@ -736,3 +776,50 @@ def out_lifecycle.after_start(pair: OutState & List<&2, String>, +acc: Bool) -> 
 
 def out_lifecycle_ok() -> Bool:
   out_lifecycle.after_start(step_out(out0(), 1000, True{}, True{}, "#a", True{}), True{})
+
+def first_tick_ok(pair: OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.eq(String.concat(xs), "@+typing=active TAGMSG #a") && out_live(st) && U32.is_eq(out_sent_ms(st), 2147483648)
+
+def stale_kept_ok(pair: OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.is_empty(String.concat(xs)) && out_live(st) && U32.is_eq(out_sent_ms(st), 1000)
+
+def wrap_quiet_ok(pair: OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.is_empty(String.concat(xs)) && out_live(st) && U32.is_eq(out_sent_ms(st), 4294967295)
+
+def wrap_fire_ok(pair: OutState & List<&2, String>) -> Bool:
+  match pair:
+    case (+st, +xs):
+      String.eq(String.concat(xs), "@+typing=active TAGMSG #a") && out_live(st) && U32.is_eq(out_sent_ms(st), 4000)
+
+# G6.5 guards: the first tick from the uninitialized state is a live
+# observation at any clock value; an established backward tick stays quiet
+# and unchanged; genuine forward U32 wrap stays live.
+def out_unseen_ok() -> Bool:
+  first_tick_ok(step_out(out0(), 2147483648, True{}, True{}, "#a", True{}))
+    && stale_kept_ok(step_out(Out{"#a", True{}, 1000}, 999, True{}, True{}, "#a", True{}))
+    && wrap_quiet_ok(step_out(Out{"#a", True{}, 4294967295}, 100, True{}, True{}, "#a", True{}))
+    && wrap_fire_ok(step_out(Out{"#a", True{}, 4294967295}, 4000, True{}, True{}, "#a", True{}))
+
+# Malformed-source guards: the shared host validation admits a configured
+# single-label server and a valid dotted server, preserves prereg star LS/ACK,
+# and rejects URL, delimiter, and empty-label sources; peer prefixes and a
+# valid single-label server never drive CAP state or user presence.
+def cap_source_ok() -> Bool:
+  +single = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags")
+  +dotted = caps_apply_line(caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags")
+  +url = caps_apply_line(caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags")
+  +colon = caps_apply_line(caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags")
+  +comma = caps_apply_line(caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags")
+  +empty_label = caps_apply_line(caps0(), "s", "me", ":a..b CAP me ACK :message-tags")
+  tags_ok(single) && tags_ok(dotted)
+    && Bool.not(tags_ok(url)) && Bool.not(tags_ok(colon)) && Bool.not(tags_ok(comma)) && Bool.not(tags_ok(empty_label))
+    && cap_is_ls(cap_kind_line("s", "me", ":s CAP * LS :sasl message-tags"))
+    && Bool.not(cap_is_ls(cap_kind_line("s", "me", ":alice!u@h CAP * LS :sasl")))
+    && is_other(notify_event("s", "hub", Irc.Message{"", "hub", "AWAY", 0, "nightly restart" <> Nil{}}))
+    && is_away_on(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, "out" <> Nil{}}), "bob", "out")
