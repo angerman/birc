@@ -301,6 +301,7 @@ test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and
 	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 test-review-pure: test-launch-channels test-reconnect-endpoint
+test-review-pure: test-server-id test-ipv6
 
 .PHONY: test-pty-upload-diagnostics
 test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.
@@ -688,6 +689,16 @@ test-submit: ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
 	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
+
+test-server-id: ## Multiserver routing, isolation, and generation goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/server_id_demo.bend -o $(BLDDIR)/server_id_demo
+	$(NIXRUN) sh scripts/check-golden.sh server_id_demo=ok ./$(BLDDIR)/server_id_demo
+
+test-ipv6: ## Bracketed IPv6 endpoints, AAAA DNS, and dial-plan goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/server_id_ipv6.bend -o $(BLDDIR)/server_id_ipv6
+	$(NIXRUN) sh scripts/check-golden.sh server_id_ipv6=ok ./$(BLDDIR)/server_id_ipv6
 
 test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)

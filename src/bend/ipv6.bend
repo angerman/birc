@@ -134,16 +134,21 @@ def parse_v6.len(ok: Bool, +text: String) -> Result<&2, &2, String, EndpointV>:
 def parse_v6(+text: String) -> Result<&2, &2, String, EndpointV>:
   parse_v6.len(Nat.is_le(String.length(text), MAX_V6_INPUT()), text)
 
-def parse_any.fallback(r: Result<&2, &2, String, Endpoint.Endpoint>, +text: String) -> Result<&2, &2, String, EndpointV>:
+def parse_any.plain(r: Result<&2, &2, String, Endpoint.Endpoint>) -> Result<&2, &2, String, EndpointV>:
   match r:
     case Done{e}:
       match e:
         case Endpoint.Endpoint{+host, +port}: Done{EndpointV{host, port, V4{}}}
-    case Fail{_}: parse_v6(text)
+    case Fail{+msg}: Fail{msg}
 
-# IPv4/DNS keeps Endpoint spelling and errors; brackets select IPv6.
+# Only bracketed input routes to IPv6 (parse_v6 accepts nothing else: it
+# requires a leading '['). Everything else keeps Endpoint's result verbatim,
+# including its specific bad-port errors, which a blind IPv6 fallback would
+# discard into a generic "bad endpoint".
 def parse_any(+text: String) -> Result<&2, &2, String, EndpointV>:
-  parse_any.fallback(Endpoint.parse(text), text)
+  match text:
+    case SCon{Chr{91}, _}: parse_v6(text)
+    case _: parse_any.plain(Endpoint.parse(text))
 
 type Resolved is Data:
   Resolved{host: String, port: U32, family: Family}

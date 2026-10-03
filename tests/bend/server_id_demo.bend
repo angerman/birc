@@ -13,6 +13,12 @@ def s1() -> Sid.ServerId:
 def s2() -> Sid.ServerId:
   Sid.ServerId{2n}
 
+def s3() -> Sid.ServerId:
+  Sid.ServerId{3n}
+
+def s4() -> Sid.ServerId:
+  Sid.ServerId{4n}
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("first valid", Sid.valid(Sid.first()))
@@ -75,6 +81,17 @@ def main() -> IO(Unit):
     Unit <- E.must("reconnect server miss", Bool.not(Sid.reconnect_ok(Sid.Intent{s0(), 4, "h", 6697, False{}}, s1(), 4, Sid.Scope{"h", 6697, False{}})))
     Unit <- E.must("reconnect endpoint miss", Bool.not(Sid.reconnect_ok(Sid.Intent{s0(), 4, "h", 6697, False{}}, s0(), 4, Sid.Scope{"other", 6697, False{}})))
     Unit <- E.must("reconnect port miss", Bool.not(Sid.reconnect_ok(Sid.Intent{s0(), 4, "h", 6697, False{}}, s0(), 4, Sid.Scope{"h", 7000, False{}})))
+    Unit <- E.must("id3 current", Sid.route_current(Sid.Routed{s3(), 9}, s3(), 9))
+    Unit <- E.must("id3 stale", Bool.not(Sid.route_current(Sid.Routed{s3(), 9}, s3(), 10)))
+    Unit <- E.must("route invalid id", Bool.not(Sid.route_current(Sid.Routed{s4(), 7}, s4(), 7)))
+    Unit <- E.must("route invalid expected", Bool.not(Sid.route_current(Sid.Routed{s1(), 7}, s4(), 7)))
+    Unit <- E.must("cmd invalid id", Bool.not(Sid.cmd_current(Sid.dial_for(s4(), "h", 6697, 3, "me"), s4(), 3)))
+    Unit <- E.must("evt invalid id", Bool.not(Sid.evt_current(Sid.RoutedMsg{s4(), Sess.UiKey{}}, s4(), 4)))
+    Unit <- E.must("done invalid id", Bool.not(Sid.writer_done_current(Sid.RoutedMsg{s4(), Sess.FromNet{4, Sess.WriterDone{}}}, s4(), 4)))
+    Unit <- E.must("eq no narrow", Bool.not(Sid.eq(s0(), Sid.ServerId{Nat.add(4294967295n, 1n)})))
+    Unit <- E.must("reconnect case exact", Bool.not(Sid.reconnect_ok(Sid.Intent{s0(), 4, "h", 6697, False{}}, s0(), 4, Sid.Scope{"H", 6697, False{}})))
+    Unit <- E.must("reconnect v6 exact", Sid.reconnect_ok(Sid.Intent{s1(), 2, "::1", 6697, True{}}, s1(), 2, Sid.Scope{"::1", 6697, True{}}))
+    Unit <- E.must("reconnect invalid id", Bool.not(Sid.reconnect_ok(Sid.Intent{s4(), 4, "h", 6697, False{}}, s4(), 4, Sid.Scope{"h", 6697, False{}})))
     Unit <- E.must("routing ok", Sid.routing_ok())
     Unit <- E.must("isolation ok", Sid.isolation_ok())
     Unit <- E.must("generation ok", Sid.generation_ok())

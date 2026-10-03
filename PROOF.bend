@@ -1108,3 +1108,21 @@ def Laws.join_lists_reject_nonchannel_targets():
 
 def Laws.image_switch_keeps_exact_argument_policy():
   {==}
+
+def Laws.serverid_routing_rejects_invalid_and_stale():
+  {==}
+
+def Laws.serverid_isolation_keeps_exact_secrets():
+  {==}
+
+def Laws.serverid_generations_bound_ids():
+  {==}
+
+def Laws.ipv6_literal_valid():
+  {==}
+
+def Laws.ipv6_endpoint_format():
+  {==}
+
+def Laws.ipv6_dial_plan():
+  {==}

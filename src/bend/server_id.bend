@@ -31,7 +31,10 @@ def slot(+id: ServerId) -> U32:
     case ServerId{+n}: U32.from_nat(n)
 
 def eq(+a: ServerId, +b: ServerId) -> Bool:
-  U32.is_eq(slot(a), slot(b))
+  match a:
+    case ServerId{+x}:
+      match b:
+        case ServerId{+y}: Nat.is_eq(x, y)
 
 def next(+id: ServerId) -> ServerId:
   match id:
@@ -50,9 +53,15 @@ def is_stale(+got: U32, +cur: U32) -> Bool:
 type Routed is Data:
   Routed{server: ServerId, gen: U32}
 
+# Every routing/admission check fails closed on invalid ids: the carried id
+# and the expected id must both be valid before comparison, so ID4+ and
+# out-of-range slots never route even when they compare equal.
+def current_id(+s: ServerId, +server: ServerId) -> Bool:
+  valid(s) && valid(server) && eq(s, server)
+
 def route_current(+r: Routed, +server: ServerId, +gen: U32) -> Bool:
   match r:
-    case Routed{+s, +g}: eq(s, server) && U32.is_eq(g, gen)
+    case Routed{+s, +g}: current_id(s, server) && U32.is_eq(g, gen)
 
 # ---- command / event routing ------------------------------------------------------
 # Server identity gates every command. Generation gates only the variants that
@@ -71,20 +80,20 @@ def cmd_gen_ok(cmd: Sess.NetCmd, +gen: U32) -> Bool:
 
 def cmd_current(+rc: RoutedCmd, +server: ServerId, +gen: U32) -> Bool:
   match rc:
-    case RoutedCmd{+s, +cmd}: eq(s, server) && cmd_gen_ok(cmd, gen)
+    case RoutedCmd{+s, +cmd}: current_id(s, server) && cmd_gen_ok(cmd, gen)
 
 type RoutedMsg is Data:
   RoutedMsg{server: ServerId, msg: Sess.UiMsg}
 
 def evt_current(+rm: RoutedMsg, +server: ServerId, +gen: U32) -> Bool:
   match rm:
-    case RoutedMsg{+s, +msg}: eq(s, server) && Sess.event_current(msg, gen)
+    case RoutedMsg{+s, +msg}: current_id(s, server) && Sess.event_current(msg, gen)
 
 # Only the owning server's current writer acknowledges shutdown; reader EOF
 # and other servers' completions cannot, mirroring Sess.writer_done_current.
 def writer_done_current(+rm: RoutedMsg, +server: ServerId, +gen: U32) -> Bool:
   match rm:
-    case RoutedMsg{+s, +msg}: eq(s, server) && Sess.writer_done_current(msg, gen)
+    case RoutedMsg{+s, +msg}: current_id(s, server) && Sess.writer_done_current(msg, gen)
 
 def dial_for(+server: ServerId, +host: String, +port: U32, +gen: U32, +nick: String) -> RoutedCmd:
   RoutedCmd{server, Sess.Dial{host, port, gen, nick}}
@@ -100,8 +109,9 @@ def begin_for(+server: ServerId, +gen: U32) -> RoutedCmd:
 
 # ---- endpoint scopes ---------------------------------------------------------------
 # One scope key isolates credentials, history, preferences, buffers, and
-# reconnect intent. Host spelling (case, root dot, literal text) is preserved;
-# comparison is case-insensitive like history, never normalized.
+# reconnect intent. Host spelling (case, root dot, literal text) is preserved.
+# History admission compares case-insensitively like the archive reader;
+# credential and reconnect transitions compare exactly, never normalized.
 
 type Scope is Data:
   Scope{host: String, port: U32, v6: Bool}
@@ -158,14 +168,20 @@ type Intent is Data:
 
 def intent_current(+i: Intent, +server: ServerId, +gen: U32) -> Bool:
   match i:
-    case Intent{+s, +g, _, _, _}: eq(s, server) && U32.is_eq(g, gen)
+    case Intent{+s, +g, _, _, _}: current_id(s, server) && U32.is_eq(g, gen)
 
 def intent_scope(+i: Intent) -> Scope:
   match i:
     case Intent{_, _, +host, +port, +v6}: Scope{host, port, v6}
 
+# Reconnect retains the Auth profile, which credential_scope_ok binds to exact
+# host spelling: a case-folded match here would keep secrets across a
+# credential-scope change, so the endpoint comparison is exact.
+def endpoint_exact(+a: Scope, +b: Scope) -> Bool:
+  U32.is_eq(port_of(a), port_of(b)) && bool_eq(v6_of(a), v6_of(b)) && String.eq(host_of(a), host_of(b))
+
 def intent_same_endpoint(+i: Intent, +s: Scope) -> Bool:
-  same_scope(intent_scope(i), s)
+  endpoint_exact(intent_scope(i), s)
 
 def reconnect_ok(+i: Intent, +server: ServerId, +gen: U32, +s: Scope) -> Bool:
   intent_current(i, server, gen) && intent_same_endpoint(i, s)
@@ -179,6 +195,10 @@ def routing_ok() -> Bool:
     && cmd_current(dial_for(ServerId{0n}, "h", 6697, 3, "me"), ServerId{0n}, 3)
     && Bool.not(cmd_current(dial_for(ServerId{0n}, "h", 6697, 3, "me"), ServerId{0n}, 4))
     && Bool.not(cmd_current(dial_for(ServerId{0n}, "h", 6697, 3, "me"), ServerId{1n}, 3))
+    && route_current(Routed{ServerId{3n}, 9}, ServerId{3n}, 9)
+    && Bool.not(route_current(Routed{ServerId{3n}, 9}, ServerId{3n}, 10))
+    && Bool.not(route_current(Routed{ServerId{4n}, 7}, ServerId{4n}, 7))
+    && Bool.not(cmd_current(dial_for(ServerId{4n}, "h", 6697, 3, "me"), ServerId{4n}, 3))
 
 def isolation_ok() -> Bool:
   same_scope(Scope{"irc.example", 6697, False{}}, Scope{"IRC.Example", 6697, False{}})
@@ -188,7 +208,10 @@ def isolation_ok() -> Bool:
     && Bool.not(credential_scope_ok("h", 6697, "H", 6697))
     && history_admits("IRC.Example:6697", Scope{"irc.example", 6697, False{}})
     && Bool.not(history_admits("irc.example:7000", Scope{"irc.example", 6697, False{}}))
+    && reconnect_ok(Intent{ServerId{0n}, 4, "h", 6697, False{}}, ServerId{0n}, 4, Scope{"h", 6697, False{}})
+    && Bool.not(reconnect_ok(Intent{ServerId{0n}, 4, "h", 6697, False{}}, ServerId{0n}, 4, Scope{"H", 6697, False{}}))
 
 def generation_ok() -> Bool:
   U32.is_eq(bump(7), 8) && is_stale(7, 8) && Bool.not(is_stale(8, 8))
     && valid(first()) && valid(next(next(next(first())))) && Bool.not(valid(next(next(next(next(first()))))))
+    && eq(ServerId{3n}, ServerId{3n}) && Bool.not(eq(ServerId{0n}, ServerId{Nat.add(4294967295n, 1n)}))

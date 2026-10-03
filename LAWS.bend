@@ -33,6 +33,8 @@ import ./src/bend/irc_commands.bend as Commands
 import ./src/bend/message_chunks.bend as Chunks
 import ./src/bend/join_plan.bend as JoinPlan
 import ./src/bend/history_startup.bend as StartupHistory
+import ./src/bend/server_id.bend as Sid
+import ./src/bend/ipv6.bend as V6
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -836,3 +838,21 @@ law join_lists_reject_nonchannel_targets:
 
 law image_switch_keeps_exact_argument_policy:
   {Sub.images_arg("on") == Some{True{}} : Maybe<&2, Bool>}
+
+law serverid_routing_rejects_invalid_and_stale:
+  {Sid.routing_ok() == True{} : Bool}
+
+law serverid_isolation_keeps_exact_secrets:
+  {Sid.isolation_ok() == True{} : Bool}
+
+law serverid_generations_bound_ids:
+  {Sid.generation_ok() == True{} : Bool}
+
+law ipv6_literal_valid:
+  {V6.literal_ok() == True{} : Bool}
+
+law ipv6_endpoint_format:
+  {V6.endpoint_ok() == True{} : Bool}
+
+law ipv6_dial_plan:
+  {V6.dial_ok() == True{} : Bool}
