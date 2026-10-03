@@ -4170,6 +4170,13 @@ handoff is implementation scope, not a request for another plan-only review.
   (`01a1014a-b094-78a0-be43-78cf4f712a51`);
   `fix-c8-second` = `main/fix-c8-second/18`
   (`01a1014a-b54a-7811-96e4-76e6154bda20`).
+  `fix-v6-fallback` = `main/fix-v6-fallback/22`
+  (`01a1015d-5d7f-7f12-8c63-a21d92dfa680`);
+  `fix-g6-second` = `main/fix-g6-second/23`
+  (`01a1015d-6309-7cd1-acb1-e67247a43966`);
+  `fix-c8-third` = `main/fix-c8-third/24` (above);
+  `fix-i2-third` = `main/fix-i2-third/25`
+  (`01a10162-da20-7d60-be2f-96e496de7bbd`).
   `fix-h5-second` = `main/fix-h5-second/21`
   (`01a10154-3e5c-7011-b206-e6f3c8561637`) on `6c858f1` (H5.8+H5y).
 - G6 second review (G6.5+G6-star, queued follow-up; G6 worker terminal,
@@ -4229,6 +4236,22 @@ handoff is implementation scope, not a request for another plan-only review.
   every pure-policy merge. Once interfaces freeze, parallelize I2/G6/H5
   and C8/N9 Session adapters within actually available slots; parent
   owns shared types and all final merges.
+- Lane1 URGENT return blocker (verified in dirty worktree): reader fast
+  path posts untagged `Sess.Cont` (`reader_answer`, no generation) and
+  `writer_command` accepts `Cont` with no gen check while `Pump` checks
+  `U32.is_eq(pgen, gen)` — old-generation PONGs leak into new endpoints
+  (the lane's own comment admits it). Require generation-tagged reader
+  responses + `Writer.gen` check: negative delayed-old-PING-after-
+  Dial/Drop yields no new-server PONG, positive current-gen PING gets
+  exactly one timely PONG, queued UI lines must not duplicate. Relayed
+  via `LANE1_URGENT.md` (workflow children have no message channel) and
+  recorded here as a return blocker. Shutdown fixtures: signature
+  adapts only; `net_trace` needs ≥2 PONGs / ≥4 enqueue marks.
+  Deadlines unchanged; before/after evidence required.
+- H5-second returned `8b5000c` (worker reports H5.8 msgid-anchoring;
+  H5y/H5q/IO-fixture coverage to verify in review); pending parent
+  review before integration. Freed slot went to `fix-i2-third` (I2d +
+  I2c-lifecycle); N9-second and L1T-second remain queued.
 - G3 exact-SOH + H5-IO additions (messaged to running workers): G3 SOH
   branch is wire_style:165; whitelist-only supported style controls in
   chat text; metadata/TAB/CR/LF/NUL/ESC/OSC52 safety through BIRC2;
