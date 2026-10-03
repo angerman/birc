@@ -4172,10 +4172,36 @@ handoff is implementation scope, not a request for another plan-only review.
   (`01a1014a-b54a-7811-96e4-76e6154bda20`).
   `fix-h5-second` = `main/fix-h5-second/21`
   (`01a10154-3e5c-7011-b206-e6f3c8561637`) on `6c858f1` (H5.8+H5y).
+- G6 second review (G6.5+G6-star, queued follow-up; G6 worker terminal,
+  pool full): `out0` has `sent_ms=0` and `step_out441-444` globally
+  treats U32 `elapsed>=2^31` as stale before any clock sample — first
+  composing tick at `now=2147483648` stays `Out0` forever through that
+  half-cycle. Treat uninitialized state as unobserved, not a timestamp:
+  positive first step at 2147483648 emits active, negative established
+  sent1000/now999 stays quiet+unchanged, positive genuine forward-U32wrap
+  stays live. Shared G6 CAP owner must also preserve legitimate prereg
+  `CAP * LS/ACK` (same primary spec as H5) without accepting peer prefix
+  or wrong registered recipient.
+- G3 exact-SOH + H5-IO additions (messaged to running workers): G3 SOH
+  branch is wire_style:165; whitelist-only supported style controls in
+  chat text; metadata/TAB/CR/LF/NUL/ESC/OSC52 safety through BIRC2;
+  controls inside e+combining and woman+ZWJ+laptop at narrow/wide wrap.
+  H5 IO fixture must exercise real early-EOF files
+  (remaining>contents vs exact-length), not only predicates.
 - C8-second returned `254a0eb` (shared lock/accounting + Unicode
   envelope, worker reports both-writer-orders/interleaved/concurrent
   green); pending parent review against C8d/C8e before integration.
   V6-fallback follow-up still queued for the next free slot.
+- Qualification refinements: (H5q, messaged to running `fix-h5-second/21`)
+  phase-aware CAP `*` acceptance with the ONE registration owner (never
+  global wrong-recipient acceptance) + full `YYYY-MM-DDThh:mm:ss.sssZ`
+  timestamp validation reusing server-time checks, paired valid/malformed
+  refs. (V6q, folded into queued V6 follow-up scope) fixture-only gaps:
+  production AAAA-to-A + truncation-to-TCP paths, DNS-name TLS/SNI,
+  stale actor generation guards; assert IPv6 UDP success if claimed;
+  fixture must collect 5 bytes under one deadline (positive 2+3
+  fragments, negative early-EOF/altered-bytes) instead of assuming first
+  recv is exactly `hello`. Never weaken framer or TLS verification.
 - G6 `a504fca` grounded: `cap_notify_demo=ok` executed by the parent in
   the repair worktree (not only worker-reported). Queued for ordered
   integration with the remaining returns.
