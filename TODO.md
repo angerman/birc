@@ -4248,6 +4248,12 @@ handoff is implementation scope, not a request for another plan-only review.
   integrated source.
 - V6-fallback has `348fe16`; production fallback/native fixtures get
   reviewed on return. L1T-second and H5-completion queue stays open.
+- N9-second returned (`fe9631e` + `800f893`, worker reports cross-scope
+  fail-closed admission + canonical theme merge point + 12 laws, prior
+  suites green); pending parent review against N9x/N9y before
+  integration. Freed slot went to `fix-l1t-second/27`
+  (`01a10175-6e34-7f51-9ff4-4077898ce3b0`) on `727e0c8`. H5-completion
+  remains queued next.
   PROOF junction fix committed with its exact green evidence (114s
   `ALL PROOFS CHECK` run covered this content; only non-Bend files
   changed since).
