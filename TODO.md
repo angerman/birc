@@ -4537,6 +4537,9 @@ handoff is implementation scope, not a request for another plan-only review.
   `dualdnslazy` mode + harness guard (exactly one AAAA, v6 echo, v4
   silent): `test-ipv6-transport` GREEN incl. `dualdnslazy=ok` (owned
   loopback, bounded); `ipv6_transport=ok` glue green.
+- `integ-c8-live/38` FAILED at startup (tooling, no commits, clean
+  tree at `88e695b`); respun immediately as `integ-c8-live2/39` on
+  branch `c8-live2` with the identical initial task.
 - H5 chain committed UNQUALIFIED (`5313e0d`; staged proof timed out,
   cause unverified) and `adapt-h5-runtime/33` launched with exact
   .sss/descriptor/ticket/CAP gates (fixture flips held).
