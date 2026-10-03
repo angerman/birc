@@ -4337,6 +4337,14 @@ handoff is implementation scope, not a request for another plan-only review.
   `/nix/store/vp83vc93fd31ykls5x39mjac3xjh08mw-bend`; captured runner
   regeneration in progress; `bend --version` is not a flag (use
   `bend --help` + real runs for verification).
+- QUALIFIED: `build/m27-locked-run.sh` regenerated from fresh locked
+  env (Bend 2.0.34 verified) and `make proof` on the exact merged tree
+  reports ALL PROOFS CHECK (exit 0) — G6/N9/I2 picks above are now
+  qualified. L1T-second returned (`d7c39dc` nix pipe-orphan/group-kill +
+  `1d7b544` trace correlation, on `repair-l1tb` from `727e0c8`);
+  pending parent review before integration. Freed slot goes to I2 live
+  runtime integration (folded STATUSMSG-first + `cm_known` + goldens in
+  initial task); parent owns G6 CAP/typing runtime (+sentinel fix).
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
