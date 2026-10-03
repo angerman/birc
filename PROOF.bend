@@ -1288,6 +1288,18 @@ def Laws.notify_title_redacts_author():
 def Laws.notify_title_strips_controls():
   {==}
 
+def Laws.notify_full_table_rejects_unknown():
+  {==}
+
+def Laws.notify_cross_scope_replay_is_silent():
+  {==}
+
+def Laws.notify_retained_scope_fresh_id_notifies():
+  {==}
+
+def Laws.notify_table_stays_bounded():
+  {==}
+
 def Laws.theme_status_dark_online():
   {==}
 
@@ -1301,6 +1313,42 @@ def Laws.theme_status_dark_other():
   {==}
 
 def Laws.theme_status_matches_view():
+  {==}
+
+def Laws.theme_dark_self_preserved():
+  {==}
+
+def Laws.theme_dark_system_preserved():
+  {==}
+
+def Laws.theme_dark_action_preserved():
+  {==}
+
+def Laws.theme_dark_notice_preserved():
+  {==}
+
+def Laws.theme_dark_error_preserved():
+  {==}
+
+def Laws.theme_dark_reconnect_preserved():
+  {==}
+
+def Laws.theme_dark_linkresult_preserved():
+  {==}
+
+def Laws.theme_nick_row_zero_fixed():
+  {==}
+
+def Laws.theme_nick_default_arm_fixed():
+  {==}
+
+def Laws.theme_status_matches_view_online():
+  {==}
+
+def Laws.theme_status_matches_view_offline():
+  {==}
+
+def Laws.theme_status_matches_view_other():
   {==}
 
 def Laws.emoji_birc2_load_keeps_source():

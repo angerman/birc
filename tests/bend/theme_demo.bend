@@ -70,6 +70,10 @@ def main() -> IO(Unit):
       U32.show(V.status_color_themed(Theme.default(), "online · 3ms")), U32.show(V.status_color("online · 3ms")))
     Unit <- E.must_eq("view status offline matches",
       U32.show(V.status_color_themed(Theme.default(), "offline")), U32.show(V.status_color("offline")))
+    Unit <- E.must_eq("view status connecting matches",
+      U32.show(V.status_color_themed(Theme.default(), "connecting")), U32.show(V.status_color("connecting")))
+    Unit <- E.must_eq("view status other matches",
+      U32.show(V.status_color_themed(Theme.default(), "demo")), U32.show(V.status_color("demo")))
     Unit <- E.must_eq("light status online", U32.show(V.status_color_themed(Theme.Light{}, "online")), "31293")
     Unit <- E.must_eq("mono status offline", U32.show(V.status_color_themed(Theme.Mono{}, "offline")), "14211288")
     Unit <- E.must_eq("light self", U32.show(Theme.kind_fg(Theme.Light{}, Cl.Self{})), "31293")
@@ -85,6 +89,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("view default error matches", U32.show(V.style_of_themed(Theme.default(), Cl.Error{})), U32.show(V.style_of(Cl.Error{})))
     Unit <- E.must_eq("view default reconnect matches", U32.show(V.style_of_themed(Theme.default(), Cl.Reconnect{})), U32.show(V.style_of(Cl.Reconnect{})))
     Unit <- E.must_eq("view default linkresult matches", U32.show(V.style_of_themed(Theme.default(), Cl.LinkResult{})), U32.show(V.style_of(Cl.LinkResult{})))
+    Unit <- E.must_eq("view default notice matches", U32.show(V.style_of_themed(Theme.default(), Cl.Notice{})), U32.show(V.style_of(Cl.Notice{})))
     Unit <- E.must_eq("status dark online", U32.show(Theme.status_of(Theme.Dark{}, "online · 3ms")), "5635925")
     Unit <- E.must_eq("status dark offline", U32.show(Theme.status_of(Theme.Dark{}, "offline")), "16223340")
     Unit <- E.must_eq("status dark connecting", U32.show(Theme.status_of(Theme.Dark{}, "connecting")), "15720050")

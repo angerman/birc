@@ -71,6 +71,15 @@ def flood_scopes(left: Nat, +st: Notify.State, +n: Nat) -> Notify.State:
     case 1n+p:
       flood_scopes(p, Notify.step(st, Notify.NotifyEvent{1n, "s" ++ Nat.show(n) ++ ".test:6697", "a", "#t", "x", False{}, True{}}, "", ""), Nat.add(n, 1n))
 
+def full_state() -> Notify.State:
+  flood_scopes(8n, Notify.on(), 0n)
+
+def overfull_state() -> Notify.State:
+  flood_scopes(9n, Notify.on(), 0n)
+
+def marks_len(+st: Notify.State) -> String:
+  Nat.show(List.length(&2, Notify.Mark, Notify.marks(st)))
+
 def chars(left: Nat) -> String:
   match left:
     case 0n: ""
@@ -149,6 +158,19 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("one scope after flood",
       Nat.show(List.length(&2, Notify.Mark, Notify.marks(flood(70n, Notify.on(), 0n)))), "1")
     Unit <- E.must_eq("evicted id stays silent", decided(flood(70n, Notify.on(), 0n), ev(0n, False{}, True{})), "silent")
+    Unit <- E.must_eq("ninth scope fails closed",
+      decided(full_state(), ev_at("s8.test:6697", 1n, False{}, True{})), "silent")
+    Unit <- E.must_eq("cross-scope replay stays silent",
+      decided(overfull_state(), ev_at("s0.test:6697", 1n, False{}, True{})), "silent")
+    Unit <- E.must_eq("overfull table stays bounded", marks_len(overfull_state()), "8")
+    Unit <- E.must("scope table bounded by 8",
+      Nat.is_le(List.length(&2, Notify.Mark, Notify.marks(overfull_state())), 8n))
+    Unit <- E.must_eq("retained scope fresh id notifies",
+      decided(overfull_state(), ev_at("s0.test:6697", 2n, False{}, True{})), "notify:bob in #room|hello")
+    Unit <- E.must_eq("seed on full table fails closed",
+      hi_shown(Notify.hi_of(Notify.seed(full_state(), "new.test:6697", 5n), "new.test:6697")), "unknown")
+    Unit <- E.must_eq("seed on full table keeps known scope",
+      hi_shown(Notify.hi_of(Notify.seed(full_state(), "s0.test:6697", 9n), "s0.test:6697")), "9")
     Unit <- E.must_eq("body bound is 160 chars", body_len(chars(200n)), "160")
     Unit <- E.must_eq("short body kept whole", body_len("hi"), "2")
     Unit <- E.must_eq("title bound is 80 chars", title_len(chars(200n)), "80")

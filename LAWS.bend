@@ -1037,6 +1037,18 @@ law notify_title_redacts_author:
 law notify_title_strips_controls:
   {Notify.title_of(Notify.NotifyEvent{1n, "s:1", "b\nob", "#t", "hi", False{}, True{}}, "", "") == "bob in #t" : String}
 
+law notify_full_table_rejects_unknown:
+  {Notify.decide(Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, Notify.NotifyEvent{1n, "s8.test:6697", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_cross_scope_replay_is_silent:
+  {Notify.decide(Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, Notify.NotifyEvent{1n, "s0.test:6697", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, None{}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_retained_scope_fresh_id_notifies:
+  {Notify.decide(Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, Notify.NotifyEvent{2n, "s0.test:6697", "bob", "#room", "hi", False{}, True{}}, "", "") == (Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 2n}]}, Some{Notify.Req{"bob in #room", "hi"}}) : Notify.State & Maybe<&2, Notify.Req>}
+
+law notify_table_stays_bounded:
+  {List.length(&2, Notify.Mark, Notify.marks(Notify.remember(Notify.Notify{True{}, [Notify.Mark{"s7.test:6697", 1n}, Notify.Mark{"s6.test:6697", 1n}, Notify.Mark{"s5.test:6697", 1n}, Notify.Mark{"s4.test:6697", 1n}, Notify.Mark{"s3.test:6697", 1n}, Notify.Mark{"s2.test:6697", 1n}, Notify.Mark{"s1.test:6697", 1n}, Notify.Mark{"s0.test:6697", 1n}]}, "s8.test:6697", 1n))) == 8n : Nat}
+
 law theme_status_dark_online:
   {Theme.status_of(Theme.Dark{}, "online · 3ms") == 5635925 : U32}
 
@@ -1051,6 +1063,42 @@ law theme_status_dark_other:
 
 law theme_status_matches_view:
   {Theme.status_of(Theme.Dark{}, "connecting") == V.status_color("connecting") : U32}
+
+law theme_dark_self_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Self{}) == 5893695 : U32}
+
+law theme_dark_system_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.System{}) == 10526880 : U32}
+
+law theme_dark_action_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Action{}) == 13079274 : U32}
+
+law theme_dark_notice_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Notice{}) == 8563455 : U32}
+
+law theme_dark_error_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Error{}) == 16223340 : U32}
+
+law theme_dark_reconnect_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.Reconnect{}) == 10526880 : U32}
+
+law theme_dark_linkresult_preserved:
+  {Theme.kind_fg(Theme.Dark{}, Cl.LinkResult{}) == 10526880 : U32}
+
+law theme_nick_row_zero_fixed:
+  {Theme.nick_row(Theme.default(), 0) == 16738914 : U32}
+
+law theme_nick_default_arm_fixed:
+  {Theme.nick_row(Theme.default(), 99) == 14540253 : U32}
+
+law theme_status_matches_view_online:
+  {Theme.status_of(Theme.Dark{}, "online · 3ms") == V.status_color("online · 3ms") : U32}
+
+law theme_status_matches_view_offline:
+  {Theme.status_of(Theme.Dark{}, "offline") == V.status_color("offline") : U32}
+
+law theme_status_matches_view_other:
+  {Theme.status_of(Theme.Dark{}, "demo") == V.status_color("demo") : U32}
 
 law emoji_birc2_load_keeps_source:
   {Hist.parse_line_for("e:1", "BIRC2\te:1\t#t\tMSG\t\ta\t:smile: x") == Some{Hist.Entry{"#t", Cl.Line{Cl.Msg{}, "", ":smile: x", "a", 0n}}} : Maybe<&2, Hist.HistEntry>}
