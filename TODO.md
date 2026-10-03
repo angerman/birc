@@ -4345,6 +4345,52 @@ handoff is implementation scope, not a request for another plan-only review.
   pending parent review before integration. Freed slot goes to I2 live
   runtime integration (folded STATUSMSG-first + `cm_known` + goldens in
   initial task); parent owns G6 CAP/typing runtime (+sentinel fix).
+- L1T-second parent review: `--self-test` re-run GREEN (8/8 guards);
+  measured stage-3 (Cont-enqueue) marks per fixture 1-3, stage-5 x2+ in
+  multi-chain fixtures; integration DEFERRED to lane1 return (trace/nix
+  is lane1 scope; `352a7c3` sits on lane1-line `c1a3534`, parent lacks
+  `net_trace.py`). Fresh review adds folded L1T follow-ups for the
+  build owner: correlate probe still borrows late registration stage1
+  (`[2,3,4,5,1,2,3,4,5,1]` returns hops, must be uncorrelatable;
+  isolated `[1..5]` positive; phase5 cutoff is not transaction
+  identity); poll0+blocking-write is not hard-bounded under contention
+  (prefull single-writer pipe only checks full-before-poll); `d7c39dc`
+  orphan fix lacks committed paired fixture; changed PTY needs
+  exact-binary 3x evidence before acceptance.
+- Lane1 timing evidence (`build/nix-prebuild-merged.log`): start
+  10:23:30Z, codegen 259s, native begin then NO completion before 900s
+  timeout 10:38:48Z (640s native, cancelled) — narrows THAT attempt to
+  native compilation, not root cause, not predictive. Build owner must
+  instrument native phases (default-off) before any optimization; no
+  more uninstrumented 900s builds. Latest-default-package success
+  remains a gate. Runner path
+  (`/nix/store/vp83vc93fd31ykls5x39mjac3xjh08mw-bend`, Bend 2.0.34)
+  sent to all 6 native workers (lane1 is a workflow child: messaging
+  rejected, cannot receive); merged-tree proof run via regenerated
+  runner. Liveness probe timed out: verify next command receipt, never
+  treat badges as qualification.
+- H5 `617ad61` folded repair (H5-runtime initial task, next free slot):
+  `Utc.parse` reuse still admits no-fraction/1/2/4-digit stamps; IRCv3
+  chathistory line53 requires `YYYY-MM-DDThh:mm:ss.sssZ` — keep
+  calendar validation + exact length24/dot19/three-digits/Z23; paired
+  no-ms/`.1`/`.12`/`.1234` negatives + `.123Z` positive; do not weaken
+  shared `Utc.parse`, drop wrong NEW no-ms positives. HELD for user
+  approval: 4 missing-ms fixtures + 2 laws to `.000Z` with rejection
+  guards.
+- Pre-existing MODE key leak (main `5105ee1`, not G3-only): raw `+k` /
+  unsigned `k` can fail `flag_chars` and persist synthetic keys via
+  MODE/324; `/mode #room +k` opaque secret passes
+  `Sub.input_sensitive=false` (raw recall). Sent to I2-live owner:
+  ONE shared conservative key detector for Commands/I2/Submit +
+  framed Feed->History + composer-recall guards; keep `+k`/`-k`
+  redaction, `+o bob`, ordinary PRIVMSG positives. HELD for approval:
+  NEW unsigned-k ISUPPORT expectation raw->hidden (no baseline
+  conflict, ask-first rule still applies).
+- Parent G6-sentinel fix in progress (uncommitted): `OutState` gains
+  `seen` bit, `out_sentinel_ok` + law + demo `g66` guards (red
+  observed, now `cap_notify_demo=ok`); merged-tree proof re-run TIMED
+  OUT (124) under load avg 77-87 with 25 bend procs — retry with
+  timing in flight, no deadline change; not attributed to source.
 - G3 media-boundary defect messaged to running `integ-g3-wire/19`:
   `media68` re-lexes visible text, discarding source boundaries, so
   SOH-fabricated or style-suffixed URLs can schedule fetches for links
