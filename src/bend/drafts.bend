@@ -18,7 +18,6 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
-import ./message_chunks.bend as Chunks
 import ./irc_commands.bend as Commands
 import ./submit.bend as Sub
 import ./split.bend as Sp
@@ -503,14 +502,6 @@ def plan_line.wires(chunks: Maybe<&2, List<&2, String>>, +target: String, +notic
     case Some{+xs}:
       Some{wire_each(xs, target, notice)}
 
-# Single validation source shared by the wire plan and the reject reason,
-# mirroring Sub.send_text.valid: an invalid word, rejected framing, or an
-# over-limit target head is a target failure, never a cluster failure.
-def line_valid(+target: String, +clean: String, +notice: Bool) -> Bool:
-  +name = Cl.target_name(target)
-  Commands.word(name) && Commands.framing(clean)
-    && Nat.is_lt(Irc.utf8_len(Sub.message_wire(name, "", notice)), Irc.LINE_MAX())
-
 def plan_line.valid(valid: Bool, +cl: Cl.Client, +name: String, +clean: String, +notice: Bool, +overhead: Nat) -> Maybe<&2, List<&2, String>>:
   match valid:
     case False{}:
@@ -518,11 +509,14 @@ def plan_line.valid(valid: Bool, +cl: Cl.Client, +name: String, +clean: String, 
     case True{}:
       plan_line.wires(Sub.message_parts(Sub.message_sensitive(cl, name, clean, notice), clean, Nat.sub(Irc.LINE_MAX(), overhead)), name, notice)
 
+# Planning uses the one shared Sub.text_valid with the raw line, so a NUL
+# anywhere rejects the whole send instead of silently shipping a stripped
+# line while send_text would report a different cause.
 def plan_line(+cl: Cl.Client, +target: String, +body: String, +notice: Bool) -> Maybe<&2, List<&2, String>>:
   +clean = Irc.strip_ctl(body)
   +name = Cl.target_name(target)
   +overhead = Irc.utf8_len(Sub.message_wire(name, "", notice))
-  plan_line.valid(line_valid(target, clean, notice), cl, name, clean, notice, overhead)
+  plan_line.valid(Sub.text_valid(target, body, notice), cl, name, clean, notice, overhead)
 
 def plan_each.ok(+tail: Maybe<&2, List<&2, String>>, +head: List<&2, String>) -> Maybe<&2, List<&2, String>>:
   match tail:
@@ -641,10 +635,10 @@ def reject_reason.sensitive(sensitive: Bool) -> String:
     case False{}:
       "message cluster exceeds IRC line limit"
 
-def reject_reason.cause(caused: Bool, +cl: Cl.Client, +name: String, +clean: String, +notice: Bool) -> String:
+def reject_reason.cause(caused: Bool, +target: String, +line: String, +cl: Cl.Client, +name: String, +clean: String, +notice: Bool) -> String:
   match caused:
     case False{}:
-      "message target exceeds IRC line limit"
+      Sub.text_reason(target, line, notice)
     case True{}:
       reject_reason.sensitive(Sub.message_sensitive(cl, name, clean, notice))
 
@@ -654,7 +648,7 @@ def reject_reason.bad(bad: Maybe<&2, String>, +cl: Cl.Client, +target: String, +
       "message cluster exceeds IRC line limit"
     case Some{+line}:
       +clean = Irc.strip_ctl(line)
-      reject_reason.cause(line_valid(target, clean, notice), cl, Cl.target_name(target), clean, notice)
+      reject_reason.cause(Sub.text_valid(target, line, notice), target, line, cl, Cl.target_name(target), clean, notice)
 
 def reject_reason.command(command: Bool, +cl: Cl.Client, +target: String, +lines: List<&2, String>, +notice: Bool) -> String:
   match command:

@@ -207,9 +207,34 @@ def message_parts(private: Bool, +body: String, cap: Nat) -> Maybe<&2, List<&2, 
     case True{}: Bool.pick(Maybe<&2, List<&2, String>>, Nat.is_le(Irc.utf8_len(body), cap), Some{body <> Nil{}}, None{})
     case False{}: Chunks.split(body, cap)
 
-def send_text.valid(valid: Bool, +cl: Cl.Client, bi: Nat, +target: String, +body: String, +private: Bool, notice: Bool, overhead: Nat) -> Cl.Client & List<&2, String>:
+def has_no_nul(+s: String) -> Bool:
+  match s:
+    case SNil{}: True{}
+    case SCon{+h, t}: Bool.not(Irc.code_is(h, 0)) && has_no_nul(t)
+
+# Single validation source for message sends, shared by send_text and the
+# drafts multiline planner so both admit and report identically: target
+# word, framing on the stripped body, no NUL anywhere in the raw body
+# (CR/LF cannot survive line splitting, NUL would silently vanish), and
+# target headroom under the wire cap.
+def text_valid(+target: String, +raw: String, +notice: Bool) -> Bool:
+  +name = Cl.target_name(target)
+  Commands.word(name) && Commands.framing(Irc.strip_ctl(raw)) && has_no_nul(raw)
+    && Nat.is_lt(Irc.utf8_len(message_wire(name, "", notice)), Irc.LINE_MAX())
+
+# Accurate cause for a text_valid rejection: a NUL byte is a control-input
+# failure even for a valid target, never a target failure.
+def text_reason.cause(nul: Bool) -> String:
+  match nul:
+    case True{}: "message rejected: NUL byte in text"
+    case False{}: "message target exceeds IRC line limit"
+
+def text_reason(+target: String, +raw: String, +notice: Bool) -> String:
+  text_reason.cause(Bool.not(has_no_nul(raw)))
+
+def send_text.valid(valid: Bool, +reason: String, +cl: Cl.Client, bi: Nat, +target: String, +body: String, +private: Bool, notice: Bool, overhead: Nat) -> Cl.Client & List<&2, String>:
   match valid:
-    case False{}: (echo_err(cl, "message target exceeds IRC line limit"), Nil{})
+    case False{}: (echo_err(cl, reason), Nil{})
     case True{}:
       send_text.parts(message_parts(private, body, Nat.sub(Irc.LINE_MAX(), overhead)), cl, bi, target, private, notice)
 
@@ -217,7 +242,7 @@ def send_text(+cl: Cl.Client, bi: Nat, +target: String, +body: String, +notice: 
   +clean = Irc.strip_ctl(body)
   +name = Cl.target_name(target)
   +overhead = Irc.utf8_len(message_wire(name, "", notice))
-  send_text.valid(Commands.word(name) && Commands.framing(clean) && Nat.is_lt(overhead, Irc.LINE_MAX()),
+  send_text.valid(text_valid(target, body, notice), text_reason(target, body, notice),
     cl, bi, name, clean, message_sensitive(cl, name, clean, notice), notice, overhead)
 
 def send_message(cl: Cl.Client, bi: Nat, target: String, body: String) -> Cl.Client & List<&2, String>:

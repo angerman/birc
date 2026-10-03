@@ -139,6 +139,12 @@ def reason0_ok(pair: Cl.Client & List<&2, String>, +needle: String) -> Bool:
     case (+cl, +outs):
       List.is_empty(&2, String, outs) && String.contains(CL.buf_texts(cl, 0n), needle)
 
+def nul_zero_ok(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (+cl, +outs):
+      List.is_empty(&2, String, outs) && Nat.is_eq(CL.buf_nlines(cl, 1n), 1n)
+        && String.contains(CL.buf_texts(cl, 1n), "message rejected: NUL byte in text")
+
 def focus_loaded(pair: D.Drafts & String) -> String:
   match pair:
     case (_, +loaded): loaded
@@ -165,6 +171,7 @@ def main() -> IO(Unit):
   +full = fill(16n, D.empty())
   +soh = "a" ++ SCon{Chr{1}, "b"}
   +kanji: String = "漢"
+  +nul = "ab" ++ SCon{Chr{0}, "cd"}
   +over33 = line_block(33n)
   +big4097 = Irc.stars.go(4097n)
   do IO<Unit>:
@@ -261,6 +268,10 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("valid3 set works", D.get(D.set(D.empty(), s3(), "#a", "aa"), s3(), "#a"), "aa")
     Unit <- E.must("pane0 submit is read-only", reason0_ok(D.submit_lines(Cl.init("me", "s"), 0n, "server", "hi\nyo", False{}), "read-only buffer"))
     Unit <- E.must("nonzero peer server query sends", submit_lines_ok(D.submit_lines(cl, 1n, "server", "hi", False{}), "hi", 1n))
+    Unit <- E.must("nul line emits zero wires and self-echo", nul_zero_ok(D.submit_lines(cl, 1n, "#room", "ok\n" ++ nul, False{})))
+    Unit <- E.must("two-line unicode stays exact", submit_lines_ok(D.submit_lines(cl, 1n, "#room", kanji ++ "\nbye", False{}), kanji ++ "bye", 2n))
+    Unit <- E.must("invalid server plus empty composer fails closed", Bool.not(D.focus_admits(D.empty(), bad4(), "#a", "")))
+    Unit <- E.must_eq("invalid focus loads nothing", focus_loaded(D.focus(D.set(D.empty(), s0(), "#a", "aa"), bad4(), "#a", "", "#b")), "")
     Unit <- E.must("roundtrip law holds", D.roundtrip_ok())
     Unit <- E.must("rename law holds", D.rename_ok())
     Unit <- E.must("coexist law holds", D.coexist_ok())
