@@ -330,6 +330,57 @@ def Laws.tokenize_unclosed_source_order():
 def Laws.code_span_dim():
   {==}
 
+def Laws.wire_toggle_twice_is_plain():
+  {==}
+
+def Laws.wire_reset_clears_style():
+  {==}
+
+def Laws.wire_visible_matches_sanitize():
+  {==}
+
+def Laws.wire_invalid_color_has_no_style():
+  {==}
+
+def Laws.wire_palette_red():
+  {==}
+
+def Laws.wire_controls_dropped():
+  {==}
+
+def Laws.wire_style_cannot_forge_link():
+  {==}
+
+def Laws.wire_soh_is_boundary():
+  {==}
+
+def Laws.wire_soh_cannot_forge_link():
+  {==}
+
+def Laws.wire_last_token_link_degrades():
+  {==}
+
+def Laws.wire_spaced_link_survives_style():
+  {==}
+
+def Laws.wire_keep_style_preserves_controls():
+  {==}
+
+def Laws.wire_keep_style_drops_tab():
+  {==}
+
+def Laws.wire_keep_visible_matches_sanitize():
+  {==}
+
+def Laws.wire_feed_preserves_style():
+  {==}
+
+def Laws.wire_history_preserves_style():
+  {==}
+
+def Laws.wire_verb_survives_style_byte():
+  {==}
+
 def Laws.overlong_drop():
   {==}
 
@@ -1645,4 +1696,61 @@ def Laws.cards_view_overlay_revalidates_stale_token():
   {==}
 
 def Laws.cards_adapter_exact_url_preserved():
+  {==}
+
+def Laws.proto_atom_strips_framing_styles():
+  {==}
+
+def Laws.proto_atom_matches_visible_on_soh():
+  {==}
+
+def Laws.styled_mode_flags_keep_key_private():
+  {==}
+
+def Laws.styled_mode_channel_keeps_key_private():
+  {==}
+
+def Laws.nonkey_mode_stays_visible():
+  {==}
+
+def Laws.styled_credential_author_suppressed():
+  {==}
+
+def Laws.infixed_credential_verb_suppressed():
+  {==}
+
+def Laws.peer_credential_stays_chat():
+  {==}
+
+def Laws.media_soh_scheme_has_no_target():
+  {==}
+
+def Laws.media_infixed_style_has_no_target():
+  {==}
+
+def Laws.media_styled_image_kept():
+  {==}
+
+def Laws.mention_styled_nick_hits():
+  {==}
+
+def Laws.mention_styled_continuation_misses():
+  {==}
+
+def Laws.mention_color_split_hits():
+  {==}
+
+def Laws.mention_reset_split_misses():
+  {==}
+
+def Laws.styled_self_kick_clears_intent():
+  {==}
+
+def Laws.styled_channel_kick_clears_client():
+  {==}
+
+def Laws.peer_kick_preserves_intent():
+  {==}
+
+def Laws.url_runs_share_view_exclusions():
   {==}

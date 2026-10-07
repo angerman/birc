@@ -3,7 +3,750 @@
 Goal: move as much of the IRC client as possible into Bend 2. End state:
 **Bend owns `main`, protocol, client state, networking, and the frame loop**;
 C is only thin TimUI FFI.
-Plaintext IRC only. No ncurses. Laws stay green.
+Verified TLS is the default; `--plain` explicitly selects plaintext. No ncurses.
+The milestones below include historical behavior. Current contracts are in
+`AGENTS.md`; a recorded earlier proof pass is not a verdict on the current tree.
+
+## Pickup checkpoint — 2026-10-08
+
+Read `HANDOVER.md` first. The current Root source is prebuilt at
+`/nix/store/vznfyvnf6xkr74zhjmc9f4pi7hn306bd-birc-0.1.0`.
+Its stock 425-law proof and six focused regression/package targets passed.
+The complete Root `make check` was not run for this checkpoint.
+The separate 535-law final candidate is preserved on the local
+`checkpoint/birc-final-candidate-2026-10-08` branch, with raw receipts and
+donor recovery packets. It is not merged, fully verified, or freshly prebuilt.
+Use the handover's current queue instead of restoring the old conversation.
+
+## Current final qualification
+
+Work is being qualified in `/tmp/birc-final-candidate`. The final changes have
+not been integrated into the Root worktree; the pickup snapshot is separate.
+
+- [x] Admit reviewed production/Nix changes while preserving both Root layers.
+- [x] Build the locked default Nix app and verify its default-app output path.
+- [x] Pass the six selected installed-package suites on that exact output.
+- [x] Qualify Cards test isolation red -> green without changing old oracles.
+- [x] Qualify private settings success/refusal and three full upload-suite runs.
+- [x] Pass three consecutive runs of all four changed terminal drivers.
+- [x] Remove duplicate View theme selectors with baseline/post-change guards.
+- [x] Qualify the new framed workspace theme-render witness before/after cleanup.
+- [x] Pass and register the three notification gates (promotion approved).
+- [ ] Apply the approved fixture corrections and qualify them.
+- [ ] Compose all reviewed tests, Make targets and documentation coherently.
+- [ ] Obtain a stock `bend PROOF.bend` pass; latest bounded run timed out.
+- [ ] Pass the complete standard `make check` on the final candidate.
+- [ ] Integrate safely, make meaningful local commits, and do not push.
+- [ ] Reconfirm the final default Nix build and measure warmed `nix run` startup.
+
+### Proof bottleneck review — current qualification
+
+- [x] Independent Astra review of evidence, complete propositions and proof strategy.
+- [x] Symbolic arithmetic and equality transport in the candidate's actual isolation law;
+  preserve runtime Workspace, arbitrary Nat, `2^44` ranges and strict overflow guards.
+- [x] Stock-check the complete isolation proposition on current dependencies: 12.832 s.
+- [x] Stock-check the unchanged complete generation law alone: 1.627 s.
+- [x] Fix the separately observed multiline defect: all 488 compile/golden assertions pass.
+- [x] Preserve all ten isolation runtime checks; their compile gate is still unqualified.
+- [x] Measure retained-C frontend/IR/optimizer and compile-to-object stages.
+- [ ] Qualify native linking and the original current-source fixtures.
+- [ ] Locate the remaining full-book cost; the bounded 535-law run has no verdict.
+- [ ] Complete standard project checks and safe final integration.
+
+The detailed receipts below distinguish check-only proofs, runtime assertions,
+native diagnostics and censored timeouts. No numeric migration, new axiom,
+weakened law, compiler limit change or independent kernel is selected.
+
+### Approved corrections awaiting qualification
+
+The user approved all eleven correction groups below and the single bounded
+checker diagnostic on 2026-10-06T23:19Z. Checkboxes record qualification, not
+approval. Preserve all assertions outside each exact approved correction.
+Notification promotion remains conditional on all three gates passing.
+
+- [x] Preserve IRC bold bytes in two stored MODE expectations; check plain
+  visible text separately through View.
+- [ ] Permit only the fixed startup title/mouse prefixes in the Carrier and
+  Cards terminal fixtures; do not strip arbitrary control sequences.
+- [x] Correct the notification producer-name pin and give its B fixture a
+  real self-JOIN, with joined/unjoined controls.
+- [ ] Give both notification-binding B setups a real self-JOIN; preserve
+  all 92 existing assertions and add joined/unjoined controls.
+- [ ] Correct four STATUSMSG expectations for negotiated prefix handling.
+- [ ] Keep chat and desired rooms on a host-case-only reconnect, while still
+  clearing credentials when the exact credential endpoint changes.
+- [x] Include the implemented `--server` option in the CLI help expectation.
+- [ ] Check the upload final marker against saved OPOST/ONLCR terminal flags.
+- [x] Include `draft/chathistory` in both CAP handshake expectations.
+- [x] Include account, away and history requests in the actor-redial wire
+  expectation. The observed wire matches the single capability registry.
+- [ ] Correct the new workspace G3 fixture's ISUPPORT source from `:irc`
+  to its configured server `:a.example`, with source/recipient guards.
+- [x] Run the reviewed copied checker timer once, default-off, names/durations
+  only and a hard ten-minute bound; preserve stock tools, limits and laws.
+
+The copied diagnostic ran once on 2026-10-06T23:22:00Z–23:31:52Z and timed
+out (exit 124), with no proof verdict. Its receipt is
+`/tmp/birc-checker-timers-run.c9AfuW6K/RECEIPT.txt` (SHA256 `77794ef5…`).
+The 88 input files, five copied checker files, ten stock tools, and fixed
+53-file proof closure stayed unchanged. The metadata is `metadata.jsonl`
+in that directory (SHA256 `bcea9d35…`): 12,965 starts, 12,961 ends, four
+unfinished spans, no name truncation. Durations are inclusive and nested.
+This is not a stock proof run or a passing proof.
+
+Notification binding controls currently stop before runtime: the unchanged
+physical fixture contains two untyped `=` locals inside `do IO`. The raw
+compiler failure is `/tmp/birc-bind-ctl-RED.raw.txt` (`eba5e1a8…`). A narrow
+typed-`IO.pure` repair is reviewed and released; no runtime RED/GREEN is claimed.
+
+Four further fixture corrections are now explicitly approved:
+
+- [ ] Change only the two S1S5 Session PONG expectations to no Session output;
+  keep buffer-limit checks and require exact-one-PONG socket witnesses.
+- [ ] Keep the archive-only wire2 setup and add a mixed live/imported-row
+  witness: the real JOIN stays unclaimed and is saved; archive rows are excluded.
+- [x] Correct only Carrier `parked-prefs` ownership for the disabled worker
+  and absent server; preserve other leases and add retired/retained controls.
+- [x] Add the real visible-media observation stage to G3 media setup; preserve
+  all 45 checks and add byte-feed-only and disabled-preview controls.
+
+The current MODE framed target passes (`/tmp/birc-g3framed.raw.txt`,
+`40decb83…`). The added media controls pass before the older image scheduling
+assertion fails (`/tmp/birc-g3trav-char.raw.txt`, `a28e03b3…`). The approved
+setup repair then passes `make test-g3-traversal` with all 45 existing checks
+and three new controls (`/tmp/birc-g3trav-repair.raw.txt`, `51a2afb4…`).
+Its final fixture is `1d8f3490…`. Byte feeding alone does not enqueue images;
+live Net and WsNet separately call `Session.session_observe_visible_media`.
+
+The single diagnostic localizes unfinished checking to
+`LAWS.workspace_parts_isolate_state`; it does not identify a costly subexpression.
+A minimal DRY proposal shares one `step_keys` result in `Workspace.isolation_ok`.
+Its six characterization guards must pass before and after the change, followed
+by the original workspace target and one bounded changed-source stock proof.
+No performance benefit or proof verdict is claimed before those results.
+The first characterization attempt fails at compilation, not runtime
+(`/tmp/birc-isolstep-base.raw.txt`, `baac6395…`): the builtin product has `Type`,
+so `+trip` is invalid although each field is `Data`. That invalid production
+proposal (`eb693b05…`) is withdrawn. The corrected one-use parameter match
+passes all six controls before and after its application (both raw logs
+`4390db8b…`); fixture `3b778417…`, production `44cc1045…`. The original native
+workspace target reaches its compiler-command timeout with no runtime verdict.
+This remains an open gate, not a proven regression or performance finding.
+The changed-source stock proof also reaches its bound without a verdict
+(`/tmp/birc-stockproof.raw.txt`, `16355b51…`). Its fixed 53-file before/after
+manifests are identical (`881339ba…`), and all ten stock-tool checks pass
+(`11c24a7a…`). Native and full-check qualification remain required. Do not
+repeat an unchanged proof or infer a timeout cause from host load.
+The receipt is `/tmp/birc-stockproof.receipt.txt` (`4653388b…`):
+2026-10-07T00:13:25Z–00:23:17Z, outer exit 124.
+
+The approved help correction passes `make test-args`
+(`/tmp/birc-args.raw.txt`, `1952b6a5…`). `make test-auth-profile` also passes
+(`/tmp/birc-authprof.raw.txt`, `a9afd4f6…`), but `test-reconnect-endpoint` reaches
+its native compiler-command timeout before any runtime verdict. Its cause is
+unknown; the auth-profile pass does not qualify reconnect recovery.
+The approved actor capability correction passes `make test-actor-queue`,
+including all nine queue/drop cases and the redial FIFO case
+(`/tmp/birc-actor.raw.txt`, `d81d1ed3…`).
+The added source/recipient guard passes `make test-workspace-005-source`
+(`/tmp/birc-ws005.raw.txt`, `280b03cc…`). The corrected original workspace
+fixture (`56e35d91…`) still has only a compiler-command timeout receipt
+(`/tmp/birc-workspace.raw.txt`, `06f8ebba…`); its correction group is not yet
+qualified as a whole.
+
+The binding fixture has four additional reused `+` product results in its
+physical block. A separate syntax-only adapter repair is reviewed and released
+after the two typed-local fixes (`911be90d…`, resulting fixture `23ae2d03…`).
+Preserve the 92 old checks, eight added controls,
+received completion identities and helper ordering; do not run the known-invalid
+fixture again or claim a runtime RED from a compiler error.
+
+Notification attribution now has genuine runtime RED at the joined-B premise
+(`/tmp/birc-attr-RED.raw.txt`, `9609e838…`). The approved framed self-JOIN then
+passes all 56 existing assertions and four controls
+(`/tmp/birc-attr-GREEN.raw.txt`, `48dc8ab0…`; fixture `4fb4a773…`). The corrected
+static pin also passes (`/tmp/birc-followstatic.raw.txt`, `5db3c93f…`). The pure
+follow-up guard passes too (`/tmp/birc-followguards.raw.txt`, `14a07145…`). All
+three gates are GREEN; their approved promotion is released. A fresh
+post-promotion static pass also succeeds
+(`/tmp/birc-followstatic-post.raw.txt`, `789d349f…`). The exact three
+`test-review-pure` edges are registered; the final static oracle is `8898be6b…`.
+
+Two independent source reviews find a concrete normalization risk: the stock
+checker represents `Nat` with unary successors, and `Nat.cmp` consumes both
+prefixes one successor at a time. Workspace slot 1 seeds its sequence at
+`2^44`; `fx_rooms` already demands a large-prefix overflow comparison while
+joining `#b`. The native backend instead has machine-number arithmetic.
+This is a verified source distinction, not a final whole-proof timeout cause.
+The narrow stock probes now complete: small accepted/rejected-input controls
+pass in 760 ms; seed and ceiling WHNF controls pass in 335/396 ms. Both exact
+large-prefix comparisons hit their independent ten-second bounds (TERM), with
+no verdict. All 13 source/tool identities remain unchanged. The receipt is
+`/tmp/birc-nat-results/receipt.json` (`3b62acdc…`) and invocation raw is
+`/tmp/birc-nat.raw.txt` (`11857ea6…`). This confirms the isolated comparison
+cost, not the whole law's attribution or a speedup. No probe retry is needed.
+A semantics-preserving proof strategy remains open.
+Do not lower ID ranges, truncate through U32 conversion,
+bypass guards in fixtures, weaken laws, or add an independent proof kernel.
+The independent source report is
+`/tmp/birc-nat-guard-source.dKjg4rrt/REPORT.txt` (`f448ebd5…`). Neither subtraction
+of the large prefix nor conversion to U32 is a safe small fix: subtraction
+still walks unary values, and conversion also loses high ID bits.
+
+The proposed native compile timer is rejected, not approved for execution.
+Root and an independent source review found that its active owner starts after
+setup, so it does not enforce the claimed end-to-end bound. Its final marker
+also includes owner cleanup rather than ending at command exit. Its controls
+do not cover setup or the actual two-layer cancellation path. The frozen
+packet is `/tmp/birc-native-compile-timer-implementation.Gd6h2Nve`
+(`observer.py` SHA256 `8ae1b8dd…`). No timer controls or diagnostic ran.
+Any replacement must be smaller, retain stock deadlines and report truthful
+coarse spans; it needs a separate source and ownership review before use.
+
+An event-ID representation migration is not released as a small timeout fix.
+The source-only feasibility report
+`/tmp/birc-event-id-feasibility.mBzvsipB/REPORT.txt` (`914fc2a5…`) identifies
+16 stored fields and at least 63 API boundaries. Two U32 limbs could preserve
+native ID values, but not the current arbitrary-Nat source domain without an
+explicit contract change. Exhaustion and public-constructor invariants also
+need decisions. Constructive stock proof transport is the smaller next
+alternative; its full Workspace derivation remains unqualified. No
+representation, law, fixture or compiler change is admitted.
+
+The 47-line arithmetic concept is now stock-qualified once:
+`make -f /tmp/birc-stock-symbolic-qualification.D4pnFygo/Makefile check-symbolic`
+runs in the locked Nix shell with a ten-second checker limit and returns
+`ALL PROOFS CHECK`, exit zero. Its actual output is
+`/tmp/birc-stock-symbolic-raw.txt` (`33426359…`); source `250a0da1…`, stock
+tools and candidate Workspace/LAWS/PROOF remain unchanged. This qualifies
+the constructive arithmetic helpers and two small accepted/rejected-input
+goals only. The exact Workspace derivation and final proof remain open.
+The next open guard theorem packet (`70fcfac2…`) hits its separate whole-Nix
+ten-second limit with no theorem verdict
+(`/tmp/birc-stock-routed-raw.txt`, `c158e1b7…`). Root released one new stock
+180-second source-only book check with the same frozen goals and imports;
+this changes no existing test, runtime, compiler or full-proof deadline.
+The original ten-second recipe and source packet stay unchanged. Classify
+the stock checker's global unsafe/foreign rejection separately from type
+errors; it scans all imported non-Base definitions, not just these theorems.
+The 180-second stock book check now stops with `SOME PROOFS FAIL` and
+`the machine stack overflowed`, before a global unsafe/foreign verdict
+(`/tmp/birc-stock-routed-book-raw.txt`, `fb109104…`). No theorem in that
+packet is qualified. The ten-second timeout has no measured phase attribution.
+On the user's new request, fresh independent proof, boundary-regression and
+native-phase reviews run in parallel. A separate proof worker follows the
+independent strategy review. Root coordinates integration; Main retains the
+single heavyweight lane. Preserve complete laws, arbitrary-Nat behavior,
+the `2^44` ranges, overflow guards and stock tools. No numeric migration is
+released. Compare actual Workspace validation before claiming a speedup.
+The fresh independent review (`/tmp/birc-proof-independent-review.txt`,
+`118a4490…`) and distinct proof-worker report
+(`/tmp/birc-proof-regressions.xIgszrnr/PROOF_WORKER_RESULT.txt`, `63312e48…`)
+find no complete bridge to the unchanged nullary law. Rwt checks its outer
+motive against that old endpoint before the rewritten body; a failed rigid
+comparison can evaluate both original B JOIN guards first. Three additional
+worker constructions (refutation, indexed trace and suspension) still require
+the unproved original-to-result equation. Epoch reuse also needs a
+`nat_max(base, base)` boundary proof and its actual transition transport.
+This is a finite failed strategy, not an impossibility theorem or a measured
+full-timeout cause. Do not integrate helper-only proofs or change numeric
+representation without a new decision. No after-performance result exists.
+The unrun range-regression proposal initially included `2^100` JS checks.
+Root rejected them: pinned `comp.ts` caps compiled Nat at `2^48-1`; the worker
+removed those assertions. The remaining runtime proposal covers actual
+`2^44` slices and below/at/above guards. Arbitrary-Nat behavior remains a
+separate, unqualified formal obligation; no existing oracle was changed.
+
+The fresh Astra review (`/tmp/birc-astra-proof-review-20261007.txt`,
+`87dbf797…`) corrects two constraints: preserving the complete proposition
+need not preserve its exact nullary spelling, and stock recursive conversion
+does not retry the initial rigid shortcut. The copied timing trace used
+Workspace `4fdac5be…`, not current `44cc1045…`; their exact diff preserves the
+seeds and guards but consolidates the isolation step tuple. That trace is
+not a current-source profile or a Nat-subphase measurement.
+
+The approved current-source experiment now uses two separate stock entrypoints
+from `/tmp/birc-current-proof-probes.pF3tOnRt/Makefile`, with default-off timing
+committed first in the owned scratch repository (`master`, `cfbbded`). In one
+locked Nix shell, `make -f …/Makefile proof-alias-control` passes stock
+`--check-only` with `ALL PROOFS CHECK`, exit zero, real 5.882 seconds. Only then,
+`make -f …/Makefile proof-alias-unfold` runs once and reaches its fixed ten-second
+limit: timeout 124, make exit 2, real 10.143 seconds, no verdict. Raw evidence is
+`/tmp/birc-proof-probes-raw.txt` (`5fa4af38…`). The enclosing shell exit zero
+records collection, not unfolding success. The first process is cold and the
+second is warm; do not subtract these times or claim a speedup or phase cause.
+The actual alias/body conversion is costly at this bound, not proven impossible.
+
+The regression review (`/tmp/birc-proof-regression-acceptance-20261007.txt`)
+preserves A's JOIN guard, both B JOIN guards, exact Session/drafts handoff,
+all three observations, strict ceiling rejection and arbitrary Nat. Astra
+accepts the complete branch-preserving source catalogue (`c66dde7b…`) and
+ledger (`1bae9935…`) in `/tmp/birc-isolation-expansion.3Harf4dG` as a source
+re-expression, not a completed proof. Its review is
+`/tmp/birc-case-b-source-review-20261007.txt` (`5f30adbe…`).
+No candidate law, runtime range, guard, tool or numeric representation changed.
+Full stock proof and complete `make check` remain open. No unchanged retry is
+released by the two-probe result.
+
+The next actual-AD selector packet now passes a separate stock check:
+`make -f /tmp/birc-ad-join-selectors.kpX9M9rm/Makefile check-actual-ad-selectors`
+returns `ALL PROOFS CHECK`, exit zero, real/user/system 6.323/7.131/0.721
+seconds, within its fixed ten-second checker limit. The source (`3cf69876…`)
+proves A's actual post-sequence is zero and both consecutive B post-sequences
+equal arbitrary source Nat `q`. B uses A's actual resulting drafts; B2 consumes
+B1's complete Session and drafts, then reconstructs AD with the exact server
+ID as Workspace does. Original initialization-before-seeding and all actual
+Session/AD calls remain. Raw is `/tmp/birc-ad-selectors-raw.txt` (`f7c37b18…`);
+the five direct dependencies and candidate Workspace/LAWS/PROOF stay unchanged.
+Default-off timing was committed first in the owned scratch repository
+(`master`, `0def385`, Makefile only).
+
+These are qualified partial selector proofs, not complete Workspace admission
+or isolation. The actual tuple/sequence guard context still needs dependent
+elimination, followed by the original seed-floor/range inequalities, all three
+admitted Workspace transitions and the three final observations. A's and B1's
+AD outputs are only the prospective admitted paths until those guards are
+proved false. Do not assume those paths, copy an affine tuple, rename a nullary
+predicate as a fix, or claim a whole-proof speedup from the partial check.
+
+The actual route-product transport candidate is not yet qualified. Its first
+stock check stopped at a dotted scratch-directory import (`7f36171b…`;
+`/tmp/birc-ad-route-raw.txt`, `0e64620c…`), before checking the derivation.
+The import-only correction uses a regular local selector copy with the exact
+qualified bytes (`3cf69876…`). A symlink would not fix this: the stock loader
+validates the canonical realpath namespace too. The corrected source
+(`13b9114b…`) then reaches a named type error in `route.guarded`: expected an
+annotated term, observed `_ => Bool` in Base's `Pair` motive. It fails in
+7.379 seconds, checker exit one / Make exit two, not a timeout. Raw is
+`/tmp/birc-ad-route-corrected-raw.txt` (`9d192111…`); imports, laws and candidate
+source stay unchanged. Astra and the worker traced the error to promotion of
+the third dependent product field. The minimal source repair keeps `+ad` but
+uses plain `cmd` and `halt`, which each have one live use. That repair and the
+complete open-ceiling expression were source-only at that point; the complete
+qualification below includes the repaired route.
+
+The complete case-B packet now passes the pinned stock checker:
+`make -f /tmp/birc-complete-caseb-Pk4bINOP/Makefile check-complete-case-b`
+prints `ALL PROOFS CHECK` with exit zero in 24.341/25.481/1.418 seconds
+real/user/system, within its fixed 180-second limit. Raw is
+`/tmp/birc-complete-case-b-raw.txt` (`115776f3…`). Its four sources are
+`full_case_b.bend` (`8a0b2aed…`), repaired `route_bridge.bend` (`414eb0b7…`),
+the exact selectors (`3cf69876…`) and arithmetic (`250a0da1…`); its complete
+equivalence ledger is `5d423a99…`. Astra and the independent reviewer read
+all source and accepted the complete original-fixture mapping. All three
+guards and rollback payloads remain in the proposition. The proof derives
+original floor/range inequalities, actual Session/drafts and lookup handoffs,
+and all three original observations, with no unproved final-law premise.
+The actual literal endpoint avoids the old nullary conversion seam. Runtime
+Workspace, ranges, ceilings and all candidate laws are still unchanged.
+Default-off timing was committed first in the owned scratch repository
+(`master`, `6f2db98`, Makefile only). This qualifies the complete isolated
+packet, not the full project proof book, regressions, kernel or a speedup.
+The earlier broad equality-transport obstruction is no longer supported for
+this isolation case: complete checked integration works after an equivalent
+expression change. The measured old alias seam does not justify event-ID
+redesign. Other Workspace laws and native phases still need their own evidence.
+There are 535 root law declarations; the earlier 53-entry manifest is a watched
+subset, not the entire book. Import-mapped repository integration and the full
+stock book still require separate verification.
+
+The exact reviewed integration patch (`c75334b2…`) is now applied only in
+`/tmp/birc-final-candidate`. It adds four regular proof-only modules, maps
+the one existing isolation law to the qualified literal endpoint, and adds
+four production JOIN boundary checks. Runtime Workspace remains `44cc1045…`;
+all 535 root law names retain their identical hash (`dbf93905…`). No old
+assertion or test oracle changed. The user worktree and index remain protected.
+Default-off mapped-gate timing was committed first in the owned scratch
+repository (`master`, `1a47e20`, Makefile `949cd312…`). The existing project
+Makefile owns both the regression and the full proof commands. Mapped
+regressions run first; the complete stock book still needs its own verdict.
+
+The expanded isolation regression did not reach runtime. Its unchanged
+180-second Bend-to-JS limit expired (`timeout` 124, Make 2); the measured
+whole gate was 181.267/97.433/319.517 seconds real/user/system. Raw is
+`/tmp/birc-mapped-isolation-raw.txt` (`31d6614d…`). All mapped sources,
+535 law names and candidate status remained unchanged. This is no assertion
+verdict and does not identify a compiler subphase or root cause. Do not rerun
+it unchanged, increase its deadline, remove the boundary tests, or change an
+oracle. The separately meaningful full mapped stock book is released once
+at its existing approved 600-second proof bound, serialized without native
+jobs. Regression validation remains open regardless of that proof result.
+
+The full mapped stock book also reaches its fixed 600-second limit without
+a checker verdict: `timeout` 124, Make 2, whole-gate real/user/system
+601.498/338.792/788.824 seconds. Raw is
+`/tmp/birc-mapped-stockproof-raw.txt` (`b5e848d1…`). Every mapped source,
+all 535 law names and the candidate status remain unchanged. No failed
+theorem or numeric subphase is identified. The complete isolated proof pass
+does not resolve this full-book bottleneck, but its checked transport remains
+valid for that case. No numeric representation change is selected. Complete
+`make check` cannot be reported green while its proof prerequisite has no
+verdict; an unchanged full-book retry would add no evidence.
+
+The separate `sessws_s1s5_demo` RED has a verified dispatch cause:
+production `Sess.step_keys` always used single-line submission, so
+`Irc.strip_ctl` changed `aa\nbb` to `aabb`. Main and Astra source-accepted
+the unapplied repair `bc7f7ad3…` in
+`/tmp/birc-session-multiline-fix-OgIpWzmX`. It routes ordinary multiline
+Enter through existing Session policy and removes AD's duplicate bypass.
+One shared `keys_without_enter` also replaces the duplicate upload transform.
+Rejected slash-led blocks cannot halt or trigger command hooks. All 473 old
+assertions remain; 15 are additive. This patch is held until the frozen proof
+job ends. Session/AD changes need fresh runtime and full-proof qualification;
+neither source review nor an earlier dependency pass replaces those gates.
+After the bounded full-book job and its children ended, Main applied the exact
+reviewed multiline patch only in the candidate. Its new Session/AD/test hashes
+are `476ca9bc…` / `6ff1ea4a…` / `6bcfb107…`; Workspace, LAWS and PROOF bytes
+remain unchanged. The next bounded runtime gate runs all 488 assertions on
+this new dependency snapshot. No root source or index change is promoted.
+That runtime gate now passes: `test-sessws-s1s5` compiles with its unchanged
+180-second bound and prints `sessws_s1s5_demo=ok`; all 488 assertions run.
+Whole-gate real/user/system times are 5.264/9.138/0.867 seconds, Make zero.
+Raw is `/tmp/birc-multiline-v2-raw.txt` (`6abc3a97…`), with stable source/status
+receipts. Default-off timing was committed first (`668a562`, driver
+`454fd58a…`). This fixes the observed multiline defect, not the remaining
+proof or native bottlenecks. Isolation requalification on the changed
+Session/AD is released separately at the same compile/runtime bounds.
+
+The next stock-profiler seam has bounded source-reviewed controls only:
+`/tmp/birc-stock-bun-profile.4vnM5wqd`, instrumentation commit `d989bc4`.
+It keeps the pinned stock Bend/Bun wrapper and uses default-off host profiling.
+A normal help control tests flag transport; a real synchronous finite busy
+loop tests SIGTERM finalization at two seconds, without a signal handler.
+Only safe owned, bounded JSON with busy-function samples can pass. Missing,
+partial or unsafe output, unsupported data, or kill exit 137 blocks heavy
+profiling. Bun documentation does not establish that SIGTERM behavior.
+Controls are released only after the current regression job ends; no real
+profile, changed signal/deadline, or new checker implementation is released.
+These controls now establish a limit of that profiling seam. Help completes
+normally and writes valid private JSON (228 bytes, one node, zero samples).
+The real CPU-busy loop receives SIGTERM at two seconds and returns the
+expected raw timeout 124, but writes no profile. The read-only validator
+correctly fails; overall Make is two. Raw is
+`/tmp/birc-bun-profile-controls-raw.txt` (`753ff5f5…`). No long profiling job
+is released. Existing control sources, signals and bounds remain unchanged;
+a different interrupt control would need its own explicit review and result.
+The new-dependency isolation gate separately times out at its unchanged
+180-second compile bound (180.732/95.629/302.991 seconds real/user/system,
+Make two), with no runtime or named-error verdict. Raw is
+`/tmp/birc-mapped-isolation-v2-raw.txt` (`f7235545…`). The 488-assertion runtime
+pass stands, but it does not resolve this distinct compiler gate.
+
+The separately reviewed SIGINT control also fails to produce a profile.
+Its instrumentation-only scratch commit is `0c30326`; the unchanged finite
+busy loop returns raw timeout 124 after 2.013/1.898/0.039 seconds
+real/user/system, then the validator and Make return two because the private
+profile is absent, including no symlink. Raw is
+`/tmp/birc-bun-sigint-control-raw.txt` (`c20d5294…`). Both tested signal
+controllers are therefore unqualified for heavy profiling. Stop this avenue;
+do not add a handler, change the stock tools or silently reuse either signal
+for a full proof. This finite result does not establish that profiling is
+impossible or identify the proof bottleneck. The next source-only proposal
+checks the complete mapped isolation proposition against the new dependencies,
+with canonical imports and exact law/proof extraction, not a helper-only test.
+That current-dependency slice now passes the stock checker once:
+`make -f /tmp/birc-current-isolation-slice.MQZbMKei/Makefile
+BIRC_CURRENT_ISOLATION_SLICE=1 BIRC_BUILD_PHASE_PROFILE=1 check-isolation-slice`
+prints `ALL PROOFS CHECK`, Make zero, in 12.832/13.932/0.553 seconds
+real/user/system, within its fixed 60-second limit. Instrumentation-only
+scratch commit `5800140` precedes the run. The complete law and actual proof
+call match current LAWS/PROOF byte-for-byte; canonical imports and the full
+local Bend manifest are guarded. Raw is
+`/tmp/birc-current-isolation-slice-raw.txt` (`76be29a6…`). All three reviewers
+accepted the source; inputs and candidate status remained stable. This
+qualifies the complete mapped isolation proposition and its loaded closure
+on Session `476ca9bc…` and AD `6ff1ea4a…`, not all 535 laws, runtime boundary
+checks, native builds or an independent kernel. No before/after speedup can
+be inferred from the separately cold/warm 24.341-second old-dependency run.
+After that pass, Astra source-accepts one canonical current-snapshot
+`make -j1 check PROOF_TIMEOUT=600`. This is the first full-book validation
+after the real Session/AD change, not an unchanged retry or a predicted
+performance fix. Default-off timing is committed first in the owned scratch
+repository (`d40bad2`, driver `9fad376a…`); the driver guards the current
+snapshot/manifest and applies a separate 1800-second aggregate limit with
+five-second cleanup. The controlled locked-shell launcher clears inherited
+Make flags; all original per-target deadlines remain unchanged except the
+previously approved 600-second proof budget. The proof prerequisite runs
+first. A proof failure stops the check; standalone isolation, Session,
+upload-frame and carrier gates retain their separate qualification status.
+This current canonical check now fails at its proof prerequisite: `timeout`
+124, Make two, with no checker verdict or named law. The whole timed check
+is 601.480/257.580/894.366 seconds real/user/system. Raw is
+`/tmp/birc-current-canonical-check-raw.txt`; Bend/test/FFI/UI/pin/law digests,
+all 535 law names and candidate status stay unchanged. No project test, lint
+or paste-harness pass is implied; Make stopped before them. The owned proof
+children have exited. Do not retry this snapshot unchanged or infer a Nat
+subphase, a speedup, or a failed theorem from the timeout. The next admissible
+proof diagnosis preserves complete original law/proof pairs in one small,
+separately reviewed domain group; no automatic sweep or numeric migration.
+
+The first such group now reaches its fixed 60-second bound without a verdict:
+`make -f /tmp/birc-generation-slice.X4qOvdRA/Makefile BIRC_CURRENT_GENERATION_SLICE=1 BIRC_BUILD_PHASE_PROFILE=1 check-generation-slice`.
+Both original generation and epoch-reuse law/proof pairs remain complete;
+only the proof definition headers drop `Laws.` for the standalone book.
+Instrumentation commit `83b7ec6` precedes the one run. Raw timeout 124 propagates
+to Make/Nix two; the phase is 60.576/56.238/88.982 seconds real/user/system.
+Raw is `/tmp/birc-current-generation-slice-raw.txt` (`c0e50ce6…`, 29 lines).
+All pinned inputs, the full Bend manifest, 535 law headers and candidate status
+remain unchanged. There is no checker output, named failure or qualification
+for either law. This does not show that Workspace caused the full-book timeout.
+No unchanged retry follows. Astra recommends one complete generation law as
+the next smaller discriminator, not a disjoint coverage group. It needs its
+own source review and release. A pass would qualify that law alone, not prove
+that the other law fails alone or explain the full-book timeout.
+
+That smaller discriminator now passes: `make -f /tmp/birc-generation-single-slice.Dhz7GBWP/Makefile BIRC_CURRENT_GENERATION_SINGLE_SLICE=1 BIRC_BUILD_PHASE_PROFILE=1 check-generation-single-slice`.
+The complete original `workspace_generations_drop_stale` pair, its nullary
+endpoint and all predicate checks are unchanged. Instrumentation commit
+`72c2313` precedes the run. Stock `--check-only` reports `ALL PROOFS CHECK`;
+the phase is 1.627/2.503/0.324 seconds real/user/system, runner zero. Raw is
+`/tmp/birc-current-generation-single-slice-raw.txt` (`c7113cf8…`, 30 lines).
+All 15 pinned inputs remain intact and owned children have exited. This
+qualifies only that complete law on the frozen current dependency closure.
+The pair's timeout does not prove epoch fails alone; the next discriminator
+requires a separately reviewed complete epoch law, with no timing subtraction.
+
+The complete epoch-only discriminator now reaches its own unchanged 60-second
+bound: `make -f /tmp/birc-epoch-single-slice.VXOdKuK3/Makefile BIRC_CURRENT_EPOCH_SINGLE_SLICE=1 BIRC_BUILD_PHASE_PROFILE=1 check-epoch-single-slice`.
+Instrumentation commit `2b73e4e` precedes the run. Original LAWS/PROOF excerpts,
+both remove/re-add scenarios and all observations remain intact. Timeout 124
+propagates to Make/Nix two; the phase is 60.504/57.716/85.285 seconds
+real/user/system. Raw is `/tmp/birc-current-epoch-single-slice-raw.txt`
+(`f6abe8f2…`, 29 lines). All 15 pinned inputs remain intact and owned children
+have exited. There is no checker output or named error. This directly records
+an unqualified complete epoch slice and its closure; it does not distinguish
+conversion from loading or name the full-book cause. No repeat or numeric
+migration follows from this result.
+
+Astra's final source-only recommendation is a complete proof-facing epoch
+factorization with the initial B seed and selected ceiling open. Keep both
+scenarios and all 12 conjuncts. Derive the first actual Online `/connect` AD
+tuple and its strict-cap admission; keep that exact Workspace, drafts and retired
+mark through removal/re-addition. The final `/connect` runs on the re-added
+Connecting Session and returns the busy diagnostic plus `Cont`, not another
+Dial. Its generation increase comes from retirement/re-addition. Endpoint
+replacement also preserves the actual sequence; do not reconstruct it as zero.
+The metadata observations may remain invariant across both original overflow
+branches, which could avoid an unnecessary acceptance proof or concrete maximum
+reduction. A Boolean-case lemma for `nat_max.pick(c, q, q) == q` is another
+source-level avenue if maximum idempotence is needed. These are unqualified
+proposals, not accepted connected proofs or measured Nat-cause findings. Exact
+goal/motive alignment, stock checking of the full proposition and runtime
+boundary qualification remain required before integration or a redesign.
+
+The focused regression gate is
+`/tmp/birc-proof-integration-regression-gate-20261007.txt`. Its unrun additive
+draft (`/tmp/birc-workspace-join-boundary-regressions.bend`, `9c9bd97e…`) covers
+actual nonallocating JOIN at base and ceiling minus one, and rollback at the
+exact ceiling and above it with distinguishable original drafts. Preserve the
+six existing isolation checks and all original range/retirement expectations.
+The targeted Workspace checks are standalone; `make check` does not imply
+that they ran. No test expectations changed in this investigation.
+
+Separate native investigation now has a 30-line standard Bash-time driver
+(`/tmp/birc-native-front-end.m9vRi4R8/Makefile`, `cd6fa2aa…`). It is independently
+source-reviewed, default-off and opt-in; it preserves the original native
+fixture and adds only `-fsyntax-only` in a separate 300-second diagnostic on
+the exact retained upload C. Status controls with timing off pass
+(`43d470c2…`); timing-on and missing-opt-in invocations reach their enclosing
+Nix60 bounds without control output (`57fbc997…`, `733e7b9b…`). No compiler
+diagnostic ran. One combined locked-shell control invocation is released
+with a separate 180-second provisioning bound; all command and existing
+proof/runtime deadlines stay fixed. No custom timer or native subphase
+attribution is admitted.
+The combined control invocation now passes all statuses and timing-marker
+checks (`/tmp/birc-front-end-combined-raw.txt`, `6abd2562…`). It measures 70
+seconds overall and 2 seconds between in-shell markers; do not attribute a
+Nix subphase from those coarse spans. The instrumentation alone is committed
+in the owned scratch repository (`master`, `4dd958234444bccb4e56dbb4b61471fae18af9e1`),
+not in Root or the candidate. The bare shell `CC=clang` resolves to the pinned
+wrapper but fails the driver's literal guard; the diagnostic explicitly sets
+the same absolute wrapper path inside the locked shell.
+The single syntax-only diagnostic then exits zero
+(`/tmp/birc-upload-frontend-syntax-raw.txt`, `9d2cbfcf…`): measured invocation
+real/user/system times are 25.807/23.255/0.911 seconds; whole invocation is
+97 seconds. This qualifies preprocessing, parsing and semantic analysis of
+the exact retained C and current headers in that diagnostic only. It does not
+retroactively identify the full CC300 timeout, qualify optimization/linking,
+create a binary or pass a native/terminal fixture. The generated C, driver,
+candidate Make/Workspace/LAWS/PROOF and project headers remain unchanged.
+Its before-provenance timeout/Bash/OpenSSL paths are outside-Nix resolutions,
+not captured in-shell tool/header identities. The actual CC guard proves the
+absolute pinned compiler path; do not claim stronger provenance than recorded.
+No proof integration or after-proof performance result exists. The full
+proof and `make check` remain open; heavy jobs are held after this receipt.
+
+A separate, source-reviewed IR-generation diagnostic is now released once,
+serialized after the route check. Its 18-line default-off driver is
+`/tmp/birc-native-irgen.qjW53gjb/Makefile` (`2656452d…`), instrumentation-only
+scratch commits `d32eb30` and `fb03565`. It preserves the exact retained C,
+compiler, flags and ten aliases, with a fixed 300-second limit. It adds
+`-S -emit-llvm -Xclang -disable-llvm-passes` and writes only an owned scratch
+text-IR file; existing output and dangling links are refused. It measures the
+combined front end, IR generation and serialization without LLVM passes.
+Neither success nor timeout can establish the prior full-compile cause,
+qualify a native fixture, or explain Nat proof costs.
+The first runner's controls returned 0/2/2/0, but it printed those statuses
+without assigning its gate variables. Nix also reset its inherited CC. It
+did not run the compiler (`/tmp/birc-upload-irgen-raw.txt`, `8512c155…`).
+The independently reviewed corrected harness (`9bc3974d…`) records statuses,
+uses a pinned Make `CC` argument inside the shell, and returns the real status.
+Its single real IR-generation diagnostic passes in 63.707/42.626/8.198 seconds
+real/user/system, producing an 882,172,707-byte scratch text IR (`b0e9f232…`).
+Raw is `/tmp/birc-upload-irgen-corrected-raw.txt` (`3d36162e…`); all pinned
+inputs and candidate laws remain unchanged. This is only a combined front-end,
+IR-generation and serialization result with LLVM passes suppressed. It does
+not identify the earlier CC300 timeout, qualify optimization/linking or produce
+a runnable binary. No cold/warm subtraction or proof-cause claim is justified.
+
+The separate LLVM optimizer diagnostic also completes on that exact retained
+C, with the original pinned compiler, O2 flags and ten aliases. Its default-off
+instrumentation commit is `f1b94db`; source-reviewed `EmitLLVMOnly` enables LLVM
+optimization but discards output before IR serialization, machine-code
+generation and linking. `diagnose-upload-optnull` returns compiler/Make zero
+in 49.878/46.324/3.070 seconds real/user/system, with the reserved output
+absent, including no symlink. Raw is `/tmp/birc-upload-optnull-raw.txt`
+(`1e83c28d…`). Clang's measured wall-clock split in this run is optimizer
+37.9245 seconds, front end 7.0495 seconds and IR generation 4.5846 seconds;
+the top pass is DeadArgumentElimination at 5.6865 seconds. Inputs, headers,
+535 law names and candidate status remain stable. This measures only that
+diagnostic path on the old generated fixture snapshot. It does not identify
+the earlier normal CC300 timeout, qualify a current native fixture, explain
+proof costs or justify subtraction of separately cold/warm measurements.
+
+The separately reviewed compile-to-object diagnostic now passes on that retained
+C. Instrumentation-only scratch commit `83f2640` precedes the one bounded run:
+`make -f /tmp/birc-native-object.MADHUrIe/Makefile CC=/nix/store/2yfrcmkvspsrjhj283gdawqp37aghxva-clang-wrapper-21.1.8/bin/clang BUILD_TIMEOUT=300 BIRC_NATIVE_OBJECT_DIAGNOSTIC=1 BIRC_BUILD_PHASE_PROFILE=1 diagnose-upload-object`.
+The original O2 flags, ten aliases, compiler and inputs remain unchanged;
+`-c -ftime-report=per-pass` measures this separate path without linking.
+Compiler and runner return zero in 127.988/116.918/10.560 seconds
+real/user/system. Clang's wall split is machine-code generation 77.5568 seconds,
+optimizer 38.6357, front end 7.1935 and IR generation 4.2832 (total 127.6693).
+Nested pass reports are not additional phase costs. Raw is
+`/tmp/birc-upload-object-raw.txt` (`2a030b34…`, 429 lines). The owned regular
+0600, single-link object is retained at `/tmp/birc-native-object.MADHUrIe/upload.o`
+(13,889,672 bytes, `43bfa49d…`); no automatic link, run or deletion follows.
+Pinned inputs, candidate status and root source/index protection hashes remain
+unchanged. This qualifies only object production from the old generated C.
+It neither explains the earlier CC300 timeout nor qualifies a current fixture,
+proof optimization or a before/after speedup.
+
+The native source reviewer confirms that the original driver produced an
+executable, while this diagnostic uses `-c`. The pinned Nix Clang wrapper adds
+`NIX_CFLAGS_LINK` and linker flags only in linking mode. Thus identical C and
+explicit O2 flags do not establish identical effective compilation actions.
+Actual linking, library resolution, executable writing and the current-source
+PTY fixture remain unmeasured. Any link-only follow-up must be separately
+reviewed and bounded; it must not overwrite or run the project executable.
+
+Native link-source packet `4d4976d` passes its separately released tiny controls
+(exact 0/2/2/2/0 and all refusal diagnostics; raw `/tmp/birc-link-controls-raw.txt`,
+`f15bb244…`, 168 lines). Its metadata-only stock `-###` pass records one planned
+pinned linker job, no compiler/assembler job and no executed linker. Driver zero
+and read-only validation pass in 0.163/0.022/0.036 seconds real/user/system.
+Raw is `/tmp/birc-link-metadata-raw.txt` (`52d36fc2…`, 93 lines); private metadata
+is `/tmp/birc-native-link.8B6aAhHE/link.metadata.txt` (`a0a5bd05…`, 8 lines).
+No executable is created. This is Clang's plan, not final linker-wrapper argument
+expansion or library resolution.
+
+The runner's extra environment gate is not qualified: it contains an invalid
+indirect expansion and masks the random-seed value rather than requiring strict
+equality. Main's independent unmasked comparison confirms the recorded 15-channel
+subset matches, but some extended BEFORE/AFTER names use the wrong suffix order
+and omit actual linker channels. This is not complete environment provenance.
+All evidence remains intact. Do not reuse the gate or release a real link until
+a small strict, source-reviewed environment check captures the actual channels.
+
+The strict PONG witness now has a reviewed additive guard requiring exactly one
+`PONG :fresh-gen` CRLF line in the full socket capture through EOF. It preserves
+all 29 original checks and deadlines and adds malformed/extra-reply controls.
+Its final source is `96be9273…`; self-test and three current-build PTY runs are
+released but unqualified. The original five-second substring wait is unchanged;
+do not claim that the CRLF terminator itself is checked within that deadline.
+
+### Remaining test composition
+
+The reviewed theme-render witness passes its standalone target. The initial
+source inventory identified twelve donor target definitions absent at that time:
+`test-isupport`, `test-cards-live`, `test-sessws-s1s5`,
+`test-history-ceiling-drain`, `test-history-runtime`, `test-history-wire2`,
+`test-i2-h5-combined`, `test-mss-stale-held`, `test-nix-eval-selftest`,
+`test-pty-ponggen`, `test-pty-net-trace`, `test-ws-media-stage-native`.
+Their exact source/recipe/coverage inventory is saved at
+`/tmp/birc-theme-ws-render-slice.BVU6KG19/INVENTORY.txt`. This is a literal
+target inventory, not a complete evaluated dependency graph or overlay approval.
+Each needs narrow source review, admission and qualification. Existing standalone
+greens also still need coherent aggregate registration. No full-check pass is
+claimed from the selected suites.
+The media-import companion and standalone media-stage sources are now admitted.
+`make test-ws-media-stage-native` exits zero, but its delivered output is partial
+(`/tmp/birc-ws-media-stage-orig-partial-raw.txt`, `258d1c75…`). A bounded
+runtime-only rerun on the exact newly built binary (`b33631c4…`) passes all
+four headless cases: free, blocked, jobs-none and jobs-some. Its saved output is
+`/tmp/birc-ws-media-stage-verify-raw.txt` (`26249999…`). The original compile
+and runtime deadlines are unchanged; no compiler replay or PTY run is claimed.
+The stale-socket sources and standalone recipe are also admitted, but the
+original `make test-mss-stale-held` reaches its Bend-to-C 300-second limit
+(`/tmp/birc-mss-stale-held-raw.txt`, `d8f8da5a…`; make exit 2, command 124).
+No C file, CC phase or runtime verdict exists. Hold that lane and continue
+independent gates; neither its timeout cause nor a passing stale-socket test
+is established.
+One separately bounded stock `--check-only` invocation on that unchanged
+MSS fixture reaches the expected global unsafe/foreign rejection after book
+loading and type validation (`/tmp/birc-mss-checkonly-raw.txt`, `fb769d15…`).
+No C emission or runtime occurs. This establishes validation completion in
+that diagnostic run only; it does not locate the original timeout or pass
+the stale-socket runtime gate.
+The S1S5 fixture reaches a stale, nonexhaustive `dial_show` match at line 192:
+the current NetCmd type also has `Pong` and `Search` cases
+(`/tmp/birc-sessws-s1s5-raw.txt`, `9b5f9f01…`). This is a compilation failure,
+not runtime RED. A narrow fixture-inspector repair is being prepared; keep
+all 469 checks and the two explicitly approved PONG expectations unchanged.
+The reviewed inspector repair (`fe508602…`, fixture `40d848cb…`) preserves
+those 469 checks and adds four controls, but the next compile stops at
+`frame_trip_halt` with an unannotated product-type inference error
+(`/tmp/birc-sessws-s1s5-repair-raw.txt`, `fa72d737…`). It still has no runtime
+verdict. A separate syntax-only repair is being investigated.
+The reviewed one-character follow-up (`168799f2…`, post `ca104db7…`) removes
+only the unnecessary `+` from the one-use `halt` projection. All 473 checks,
+inputs and golden text remain byte-identical. It is released for the original
+JS180/Bun30 target; no further expectation change is authorized.
+That follow-up compiles, then fails at `s2p production multiline outs fifo`:
+the direct Session seam emits `PRIVMSG #b :aabb`, while the fixture expects
+two multiline rows (`/tmp/birc-sessws-s1s5-followup-raw.txt`, `591c133f…`).
+The independent source review finds a single-input/multiline-adapter setup
+mismatch, not a demonstrated FIFO defect. Keep all 473 checks unchanged
+until the actual production seam and a narrow setup correction are reviewed.
+The separate upload fixture emits 35,061,000 bytes of C (`02ee3a59…`), then
+reaches its downstream CC300 bound without a binary or terminal run
+(`/tmp/birc-ws-upload-frame-raw.txt`, `35e9eb2f…`). Do not attribute its
+compiler-driver timeout to proof normalization or a measured optimizer phase.
+Carrier now passes all three consecutive terminal runs after one build,
+including its approved owner and fixed-prefix corrections
+(`/tmp/birc-ws-carrier-native-raw.txt`, `eff36333…`; binary `1272fbfd…`).
+Its final Bend fixture is `72a31c15…` (277 lines) and driver `89b6f126…`.
+The earlier checkpoint token `27772a31` combined that line count and hash;
+it was a note typo, not a changed source packet. Cards prefix qualification
+and the other terminal suites remain open.
+The admitted CAP target now passes all 25 existing assertions plus three phase
+controls (`/tmp/birc-cap.raw.txt`, `d8e849a2…`; fixture `1a3e0c53…`). The
+Cards live target also passes its 201 checks (`/tmp/birc-cardslive.raw.txt`,
+`d8b9c9b7…`; exact fixture `411b789a…`). Its aggregate edge remains held with
+the other uncomposed groups.
+
+An evaluated dependency review extends that literal inventory. Its conditional
+composition preserves all Root and candidate edges and reaches 43 scoped targets
+from `check`. Additional Cards, Carrier, upload and notification definitions need
+separate admission; the literal twelve are not the full closure. Two proposed
+Cards tests share native build outputs, so they need one common build prerequisite
+before concurrent registration. A donor-only `nix/cards.nix` build-input edge is
+not a verified invalidation defect: the helper is selected at runtime and Nix
+already includes its derivation. Do not add that edge merely to match the donor.
+
+The narrowly admitted `make test-nix-eval-selftest` passes all six controls
+(`/tmp/birc-nixself.raw.txt`, `4cb11421…`). It is not a live Nix timing result.
+The remaining scoped source/recipe packets are reviewed and queued; their
+aggregate registrations remain held until their exact standalone tests pass.
 
 Current split (approx):
 
@@ -4583,6 +5326,9 @@ handoff is implementation scope, not a request for another plan-only review.
   Diagnosis: paired LAWS/PROOF C8-only partition (14 laws, checker
   requires completeness — subset PROOF alone reports 375 TODOs);
   partition runs are diagnostic only, never qualification.
+  Partition RESULT: C8-only 14 laws ALL CHECK in 29.5s real (user
+  7.1s/sys 2.6s — starved, load ~44) — no C8 hang; full-set 600s
+  timeout cause still unverified (no quiet-window evidence yet).
 - C8-live2/39 SENT concrete correction: delete the 111-line duplicate
   links lexer, reuse accepted G3 `Ws.url_runs` + deps, adapt Cards +
   `Media.media_run_hit` to that API; no placeholder merge point.
@@ -4746,10 +5492,13 @@ handoff is implementation scope, not a request for another plan-only review.
   passed in 46.8s in their worktree, so the timeout is load-suspect, not
   predicate-suspect. Measuring one timed plain run before any other
   conclusion; the 180s deadline stays unchanged.
-- Proof green on retry: `ALL PROOFS CHECK`, real 149s / user 83s — the
-  earlier 180s timeout was pool-load-induced (load 44, real >> user), not
-  a predicate defect. Deadline unchanged; margin is thin under a full
-  pool, so final qualification re-runs proof on a quieter machine.
+- Proof green on retry: `ALL PROOFS CHECK`, real 149s / user 83s (raw
+  timings retained as facts). RETRACTED 2026-10-03: the claim that the
+  earlier 180s timeout was pool-load-induced (load 44, real >> user) is
+  NOT verified — load correlation is not established cause, and earlier
+  trace/coalescing benefit claims are unmeasured until new per-ID
+  evidence lands. Deadline unchanged; final proof runs on merged source
+  via `make check PROOF_TIMEOUT=600`.
 - C8 repair returned (`2e8f10f1` helper + `567b62d1` policy/laws, worker
   reports scoped guards green); pending parent review against C8.1-C8.6
   before integration. Freed slot goes to the L1/T
@@ -4793,3 +5542,4360 @@ handoff is implementation scope, not a request for another plan-only review.
 | D3 | UTF-8 TCP vs byte-exact foreign TCP? | Base `TCP.send`/`recv` strings; `Fr.push` octet laws kept |
 | D4 | UI loop `@unsafe` vs fuel? | `--frames N` fuel; `frames=0` live `@unsafe` idle |
 | D5 | Keep a C demo binary during transition? | No — deleted at M5.8 |
+
+## Handoff qualification record (2026-10-03; do not restore withdrawn quals)
+
+Current checklist (02:22 KST 2026-10-04; branch + HEAD provenance, no secrets;
+parent HEAD `4b4cbef`; no push anywhere; lane work on branches only):
+
+- G6 ACCEPTED source+focused-green, full proof pending: `g6-live` 5b6b2aa +
+  `c378ed0`, `g6-repair` 4c73236 + `492fd17` (shared phase gate, Cont-only
+  tick, `g6_live_demo=ok` parent-verified, single CAP-END owner, laws
+  unweakened). Parent adds `test-g6-live` at integration. Session `reg`
+  field — arity-merge with H5/I2.
+- H5 `8a2c8da` REJECTED-complete; `h5-wire3/58` RUNNING (wire3 gates +
+  cutoff/ticket/endpoint + endpoint-scoped case-sensitive seen retention
+  across same-endpoint generations; stale-gen quiet). Kept positives:
+  split-prepass removed/admitted rename only, nonzero unused exact search
+  ticket/gen/endpoint, String.eq in-page dedup, peer server query, actual
+  history-save claimed-ID exclusion (that exclusion does NOT qualify N9).
+  UPDATE 03:07: `h5-wire3/58` GHOST (transcript terminally failed
+  02:58:41 `log_error`, same signature as 51; last tools 02:57-02:58
+  red-vs-now return prep; roster `running` stale). HEAD `c623c3f`
+  behavioral red + 14 dirty files preserved in the retained worktree;
+  all 8 queued gates (live-path, claimed drain, LAWS syntax, test
+  flips, affine seam x3, cutoff, ticket, endpoint, seen) orphaned into
+  a staged successor INITIAL prompt (original GATES 1-6 + all queues
+  verbatim). UPDATE: successor `h5-successor/72` ACTIVE (complete
+  INITIAL accepted: read-only port of `c623c3f`+14 dirty + G1-6 + all
+  8 queues + preserved positives).
+  UPDATE: `h5-third/78` RETURNED `h5-wire3c` `625f7df` (G1-G3).
+  FINAL CRITICAL: Gate2 is TESTS ONLY — C/Python/HSIO/Session/Net
+  byte-identical to `524b2af`. Actual C cap+1-EOF and Python
+  SCAN_MAX+1-EOF success are STILL BUGS; HSIO :149/:169 real
+  workers are still NOT the affine entry. The new tests call
+  `Hs.search_loop` on `File` with supplied old `remaining` (the
+  unused bounded Bend driver), not the actual production mutation.
+  Do NOT accept cutoff as green-on-arrival. POSITIVE: exact-target
+  source `5e763a9` with actual StepEnter stands; H/I lifecycle
+  final soon. IMPLEMENTED main normal-turn (branch `h5-cutoff`,
+  Muse owns, no second H5 owner): red `5820d4b` + green `8f493f4`
+  (fstat snapshot + exact-size snapshot core in C
+  `scan_snapshot` + Python `scan_fd`, killing the `cap+1` /
+  `SCAN_MAX+1` over-reads; shrink -> TRUNCATED bit / exit 5 ->
+  exact shared `scan_changed_text()` parity with the affine path;
+  cursor/cap behavior preserved). SOURCE ACCEPT `8f493f4`
+  (independent final verdict forthcoming). Verified light:
+  `history_search_fd=ok` (s7 incl), `search_helper_cutoff=ok` +
+  `search_helper_scan=ok`, `history_search_io=ok` (4 new pins),
+  `history_search=ok`, `history_wire2=ok` via bun JS (never native
+  compiled; zero heavy-lane use). IN FLIGHT: wrapper
+  capture/mutation qual (interposed fstat/read/close around the
+  real wrapper, per advice; no /proc, no threads, no prod hooks)
+  + INDEPENDENT foreign-result restore (live-post pins through
+  `search_run.post`, replacing the pre-port `Net.history_disk_search`
+  assertion lost in `4d689a7`; mapping pins alone do NOT restore
+  it; EISDIR prefix-pin weakener noted). Residual honest limits:
+  scan-level shrink close-once is single-site structural (no
+  deterministic trigger), foreign-OWNED bit unfabricable without
+  privilege (parity pinned via other refusal bits + exact strings).
+- N9 `5836ebb` helper-only ACCEPTED (HOLD: stage/order/laws, 3 suites
+  parent-green). `n9-bind/52` returned `b8e6d52` REJECTED: R1 ticket
+  across cancel (`Session:2652/2657/2668` clear active while detached
+  `run_jobs_done` continues; `Net:1194->1199/1161` second worker); R2
+  call-local claims `:434/435` not durable, `Net:1184` still Nil
+  (archive may notify later); R3 refused/stale HistoryLoaded seeds floor
+  `Net:1226/1253` after unchanged `PrefLive.history` (suppresses pending
+  live rows); R4 `notify.py:36` bare notify-send unprovisioned, fake
+  clean-PATH test proves forwarding only. Kept: actual retained Net
+  loop, exact callback signatures (proof/old-focused green does not
+  disprove the source cases). Fresh `n9-bind2/69` RUNNING with complete
+  initial gates (G1-6 + R1-R4 + Q4 HOLD + real mixed claim producer +
+  overflow->completion->no-new-IRC rescan guard; rescan qualification
+  only, no permanent-loss defect claimed). CHECKPOINT 03:07: R1 commit
+  `1032aa9` source-POSITIVE (scoped, not full qual): actual
+  Net/NotifyIO retains original ticket+endpoint across reset/off/
+  cancel, rejects wrong completion, rebinds queued work only on exact
+  completion. Still required: owned held-helper physical concurrency
+  test; Q4 six expectations stay held. R2 PRECISION (d20 grep):
+  notify_claims_installed test-only (:395,410), no producer exists,
+  no production install path; unconditional Net:1231 global seed via
+  StartupIO:22-23 -> HistoryLoaded:1258-1261 -> install_startup:203
+  masks runtime overflow. RETRACTED: 65-ID overflow demonstrated in
+  production. CONFIRMED: overflow in the new claimed-policy seam on
+  real imported clients (hist cap100 / SCROLL_CAP1024), leaks when
+  bound unless fixed. Fix the NEW :995-998 drops-newest guard (not
+  legacy Q4); need actual per-ID producer + safe bound/dedup + R3
+  accepted-vs-refused floor jointly. CHECKPOINT 9e73971: stale/
+  refused seeding FIXED (:81-82 + :1274-1277), producer genuinely
+  called :1251; ACCEPTED mixed-backlog floor jump OPEN (:1240 +
+  :2709->2697 whole-log_seq floor/mark + prune => live id9 skipped;
+  needs per-ID quieting + rescan-delivery proof). CLAIM_CAP64/fresh-
+  dup ledger still open (:442-456/:2582). CHECKPOINT 46771eb: R4
+  default provenance FAILS (libnotify appended after PATH :10, bare
+  notify-send :32-33, :105-110 asserts shadowing); needs absolute
+  default backend + BIRC_NOTIFY_SEND injection + impostor/override
+  pair (+ argv-boundary seam if convenient; $* logging unproven).
+  Retained: birc:64 absolute helper, keychain launcher :66-69,
+  redacted :80/160, direct argv, --, suppressed output, timeouts,
+  Darwin osascript policy. All routed to 69; Q4 held.
+  UPDATE: `n9-bind2/69` RETURNED `46771eb` PARTIAL; fresh
+  `n9-bind3/77` ACTIVE. ROOT verdict on `e7635e7` (R2c) PARTIAL,
+  gap survives `cb44639` R3d: Session:2587-2588 drops first
+  qualifying IDs; Notify:461-462 evicts stored claims without
+  at/below-floor proof; 65-row red test builds only 5 qualifying
+  mentions (misses >64 capable rows) — after R3 preserves pending
+  live9/floor8, 65 real imported mentions above old9 lose exclusion
+  and a rescan can notify archive (global seed masks; no immediate-
+  leak claim). Repair routed to 77: lossless floor-tied claims
+  owner with proven exclusions, NOT keeps-newest truncation; bar is
+  65 real qualifying mentions + pending lower-live all quiet,
+  retained-live each notifies once; fresh-dup dedup positive kept;
+  verify 1081-1088 false->true origin (preexisting user fixture =>
+  HOLD for approval; candidate-side bad guard => fix correct
+  policy); never claim unchanged. R3d live9-delivers kept.
+  DELIVERY: first send (path target + interrupt) REJECTED
+  `invalid_input`, never delivered; second send (documented UUID
+  `01a1033d-…-2985cad`, queue) ACCEPTED receipt #1338
+  (`01a1035a-9e43-…-84d`). Consumption UNVERIFIED: tip still
+  `cb44639`, worker active with dirty held-helper files
+  (`Makefile`, `tests/bend/notify_held.bend`). Bar restated:
+  joint 65 qualifying mentions + pending live9 with no eviction,
+  R4 absolute default, Q4 hold. If 77 returns before consuming,
+  fire a fresh successor INITIAL (needs a freed slot).
+  UPDATE: joint-R2 ACTUAL trace queued (#3, accepted
+  `01a1035e-18fc-…-e52`): accepted LC.history preseq9 + 65
+  peerHighlight archives IDs10..74 (+divider75), producer last64
+  drops 10, Net:1240/1251 no floor jump, full8/busy completion
+  rescan dispatches live9 AND unclaimed archive10 (HL author
+  retained, no timestamp/visibility exclusion). Cap-test
+  provenance VERIFIED and queued (#4, accepted
+  `01a1035f-3cd7-…-696`): drops-newest added `d2b1d5c` in-lane,
+  changed `ceebe5b`, root 4b4cbef has no notify_full file — NOT a
+  preexisting user fixture, no approval hold; replace with genuine
+  all-needed-claims safe joint guard. Fresh-dup union FIXED (no
+  regress); R3 no-global-floor positive, R1 lease unchanged; Q4
+  six held, R4 absolute-default bar unchanged. Consumption still
+  enforced before DONE.
+  UPDATE: `n9-bind3/77` RETURNED `7870db5` (R4 red `389ef4c` +
+  fix committed; G1 qual claimed, G2/G3 as before). Queues #1/#3
+  (joint-R2 lossless + 65-qualifying), #4 (cap provenance),
+  #5 (R1 latch) ALL UNCONSUMED (verified at HEAD: keeps-newest
+  stands, no latch). R4 `7870db5` SOURCE ACCEPT (absolute
+  installed libnotify, direct argv; Linux closure qual pending).
+  Fresh `n9-final/82` ACTIVE from `7870db5` with all gates
+  (joint-R2 lossless + 65 real LC, R1 held latch + received
+  completion + wrong-origin, R4 verify, in-lane cap-policy
+  correction, Q4 six held). Never queue to dead 77.
+- MSS multiline commit `653da6fe` source-POSITIVE (scoped, not full
+  qual): actual Session.step_keys, atomic no-wire + no Hist/recall for
+  sensitive pasted command blocks, 15 new assertions, old expectations
+  unchanged. Classifier still fixed, not negotiated; merged I2
+  classifier + custom-target privacy guards remain required.
+  CHECKPOINT f6a1cea: WsNet global bell-seq threading positive;
+  per-part opt-out defect open (mismatched flags; event-origin opt-in
+  required). CHECKPOINT 37e3e9d: retained live_client :538 + actor
+  SASL from retained Part :492 positive; endpoint-change clears
+  creds :1422-1426, same-endpoint retains profile/resets exchange
+  :1298-1318, actor scope independent :334-338/:488-495; no weakened
+  assertions. AuthBridge missing from WsNet path (sole observed at
+  Net.live_step.next:1102-1103 bypassed) — shared private success
+  owner + synthetic paired tests required; NickServ qual must reach
+  trusted primary completion (exactly-one frame; stale/foreign/dup
+  none) + SAME-endpoint redial actual routed exchange. Global
+  chat-ID/runtime leases still open. All routed to 68.
+  CHECKPOINT 5b70e57: PRIMARY P2 remove/re-add scalar ID reuse
+  (Workspace:300 fixed-base reseed; SlotEpoch gen-only; :805 encodes
+  bug) + SEAM1 constructor/restore seed_seq reset :196-210 (not a
+  live-launch bug — launcher supplies empty client) + SEAM2 2^44
+  bound :186-195 with unguarded Buffer:1025/1239 increment (needs
+  fail-closed boundary guard + ordinary unique-ID pair) + SEAM3 N9
+  integration lower-ID guard at bind time (not a regression).
+  Policy: one authoritative owner, admit-before-allocate, preserve
+  existing IDs, exhaustion fail-closed. All routed to 68.
+  CHECKPOINT 7fea21c bridge+typing POSITIVE (scoped): WsNet:334
+  bridge-after-fold, Workspace:863-879 Key.first delta + exact
+  host+port, native one-shot :131-144; typing watcher :548,
+  dispatch :355-356, per-Part expiry :818-849, paint-only-changed
+  :337-340. Missing-bridge gap lifted. Still required: same-endpoint
+  redial actual exchange + exactly-one pipe frame (stale/foreign/dup
+  none); full runtime worker integration (le :824-828 pure fixtures
+  hold no leases). No blanket MSS acceptance. Routed to 68.
+  UPDATE: `mss-resid/75` RETURNED `sessws-full3` `5c2560d` PARTIAL
+  (under review); fresh `mss-full/80` ACTIVE with full-baseline
+  INITIAL (shared allocation owner, runtime wiring, owned auth
+  pipe, negotiated multiline merge).
+  UPDATE: `mss-full/80` RETURNED PARTIAL `sessws-full4`
+  (`4425847`/`a4dad42` G1 owner + `1dace53`/`52a7e0a` G3 auth
+  pipe; G4/G2 residual). G1 SOURCE BLOCKER on `a4dad42`
+  (workspace:705-714 clamp retains outs/metadata; near-ceil
+  two-DM drops dave row yet creates query/unread/BELL; test:1147
+  prefix-only) + G3 narrow guard (NickServ/stale pure-only;
+  renewed exchange needs post-auth JOIN #t + one-shot bridge)
+  BOTH queued (#1 accepted `01a1037d-…-0ccd`, #2 accepted
+  `01a1037e-…-9a8e`) but UNCONSUMED (HEAD predates receipts).
+  Fresh `mss-full5/86` ACTIVE from `52a7e0a` with all gates
+  (G1 effects/rollback + two-DM negative + one-DM positive,
+  G3 actual fixtures + renewed JOIN, G2/G4 residual + full
+  baseline incl IO worker leases). Never classify queued inputs
+  as implemented or pure fixtures as runtime.
+- I2 `709c766` PARTIAL: `#t`/implicit styled flags fixed (5/5 suites
+  parent-green); signed `+#room` styled flags still leak.
+  `i2-dynamic/61` returned `d4d3c8c` (G1-G4 negotiated ISUPPORT live,
+  24/24 claimed; red `e6038af`+`7c0b71a`). FINAL review: scoped AUTH
+  FIX stands (Session:2643 -> fold_step.got_at_with:176 ->
+  Auth.step_for:167/consume+credential:164, one shared owner) +
+  lookup/roster/completion/audience/MODE-precision positives; residual
+  open (F1 KICK victim :1068->:508/:497; F2 self :1091/feed_self :951
+  Irc.ieq; F3 NICK absent-dynamic Session:2618-2627; F4 typing/View
+  custom $/^ + ASCII identity/mute; F5 signed styled flags
+  Submit:1417/1453/IrcCommands:156). `i2-dynamic2/71` RETURNED
+  `805e34e` (red `c8deb9d` + F1/F2 `5566fed` + F3 `42f7ba8` + F4
+  `b4ca34e` + F5 `805e34e`). FINAL verdict: scoped positives ACCEPT
+  (F1/F2 victim/self/DM, F3 Client rename, F4 typing/mute via actual
+  Net paint — body_of.lines_cm, not full paint qual — F5 bold-wrapped
+  +k, d4 Auth chain; old assertions/LAWS/PROOF/Make unchanged), NOT
+  full acceptance. Five residuals open (colored MODE key recall,
+  unrelated ASCII split rename, fixed mention highlight/BEL, fixed
+  tab unread lookup, duplicated NICK traversal). `i2-third` staged
+  with ALL residuals + shared-owner/hist-admission criteria in
+  INITIAL. UPDATE: `i2-third/73` ACTIVE. CHECKPOINT 54c5aa2: R1
+  scoped source-FIX ACCEPTED (shared fixed+negotiated
+  Commands.mode_key_tail admission Submit:1419/1456; actual
+  StepEnter->step_keys Hist gate :2320 suppresses colored +#room
+  +k; strict outbound rejection unchanged; paired isupport_live
+  :723-727 noWire/noHist/noRecall + nonkey +o exact HistPrev;
+  no new parser; old assertions/laws unchanged).
+  FINAL: `i2-third/73` RETURNED `46e77d9` PARTIAL — ACCEPT R1,
+  R3 shared write owner, R4 cm fullView lookup, R5 DRY sole
+  owner (-82 lines, wrapper :778-779 shares :697-775);
+  assertions/LAWS/PROOF unchanged. REQUIRED pending: R2 raw
+  chunk prepass (Session:2733 same-chunk 005+NICK); R4 unread
+  mutation fixed (Buffer:873 sibling alert/severity); exact-once
+  BEL NEW guard absent (:819 still >0; bell-1 wording is NOT an
+  ==1 assertion — ADD, never replace). Fresh `i2-fourth` staged
+  INITIAL (both state defects + same-chunk/admitted-history
+  criteria + severity/coalescing pairs + ==1 guard + positives
+  + final qual). No queue to returned 73. No blanket full accept.
+  `i2-fourth/76` RETURNED `2e768ef` (red 74173d0 G1C/G2C fail G3C
+  green + 65c768b G1 + 2e768ef G2): G1 prepass removed
+  (live_split_step evolving iso2, admitted-only), G2 unread cm
+  owner (severity separate, coalesce self-only), G3 ==1 BEL added
+  (:819 >0 unchanged); 8 suites green, registrations untouched.
+  FINAL SOURCE ACCEPT 2e768ef: G1 actual-fold mapped + G2
+  mutation/full-OpTabs + G3 exact1, old >0 unchanged. OPEN:
+  native bell + H5 archive merged qual. DRY opportunity (no bug/
+  perf claim): repeated prepare+admission OR-expression cleanup —
+  prepare once, pass rename effect, share split effect; preserve
+  H5 archive-reject combined guard. Plan staged below.
+  FIRED: `i2-dry-owner/81` ACTIVE on the freed slot (branch
+  `i2-dry` from `2e768ef`, full INITIAL per the plan below + H5/I2
+  combined guard; positives preserved).
+  PLAN (I2-DRY owner, fires on freed slot): single live_prepare
+  returning (iso2, line2, reg, consumed) — one live_step.prep, one
+  registration_client_iso, one consume/echo OR — consumed by BOTH
+  live_step (Client feed) and live_split_step (rename); zero
+  behavior delta (existing G1/G2/G3 pairs byte-identical); ADD H5/I2
+  combined guard (rejected history line + same-chunk NICK => no
+  rename, no import; admitted-only preserved); old assertions/LAWS
+  unchanged; native bell + H5 archive merged qual stay open.
+  UPDATE: `i2-dry-owner/81` RETURNED `b814e8e` (Buffer sole
+  mute/unread/mark wrappers): SOURCE ACCEPT scoped (order/
+  severity/default-cmp preserved) but WRONG SCOPE for the
+  original Session task. `i2-sessiondry/83` RETURNED `cb66489`
+  (OR helper harmless-positive; still TWO prep paths + split
+  registrations, no sole owner; `i2_h5_combined` fixture is
+  plain MODE/NICK/PRIVMSG without BATCH/tag/negotiation/ticket
+  and imports History not history_search — NOT the combined
+  guard). Fresh `i2-final/88` ACTIVE from `cb66489`: sole
+  preparation/admission owner (one reusable prepared/admitted
+  result consumed by BOTH feed and split once) + ACTUAL
+  H5-interceptor combined guard (rejected archived NICK vs
+  admitted live rename). Never let the renamed fixture replace
+  the original task.
+  Full privacy line beneath stays accepted.
+- C8 `c8-live2/39` LIVE (no stop; OWNER PLAN: Ws imports Links so
+  NEVER import Ws into Links — remove C8 Links duplicated OUTER
+  parser, preserve inner Markdown lexer; port per-run media verdict
+  to main Media over Ws.SRun; Submit.extract_urls->Ws.extract,
+  View.render_spans->Ws.render, Cards.targets_go on Ws.SRun +
+  Ws.url_runs; one boundaries owner; fullscreen+visibility via
+  existing visible_media_candidates + maintain_full + !is_open
+  scheduling; live bypass maintenance-only via
+  session_observe_media->M.observe; media_history cutoff negative
+  kept; no second observer. BASE: G3-base coherent C8-overlay
+  snapshot after L1, never copy the unsafe lexer whole. RECORDED 39
+  SNAPSHOT: HEAD 88e695b2e8024c371474ec623c6be969a7eceb6f,
+  dirty-diff sha256 99a5eefead929f2f45e64c8c2e74dd70ce99db4
+  bfd55de137de48274b5509970; NO wire_style.bend in 39 tree
+  (Ws overlay required). Endpoint helper + exact-lease pair
+  review next. Fresh `c8-gates/79` ACTIVE (full FINAL plan
+  INITIAL: overlay/schedule/allowed, maintain-only observe,
+  outer-lexer removal + Ws binding, endpoint split, lease pair,
+  standing gates, Q1 hold; 39 untouched). UPDATE: gate3
+  `b0b0c597` SOURCE POSITIVE (actual View/Submit/Media/Cards Ws
+  owners, 168-line outer scanner removed, no import cycle,
+  View_laws adapter preserves control-free mapping). SOURCE
+  BLOCKER routed to 79 (queued, accepted): LAWS:1000 stale
+  `Links.extract` (styled infix URL `== []`, no inner-only
+  extract) must call `Ws.extract` retaining SAME `[]`; LAWS:1006
+  stale `Links.Run` arg to `Media.media_run_hit` (now
+  `List<Ws.SRun>`) needs `Ws.SRun{0,0,False{},")",None{}}`
+  fixture + `Ws` import in LAWS. Owner/type migration only,
+  assertions + PROOF witnesses preserved, never weakened; enforced
+  with full standard proof merged. Gates 1/2/4/5 open, no full
+  claim. UPDATE: `c8-live2/39` RETURNED (clean tree `7782c75`,
+  3 commits; heavy lane RELEASED). `c8-gates/79` RETURNED
+  `07c6b9c`: gates1/2/4 SOURCE ACCEPT, gate5 policy correct
+  tests-incomplete; LAWS queue unconsumed at tip.
+  `c8-lawsmig/84` RETURNED `4f2a538` (LAWS-only Ws migration):
+  SOURCE ACCEPT (same inputs/results, PROOF unchanged).
+  `c8-gate5/85` RETURNED `b7d2b3c` (+81 tests-only, all three
+  near-misses threaded pure+CN, old tests untouched): SOURCE
+  ACCEPT. Fresh `c8-gate1close/87` ACTIVE from `b7d2b3c` for
+  gate1 physical-close -> visible unmuted admission once
+  (remains separate qualification).
+  Make-k batch DONE 02:46
+  `args_demo=ok`
+  last target, NOT all-green: 8x exit-124 reconnect-registration,
+  reconnect-preferences, deferred-frame, session-preferences-intent,
+  media-view, m20-state, split, typing; 7x exit-1 tls-native,
+  media-anchor, diagnostic-session, reader-errors, runtime-reconnect,
+  shutdown-flush, feed; SOME PROOFS FAIL x2). F1-F8 + D1-D3 + lexer
+  queues accepted, consumption unproven, all enforce at return.
+  diagnostic_session is an INHERITED master4b+fork88 defect (not
+  drift): fixture:126 a.example->A.EXAMPLE equal ports,
+  Session.endpoint_same String.eq (root:1403/fork:1427) resets chats;
+  fix = case-only chat retention + EXACT credential endpoint policy,
+  never normalize stored raw endpoint, never relax auth scope.
+  TLS 8MiB CA child exit cause UNKNOWN (tls_native:273/294; rc70 env /
+  rc71 check / signal incl alarm-2; outer exit 1, not 30s timeout;
+  ca_contents unreached; master/fork identical); next = safe decoded
+  exit/signal+elapsed diagnostics, conditional default-off per-phase
+  CA instrumentation only if SIGALRM confirmed, before perf measure.
+  Shared URL lexer faults pinned (Links SHA256:4e989d24: :379-381
+  backward-soft suffix admit, :455-461 forward truncated keep/fetch,
+  SOH/ESC-infixed prefix keep; View:249/Media:73/Cards:73 callers);
+  fix = uniform Ws.url_runs:196-199/223-228, no byte exceptions.
+  Four original gates (occlusion, mute/visibility, duplicate parser,
+  completion pairs) enforce at return. No deadline/assertion
+  weakening, no load-cause claims. HEALTH 03:34: transcript active
+  within the minute (base probes, arity suites, tls-native + keep-
+  going retries, live bash_input; 662 tools, zero terminal/fatal);
+  gates3.log 02:46 batch complete, retries under separate logs;
+  frozen UI counters are display artifacts. Bounded retries
+  preserved; checkpoint 88e695b+dirty PARTIAL (R1-R5 + pinned blobs
+  routed); 11 gates enforce at return.
+- SessWS `sessws-full/51` GHOST (transcript terminally failed 01:23:09
+  `log_error`; last tools 01:23:07 Makefile pty edits; ~46 min stale at
+  02:09 read-only probe; roster `running` stale). Four queued followups
+  (repro/paste/lease/wsnet) accepted but never consumed. Retained
+  source and registry untouched. `sessws-successor/68` RETURNED
+  `sessws-full2` @ `bd3656b` (port + 5 red/green pairs + PTY fix).
+  FINAL verdict PARTIAL: positives stand (multiline privacy, bell-seq
+  threading, primary auth scope, typing expiry, success bridge).
+  Defects UNCHANGED (required correctness): bell opt-out follows
+  focused server not event origin; global scalar IDs reused on
+  remove/add (+ constructor/exhaustion seams). G2/runtime REJECTED
+  (baseline workers + physical leases UNWIRED) despite JS/native/PTY
+  greens. Still required: same-endpoint routed auth exchange/bridge
+  pipe + held-helper ownership guards. GATE0 load-62 causal wording
+  RETRACTED (raw timings/compiles kept as data; no perf fix without
+  instrument/measure). PTY3x qualifies exact returned binary only.
+  Fresh `mss-resid` staged INITIAL (all residuals + 6 queues
+  verbatim); fires per staged order. No queue to returned 68.
+- L1: `recover-l1/37` DONE. `53/56/60/62` scoped-partials. `l1-src5`
+  `a5fe2d9` positives kept (native NODATA/NXDOMAIN/bothfail
+  `dial_dual_at`, Python UDP/TCP host probe; bothfail noTCP needs an
+  observer or a narrowed claim; sleep0.3 is not a drain fix).
+  `l1-src6/65` RETURNED branch `l1-src6` (red `15ff1b9` + green
+  `91b7057` from `a5fe2d9`): single-file Python self-tests only +
+  one `cc` refusal test, 3x consecutive green claimed, Bend edits
+  uncompiled in that lane, no native/Nix/proof. FINAL source verdict:
+  PARTIAL — scoped positives stand (pressured attach, recursive winner
+  admission :827, honorDrop :805, pre-Dial prefix cleared :658 /
+  post-Dial FIFO preserved, sequential native/TLS/affine ownership);
+  P2 zero-exhaustion still accepted end-to-end; native actual
+  Drop/third/FIFO + candidate-inflight queued-Dial proof + timed
+  release :1073 + REF-A drain + REF-B observer all still open (shapes /
+  selftest-3x alone do not qualify). Successor `l1-src7/70` RUNNING.
+  CHECKPOINT 5cfe133: GateN scoped source-POSITIVE (done+join then
+  nonblocking-drain into SAME seen list :759-772/:864-877; 17th
+  datagram raises :40-58 with exact suffix; guards :1584-1627) +
+  zero stage6/4 suppression positive; no new >=P2 defect. Still
+  required: paired verdict guard (expected-query passes vs extra-A
+  post-exit drain rejects); GateT native actuals (held fixture still
+  original SHA071243a...); REF-B observer; Q5 held.
+  FINAL: `l1-src7/70` RETURNED `c145ef4` (8 commits; Z fail-closed +
+  held flags honored; N native incl first-ever admit compile, held
+  token, loopback drain, t0 pre-probe, honeypot+ narrowed claim).
+  PARTIAL: P2 honeypot stop-race open (:871-879/:898 no post-stop
+  accept drain => :920 false-pass; needs bounded accept-to-EAGAIN +
+  paired paused-hit-rejects vs empty-passes); native Drop-after-
+  winner/third-Dial/FIFO modes absent (model/shape/compile
+  insufficient); Q5 held. Residual owner `l1-resid` staged INITIAL
+  (P2 + UDP verdict pair + native event/race/Drop/3rd/FIFO + Q5),
+  fires on next freed slot.
+  FINAL 6c7e742: structure ACCEPT (P2 drain, UDP verdicts, Drop/FIFO
+  writer_loop+EOF, third staging, FIFO reading matches actor).
+  Normal-turn EOF top-up (branch l1-eof): red ec3e948 + green
+  312b858 (shared collect_to_eof owner in both winner peers,
+  check_no_late_duplicate verdict, hermetic socketpair pair,
+  default-off BIRC_DIAL_TRACE setup-start seam in
+  writer_admit_begin, inflight marker gating; self-tests green).
+  Native build + inflight/third mode proof PENDING one-heavy-lane
+  (39 final-gates job active 04:34-04:44+; no second heavy job).
+  Harness fault at 312b858 (gen2 breaks exact check) FIXED: red
+  c194094 + green 42b4f31 (LineTap single-owner byte collector,
+  order-free expected multisets, unexpected fail; FFI
+  native-setup-started seam at connect() issue replaces the Bend
+  intent marker; phase correlation documented; self-tests green).
+  Native proof still pending lane (39 job active 04:54).
+  FINAL REVIEW `42b4f31`: SOURCE POSITIVES stand (genuine connect()
+  marker, no EINTR/endpoint/credential leak; Bend intent marker
+  removed; single-byte LineTap multisets/EOF handles coalesced
+  buffer + unexpected + missing; EOF accepted). CONCRETE MUST-FIX:
+  `dns_ffi:156` `write(STDOUT_FILENO)` has no nonblocking/budget
+  check — a full inherited blocking pipe parks serial IO
+  indefinitely BEFORE the deadline `:160` is assigned (atomic short
+  write != bounded). Require an owned nonblocking marker sink with
+  refusal of unbounded sinks: never mutate inherited FD flags, no
+  hidden thread blocking; trace stays default-off and connect
+  runtime deadlines unchanged; pair owned-full-blocking-pipe +
+  `BIRC_DIAL_TRACE` (no setup/cleanup stall) vs drained owned-
+  nonblock pipe (exactly one marker) vs unset (none); the harness
+  owns a configured nonblocking write pipe; failing trace
+  observability must not widen runtime. DO NOT run native on the
+  known blocking trace without the fix. QUALIFICATION TOP-UP:
+  selftests `:2848-2859` feed one 4-event expectation, not the
+  actual TWO-PHASE release — add direct phase1 (queued +
+  native-marker in both orders/coalesced => release only then) and
+  phase2 (recursive native + final => EOF); missing/wrong/
+  unexpected phase1 must never release. Preserve EOF accepted,
+  native deadlines, Q5. IMPLEMENTED normal-turn (branch
+  `l1-tracefix`, Muse writes, no new subagent): red `3a82e1d` +
+  green `66ea738` (owned nonblocking sink `dial_trace_emit`:
+  `BIRC_DIAL_TRACE` arms, `BIRC_DIAL_TRACE_FD` names the harness
+  pre-fork nonblocking FIFO; stdio/unparsable/non-FIFO/blocking
+  refused, inherited flags never mutated, all errors drop the
+  marker; mode rewired to two taps via `wait_for_two` + `pass_fds`;
+  two-phase hermetic top-up; async-signal-safe stall-phase
+  postmortem, alarm budget unchanged). Verified light: full python
+  selftests green incl `line-tap-phases`, `dial_trace=ok` via nix
+  cc strict flags. EXACT-GATE follow-up (same branch): red
+  `49086ce` (buffered duplicates release) + green `58f9351`
+  (`wait_for_two` rejects already-buffered extras; sequential
+  writer-thread positives, prequeue shape removed) + `9c1d15a`
+  (selftest intent fix). Full selftest exit 0. FINAL SOURCE
+  ACCEPT `9c1d15a`: phase1 buffered-extra rejects before release,
+  positives emit phase2 only after gate, native harness uses the
+  same predicate; marker/actor/deadlines/Q5 unchanged. SIGPIPE
+  provenance pinned (Bend comp.ts IGN, C adds no global change).
+  HEAD `9c1d15a`, tree clean. Native inflight/third proof
+  SCHEDULED (heavy lane FREE 05:46; re-verify no worker heavy job
+  at start; never trust roster alone).
+  Never transplant branch DNS (main `aba2f98` `dial_dual_at` only).
+- Theme: `be51b7a` bindings stand; `r9-guards/64` returned `b753f97`
+  tests-only (25/25, red-by-mutation, held hunks untouched) — loaded-path
+  SCOPED ACCEPT (`L.loaded` then actual Session paint; wrong-ticket +
+  untouched-storedLight positives; existing negative is the inverse
+  polarity; formatting half is old-branch characterization, not
+  merged-G3 qualification). `theme-guards2/67` RETURNED `47d885f`
+  tests-only (+11 lines): Gate1 exactDark DONE (scoped positive,
+  28/28, red-by-mutation with uniqueness proof); Gate2 merged
+  Ws.render fixture BLOCKED (path absent on branch — wire_style.bend
+  missing; present on lane3-wire-style/g3-traversal/repair-g3),
+  correctly stopped per discipline. Shared-G3 integration still open.
+- G3 traversal honest-reconnect fix green (`g3_traversal=ok`); shared
+  integration HELD.
+- WHOLE-TREE FINDING W1 (native OSC8 identity; header blob
+  77a47c08da64490124230c418549fb98b84ce674): timui_hyperlink_set
+  (timui.h:17658) validates length only; emit_osc_string_sanitized
+  (:17931) drops C1. Live `https://e.test/a<U+009F>b` survives
+  Fr/Irc/Ws/Links (take_raw only stops <=32), native stored/click
+  target stays original, but the emitted terminal hyperlink becomes
+  `https://e.test/ab` (silent rewrite). REQUIRE: decline unsafe/
+  malformed URIs at ONE shared native admission owner; NEVER rewrite
+  an admitted target. Pair: actual-C1 URI rejected/no-OSC8 vs
+  percent-encoded equivalent + ordinary max-size exact-URL positive.
+  IMPLEMENTED (main-turn scoped edit, branch w1-osc8): red 4c13477
+  (C1 admitted, exit 1) + green 1ad68de (timui_uri_admitted owner in
+  timui.h; ui_review_native=ok exit 0, single-file cc, -Wall -Wextra
+  -Werror). FOLLOWUP malformed-UTF8: red cb1ebf0 (raw 0xFF admitted)
+  + green 0ed316f (reject U+FFFD-with-adv!=3 per documented decoder
+  distinction; literal EF BF BD + percent positives exact; C1/length
+  guards + old assertions preserved; ui_review_native=ok exit 0).
+  FINAL source gate ACCEPT (no concrete failure). Coverage 59f7fd8:
+  ED A0 80 / F4 90 80 80 / terminal E2 82 / 3-4-byte overlong /
+  C0/DEL negatives + link_count==0 no-allocation pin, all green,
+  old assertions preserved. No full qual claimed.
+  Root staged G3 + live worker sources untouched; no push.
+- WHOLE-TREE FINDING W2 (G3 visible search; Client blob
+  5842e49aa83c2b9d018fcf11f0d77acc07ad6384): staged
+  Client.search_text_matches:905 fuzzy-matches rawLine.text while
+  mIRC color digits now survive in source — framed PRIVMSG with
+  `<color>04hello` then `/search 04` matches a visually digit-free
+  row. HistSearch.match_text delegates the same owner. REQUIRE:
+  normalize ONLY the shared haystack via the existing Ws owner; keep
+  stored rows and results raw-styled. Pair: style-only-04 no-hit vs
+  literal-04 hit + hello styled-traversal hit. IMPLEMENTED inline
+  (branch w2w3-g3, snapshot base 9f2b55d): red afd12a3
+  (style04_only_literal got styled hit, exit 1) + green 3503bde
+  (search_text_matches haystack via Ws.rendered_text(Ws.render);
+  Hs.match_text delegates same owner; stored/results raw;
+  search_demo=ok exit 0, all old assertions pass). No push.
+  W1 PATH CONFIRMED: Ws.wire_drop:140 only <32/127, catchall retains
+  U+009F, Links.take_raw:50 only <=32, View.render_run.url:235 exact
+  to FFI; ui_review_native:80 exact_links is the ready native OSC8
+  seam (fold into W1 owner INITIAL).
+- WHOLE-TREE FINDING W3 (G3 contract/path mismatch — verified, not an
+  RFC acceptance requirement): staged Irc:369-375 says framed style
+  bytes normalize at EVERY identity/policy comparison via proto_atom;
+  new wire_style test:189 requires Feed `:s 001 <STX>bob :welcome`
+  to assign bob. Actual Session.registration_client:40-44 instead
+  tests raw msg_param and REJECTS the same framed first welcome
+  before Feed/Auth/JoinPlan. REQUIRE: framed actual-Session
+  traversal negative (wrong/forged source) + positive normalized
+  styled valid first welcome + ordinary valid; reuse EXISTING
+  shared Irc.proto_atom normalization; no new parser, no relaxed
+  trust. Preserve raw-style source/result lines. Styled CAP
+  comparisons have no direct positive-policy guard — retain as
+  AUDIT EVIDENCE ONLY, not a fourth finding. IMPLEMENTED inline
+  (branch w2w3-g3): red 1c3a1a6 (styled welcome rejected, exit 1)
+  + green 854a1d3 (nick via Irc.proto_atom at Session:40;
+  wire_style=ok exit 0, old assertions pass) + combined coverage
+  578ab72 (Fr->Session->Submit: hidden-04 no-hit / literal-04 hit
+  + raw result; styled+ordinary welcome adopt + JOIN release;
+  forged/malformed/conflicting quiet; g3_traversal=ok exit 0).
+  FOLLOWUP SOH overwrite: red 614c681 (N001 stored raw b\x01ob,
+  exit 1) + green 643b4d0 (N001 identity via proto_atom at
+  client.bend:666, welcome body stays raw; SOH canonical +
+  color adopt/JOIN positives; g3_traversal=ok exit 0).
+  Q1 hunks untouched (base only, not promoted). No push.
+- WHOLE-TREE REVIEW COMPLETE (fresh cleared context; read-only, no
+  tests/jobs/writes/network): W1 pre-existing native OSC8 exact-URI
+  rewrite P2, W2 hidden color search P3, W3 explicit G3
+  normalization-contract Session registration mismatch — all
+  VERIFIED, all staged INITIALs assigned. No fourth CAP finding; no
+  new concrete duplication/performance claim. FINAL SOURCE PINS:
+  root 4b4cbef; header 77a47c08da64490124230c418549fb98b84ce674;
+  ui_review_native 8b88056be0bd82808d15b7a017dae6529c65467d;
+  staged Client 5842e49aa83c2b9d018fcf11f0d77acc07ad6384; Session
+  54012a4b711105f44d79ebe5feacce182e5f077d; staged wire_style_test
+  5ea03cf8e69971040531b6cc7e2271b352e0bf6b; Fr
+  67659036b93f748704545b6555c760ef2c0234d0. COVERAGE: root G3 /
+  protocol / auth / submit / search / history / startup / DNS-TLS /
+  UI / media-upload-keychain-prefs / package representative seams.
+  GAPS (explicit): NOT every vendored header line; NOT a complete
+  six-candidate runtime trace. Full implementation + final gates
+  continue.
+- HOLDS [SUPERSEDED 2026-10-04 ~09:15 — Q1-Q5 user-approved to exact questions, not blanket; see appended entry]: Q1 four G3 legacy fixtures; Q2 H5 fifth timestamp + `/history`
+  catalog; Q3 theme `m20_state` K02 + `session_preferences_intent`; Q4 N9
+  six `notify_full` expectations (`busy` false->true reset:618/off:634/
+  cancel:665; `comp_rel` false->true reset:630/off:646/cancel:673; :632
+  after-exact-release busy-false stays; pending/marks/disabled/
+  unrelated-wrong-completion preserved; no silent alteration, no compat
+  shim; coherent hunks held at integration); Q5 L1 net_trace valid-
+  ordering fixture migration to explicit carried nonzero IDs
+  (reader/raced/parked/late :674-723, synth :635, etc.;
+  ordering/timing/QUIT expectations unchanged; pong_gen process-
+  exit/stale-count zeros unchanged; separate zero/exhausted negative
+  proceeds). HELD FROM INTEGRATION (Q3/Q4 coherent hunks exist in
+  worker commits; held means unmerged/unpromoted, not source-erased).
+  Raw timings kept; pool-load and trace/coalescing causal claims stay
+  RETRACTED (see above). N9 build 1200-timeout factual cause UNKNOWN
+  (manual-3600 unauthorized, retracted). L1 6c7e742 tests-only return
+  under independent review.
+- Crypto scope: NO BLAKE/BLAKE2 source anywhere (grep-verified); standard
+  TLS only, no new crypto.
+- FINAL (all open, proof budget 600 approved): exact command
+  `make check PROOF_TIMEOUT=600` (single invocation, never split);
+  then merged native, exact-final PTY 3x, default `nix build
+  --no-update-lock-file`, installed checks, hot-cache. Fixed gate
+  semantics required (never trust wrapper exit/GREEN alone).
+- Qualification limits: worker-reported greens are claims until parent
+  or independent review; pure-fixture suites do not qualify runtime or
+  native paths where native qualification is stated. Slot pool 5/8 at 06:15 (active 82 N9-final, 86 MSS-full5, 88
+  I2-final DONE, 92 v6probe-impl, 93 theme-gate2, 94 integration,
+  95 h5combo-interceptor; 91 DIED on redirect, no usable work;
+  ghosts 51/58 REAPED 05:46; V6 external returned-stale).
+  RETURNED with receipts: 39 c8-live2 `7782c75`, 77 n9-bind3
+  `7870db5`, 79 c8-gates `07c6b9c`, 80 sessws-full4 `52a7e0a`,
+  81 i2-dry `b814e8e`, 83 i2-sessiondry `cb66489`, 84 c8-lawsmig
+  `4f2a538`, 85 c8-gate5 `b7d2b3c`, 87 C8-gate1close `31b49c6`
+  (pure Session key-close only), 88 I2-final `0fc812f`
+  (prep+registration ACCEPT; H5-combined NOT DONE), 89
+  L1-nativequal (inflight/third markers only; full suite FAIL),
+  90 H5-wrapqual `c4794f5`.
+  Durable current: ACCEPTED SOURCES L1 `9c1d15a` Final exact gate
+  (ONLY inflight+third PASS by markers; full-main FAIL at :3320
+  (False,True) docketed; tail-pipe exit-0 RETRACTED), H5 `8f493f4`
+  FINAL cutoff + `c4794f5` wrapper + `9c152b2` (live-post guards
+  ONLY, NOT history_runtime restore — corrected per review),
+  R4 `7870db5` (abs backend; Linux closure pending), C8 `07c6b9c` +
+  `4f2a538` + `b7d2b3c` + `31b49c6` + `ca0d92b` docs rename (native
+  key qual stays PTY), I2 `b814e8e` scoped + `0fc812f` prep ACCEPT,
+  MSS `9899bb1` DM-rollback ACCEPT (G1 rename-before-ceiling
+  residual sent to 86; G3 physical JOIN gates remain), theme
+  `47d885f` Gate1 exact-dark ONLY (Gate2 shared Ws.render NOT in
+  47d885f; modal pin NOT authority — corrected per review).
+  G1 RESTORE `88346d0` FINAL SOURCE ACCEPT (preserved pin):
+  synthetic ownership -> production Hs.disk_file_admitted ->
+  real Hs.search_opened -> exact DiskFailed; real owned-private
+  positive + all old asserts intact; no native foreign-UID claim. V6 `322eae1` SOURCE ACCEPT (thin bind/FD ABI);
+  native full-run FIRST-HAND: `timeout 120 python3
+  tests/ipv6_transport.py ./build/ipv6_transport_native openssl`
+  on 322eae1 binary (897608B 06:25) → 32 =ok incl bind6neg/v6udp/
+  bind6inuse/inflight/third/tls6 family, `bind6=supported`, final
+  `ipv6_transport_native=ok` last line, no traceback, log
+  /tmp/l1_fullmain_322.log (3 FAIL-substring lines are benign
+  dualdnsbothfail names); exact exit rerun scheduled after lane
+  transfer 06:41:25 (prior echo typo, no rerun under contention).
+  MSS `9642b20` scoped NEW PHYSICAL FIXTURES ACCEPT
+  (multiserver SASL/NickServ); residual/runtime open (96
+  NICK+stale light, 97 baseline-IO heavy). Gate2 `9a952a3`
+  REVIEWED (not accepted): theme_ws_render=ok via nix make
+  first-hand; wire_style port byte-verbatim (blob 82c9a066);
+  diagnostic_session fails IDENTICALLY base-vs-HEAD (exit 1,
+  same-endpoint-keeps-chats got/want); ascii no-main identical
+  by file identity; caveat: 93's 30-suite list ran ambient
+  bend/bun, nix-driver confirmation pending (theme HELD Q3).
+  HELD (excluded): Q1-Q5 holdings (incl Q2 hunks + Q3 selectable
+  lifecycle), e7635e7 keeps-newest drop policy (R4 backend-only
+  acceptance). 625-blanket REMOVED (QA/QB guards accepted).
+  Integration `398f4bc` + `e26a7d9` UNPROMOTED (shim, not
+  exclusion); 94 rebuilding NON-THEME-ONLY branch (theme held
+  Q3 branch, never merged). 82 AUDIT 06:44: proof terminal
+  (bound expired); package retry exec-7831 TERMINAL 06:41:26:
+  `make: *** [build-package] Error 124` (timeout-900 kill;
+  nix interrupted, no out-link). No 'healthy' claim — exact
+  terminal evidence decides it. Pending status: bounded
+  sleep-280 (06:40:43 to ~06:45:23); one unprocessed terminal;
+  three steers undispatched (user_steer 0); roster
+  running-fresh. NOT stalled; no cancellation, no worktree
+  mutation; dirty source + untracked file preserved for 82's
+  own checkpoint. LANE TOKEN: 82 -> 97 transferred 06:44 on
+  terminal receipt, BUT 82 started UNCLAIMED package build
+  06:45:57 with inflated --option timeout 3600 (Makefile bound
+  900; forbidden). 97 HOLDING native until all-clear; 82
+  STOP+checkpoint+short-waits ordered (4th steer; prior 3
+  undispatched). No force yet; 82 yield expires ~06:51.
+  21bb150 spot: i2_h5_combined=ok + history_runtime=ok exit 0
+  first-hand (wire reviewer assigned; Q2 excluded). 322 exit:
+  rerun TERMINATED per no-concurrent-rerun order; exact exit
+  still open, scheduled for a quiet window. Integration:
+  94 CANCELLED 06:53 (merged C8 atop rejected Theme 06:46 +
+  a7b5d28 'theme+cf' after 3 queued STOPs; tree clean at
+  cancel). 398/e26/8dd/476/a7b5d28 PINNED EVIDENCE ONLY.
+  Fresh 99 non-theme from 4b4cbef with complete exclusions +
+  held/theme-q3 ref. 82 REMNANT: stuck sh3538/nix3556 (13min,
+  0 CPU, childless, no build dirs/locks) reaped via exact-PID
+  SIGTERM 07:00, both gone; lane verified clear (fields-only
+  evidence, no command lines). Combo `7b427ee` Final scoped
+  SOURCE ACCEPT (preserved pin): ACK->Enter->shared guards;
+  IDs/checkpoint/quiet/driver intact; no new defect; laws
+  unchanged; first-hand greens + neg are execution evidence.
+  Q2 HELD (explicit, test hunks — original values preserved
+  unless user approves): (1) tests/bend/history_search.bend
+  cmd_around_stamp_prefixed — root 4b4cbef:291-292 uses
+  timestamp=2026-10-03T10:00:00Z in/out; combo 7b427ee:305-306
+  uses .000Z fifth millis form in/out; (2)
+  tests/bend/m20_state.bend:162 K02 — root lacks /history
+  (.../search|/preview/...); combo inserts /history after
+  /search. Round 2 must carry root's values, not combo's.
+  Feed: 99 NOT disturbed mid-run — combo queued for round 2.
+  Lane reap receipt SUFFICIENT. 97 wsnet (+627/-165)
+  confirmed actual implementation; no split.
+  MSS de0edc7 scoped ACCEPT
+  (rollback verified s1s5=ok first-hand); stale-auth NOT
+  qualified, minimal repair to fresh 101 (PTY gated on lane).
+  97 CHECKPOINT 07:03: HEALTHY implementation, no split
+  (wsnet +627/-165 actual source). 07:2x: still editing
+  (wsnet.bend only dirty file, no commit yet); built nothing
+  07:11-15, so 100's native runs overlapped nothing heavy.
+  Provisional review gap RELAYED (queued) but 97 CANCELLED
+  on 60m bound (spawn 06:32:23, applied ~07:37) with steers
+  undelivered. 97 had self-reverted +627 WIP to +122 lean
+  fallback at 07:27 (saving full to /tmp/wsnet_full_io.bend):
+  RESCUED verbatim as ca725d1 on wip97-rescue (unreviewed,
+  not accepted, consult-only). 106 checkpointed current as
+  381db93 and owns all four gates + cards/notifications +
+  heavy lane from retained progress. Lean fallback NOT
+  promoted as completed IO.
+  N9 Final: R2 WIP ACCEPT (7870db5 +
+  dirty; LC65/cap16k/import/dedup/live9/JOIN-shift ok; Net
+  dispatch unqualified); R1 NOT qualified (sleep6 vs 2s,
+  completion discarded, manual FIFO) with ACK+latch repair
+  spec SENT to 82 (5th steer); checkpoint before promotion;
+  Q4 held. OPEN: N9 R1 repair (100, from 82 checkpoint; 82
+  cancelled), theme Gate2 `9788b05` REVIEW-ASSIGNED (framed
+  paint/raw equality/held revert/wiring; verific. DONE:
+  theme_ws_render=ok + feed_demo=ok incl held hostile, nix
+  driver, exit 0; Ws reuse accepted, bg inherited, Q3 held,
+  branch kept candidate), integration non-theme (99), MSS baseline-IO
+  (97, token), MSS stale repair (101, PTY gated on lane).
+  DONE this round: 95 combo (7b427ee ACCEPT), 96 NICK
+  (de0edc7 scoped ACCEPT), 98 resid (9788b05 PARTIAL: framed
+  paint/raw-equality/held-revert/wiring fixed; render_spans
+  Ws->Links switch is the residual; 102 correcting), 99
+  integration (5d297da: C8x4+L1x2 green first-hand
+  cards_live/ipv6_transport =ok; zero-theme verified vs
+  clean root; held/theme-q3 created).
+  99 STOPs SUBSTANTIATED (content, not ancestry) BUT per
+  scope clarification: NO branch veto — accepted tips stand;
+  holds are specific bits for extraction: (a) e7635e7
+  27/27 lines live at 7870db5 — ADJUDICATED: unsafe 64-cap
+  keeps-newest drop REMAINS REJECTED; R4 acceptance =
+  absolute backend/launcher/package ONLY. R4 path: extract
+  scoped backend hunks OR integrate 100's R1 result (R2 WIP
+  replacement); no wholesale revert. (b) 625f7df 76/76
+  wire2 H/I lines live at 8f — ADJUDICATED: QA/QB guards
+  ACCEPTED within H5 (no old expectation changed); stale
+  HELD625 label REMOVED (Q2 hunks stay held). (c) `5d297da`
+  Final scoped SOURCE ACCEPT (C8/L1 subset: no merge defect,
+  Pong keeps boxed media/cards/fullscreen, no selectable
+  theme, Q5 zero-ID intact, PONG corrections, laws
+  additions-only). Omissions: iso/HistLive, undrained Net
+  step, R4 helper/closure. Union owner 103 real-merging
+  7b427ee in (no adapter bypass; R4 separable; Q1-Q5
+  precise holds; K02 conflict = STOP+report).
+  Theme: 'zero Theme' RETRACTED — 5d297da has shared
+  palette helper (theme.bend UNCHANGED root->5d, values
+  intact, no duplicates) + unused adapters; verified NO
+  selectable lifecycle (command/completion/settings/intent/
+  persistence lines identical to root). Hold = selectable
+  lifecycle only.
+  Final sequence: `make check PROOF_TIMEOUT=600`, then merged
+  native, exact-final PTY 3x, default `nix build
+  --no-update-lock-file`, installed helpers, hot-cache. No
+  independent proof kernel. No full source or qualification claims
+  beyond the scoped verdicts above.
+  NATIVE EVIDENCE (L1 `9c1d15a`, worktree `l1-nativequal`, binary
+  `build/ipv6_transport_native` 896408B 2026-10-04 05:56+0900 via
+  `make test-ipv6-transport` = `timeout 300 bend
+  tests/bend/ipv6_transport_native.bend -o ...` unmodified):
+  FULL-MAIN FAIL: `nix develop --no-update-lock-file --command sh
+  -c 'timeout 120 python3 tests/ipv6_transport.py
+  ./build/ipv6_transport_native openssl'` printed `literal=ok`,
+  `bind6=unsupported`, then `AssertionError` at
+  `tests/ipv6_transport.py:3320 assert cand_v6 == host_v6` with
+  `(False, True)`; suite exit nonzero. SCOPED PASS: `nix develop
+  ... --command sh -c 'set -o pipefail; timeout 120 python3
+  /tmp/l1_modes_verify.py'` (scratch driver calling the suite's
+  own `mode_dialsupersedeinflight` + `mode_dialsupersedethird`)
+  printed `dialsupersedeinflight=ok`, `dialsupersedethird=ok`,
+  driver exit 0. REVIEW FINDING: fixture `mode_bind6probe:489-492`
+  and v6udp `:555` call IPv4-only `Base UDP.bind` (pinned Bend
+  `effs/udp_bind.c:5-13` AF_INET, `comp.ts:5488-5499`
+  inet_pton(AF_INET)); host AF_INET6 True is valid; existing birc
+  IPv6 DNS send/recv FFI does not replace Base bind. FIX (92):
+  smallest owned IPv6 bind seam for both probes; negatives
+  invalid-address/no-leaked-FD, positive ::1 byte exchange with
+  exact peer addr/port+close, numeric diagnostics; assertion
+  intact; no pin/runtime change.
+  398 AUDIT (final): `398f4bc` includes HELD Q3 entire theme
+  implementation/plumbing + K02 /theme + settings-intent 9->10
+  (must exclude coherently); Q2/Q4/Q5 held legacy changes ABSENT
+  (clean); no other old assertions changed (clean); LAWS/PROOF
+  identical to root `4b4cbef` (clean). Promotion requires ONLY a
+  corrected candidate excluding Q3. Integration worktree HEAD now
+  `4b` (`398f4bc` retained as pinned evidence); old source commits
+  retained; corrected branch/commits must be safe explicit new
+  writes, no broad destructive commands. I2 `0fc812f` PARTIAL:
+  prep+registration ACCEPT (once per line); complete
+  auth/credential consumed decision still repeated (no observed
+  divergence); H5-combined interceptor MISSING (owner 95).
+  OWNERS: 93 theme-Gate2 shared Ws.render, 94 integration
+  corrected-branch, 95 H5-combined interceptor. MSS GAP:
+  rejected-NICK must preserve pane/query/IDs (Session:2482
+  rename-before-ceiling; fitting NICK renames both once via
+  ADMITTED owner) sent to live 86, consumption required before
+  return; G3 physical JOIN gates remain.
+  ad9c1d2 VERDICTS (g1 restore, review-pending): POSITIVE `nix
+  develop --no-update-lock-file --command sh -c 'set -o pipefail;
+  timeout 180 bend tests/bend/history_runtime.bend -o
+  build/history_runtime.js && sh scripts/check-golden.sh
+  history_runtime=ok timeout 30 bun build/history_runtime.js'` →
+  `history_runtime=ok`, exit 0. NEGATIVE (flipped
+  g1_fd_foreign_refused expectation, 1 line) →
+  `g1_fd_foreign_refused got=[fail:history search refused: file
+  not admitted] want=[WRONG:...]`, exit 1, no marker. File
+  restored byte-identical before commit. CHECKPOINT `ad9c1d2` on
+  `h5-fdrestore` over `9c152b2`, tests-only +22/-5 one file, tree
+  clean, never pushed.
+  N9 36499fd NEW-NEGATIVE flaw (preliminary independent review,
+  newly introduced task test correction, NOT Q4): run_unreleased
+  reused h after run_released created h.release; fake never
+  consumes latch (Makefile poll `[ ! -e $rel ]`, 18x0.05s) so
+  worker3 sees stale release -> done, not expired. No File.remove
+  effect exists -> fix = fresh exact owned helper h2=h++"-unrel"
+  (recipe cp sibling, same mktemp/trap) + bare held_unrel_expired
+  (h2.log worker3-only); states/deadline preserved, no JS-typecheck
+  green claim. Fix applied in n9-r1-guards (uncommitted);
+  `make test-notify-held-blocked` native verification RUNNING;
+  reviewer finishes pinned verdict.
+  103 union b1822bf RETURNED clean (merge 5d297da+7b427ee);
+  merged-owner source review underway. Precise integration
+  correction 3bd8368 on integration-union: K02 expectation literal
+  restored to root/5d value (drop /history between /search and
+  /preview; combo side had inserted it). Production
+  slash_command_list untouched (cmd_around_stamp_prefixed keeps
+  bare-seconds per root Q2 check). Known held-test conflict
+  reported in commit; old K02 assertion remains held, no
+  completion shim, merge continues.
+  HEAVY-LANE HONESTY (recorded, not non-overlap): root read-only
+  lsof at 07:41:54 showed TWO concurrent clangs: pid 2329 cwd
+  n9-r1-guards (outer timeout pid 1607 = my N9 held-blocked
+  rerun) and pid 95296 cwd retained baseline106 (outer timeout
+  pid 95177 = 106 heavy work). I created this overlap by
+  launching the N9 native rerun while 106 held the heavy lane.
+  Rule from now on: ONE heavyweight compiler/Nix/native lane
+  (106 owns it); source/JS/small-FFI stay parallel. The bounded
+  N9 rerun (needed for the final N9 hash) concludes as-is; no
+  further heavy commands from me until 106 releases; no broad
+  kill. N9 fix preliminary SOURCE-CORRECT per reviewer (h
+  worker2, h2 worker3, start+expired/no-done, diagnostic-first);
+  SOURCE ACCEPT FINAL pins Makefile cb32522 + fixture 44c6a627
+  (dirty on 36499fd): VERIFIED exact match to worktree blobs
+  (cb32522ea1.../44c6a62783...); tree stays dirty as pinned,
+  no commit. EXACT NATIVE EXIT (bounded `make
+  test-notify-held-blocked`, timeouts 300/300/90, full log
+  /tmp/n9_held_rerun.log): make exit 2; golden inner exit 1;
+  `held unreleased logs expired, no done got=[] want=[start --
+  bob.../expired -- bob...]`. Diagnostic-first x2 PASSED but
+  SPURIOUSLY via "unknown helper" UiError path. ROOT CAUSE
+  (production gate, not test): notify_io.bend args_for.send
+  (L78-79) requires basename exactly notify-send/birc-notify/
+  osascript; h2 basename `notify-send-unrel` -> args Nil ->
+  send.run Nil arm (L87-89) never spawns -> h2.log empty.
+  Runtime verdict RED with diagnosed cause; narrow namespace
+  source accept WITHDRAWN as qualification (never exercises
+  helper). CORRECTED without new authority: 6a795ed on
+  n9-r1-guards (Makefile e716abe, fixture 4c9da06, tree clean):
+  recipe mkdir+cp \$d/unreleased/notify-send (same
+  basename/trap), test reads exact path via IO.get_env
+  BIRC_NOTIFY_HELPER_UNREL, h2 threaded deliver->run_held->
+  run_spawned->run_released->run_unreleased. Production
+  known_helper untouched, Q4 untouched, guards preserved.
+  Static consistency verified (no builds: 106 holds heavy
+  lane); native proof PENDING, commit notes truthful red.
+  Union 3bd8368 NEW C8/I2 defect (precise, not veto): Session
+  ~2789 visible_candidates_cards omits negotiated cm; Cards
+  ~610 default-RFC anchored_lines_media_cards vs Net ~166
+  *_cards_cm with Session cm (ascii + muted a{b repro).
+  Fresh orthogonal repair agent SPAWNED (isolated tree,
+  base integration-union@3bd8368): narrow no-hidden-enqueue
+  + widened exact-enqueue tests, cm-aware painted owner
+  reuse, Media-path audit, assertions preserved, no
+  secondary owner, NO heavy commands (106 owns lane).
+  Hold-heavy steers QUEUED to 104/105 (103 returned); 105
+  steer REJECTED-terminal: 105 RETURNED 73440cc (theme-ws-only,
+  Gate2 Ws-only single render owner, +39/-46, view.bend only,
+  held hostile conflict) — pending review, root untouched.
+  106 reviewer source guidance RELAYED (queued): ca725
+  planning-only; worker envelope on spawn; physical lease first
+  then PRESENT same-epoch Part, never ws_part fallback focused;
+  removed origin retires lease only; boxed global lease bundle
+  in WsLoop one-helper/type; routed-Main sole pref receiver;
+  firstpaint->settings->archive->oneBegin via
+  Act.deferred_start_tls+LC; session_upload_key/present;
+  bind actual card+notify IO (painted visibility, per-ID
+  exclusions, event order); no 2nd protocol/runtime; 5
+  named tests. Union final 3bd: only cards-cm residual
+  (107 owns); C8cf/media+I2soleprep+H5beforeprep+Netdrained
+  + exact Q2 values preserved.
+  Theme 73440cc FINAL scoped SOURCE ACCEPT (independent):
+  all compat Links helpers/calls gone; live/unthemed/themed
+  paint render_spans -> accepted Ws blob 82c9a066; framed
+  bold/red Dark/Light/Mono + raw stored/history equality
+  intact, no raw-row injection; only View/new theme guard
+  changed, no held-assertion rewrite. Q1/Q3 old
+  expectation/lifecycle holds REMAIN; no runtime/integration
+  verdict. Source correction proceeds normally.
+  N9 6a795ed (d/unreleased explicit-env fresh namespace)
+  seen by root; narrow re-review underway, source-only until
+  106 releases lane. Same owner preserved; helper basename
+  allowlist NOT expanded.
+  104 RETURNED 36158a2 on mss-stale-correct (parent de0edc7;
+  blocked 52dccb9 untouched): 2 test files, zero src changes,
+  NORMAL shutdown-on-Dial preserved (actor Dial still
+  shutdown+close; old reader_run retires via EOF, no retained
+  FD/TLS); heavy proof awaiting lane-free, root untouched.
+  FULL FINAL candidate still needs: all accepted source
+  integration + make check PROOF_TIMEOUT=600 + native + PTY3
+  + default Nix + installed + hot cache.
+  107 RETURNED 8c4e866 on repair-union-cards-cm (parent
+  3bd8368 verified; +83/-4, 3 files; root untouched).
+  First-hand: session_observe_visible_cards.gated gains +cm
+  (binds +iso, Isupport.casemapping(iso)) -> new
+  C.visible_candidates_cards_cm family over
+  V.anchored_lines_media_cards_cm (same anchored owner Net
+  paint uses; cards.bend pure addition, default-RFC defs
+  untouched, no secondary owner); cards_live +32 with ascii
+  muted a{b fixtures: narrow rows=6 candidates empty +
+  schedules 0 + pins default-RFC leak "1", wide rows=24
+  exact painted URL + schedules 1. K02/m20 untouched.
+  Media audit: split ABSENT (live media already _cm), no
+  fix. Tests authored-but-NOT-run, no heavy commands
+  (both holds complied). Queued for review + lane-release
+  verification. ACTIVE: 106 only.
+  GATE 1 (MSS 36158a2 FINAL): shutdown-on-Dial preserved +
+  NICK unchanged GOOD; stale physical qualification STILL
+  ABSENT (PTY PING ACK before /connect+903send, no captured
+  admission ACK; EOF closure-only; pipe-zero uncoupled;
+  Bend manual stamp, no Actor capture). Successor 108
+  SPAWNED (base mss-stale-correct@36158a2): actor-stamped
+  callback held testqueue, admission ACK then physical zero
+  before current success, one-frame EOF JOIN positive
+  preserved; no new production lifetime/native framework;
+  source-only, tests authored-not-run.
+  GATE 2 (106 WIP 07:50 header): 'Cards single-server...
+  no cards modules... UiError notifications' REJECTED as
+  lean fallback (old 964/681 base absence authorizes no
+  omission). Dependency steer QUEUED to 106: integrate
+  accepted union 3bd/8c4 + N9 owners, reuse ACTUAL
+  Cards/Notify IO (visible admission, per-ID excludes),
+  no error-as-notification classification; full scope
+  required. Fallback if unconsumed: source-only
+  successor/dependency integration (no new authority).
+  Union cards 8c4e866 FINAL functional SOURCE ACCEPT
+  (independent): actual Session passes negotiated cm into
+  same shared paint-row owner; new actual-Session guards
+  narrow queue0 / wide queue1 / exact 1:1
+  https://x.test/read; Media analogous path already
+  cm-correct; old assertions unchanged. User-requested DRY
+  cleanup ASSIGNED (not filed away): Cards ~651-690
+  duplicates five-function default traversal ~604-643.
+  Tiny orthogonal agent 109 SPAWNED (base
+  repair-union-cards-cm@8c4e866): fixed-default APIs
+  delegate to cm-aware forms via existing default mapping;
+  public API/behavior/guards preserved; source-only, no
+  test changes; native lane stays serialized (106).
+  109 RETURNED c616668 on cards-cm-dry (parent 8c4e866;
+  one file +20/-41; root untouched). First-hand: all six
+  default-API signatures byte-identical (public API kept);
+  bodies now one-line delegates to *_cm forms via
+  pre-existing Cl.dflt_cm() (buffer.bend:26 = "rfc1459",
+  not invented); no test changes; no heavy commands.
+  Queued for review + lane-release verification alongside
+  8c4e866. ACTIVE: 106 (heavy) + 108 (source-only).
+  108 exact API guidance RELAYED (queued; planning, not
+  acceptance): fixture actor_boot(_tls)+net_fwd; recv holds
+  actual RoutedMsg{Sid,FromNet{oldgen,Chunk}} pre-ws_on_net
+  (post65-68 generation, net_fwd Sid); 903-during-SASL
+  capture+ACK then live_step_keys+ws_emit, await Up/EOF;
+  release via production ws_on_net230; extract
+  ws_net_painted333-336 auth_edge/auth_noticed seam helper
+  shared by production+fixture; ACK after helper, pipe0
+  before fresh CAP/903; no lifetime/runtime change; native
+  waits 106 lane.
+  Cards c616668 FINAL scoped source/style ACCEPT
+  (independent): six default signatures + argument order
+  preserved; one-line delegates via existing Cl.dflt_cm()
+  rfc1459 to same cm-aware traversal; no recursion cycle
+  or behavior change; only cards.bend changed,
+  tests/laws/Session untouched; copied traversal removed.
+  Source/style verdict ONLY — native merged qualification
+  still pending; branch-local greens are not final.
+  Integrates normally into final source candidate with all
+  other accepted fixes. 108 real-callback harness + 106
+  full IO incl dependencies continue; bounded final gates
+  after.
+  106 G4 counterexample RELAYED (queued; early source, not
+  final grading): loaded1408->one_got1327->prepare loads
+  BEFORE first paint/frame (UI open != input-bearing frame);
+  begun/Begin before ws_act applies keys (first-frame
+  quit/history-off late). Required: real first frame+input,
+  then settings/archive, checkpoint before completion keys,
+  exactly one deferred Begin; no synthetic guard, no
+  comment-only claim. Prefs shutdown reads sole-receiver
+  (hashes pending).
+  110 final-candidate-integ SPAWNED (base c616668, isolated):
+  integrate NOW in parallel — N9 6a, R4 scoped (e7635e7
+  rejected; hold out if ambiguous), W1 (1ad68de+0ed316f+
+  59f7fd8), W2/W3 (3503bde+854a1d3+578ab72+643b4d0, Q1 out),
+  G6 (5b6b2aa+c378ed0+4c73236+492fd17, arity kept), G3
+  (baef5f4+c8c4035), MSS de0edc7 only. Held expectations
+  preserved, no ThemeQ3, no shims, source-only, no heavy.
+  108 RETURNED e7c6636 on mss-stalequal-successor (parent
+  36158a2; 3 files +213/-10; root untouched; declared
+  authored-but-NOT-run, no heavy). First-hand: new
+  mss_stale_held.bend (184) posts old/new-gen 903 via
+  A.post + Chan.recv held queue (:163-164 fresh, :180-181
+  stale) with W.auth_edge matching (:107/112/135); Makefile
+  +6 native driver (unrun). GAPS vs relayed API guidance:
+  PTY auth_profile.py hunks are DOCSTRING-ONLY (no
+  executable reorder of the criticized 493-519 flow); no
+  release via production WsNet.ws_on_net230; no
+  ws_net_painted333-336 shared seam helper (zero src/
+  changes — earlier no-src brief never reconciled with
+  later seam guidance); no live_step_keys+ws_emit redial
+  flow in harness. PARTIAL delivery queued for independent
+  review; no accept, no self-directed re-repair. ACTIVE:
+  106 (heavy) + 110 (integ).
+  e7c6636 INDEPENDENT REVIEW: NOT real-callback/physical
+  qualification — VERIFIED first-hand (imports lack
+  WsNet/AuthBridge/socket/boot; :180 direct A.post with
+  manufactured literal 903; :131-133/:103-105 wildcard
+  received bytes and rebuild literals; live_on_msg/
+  pipe_after pure; PTY PING ACKs current, not old-903
+  dispatch). e7c6636 stays UNMERGED as qualification; no
+  pure-stamp-substitute label/merge/spawn. Qualification
+  REMAINS OPEN; teardown unchanged accepted; no demand for
+  unnecessary extraction (shared-seam helper NOT required).
+  MAIN OWNS narrow implementation: new branch from
+  36158a2 (not e7c6636), small native fixture via actual
+  Actor.socket reader/boot + net_fwd/ws_on_net + physical
+  AuthBridge pipe following startup_actor.bend:38-43,
+  preserving socket bytes/generation, never reconstruct;
+  source-only until lane release, truthful not-run note.
+  CHECKPOINT (~08:12): ACK-status steers QUEUED to 106
+  (current job + log tail + per-steer CONSUMED/PLANNED/
+  BLOCKED with evidence for guidance/dependency/G4) and
+  110 (base + per-item + R4 lean + conflicts + zero-heavy
+  confirm). 106 last commit read-only: 68112df on
+  mss-baseline-io (parent 9642b20, +360/-12: wsnet +132 +
+  multiserver_history_pty.py 238) = the LEAN history-first
+  shape; all three steers postdate it. LABELS: union/N9
+  dependencies + G4 fixes stay REQUESTED/QUEUED until
+  worker/source receipt — queue-accepted is NOT
+  implemented. 110 chain verified: 5dc1433 (parent c616668
+  clean) W1 cherry-picked + e646cb1 R4 extracted. R4
+  honesty rule RELAYED to 110: current-host + Linux
+  binding/unit/eval evidence as-is; Darwin Linux-closure
+  exec may be EXPLICITLY SKIPPED with smallest next
+  check; never falsely claimed/cached; never whole-task
+  blocker. FINAL proof = approved make check
+  PROOF_TIMEOUT=600 only; no independent deadline raise.
+  No interrupts/kills. Fixture implementation continues.
+  106 G2 counterexample RELAYED (queued #4; WIP finding, no
+  runtime claim): ws_post.prefs->ws_lease.kept absent-Part/
+  gen-mismatch branches discard GLOBAL physical image
+  lease (remove/reconnect/reset A frees; focused B double-
+  spawns). Required: keep lease across removed/stale/
+  reused origin until EXACT spawned completion retires;
+  admission gate != free permission; no comment-only
+  claim. Reviewer checks exact-request + token retention.
+  ALL FOUR 106 inputs REQUESTED until ACK+evidence.
+  106 media counterexamples RELAYED (queued #5; wsnet blob
+  d37f4948; WIP, no type/grading): (1) prune on absent/
+  gen-changed Part frees blocked helper; (2) WsLease only
+  Sid/gen + MediaFetched lacks spawn-captured epoch/
+  endpoint/request -> admits old payload after prune+reuse
+  +fresh sameURL/gen1/ticket1; wrong-ticket tokened path
+  clears global lease despite M.reject retaining worker;
+  exact completion must retire captured envelope only,
+  live effects need present same-epoch origin, never
+  current-substitute; (3) media_add gets only completing-
+  Part tokens -> native frees owned A tokens during B
+  completion; need all-Part UNION + native8 gate. Listed
+  positives don't close holes. ALL FIVE REQUESTED; no
+  106 source/runtime accept yet.
+  R4 e646cb1 scoped SOURCE ACCEPT (independent, extract
+  only, no builds): exactly six backend/package/test
+  files; no ledger/e763/theme; absolute libnotify,
+  explicit-override-first, Darwin osascript, direct
+  argv/--, 1s bound/redacted errors. Runtime binding
+  PENDING: notify_io64 rejects packaged birc-notify; 110
+  STEERED (queued): integrate accepted N9 admission/
+  selection/observer before claiming feature; package
+  tests != Session delivery. No branch veto from
+  unrelated dirty source. Fixture/integration continue.
+  110 RETURNED 4a3b5fc (final-candidate-integ, 5 on c616668;
+  +1746/-192, 31 files; root untouched; zero heavy
+  confirmed). First-hand: W1 5dc1433 cherry-picked clean;
+  R4 e646cb1 extracted (already source-accepted); G3
+  0b61af6 + G6 4a3b5fc PORTED (union context); W2/W3
+  070ad99 cherry-picked. N9 HELD OUT (R1-latch production/
+  run_jobs_done unaccepted, can't stand alone — reviewable;
+  tension with N9-admission-for-R4 note recorded). MSS
+  de0edc7 NO-OP subsumed (union line_cm covers —
+  reviewable). RETRACTED: donor NOT subsumed — 4a/d120557 lack
+  workspace.bend, sessws_s1s5_demo.bend, ceiling rollback API
+  (Session 19228d16, Workspace 46bd523b, fixture 5d341278);
+  preserved through 112 + final merged review (see appended
+  entry). Holds verified: K02 root literal 1/1 (0
+  /history); Q2 file (history_search.bend test helper)
+  untouched; LAWS/PROOF +97/-0 (additions only, incl
+  g6_live/proto_atom/styled/media_soh laws); Session +1
+  field ONLY (boxed reg List, media/cf idiom + unbox_reg,
+  documented 247-word rationale). session.bend 508-line
+  G6 churn queued for independent review. ACTIVE: 106
+  only (5 steers REQUESTED).
+  106 BOUNDARY ENFORCED ~08:40 (bound ~08:38, running at
+  08:39:39): cancel accepted with reason; tree quiesced at
+  68112df + dirty live_context/preferences_live/wsnet;
+  checkpoint COMMITTED a5be434 (unreviewed, not accepted;
+  tree clean). Lane reaped BY VERIFICATION: one transient
+  PID 26152 (sh, 106-tree cmdline) observed aging 21s->37s
+  then GONE on its own; zero children under supervisor;
+  NO kills, NO inference from frozen logs. Successor NEXT
+  (after fixture commit): INITIAL original-scope ALL
+  gates/deps + 5 counterexamples (guidance/dependency/G4/
+  G2/media), concrete checkpoint a5be434, no history-only
+  or fixture-only fallback. Heavy lane UNOCCUPIED (no
+  grant taken; staying source-only until explicit).
+  FIXTURE v3 (fragment-prefix hole, reviewed blob dae6ebc0
+  @214 lines): shadow detector ABANDONED (prefix released
+  pre-Dial + framer reset = false green even with broken
+  fence). REWRITE: ARM hold-all-old at old AuthResult
+  (phase-gated, split-immune); peer-close-first (teardown
+  already accepted elsewhere); Eof-bounded hold incl Eof;
+  live_step_keys redial; fresh Awaiting gate; byte-exact
+  held-flight assert (prefix genuinely held); split+whole
+  driver cases. rel trio VERIFIED positive (kept).
+  G3:183 QUEUED (new-task fixture): g3_traversal.bend:183
+  styled-nonkey-mode-renders (path absent from 4b4cbef);
+  needs raw-preservation/provenance correction like N9;
+  old Q1 holds remain; no weakening. After fixture.
+  UPDATE ~09:15 (supersedes HOLDS/lean/no-op lines above; verified
+  provenance kept; production deadlines UNCHANGED; final proof =
+  `make check PROOF_TIMEOUT=600` standard checker only):
+  Q1-Q5 ALL user-APPROVED to exact questions (not blanket
+  weakening): Q1 four legacy fixtures (valid IRC style bytes,
+  visible text kept, hostile-control checks kept); Q2
+  sub_fetch_before_stamp .000Z + exact /history catalog, all
+  else frozen; Q3 /theme completion + intent nine->ten,
+  lifecycle/paint/persistence integrable; Q4 six notify
+  reset/off/cancel busy+completion corrections, guards
+  frozen; Q5 PONG-trace nonzero request IDs, order/timing/
+  QUIT frozen + reject-zero/reject-exhausted guards. 114
+  (from d120557, source-only) integrates Q1-Q5.
+  113 N9 native qual BLOCKED FLAKY on 6a795ed13f66b (gate
+  test-notify-held-blocked, fresh rebuilds, pipefail):
+  run1 exit 2 (missing `expired`: fixed 2000ms Process.run
+  killed fake helper first), run2 exit 0
+  (`notify_held_blocked=ok`); fake measured 1.14-1.38s
+  standalone. Logs /private/tmp/n9_qual_6a795ed_{fresh,
+  rerun}.log. Lane verified reaped (result_ready, worktree
+  cleaned, no work item) and handed to 115: narrow
+  unreleased-helper retime 18x50ms -> 2x50ms ONLY (2000ms
+  prod, latch timing, 300ms checks, all expectations
+  frozen), 3x fresh requal min, no timeout-as-green.
+  112 full-IO runs at /private/tmp/birc-106-successor
+  (branch 106-successor-fullio @3228297, parent a5be434;
+  assigned isolated tree is pristine 4b4cbef spawn
+  checkout, NOT the work path). WIP-accepted: first
+  frame/input/halt before load/boot/Begin; media lease
+  persists; wrong-ticket retained; endpoint gen bump
+  discharges endpoint field; one prefs forwarder. THREE
+  residuals relayed: (1) ws_load.one_got:1374 must keep
+  edit-wins media (not M.initial(on)); (2) reconnect-
+  clears-lease must M.reject surviving Part (retained
+  M.active blocks take_job); (3) union_tokens:837 needs
+  all-Part capacity gate, not List.take8 truncation.
+  Cards/Notify WIP; no whole-source/runtime accept.
+  MSS take-3 abb4be8 Final scoped SOURCE ACCEPT (causal
+  path genuine); take-4 02185a8 adds latched ':s '+'903'
+  split + exact JOIN #t (Bend 30138be4, Py c77c79b4),
+  pending reviewer pin. G3:183 fix active (Main,
+  source-only; independent of Q1 four-file approval).
+  UPDATE ~10:10 (explicit statuses, not checkmarks; lane
+  now free; final merged check600/PTY3/Nix-hot-cache OPEN):
+  MSS a004f3e FINAL scoped SOURCE ACCEPT (capture/prefix
+  latch 432-461, EOF-before-redial 426-430, fresh AuthResult
+  phase 304-323 pre-FIFO, bridge IO 139-153 pre-ACK255,
+  edge/code/byte guards 173-180; App arm mode=app ONLY
+  621-629; Actor/WsNet/Workspace/AuthBridge/native bridge
+  unchanged; driver 61852d85 unchanged; 60s driver deadline
+  kept). take5h native Error124 (CC 180s killed on 19.5MB
+  app-closure .c) -> take5i 73cb4cd timeout300 BOTH build
+  steps (shutdown_flush:632-633 precedent). take5i NATIVE
+  GATE PASS: bend ok, CC ok, driver whole=ok split=ok, no
+  make Error; binary 6891088B 10:06; log
+  /private/tmp/mss_fixture_native_take5i.log. FIRST
+  real-socket MSS native pass.
+  114 4068edf (branch q1q5-approved-integ): Q3 scoped SOURCE
+  ACCEPT (actualSession select 3020-3039, Net paint 164-177
+  keeps_cm/boxed-media/cards/fullscreen/theme, prefsLive
+  33-36/83-88, runtime 119-126; guards mostly
+  session_paint_vm NOT actual Net runtime;
+  cmd_around_stamp_prefixed stays distinct, pending). Q5
+  NOT CLOSED in 114 (defaults False 186/394, live
+  1213/1223/1232, allzero accept 1104-1110). Q4 ABSENT from
+  114 (117 accepted-N9 import must bring six approved
+  completion corrections).
+  Q5 Main followup ad65566 (same branch, source-only, no
+  Nix lane): strict_zero flag REMOVED (default rejects
+  zero/exhausted; no opt-in remains); paired DEFAULT guards
+  zero-chain-default-refuses + nonzero-chain-default-pairs
+  (identical seqs); ambiguous-receive migrated nonzero
+  Cont-space txn7 (two-candidate ambiguity preserved);
+  double-reply-ambiguous migrated PONG_TXN x10 (two-branch
+  selection refusal preserved); ALL order/timing/QUIT
+  assertions kept; live 1213/1223/1232 now default-strict
+  unchanged; oracle self-test 54 =ok exit0, log
+  /private/tmp/q5_selftest_114followup.log. STATUS: awaiting
+  pinned review, NOT accepted.
+  115 8080621 retime: 3x actual exit0 logs on record.
+  116 74763b3 C8 Final PARTIAL: first-key /images-off
+  seed/merge + stale M.reject release + untruncated union<8
+  admission PASS source review; residual capacity retry loop
+  (rejected:1031 -> ws_media_stage clears active with NO
+  failed/ready identity -> same-helper refetch EVERY
+  completion) -> 119 followup.
+  119 dc44e98 (branch 116-followup-norefetch, parent 747):
+  shared M.reject_full media.bend:461 + ws_media.rejected_full
+  + gated-False arm wsnet:1036/1067; 15 full8-* + 7 seven-*
+  guards in wsnet_gates (registered test-wsnet-gates,
+  Makefile:307); 116 seed/stale fixes preserved; Manual
+  st_active_b correctly NOT used (no *preview* buffer).
+  STATUS: SOURCE scoped (retry loop corrected per root
+  read); NO native IO pass; verdict pending.
+  117 5ab0e71 (branch notify-upload-repair, parent e51, 15
+  files +1841/-170): BLOCKED, NOT accepted, DO NOT
+  integrate. Pinned blockers: C8 ws_upload_complete
+  1243/1245 STILL OMITS required notify,cards args (defs
+  1222/1232 require both); new upload guard standalone, NOT
+  test/check registered. Wire: five-field WsNotify REPLACES
+  accepted Sess.NotifyLive; origin always empty 494/551; no
+  accepted claims/reset/off/cancel owner calls; >8 mentions:
+  N.stage ninth+ unadmitted, completion drains queuedReq
+  then returns 535-544/1121-1129, NEVER rescans retained
+  live rows -> ninth+ permanently lost absent later alert.
+  Verified OK: per-ID mention classification + detached
+  Process. Awaiting scoped finals -> fresh narrow full-owner
+  successor with ALL initial gates, accepted N9 ownership
+  reuse, no mini policy. 118 Cards still source-only
+  running. G3:183 still QUEUED (lane now free; awaiting
+  order).
+  UPDATE ~10:20 (inner-exit receipts saved; 2 successors
+  spawned; task checkmarks NEVER equal whole accept):
+  MSS take5h inner MSS_NATIVE_EXIT=2 (Error124 CC timeout);
+  take5i inner MSS_NATIVE_EXIT=0 (bend ok, CC ok, whole=ok
+  split=ok, no make Error); binary 6891088B Oct4 10:06.
+  Source a004 ACCEPTED; native PASS recorded.
+  119 dc44e98 independently C8 SOURCE ACCEPT (retry loop
+  corrected; inherited Make check registration via
+  test-wsnet-gates). Q5 ad65566 independently scoped SOURCE
+  ACCEPT (strict flag removed, default zero/exhaustion
+  reject, paired nonzero guards; old order/time/QUIT/
+  ambiguity/selection assertions intact; NO assertions
+  removed; no jobs/runtime claim).
+  117 5ab0e71 Wire Final NOT ACCEPTED (blockers stand).
+  Spawned 120-notify-successor (gates 1-4: endpoint-only
+  2^44/Sid0-silence; ninth+ all-9 drain; histload installed
+  archive-DM quiet; origin/claims/reset + blocked-oldworker
+  release; actual IDs/framed bursts; R4 package/attribution
+  addendum with N9 fixtures + six Q4 expectations; register
+  test-notify-binding-gates) and 121-upload-worker (ONLY
+  notify,cards completion args 1243/1245 + completed-frame/
+  Enter+F8 launch/cancel guards + register
+  test-ws-upload-consent-gates), both from 5ab0e71,
+  isolated, source-only. 118 Cards still running. Cap R4
+  final pending. Main SOLE heavy lane: G3:183 active;
+  normal integration of accepted owners starting in
+  parallel; final merged 600/native/PTY3/Nix-hot-cache open;
+  no push/pin update; platform skip is NOT green.
+  UPDATE 2026-10-04 01:20 UTC (actual clock; checkmarks
+  NEVER equal whole accept):
+  Cap R4 Final scoped SOURCE ACCEPT on 5ab helper/package
+  impl (direct argv, absolute backends, optout, redacted,
+  bounded, async child; captured channel + global monotone
+  ticket => blank origin alone NOT proven double worker;
+  hardening speculation RETRACTED). REMAIN cross-Sid failure
+  attribution + absent 3 fixtures/Make guards (in 120
+  INITIAL addendum). No jobs/runtime pass.
+  115 EXACT (branch n9-neg-timing-repair, base 6a795ed13f66,
+  tip 80806217b0968e0917b8b758c17223bcf0caf4f8, Makefile:603
+  1-line): each run = rm -f build/notify_held_blocked{,.c} +
+  make test-notify-held-blocked via sh /tmp/n9_gate_once.sh N
+  (pipefail, fresh PHONY rebuild); run1 exit0 224s, run2
+  exit0 90s, run3 exit0 83s; all notify_held_blocked=ok.
+  Timing: /tmp/n9_before_timing.sh 1.833/2.682/3.517s vs
+  /tmp/n9_after_timing_predict.sh 0.541/0.804/0.840s.
+  Script /private/tmp/n9_gate_once.sh; full report
+  /private/tmp/ret115_full.txt (session 01a1043c-f73e seq
+  981). Lane released by 115.
+  G3:183 fix 731cbd9 (w2w3-g3, 3 files, 3 lines): donor
+  070ad99:1047 drops Irc.sanitize_in at client.bend:708
+  feed_mode.got (raw-preserving MODE render); donor
+  070ad99:183 migrates traversal:181 expectation to raw form;
+  framed:94 same-pair migrated (framed absent from donor
+  line; kept green here). Pre-fix baseline g3_traversal=ok
+  exit0 (WRONG-GREEN stripped). Post-fix: traversal=ok
+  G3_TRAV_EXIT=0 + framed=ok G3_FRAMED_EXIT=0. Logs
+  /private/tmp/g3_183_qual_{base,fixed}.log,
+  /private/tmp/g3_framed_qual_fixed.log. Root pin-review
+  pending after results.
+  121 30d4ee4 returned CLEAN (branch upload-residual-repair,
+  5095ec2/f37f82e/30d4ee4): C8 PARTIAL confirmed (notify,
+  cards args fixed 1243/1245; test-ws-upload-consent-gates
+  registered test-review-pure:749 + test-upload:435).
+  Native/boundary OPEN: f37 guards inject
+  ws_upload.presented + call key wrapper 22,0 separately
+  (NOT enter=True/typed /upload via actual frame handler;
+  launch-once is pure-state seam, NOT helper receipt). DO
+  NOT call actual-boundary pass. Main to own bounded
+  native/PTY frame + physical fake-helper +/- qual (warning
+  completed pre-F8; coalesced Enter+F8 no-launch; next F8
+  once; cancel never helper; 3 runs if new PTY).
+  Spawned 122-upload-qual-prep from 30d4ee4 (source-only
+  prep: actual-entry fixture + driver + fake helper +
+  standalone Make target; Main runs). NOTE: 120/121 briefs
+  carried base typo 5ab0e715 (actual 5ab0e713); 121 caught +
+  verified parent e51; VERIFY 120 base on return.
+  Integration STARTED: candidate .muse/worktrees/
+  final-candidate @ e51fe89 detached. Lines: 4b4cbef-line
+  (ad65566/73440cc/d120557/731cbd9), e51-line (dc44e98/
+  30d4ee4), neither-line (8080621/73cb4cd); merge-base
+  ca30774c (9k vs 13k insertions). ad65566-into-e51 probe:
+  9 conflict files (LAWS/Makefile/PROOF/buffer/cards+cards_net
+  AA/net/session/view; list /private/tmp/
+  final_conflicts_ad65566.txt). Merge execution next. 118
+  Cards + 120 Notify still source-only running.
+  UPDATE 2026-10-04 01:37 UTC (merge done, qual owned):
+  MERGE ad1822a (dc44e98=119 + ad65566=114Q1/Q2/Q3/Q5)
+  committed in final-candidate. Per fixed-index guides:
+  LAWS/PROOF union (stage2 17 AD/WS/Sess + stage3 269;
+  both imports); Makefile union; cards/cards_net stage3
+  wholesale (superset); net stage3 CardFetched arm (drained
+  entry verified); buffer stage3 _cm + stage2 bell/log/ceiling
+  kept, no default-only is_mention.on; session MSS ceiling
+  rewritten around ONE stage3 pair (whole extended revert;
+  prepass deleted; single chain deleted as callerless);
+  ceiling entries + supplied_normal + 8 more sites extended
+  to 22-field Session (iso/hl/theme preserved; dial resets
+  reg by design); step_keys.normal = stage3 wrapper chain
+  (history/intent/plan over iso base); orphaned routed/typed/
+  is_multi_route removed; view cm cascade + cards variants;
+  media_run_hit twin-dup removed. KNOWN 114-carryover (needs
+  scoped repair, NOT merge scope): ipv6_transport_native.bend
+  duplicates dualdnslazy_* defs (pre-exists ad65566).
+  Cherry-pick c0aa912 (73440cc theme Gate2): reduced to
+  ONE-path comment (code already via Q1; Links path absent,
+  Ws render_spans present). QUEUED: G3 731cbd9 pick (client
+  1-line + traversal line; framed file add), N9 range pick
+  (fixture+target+8080621 retime), MSS range pick
+  (bc3d9c0..73cb4cd fixture+driver+target).
+  G3 731cbd9 scoped SOURCE ACCEPT independent (raw keepstyle
+  Client/framer, shared Ws controls, redaction BEFORE log, 2
+  positives only). Root read traversal/framed=ok, inner 0.
+  118 79f459b (cards-fullowner-repair, 7 commits, +880/-64)
+  NOT whole-accepted. Review partials: C8 physical lease
+  BLOCKER stands (per-Part only, no global lease); Cap
+  positives (inline paint, scheduler share_cm, bounded
+  spawn/direct argv/captured ticket+URL/own channel, Make
+  reg); NEW-task fixture INPUT typo 'a{b}'->'a{b' (keep
+  asserts); negotiated-005/Theme/Ws-renderer + Session feed
+  guard OPEN (no mini-ISupport copy). Spawned 124-cards-phys-
+  owner from 79f459 (INITIAL A/B/C: global single worker,
+  removed-origin release, fullscreen hidden-underlay + typo
+  + cm/theme gates; source-only). 120 Notify + 124 Cards
+  running; 121 slot freed then 122 spawned+returned.
+  122 9b637c1 (upload-actual-boundary-prep, +450, 3 files)
+  NOT actual-qualified: constructs UiKeys, direct painted/
+  keys calls (no frame/ws_paint/T.frame), DEVNULL driver, no
+  START barrier, no UploadFetched routing (target standalone
+  752). Cap positives kept: App anchor, FFI aliases, bounds/
+  temp/argv. Oracle gap: must reject unknown/malformed
+  ledger + exact TOTAL. MAIN OWNS genuine correction NOW:
+  actual ws_first.frame/ws_paint/Timui.frame on owned PTY,
+  receipted warning completion, latched START/release helper,
+  routed UploadFetched, next-F8-once/coalesced/cancel cases;
+  3 PTY runs; register after true qual. No 4th wrapper.
+  UPDATE 2026-10-04 01:39 UTC (120 consumed; reviewer on):
+  120 20ccf1c (notify-successor-repair, 5 commits) RETURNED
+  CLEAN (base verified 5ab0e713; brief typo caught): mini-
+  owner REMOVED (per-part NotifyLive + global lease, floors/
+  marks only in NotifyLive); gates 1-4 (seed_all floors,
+  rescan/drain-merge/steal, install claims via
+  history_accepted, fence/reset/release-once); attribution
+  via captured owner+ticket+endpoint (wrong-sid drops are
+  hardening-only); N9 fixtures verbatim incl six Q4
+  expectations; binding + N9 targets registered (:586,740);
+  ~75 framed-burst asserts, no Feed counts. FLAG: touched
+  net/live_context/view/theme outside ownership (isolated,
+  minimum for verbatim import + gate3). STATUS: needs
+  Wire/Cap pinned review; NOT accepted; no jobs. Full report
+  /private/tmp/ret120_full.txt. 124 Cards running; slot free.
+  c0aa912 (merge + theme pick) first-hand verified CLEAN by
+  root; whole/merge reviewer started pinned (read-only, no
+  jobs; 120/124/UploadQual/pending-timestamp excluded as new
+  findings). Critical regressions relay, NOT acceptance
+  block for in-scope progress. Integration continues (G3/N9/
+  MSS picks queued). Cap122FINAL: direct argv/local temp/
+  alarm/fresh recipe App anchor + aliases confirmed; actual
+  frame qual still missing. LEDGER ORACLE FIX (driver
+  63-85): reject malformed rows/unknown kinds + EXACT TOTAL
+  two starts (once, busy); paired forged-extra/malformed
+  negative + exact positive. In Main's qual scope.
+  Upload qual survey (upload-actualqual @ 9b637c1): entries
+  mapped (ws_first.frame paints+reads real keys;
+  paint_session -> T.Timui.frame; upload_spawn ->
+  BIRC_UPLOAD_HELPER -> UploadFetched on evt chan ->
+  ws_upload_complete fixed args). F8 = TIMUI_KEY_F8 (ffi
+  14278). Design: PTY-driven real frames (composer pattern),
+  receipted warning bytes, START/release helper, routed
+  completion, exact-TOTAL oracle. No network/auth/uploads.
+  UPDATE 2026-10-04 01:39 UTC+ (picks executed):
+  Candidate 178b779 (= ad1822a merge + c0aa912 theme +
+  MSS). G3 731cbd9 pick = NO-OP: production raw fmt_mode
+  already at client.bend:1047 + traversal:183 raw
+  expectation already present (both via ad65566 donor
+  content). g3_framed NOT resurrected: absent from BOTH
+  accepted parents and deleted on donor line; resurrecting
+  200 unaccepted lines for the 1-line same-pair is scope
+  expansion. Recorded for root confirmation.
+  N9 6a795ed/8080621 pick DEFERRED (explicit, not skipped):
+  qual fixture needs N9 production APIs (Sess.notify_live_*,
+  NotifyIO.notify_live_spawn, UNREL env) absent from
+  candidate (old 248-line notify.bend, zero UNREL refs).
+  Integrating qual-against-mismatched-owners = broken.
+  Correct vehicle: 120's branch 20ccf1c (matched verbatim
+  owners + fixtures + targets) AFTER 120's pinned verdict.
+  MSS pick DONE (178b779): fixture 635 + driver 209 (new
+  files @ 73cb4cd) + target/phony/review-pure registration
+  (timeout300/aliases/60s driver preserved; vars verified:
+  BEND_CORE_CFLAGS ?= :79, ALIASES :711). Re-qual on merged
+  tree OUTSTANDING (lane; queued behind upload qual).
+  Next: Main's genuine upload fixture correction + 3x PTY;
+  then MSS re-qual; then final check600/native/PTY3/Nix.
+  UPDATE 2026-10-04 01:39 UTC++ (6 findings checklist):
+  Reviewer FINAL on c0aa912 (production unchanged thru
+  178b779): (a) DIRECT BOOT: BIRC_PREFERENCES=none first
+  frame /connect B switches Session + Dial B/gen1, but
+  ws_boot.each1580/ws_start1798 boots CLI A on post-key
+  gen1; Actor911/969 drops equal-gen B Dial; A traffic
+  admitted into B scope/history. Fix: boot from POST-KEY
+  Part endpoint/client/auth (or honor routed Dial before
+  direct Begin); reuse startup owner; actual +/- loopback
+  endpoints (only-B/no-A, direct-A unchanged); preserve
+  deferred + auth fences. (b) MULTILINE PRIVACY:
+  multiline_sensitive.line3159 uses fixed input_sensitive
+  (vs iso2834); CHANTYPES=$ rejected '/mode +k s3cret\nhello'
+  sends no wire but HistPrev keeps raw secret3172. Fix:
+  thread iso into hist_after_typed + shared
+  input_sensitive_iso; AD/W key - keeps composer, EMPTY Hist,
+  no wire; + recallable/no wire; asserts preserved.
+  (c) SearchDone dropped ws_routed.msg1295: needs exact
+  helper completion/removed-origin guards WITH Search
+  dispatcher. (d) DRY: media45/52 same type/body; one shared
+  body + compat delegator; fix stale different-type comment.
+  Disposition: 125/126 started BEFORE these gates arrived,
+  so gates NOT consumed (verified: briefs fixed at spawn;
+  no steers per standing rule). Main owns (a)+(b)+(d) as
+  isolated candidate commits NOW (source-only; boot runtime
+  qual queued on lane). (c) QUEUED for 125 follow-up round:
+  guards must target 125's in-flight Search dispatcher;
+  pre-building against nonexistent code = collision.
+  UPDATE 2026-10-04 01:39 UTC++ (124 in; Main owns 3):
+  124 0d1885e (cards-physical-owner-successor, 3 commits:
+  1e5e513 A/B/C, 2a2c45f typo, 0d1885e gates+Make) RETURNED
+  (base 79f459b verified; C8 pins matched): (A) WsCardsLease/
+  WsCardsAll bundle mirroring ws_mlease (free/exact/live,
+  spawn_ok single gate, retired_if exact); (B) released/
+  gone/retired exact removed-origin release; (C) cands_open
+  via maintained overlay; typo 7 inputs fixed, asserts
+  byte-identical; 49-guard physical gates + Make:744.
+  STATUS: needs C8/Cap pinned finals; NOT accepted; no jobs.
+  Report /private/tmp/ret124_full.txt.
+  Main-owned corrections committed isolated on candidate:
+  565f8c3 DRY delegator, d3a31fd boot-from-post-key-parts
+  (mirrors ws_begin_all; runtime loopback +/- qual queued on
+  lane), 7295ed2 iso-threaded hist_after_typed (AD passes
+  session_iso). Candidate now 7295ed2. SearchDone1295 stays
+  queued for 125 follow-up. Next: genuine upload qual
+  (lane); 125/126 running; 120 verdict + 124 finals pending.
+  UPDATE 2026-10-04 01:39 UTC++ (120 review -> restore+127):
+  120 20ccf1c review CLEAN, NOT whole-accepted. Positives
+  real (per-Part lease, rescan, captured channel, R2/R4, six
+  Q4). THREE regressions: (1) reconnect loss (Dial gen bump
+  vs fresh_nl at post-inbound seq; burst self-seeds
+  scanned); (2) R1 guard deletions vs 808 (chained
+  wrong-ticket->wrong-origin RETURNED asserts, UNRELEASED
+  negative, comp_received nl_c reset, weakened always-done
+  recipe); (3) binding direct-spawn attribution bypass (d0
+  ignored, g1_c1 precomputed; Make:744 not a blocked qual).
+  Main restored EXACT 808 NOW: 6e25c58 (fixture blob
+  4c9da06 identical; recipe UNREL + main18 + negative2 +
+  expiry; all other N9 blobs verified SAME). Spawned
+  127-notify-followup from 6e25c58 (INITIAL: pre-accept
+  reconcile + deliver-once/lease-held/same-gen guards;
+  comp_received threading for restored asserts; START/
+  release attribution + A/B-only + all9 + replay-quiet;
+  targets stay standalone for Main's lane qual). Native
+  notify qual pending; check600/cache still open.
+  UPDATE 2026-10-04 01:39 UTC++ (5 merge faults -> workers):
+  Pinned c0aa912 review: FOUR NEW verified omissions (new
+  merge faults): (1) ws_emit.to lacks Pong/Search arms;
+  (2) on_routed_chunk.gated calls ceiling-only, never
+  drained (H5 batches never imported --server); (3) keys_done/
+  tick never invoke typing tick owner; (4) Chunk{xs,req} ABI:
+  Workspace/WsNet still one-field. FIFTH: Drafts/AD Irc.ieq
+  aliases #a[/ #a{ under ascii (moved=False, drafts clobber;
+  F7 current_key_draft too). Spawned 125-workspace-parity
+  (gates 1-4, H5/Net/G6 owner reuse, Q5 preserved) + 126-
+  drafts-casemapping (session_cm threading, default
+  delegates, ascii-distinct/RFC1459-alias/origin-retain
+  guards), both from c0aa912, isolated source-only, no
+  jobs, overlaps via isolated commits only. Main: upload
+  qual (lane) + controls sole lane. Final checks/cache open.
+  CURRENT STATUS 2026-10-04 02:45 UTC (Main lane; root/master
+  4b + candidate 7295ed2 unmerged; whole-app NOT done).
+  SOURCE ACCEPTED: 126 e7f255 narrow (Wire); 125 58bd760
+  positives; 128 0624f99 H5-ceiling+wgen (Wire+fresh, no
+  exec); 05373ba h5c oracle refused-vs-live-only (clean
+  read); 127 8d1e4dd floor; f8888d4 3 physical gaps
+  behavior; 12a17ca sp_nnot+ linear; 744 Scope-A single-Dial
+  owner; 72080b8 implicit MODE counterexample + 347e37b -k
+  visibility pair (source counterexample until red
+  experiment/check); Cards 44ef93f production +
+  bac3fe6/d6137a1/2fd6b9e/a5a55af/0f26c2e compile-shape.
+  UNREVIEWED: Cards 71ea414 tip (ab98563 kf 2-pattern,
+  4f3c7af job lets, ae09498/3df182c lease_found, 71ea414
+  cm_lines region).
+  EXACT INNER: owner run13 cards_owner_gates=ok GREEN,
+  OWNER_EXIT=0, /private/tmp/cards_owner_run13.log; native
+  run9 SOME_PROOFS_FAIL consumed +tuple/Data,
+  HANDOFF_EXIT=2, /private/tmp/cards_handoff_native_run9.log.
+  STILL OPEN: true Upload actual-PTY/frame START-release/
+  exact-total 3 runs; boot native -/+; exact-merged
+  MSS/native + check PROOF_TIMEOUT=600 + PTY3 + Nix
+  prebuild hotcache + installed helper quals;
+  sessws-s1s5/history-wire2/workspace on merged lane;
+  legacy cmd_around timestamp approval unchanged. Main sole
+  heavy lane; all source workers returned.
+  UPDATE 2026-10-04 02:50 UTC: C8 Final source ACCEPT
+  71ea414 (5 test-only repairs, asserts intact). Native
+  run12 inner: run_mode forward ref at run_case:163,
+  HANDOFF_EXIT=2, /private/tmp/cards_handoff_native_run12.log.
+  Fixture dispatch reordered (runners before run_mode/
+  run_case). Run13 native next. Not green until actual.
+  UPDATE 2026-10-04 02:55 UTC: native run13 inner ctx
+  mismatch (fixture preferences_live vs production
+  live_context), HANDOFF_EXIT=2,
+  /private/tmp/cards_handoff_native_run13.log. Fixture now
+  imports live_context as PrefLive + 4-arg initial (same
+  alias/shape as production; production untouched).
+  UPDATE 2026-10-04 03:00 UTC: native run14 inner args
+  region-1 +list/Data, HANDOFF_EXIT=2 (fixed linear).
+  Native run15 inner C-backend 'Error: an arity over
+  247', HANDOFF_EXIT=2,
+  /private/tmp/cards_handoff_native_run15.log; elaboration
+  green (--check-only exit 0). Owner-gates C-codegen probe
+  WITHOUT fixture passed (exit 0): bomb is in fixture got_on
+  reach. got_on-stub bisection running; C8 read-only Box
+  review assigned. No Bend/pin/deadline changes.
+  UPDATE 2026-10-04 03:10 UTC: per-stub codegen verdicts
+  (clean dc971aa unless noted): run15 arity FAIL exit 2;
+  owner-gates C probe PASS (5.0MB .c); stub1 1/3 got_on
+  arity FAIL; stub2 3/3 got_on PASS (409KB .c); stubA
+  tokened-body PASS (2.6MB .c); stubB paint INVALID (stub
+  dropped linears, no .c); stubC act-subtree arity FAIL
+  (valid); stubD keys INVALID (same); stubE killed for
+  lane serialization (no verdict). App.main on CLEAN tree
+  serialized: arity FAIL inner exit 1 (production defect,
+  not fixture-only). Bomb in tokened-body reach outside
+  act-subtree. stubE rerun next, serialized.
+  UPDATE 2026-10-04 03:29 UTC: stubE2 begun_after arity
+  FAIL inner 1 (excluded); stubF3 ws_post->pure PASS inner
+  0 (9.1MB .c): bomb in post stages. C8 scalar-hoist fix
+  3cc7e2d in ws_media.job (clear/repaint above binds;
+  SOURCE ACCEPT, +8/-4). Run16: Bend codegen PASSED
+  (11.9MB .c, arity cleared) but CC FAILED make Error 1
+  (7 undeclared TimUI CID + 3 follow-on; HANDOFF_EXIT echo
+  missing from persisted log, implied 2),
+  /private/tmp/cards_handoff_native_run16.log. App-main
+  clean-tree control: arity FAIL inner exit 1 (in-band
+  output, no raw log file; no .c emitted). Fixture
+  af99f399 adds App.main dynamic anchor only (MSS
+  precedent; 3 modes/asserts unchanged). Run17 (bend->CC)
+  in flight on af99; CC/runtime pending. Not green.
+  UPDATE 2026-10-04 03:42 UTC: run17 CC PASSED, binary
+  ran; handoff mode rc=0 but golden rejects (ESC[?1002h +
+  token same line; strict grep -F -x kept). Raw 3-mode rc
+  on run17 binary: handoff/wrong/quiet ALL 0 (semantics
+  good, framing only). Framing fix committed (newline
+  before token x3). Run18: inner timeout 300 killed bend,
+  make Error 124, HANDOFF_EXIT=2,
+  /private/tmp/cards_handoff_native_run18.log (231 bytes,
+  bend emitted nothing). Borderline App-closure codegen:
+  run17 + stubF3 passed same closure; CC alone ~5min on
+  23MB .c. Inner 300 deadline preserved; rerun with outer
+  1500 wrapper + time phases next. Upload frame worker
+  returned 7641034 (3 new files, prep retained, NOT-run);
+  boot-guards worker active. Not green.
+  UPDATE 2026-10-04 04:00 UTC: CC measured on run19 23MB
+  TU: 237.96s real / 203.72 user / 11.34 sys / 2.65GB max
+  RSS, binary emitted (8.2MB) to /tmp (build/ pristine);
+  log /private/tmp/handoff_cc_measure.log. Fits 300 with
+  62s margin; run19 timeout unexplained by typical case
+  (load-sensitive tail). Justified: one bounded gate
+  rerun (run20) with in-tee echo. Upload flow rework
+  91163e8 (same-request held, reap owned PIDs, no jobs);
+  boot-gaps worker spawned for CAP/ledger/scope/Make.
+  Not green.
+  UPDATE 2026-10-04 03:50 UTC: run19 bend PASSED but CC
+  step timed out (make Error 124, HANDOFF_EXIT echo lost
+  to truncation, implied 2),
+  /private/tmp/cards_handoff_native_run19.log. 23MB
+  app-closure TU needs ~300s CC (run17 fit, run19 did
+  not). Flake-vs-code NOT established from timeout alone;
+  no blind identical retry. Next: measure CC elapsed +
+  owned CPU/RSS (default-off), then justified bounded
+  step. Inner deadlines preserved. Boot worker
+  returned 19fdeee (verified clean); C8 reviewing. Upload
+  764 + cfd binder fix under review; blocker repairs
+  (coal continuity done, drain/safety/negative pending).
+  Not green.
+  UPDATE 2026-10-04 04:51 UTC: Cards seam native GREEN
+  (scoped, not App/Nix): source
+  608c7f6b870c5fa11f7ddcb1bb21e0fbefef3f0a, fixture blob
+  b56b2c52ca4c5cee82a4dc967bb05eb0d47fbd0b, codegen300 +
+  CC300 + 3x60 runtime all strict, 3 ok tokens,
+  HANDOFF_EXIT=0, /private/tmp/cards_gate_608c7f6.log,
+  binary 4292472B SHA256
+  bf52e9f0d367bade7aa5a6d6a6a4bbdaa3c1e906957e064fde5c1ffb1b691a39.
+  Run20 strict codegen124 HANDOFF_EXIT=2 stands (cause
+  unknown, no flake label). VERIFIED PINS: Boot
+  32a02caa141edc357f5ec81c6f9189731d83b544 (sentinel-ack
+  seal, counted deliveries; reviewer rechecks, no jobs);
+  Upload 810afc1 + UNCOMMITTED 41-line close-order delta
+  (post-release check, verified flag) in
+  .muse/worktrees/w-upload-frame; scratch merge
+  .muse/worktrees/w-upload-cardsbase has unresolved
+  Makefile/wsnet conflicts (held). REMAINING: Upload
+  close-fix verdict + Cards-base merge + clean pin, then
+  normal/linger/late PTY; Boot seal verdict + native
+  -/+; whole actual-first-frame/boot qualification
+  still open (Timui.frame/ws_start.boot not covered);
+  FINAL check600/native/PTY3/Nix per C8 order. Main sole
+  heavy lane; no all-green claims.
+  UPDATE 2026-10-04 05:05 UTC: Wire scoped SOURCE ACCEPT
+  Upload close-order (snapshot blob
+  b64220282ac0e16e52408b7df71de1f1e78030a4 verified
+  unchanged) committed narrow as
+  85dd9ecf32137865797376e910c563bd6ee0bb26 in
+  w-upload-frame (clean). Port to scratch after merge
+  repair review. Runtime HELD until coherent Cards
+  off/global-owner binding (normal+late exit0 exact;
+  linger and forced post-held-START failure nonzero,
+  group empty after release). Boot prefix 080fc7b
+  blocked on modes/matrix worker; actual-boot gate
+  worker active; scratch post44/Escape worker active.
+  No runtime inference from source verdicts.
+  UPDATE 2026-10-04 05:17 UTC: Boot workers returned,
+  both verified clean. Modes/matrix
+  92295786a7026b5d2bdbc8056e2cef2eee13a51f
+  (unknown-mode nonzero reject, WriterDone->extraUp
+  reject, post-WriterDone benign-Eof accept; fixture
+  8f1ebdf852fe726cea9d0c6b76bf536d778b593a,
+  driver
+  057725e5d480b38c9245a36ddac47ef1da0aa100).
+  Actual-boot gate
+  4d4284845cb9f4fb1b17a24fbbc400dc1646cd8c
+  (causal post-open READY gate, no pre-open writes;
+  fixture 1d34b1dd21e719471fc5fb9ea8c32d9d9dc0489d,
+  driver 05628ebd2f019ffcd99b3de77830287e8d18a48b).
+  Both await recheck; gates held. Scratch post44/
+  Escape worker nudged for progress lines only.
+  UPDATE 2026-10-04 05:20 UTC: Scratch repair
+  returned; staged merge untouched, repair is
+  UNSTAGED delta in 2 files (verified by direct
+  read): wsnet.bend +239/-~110 incl donor-exact 3cc
+  +clear/+repaint hoist above IO in BOTH media-job
+  branches, single ws_fullscreen.applied with
+  handled->key zeroing BEFORE upload-key admission,
+  post-44 adaptations; cards_owner_gates.bend +92
+  fullscreen-before-upload paired fixtures. Blobs:
+  wsnet dfce61f5379340ad73e6fb185948916c2ec7cb8f,
+  owner-gates
+  14136b6d1473586c4d2372005eb6ba24609c72a1.
+  Complete tree ready for pinned source review;
+  ABI check-only/native only after accept. All
+  source workers returned; Main sole lane, no jobs.
+  UPDATE 2026-10-04 05:25 UTC: Boot prefix-native
+  qualifier RED at codegen (deterministic, not
+  timeout): source
+  92295786a7026b5d2bdbc8056e2cef2eee13a51f,
+  fixture 8f1ebdf8..., driver 057725e5..., Make
+  b08f7479... all match release; inner bend exit 1
+  SOME PROOFS FAIL (fixture:737 case
+  Sess.Chunk{+xs} binds 1 field, production
+  session.bend:376 is Chunk{xs, req} 2 fields),
+  BOOT_EXIT=2,
+  /private/tmp/boot_prefix_9229578.log. No CC/
+  runtime phases reached. CORRECTION: failure was
+  imported PRODUCTION src/bend/workspace.bend:737
+  (not fixture:737); clean922 fixture already
+  two-field at 551/619. Narrow ABI repair committed
+  075206f5c19c5b620a75a0c965fc74b3dcc774af
+  (SOURCE ACCEPT; +req bind, Chunk{xs,req}
+  reconstruct at workspace 737/1114, ignored +req
+  at wsnet 839; 9 pure-fixture explicit-0 ctors
+  deferred to broader proof). Fixture +lets-in-do
+  (270-272/308-310) hoisted above do (probe B
+  isolated illegality; probes removed). Check-only
+  round 2: `+x : T <-` also illegal in do (probe D:
+  no + on do-binders; probe C: no = in do at all).
+  Rule: plain do-binders only, multi-use via
+  +param .got helpers (production net_fwd idiom).
+  34-site systematic rewrite dispatched source-only
+  (boot-do-shape worker, no commit); Main re-runs
+  check-only after. No green inference.
+  Scratch c34ec7e: production behavioral/
+  source-PARTIAL accept only (lease/off/admission,
+  donor-3cc, fullscreen-first; NOT compile-shape
+  complete). Narrow hold: wsnet:1369 +staged affine
+  Sigma cannot copy; ported exact 608:1223 marker
+  removal (one char, body/calls/WsNotify untouched;
+  no other +typed tuples in c34 wsnet), blob
+  e34334656e9f2c238c654efaedda0575be6d84dc.
+  Second hold: quiet:172 CardInline{2n}->1n (chatBQ
+  IDs 1,9; :176 unchanged; wrong-mode :162 2 kept).
+  Two-line followup PINNED
+  ab6b16a1084b87d8ac896780b9f45a7c6a1317fb
+  (clean tree) for narrow review. Driver port
+  e08369de5adf0cfb7727bd055327699f9f15351f
+  (blob b6422028 verified). ABI r1 ALL4 EXIT1
+  (/private/tmp/scratch_abi_e08369d.log):
+  app/handoff/owner lack NotifyDone case in
+  Net.on_msg_go:1040; upload fixture do-block
+  pure +ctx:360. Narrow repairs applied
+  (NotifyDone orphan case identical to
+  CardFetched; run.go helper outside do).
+  ABI r2: NotifyDone GONE; app/handoff/owner now
+  report unsafe/foreign-reliance lists (check-
+  only semantics suspect for IO entry points);
+  upload fixture next: gate.fail +e tuple
+  must drop + (not Data). No native.
+  CONTROL: known-green cards_owner_gates (native
+  run13 GREEN) ALSO fails --check-only with the
+  same unsafe/foreign-reliance error
+  (/private/tmp/control_check_owner.log). Thus
+  --check-only can never pass IO-touching entry
+  points: wrong gate. gate.fail +e->e applied
+  (single-use, narrow, uncommitted). ABI needs
+  reviewer direction (codegen-emit is the true
+  elaboration gate); holding, no unilateral
+  substitution.
+  RESTART CHECKPOINT 2026-10-04 06:14 UTC (READY
+  FOR RESTART; user approved, root owns restart).
+  NO workers running; NO terminal jobs remain (up6
+  finished naturally, not killed).
+  PINS: scratch 469c58f + DIRTY 12/12 fixture-only
+  delta (10x halt-plain, gate.tty Fail{e},
+  run.go+ctx-annotation); boot 075206f + DIRTY
+  do-shape fixture rewrite (uncommitted, unpinned);
+  actual 9458c6a clean (HOLD2 bounds final);
+  upload 85dd9ec clean; cards 608c7f6 clean.
+  EMIT RECEIPTS (bounded 300, pinned Bend 2.0.34):
+  app.c EMIT=0 22721994B
+  f801e065a80f16e7966fbb6b0623aea3c1b12ad7917fd8985297652d72feb132;
+  handoff.c EMIT=0 12219607B
+  dcf93f8177057bad1131d76a6be397a82dbd6716ae147b7fab42fd33e01b1ff4;
+  owner.js EMIT=0 604315B
+  202a0d99c3d6b0239b7cdb5261d5a49350fc2d9260b54ac118bd31b400a8ba1d;
+  upload.c RED up6 (ctx consumed-twice; next:
+  `+ctx : Ctx = ...`, annotated-plus; probes
+  proved `c : T = Ctor` fixes inference).
+  Logs: /private/tmp/scratch_emit_469c58f.log,
+  _up2, _up6.log; control_check_owner.log.
+  PROBES: worktree *.bend probes already removed
+  per prior orders; /tmp/probe_* + /tmp/
+  handoff_cc_measure RETAINED, not deleted.
+  HOLDS: upload RED/no native; boot do-shape
+  needs bounded native C emit + clean pin/source-
+  review (foreign/unsafe-IO check-only0 disproved
+  by known-green control); actual9458
+  HOLD2 bounds; 608 scoped-native only; final
+  candidate UNINTEGRATED (C8 order pending).
+  Root staged+unstaged preserved; no push/pin/
+  checker changes. RESUME: `muse resume
+  01a100f0-f389-7bd3-83d9-9774cbe4ec2b`
+  (session soft-pavo, log under
+  ~/.local/share/muse/sessions/2026/10/03/).
+  RESTART RECEIPT 2026-10-04 06:28 UTC: old PID
+  58383 exited naturally (absent from table), no
+  workers/jobs killed (all had returned; up6 had
+  finished RED). New PID 47279 same pinned Muse
+  binary, same resume UUID 01a100f0-f389-7bd3-
+  83d9-9774cbe4ec2b, elapsed 10:57 at verify.
+  Restore delay (~8m46) is NOT evidence of a
+  memory fix. All worktree pins/dirt retained
+  exactly (scratch469+12, boot075+do-shape,
+  actual9458, upload85dd9ec, cards608c7f6);
+  root staged+unstaged G3 preserved. Park
+  restriction lifted; Main sole heavy lane. Fixture reviewer
+  confirms affine projections, Maybe recv, Result
+  ownership, five-field WsNotify, got_on chain;
+  final fixture report imminent; paired Escape
+  guards pure-primitive scope (true Upload PTY
+  still required).
+  Actual-boot 4286578 HOLD3 (no native): quiet/
+  OSError drain w/o EOF, uncapped retention,
+  synthetic-only negative. Forwarded bounded-EOF/
+  cap + delayed-physical-negative to active
+  worker; probes confirmed removed from lane.
+  Scratch pinned
+  c34ec7eb6f187e38c0ed5746ef837f7b0f09430a
+  (merge 44ef93f + post44/Escape + 608 guards-shape;
+  clean tree; driver port + qualifiers held for
+  review). Actual-boot 4d42848 SOURCE ACCEPT
+  (initial window); lifetime worker unreachable by
+  message (result pending; re-dispatch if plan
+  missing). No upload native gate yet.
+  EMIT 2026-10-04 06:40 UTC: scratch 1124049
+  ws_upload_frame.c EMIT_UP7=0, 24180357B,
+  SHA256 4859c1653c68e0deabcd85330f2c9f714659271fdd45c44b7320705048e689f0,
+  /private/tmp/scratch_emit_1124049_up.log.
+  All 4 scratch entries now emit-clean (app,
+  handoff, owner.js, upload). No CC/run yet.
+  BOOT 2026-10-04 06:50 UTC: d370 emit RED
+  (unfilled-law proto_atom, irc:401 fwd-ref;
+  /private/tmp/boot_emit_d370eab.log). Reorder
+  pin 7296b46 SOURCE ACCEPT (124-line block
+  byte-identical, proto_atom:515 before :526;
+  irc blob 71de89b5; fixture c1e35344).
+  7296 emit RED new cause: step_keys.intent
+  session.bend:3067 enter consumed-twice
+  (/private/tmp/boot_emit_7296b46.log). Smallest
+  typed repair committed f1e0f83 (+typed/+enter,
+  Keys is Data); re-emit running. No runtime
+  qual on known-broken. Integration worker
+  parallel, root G3 + 22-field ABI untouched;
+  old-17 scratch wsnet NOT final donor.
+  BOUNDS 2026-10-04 06:45 UTC: actual final-2
+  pin e0965300d5089c672b11b7cdeb18334371ccc47a
+  verified clean (driver-only 309+/5-, blob
+  d475ee4ab675121270f46138a85f54ad8c7b5466):
+  oracle read WIRE_CAP+1 overflow-reject, drain
+  remaining<=0 explicit fail w/o widening 0.5s,
+  paired cap-fit/overflow + timelyEOF/quiet/
+  readerror/expiredreadyEOF guards. For review;
+  no native yet.
+  CHECKPOINT 2026-10-04 07:10 UTC (post-compaction, no restart):
+  ROOT 4b4cbef dirty G3 intact (LAWS/Makefile/PROOF/TODO/auth/buffer/
+  client/frame/...); no lane writes to ROOT.
+  cards-handoff 608c7f6 clean GREEN seam (HANDOFF_EXIT=0); NOT App/Nix.
+  w-boot-gaps 4e512ff + UNCOMMITTED wsnet moves: ws_post block above
+  first use (770<773), prefs stage cluster above ws_post (734<748).
+  No commit; compile-shape only, NOT runtime qualified.
+  BOOT EMIT RED /private/tmp/boot_emit_wspost.log EMIT_EXIT=1:
+  unfilled-law ws_prefs_stage used ws_post.carded:737, defined :804
+  (def-order manifestation; filled body, use precedes def).
+  Repair applied (cluster move); re-emit pending as sole heavy lane.
+  Search9dd HOLD: must NOT forward to Actor (writer_command drops);
+  reuse Net.emit_cmd Search-only owner, preserve captured fields/
+  owning evt, add +/- dispatch guard. Donor picks/reorders do NOT
+  authorize test weakening.
+  w-upload-frame 85dd9ec clean; w-upload-cardsbase 1124049 clean,
+  scratch C EMIT_UP7=0 24180357B SHA
+  4859c1653c68e0deabcd85330f2c9f714659271fdd45c44b7320705048e689f0
+  (inner emit only; NO CC/run yet).
+  /private/tmp/scratch_emit_1124049_up.log EMPTY (0B); receipt is the
+  byte/sha line above, not log tail.
+  RED history: scratch_emit_469c58f_up4/5/6 Ctx affine-ctor errors
+  (run.go:359-361), fixed by later pins.
+  w-actual-boot e096530 clean, Final-2 source ACCEPTED; --bounds
+  runtime + Make/check registration still pending.
+  w-final7295 7295ed2 DIRTY (DISCREPANCY vs believed-clean):
+  30 staged files +5752/-124 (LAWS/PROOF/actor/history_search*/
+  live_context/net/notify*/timui/session_drafts/timui_ffi/
+  workspace/wsnet + 9 new notify*/consent tests + check script)
+  + 7 files with unstaged mods (drafts/session/session_drafts/
+  workspace/wsnet/session_drafts_demo/workspace_demo). UNTOUCHED
+  by Main this session; review as patch, do NOT whole-accept.
+  final-candidate tree 7295ed2 clean (reference).
+  INTEG WORKER RETURN: path .muse/worktrees/subagent-v2-01a100f0-
+  f389-7bd3-83d9-9774cbe4ec2b-01a103ff-76f7-7dd1-b284-87303523a243
+  branch final-candidate-integ pin
+  4a3b5fc "integ: G6 live CAP/typing binding", tree CLEAN.
+  No new owner/performance claim. Heavy lane: boot emit only.
+  OWNER CLARIFICATION 2026-10-04 07:2x UTC (recorded, G6 scope cut):
+  Pong exact-forward was field-mechanics ONLY; broader single-owner
+  implication WITHDRAWN. Net.emit_cmd Pong branch stays quiet; actor
+  reader is sole live-wire PONG owner. Actor.writer_pong does NOT
+  dedup UI-forwarded Pong (matching gen queues it): no second sender.
+  FINAL-source policy PRESERVED (verified in w-final7295 unstaged
+  wsnet diff): quiet Sess.Pong{_,_,_} no-op + shared Net.search_spawn
+  with wgen captured, SearchDone routed back via ws_search.got/done.
+  Do NOT port boot-9dd Pong/Search forwarding into final.
+  Boot Search shared-owner repair + paired guards still HELD; no
+  whole-G6 accept until actual trace gate.
+  PARTIAL SCOPE PIN (w-final7295 base 7295ed2, unstaged only,
+  NOT full integration): 7 files 367+/81-:
+  drafts 125, session 97, session_drafts 33, workspace 18, wsnet 70,
+  session_drafts_demo 58, workspace_demo 47. Staged 30-file delta
+  (+5752/-124) is separate unreviewed worker output; review as patch.
+  BOOT CASCADE: prefsmove EMIT_EXIT=1 unfilled-law ws_post.painted
+  (use tokened:790, def :1023; painted->paint->frame->keys->ws_act
+  downstream, so move CALLER cluster down, not paint up).
+  Cluster tokened/admitted/live/got self-contained (sole external
+  caller :1298); moving below painted as next bounded step.
+  PROVENANCE CORRECTION 2026-10-04 07:0x UTC (supersedes 07:10
+  INTEG WORKER RETURN line): 4a3b5fcc788fcd736ac7f627803cd2a
+  5264c0dde (parent 070ad99267bcbdef3f1f7c332aec9f426fe6854e,
+  2026-10-04 08:27:17+0900) is OLD accepted integration donor
+  (21st-reg-field era message), NOT fresh worker evidence. Do NOT
+  whole-accept old-4a3b; do NOT replay 21-field Session over 22.
+  CURRENT worker 01a105aa-3b39-7650-ab8e-d7c0d7ec4136
+  (main/final7295-union/150, task ...3b38-7713-a725-80cd03c97b1d#5)
+  terminal: FAILED ~07:01 UTC ("event log failed: Origin read
+  requires valid checkpoint-suffix or origin-preserved full-replay
+  authority"). NO fresh commit return exists. Last input it saw
+  carried SUPERSEDED "PONG exact-forward stands correct" guidance.
+  w-final7295 patch provenance: FAILED worker's uncommitted output
+  (file mtimes 15:55-15:56 JST = 06:55-06:56 UTC, pre-failure).
+  Base 7295ed2. Unstaged 7-file 367+/81- pinned; full HEAD-diff
+  sha256 343018ef914d74114878dfcebe77733fd5ab309c10116844ba1be0
+  2e78295d58. Worktree blobs: drafts bea22441, session e3d66f92,
+  session_drafts e12155ff, workspace 673c8cbb, wsnet 8cd7fb24,
+  session_drafts_demo d5d84e76, workspace_demo 4c0040f4.
+  Owner VERIFIED in HEAD diff (wsnet+net): quiet Sess.Pong{_,_,_}
+  no-op + shared Net.search_spawn wgen capture/route-back ONLY;
+  no emit_cmd Pong arm, no writer_pong addition, no Pong forward.
+  Session 22-field ctor lines are CONTEXT (regbox, theme intact);
+  no 21-field replay in session.bend.
+  FINAL7295 PARTIAL SOURCE FINDINGS 2026-10-04 07:3x UTC (stable
+  7295 HEAD + staged/dirty patch; NOT a worker return; review-agent
+  hashes pending):
+  POSITIVE: 22 Session fields + boxed media/cf/reg/theme retained;
+  shared CM draft stash/load and Search wgen/on_search_done
+  returned-state routing source-positive.
+  H5: full LiveAcc/split rollback + new ceiling drain atomically
+  install fit imports; refusal claims none. GAP: no direct named
+  ceiling-drain +/- test found.
+  CM rename: live NICK->draft rename explicitly deferred, no callers
+  (rename/retain default-map) -> NOT full CM rename qualification.
+  UNION OMISSIONS (inherited 7295 integration gaps, NOT Search/tick
+  regressions): staged NotifyIO:172/233-275 refs Sess.NotifyDone/
+  NotifyLive APIs ABSENT from Session e3d66f92; WsLoop still N.State;
+  ws_notify.fired NIO.send; no routed NotifyDone receiver. Accepted
+  NotifyLive physical/global lease must be BOUND, not just helper
+  modules copied. Cards ws_cards.found/fenced uses C.initial(True);
+  schedule never CNet.cards_enabled -> accepted off-guard/global
+  owner foundation still must port.
+  POLICY: preserve Search shared Net.search_spawn + captured wgen
+  and QUIET Pong in actual partial; do NOT replay boot9dd fwd.
+  DIRECTION: continue repair/clean union pin, NOT broad acceptance.
+  e096 --bounds still optional/omitted default Make: explicit bounded
+  guard receipt + final registration REQUIRED (not yet run).
+  NOTIFY SESSION PORT MAP 2026-10-04 07:38 UTC (source-only, VERIFIED):
+  Donor 20ccf1c04a998d6f19238f6b28611c7c46fa44c8 session blob
+  d019c197556bde592769affae96d9d9be773081b; span 2658-3086 (EOF).
+  Import: `import ./notify.bend as Notify` (donor :20, after drafts).
+  UiMsg: NotifyDone{ticket: Nat, endpoint: String} (donor :337,
+  after HistoryLoaded). Four 17-patterns only: notify_scope_of 2669,
+  notify_observe_session 2785, staged 2861, staged_claimed 2900.
+  Span self-contained: helpers scope 2666/collect 2728/observe 2767/
+  busy 2842/live.go 3076 + types NotifyFold 2735/NotifyLive 2801 all
+  inside; external refs Notify/Cl/Irc/builtins only.
+  Adaptation: bodies use cl+port ONLY (plan/edits unused) -> full22
+  `Session{+cl,_+x12,+port,_+x8}` (cl=1,port=14 of 22; sess_drop
+  precedent). Accessors NOT used (both take +st, single-use).
+  Append after current step_on_chunk_ms body (:3864-3865), before
+  step_on_chunk. No new Session fields/ctor/MediaBox/cf/reg/theme.
+  Staged exactness: notify.bend=20cc dd7998cd, notify_io=12a 5cf935d9,
+  9 fixtures + check script EXACT 12a17ca. Make: reuse 12a 740-796
+  binding/full/history/held/held-blocked/followup/attr-blocked;
+  followup standalone until actual green. LAWS/PROOF already Notify13;
+  donor adds no laws; DO NOT overwrite or import NotifyIO/Actor.
+  Wiring (WsNotify/global-physical/net loop) still required after port.
+  BOOT RECEIPT upevt 2026-10-04 ~07:38 UTC: EMIT_EXIT=124 (timeout(1)
+  killed inner bend at 300s bound), log 1 line (dirty warning only),
+  build/direct_boot_guards.c ABSENT. Elapsed: NOT instrumented;
+  exit 124 proves >=300s inner runtime. NOT green, NOT C-emit, NOT
+  behavior qual. Type-error-free quiet interval proves nothing.
+  HOLD: no limit widening, no repeated unchanged job, no CC/runtime.
+  Source patch preserved; reassess before next bounded attempt.
+  NOTIFY PORT LANDED 2026-10-04 07:4x UTC (w-final7295 worktree,
+  UNSTAGED only; staged 30-file +5752/-124 INTACT): session.bend
+  +import Notify:22 +NotifyDone:421 +429-line span (4x 22-adapted
+  patterns) after step_on_chunk_ms; file now +519/-11 vs HEAD.
+  Refs verified present: Cl.client_sasl_user/pass, Cl.server_of,
+  Irc.ieq, Notify module (exact-20cc staged). No Session field/ctor
+  change. Source-only; WsNotify/global-physical/net wiring + Make
+  recipes + gates still pending. Partial scope grew; still NOT
+  broad acceptance.
+  ============ FRESH-SESSION HANDOFF 2026-10-04 07:42 UTC ============
+  SUPERSEDES all older "current status" lines. Jobs/workers: ZERO
+  (work_list empty; pgrep bend/cc/nix all 0). No cleanup/reset/push
+  done or wanted. All trees below preserved as-is.
+  ROOT 4b4cbef dirty G3 INTACT (LAWS/PROOF/Makefile/TODO staged+mods;
+  src auth/buffer/client/frame/history/irc/irc_commands/join_plan...;
+  unstaged 3 files +2091/-5). Lane edits NEVER in root.
+  cards-handoff 608c7f6 CLEAN. GREEN seam only (HANDOFF_EXIT=0);
+  NOT App/Nix. Bin receipt bf52e9f0 per earlier checkpoint.
+  w-boot-gaps 4e512ff DIRTY (wsnet.bend + direct_boot_guards.bend,
+  uncommitted): ws_post/ws_prefs/boot-cluster def-order moves,
+  apply_keys+negotiated, erred/completed +notify/cards, fail/up_evt
+  :Sid.RoutedMsg annotations. BOOT RECEIPT: EMIT_EXIT=124, inner bend
+  killed at 300s bound, log 1 line (/private/tmp/boot_emit_upevt.log),
+  build/direct_boot_guards.c ABSENT. NOT green. HOLD: no widening,
+  no unchanged re-run, no CC/runtime until reassessed.
+  Search9dd HELD: must reuse Net.emit_cmd Search-only owner, keep
+  captured fields/owning evt, add +/- dispatch guard. Pong stays
+  QUIET (actor reader sole live-wire owner; writer_pong no-dedup).
+  Do NOT port boot9dd Pong/Search forwarding into final.
+  w-upload-frame 85dd9ec CLEAN. w-upload-cardsbase 1124049 CLEAN.
+  RECEIPT: scratch C EMIT_UP7=0, 24180357B,
+  SHA 4859c1653c68e0deabcd85330f2c9f714659271fdd45c44b7320705048e689f0.
+  EMIT-ONLY; NO CC/run. Scratch log /private/tmp/scratch_emit_1124049_up.log
+  is EMPTY (0B); receipt is the byte/sha line, not a log tail.
+  w-actual-boot e096530 CLEAN. Final-2 driver bounds SOURCE-ACCEPTED
+  (oracle read cap, drain expiry, paired guards). --bounds RUNTIME +
+  Make/check registration PENDING (bounds optional/omitted in Make).
+  w-final7295 7295ed2 PARTIAL, failed-worker provenance (worker
+  01a105aa FAILED ~07:01 UTC, no commit return; files written 06:55
+  UTC; 4a3b5fc is OLD 21-field donor, NOT worker evidence):
+  staged 30 files +5752/-124 INTACT + unstaged 7 files +800/-81
+  (session.bend now blob c3b4c2c3 incl Main's landed Notify port:
+  +import:22 +NotifyDone:421 +429-line 20ccf1c span, 4x 22-adapted;
+  refs verified, no Session field/ctor change). HEAD-diff sha16
+  6ab0e859e412847e. KNOWN GAPS (not regressions): NotifyLive
+  physical/global lease unbound (no routed NotifyDone receiver,
+  WsLoop still N.State); Cards off-guard/global owner unported
+  (C.initial(True), schedule never CNet.cards_enabled); no named
+  ceiling-drain +/- test; NICK->draft rename deferred. Wiring + Make
+  recipes + gates pending. Review as patch; NO broad acceptance.
+  final-candidate 7295ed2 CLEAN (reference).
+  Next fresh session: reassess boot emit strategy within 300s bound;
+  e096 bounds receipt+registration; upload CC/run; union wiring.
+  ROOT VERIFIED ADDENDUM (07:42 UTC; authoritative handoff):
+  Old Muse 47279 exited after /exit; no worker/build was killed.
+  Start a NEW session, NOT resume 01a100f0 or load its 185 MB log.
+  This is a verified handoff checkpoint, NOT a clean/green merged
+  worktree. Dirty source/index states below must remain intact.
+  Full HEADs:
+    root: 4b4cbef5ffbf9ca5fc6dff913985a1318a4a6342
+    w-boot-gaps: 4e512ff0a62e2c6c1e818e5cce712fad2c9e62de
+    w-upload-cardsbase: 11240490594b6e3096dda0e95957ef23edaebd7b
+    w-actual-boot: e0965300d5089c672b11b7cdeb18334371ccc47a
+    w-final7295 / final-candidate:
+      7295ed27f97d91f26f6f0d37d97db8dc8d6f8f52
+    cards-handoff: 608c7f6b870c5fa11f7ddcb1bb21e0fbefef3f0a
+    w-upload-frame: 85dd9ecf32137865797376e910c563bd6ee0bb26
+  SHA256 of `git diff --binary HEAD` before host exit:
+    w-boot-gaps:
+      6780b3df0a89730b15361be21f261981baf1029c16a2668798cf2302ccd62d41
+    w-final7295 (includes the newly landed Notify Session port):
+      6ab0e859e412847e841ae4b0d692f94f65f65a0012b2a31074ddf638c47c804d
+  SHA256 of `git diff --cached --binary`:
+    root G3 index:
+      a5f4cf9226f4c0b28ed8a98a255bc6a879ea932ab1173623d738f02035a47404
+    w-final7295 index:
+      9611dfeba75e3a25a1ae3f0f517e0eeb1be44184a28d3e4a622f715843730420
+  All other named trees above are clean. Do not overwrite dirty
+  root/partial trees with whole donor files. Keep final's 22-field
+  Session, boxed media, cf/reg/theme, Search wgen, H5 atomic ceiling
+  refusal, negotiated CASEMAPPING and quiet PONG single ownership.
+  Scratch uses an older 17-field ABI: it is NOT a whole-file donor.
+  Continue the whole-codebase defect/style/DRY cleanup and feature
+  docket; use concurrent source-only implementation/review workers.
+  Main alone owns ONE heavy build/proof/native/PTY/Nix lane. Keep
+  receipts, distinguish wrapper success from inner exit, and make
+  no false-green claims. IO `--check-only` is a proof-verdict path,
+  not an elaboration gate; bounded backend emit is the right seam.
+  Physical Notify foundation is 20ccf1c plus 6e25c584/8d1e4ddd/
+  f8888d4 through 12a17ca47a360265496050675923a3559a2d3265; port
+  global physical ownership and exact completion, not just APIs.
+  Cards accepted complete owner/opt-out/compile-shape chain ends at
+  608c7f6; preserve both exact pre-IO scalar hoists from 3cc7e2d.
+  Preserve Upload's completed-warning/later physical F8 barrier and
+  fullscreen-consumed Escape; retain all returned loop owners.
+  Before closing: exact merged standard proof/check (PROOF_TIMEOUT
+  =600), native gates, changed PTY tests THREE consecutive passes
+  on ONE exact binary, then `nix build . --no-update-lock-file`
+  and cached-launch/installed-helper verification. Final build is
+  NOT qualified or hot-cached yet. Native emit and CC bounds remain
+  300 s each, runtime 60 s; do not widen or repeat unchanged stalls.
+  No push, pin/compiler/checker changes, destructive cleanup, real
+  Keychain/credentials, public uploads or private chat-URL fetching.
+  Prior fixture approvals are recorded above; do not ask again.
+  New existing-test expectation changes still need user approval.
+  Distinct pending expectation: cmd_around_stamp_prefixed needs
+  .000Z; earlier sub_fetch_before_stamp approval is not its approval.
+  ============ FRESH-MAIN CHECKPOINT 2026-10-04 ~17:05 UTC (sess 01a105df) ============
+  Bounds receipt ONLY; no whole-green. Boot124 unchanged retry still forbidden.
+  CMD (cwd=.muse/worktrees/w-actual-boot):
+    nix --extra-experimental-features 'nix-command flakes' develop --no-update-lock-file . --command timeout 60 python3 tests/net/actual_boot_guards.py --bounds
+  GUARDS: cap-fit=ok cap-overflow=ok timely-eof=ok quiet-no-eof=ok read-error=ok expired-ready-eof=ok bounds=ok
+  INNER_EXIT=0 (SystemExit(0); timeout60 not triggered) WRAPPER_EXIT=0
+  E096: HEAD e0965300d5089c672b11b7cdeb18334371ccc47a status-clean workdir-sha e3b0c442(empty)
+  DRIVER_BLOB: d475ee4ab675121270f46138a85f54ad8c7b5466 tests/net/actual_boot_guards.py
+  RECEIPT: /tmp/birc-fresh-main/bounds-actual-boot-receipt.log; sess log .../01a105df.../session.jsonl exec-199-1
+  SCRATCH112404: build/ws_upload_frame.c 24180357B sha4859c165..f0 present; 0B emit log present; CC/run held for post-source-review sole lane.
+  V PRE-APPLY BASELINE (w-final7295 workdir hash-object; hunk baseline re-hashed at apply time):
+    2f97469f LAWS.bend 0fd5cd00 PROOF.bend 74ace39b scripts/check-notify-followup.sh
+    f43894f3 actor.bend bea22441 drafts.bend c718e263 history_search.bend 431cbb0b history_search_io.bend
+    baecd9fe live_context.bend aa01ce7a net.bend dd7998cd notify.bend 5cf935d9 notify_io.bend
+    c3b4c2c3 session.bend e12155ff session_drafts.bend d766ba64 timui.bend 673c8cbba workspace.bend 8cd7fb24 wsnet.bend
+    733f548c src/ffi/timui_ffi.c; tests/bend: 5680a7fa history_wire2 92ace07d notify_attr_blocked 82d3f6df notify_binding_gates
+    2ac030b8 notify_followup_guards 2f655748 notify_full 34350068 notify_held 4c9da06e notify_held_blocked
+    0a88114f notify_history d6dfbc1d notify_order df58648a notify_runtime d5d84e76 session_drafts_demo
+    1474e317 sessws_s1s5_demo 6f2405a3 submit_demo 4c0040f4 workspace_demo 537f65f1 ws_upload_consent_gates 44cd97d2 wsnet_gates
+    (Makefile untouched in V; full 40-hex list in sess log exec-223-1)
+  OWNER/ORDER shared files serialize, no racing (Session shared by 1/2/3, wsnet by 1/2/4):
+    session.bend: 1 notify-owner, 2 cards-lease, 3 cm-nick-h5, 6 cleanup-dry last
+    wsnet.bend: 1 notify-owner, 2 cards-lease, 4 search-pong guard (serialize after 2 if same hunks)
+    net/actor.bend: 4 search-pong; client/drafts/session_drafts/workspace.bend: 3 cm-nick-h5
+    CLI/Makefile: 5 bounds-reg; notify*.bend + tests/bend/notify_*: 1; new tests: 3,4
+    Order: 1,2 then 4 then 3 then 5 then 6; 6 skips scopes1-5 hunks; conflict = winner+rebase note + reviewer re-check.
+  ============ INTEGRATED PIN 2026-10-04 (sess 01a105df) ============
+  CLOCK CORRECTION: controller-observed 2026-10-04 08:29:53 UTC (host clock verified 08:35:54 UTC same day); earlier "~19:30 UTC" struck, author never checked clock.
+  Base: w-final7295 workdir (7295ed2+diff 6ab0e859) isolated to /tmp/birc-fresh-main/snap22 (464 files, manifest f51c6dbd); applied serially 1,2,4,3,5,6 + BATCH guard.
+  Canonicals (each git-apply round-trips byte-identical; -p2):
+    scope1-notify dd127a35 (463+/142- net+wsnet; WsNotify owner, 63-thread, BATCH-archive claims fix, N-norm)
+    scope2-cards 2f61db70 (433+/173- net/wsnet/wsnet_gates; WsCardsAll, 115-thread+10-revert, ws_act replace, gates port)
+    scope4-search a14fec40 (w4: emit_spawns_search + law/proof, pure add)
+    scope3-cmnick 8502402f (689+/19-: NICK renames + 2 suites 179/338L + Make test-review-pure reg)
+    scope5-bounds 776c3acd (463+/1-: actual_boot_bounds.py slice + Make target standalone)
+    scope6-cleanup 10606e4a (52+/41-: 17/18 w6 incl rebased ws_keys_halted; wsnet@914 kept, 0 dropped)
+    scope7-batchguard 1f670e7f (169L notify_batch_archive.bend: BATCH->quiet->live +/- guard)
+  PIN-full fe985637 (17 files +2233/-311); manifest 8643ccb3 (sorted); full round-trip identical.
+  Dropped/superseded: w2 @469/@491 line_pick renames (defs deleted by w1, no dangling refs); nothing else.
+  Preserved: 22-field Session (0 ctor removals; 3 match-arm DRY uses of notify_scope_of), H5 history_search byte-identical, PONG 0 diff lines, caps/union untouched, LAWS/PROOF +only, CLAIM 16*1024, R2/j65/floor8/live9 pins (no fixture edits except wsnet_gates owner port + sidecar True API repair).
+  Remaining: agent review of pin; land to V after review; notify-test Make wiring (9 files incl new guard unregistered, consistent w/ siblings); full-driver-vs-slice decision (scope5); then proof600/check/native/PTY3/Nix. Runtime checks still held. Root index a5f4cf92 unchanged; V 6ab0e859/c3b4c2c3 untouched (all work in /tmp).
+  Fresh launch verified 2026-10-04 07:45 UTC:
+  session 01a105df-1ae3-7181-835b-90f49172fee5 (new, NOT resume),
+  pinned Muse 1.4.0-R4161.1; initial prompt directed to this short
+  checkpoint. New Main read it, checked worktrees and ran bend guide.
+  ============ PIN2 CHECKPOINT 2026-10-04 09:01:23 UTC (sess 01a105df) ============
+  TODO-ONLY update authorized this turn; root production files and root index
+  remain frozen and untouched. No runtime pass is claimed; source-only freeze.
+  fe985637 HELD/superseded by af3e9b15 (defects fixed post-pin: Sess.Session
+  self-refs at session.bend:3922/3926/3933, .go Pair/Quad vs triple/quint
+  mismatch at :3929; plus staged Cards/Notify ports absent from fe9856).
+  PIN2: patch af3e9b15b5ac652b744a3639ff822e94036ce81e27fa94bef1480290e328ed2c
+    manifest 4db1d2232ce3a165ddf87ba0c2512724e7049847d07249e2e1a9f0f7103040ba
+    (472 files; 24 patch files snap22->stage8; git-apply -p2 round-trips
+    byte-identical into chk-pin2, verified by diff -r; patch 351080B).
+  Paths: base /tmp/birc-fresh-main/snap22 (frozen); work /tmp/birc-fresh-main/integ;
+    frozen PIN2 tree /tmp/birc-fresh-main/stage8; patch /tmp/birc-fresh-main/
+    PIN2-full.canonical.patch; manifest /tmp/birc-fresh-main/PIN2.manifest.
+  Cards port (worker done, result_ready): 3 NEW files, staged byte-identical:
+    tests/bend/cards_owner_gates.bend (449L, 83 E.must), cards_physical_gates
+    (323L, 49 E.must), cards_handoff_native.bend (275L, 3-mode + ffi-retain
+    seam); donor-assertions preserved; got_on 25-arg arity verified vs integ.
+  Notify port (worker done, result_ready; donor w127-testfollowup 12a17ca +
+    f8888d4 chain, read-only): 4 modified + 1 new (326L notify_batch_busy,
+    50 asserts: busy/batch-quiet/erin-stage/stale-thread/exact-handoff/frank
+    + RED control). Merge: 3 files worker-version superset (identical Chunk
+    2-field fix + req-0 comment); batch_archive = Main floor-pin version +
+    worker comment; busy staged with Main projector fix (5th conjunct
+    List<String> -> List<D.NickRename> + drafts import; worker flagged it).
+  CLOCK CORRECTIONS (verified evidence, host ls zone is KST=UTC+9):
+    fresh-launch "07:45 UTC" was correct to the minute; exact session start
+    2026-10-04T07:44:29.961465Z (session.jsonl recorded_at 1791099869961465).
+    "~17:05 UTC" struck (KST wall clock mislabeled UTC): bounds receipt file
+    mtime 2026-10-04 07:59:35Z; fe9856 patch 08:29:28Z, manifest 08:29:59Z.
+    PIN2 patch+manifest mtime 2026-10-04 09:01:08Z; this stamp 09:01:23Z.
+  EXACT REMAINING GAPS (pre-qualification, Main-owned, source-only):
+    G1 same-chunk NICK +/- guards (NICK with BATCH +/- in one chunk).
+    G2 H5 full-state/nonempty-outs guards (LiveAcc iso/typing/plan/reg/split
+       unchanged on refusal; PING->PONG nonempty outs during refusal).
+    G3 BATCH fixture ABI/claim-floor repair + Make registration (archive f0 +
+       retained-claim test; busy/archive Make wiring).
+    G4 actual-driver bounds reuse (replace actual_boot_bounds.py duplicated
+       slice with reuse of tests/net/actual_boot_guards.py driver).
+    G5 two read-only reviewer verdicts on PIN2 (requested this turn).
+    G6 heavy qualification only after G1-G5: proof600/check/native/PTY3/Nix;
+       runtime acceptance stays separate. Boot124 unchanged retry forbidden.
+  ============ PIN3 CHECKPOINT 2026-10-04 09:21:14 UTC (sess 01a105df) ============
+  TODO-ONLY update; root production/index untouched. PIN2 superseded by PIN3
+  (WsShut fix + G1-G4 + Make seam + driver repoint absent from PIN2).
+  PIN3: patch ea8957f2ce0bfe26d784fcf2d7da480a937f3cbe7bf8b2eb5ca579c8c00b60e3
+    manifest 630635cbd6fd89b6c248a3eff97ccaeae3d31f50c11c63a478d802e39a85725f
+    (472 files; 24 patch files snap22->stage9; git-apply -p2 round-trips
+    byte-identical into chk-pin3; patch mtime 09:20:59Z, manifest 09:21:00Z).
+  Paths: frozen tree /tmp/birc-fresh-main/stage9; patch+manifest PIN3-*;
+    work /tmp/birc-fresh-main/integ (== stage9 at freeze).
+  Contains vs PIN2: WsShut decl restored (wsnet.bend:178); G1 18 asserts
+    (same-chunk NICK +/-); G2 21 asserts (seeded typing/reg, 5-state
+    refusal equality, exact PONG outs); G3 archive claim-export (2) + 6 Make
+    targets; handoff target donor-verbatim vs cards-handoff 608:751-756
+    (explicit .c emit+CC, timeout60 &&-chain; NIXRON typo caught pre-freeze);
+    ffi-retain split to its own separately-attributed target; G4 driver
+    vendored (tests/net/actual_boot_guards.py, file-sha256 8c9aa15d...3d8e26)
+    and bounds shim DROPPED (retired copy outside source; target runs the
+    actual driver direct; no assertion/bound changes).
+  PROVENANCE CORRECTION (verified read-only): d475ee4a is the git blob SHA1
+    and 8c9aa15d the file SHA256 of the SAME e096 driver bytes; no missing
+    blob. Main's open-item claim withdrawn; it lived only in the deleted
+    shim docstring and one report line, never in TODO.
+  Reviews: PIN2 NICK semantic SOURCE ACCEPT (per-line H5/reg/consume+CM,
+    ordered effects, 7-field LiveAcc/split rollback; no compile/runtime
+    claim); background pair 7 PASS (partial on plumbing only); Codex pair
+    pending user relay. G2/newMake/bounds-reuse need fresh frozen review:
+    this pin is the review target.
+  Next: Main sole-lane bounded targeted gates (nick, ceiling, batch-archive,
+    batch-busy, cards-owner, cards-physical, handoff-native, handoff-retain)
+    with inner receipts; merge-prep workers in owned snapshot (no jobs);
+    Main arbitrates. Full PROOF_TIMEOUT=600/check/native/PTY3/Nix only after
+    exact rootG3+22+allowners final source merges. Boot124 barred; no pin/
+    checker/deadline changes. NO PUSH AUTHORIZED (restated).
+  ============ PIN3 GATES RECEIPT 2026-10-04 ~09:23 UTC (sess 01a105df) ============
+  /tmp/birc-fresh-main/PIN3-gates.log: ALL EIGHT GATE-EXIT=2, not green.
+  Wrapper completed (~58 s driver success) is not a pass. Inner receipts in
+  gate-*.log. Inner2: (1) seven targets stop at irc.bend:401
+  parse_after_prefix.empty using proto_atom defined 250+ lines later (def
+  was :658); Bend 2 elaborates the forward ref as an unfilled law
+  ("expected: a filled definition ... observed: proto_atom"). Pre-existing:
+  frozen snap22 proto_demo fails identically; root G3 IRC already orders
+  helpers before caller. (2) cards_physical_gates.bend:202 bare `1n + n`
+  needs `(a + b : Nat)` (post-2.0.16 operator annotation).
+  Repairs (source-only, Main lane): (1) accepted reorder-only donor
+  7296b4669f2355a19cdb054bffff27c193d11cd4 (w-boot-gaps) applied byte-exact
+  to integ irc.bend (donor base == integ bytes 68c2fc43; post efa103e8;
+  pure 124-line move + 1 ws line; order is_c0_drop394/proto_atom515/
+  empty518). (2) physical:202 annotated, count-preserving; owner:207
+  already had it; scan found no other bare arithmetic ops in staged/new
+  tests. Rerun protocol: ONE characterization target
+  (test-draft-nick-rename) first to expose the next shared shape, all8
+  only after green; no unchanged repeat. PIN3 source delta review still
+  pending; no whole/runtime acceptance claimed.
+  ============ PIN3 NOTIFY/BATCH SOURCE ACCEPT (narrow, no runtime) ============
+  Frozen stage9 both BATCH fixtures accepted at source: exact 5-field
+  List<D.NickRename> ABI; real framed archive IDs + exact claimed export /
+  f0 retention / later prune; busy wrong-ticket -> wrong-origin -> exact
+  completion threads returned states correctly and excludes the archived
+  title. Two JS Make targets (bounded/standalone) and bounds-direct full
+  byte-exact e096 owner reuse accepted. Prior 12a strict physical-chain /
+  START / all9 assertions preserved (source-only). This is NOT global IO
+  runtime qualification. Recorded SEPARATELY from: remaining NEW H5/NICK
+  guard holds (H5 fullstate vacuity/plan-reg renders, NICK same-batch
+  collect rule, PING-skip vs producer outs) and current compile-shape
+  repairs (def-order/affinity/tuple-inference loop). Merge-prep workers
+  both completed; final G3+22 union arbitration follows the guard fix.
+  Full actualboot/frame/native/PTY3/Nix still pending. NO PUSH AUTHORIZED.
+  ============ UNION ARBITRATION 2026-10-04 ~09:45 UTC (sess 01a105df) ============
+  Both merge-prep workers done (source-only, no jobs); reports at
+  merge-prep/_union/ABI_LAW_REPORT.md (572L) + MAKE_TESTS_REPORT.md (935L).
+  Main arbitration: src/bend keeps PIN3 for all 73 files (root uniformly
+  behind: staged G3 content is wire laws + wire_style.bend, both already in
+  PIN3; all other root diffs are stale deletions/regressions incl. 17-field
+  Session, _cm removal, theme/Edits narrowing, N9/sorting removal, 25k
+  client/feature deletions). LAWS/PROOF take the additive +17 wire laws/
+  proofs (pure addition, deps verified). Tests/Makefile: g3 block (2
+  targets + gate deps) transplanted; g3_traversal = PIN3 + root closing
+  guards (pure addition); g3_framed added (+C3 PIN3-raw alignment); C1
+  wire_style whole-file split (PIN3 26-line registration stub kept at
+  path; root 203-line view test transplanted as wire_style_view.bend +
+  standalone target + token rename, assertions verbatim); C2b/C3
+  sanitize-vs-raw decided PIN3-raw coherent (feed keeps bytes, proto_atom
+  seam normalizes at registration); C4/C5 informational keep PIN3.
+  Union assembled at /tmp/birc-fresh-main/union (= integ + exactly LAWS,
+  PROOF, Makefile, g3_framed, g3_traversal, wire_style_view); integ frozen
+  as the PIN3+ record. Post-PIN3 Main fixes carried by rebase (irc donor
+  hoist, drafts reorder, notify sort-restore, session affinity + observed
+  pieces, physical annotation, G1/G2 rewrites, handoff verbatim, bounds
+  direct). Root G3 ground truth adopted for compile shapes: zero flat
+  3+ tuple patterns anywhere in root src (nested pairs only); the 7295
+  lineage flat patterns never compiled under the pinned checker. Next:
+  migrate union gate closure to nested pairs, then one-target gates.
+  NO PUSH AUTHORIZED (restated).
+  ============ UNION CEILING TRACE 2026-10-04 ~10:40 UTC (sess 01a105df) ============
+  TODO-ONLY update; root production/index untouched. PIN3 HELD (frozen
+  stage9 + PIN3-full.canonical.patch ea8957f2 + PIN3.manifest unchanged;
+  PIN3 gates receipt ALL-EIGHT-EXIT-2 stands). One-target union probes
+  only (Main remains sole heavy lane); NO ALL-GREEN / NO PUSH claim.
+  Union tree (excl build): db9af9354693cb908b894bcb64316cefee2522c9
+  d164f6e3e6d93c8bbb644c74. Changed files: history_search.bend
+  ae857516b942cbcd2934da84d4420aa92c87bf9d73c3843252848c52cafec810;
+  history_ceiling_drain.bend c7c36aa4a90f37e64080095aef57aebc2d29a
+  1369f1696990d13ee8fa33b4e42. Union vs stage9: 6 src/bend files
+  differ; tests differ: cards_physical_gates, draft_nick_rename,
+  g3_traversal, history_ceiling_drain (+g3_framed, +wire_style_view).
+  Inner outcomes (make test-history-ceiling-drain in union):
+  ugate1-2 exit2 (+rest affinity/Data notes, session ~3893);
+  ugate3-4 exit2 (caret line 131); ugate5-6 exit2 (carets 247/250);
+  ugate7 exit2 (caret 396); ugate8 exit2 (C-guard line 591 shape);
+  ugate9 exit2 (paren at 592-593); ugate10 exit2 (undefined
+  archived_now at 593); ugate11 exit2 RUNTIME s replay quiet seq
+  got=[3] want=[2]; ugate12 exit2 RUNTIME seed split on;
+  ugate13 exit0 history_ceiling_drain=ok. Logs: /tmp/birc-fresh-main/
+  ugate{N}-ceiling.log N=1..13.
+  H5 guard correction (production, retained contract): duplicate/
+  stray server BATCH closes fell through hist batch interception to
+  live Feed and logged "BATCH -abc" trace rows to server buffer
+  (+1 log_seq each), failing OLD PIN3 asserts s replay quiet seq /
+  s stray minus seq kept (stage9 ceiling lines 374-375,384-385).
+  Fix in union history_search.bend only: batch_suppressed now also
+  swallows BATCH-protocol command lines (new batch_protocol.parsed
+  helper); tagged-archive claim path untouched; no law constrains
+  the suppress predicate (zero LAWS.bend hits); no old test expects
+  BATCH lines as visible feed. Paired probes showed roomy seq=2 vs
+  replay seq=3 with identical #a texts pre-fix; post-fix replay
+  server empty, stray seq=1=armed=base+0.
+  H5 seed correction (fixture, NOT production): integ split_keys
+  "/vsplit #a" can never seed split-on: active buffer is #a and
+  Sp.activate refuses same-as-active in ALL of stage9/integ/union
+  (split.bend byte-identical everywhere), so the integ assert was
+  self-inconsistent. Fixture corrected to "/vsplit server" + paired
+  control assert "seed split refuses active" (self-target stays
+  off); retained refusal policy and error string preserved.
+  C-guard (new H5/NICK) corrections this session: removed stray
+  Nat.show around seq_is (String-typed), fixed paren balance at
+  590/592/598, archived_now -> retained archived helper. zzprobe
+  diagnostic RETIRED from union/tests/bend (never in maintained
+  source); marker /tmp/birc-fresh-main/zzprobe-retired.txt. Next:
+  remaining union one-target gates, then bounded gate set; freeze
+  next pin only after green. NO PUSH AUTHORIZED (restated).
+  ============ UCHK1 REVIEW CHECKPOINT 2026-10-04 ~10:55 UTC (sess 01a105df) ====
+  TODO-ONLY update; root production/index untouched. NOT A PIN (no pin/
+  push/deadline changes): stable read-only snapshot for parallel source
+  review while union gates continue in the Main sole lane.
+  PROVENANCE CORRECTION: the ceiling guards (replay/stray quiet seq,
+  seed split/typing/caps/iso/plan, join/ping C-guards) are NEW worker-
+  authored tests (PIN3-stage9 + integ), NOT old root/baseline contracts.
+  The prior trace entry's "OLD PIN3 asserts" phrasing is withdrawn. The
+  batch_suppressed extension (batch_protocol.parsed swallowing unmatched
+  BATCH-protocol lines) is therefore a PRODUCTION BEHAVIOR DELTA, not a
+  retained-contract implementation. It needs explicit source review plus
+  meaningful +/- coverage before acceptance: matched open/collect/close,
+  duplicate close, stray close, malformed BATCH (bad arity, non-server
+  prefix, chat-body "BATCH"), and unrelated live-control preservation
+  (PING/PONG flow, unknown numerics still traced, no unread/bell drift);
+  no legacy assert weakening. That +/- work is pending in the sole lane.
+  Contents: green-ceiling union source + G3 merge transplants + nested-
+  pair/affinity compile-shape fixes + H5 batch_suppressed policy delta
+  + split_keys fixture correction with paired refusal assert.
+  Snapshot: /tmp/birc-fresh-main/chk-union1 (504 files, read-only).
+  Manifest UCHK1.manifest sha256 c0dbdd615c5369333fe0d3b434b63c947
+  3ae6626e7ef7ea0b7ef1158489e1753 (round-trip sha256sum -c: all OK).
+  Canonical patch UCHK1-full.canonical.patch (stage9 -> chk-union1,
+  git-diff format, 15 files: LAWS, PROOF, Makefile, drafts,
+  history_search, irc, notify, session, workspace,
+  cards_physical_gates, draft_nick_rename, +g3_framed,
+  g3_traversal, history_ceiling_drain, +wire_style_view) sha256
+  3f91770fc9f4e1cb2ac70417eb951e46558209be983e39ff4cb5c82e9f392ac8.
+  Union tree hash at freeze: db9af9354693cb908b894bcb64316cefee2522
+  c9d164f6e3e6d93c8bbb644c74 (excl build).
+  Ceiling runtime record (ONE target only): token
+  history_ceiling_drain=ok, inner bun exit 0 (ugate13). Full Bend
+  suite, native/FFI gates, PTY3, proof600, and Nix qualification all
+  still PENDING; no suite-wide claim. Next: draft-nick-rename one-
+  target gate, then remaining characterization gates + BATCH +/-.
+  NO PUSH AUTHORIZED (restated).
+  ============ UCHK2 POST-REVIEW REPAIR 2026-10-04 10:35 UTC (sess 01a105df) ==
+  TODO-ONLY update; root production/index untouched. NOT A PIN. Actual UTC
+  clock used throughout this entry (10:35 freeze, 10:38 write); prior two
+  entries' "~10:40/~10:55" labels were ahead of the real clock and are
+  corrected here (events occurred ~10:20-10:35 UTC).
+  UCHK1 FINITE REVIEWS COMPLETE: source shape/G3/laws additions ACCEPT
+  narrow (22 fields/boxes/per-line effects/outputs intact; no proof or
+  runtime claim). H5 batch_suppressed HOLD (blanket cmd==BATCH hid peer
+  opens, bad arity, nonsense; seq falsely quiet) forwarded and repaired
+  below. New-guard coverage PARTIAL at UCHK1 (live-overflow pair +
+  exact batch-state projections missing; now supplied by workers).
+  UCHK1 -> UCHK2 repair (sole lane): batch_suppressed constrained to
+  trusted server source + validated +/- ref/arity (batch_quiet.close_
+  shaped mirrors batch_open.bare word+64; valid opens reuse existing
+  batch_open.msg owner; +server threaded through hist_collect_step.
+  claimed/.done and hist_idle_step.opened; tagged-archive suppression
+  retained). 12 new Session/Workspace +/- asserts (peer/bad-arity/
+  nonsense traced seq+1 with #a unchanged; 001/CAP/JOIN/NICK live
+  controls flow). split_keys fixture correction + paired refusal
+  retained from UCHK1.
+  SOURCE-ONLY WORKERS (disjoint, chk-union1 base, no jobs, both DONE):
+  worker-A live-overflow pair (merge-prep/_union/uhk-live-overflow.md,
+  7999 B): allocating untagged 005 on seeded ASCII fullstate, seq=
+  ceiling-1 refuses with whole LiveAcc+split/iso/reg/plan/typing/split
+  rollback incl cm+cm_known (Iso.show omits it), seq=ceiling-2 admits
+  rfc1459 + one ID; 27 asserts. worker-B exact batch-state projections
+  (merge-prep/_union/uhk-batch-state.md, 6511 B): batch_tag_now/
+  ws_batch_tagIdle/Collect(ref,target)/Done; 14 !batch_done projections
+  replaced with strictly stronger exact-state pins; 5 new NICK/valid-
+  close asserts (wrong-ref stays collecting, live/arch NICK preserve,
+  nick-then-close carries ref). Integration: worker-A srv_texts fixed
+  to index-0 server buffer (Cl.buf_find.skip0 deliberately skips index
+  0, so named_buf("server") is always empty); all else verbatim.
+  UCHK2: /tmp/birc-fresh-main/chk-union2 (read-only), manifest d7b8d1e3
+  9e7098f2d9a65cd04eb6f3aaec6c874886ee87cf6b2e4bfb9d32f662, full
+  canonical patch (stage9->chk-union2) 228bcef9fd90312354e2a620cd58
+  1074873880212e913f09ea35270a4af049, incremental patch (chk-union1->
+  chk-union2, 4 files: history_search, net, wsnet, ceiling test)
+  3dc873d1f3e5b8141b4a33d0d6368912ba10baad82d38741fe890c5b5d2a5b3a.
+  Hashes independently verified by reviewer. UCHK2 early scoped SOURCE-
+  positive: narrowed owner rejects peer/bad-arity/nonsense, trusted
+  duplicate/stray quiet, server args threaded, Session/Workspace pairs
+  present, 005 +/- rollback-vs-fit present; final source hash/assert
+  review finishing. No physical/native/proof acceptance.
+  GATE OUTCOMES (sole lane, one target each): ceiling ugate14 exit2
+  (w_stray_minus forward ref, fixed by relocation); ugate15 exit0 token
+  history_ceiling_drain=ok inner bun exit 0 (constrained suppression +
+  12 +/- asserts); ugate16 exit0 same token inner 0 (+27 worker-A, 14
+  worker-B replacements, 5 N1-N5). draft-nick-rename ugate1 exit0 token
+  draft_nick_rename=ok inner 0 (first run). notify-batch-archive COMPILE
+  failures only, no runtime pass: ugate1 exit2 (net.bend on_msg_go
+  missing Sess.NotifyDone arm, fixed with drop arm matching sibling
+  completion events); ugate2 exit2 (wsnet ws_npart.find/drop mutual
+  recursion, fixed with rec-param pattern matching existing ws_cards.
+  find_pick); ugate3 exit2 (ws_notify.steal_* 5-def mutual cycle);
+  ugate4 same steal site; ugate5 exit2 (nested match order in new
+  steal_go walker, fixed left-to-right xs-then-d); ugate6 exit2
+  (owner_idle->owner_claimed forward chain, fixed by leaf-first
+  reorder, zero semantics); ugate7 exit2 (ws_keys_ticked.go triple
+  pattern inference, in progress). Logs: /tmp/birc-fresh-main/ugate*
+  Notify walker/owner repairs POSTDATE UCHK2 freeze and need their own
+  next-snapshot review. test-wire-style-view standalone must qualify/
+  register before any final check claim. Full suite/native/PTY3/proof
+  still pending. NO PUSH AUTHORIZED (restated).
+  ============ UCHK3 COMPILER+DM REPAIRS 2026-10-04 10:51 UTC (sess 01a105df) =
+  TODO-ONLY update; root production/index untouched. NOT A PIN. Post-
+  UCHK2 sole-lane compiler/shape repairs + archive/busy DM fixture
+  corrections + native recipe boundary fix, frozen for source review.
+  Contents (UCHK2->UCHK3, 4 files): (1) wsnet.bend: StealDecision two-
+  arm Continue/Handed decision type + nonrecursive steal_pick.* per-
+  Part helpers + single list-decreasing steal_go walker (xs first, d
+  second; left-to-right param matching) + steal_round wrapper, replacing
+  the 5-def steal mutual cycle with identical winner-lease/next/lazy-
+  tail semantics (reviewer proposal, Continue carries parts+next
+  directly so no binder match is needed); owner_claimed/owner_all leaf-
+  first reorder (zero semantics); ws_keys_ticked.go +halt->halt (pinned
+  checker rejects all-+ flat triple patterns; mixed/plain-last is the
+  accepted shape per ws_done:1350 precedent); ws_upload.url apply_keys
+  6th arg Sess.session_negotiated(st) mirroring net.bend:1123; ws_upload
+  erred/completed calls restored missing notify+cards args; ws_start.
+  boot block (2424-2463) moved before ws_start.keyed (pure reorder).
+  (2) notify_batch_archive.bend + notify_batch_busy.bend: RED/archive
+  fixtures rewritten from vacuous channel-mention (import always stamps
+  Cl.Msg, notify_is_mention needs Highlight/Action, channel is not DM)
+  to genuine archived DM (fetch alice, BATCH chathistory alice, alice
+  PRIVMSG me, title "alice (private);"); live bob/erin/frank #chan
+  mentions unchanged; zero production change; N9 rules and all strict
+  asserts preserved. (3) Makefile:882 handoff recipe explicitly sets
+  BIRC_CARDS=on for the three owned-fake-helper native positive modes
+  (handoff/wrong/quiet); global test% BIRC_CARDS?=off and production
+  opt-out/off guards untouched; ffi-retain recipe unchanged; no C or
+  backend edits (integration recipe boundary only). Prior 608 native
+  3-mode receipt stays scoped, not default-target proof.
+  UCHK3: /tmp/birc-fresh-main/chk-union3 (504 files, read-only), tree
+  02b481c0e2f678384df5b4376830d447724b775c92845ad14fa68778c6cb4cd,
+  manifest 0a17df4ce7e2418f5217f735ad90f92370a6b60a7f99cc6659fbba06
+  f27ec96a (round-trip all OK), full patch (stage9->chk-union3)
+  c4007d35ad7c07c872cb1f26d7f76b57568e08e48fd13bb9a9f847676fe83fe8,
+  incremental patch (chk-union2->chk-union3) 73ecc7c9b4ac1adeed823c5
+  e8b8444b1efbd5aed902abcdb8065afab9b64ff12.
+  EXACT INNER RECEIPTS: archive ugate8 exit2 (ws_upload.url apply_keys
+  arity, fixed); ugate9 exit2 (ws_upload erred/completed missing
+  notify+cards args, fixed); ugate10 exit2 (ws_start.boot forward ref,
+  fixed by block move); ugate11 exit2 RUNTIME red nil-claims admits
+  archive got=[] want=[alice in #chan;] (fixture vacuity, DM rewrite);
+  ugate12 exit0 token notify_batch_archive=ok inner bun exit 0.
+  busy ugate1 exit2 (comp_rel +released flat-pattern, fixed plain);
+  ugate2 exit2 RUNTIME same red vacuity; ugate3 exit0 token
+  notify_batch_busy=ok inner 0. Ceiling ugate16 + rename ugate1 greens
+  stand (unchanged since UCHK2). zzprobe2 retired from union/tests/bend
+  (never in maintained source). Workers C (uhk-laws-syntax.md,
+  mode_explicit_plus_contrast single-law restatement proposal) and D
+  (uhk-actualboot-port.md, 13796 B actual-boot fixture/Make/ABI prep)
+  DELIVERED; review/integration pending (actual-boot Bend fixture + ws_
+  start ABI + native target still absent; Boot-prefix emit stays pending
+  separate from first frame). Next: cards characterization gates, then
+  bounded suite. Full suite/native/PTY3/proof still pending; no suite-
+  wide claim. NO PUSH AUTHORIZED (restated).
+  ============ UCHK4 CARDS+LAW + REVIEW CATCH-UP 2026-10-04 11:15 UTC (01a105df)
+  TODO-ONLY update; root production/index untouched. NOT A PIN.
+  REVIEW CATCH-UP (all received, now recorded): UCHK2 finite SOURCE
+  ACCEPT for constrained BATCH + real 005/fullstate/cm_known/exact
+  history-batch guards, with limits: draft_nick_rename still
+  !batch_done states, one ceiling live 'idle' still !done, Workspace
+  control matrix narrower than Session (not new production fault).
+  UCHK3 finite SOURCE ACCEPT: lazy first-eligible StealDecision/next/
+  exact lease+jobs, genuine-DM nil-claim controls + wrong->exact/live/
+  floor assertions, upload notify/cards + negotiated arg, boot body
+  pure move, narrow 3-native-on recipe; no native/full-app proof.
+  Boot port proposal 6db9cbe8 SOURCE HOLD (3 faults: '<>' vs ++,
+  IO.die drops held Ui vs gate_timeout close, strict argv/mode/arity +
+  both preferences-none assertions removed); direction is smallest-
+  preserve original e096 fixture (abstract factories, 17-arg
+  ws_start.prepared already UCHK2-matching), adapt only demonstrated
+  ABI needs; driver bounds/lifetime sensors stay byte-exact e096.
+  Workers E (upload port prep) + F (strict-12a native Notify
+  compatibility map) spawned source-only on chk-union3; F DELIVERED
+  (uhk-notify12a-map.md 9806 B, pending review); E running. Worker C
+  laws proposal (mode_explicit_plus_contrast A&&!B==True restatement,
+  source-equivalence valid, not proof pass) APPLIED syntax-only to
+  union LAWS.bend:1473; actual proof pin review pending (proof600
+  still unrun).
+  CARDS GATES (sole lane): owner ugate1 exit0 token
+  cards_owner_gates=ok inner 0 (first run). physical: ugate1 exit2
+  (cand_ids mutual cycle), ugate2 exit2 (argv_text cycle), ugate3/4
+  exit2 (+takeA Sigma-pair not Data; diagnosed per accepted donor
+  precedent: bare-& pairs are linear Type — single-use lets drop +,
+  multi-use becomes consume-once inline recomputation / nullary defs;
+  NO policy/type/argument rewrite, spawn_ok calls+inputs preserved,
+  no hardcoded True), ugate5 exit2 (open_kept pair), ugate6 exit2
+  (<>Nil{} gen inference), ugate7 exit2 (WsCardsAll field inference;
+  parts0/cands2/allA/allB/lease57some nullary defs), ugate8 exit2
+  (+open_kept), ugate9 exit2 (argv List &1 vs &2), ugate10 exit2
+  (&1 linear list), ugate11 exit2 (argv_text.go arg order), ugate12
+  exit0 token cards_physical_gates=ok inner bun 0 (JS emit + bounded
+  golden; exact inner receipt confirmed in raw log). All prior
+  assertions preserved; only fixture shape/binding repairs, zero src
+  behavior change. handoff-native ugate1 exit2 C-backend "arity over
+  247" at emit (capture-words cap; sole heavy lane; emit/CC 300 +
+  runtime 60 UNCHANGED).
+  UCHK4: /tmp/birc-fresh-main/chk-union4 (504 files, read-only), tree
+  eea401ae097530226f641e1303358d82affb2ea8aa54b3bce4a41f1596ab6447,
+  manifest 6f808456b8333d20abe6a4ac0d7a07131ef2949f0af9e8892d722f8
+  cd68d3e98 (round-trip all OK), full patch d0efc9b5a3ad4ad053dd0be
+  5b4ea9e4e95ec14d5e0ba4a13ced86c9b0aa97d5f, incremental (UCHK3->
+  UCHK4, 2 files: LAWS.bend one-law syntax, cards_physical_gates
+  fixture shapes) 22939010460921eb8c0adffcfd3c8d9f7967725c4947d20
+  c26948940d334e067. Narrow source review only; does not replace
+  native receipts.
+  REGISTRATION LEDGER (union Makefile): check -> test(:1512) ->
+  test-review-pure -> members. IN test-review-pure (hence check):
+  draft-nick-rename, history-ceiling-drain, upload-{helper,policy,
+  session,io,dispatch,...}, g3-framed, g3-traversal (+ unrelated
+  members). STANDALONE targets (own rule + .PHONY, NOT in check):
+  cards-owner-gates, cards-physical-gates, cards-handoff-native,
+  cards-handoff-ffi-retain, notify-batch-archive, notify-batch-busy,
+  wire-style-view (qualify/register still pending per earlier note).
+  UNREGISTERED (no target, no caller): tests notify_followup_guards.
+  bend, notify_attr_blocked.bend; script check-notify-followup.sh.
+  Next: handoff 247-arity repair (sole heavy lane), ffi-retain,
+  consent, followup direct runs, G3 gates, then proof600 + integrated
+  checks/native/PTY3/Nix. No suite-green/push/deadline/pin/checker
+  changes. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (Main lane, UCHK4 == union verified, app.bend
+  37d9afc3722d4e05): App C-emit is a PRODUCTION defect, not
+  fixture-only: `bend src/bend/app.bend -o build/birc_bend.c` inner
+  exit 1, stderr exactly `Error: an arity over 247`, no artifact
+  (ugate4-app-emit.log). Backtrace adds no def name; check-only
+  shows only the expected foreign-proof verdict; JS emit stops at
+  expected auth_bridge no-.js-import. Fixture-boxing hypothesis
+  RETRACTED (ugate3 exit 2 unchanged); fixture restored
+  byte-identical to UCHK4. Bisect1 emit-only all inner 0:
+  ui_input_queue 642675B a5a702e50aab6188, deferred_actor 1653796B
+  f4c34a3f90b02761, demo_identity 9052113B 5a04ce0bc254e5a8.
+  Isolated-copy stub2 (got_on full stub, signature/owners kept,
+  probe-gotonstub.diff) STILL FAILS inner 1: bomb is OUTSIDE
+  got_on on current tree (differs from dc971 lineage where stub2
+  passed). Bisect2 (shutdown_flush/live_context_io/mss_stale_socket
+  emits) in flight, serialized. 3cc hoists confirmed present both
+  ws_media.job branches; no compiler/checker/pin/limit changes.
+  SOURCE ACCEPTS (prep/integration only, NOT App/native/physical
+  green): Boot uhk-actualboot-port.diff
+  ed7f2680acea95a91740cdef037443b8125478774a4fe5a70cd79edd63910ca5
+  (count-only repair +1366,13/+1502; fixture byte-exact e096;
+  17-arg ABI + exact 300/300/60 recipe); Notify
+  uhk-notify12a-makerecipe.diff
+  4d9002f9c940a469486c6ee6156a0182e1f8ebd78fe925d6fcb775407c3e2340
+  (context-space repair, 6/6+64/64; exact12a+separator bodies,
+  8 targets/9 fixtures, 5 pure prereqs + 3 standalone followups;
+  donor runtime bounds incl. 90, main18/no-release2 latches, fresh
+  d/unreleased/notify-send, SHUTDOWN_FFI_ALIASES kept; no new
+  numeric IDs/assertion edits). Both zero-fuzz dry-run clean on
+  scratch chk-union4 spans. Upload-binding diff delivered 80343B
+  952a5d06c468 (11 hunks OK, dry-run clean, driver
+  b64220282ac0e16e52408b7df71de1f1e78030a4/27833 exact); review
+  pending. Minimal Boot+Notify source integration released; apply
+  on freed lane BEFORE normal qualification. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (bisect2 exact): live_context_io emit inner 0
+  (12407398B 84382f304ca9091e); shutdown_flush inner 124 (300s
+  timeout, NO branch verdict); mss_stale_socket inner 1 on CHECK
+  (Sess.Chunk 2-field pattern vs 1-field case at :210), NO arity
+  verdict. Isolated stub2 (got_on full stub) inner 1: bomb OUTSIDE
+  got_on. Isolated MSS-only ABI repair/probe (Chunk +req x4,
+  cmd_show Pong/Search, local evts for ws_on_net/ws_emit) is
+  CHARACTERIZATION ONLY, never qualification/final migration;
+  probe4 in flight. Boot+Notify APPLIED source-only (patch -p1
+  --fuzz=0 clean): fixture 5159a9964495c86a matches extraction;
+  Makefile +test-actual-boot-guards/+test-notify-binding-gates;
+  union vs UCHK4 differs ONLY Makefile/TODO/new fixture (no
+  src/bend); in-tree driver 8c9aa15d78711663 == e096 exact.
+  Upload 952a5d06c468 HELD for two source-only verdicts (not
+  applied). UCHK5 after accepted Upload/application. App arity
+  repair still OPEN. Bounds unchanged (native 30/60/90, emit 300).
+  Union source preserved during active emits. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (UPLOAD SOURCE-RELEASE, both reviews accept):
+  stable complete diff SHA
+  952a5d06c468a20d3464cb194df73f4635e2d0afcec18c70351ca5badda39e22
+  verified firsthand. 11 hunks/5 files, 9 old anchors valid; new
+  394-line fixture fd98d6d... exactly D2, 667-line driver
+  b6422028... exactly D1; strict ledgers/START-release/raw-exit/
+  guardian-cleanup/assertions unchanged. Frame key/presentation
+  owner preserved: ONE fullscreen first, consumed-key skip, OLD
+  painted part post-completed-frame only, staged Confirm stays
+  unpresented, typed restoration, live Net.paint_session_cards
+  untouched, Notify/Cards lease args retained. APIs/changed-arity
+  callers fit incl. wsnet_gates restoreFalse, old expectations
+  untouched. Make exact D2 standalone/PHONY/preflight/
+  300-BUILD_TIMEOUT-120 bounds kept (Upload120 NOT forced to 60).
+  RELEASE: apply smallest diff AFTER probe4 receipt, then freeze
+  UCHK5 + verify exact integrated blobs. NOT native/App/PTY
+  qualification. Root edits this session: TODO.md appends ONLY;
+  all other worktree/index state pre-existing and untouched.
+  UPDATE 2026-10-04 (probe4 + UCHK5): mssprobe4 inner 124 (300s
+  timeout, empty log, NO verdict; characterization only, bounds
+  unchanged). Upload
+  952a5d06c468a20d3464cb194df73f4635e2d0afcec18c70351ca5badda39e22
+  APPLIED (patch -p1 --fuzz=0, 5 files clean) + UCHK5 FROZEN:
+  chk-union5 read-only 507 files; blobs fd98d6d8 (394-line D2
+  fixture), b6422028 (667-line/27833B D1 driver), 5159a9964495c86a
+  (boot fixture) verified in frozen tree; incr-uchk4 exactly 7
+  paths (4 modified + 3 new); full 24 files vs stage9; painter/
+  owner terms as released. Source only; NO native/App/PTY
+  qualification. App arity repair OPEN. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (UCHK5 pins, verified firsthand): manifest
+  83f46217f34ad2c24d1a6a90e3ec4db1e21e52183ac2aac902b38f3ca47eed2f;
+  incr-uchk4
+  fdd77b43fae67e6ea509cd9f4ddd99c01529abe1c0f143d8bf1c0d344874b92b;
+  full d6f4f421fc5d8f93c1da475b3d743c37335b294d5a820c05080420da97eafe81.
+  chk-union5 read-only 507 files (union now differs ONLY in TODO.md
+  trace lines appended post-freeze). Narrow applied-delta review
+  running read-only. Next: isolated ws_post stub probe (shape under
+  review; source prep only until verdict) + disjoint source-only
+  capture/ABI investigation. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (stubF3 exact, UCHK4 same-pin): isolated copy
+  probe-wspost4 (baseline verified identical), ONE-body diff:
+  `ws_post.skipped(...)` body -> `IO.pure(<existing 8-tuple
+  type>, (ui, new_ws, ctx, media, owner, ups, cards, False{}))`
+  (reviewer-confirmed prefs pattern; signature untouched; Ui once;
+  diff probe-wspost4.diff read back firsthand). Entrypoint
+  app.bend: inner **1** `Error: an arity over 247`, NO .c
+  (ugate4-stubf3.log) vs UCHK4 control inner 1. Valid same-pin
+  result: still fails with ws_post BODY replaced by pure return;
+  signature/caller continuations/other paths remain. Widths
+  ~108/~113 are tasked-heuristic ESTIMATES (List/Maybe opaque,
+  one-unfold AuthPhase), not compiler instrumentation; no
+  exclusion proof, no box rewrite. mss probe4 124: prior CHECK
+  faults source-adapted, timeout gives no phase/verdict. UCHK5
+  App control in flight (no inference until receipt). UCHK5
+  applied-source closure positive; finite final imminent.
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (UCHK5 App control MEASURED): entrypoint
+  app.bend on UCHK5 tree (app.bend 37d9afc3722d4e05, union ==
+  chk-union5 except TODO traces): inner **1** `Error: an arity
+  over 247`, NO .c (ugate5-app-emit.log). UCHK5 App failure is
+  now measured, not inferred. Next same-pin probe (router-body
+  stub) in source prep; emit held for shape review. NO PUSH
+  AUTHORIZED (restated).
+  UPDATE 2026-10-04 (UCHK5 SOURCE ACCEPT + router receipt):
+  finite accept: 6 implementation/Make files byte-exact union of
+  Boot/Notify/Upload artifacts + 53-line TODO trace only; 7 paths,
+  507 manifest entries match; full d6f4f421…, incr fdd77b43…,
+  manifest 83f46217… (all match Main records). NO native/App
+  qualification. Router probe (released shape 7d955e27…, one
+  ws_routed.msg body -> ws_drop tail, ONLY wsnet differs):
+  entrypoint app.bend inner **1** arity over 247, NO .c
+  (ugate4-routed.log; wrapper exit is not green). Precise: still
+  fails with router BODY replaced; signature/callers/other paths
+  remain. Locked-compiler read-only note (ns9 narHash-verified as
+  locked rev 7d8a3eb): trigger is a 248+-param SEGMENT or
+  encoded arity>255 (comp.ts:2927-2928); lay_of/fun_of auto-box
+  wide layouts (:1032,:1270); no dump flag (main.ts:240-263).
+  No compiler/checker/debug patch. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (MSS genuine migration, Main): inventory
+  fc6a60e3… verified; threaded real-evt WsEvts x4 through 72
+  signatures + 93 sites into rel/ws_emit x3; Chunk wildcard x4
+  (rm/FIFO kept); redacted Pong3/Search9 arms (6 strings kept);
+  recipe unchanged; NO probe stand-ins in union. check-only exit
+  1 expected-foreign-verdict only, zero type errors. Gate run
+  held (source-only). Binder worker got seg_open/emit_clo/
+  emit_fork precision (estimates only). NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (view excluded, framekeys prepped): binder
+  inventory 371145B demoted to DEFINITION/CALLSITE INDEX ONLY
+  (unit mismatch: 38 source binders vs 247 flattened segment
+  words; 'no scope near cap' REJECTED, not exclusion evidence;
+  no report-driven boxing). P-VIEW MEASURED: entrypoint
+  tests/bend/cards_view.bend on union @ UCHK5 + MSS migration +
+  TODO traces, inner **0**, 4806099B 0b6a5b37578732f9 (subset
+  ONLY: fixture has no _themed/paint_session_cards; excludes
+  neither all View nor proves frame loop sole region). Next
+  same-pin probe source-prepared on verified UCHK4 copy
+  (probe-framekeys, diff c085fd27a872e7b0 read back;
+  ws_frame.keys body -> ws_drop tail, signature untouched): EMIT
+  HELD for shape review (new: drops plain-Data keys).
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (framekeys CHECK + MSS accept): released
+  framekeys probe inner **1** on CHECK (use-before-def, ws_drop
+  at 1495 after use at 1473), NO arity verdict; tails must use
+  earlier defs or inline. Follow-up framekeys2 prepared
+  (ws_drop body inlined via ws_mkloop:1338, diff 4a7928cc8fcb1558
+  read back, ONLY wsnet differs): EMIT HELD for release. MSS
+  finite SOURCE ACCEPT: blob 867488629e9a5c24ed0e9ae3cb3d8e3d8ff56f5b
+  + 24 E.must + 6 strings + driver 61852d85 + Make a3f01e71 all
+  verified firsthand; source only, no native pass. NO PUSH
+  AUTHORIZED (restated).
+  UPDATE 2026-10-04 (v1 WITHDRAWN, v2 released+running): v1
+  release withdrawn (reviewer missed the dotted forward ref
+  ws_drop 1472->1495); Main's CHECK inner 1 stands as the exact
+  invalid-probe receipt, no arity verdict. V2 SOURCE-RELEASED
+  for one bounded UCHK4 same-pin characterization: diff
+  4a7928cc8fcb155887ddf08a226993544550e46f6b66f241e19a1e35e3161522
+  verified firsthand, ONLY wsnet differs, ws_mkloop:1338 before
+  use:1472, exact ws_drop body inlined. Emit in flight
+  (ugate4-framekeys2.log); receipt to follow. No production/
+  native/arity-fix claim until actual result. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (v2 RECEIPT): entrypoint app.bend on UCHK4
+  + framekeys2 body: inner **124** (300s timeout, 0-byte log,
+  NO artifact). NO phase/verdict: neither arity error nor check
+  error observed; timeout alone decides nothing. Same non-verdict
+  class as mss probe4/shutdown_flush emits. No bound change, no
+  retry, no claim. Next same-pin step awaits direction. NO PUSH
+  AUTHORIZED (restated).
+  UPDATE 2026-10-04 (inspector run 1 ABORT): timeout -k 10 290
+  run.sh (9c6524d4+3ffea00d), 13:46:30Z-13:47:19Z, exit 1, no
+  URL in 45s. Cause: BSD sed lacks \(a\|b\), PORT stayed empty
+  although ws://127.0.0.1:54591 was present (:0 works). Raw
+  receipt kept; port verified free post-trap. Fix (two -e,
+  extracts 54591 from raw log): run.sh
+  940c9609987a78e7f193d9ebddca340faeccf066f3657b425474da7a7d08cc56.
+  NO relaunch until re-released. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (inspector run 2 ABORT): f8dda046+3ffea00d,
+  13:50:27Z-13:51:01Z, exit 1. Listener verified (target 64435
+  on 127.0.0.1:55837); client 64557 failed rc=1 at fetch(/json)
+  non-OK, no CDP traffic. Raw receipt kept. Post-cleanup:
+  both PIDs gone, port free (verified). Cause wording: exact
+  port-expression failure (delimiter collision), not a general
+  BSD claim. Proposed: drop /json, validate advertised host/port
+  against verified values. Awaiting release, no claim. NO PUSH
+  AUTHORIZED (restated).
+  UPDATE 2026-10-04 (inspector HOLD): Bun embeds
+  InspectorCDPAdapter but /json+adapter need #nodeInspector mode
+  (run 2 lacked it); no launch until verified mode selector /
+  protocol mapping. No-discovery scripts f9495d70+1bd98abd stand
+  by unrun. No backend change, no claim. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (inspector run 3 ABORT): f9495d70+c5c6793d,
+  bun 5f4369ed6f53, 14:10:13Z-14:12:45Z, exit 1. Listener verified
+  (77676/127.0.0.1:59474); client attached, breakpoint set, zero
+  pauses in 150s while target printed known arity error. Durable
+  verdict: ZERO OBSERVED pauses / NO segment result (binding
+  unrecorded, not proved). Raw receipt kept; both PIDs gone,
+  port free. No fallback, no retry, no claim. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (binding run PARTIAL): 1e14efcd+cc2c2f20,
+  14:26:46Z-14:28:50Z, exit 0. Verified listener (17055/
+  127.0.0.1:61391). Receipt: exact locked comp.ts scriptId 35;
+  setBP id ok pending; ONE resolved at line 3115 (asked 2926);
+  source getter failed (no die line); 0 pauses; status PARTIAL,
+  noSegmentResult true. Banner-only target log = terminated at
+  window end, NO phase verdict (not 'mid-compile'). Cleanup
+  verified (PIDs gone, port free). Metadata-ready only; no
+  inference. HOLD: owner deciding paused-source vs
+  pause-on-exceptions route; no new jobs/implementation until
+  finite decision. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (exception run ABORT): f434401e+b1a0e77d
+  (hashes verified), 14:46:28Z-14:49:32Z, exit 1. Listener
+  verified (5837/127.0.0.1:64210); ordered acks ok; ZERO pauses
+  in 150s, empty JSON; banner-only target log, NO phase verdict.
+  NO exception/frame/metadata. Raw receipt kept; PIDs gone,
+  port free. Stopped; next check awaits direction. Prep landed:
+  gates-registration 7588B, handoff-creadiness 20370B (nothing
+  applied). NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (wire-style guard): exact recipe, make exit
+  2. Emit inner 0, no arity error (binary 1127984B
+  d819c6d8d145629a); runtime inner 1 on `typing strips style
+  nick got=[a lice] want=[alice]` (STX retained). RED on
+  behavior; stays standalone with the other 7 promotions held.
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (typing seam scoped greens): production
+  delta fd60cdbf0b0303bb (243 lines, 3 files, vs chk-union5)
+  accepted NARROWLY by both source reviewers; no
+  negotiated-CM or Workspace coverage claimed. test-typing:
+  make exit 0, token typing_demo=ok
+  (build/test-logs/golden.ofrJ1t); sources irc.bend
+  ccc220d2e9cddf08, typing.bend 7a0d3e4fa533352b,
+  typing_demo.bend 567eb4580d285754; binary build/typing_demo
+  0061c46036106bd5. Original red gate test-wire-style-view:
+  make exit 0, token wire_style_view=ok
+  (build/test-logs/golden.uXlwcG); fixture 47c7f8734dcaf699
+  unchanged; binary d4f0aa2a01c3f11b. Scoped greens only; the
+  extra U5 control below is NOT part of either verdict.
+  UPDATE 2026-10-04 (180s control NON-QUALIFYING): isolated
+  chk-union5 copy + repaired Irc/Typing, U5 typing_demo.bend
+  byte-identical (cmp clean); make test-typing inner timeout
+  180 bend -> Error 124, wall 3m3.506s. No artifact, no
+  behavior verdict, no phase cause stated. Compile-bound
+  timeout only; not a recipe qualification.
+  UPDATE 2026-10-04 (timeout600 attempt CANCELLED,
+  NON-QUALIFYING): inner bend recompile with lifted timeout
+  600 launched WITHOUT authorization; owner STOP executed via
+  tool-reported session cancellation (work outcome cancelled,
+  zero output bytes, no exit code, no artifact). No
+  wider-bound result exists or is claimed. No PID lineage was
+  recorded, so independent descendant-absence is UNQUALIFIED.
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (psrc run NO-FINDING): cmd `timeout -k 10
+  290 run.sh psrc.ts` (hashes verified pre-run: run.sh
+  a1d077ae..., psrc.ts 8703b48d...), START
+  2026-10-04T15:51:16Z, END 15:55:04Z, WRAPPER-EXIT 1.
+  Listener VERIFIED (target 30069 on 127.0.0.1:57960); client
+  30175 attached, setup acks ok, then NO locked-script
+  scriptParsed within shared 220s:
+  `PSRC-NO-FINDING: no-locked-script: budget exhausted`
+  (client.json empty, 52B err). Target log banner ONLY (no
+  arity line either way): terminated at window end, NO phase
+  verdict. NO metadata/source/eval. Raw receipt kept
+  (/tmp/birc-inspect/run-UWYvtNCL/). Post-cleanup absence
+  VERIFIED (both PIDs gone, port free); no cleanup
+  limitation. Stopped per release: no cause inference, no
+  unchanged rerun. DEBUG receipt only. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (psrc reordered run ABORT): cmd `timeout
+  -k 10 290 run.sh psrc.ts` (hashes verified pre-run: run.sh
+  a1d077ae..., psrc.ts 0bcf0273...), START
+  2026-10-04T16:07:36Z, END 16:07:49Z, WRAPPER-EXIT 1.
+  Listener VERIFIED (target 3919 on 127.0.0.1:59894); client
+  4037 attached, setup acks + exact script capture passed,
+  then `PSRC-ABORT: pause not acknowledged` (35B err,
+  client.json empty). Measured sequence differs from run6's
+  pre-init gate (past script wait here); no cause claimed.
+  Target log banner ONLY (no arity line either way). NO
+  pause/source/metadata/eval. Raw receipt kept
+  (/tmp/birc-inspect/run-PuFPrZfz/). Post-cleanup absence
+  VERIFIED (both PIDs gone, port free); no cleanup
+  limitation. Stopped per release: no inference, no
+  unchanged rerun. DEBUG receipt only. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (guardH typing TIMEOUT, no verdict):
+  `make test-typing` on released guardH bytes (delta
+  e27143e7... re-verified pre-run), START
+  2026-10-04T16:13:07Z, END 16:16:11Z, make exit 2. Inner
+  `timeout 180 bend tests/bend/typing_demo.bend -o
+  build/typing_demo` -> Error 124 (killed at bound, no
+  diagnostics; a type error would exit 1). No binary, no
+  golden, no behavior verdict. Load delta vs last green:
+  ~150 new staged session-builder lines; bound already
+  marginal (smaller U5 control timed out once at 180).
+  Sequence HALTED per release (workspace not run): no
+  timeout lift, no unchanged retry. Awaits direction. NO
+  PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (guardH typing diagnosis RETRACTION):
+  the prior entry's cause language is RETRACTED as
+  unmeasured: 'compile work scales with def count',
+  'variance plus added load crossed the bound', 'a type
+  error would exit 1' used as exclusion, and 'bound
+  marginal'. Line/def counts and pre-kill silence do not
+  identify phase/cause and do not rule out a later
+  type/linearity error. RETAINED measured facts only: inner
+  `timeout 180 bend ...` -> Error 124, no new artifact
+  emitted, no assertion executed. The old pre-guard binary
+  must NOT be run as new evidence. No wider bound, no
+  unchanged retry. Awaits direction. NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (psrc instrumented run ABORT): cmd
+  `timeout -k 10 290 run.sh psrc.ts` (hashes verified
+  pre-run: run.sh a1d077ae..., psrc.ts 5f2e28e5...), START
+  2026-10-04T16:38:36Z, END 16:38:52Z, WRAPPER-EXIT 1.
+  Listener VERIFIED (target 58373 on 127.0.0.1:63547);
+  client 58637 attached, setup + script capture passed.
+  Fixed pause-ack JSON: category timeout, protocolCode
+  null, closed/error false, pausedDelta/resumedDelta 0,
+  currentPaused false, elapsedMs 12515 (TOTAL client time),
+  remainingMs 207485; then `PSRC-ABORT: pause not
+  acknowledged`, client.json empty. Target banner ONLY, no
+  app.c. ZERO metadata: stop, no relaxation/retry. Raw
+  receipt kept (/tmp/birc-inspect/run-7DourUvF/).
+  Post-cleanup absence VERIFIED (both PIDs gone, port
+  free); no cleanup limitation. CHECKPOINT: union typing
+  repair fd60 accepted narrow; guardH e27143e7 applied,
+  typing gate 180-timeout unqualified, workspace unrun;
+  C-emit plan 7c97e915 pending source-only. App arity
+  STILL UNFIXED. Full proof600 / make check / native /
+  PTY3 same-binary / Nix qualification ALL STILL PENDING.
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (C-emit measurement FINDING, emitted-C
+  only): plan 64b11418 (wording-corrected release) executed
+  verbatim via file driver (direct `&` refused by harness;
+  all children waited in-command). FIXTURE guardH 165ace89
+  matched; flake.lock d205145c; nix 2.35.2; BEND_BIN
+  vp83vc93.../bin/bend; DRIVER pid 77062 pgid 77059; JOB
+  77910 reaped by wait, EMIT_EXIT=0, 16:55:11-16:56:08Z.
+  Fresh C: 15277710B, sha256 6810e004... in
+  /tmp/birc-typing-emit.LKO0kYVs/ (full raw recipe.log
+  kept). SCOPE: C codegen completed <170s on guardH bytes
+  ONLY. Native 180 timeout still unexplained; no
+  phase/cause claim; no native/assertion/App
+  qualification. Descendants NOT OBSERVED/unqualified per
+  plan. NEXT (chosen, needs release): bounded CC-only
+  compile of the emitted fresh C to bisect the remaining
+  post-codegen unknown; no prep/run until released. Full
+  proof600 / make check / native / PTY3 same-binary / Nix
+  STILL PENDING. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (C-emit driver-language RETRACTION):
+  'all children waited in-command' is RETRACTED as
+  overclaim. Measured facts only: JOB root reaped by
+  `wait`; lineage samples observed PIDs while running.
+  Descendant absence was NOT OBSERVED and is unqualified;
+  no full-census proof exists or is claimed. No other
+  receipt field changes. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (proof600 launch HELD on pins): Fresh2
+  readiness pins LAWS0367e98e/PROOF21035ce8/Makea3f01e71
+  match NEITHER union NOR chk-union5 NOR root blobs.
+  Measured: union == chk-union5 byte-identical on all three
+  (LAWS34464c85/PROOF609d6e2d/Make26ee1872); root differs
+  from both. Same-ness half holds; hash values
+  unreconciled. Proof gate NOT launched; awaits pin
+  reconciliation. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (pin HOLD correction -- algorithm
+  mix-up, no source mismatch): Fresh2's pins were Git blob
+  IDs (40 hex), compared against my SHA256 (64 hex).
+  Independently re-verified: `git hash-object` on union
+  LAWS.bend/PROOF.bend/Makefile = 0367e98e.../21035ce8.../
+  a3f01e71... EXACT match to Fresh2; sha256 =
+  34464c85.../609d6e2d.../26ee1872... as measured. Pin
+  hold WITHDRAWN on this ground; all pins labeled by
+  algorithm from here. Proof600 release revalidates on
+  these verified bytes. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (proof600 FAILS, stopped): `make -C
+  union proof PROOF_TIMEOUT=600`, START
+  2026-10-04T17:04:51Z, END 17:04:57Z, make exit 2. Inner
+  `timeout 600 bend PROOF.bend` -> "SOME PROOFS FAIL /
+  expected: a term (the keyword 'def' cannot head one) /
+  observed: 'def' / Location: 1717
+  `def Laws.typing_out_observed_sentinel():`". Measured:
+  PROOF.bend:1716
+  `def Laws.mode_ordinary_explicit_recallable():` carries
+  NO body term (all siblings carry `{==}`); the following
+  def fails to parse. Name present, body absent -- a
+  name-list match cannot catch this class. File is
+  byte-identical to chk-union5 (pre-existing; untouched by
+  typing/guard work). Diagnostics preserved in
+  /tmp/birc-fresh-main/proof600-run.log (11 lines).
+  Stopped per release: no edits, no weakening, no retry.
+  NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (proof600 rerun: semantic failure,
+  stopped): restored ONLY the missing `{==}` body under
+  PROOF.bend:1716 (diff vs U5 exactly +2 lines; LAWS.bend
+  untouched, all other bodies preserved; adjacency scan
+  found no other bodyless def). Rerun `make -C union proof
+  PROOF_TIMEOUT=600`, START 2026-10-04T17:07:42Z, END
+  17:07:53Z, make exit 2. Parse error gone; semantic
+  failure at law `rejected_welcome_preserves_live_state`
+  (LAWS.bend:63, sole call site): calls 4-arg
+  `live_step.registered`, but source (union == U5,
+  session.bend:3542) takes 5th `welcomed: Bool` ->
+  observed `@welcomed:Bool -> LiveAcc` vs expected
+  `LiveAcc`. Pre-existing U5 drift, not typing/guard
+  work. Diagnostics preserved in
+  /tmp/birc-fresh-main/proof600-run2.log (15 lines). CC
+  plan 555a0ef3 (anchored awk) saved, unrun. Stopped per
+  release: no law edits, no weakening, no retry. Awaits
+  direction. NO PUSH AUTHORIZED (restated).
+  UPDATE 2026-10-04 (proof600 run3: 600s timeout, no
+  verdict): changed-source rerun after welcomed migration
+  + restored body (NOT an unchanged retry). START
+  2026-10-04T17:11:00Z, END 17:21:13Z, make exit 2. Inner
+  `timeout 600 bend PROOF.bend` -> Error 124, killed at
+  bound with ZERO checker output (2-line log: command echo
+  + make error). No law verdict in either direction; no
+  phase/cause claim. Empty log preserved at
+  /tmp/birc-fresh-main/proof600-run3.log. Stopped per
+  release: no retry, no edits, no weakening. NO PUSH
+  AUTHORIZED (restated).
+  UPDATE 2026-10-04 (CC-link measurement: 170s timeout,
+  no artifact): plan 555a0ef3 executed verbatim via file
+  driver. Preflight passed: IN 6810e004 matched, BANGS0 +
+  zero-imports re-verified, CC = nix-store clang 21.1.8
+  (major gate passed), DRIVER pid 49876 pgid 49874. JOB
+  50997, START 17:22:19Z, END 17:25:09Z, CC_EXIT=124
+  (outer TERM at 170s), NO-CC-ARTIFACT. Resample showed
+  nix only (sample timing, not a finding). Full 25-line
+  raw log kept (/tmp/birc-typing-cc.gkK8KDci/). SCOPE: CC
+  step did not complete within 170s; sub-phase unknown,
+  no cause; binary never executed; no native/assertion/
+  App qualification. Descendants NOT OBSERVED per plan.
+  No retry (one run per release). NO PUSH AUTHORIZED
+  (restated).
+  UPDATE 2026-10-04 (CC scope wording correction): the 'CC
+  step did not complete' phrasing is CORRECTED. Measured
+  scope only: the Nix+CC envelope did not complete within
+  170s; the sample observed Nix only and actual CC admission
+  was NOT acknowledged. Do not assert the CC phase was
+  entered or slow. No other receipt field changes. NO PUSH
+  AUTHORIZED (restated).
+- App route-split control result (verbatim-pattern driver
+  /tmp/birc-app-control.recipe.sh, closed terminal receipt
+  2026-10-04): in-run preflight BASE-507-OK; entry raw-byte
+  SHA256:37d9afc3722d4e05a22d0ee1762aa9319793afa4847d
+  1075e6c3d5f7cbe5420b; flake.lock raw-byte SHA256:d2051
+  45c50d04c45865a3018dd1051d796a081b9e7ffb9b0e9037b9
+  67bb50d34; nix 2.35.2; BEND_BIN vp83vc93fd31ykls5x39
+  mjac3xjh08mw-bend/bin/bend; DRIVER pid 25027 pgid 250
+  24; JOB pid 28355; 17:44:26-17:47:01Z (~155s). Inner
+  EMIT_EXIT=1 (child's own failure; not 124/137 outer
+  kill). Bend emitted EXACTLY 'Error: an arity over 247'
+  (once) and NO C artifact. Resample observed nix only
+  (sample timing, no admission/causation claim). Descendants
+  NOT OBSERVED per plan. Plan sha256:6fb76ed592c6385e2e
+  816b776a695fa76bbf2b756ef00f021637520181bcff0f with
+  variant rule; control meets the gate text exactly (known
+  failure, no C) but SplitA is NOT released by this receipt
+  alone -- a separate review still gates it. One run per
+  release; no retry. NO PUSH AUTHORIZED (restated).
+- Control verification addendum (controller direct read
+  2026-10-04): recipe.log confirmed EMIT_EXIT=1, exact
+  'Error: an arity over 247', NO-EMIT-ARTIFACT, 17:44:26-
+  17:47:01Z. Correct owned IDs are driver25027/PGID25024,
+  JOB28355; worker prose mixed older CC IDs (corrected
+  here; both TODOs already held the correct IDs). Inner
+  chain sample at 17:46: timeout28359 -> Bun33044. The four
+  captured PIDs are now absent; that is a PID-absence
+  observation, not a full descendant census. NO PUSH
+  AUTHORIZED (restated).
+- SplitA variant result (released run, verbatim-envelope
+  driver /tmp/birc-app-splitA.recipe.sh raw-byte SHA256:87
+  1cd0aa6f2bd27e1c34f4e1f20211b9b1fb6453f1d05bf32d20
+  928ad2385e20, closed terminal receipt 2026-10-04):
+  preflight re-verified manifest raw-byte SHA256:56e2ddf5
+  17019951cf3e3533a6124fb7e5d3a7c95fbe26ab7b0e1470f43
+  8ed71 (507 OK, 0 FAILED); splitA entry raw-byte SHA256:
+  95b91bfef90fbaf0ea40d01f7ecf6b36e3d5fc99aa38ad500df
+  2758dd25e52f3; frozen diff raw-byte SHA256:18f0786a614
+  dd578ae3c4171f0d8e0e8d10c89a3db99ca4895b9622669c02b
+  bb; live diff -rq shows ONLY app.bend differs; union
+  entry still 37d9afc3 (preserved); in-run gates SPLITA-
+  506-OK + SPLITA-DIFF-MINIMAL-OK. Pins: flake.lock raw-
+  byte SHA256:d205145c50d04c45865a3018dd1051d796a081b9
+  e7ffb9b0e9037b967bb50d34, nix 2.35.2, BEND_BIN vp83vc93
+  fd31ykls5x39mjac3xjh08mw-bend/bin/bend. DRIVER pid 69725
+  pgid 69714; JOB pid 71051; 17:49:34-17:51:17Z (~103s).
+  Lineage: launch timeout->nix; resample inner timeout->
+  bun (sample timing only). Inner EMIT_EXIT=1 (child's own
+  failure; not 124/137). Bend emitted EXACTLY 'Error: an
+  arity over 247' (once) and NO C artifact. Descendants NOT
+  OBSERVED per plan. Receipt /tmp/birc-app-splitA.d1FRpQgU
+  (19-line raw log). Emit-only: no CC, no runtime; the
+  altered App never ran. Interpretation per release: the
+  variant FAILED, so neither route is exonerated (multiple
+  offenders remain possible); nothing about cause, width,
+  or any other route. One variant only; no retry, no
+  further branch jobs. NO PUSH AUTHORIZED (restated).
+- SplitA receipt acknowledgment (controller direct read
+  2026-10-04): /tmp/birc-app-splitA.d1FRpQgU/recipe.log
+  confirmed 17:49:34-17:51:17Z, EMIT_EXIT=1, exact 'Error:
+  an arity over 247', no C. Captured PIDs 69725/71051/
+  71054/71397 are now absent; that is a PID-absence
+  observation, not a full census. No unique-subsystem
+  inference; removed routes are NOT exonerated. Standing
+  prose correction: worker chat text mixed older CC-lane
+  IDs into control/SplitA summaries; owned receipts and
+  both TODOs hold the correct per-run IDs (control
+  driver25027/PGID25024/JOB28355, SplitA driver69725/
+  pgid69714/JOB71051). NO PUSH AUTHORIZED (restated).
+- SplitB complementary preparation (SOURCE-ONLY 2026-10-
+  04; NOT launched, no job): built from frozen BASE (not
+  from SplitA) at /tmp/birc-app-split/splitB. ONLY change
+  is app.bend line 77, the main_dispatch.servers False
+  branch body: 'WsNet.run_ws(...)' replaced by
+  'IO.pure(Unit, Unit{})' (one '-' plus one '+' line).
+  Retained byte-identical: signature/match/True75,
+  main_live43-44, run_demo14-15, all demo/replay branches,
+  all imports (WsNet import retained). Wire verified
+  affine-safe with only Data/primitive args (release
+  statement; recorded, not re-derived). SplitB entry raw-
+  byte SHA256:d3339fbb052a9286e515baab866d319dcb3c7f350
+  b37f04b22e13e8a01f02d7f; exact diff file splitB-
+  base.diff raw-byte SHA256:02c1af591ac8aefde327785a0ca
+  20c70ed5c472305afd17b4a4105b7a2a1e228; live diff -rq
+  shows ONLY app.bend differs; all other 506 files match
+  the frozen base manifest. Driver /tmp/birc-app-
+  splitB.recipe.sh raw-byte SHA256:a74649f041c7498833aa
+  7f4684e3995678e96c2f7192715040ba38d0c865c477 carries
+  a DO NOT LAUNCH header, is syntax-checked, and was NOT
+  run: same C-only hard300 envelope, fresh /tmp/birc-app-
+  splitB.XXXXXXXX receipt/app.c, no CC/runtime. Base
+  (37d9afc3), base manifest (56e2ddf5), union (37d9afc3)
+  re-verified unchanged; root untouched. No debugger/CC/
+  runtime jobs. The exact artifact awaits review before
+  any release. NO PUSH AUTHORIZED (restated).
+- SplitB variant result (released run of the literal
+  reviewed driver /tmp/birc-app-splitB.recipe.sh raw-byte
+  SHA256:a74649f041c7498833aa7f4684e3995678e96c2f71927
+  15040ba38d0c865c477, closed terminal receipt 2026-10-
+  04): pre-launch recheck matched driver/entry/diff pins;
+  in-run gates SPLITB-506-OK + SPLITB-DIFF-MINIMAL-OK;
+  entry raw-byte SHA256:d3339fbb052a9286e515baab866d31
+  9dcb3c7f350b37f04b22e13e8a01f02d7f. Pins: flake.lock
+  raw-byte SHA256:d205145c50d04c45865a3018dd1051d796a0
+  81b9e7ffb9b0e9037b967bb50d34, nix 2.35.2, BEND_BIN
+  vp83vc93fd31ykls5x39mjac3xjh08mw-bend/bin/bend. DRIVER
+  pid 54778 pgid 54771; JOB pid 63212; 17:56:26-17:58:36Z
+  (~130s). Lineage: launch timeout->nix; resample nix
+  only (sample timing, no admission/causation claim).
+  Inner EMIT_EXIT=1 (child's own failure; not 124/137).
+  Bend emitted EXACTLY 'Error: an arity over 247' (once)
+  and NO C artifact. Descendants NOT OBSERVED per plan.
+  Receipt /tmp/birc-app-splitB.mb1DETOp (18-line raw log).
+  Emit-only: no CC, no runtime; the altered App never ran.
+  The run wrote only the fresh receipt dir; union/root/
+  base untouched. Interpretation per release: the variant
+  FAILED, so remaining errors cannot be attributed
+  uniquely and the removed workspace route is NOT
+  exonerated; nothing about cause, width, or any other
+  route. One run per release; no retry. Stopped for a
+  source-supported next step; no other job released. NO
+  PUSH AUTHORIZED (restated).
+- Tool-display correction (recorded 2026-10-04, not
+  silently passed): the 'Recheck SplitB driver and pins'
+  tool call displayed failure because its FINAL command,
+  'diff -rq base splitB', exits 1 whenever differences
+  exist -- and the single EXPECTED app.bend difference
+  exists. All actual pin outputs in that call matched
+  (driver a74649f0, entry d3339fbb, diff file 02c1af59,
+  rq listing only app.bend). The failure display was
+  diff's difference-signaling exit code as the pipeline's
+  status, not a pin mismatch; the guarded run proceeded
+  on matched pins plus its own in-run gates. NO PUSH
+  AUTHORIZED (restated).
+- SplitB direct receipt acknowledgment (controller read
+  2026-10-04): /tmp/birc-app-splitB.mb1DETOp/recipe.log
+  confirmed EMIT_EXIT=1, same 'Error: an arity over 247',
+  NO-EMIT-ARTIFACT, 17:56:26-17:58:36Z. This does not
+  isolate Net or WsNet; no unique-subsystem inference, no
+  exoneration. NO PUSH AUTHORIZED (restated).
+- splitC/search-noop preparation (SOURCE-ONLY 2026-10-04;
+  NOT launched, no job): built from frozen BASE at
+  /tmp/birc-app-split/splitC. ONLY change is net.bend
+  search_spawn body (lines 258-261): the 3-line match body
+  replaced by 'IO.pure(Unit, Unit{})'; the signature line
+  is byte-identical and all callers are preserved
+  (net.bend:288 inside emit_cmd, wsnet.bend:328 via
+  Net.search_spawn; both files otherwise byte-identical).
+  Unlike the Ws-branch-only noop, both Search worker calls
+  stop here. Wire verified DiskQuery is Data and no
+  Ui/File/Conn enters this boundary (release statement;
+  recorded, not re-derived). splitC net.bend raw-byte
+  SHA256:eb5bda29f7d935fa85dd43db63d035ab8f42bab47fe39
+  3024d3bd34e55ad7030; exact diff file splitC-base.diff
+  raw-byte SHA256:38aa079c41da12d4d9b7b6e1854227219ec59
+  5004f50012d9d537a47138ec03a; live diff -rq shows ONLY
+  net.bend differs; all other 506 files match the frozen
+  base manifest. Driver /tmp/birc-app-splitC.recipe.sh
+  raw-byte SHA256:8efae8de5b858faa2517b1e6ac91515d61f60
+  1d564aae893b8e4ac75b53e507d (entry gate = base app pin
+  37d9afc3 plus NET_SHA gate, manifest-minus-net check,
+  minimal-diff check) carries a DO NOT LAUNCH header, is
+  syntax-checked, and was NOT run: borrowed C-only
+  hard300 envelope, fresh /tmp/birc-app-splitC.XXXXXXXX
+  receipt/app.c, no CC/runtime. This altered app must
+  never run because requests then receive no completion.
+  Base app/net (37d9afc3/8d221db2), union app (37d9afc3)
+  re-verified unchanged; root untouched. No retries,
+  debugger, CC, runtime, or width/cause claims. Job held
+  until artifact review. NO PUSH AUTHORIZED (restated).
+- splitC/search-noop result (released run of the corrected
+  literal driver /tmp/birc-app-splitC.recipe.sh raw-byte
+  SHA256:8b1f8095b98dfe7de6f48b2542ee71714eacc65f49082
+  fb6a9afd0c28684c87e, closed terminal receipt 2026-10-
+  04): the ONLY driver change from reviewed 8efae8de was
+  the cosmetic label line 15 ('app.bend excluded' ->
+  'net.bend excluded'); the actual filter already excluded
+  Net; syntax re-checked. Pre-launch recheck matched app
+  37d9afc3, net eb5bda29, diff 38aa079c, rq only net.bend;
+  in-run gates SPLITC-506-OK + SPLITC-DIFF-MINIMAL-OK.
+  Pins: flake.lock raw-byte SHA256:d205145c50d04c45865a
+  3018dd1051d796a081b9e7ffb9b0e9037b967bb50d34, nix
+  2.35.2, BEND_BIN vp83vc93fd31ykls5x39mjac3xjh08mw-
+  bend/bin/bend. DRIVER pid 7787 pgid 7785; JOB pid 8767;
+  18:03:12-18:05:02Z (~110s). Lineage: launch timeout->
+  nix; resample inner timeout->bun (sample timing, no
+  admission/causation claim). Inner EMIT_EXIT=1 (child's
+  own failure; not 124/137). Bend emitted EXACTLY 'Error:
+  an arity over 247' (once) and NO C artifact. Descendants
+  NOT OBSERVED per plan. Receipt /tmp/birc-app-splitC.OZd
+  1I3Iq (20-line raw log). Emit-only: no CC, no runtime;
+  the noop Search app never ran. The run wrote only the
+  fresh receipt dir; union/root/base untouched.
+  Interpretation per release: the shared-helper removal
+  did not change the outcome; this tests reachability
+  only -- no unique cause or width attribution, no
+  exoneration of any route. One run per release; no
+  retry; no further job released. NO PUSH AUTHORIZED
+  (restated).
+- Historical App-C baseline provenance (verified by direct
+  read 2026-10-04, source-only): /private/tmp/scratch_
+  emit_469c58f.log raw-byte SHA256:0f9936889d75618a99d6
+  e02682345b517b5fed431ae343bfd6fd2271b3f7eb9d shows
+  'timeout 300 bend src/bend/app.bend -o build/app.c' ->
+  EMIT_app=0 (lines 1-3); the same log shows
+  ws_upload_frame failing (SOME PROOFS FAIL, gate.tty
+  type error) plus handoff/owner emits 0. Retained
+  w-upload-cardsbase/build/app.c is 22721994B raw-byte
+  SHA256:f801e065a80f16e7966fbb6b0623aea3c1b12ad7917fd
+  8985297652d72feb132, matching TODO 6541-42. Commit
+  469c58f0ff757a2e8be7857d97e2e8d4640da273 carries App
+  Git blob a53495304a14491530ab2e995b066f28c0de82f8;
+  successor 11240490594b6e3096dda0e95957ef23edaebd7b
+  changes ONLY tests/bend/ws_upload_frame.bend. LIMITS:
+  genuine historical full-App C success; NOT current-22/
+  App runtime qualification; NOT an exact original frozen
+  whole-tree manifest. NO PUSH AUTHORIZED (restated).
+- Narrow old17->base ABI note (text-level, no old-source
+  compilation, no width/performance/cause claims): App
+  entry byte-identical (blob a5349530 both trees). App
+  import closure grew 63->72 modules; the delta is
+  EXACTLY the 9 new reachable modules (cap_notify 159
+  defs; cards_view 2; dns_query 10; emoji 1;
+  history_search 339; history_search_io 32; isupport 238;
+  session_cards 48; theme 17). Only view_laws changed
+  outside the closure; 28 closure modules byte-identical
+  (app args auth_bridge base64 cards channel_policy
+  client_laws clock_fmt columns diagnostic dns_wire
+  endpoint history_startup history_startup_io ipv6
+  message_chunks preferences_io preferences_worker
+  server_key startup_headless timui tls transport
+  transport_policy upload upload_io utc_time wire_style).
+  Import edges: all additive except drafts dropping
+  message_chunks; new modules attach at auth client
+  cards_net dns links net join_plan session
+  session_drafts submit view view_hint preferences
+  preferences_runtime workspace; pre-existing modules
+  newly reached: clock frame cards wire_style ipv6
+  server_key notify notify_io cards_net. Native boundary:
+  Bend adds clock net_trace, dns UDP.bind6, and
+  history_search_io search_scan/open_private (3 sites);
+  C adds clock_ffi +3 fns, dns_ffi +2 fns, tls_ffi fn-set
+  unchanged, timui.h +timui_uri_admitted (C-internal;
+  timui.bend unchanged), new history_search FFI pair.
+  Signature-changed defs: 124 across session 37 dns 26
+  actor 20 wsnet 14 workspace 8 client 6 net 5 links 2
+  media 2 view 2 drafts 1 submit 1; removed defs 61
+  (wsnet 15 session 14 drafts 13 client 12 join_plan 3
+  others 4); type-header diffs in actor wsnet drafts irc
+  links session workspace. Preserved-22 owners
+  (Session/boxes/Theme/Card/Notify) mapped only, no
+  revert proposed; cards.bend itself unchanged. Method:
+  OLD17 tree extracted read-only from git archive; rq +
+  def-block signature/body comparison. NO PUSH AUTHORIZED
+  (restated).
+- splitD/shared-painter preparation (SOURCE-ONLY 2026-10-
+  04; NOT launched, no job): built from frozen BASE at
+  /tmp/birc-app-split/splitD. ONLY change is net.bend
+  paint_go.hint body (lines 193-197, 5 lines) replaced by
+  'T.Timui.frame(ui, Nil{}, "", 0)'; full signature
+  177-192 byte-identical; all callers/state/lease/
+  completion/admission owners untouched (paint_go:200,
+  paint_session.hint:206, paint_session_cards.hint:219
+  delegate through the hint; Timui.frame declared
+  timui.bend:66, native). Source-observable for review:
+  the new body references only ui; all other params
+  (including non-+ size/split/hint) unreferenced -- no
+  verdict, review decides. NOT a global View prune:
+  Session admission, Cards visibility, session_paint_vm,
+  DrawOp/native frame, caller continuations remain.
+  splitD net.bend raw-byte SHA256:d440a4c5c058875f9d5f
+  67819b6438c794faab4980a743a956a121264631affc; exact
+  diff splitD-base.diff raw-byte SHA256:8b57f853824a3e9
+  8c1472bbf77d49489bcc9e56111ba7f3c8fda5782dbfbda5b;
+  live diff -rq shows ONLY net.bend differs; all other
+  506 match frozen base. Driver /tmp/birc-app-splitD.
+  recipe.sh raw-byte SHA256:d2d5a81cb64bf23eff4ee7d61e
+  6aac31228adb13e81c8d4fdc775ef4dc6d4a10 (base app pin +
+  NET_SHA gate, manifest-minus-net, minimal-diff) carries
+  DO NOT LAUNCH, syntax-checked, NOT run: borrowed C-only
+  hard300, fresh /tmp/birc-app-splitD.XXXXXXXX/app.c, no
+  CC/runtime/debugger. NEVER run this blank-painter App.
+  Base app/net (37d9afc3/8d221db2) and union app
+  (37d9afc3) re-verified; root holds only TODO
+  checkpoints. SplitC restated: failed reachability test,
+  not exoneration. No width estimates, broad boxes,
+  compiler/pin/deadline changes. Job HELD for actual
+  artifact review. NO PUSH AUTHORIZED (restated).
+- splitD/shared-painter result (released run of the
+  literal reviewed driver /tmp/birc-app-splitD.recipe.sh
+  raw-byte SHA256:d2d5a81cb64bf23eff4ee7d61e6aac31228ad
+  b13e81c8d4fdc775ef4dc6d4a10, closed terminal receipt
+  2026-10-04): source-note checkpoint confirmed in both
+  TODOs before launch; pre-launch recheck matched
+  driver/net/diff pins; in-run gates SPLITD-506-OK +
+  SPLITD-DIFF-MINIMAL-OK; entry 37d9afc3, net d440a4c5.
+  Pins: flake.lock raw-byte SHA256:d205145c50d04c45865a
+  3018dd1051d796a081b9e7ffb9b0e9037b967bb50d34, nix
+  2.35.2, BEND_BIN vp83vc93fd31ykls5x39mjac3xjh08mw-
+  bend/bin/bend. DRIVER pid 65733 pgid 65731; JOB pid
+  66200; 18:17:25-18:20:16Z (~171s). Lineage: launch
+  timeout->nix; resample inner timeout->bun (sample
+  timing, no admission/causation claim). Inner EMIT_EXIT=1
+  (child's own failure; not 124/137). Bend emitted
+  EXACTLY 'Error: an arity over 247' (once) and NO C
+  artifact. Descendants NOT OBSERVED per plan. Receipt
+  /tmp/birc-app-splitD.7tGmo5gp (20-line raw log).
+  Emit-only: no CC, no runtime; the blank-painter app
+  never ran. The run wrote only the fresh receipt dir; no
+  production or root source changes (root holds only TODO
+  checkpoints). Interpretation per release: the variant
+  FAILED, so the painter is NOT exonerated (other View/
+  caller paths remain); nothing about a measured segment
+  or unique cause. One run per release; no retry; no
+  further job released. Stopped for the next source
+  decision. NO PUSH AUTHORIZED (restated).
+- HANDOVER (authority check 2026-10-04; HELD, not
+  completion or abandonment). Five same-text C-only App
+  receipts, all inner EMIT_EXIT=1 with EXACTLY 'Error: an
+  arity over 247' (once) and NO C artifact. Common pins:
+  flake.lock d205145c..., nix 2.35.2, BEND_BIN vp83vc93...
+  /bin/bend; base manifest 56e2ddf5 (507 files), base app
+  37d9afc3. Full per-run pins live in the receipts above;
+  compact index: control driver d5a29ec56760ecee333d2a39
+  119d2a1b6fa04b9786b4eb009348b9d2c33e8728 (entry
+  37d9afc3) 17:44:26-17:47:01Z driver25027/pgid25024/
+  JOB28355, /tmp/birc-app-control.ukby1neK (18 lines);
+  SplitA 871cd0aa... (app 95b91bfe, diff 18f0786a)
+  17:49:34-17:51:17Z driver69725/pgid69714/JOB71051,
+  /tmp/birc-app-splitA.d1FRpQgU (19 lines); SplitB
+  a74649f0... (app d3339fbb, diff 02c1af59) 17:56:26-
+  17:58:36Z driver54778/pgid54771/JOB63212, /tmp/birc-app-
+  splitB.mb1DETOp (18 lines); splitC 8b1f8095... (net
+  eb5bda29, diff 38aa079c; reviewed 8efae8de + label fix)
+  18:03:12-18:05:02Z driver7787/pgid7785/JOB8767,
+  /tmp/birc-app-splitC.OZd1I3Iq (20 lines); splitD
+  d2d5a81c... (net d440a4c5, diff 8b57f853) 18:17:25-
+  18:20:16Z driver65733/pgid65731/JOB66200, /tmp/birc-app-
+  splitD.7tGmo5gp (20 lines). No branch exonerated; no
+  offending segment measured. Offending segment/arity kind
+  and numeric width UNKNOWN: locked comp.ts2926-2928 fails
+  when EITHER entries.params.length>247 OR encoded
+  constructor/foreign arity>255, and the observed generic
+  diagnostic selects neither kind nor measures a value.
+  Historical OLD17 positive: scratch log
+  0f993688... EMIT_app=0, retained app.c 22721994B
+  f801e065... (TODO 6541-42), commit 469c58f / App blob
+  a5349530, successor 1124049 fixture-only; LIMIT: not
+  current-22/runtime qualification, not an exact original
+  whole-tree manifest. Preservation: union app 37d9afc3,
+  base app/net 37d9afc3/8d221db2 + manifest 56e2ddf5;
+  root holds only TODO checkpoints; all worktrees (incl.
+  w-upload-cardsbase @1124049), splits A-D, OLD17
+  extract, and five receipt dirs intact. proof600 run3:
+  600s timeout, no verdict. CC envelope: 170s timeout, no
+  artifact, no admission ack. HELD: no further ablation
+  chain, inspector retries, broad boxing,
+  compiler/checker/pin edits, or deadline lifts. Copied-
+  compiler width observation ESCALATED to parent; do NOT
+  prepare/apply/run without explicit new direction. Main
+  heavy lane idle; work list empty, no subagents, no
+  terminal jobs outstanding. Source-only proposals stay
+  read-only and infer no root cause. Remaining: standard
+  final/PTY3/Nix qualifications (make check, native,
+  PTY3, Nix app). NO PUSH AUTHORIZED (restated).
+- COMPDIAG approval + prep (user-approved this turn; original
+  full implementation remains active. PREPARED ONLY -- NOT
+  RUN). Approval: ONE temporary copied-compiler
+  names-and-widths-only diagnostic. Locked source
+  /nix/store/ns9rx4cn8vpd391ml8137d46ynb0cfz1-source;
+  orig bend2/comp.ts raw-byte SHA256:eee1bfd161a948d1fbe
+  2451526975bc44d237b60d6b469d740f9f702720e0bbb (verified).
+  Branch comp.ts2926-2928: 'ars' map + 'if
+  (entries.some(params.length>WIDE) || ars.some(n>255))'
+  + 'die("an arity over "+WIDE)'; WIDE=247 (line 141);
+  Seg{fid:string,def:Name,params:string[]}; Name=string;
+  die throws. Frozen copy /tmp/birc-compdiag/toolcopy
+  (read-only); copy comp.ts SHA256:620703cec26317040d6c
+  45c643a826f9f35dbdc93e4d832cfcf8d3ac1851d9cd; orig
+  manifest 1886 files SHA256:49485c6ca6aa5ef6fbb22324ce
+  1e4f281974ed6a246b8e6c3d90bdbeeb6106ed; copy manifest
+  1886 files SHA256:515ae44be2dd1806fac86972b42c4e3cdf60
+  f96e109b9194dcb336a366be899c; rq: ONLY bend2/comp.ts
+  differs; exact diff compdiag.diff SHA256:22db413739d1b
+  45c4e87da1fc2066584d991164a5423c7ebf348142fa5a3b824
+  (27-line pure insertion). Insertion strictly inside the
+  if-body before die: if/die lines byte-identical;
+  thresholds read (WIDE, 255), never changed; cid rows
+  use the EXISTING ars[i] (exact encoded arithmetic
+  retained, fractional values unrounded); only rows
+  satisfying the original failing thresholds print --
+  'seg <fid> <def> <params.length>' and 'cid <k> <raw>
+  <encoded>'; names sliced to 128 chars with control-char
+  sanitizing; 40-row cap with once-only '...' marker;
+  try/catch so a print failure cannot bypass die. Prints
+  no source, locals, param values, book, env,
+  credentials, or descriptions. Transpile-only 'bun
+  build' exit 0 (no execution, no App compile). Wrapper
+  bun-wrap.sh SHA256:4de22aa8c9afe69e6775d53c1ce56dff93
+  fdc64f5a0f92d2b44130a5df9192b0 (export lines identical
+  to stock bin/bend; only main.ts path redirected).
+  Driver /tmp/birc-compdiag.recipe.sh SHA256:5f8f73a1e5
+  8c8955f5d67af99d68464d5c3045fe532668f59b1801c2a26faa
+  83, syntax-checked, DO NOT LAUNCH, NOT run: same
+  base507 + entry src/bend/app.bend; gates for entry,
+  base manifest, toolcopy manifest, comp SHA, wrapper
+  SHA, pinned bun; outer290+k10/inner300; fresh
+  /tmp/birc-compdiag-run.XXXXXXXX/app.c; no CC/runtime.
+  Gate: read-only reviewers verify the exact artifact
+  before any run release. If metadata is informative, the
+  smallest production correction needs +/- guards and
+  same-frozen-candidate measurement with the UNMODIFIED
+  stock compiler before final proof600/check/native/
+  PTY3/Nix. If no metadata, report the actual blocker
+  with no expanded instrumentation or unchanged retry.
+  Installed compiler/checker/pins untouched; base app
+  37d9afc3 and locked comp.ts eee1bfd1 re-verified; root
+  dirty G3 preserved (only TODO checkpoints); all
+  worktrees/receipts intact; no push/destructive cleanup.
+  NO PUSH AUTHORIZED (restated).
+- COMPDIAG review + recipe fix (source-only 2026-10-04; NOT
+  RUN). Wire SOURCE ACCEPT: copied comp.ts 620703ce... and
+  diff 22db4137... are exactly 27 inserted metadata lines;
+  original arithmetic/condition/die intact. Fresh2 ONE tiny
+  recipe hold: MEASURE_DIR was fresh but TMPDIR unscoped,
+  so wrapper cache defaults used ambient stock cache. Fix
+  applied (approved scoped preparation, not a new user
+  gate): driver creates owned '$MEASURE_DIR/tmp' (REFUSE-
+  TMPDIR on failure) and runs the single copied-wrapper
+  invocation as 'env TMPDIR="$MEASURE_DIR/tmp" timeout
+  300 ...' after nix develop; wrapper exports, all bounds
+  (outer290+k10/inner300), and wrapper argv unchanged; one
+  DIAG_TMP receipt line added. Corrected driver raw-byte
+  SHA256:38f71aece420cf9fb09f9f9cf0d76e5377e618d4b6fa79f
+  85eb7f68f319f0c1d (supersedes 5f8f73a1), syntax-checked.
+  Wrapper 4de22aa8 and toolcopy comp.ts 620703ce verified
+  untouched. DO NOT RUN until Fresh2 verifies this exact
+  fix. No additional diagnostics or source changes. NO
+  PUSH AUTHORIZED (restated).
+- COMPDIAG result (root-released single run of exact
+  driver 38f71aece420cf9fb09f9f9cf0d76e5377e618d4b6fa79f
+  85eb7f68f319f0c1d, closed terminal receipt 2026-10-04):
+  preflight matched all pins; in-run gates DIAG-BASE-507-
+  OK + DIAG-TOOLCOPY-1886-OK; entry 37d9afc3, TOOLCOMP
+  620703ce, WRAPPER 4de22aa8, flake.lock d205145c..., nix
+  2.35.2, BUN_BIN ymp115cs.../bin/bun, DIAG_TMP under the
+  fresh receipt dir. DRIVER pid 22437 pgid 22431; JOB pid
+  22645; 23:12:50-23:15:58Z (~188s). Lineage: launch
+  timeout->nix; resample inner timeout->bun (sample
+  timing only). Inner EMIT_EXIT=1 (child's own failure;
+  not 124/137). Exact 'Error: an arity over 247' once;
+  NO C artifact. METADATA (informative, complete -- 40-
+  row cap not reached, no truncation marker): 16 seg
+  rows, 0 cid rows. session.step_keys.supplied$k4570 270;
+  session_drafts.step_keys.route$k7252 258;
+  session_drafts.step_keys.route$k7253 274;
+  wsnet.ws_media_stage$k9926 253;
+  wsnet.ws_media_stage$k9927 254;
+  wsnet.ws_media_stage$k9928 359;
+  wsnet.ws_media_stage$k9933 361; net.live_step$k13285
+  257; wsnet.ws_recv$k14258 290; wsnet.ws_recv$k14274
+  282; wsnet.ws_recv$k14287 269; wsnet.ws_recv$k14296
+  283; wsnet.ws_recv$k14297 299; wsnet.ws_recv$k14301
+  285; wsnet.ws_recv$k14304 280; wsnet.ws_recv$k14305 281.
+  Failing kind is segment params.length (253-361) across
+  5 source defs; constructor/foreign kind has zero
+  failing rows. No cause claimed beyond observed rows.
+  Descendants NOT OBSERVED. Receipt /tmp/birc-compdiag-
+  run.GBt3oAIo (38-line raw log). Emit-only; scoped
+  TMPDIR kept bun cache inside the owned receipt; JOB
+  reaped by wait; stock compiler/checker/pins untouched.
+  Next per release: source-only parallel review for the
+  smallest production correction with +/- guards. NO PUSH
+  AUTHORIZED (restated).
+- COMPDIAG root verification + fix scope (2026-10-04):
+  root verified /private/tmp/birc-compdiag-run.GBt3oAIo/
+  recipe.log directly: 23:12:50-23:15:58Z, EMIT_EXIT=1, no
+  C, 16 seg rows / 0 cid / no truncation. Captured PIDs
+  22437/22645/22650/22779 now absent (not a full census).
+  Measured groups: session.step_keys.supplied 270;
+  session_drafts.step_keys.route 258/274;
+  wsnet.ws_media_stage 253/254/359/361; net.live_step 257;
+  wsnet.ws_recv 269-299 (8 rows). UNKNOWN-offender gap
+  CLOSED (failing kind = segment params.length); this is
+  not implementation qualification. Direction: continue
+  full fix scope with parallel disjoint source-only
+  corrections/guards for the five measured owners --
+  minimal capture/lifetime changes or existing boxing
+  patterns justified by the actual backend limit; no
+  speculative global rewrite, no new checker/threshold/
+  pin changes. Preserve 22 Session+boxes/theme, affine
+  Ui/Conn ownership, global Notify/Cards/media/uploads/
+  consent/archive/PONG invariants. Freeze the reviewed
+  corrected candidate and run the UNMODIFIED stock
+  compiler bounded300; final proof600/check/native/PTY3/
+  Nix still required. Instrumented-tool outputs are not
+  final qual. Root remains sole UI; C8 off. Normal scoped
+  production fixes need no new permission; new existing-
+  test expectation changes need recorded approval.
+  Controller handoff: drive_measured_fresh has sole pane
+  control; root/C8 send no UI prompts; Main keeps all
+  edits and the one heavy lane; no change to limits,
+  pins, laws, or approval scope. NO PUSH AUTHORIZED
+  (restated).
+- Measured-fix imports (2026-10-05, union production): supplied
+  pre-hoist session.bend 9c96d751 (matches root scratch) +
+  8 upload/supplied guards in upload_session.bend 3c980697
+  (additive only, old assertions intact); Net wait-cell
+  net.bend 58af5dfc (recv_wait List-box across Chan.recv,
+  Nil via owned shutdown_failed; Ui/affine g outside Data;
+  affine-drop verified legal via uses_close join lattice)
+  + new net_live_wait_cell.bend 94751a63 registered as
+  test-net-live-wait-cell in Make (pure payload guard,
+  unrun); media pre-IO hoist wsnet.bend 3e4d6899 (matches
+  root scratch, Fresh2-accepted; old_generation/old_after
+  Nat scalars replace st across job/jobs; ws2/evt/lease2
+  precomputed; None keeps lease; clear-then-spawn order
+  unchanged; sole-caller chain verified). Linearity
+  verified by reading for all hunks (affine 0-or-1: only
+  Many-without-+ fails). Pending: Fresh2 drafts-route
+  patch; Main WsRecv correction + remaining behavior
+  guards; then freeze + single stock emit. Fixture note:
+  cmd_around_stamp_prefixed migration NOT approved, do
+  not touch. NO PUSH AUTHORIZED (restated).
+- Fixture approval applied (user approved root question
+  call_4Y4CEmfKSl791lGE2XTkOWdM 'Approve this fixture
+  correction', 2026-10-05): union tests/bend/
+  history_search.bend lines 305-306 only --
+  cmd_around_stamp_prefixed input and expected wire
+  timestamp are now timestamp=2026-10-03T10:00:00.000Z,
+  plus a new cmd_around_stamp_prefixed_no_ms assertion
+  that bare-seconds timestamp=2026-10-03T10:00:00Z is
+  rejected. Every other input/assertion preserved. New
+  fixture SHA256:bd7cd66ccf9d405a55ac20e5e50a1324031aa25
+  7750a782b35e87184e6910cbc. No job run. NO PUSH
+  AUTHORIZED (restated).
+- Measured-fix checkpoint (2026-10-05 10:03Z): controller
+  drive_measured_fresh still solely owns Muse pane %4. Same
+  session survived request steering and transport failures;
+  no context restore. C8 scratch attempt failed during remote
+  compaction and returned NO patch. Root prepared scratch-only
+  supplied/media hunks; Fresh2 independently reviewed them and
+  prepared Net. Main alone imports into /tmp/birc-fresh-main/union.
+  INTEGRATED, root hash-verified: Session 9c96d751... (original
+  upload/presentation hoisted before supplied step), existing
+  upload_session fixture 3c980697... (eight additive guards,
+  every prior assertion unchanged), Net 58af5dfc... (recursive
+  singleton Session carrier held across Chan.recv, directly
+  parameter-matched after receive; affine Ui/message stay out).
+  Source review ONLY; these guards have not run. Media scratch
+  /tmp/birc-media-root.1F7bXyiP/wsnet.bend 3e4d6899... accepted:
+  old generation/log sequence hoisted before observation,
+  updated Workspace prepared before IO, exact None/Some leases
+  and clear-before-spawn preserved. Not imported at this check.
+  Drafts scratch assigned Fresh2; WsRecv stays Main-owned. No
+  second copied diagnostic, compiler/pin/threshold/deadline/law
+  changes, heavy verification job, or push. Stock full-App emit,
+  proof600, check, native gates, PTY3, and Nix remain unqualified.
+  Separate cmd_around_stamp_prefixed .000Z fixture correction
+  explicitly APPROVED by user on 2026-10-05: input and expected
+  wire line use .000Z; add bare-seconds rejection. Exact reply:
+  "Approve this fixture correction" (question call_4Y4CEmfKSl791lGE2XTkOWdM).
+  Prior assertions/inputs otherwise stay unchanged; hold closed.
+- Stock correction check (2026-10-05): the frozen ISO-cell
+  patch /tmp/birc-iso-freeze/session-iso-candidate.patch
+  2b2395b8... received root + Fresh2 finite source acceptance.
+  Session c02848bb..., Workspace 4fdac5be..., fixture dd980153...
+  preserve 22 fields and original semantics; source verdict ONLY.
+  Actual STOCK `make build/birc_bend.c` in the union ran
+  11:26:13-11:28:23Z (~130s), with the unchanged rule's
+  `timeout 300 bend src/bend/app.bend -o build/birc_bend.c`.
+  Bend exit 1, make exit 2: `Error: an arity over 247`;
+  NO C artifact. All 97 before/after input hashes identical
+  (manifest 742a3215be8747dd60c230f61c4bce50471deaec6d406726d444eda477eb7f8a).
+  Raw /tmp/birc-emit300/emit.log + RECEIPT.md retained.
+  The shared ISO box was NOT SUFFICIENT for full-App codegen.
+  Current remaining continuation names/count are UNKNOWN;
+  receipt's initial "four remaining owners/outside authorization"
+  claim is unsupported and was explicitly corrected to Main.
+  Next: retain ISO temporarily/unqualified; RELEASE reviewed
+  Drafts contingency 5ec0b4ab... for Main-only import with its
+  14 additive guards; Main owns WsRecv correction. Source-only
+  ISO guards a24df093... may import after finished run. No
+  unchanged stock retry or copied diagnostic run authorized.
+  A ONE-CONDITIONAL same names/widths diagnostic rerun was
+  ASKED, only if stock still fails after next targeted fixes;
+  user approval pending. Stock proof600/check/native/PTY3/Nix
+  still required; no gate/deadline/pin/law change or push.
+- Imported correction source review (2026-10-05 11:42Z):
+  Drafts r2 is now INTEGRATED and independently SOURCE ACCEPTED.
+  Production session_drafts.bend 216ddd0b96cec4fc6c89eae42120e69cf04cce06ef18e5c9df8bd3b618e02041;
+  additive fixture session_drafts_demo.bend 5fcb79e40239dcdfc3afc3ce5f9766ff5f6e72e22c3dc2551370913c67aa9478.
+  Stable imported bytes match released patch 5ec0b4ab...;
+  removing only 14 new guards restores the old fixture exactly.
+  Four actual route producers retain the ORIGINAL Session through
+  delegated calls; original error/endpoint/rollback and physical
+  upload consent remain intact. No fabricated Session on Nil:
+  fail closed with no wire output. Tests remain UNRUN.
+  ISO guards 60ed16ff... also integrated, unchanged old expectations,
+  UNRUN. Immutable import checkpoint: /tmp/birc-imports-freeze,
+  imports.patch 6eeb45e8366c1bd4b1f47ea343323023ce799f62049755f160c87e69d8399a65.
+  Main still owns the actual WsRecv correction and sole heavy lane;
+  Fresh2 prepares a source-only independent minimal-carrier proposal.
+  Media coverage gap stays OPEN: wsnet_gates checks pure lease/media
+  policy, NOT the changed ws_media_stage/jobs/job or clear-before-spawn
+  IO order. Add the smallest actual None/Some native characterization
+  with synthetic recording helper once the stock native path works.
+  Conditional diagnostic approval remains pending. No current width
+  success, final proof/check/native/PTY3/Nix qualification, or push.
+- Conditional diagnostic approval (2026-10-05): user explicitly
+  approved question call_avgPRips2MSRp8VHB3zwCr1r with
+  "Approve one conditional diagnostic run". ONE rerun of the SAME
+  reviewed names-and-widths logger is authorized ONLY if the next
+  STOCK full-App emit still fails after the Drafts/WsRecv corrections.
+  First freeze the corrected candidate and adapt/review only the
+  recipe's candidate-path/manifest preflight (old baseline507 is not
+  this candidate). Keep the reviewed compiler-copy/logger/wrapper,
+  bounds, output privacy, and ownership envelope unchanged. Installed
+  tools, compiler limits, pins, laws, and final stock verification stay
+  unchanged. This is not an immediate run or repeated-run approval.
+- Corrected WsRecv / STOCK#2 checkpoint (2026-10-05 UTC):
+  Actual WsNet d49407d4... is SOURCE ACCEPTED: exact original bell
+  scalar before post IO; full recursive WsLoop carrier across receive
+  and both routed clocks; Ui/message/continuation outside Data;
+  accurate Nil failure, no fabricated Session/lease. Frozen patch
+  /tmp/birc-wsrecv-freeze/wsrecv.patch 4bff33a1... . Additive bell
+  guard cdc0066e... and envelope guard 588c6e2f... preserve all old
+  expectations. Root caught/fixed the new guard's wrong LP namespace;
+  correct existing PrefLive.initial now used. Tests still UNRUN.
+  Auxiliary authoring/replay scripts are UNQUALIFIED records, not a
+  build gate; their repair detour was stopped. Actual next STOCK
+  `make build/birc_bend.c` ran 12:28:08-12:29:08Z (~60s): Bend1,
+  make2, generic `Error: an arity over 247`, NO C artifact. Raw
+  /tmp/birc-emit300-stock2/emit.log 49908fa9..., receipt 9528224f...;
+  all 100 before/after inputs identical, manifest
+  2557a2933b6d1675e75e24fadc3cfc05a1788e7e6af9282f517f789269e7a4f8.
+  Root checked current100 + reviewed-tool1886 hashes: both exit0.
+  Approved condition now satisfied. ONE diagnostic RELEASED to Main
+  via sole controller after read-only manifest freeze: prepared recipe
+  /tmp/birc-compdiag-next-review.r5oiREE0/recipe.sh 0cfb220c...,
+  exact stock2 before.SHA256SUMS plus above hash as its two arguments.
+  Original logger620703ce/wrapper4de22aa/bounds/privacy unchanged;
+  no further run/compiler/pin/limit/law change authorized. Candidate
+  imports held during measurement. No diagnostic result yet.
+  Fresh2 actual stamped/parked native +/- guards SOURCE ACCEPTED,
+  scratch /tmp/birc-carrier-native-review.GaRaWUAi/ws-carrier-native-r2.patch
+  0e078537... (new fixture + owned PTY driver, exact error/teardown,
+  metadata/lease retention, no spawned workers/network). Future Main
+  import only after measurement; compile/PTY3 still UNRUN. Actual
+  media-stage None/Some IO characterization stays OPEN. Final stock
+  proof600/check/native/PTY3/Nix/cache qualification and commits remain
+  pending. No push; root source/index changes remain protected.
+- Controller lease changed (2026-10-05 17:07Z): diagnostic release
+  had not reached the idle Muse pane. Root interrupted
+  drive_measured_fresh (status verified interrupted) and explicitly
+  revoked its UI/job authority. ROOT is now the sole pane %4 controller;
+  do not send UI input from drive/C8 until explicit handback. Main still
+  owns source integration and the one heavy lane. Root delivered the
+  exact approved conditional invocation directly; it was consumed
+  at 17:07Z. No Main build/worker was stopped and no diagnostic result
+  exists yet. Protected root source/index hashes remain unchanged.
+- Conditional diagnostic / STOCK#3 checkpoint (2026-10-05 UTC):
+  The one approved diagnostic was USED, 17:08:17-17:09:10Z.
+  Raw receipt /tmp/birc-compdiag-run.HSHFtFUw/recipe.log
+  1f711b7d... records EMIT_EXIT=1, no C artifact, and exactly three
+  over-wide continuations owned by ws_parked.recv (254/263/249).
+  The logger does not identify source branches or captured values.
+  No further copied-compiler run is authorized. Installed tools,
+  limits, pins, and stock final qualification remain unchanged.
+  Main applied a source-equivalent nested-pattern correction,
+  WsNet 4032e668..., parked.patch f8970f29... (+2/-4). STOCK#3
+  make build/birc_bend.c ran 17:14:14-17:15:09Z (~55s): Bend1,
+  make2, generic arity247 error, no C. Root checked raw output and
+  identical 100-input before/after manifests (5e7a0e01...). Receipt
+  /tmp/birc-emit300-stock3/RECEIPT.md (wording-corrected afc9dfdc...). The correction
+  is not sufficient; generic failure does not prove a source cause.
+  Fresh2's message-first r3 is SOURCE ACCEPTED: frozen patch
+  /tmp/birc-parked-branch-review.3LPgU0Dt/parked-branch-split-r3.patch
+  9df76dbb..., post-image c41b7d10..., exact None/head and routed-cell
+  retention, all four remaining handlers unchanged, one shared
+  missing-state shutdown. STOCK#4 on c41b7d10... failed after55s,
+  same generic arity247/noC, identical100inputs. Further SOURCE ACCEPTED
+  r4 (f64f82f0..., post4518675c...) matches received g before the
+  typed loop head, adapts two production calls, and preserves all Nil
+  behavior. STOCK#5 ran17:29:41-17:30:35Z (~54s), Bend1/make2,
+  generic arity247/noC, identical100inputs. Neither candidate is
+  sufficient; no new failure attribution. Production changes are held.
+  Root asked for one extra same-reviewed diagnostic (approval PENDING).
+  Seven-case actual native carrier guard87d81bc7... is SOURCE ACCEPTED,
+  UNRUN: adds network/tick positives and queued-message/Nil rejection,
+  preserving four old cases and exact error/terminal-restoration oracle.
+  Main imported the new fixture/driver/standalone Make target. First
+  scoped check17:35:13-17:35:17Z failed at a new constructor-binding
+  annotation, noC/binary/PTY. Raw /tmp/birc-carrier-test/run1.log.
+  SOURCE ACCEPTED combined correction7125f9f3... gives59003911...:
+  two explicit types and actual Some-ingress validation; seed values,
+  all assertions/seven cases/driver unchanged. Main applied exact5900
+  and ran bounded make test-ws-carrier-native run2 at17:39:52-17:40:02Z.
+  It failed with `the machine stack overflowed`, Bend1/make2; noC,
+  binary, orPTY. Identical76inputs; raw /tmp/birc-carrier-test2/run.log.
+  The global RangeError formatter does not identify compiler phase.
+  Carrier native qualification remains OPEN. New guards are not in check.
+  Four-case actual media IO guard166b06f7... is SOURCE ACCEPTED,
+  scratch /tmp/birc-media-stage-review.P8EiT9t8, fixtured6ad063b...
+  and driver180861fc..., standalone registration73b8b2f3... . Main
+  imported these new files/target. Run1 emitted C but failed native
+  compile for missing retained TimUI/DrawOp CIDs. SOURCE ACCEPTED
+  public frame-retention deltae2366bc3... gives60bb37be...; four real
+  cases/driver unchanged. Run2 emitted C and linked a native binary,
+  but its free case failed the exact output oracle. Controlled capture
+  /tmp/birc-media-diag/diag.raw.txt measured token LF LF. Pinned
+  effs/print.c appends LF; fixture also supplied LF. Main removed only
+  that duplicate (actual6e1ae1a8..., one-line diff root checked), driver
+  and assertions unchanged. Bounded rerun3 PASSED: make
+  test-ws-media-stage-native exit0; all four cases free/blocked/jobs-none/
+  jobs-some green with helper counts1/0/0/1. Root read raw
+  /tmp/birc-media-test3/run3.raw.txt and checked identical76inputs.
+  Actual binary213a0377...; this is scoped media state/lease/event
+  qualification, not fullApp/proof/Nix/PTY. It is a headless driver,
+  not a PTY test. App/codegen arity blocker and carrier checker stack
+  failure remain OPEN. Final gates and root integration remain pending.
+  Production app4518 remains frozen. It checks state/lease/event
+  ownership with a fake local helper; private clear effect and runtime
+  clear-before-spawn order remain explicitly unobserved/source-only.
+  Stock check-only carrier check also failed with stack text (~4.7s),
+  identical75inputs: /tmp/birc-check-carrier/check.raw.txt. No C/run.
+  Media native target is now registered in test-review-pure after its
+  four-case pass (Makefile b05e24f8..., only registration/help edits).
+  Exact definition-prefix diagnostics ran stock check-only in owned
+  /tmp/birc-carrier-prefix-snap, not union: imports-only and first13
+  return normal unsafe listings, full25 returns the stack error.
+  Raw /tmp/birc-carrier-prefix-run/prefix{00,13,25}.raw.txt; root
+  verified identical278inputs before/after. Later exact19/16/14 prefixes
+  also fail; root checked their identical before/after manifests.
+  First trigger is definition14 run_mode, not an identified cause or
+  native verdict. No C/CC/execution/toolcopy. Main saved a compact
+  checkpoint at union TODO's final CHECKPOINT 2026-10-05T18:18Z.
+  Root verified idle/no owned child jobs, stopped old Muse52283
+  (host reported its 2s shutdown timeout, then PID was gone), and
+  launched pinned fresh Muse6522 at18:21Z in the union, no resume.
+  It reads the compact checkpoint, not old conversation archives.
+  Fresh Main's A/B stock diagnostics show first3 selector arms check
+  normally, remaining4 stack; both two-arm C/D halves check normally.
+  Root read raws and verified identical before/after manifests in
+  /tmp/birc-carrier-branch-{ab,cd}-run. Combined-case sensitivity is
+  measured, not an identified compiler/handler cause. Source-accepted
+  selector-only fixture delta80bda9d6... (16+/8-, post152532c4...)
+  retains all seven calls, seeds, callbacks, assertions, driver, and
+  final unknown-mode error; two ordered selectors avoid the measured
+  large match. Main has release to apply and stock-check this new
+  fixture only, then conditional native check. Full stock check still
+  stacks (raw /tmp/birc-carrier-split-check/check.raw.txt, make2),
+  but exact selector prefix16 now completes checking with only the
+  normal unsafe/foreign list. Prefix17 adds unchanged run_case and
+  stacks again: /tmp/birc-carrier-split-def17-run/runQ.raw.txt.
+  Root verified identical before/after manifests. This proves narrower
+  checking progress, not a full fix or exact subexpression/cause.
+  Keep the selector split pending the remaining check; carrier is
+  UNQUALIFIED, not in check, no native/PTY run. Fresh Main saved final
+  compact CHECKPOINT 2026-10-05T18:49Z and is idle, with all further
+  jobs/experiments held. One additional same names/widths App diagnostic
+  needs the pending new approval; old conditional approval was used.
+  Fresh audit's four alleged defects were source-checked: direct jobs
+  characterization and CSI/queued-absence limits are scope notes;
+  Nil callbacks are intentional poison pills. The contrary claim was
+  retracted. No corresponding assertion changes or production edits.
+  Check-only validates every imported definition;
+  normal unsafe/foreign promise listings must not be mistaken for the
+  stack failure. No new checker/compiler instrumentation authorized.
+  Dead helper cleanupce17ee4a... (0+/17-, post94a28d5a...) is SOURCE
+  ACCEPTED but HELD: remove only unused ws_recv/ws_dispatch, retain
+  ws_routed and its upload-frame test; no width claim/import yet.
+  Root remains sole UI controller, Main sole writer/heavy
+  lane. Native guards/proof/check/PTY3/Nix/cache gates are still pending.
+
+- 2026-10-05T22:43Z continuation: the user's new `yes` approved one
+  additional run of the same reviewed App names-and-widths diagnostic.
+  This new approval is USED once; Main invoked recipe0cfb220c... against
+  the frozen 104-input manifest e9a47053... at
+  `/tmp/birc-compdiag-preflight/candidate-inputs.SHA256SUMS`.
+  Root checked every input and the 1886-file copied-tool manifest.
+  The run has locked Nix, unchanged limits, fresh output/TMPDIR, and
+  names/widths only. No further copied run is authorized. Main remains
+  the sole writer/heavy lane; two Root agents are doing source-only
+  parked-flow and carrier `run_case` reviews. Production stays frozen
+  until the raw result is reviewed. Full qualification remains pending.
+  Result: inner emit exit1, no C artifact, 47 s (22:42:43–22:43:30Z).
+  Raw `/tmp/birc-compdiag-run.xkArzN1Q/recipe.log` SHA f05b3092...
+  reports `ws_parked.recv` continuation widths 254/263/249. The triple
+  is unchanged from the previous diagnostic: the three source corrections
+  were not sufficient and did not reduce these measured widths. Root
+  rechecked all 104 candidate inputs. Do not attribute specific branches
+  from those names. Stock lowering may fuse a single-site tail callee;
+  an added helper name alone is not a guaranteed compilation boundary.
+  Two real-effect carrier candidates are source-reviewed, not yet fixed:
+  preserve the original loop cell across preferences hhmmss and redial
+  command emission. Main is preparing a finite patch for review.
+  Separately, the assertion-only carrier diagnostic d2361c2a... also
+  stacks (raw `/tmp/birc-carrier-case-preflight-run/runR.raw.txt`, SHA
+  e4efadbe...; identical before/after manifests). Ui/channel setup is
+  not needed to trigger this failure. Two one-assertion fragments are
+  prepared and released for sequential stock checks in the owned snapshot;
+  real guards, their two assertions, and all seven modes remain unchanged.
+  Subsequent controls also stack: trivial `E.must(..., True{})` and
+  open-loop assertion (`/tmp/birc-carrier-controls-run/runT{1,2}.raw.txt`),
+  with identical before/after manifests. This does NOT support a closed
+  seed-expression cause or assertion-helper extraction. Direct IO.pure
+  and single IO.pure-bind controls are the final released stock pair;
+  added-definition/do/E.must context remains unlocalized pending results.
+
+- 2026-10-05T23:05Z App candidate: Root and Drive source-accepted corrected
+  real-effect carrier patch4c94d654... (r1 had an illegal match inside do
+  and was never imported). Main imported only r2 via native Edit. Current
+  union WsNet SHA813b4358e345ed2c05a60f2cbb285606050f18ae2b39ab8d3ca882d510c1d3f2.
+  One unchanged stock `make build/birc_bend.c` still fails `an arity over 247`
+  (make2, no C; `/tmp/birc-app-emit-r2/emit.raw.txt`, SHA1fd540bb...). Root
+  verified identical beforeE/afterE. Whole-candidate acceptance is not
+  achieved; current failing widths/owners are UNKNOWN, not inferred from
+  the pre-r2 observation. Keep this unqualified experiment frozen; no
+  additional copied run has approval. Prefs Con/Nil native guards are
+  still required; full redial paints and may emit Begin, and is not
+  qualified by the existing seven carrier modes or command-only tests.
+  Main will save a compact checkpoint after the two final stock controls
+  and then HOLD all edits/experiments/jobs. Root source/index hashes
+  remain unchanged (a68e0300... / a5f4cf92...); only Root TODO was edited.
+  Full proof/check/native/PTY3/Nix/cache gates remain pending.
+  Final stock controls completed in the frozen old4518 snapshot:
+  P direct `IO.pure` body e888b8a0... STACKS; Q do/pure-bind body
+  5b063257... completes checking with the normal 501-def unsafe/foreign
+  listing (exit1, NOT a proof pass). Raw outputs are
+  `/tmp/birc-carrier-pq-run/runU.raw.txt` and `runV.raw.txt`. Root verified
+  exact prefix16 heads, snapshot4518, and both before/after manifests.
+  This is syntax/check-context sensitivity, not a localized cause.
+  The added P body needs no assertion/seed/Ui/channel work; unchanged
+  prefix definitions still contain such work, so do not generalize the
+  observation to the entire book. No assertion extraction is justified.
+  Fresh Main saved compact CHECKPOINT 2026-10-05T23:08Z and is idle,
+  with no owned direct child observed. All further edits/jobs/experiments
+  are HELD. New follow-up names/widths measurement needs fresh authority;
+  no tools, compiler/checker limits, pins, laws, or existing oracles moved.
+
+- 2026-10-06T07:19Z resume: user `continue!` accepted up to three same
+  bounded names-and-widths follow-ups, one per reviewed frozen candidate.
+  First USED (1/3): current813b, manifest0568fcfb..., receipt
+  `/tmp/birc-compdiag-run.bYk8s2sN/recipe.log` SHA c32d7d38....
+  Emit1/no C, 120 s; widths still254/263/249. This falsifies width reduction
+  for r2, not branch attribution. All104 candidate and1886 copied-tool
+  inputs stayed unchanged. Two follow-ups remain; installed tools, limits,
+  pins and laws unchanged. Muse recovered from one provider timeout;
+  independent reviewers are preparing small saved-cell and additive guards.
+  Final stock/proof/check/native/PTY3/Nix/cache gates remain pending.
+
+- 2026-10-06T07:47Z: exact reviewed UI classifier/shared error leaf647721df
+  imported in union (WsNet e94d2d70); two queued prefs guards imported
+  (fixture3d610520, drivercb5d8433), still unqualified. Stock App emit
+  `/tmp/birc-app-emit-e94d/emit2.raw.txt` SHA00fb5141 fails arity247,
+  make2/no C, before/after unchanged. Second follow-up USED (2/3):
+  receipt `/tmp/birc-compdiag-run.jFNxs25v/recipe.log` SHA1d89477d,
+  manifest76c7fb0c; 92 s, emit1/no C, ALL254/263/249 remain. The UI
+  width-reduction hypothesis failed. No segment-owner attribution follows
+  from shifted numeric IDs. One same bounded follow-up remains. Tiny
+  Base-only direct-pure control9f9e7b45 checks (exit0); full-prefix P
+  stacks, so the imported/book context is required, not body alone.
+  Tick/shutdown/paint alternatives are source-only and unimported;
+  reviewers now inspect full Session retention in ws_history_save.
+
+- 2026-10-06T08:03Z clean checkpoint: third follow-up USED (3/3),
+  `/tmp/birc-compdiag-run.7YYAEfk4/recipe.log` SHAf88670ae @518241,
+  manifest74a8a4f4. All254/263/249 remain, emit1/no C, 91 s; inputs
+  unchanged. The history width hypothesis also failed. Main imported
+  exact cleanup1b29ff5b (8+/55−), restoring4518 dispatcher and removing
+  eight failed experiment helpers; the four small history snapshots
+  remain for readability/DRY only. Current union WsNet9b0e4e2a....
+  Stock `make build/birc_bend.c` still fails arity247, make2/no C
+  (`/tmp/birc-app-emit-9b0e/emit4.raw.txt` SHA50e0ef42; before/after cmp0).
+  Current9b0e widths are UNKNOWN: stock prints none. Last measured
+  triple belongs to518241, not inferred for cleanup. Carrier9mode
+  fixture3d610520/drivercb5d8433 remain unqualified. Held, unimported:
+  UI-error guardscfdccdc, history guardsa436d9d7, tickcc3e, paint/shutdown
+  alternatives. Main CHECKPOINT08:02Z is idle; all copied runs exhausted.
+  Next proposed scope is one bounded, isolated copied-compiler emission-
+  context diagnostic (names only, no captured values/body/environment).
+  A recent per-branch Birc definition trail avoids fl.def becoming only
+  IO.bind; it is context evidence, not proof of lexical capture cause.
+  No new diagnostic preparation/run is approved. Root source/index
+  hashes unchanged; final proof/check/native/PTY3/Nix/cache still pending.
+
+- 2026-10-06T12:34Z: user `continue until done!` approved one bounded
+  emission-context diagnostic; USED 1/1 after a provider-timeout resume.
+  Isolated compiler63eb7100 / recipe2275f4a1 / wrapper1489e539;
+  frozen104-input manifest9b7531ea at current union WsNet9b0e4e2a.
+  Full receipt `/tmp/birc-compdiag-run.BhWd8K4B/recipe.log` SHAf190e32a:
+  49 s, emit1/no C;254=`ws_net_painted.part`,263=`ws_cards.got_on`,
+  249=`ws_upload.got`. All104/new1886 inputs stayed unchanged.
+  Names describe emission context, not captured values or causal proof.
+  These `$k` cuts also arise across pure calls, not only IO. Targeted
+  parallel proposals now address early Session expansion in these three
+  paths. Card cleanup must retain `Cl.set_now` stamping; discarding the
+  temporary Session must not discard client.now. No second copied run,
+  compiler-limit/pin/law/oracle change, or root source/index mutation.
+
+- 2026-10-06T13:19Z recovery checkpoint: targeted net Part cells, stamped
+  card Client, and upload admission ordering recovered stock App emission.
+  Reviewed dead `ws_recv`/`ws_dispatch` deletion leaves union WsNet
+  bd575c91. `make build-ui` passed, before/after inputs identical:
+  `/tmp/birc-buildui-bd57/build.raw.txt` SHA a7496b02;
+  generated C7ee0f751, native executable90a016c9. This is NOT a Nix build.
+  `make test-cards-owner-gates` passed, including 11 new guards, with
+  unchanged inputs (`/tmp/birc-cardsowner-bd57/check.raw.txt`).
+  `check-ws-carrier` completed body checking with the normal foreign/unsafe
+  verdict (make2), NOT a proof pass. Native carrier C emission still stacks
+  (`/tmp/birc-carriernative-bd57/check.raw.txt`); cause is not established.
+  `test-wsnet-gates` exposes an existing 11-field Preferences fixture after
+  the theme field was added; no assertions ran. Two independent reviewers
+  are checking minimal fixture repairs, preserving all existing oracles.
+  Stock proof600, full check, native guards, PTY3, safe root integration,
+  meaningful commits, and locked Nix build/cache remain pending. Main is
+  sole union writer/heavy lane; root remains sole tmux controller and has
+  changed only this TODO. No more copied diagnostics are authorized/needed.
+
+- 2026-10-06T13:41Z: stock `make proof PROOF_TIMEOUT=600` timed out
+  without a verdict (timeout124, make2). Full receipt
+  `/tmp/birc-proof600-bd57/check.raw.txt` SHA b88b0a1f; before/after
+  manifests identical; owned Bun PID29854 exited. CPU was active, but
+  no phase or definition cost is established. Stock Bun has default-off
+  CPU profiling flags; one unchanged-tool, unchanged-proof, same-budget
+  sampled profile is proposed, exact recipe still requires root review.
+  No copied compiler, independent kernel, raised limit, or weakened law.
+  User approved promotion of the three Notify follow-up tests AFTER they
+  pass, including correction of only their temporary standalone oracle.
+  Registration audit found 14 required standalone gates outside `check`.
+  The merged G3 fixture lost protected `JOIN #other`; reviewed one-line
+  restoration preserves all assertions and makes `#birc` inactive for the
+  existing unread-alert guards. Canonical root Nix source is 92 production
+  files, excluding union's scratch `wsnet.bend.orig`; scratch Nix success
+  would not establish default-root cache qualification. Gates stay open.
+
+- 2026-10-06T14:39Z checkpoint: native Cards handoff fixture7465ed62
+  passed all three original modes with an owned successful helper;
+  `/tmp/birc-cardshandoff-7465/check.raw.txt` SHA e8c95af0, inputs unchanged.
+  Same-binary failed/missing-helper handoff checks reject; wrong/quiet must
+  remain successful without invoking a helper (full matrix still pending).
+  Carrier fixture6c70 emits and compiles with stock tools; its routed case
+  passes. Nil emits the exact error once and exits1, but the new driver
+  includes TimUI's fixed startup OSC title in its diagnostic oracle. User
+  approval for removing exactly one fixed title, and two G3 stored-MODE
+  expectations, remains pending. No broader approval is inferred.
+  WsNet gate v1/v2 fixture repairs remain unqualified; v2 stops at a flat
+  product match before assertions. Reviewed v3 uses existing nested
+  parameter-match form; all calls and assertions remain unchanged.
+  Stock CPU-profile recipe275dae5e, input manifest8593a3d6 and ten-tool
+  manifestb8b294cf were fully reviewed and independently verified. It is
+  released for one bounded stock run (max600s); a usage refusal caused by
+  an extra argument started no checker. No profiling result exists yet.
+  Fresh source review found multi-server shutdown waits for pending
+  Connecting/Reconnecting actors unlike the established Net policy. A
+  minimal reuse of `Net.shutdown_waits` and +/- guards is proposed but
+  not integrated or run. Main remains sole union writer/heavy lane.
+  Final proof, full check, PTY3, canonical integration/commits, default
+  Nix build and installed/hot-cache qualification remain open.
+
+- 2026-10-06T15:15Z: the one frozen stock CPU profile ended124 with
+  unchanged inputs and no profile (`/tmp/birc-proof-cpu-run.zltnvBeC/RECEIPT.txt`,
+  SHA243ff10c). The separate owned synchronous-loop inspector smoke started
+  profiling and reached busy, but failed its stop/completion gate; no samples
+  and no timing attribution (`/tmp/birc-inspector-smoke-run.rGybik/RECEIPT.json`).
+  Its receipt cannot distinguish timeout from RPC rejection. Child was reaped;
+  four pins unchanged. A names/durations-only copied-checker timing proposal
+  requires new user approval; no repeat or copied run is released.
+  WsNet gates v3a45dad67 compiles and runs; 13 upload guards precede its
+  failing direct-Dial assertion. Source trace finds initial `Connecting`
+  reaches the normal connect-in-progress rejection before first boot. Keep
+  the expected B/gen1 Dial and physical boot-order oracle; confirm actual
+  synthetic command before a first-frame-only repair. Eight later net
+  guards remain unrun (`/tmp/birc-gatesjs-a45d/check.raw.txt`, SHA3774d903).
+  Cards six-case negative recipe stopped at first exact-output comparison:
+  valid mouse-tracking CSI precedes its otherwise exact failure text.
+  Remaining five cases are unrun; exact-prefix oracle correction needs
+  explicit approval. Carrier title and two G3 MODE corrections also remain
+  pending; Notify promotion is approved only after qualifying its tests.
+  Fresh arbitration found protected sensitivity-target normalization lost
+  in fixed/negotiated MODE privacy and channel normalization lost in shared
+  JOIN/PART/KICK logs. Minimal five-expression restoration plus 42 additive
+  guards is frozen for review, not integrated. All36 protected law bodies
+  and their36 proofs match union; staged/source hashes remain unchanged.
+  Multi-server shutdown fix is integrated into scratch and its pure guard
+  is green; stock App rebuild and new/old PTY qualification are in progress.
+  No canonical merge, commit, full proof/check pass, or Nix cache claim.
+
+- 2026-10-06T15:36Z: Root read the shutdown guard red/green receipts and
+  stock native build receipt, and verified each before/after manifest.
+  `WsNet`195a1eca builds App2d44124c/Ca2ea32bb successfully. The new
+  multi-server startup driver passes three consecutive same-binary runs
+  (`/tmp/birc-ptyws-startup{1,2,3}/check.raw.txt`). Original startup and
+  single-server recovery controls pass; recovery covers NickServ, SASL,
+  and SASL with settings. Original startup rebuilt en route but retained
+  that exact binary. These are selected passes, not full qualification.
+  New multi-server recovery passes both no-settings auth cases but fails
+  at settings-enabled quit in two runs; no third retry or deadline change.
+  Source review finds two paths that can discard an active settings-write
+  lease across reconnect; runtime attribution and a minimal fix remain open.
+  The synthetic direct-Dial diagnostic did not compile; it was reverted
+  byte-exact to gates a45dad67, with no executable trace claim. A repaired
+  diagnostic and 18-guard first-frame-only fix are source proposals only.
+  The copied-checker timing patch and bounded recipe are reviewed but
+  unrun, pending explicit user approval and a renewed candidate manifest.
+  User approved the temporary notification registration-oracle correction
+  only after qualification. Protected G3 restoration TDD is underway in
+  scratch. Root index/non-TODO source hashes remain unchanged.
+
+- 2026-10-06T16:12Z: Root verified protected G3 restoration red/red/green
+  receipts: 42 additive guards pass without changing legacy expectations.
+  Commands73088ca1, Isupport4c1caaa8, Clientf1278a37 retain styled-target
+  normalization in MODE privacy and JOIN/PART/KICK membership logs.
+  The first-frame-only connect fix is integrated in scratch WsNetaf9a57a0;
+  its 18 new guards pass, and existing WsNet gates pass twice. A structural
+  NetState helper corrected only the new harness representation; all18
+  assertions stayed unchanged. Native App2d44124c is still the earlier195a
+  candidate and is not final source qualification.
+  Added actual-View G3 guards pass in both fixtures, but traversal stops
+  at its preserved styled-image assertion. Source review finds the harness
+  omits the production visible-media admission stage. A synthetic bounded
+  conjunct diagnostic is queued; no production enqueue rewrite is accepted.
+  Preferences retirement R1 (manifest027641cf) is under pure TDD in Main:
+  32 new guards, exact-ticket physical retirement, and unchanged failed-save
+  accounting. Carried-owner identity and completion-notice admission still
+  need their separate reviewed follow-up. Hold the App rebuild until then.
+  Notification promotion is approved only after qualification; its stale
+  source-name oracle correction is separately pending. MODE2, Carrier title,
+  Cards CSI, copied-checker timing, three STATUSMSG expectations, a fourth
+  STATUSMSG burst-order expectation, and case-only reconnect corrections
+  remain explicitly pending. Unsigned-k privacy was already approved.
+  Canonical92-path admission map is frozen at /tmp/birc-admission-map.BbNOmp;
+  it is not a merge or package verdict. Preserve current Root TODO and all
+  protected working/index changes. HEAD4b4cbef5, staged-diff SHAa5f4cf92,
+  and non-TODO working-diff SHAa68e0300 were rechecked unchanged.
+  Full stock proof/check, remaining same-binary PTY3, isolated canonical
+  integration/commits, installed helper qualification, and the default
+  locked Nix build/hot-cache verification remain open.
+
+- 2026-10-06T16:43Z: Root verified the genuine preferences-owner R2
+  red/green receipts (`/tmp/birc-r2-red2/check.raw.txt`, SHAfda6b8de;
+  `/tmp/birc-r2-green/check.raw.txt`, SHAfec1109e). All162 guards pass,
+  preserving the141 prior assertions. Final scratch WsNete0c224f3,
+  preferences_runtime346ea8f4 and preferences_live483f4842 match the
+  reviewed manifest. The stock `make build-ui` passes and creates native
+  candidatec3b721eb; physical reconnect recovery is now being qualified.
+  Source-only ownership TDD does not yet prove the physical quit repair.
+  The visible-media harness diagnostic confirmed omitted admission;
+  its reviewed stage repair preserves56 old calls and adds two controls.
+  G3 traversal passes58 guards; actual-View guards preserve the visible
+  text boundary. Selected Cards owner/physical/notification, wire View,
+  notification archive/busy/follow-up, FFI retain and startup-boundary
+  checks pass. These are not a final full-check or package verdict.
+  Notify Attr still has a filled-definition compile blocker; its reviewed
+  Data adapters preserve all56 assertions. A declaration-order repair
+  is being prepared. Upload Escape readiness and ungated DNS AAAA
+  restoration are source-reviewed and released, but not yet qualified.
+  The user again approved the temporary notification-registration
+  assertion only after tests pass; its separate source-name pin remains
+  pending. No new authority is inferred for other pending expectations
+  or copied-checker timing. Root staged/non-TODO working hashes remain
+  a5f4cf92/a68e0300. Full proof/check, PTY3, canonical integration,
+  local commits, installed helpers and default Nix hot-cache remain open.
+
+- 2026-10-06T17:02Z: final scratch Appc3b721eb passes three consecutive
+  multi-server reconnect runs (raw1107d9e6/4f8a4f52/1f0a8dc4) and three
+  startup-connect runs (raw6c22e60e/0f2dbda7/55405c88); original recovery
+  controls also pass. Run3's wrapper manifest differs only in the separately
+  reviewed upload fixture, not production/recovery inputs or the binary.
+  No runtime retry or deadline lift was needed. Root read all six raw verdicts.
+  DNS direct AAAA restoration plus exact duplicate-only fixture cleanup now
+  passes `make test-ipv6-transport` (rawe23ba6ca); IPv6, fallback, DNS/TCP,
+  deadline/supersession and verified TLS positive/negative probes pass.
+  Native fixtureb166581d retains every unique oracle and the ungated AAAA
+  check; five duplicated definitions and their two repeated assertions alone
+  were removed. No oracle expectation or runtime behavior changed.
+  Notify Attr declaration-only repaird44e660b compiles, but its original
+  `b selected id` assertion fails. Source trace verifies the fixture never
+  self-JOINs B; production correctly refuses to create a channel from a stray
+  peer message. The real framed B JOIN plus four +/- guards is frozen at
+  /tmp/birc-notify-attr-membership.3UoVcd, not released; specific setup approval
+  is required. All56 old oracles and worker/channel/deadline calls stay exact.
+  Upload fixturebc448293 builds native89dc5520. Its physical stages, Escape
+  cancellation, exact-once URL, helper ledgers, closure, exit0 and restoration
+  pass, but the final LF-only marker rejects actual postrestore CRLF. A
+  final-marker-only flag-aware oracle proposal is in preparation, not approved.
+  No unchanged retry or general control stripping is authorized.
+  Consolidated pending semantic-oracle and copied-timer questions were sent;
+  no new answers yet. Conditional Notify promotion is approved only after
+  qualification. Root protected hashes remain a5f4cf92/a68e0300. The reviewed
+  installed-helper guard222493a5 is released as standalone only; package,
+  full stock proof/check, canonical integration/commits and hot-cache remain
+  unqualified. Isolated clone checklist0525c7da preserves both Root patch
+  layers and current Root TODO. Muse RSS at16:58Z was423712 KiB, not10GiB.
+
+- 2026-10-06T17:31Z: Root verified actual boot guards pass three consecutive
+  same-binary runs (raw 83b4724b/596bfb74/85c49633, native f83896a5), including
+  ordinary, keyed, probe and extra-accept cases. The monadic harness repair
+  preserves all prior assertions and deadlines. The installed helper guard
+  is applied in scratch as a standalone target, but remains unqualified.
+  The isolated clone /tmp/birc-final-candidate preserves both Root patch
+  layers and all 437 tracked bytes. Root and a fresh reviewer accepted the
+  frozen source/Nix admission 844dc725 by exact path/body comparison and
+  the reviewed R1/R2 changes; this is not a new full semantic review.
+  Muse applied only that admission, verified 102 identities and staged its
+  ten new source/Nix files in the clone's own index. The locked default
+  `make build-package` is running, not yet a build or hot-cache verdict.
+  Latest user approval again covers only the three notification tests'
+  registration after passing. Their stale source pin and B JOIN setup,
+  the upload final marker and other pending oracle corrections remain held.
+  Canonical test/doc/law/Make composition, full stock proof/check, remaining
+  PTY3, installed helper tests and local commits remain open. Root index
+  bytes 0dd76fb4, staged a5f4cf92 and non-TODO working a68e0300 are unchanged.
+
+- 2026-10-06T17:41Z: isolated default `make build-package` passes in 252 s
+  (raw /tmp/birc-final-pkg/build.raw.txt, SHA 7bebb4fd). Derivation an2b0fdy
+  realizes /nix/store/spil6w8s06b34356qnx26q9ysz3x42hh-birc-0.1.0.
+  Locked default-app eval returns that exact bin/birc, exit 0 (raw 2fc76737).
+  Read-only review verifies the filtered package has exactly the 92 intended
+  source files; six absolute helper defaults, seven helper source comparisons
+  including Cards' image sibling, and Keychain libexec match the clone.
+  The four installed package targets pass (raw f807e137): package, Keychain,
+  TLS and upload, including all 12 upload PTY cases once. Required same-output
+  upload run 2 fails at clean-exit checking (raw ca6a10af); no run 3 or retry.
+  Evidence shows QUIT, helper completion and terminal teardown, followed by
+  the fixed preferences-save failure diagnostic. Failure versus timeout is
+  not yet attributed. Driver inherits HOME/preferences; do not rerun that
+  setup or inspect user settings. An owned private-settings characterization
+  is under source review, keeping all upload/QUIT/restore/deadline oracles.
+  Root read the full 848-line law/proof delta 48cbbb89. It is admitted only
+  into the clone with exact posts 1fa45149/48477876; 425 old pairs remain,
+  with 110 additive pairs and no since-review drift. This is not a proof pass.
+  Additive two-file installed Notify/helpers guard e0295d6f is reviewed and
+  released in the clone as standalone targets only. No aggregate promotion,
+  Root source/index mutation, commit or push. Three-only conditional Notify
+  registration patch 5c6b331c is prepared but held until all three pass.
+  All pending semantic-oracle and copied-checker diagnostic questions remain
+  unanswered. Full stock proof/check, final test/doc/Make composition, upload
+  PTY3, helper qualification, commits and measured hot-cache remain open.
+  Root staged/non-TODO working hashes remain a5f4cf92/a68e0300.
+
+- 2026-10-06T18:08Z: the two additive installed-package guards pass
+  (`make -j1 test-notify-package test-runtime-helpers-package`, raw
+  /tmp/birc-final-pkg6/suites.raw.txt, SHA 84719578). All six selected
+  installed suites have now passed on the default spil6w8s output; this
+  is not a full-check verdict or the required repeated terminal coverage.
+  The renewed stock proof times out, no verdict (raw e83ba640,
+  /tmp/birc-proof-run/check.raw.txt): outer `timeout -k 10 590` terminates
+  `make proof PROOF_TIMEOUT=600`. The refreshed 53-file closure differs
+  from the previous run only in three reviewed protocol modules. Do not
+  repeat an unchanged proof. Saved before/after receipt paths are requested;
+  console rechecks alone must not be described as saved historical receipts.
+  Cards test isolation completes genuine red -> green (new guard rejects
+  missing forced-off policy; unchanged target then reports build_config=ok).
+  The exact six reviewed posts are applied only in the isolated clone.
+  The direct upload failure is not a same-configuration repeat: Make forced
+  preferences off, but that invocation inherited the settings policy.
+  Its lower-level failure remains unknown; never inspect real settings to
+  attribute it. Root reviewed the complete private settings probe 59a24d6d
+  and released coalesced success, full owned-scope refusal, then all-mode
+  repeated qualification. All paths/accounts/peers are owned test data.
+  Three baseline cycles of upload, history images, image marker and deferred
+  redraw are also released, with the same installed app and Make test policy.
+  New user approval permits only the three notification registrations after
+  passing. Remaining listed fixture corrections and a copied timing run
+  are still approval-gated. Root staged/non-TODO working/index identities
+  remain a5f4cf92/a68e0300/0dd76fb4; no source merge, commit or push.
+
+- 2026-10-06T18:20Z: the four Cards-isolated terminal drivers pass three
+  consecutive Make-policy cycles on the same installed spil6w8s app. Root
+  read all 12 raw logs under /tmp/birc-baseline: upload 12 cases, history
+  images 4, image marker 6, deferred redraw 4 in each cycle. They retain
+  exact URLs, unsupported-terminal no-helper/no-placeholder logging, history
+  checkpoints, helper ownership, connection-consent invalidation, shutdown
+  and terminal-restoration checks. These runs use owned HOME, preferences
+  off, image cache off and Cards off, with unchanged runtime deadlines.
+  The new private settings probe's first all-mode run fails at reconnect
+  after ten cases (raw 203b621b). Its seed incorrectly set autoreconn=false;
+  live startup sets true, and settings correctly override it when unedited.
+  The owned saved file confirms false. The original case closes its peer
+  then awaits automatic accept, so the probe setup conflicts with that case.
+  This is not a production reconnect defect or an attribution of the earlier
+  ambient quit failure. Main mistakenly repeated the failure twice before
+  reading the stop-first rule; those extra runs are not qualification.
+  Root reviewed/released the new-probe-only correction f73be831: true seed,
+  suitability +/- guards, and helper-written true-state check. All inherited
+  assertions and deadlines remain unchanged. Corrected qualification is
+  underway; no final private-probe pass yet. Stock proof saved receipts now
+  located: BEFORE/AFTER each cover four identical identities (6d441251),
+  separate logs contain all 10 stock and 53 closure checksum successes.
+  Do not call the four-row receipts full 53-input historical snapshots.
+  Pending oracle corrections/timing approval still hold; no proof retry,
+  full check, source integration, local commit or push has occurred.
+
+- 2026-10-06T18:42Z: corrected private-settings qualification passes:
+  coalesced 3/3, full owned-scope refusal 3/3, and all-mode upload 4/4 on
+  the same installed spil6w8s app/helper. Root read the standalone Make
+  target raw (4bc4ea1a) and final extra coalesced/full raws
+  (90b352f6/716c8f5d) under /tmp/birc-privprobe-target. The full negative
+  keeps helper code 2, app exit 1, the fixed log diagnostic, and terminal
+  restoration; the probe succeeds because it expects this refusal.
+  The complete current identity receipt edee4ea5 is saved at
+  /tmp/birc-final-CURRENT-RECEIPT.txt. It is current provenance, not a
+  retroactive full before/after snapshot. The 18 API-only fixture updates
+  are admitted in the isolated clone: 376 old assertion expressions remain
+  byte-identical, and 118 arity-adapted checks retain their expected results.
+  Root read ten passing raw logs under /tmp/birc-api-qual (commands,
+  server identity, IPv6 glue, runtime args, TLS args, auth privacy, typing,
+  media history, message split, submit); remaining released checks continue
+  fail-fast. Shutdown and history-search API/private fixture updates are
+  reviewed and queued, preserving all old oracles and budgets. The actual
+  three notification gates are still held, not these API checks. User
+  approval permits their registration only after they pass. Two additional
+  CAP handshake expectations need explicit approval to include the already
+  implemented draft/chathistory request. The remaining fixture and copied
+  checker timing questions are also unanswered. Stock proof still has no
+  verdict; no unchanged retry, full check, Root source/index integration,
+  commit or push. Root protected hashes remain a5f4cf92/a68e0300/0dd76fb4.
+
+- 2026-10-06T19:18Z: the API batch passes 16 of 17 released targets. The
+  actor queue's redial case stops at its old CAP expectation (raw 7a53372f);
+  the observed request also includes account-notify, away-notify and
+  draft/chathistory. The reviewed two-line oracle delta remains held for
+  approval; later redial FIFO checks are not qualified. Shutdown passes
+  open, half-closed and idle controls (raw 0f1e8b2f). History search first
+  fails on bare seconds, then passes after only the previously approved
+  five timestamp migrations and additive rejection guards (raw dab3408b).
+  Both suites retain their runtime deadlines and old behavioral checks.
+  The two reviewed README additions are admitted only in the clone.
+  All four additive suites pass: mode privacy, search, auth profile and
+  IRC commands (129 existing checks plus 21 new checks, zero deletions).
+  Root read all four raw logs under /tmp/birc-add4.
+  Startup profiling passes its selftest and isolated warmed comparison
+  (raws dd550f1f/469ed770, /tmp/birc-perf). On the cached spil6w8s app,
+  measured first-visible means are 7.93/7.42 ms direct (demo/live) and
+  53.90/53.57 ms through cached Nix. Warmup is separate. Empty owned
+  settings/history do not reproduce or explain the earlier long delay.
+  View timing measures pure Bend View; native phases are separate totals.
+  Core-five fixtures and 22 fresh-review guards are admitted (414 checks),
+  as standalone targets only. The first native compile fails with
+  `an arity over 247` (raw 8d509cb0); no assertions run. Workspace also
+  stops before assertions at a missing Client annotation (line 146).
+  Source-only agents are preparing minimal fixes without oracle, backend
+  or compiler-limit changes. Independent JS targets are released next.
+  Fresh review finds no blocking defect in the held copied checker timer,
+  but this is not execution approval: nested inclusive spans add overhead,
+  an end event is not success, and the 88-source/five-copy receipts are
+  not a separate paired 53-input receipt. No diagnostic has run.
+  User again approves only notification promotion after all three pass.
+  The remaining corrections/timing run are still held; stock proof,
+  complete check, Root integration and commits remain open. Root staged,
+  non-TODO working and index hashes remain a5f4cf92/a68e0300/0dd76fb4.
+
+- 2026-10-06T19:52Z: the annotation-only workspace/wsnet changes preserve
+  every assertion. Wsnet gates pass 170 checks; workspace compiles but fails
+  its new routed ASCII guard. Its `:irc` ISUPPORT source is neither a dotted
+  server name nor its configured `a.example`; the source correction remains
+  approval-gated. This failure does not establish a styled-typing defect.
+  Three other core fixtures pass: first-connect 18, shutdown-pending 10,
+  and session-drafts 115. The last requires the reviewed total `FxAD` carrier
+  in six proof-facing predicates (patch 7d3a79fe, source 0543c95b). Whole-file
+  wrapper erasure preserves predicate conditions and ordering; native red
+  -> green confirms this test, not a measured compiler-width or speed claim.
+  Four supporting suites also pass 93 assertion sites: draft nickname rename,
+  outbound transactions, reader PONGs and live wait-cell. Their standalone
+  recipes are admitted; aggregate registration remains open.
+  The changed-source default package is rebuilt and cached at
+  /nix/store/hc6x3y7pl22ykazf7mg2500dhh923d6l-birc-0.1.0. All six selected
+  installed suites pass on its launchers (raw 1f421f7c). Its native executable
+  is byte-identical to the earlier spil6w8s binary (609e9493), but launchers
+  have new store paths. New-output repeated PTY qualification is not claimed.
+  Current full entry-script/helper/driver identities are saved in
+  /tmp/birc-RECEIPT-current-full.txt; 92 production hashes are saved in
+  /tmp/birc-SRC-CURRENT.manifest. Root independently verifies all 92, all
+  53 current proof inputs and all 10 stock tool hashes. These are current
+  receipts, not retroactive snapshots of earlier runs. The four-row pkg2
+  closure and three-hash CURRENT2 receipt remain narrow provenance only.
+  The three notification gates are admitted as standalone targets; only
+  followup-guards has passed (45 checks). Attr/static retain their known
+  setup/pin holds. Fresh agents review four companion witnesses without
+  changing old assertions. Both binding B setups need a real self-JOIN;
+  this also advances the initial floor, so no floor oracle change is needed.
+  A separate approval question covers those two setup corrections.
+  One fresh stock proof on the changed carrier source is running under
+  TERM590/KILL10 and PROOF_TIMEOUT=600, raw /tmp/birc-proof-run2/check.raw.txt.
+  No verdict yet; do not repeat unchanged. The copied timer is still held.
+  Root source/index integration, full check, commits and push have not run.
+
+- 2026-10-06T19:55Z: the changed-carrier stock proof reaches the outer
+  wall-clock bound again (exit 124, no verdict). Root reads the complete raw
+  /tmp/birc-proof-run2/check.raw.txt. Native session-drafts green does not
+  establish stock proof success. Do not retry unchanged or infer a cause
+  from this silent checker run. Main captures the full closure AFTER receipt
+  before the queued companion notification tests and new workspace source
+  guard. The copied names/durations timer remains unapproved. Fresh source
+  review identifies exact duplicate View theme selectors; a separate minimal
+  behavior-preserving DRY proposal is being prepared, not a checker fix.
+
+- 2026-10-06T20:05Z: all three further standalone notification suites pass:
+  held (23 sites), order (14 sites: ten retained plus four controls), and
+  runtime (65 retained sites, comment-only coverage correction). Root reads
+  all raws under /tmp/birc-heldbind and /tmp/birc-order-rt. Earlier physical
+  held-blocked (22), full companion witness (251) and workspace-005 source
+  guard (7) also pass, with complete raws read. The narrower full-witness
+  is not the original three-source full target or full standard check.
+  Exact binding source is admitted but deliberately not run: its two B-JOIN
+  setup fixes still need approval. All four static companion sources are
+  present; the producer pin, Attr setup and three-gate promotion remain held.
+  Theme DRY maintenance is implemented only in the clone: View's three public
+  adapters now share Theme's selectors; two unused View helper tables are
+  removed. Default Dark versus supplied Id and all status predicates stay
+  unchanged. Root reads both complete patches and provenance. Fifteen new
+  literal boundary guards pass before and after the change, and original
+  test-theme passes all three native fixtures (raws 2adbd045/5b43951f/a9e20b86,
+  /tmp/birc-theme). View is now e3c16606; Theme is 1d62a8b9 (code unchanged,
+  comments corrected). No performance or checker-cause claim follows.
+  A new locked package build and six-suite/current-startup qualification are
+  released on this changed source. The previous hc6 output qualifies the
+  pre-DRY source only. A fresh source-only composition review prepares one
+  framed workspace theme-render witness; other missing-target inventory is
+  retained for the next approval/composition pass, not a broad overlay.
+  Stock proof has no pass; all laws/PROOF/pins remain unchanged. Root staged,
+  non-TODO working and index identities remain a5f4cf92/a68e0300/0dd76fb4.
+
+- 2026-10-06T20:13Z: the post-DRY default Nix app is rebuilt and cached at
+  /nix/store/ncsafv8i50y4qi06l7a240nr4zc7bi00-birc-0.1.0 (drv y413z5n24,
+  build raw d10d697a). Root reads that complete raw, all six installed-suite
+  passes (raw 4bd41724) and the current startup selftest/measurement raws
+  (f31e2e2a/0e8086b2) under /tmp/birc-perf2. Installed launcher/native/Keychain
+  hashes are independently verified: cf0a8f3c/ea759edb/f0133cf9. The previous
+  native binary is different, so new-output repeated terminal tests are now
+  released rather than claimed from earlier cycles.
+  Warmup is separate from the three measured samples per launcher/mode. Current
+  first-visible means are 7.226/6.821 ms direct demo/live and 54.082/54.924 ms
+  cached Nix demo/live; setup Nix evaluation (863.68 ms) is a separate phase.
+  These empty owned settings/history runs neither reproduce nor explain the
+  earlier tens-of-seconds delay. No cleanup speedup or delay fix is claimed.
+  A manifest-only copied-timer readiness refresh is frozen at
+  /tmp/birc-checker-current-preflight.v48RHage: same 88 input paths and fixed
+  53 subset, only session_drafts/Theme/View changed since renewed input hashes.
+  Root independently verifies all 88 and all 53 current hashes. Recipe, stock
+  tools, copied tools, default-off logging bounds and 590+10 heavy wall cap
+  stay unchanged. This is current source provenance, not a diagnostic execution
+  or proof verdict; the user approval hold remains.
+  Root reads the complete framed-theme witness and its follow-up: all 34 original
+  checks stay exact; two duplicate span inspectors are removed, six complete
+  color-token controls are added, and historical approval/pass prose is replaced
+  with permanent pure-coverage comments. It is queued after repeated terminal
+  qualification, with original 180/30-second recipe and no aggregate edge.
+
+- 2026-10-06T20:22Z: the current ncsafv8i installed app passes all four terminal
+  targets in three consecutive cycles. Root reads all twelve per-target raws
+  under /tmp/birc-nc-c1, /tmp/birc-nc-c2 and /tmp/birc-nc-c3. Exact command:
+  `make -j1 test-upload-package test-pty-history-images test-pty-image-marker
+  test-pty-deferred-redraw PTY_APP=/nix/store/ncsafv8i50y4qi06l7a240nr4zc7bi00-birc-0.1.0/bin/birc`.
+  Upload uses the matching build/package-birc link; the other targets use
+  PTY_APP without a local rebuild. Runtime limits stay 120/75/60/45 seconds;
+  the whole chain has a 1200-second outer limit, including locked Nix entry.
+  Cycle 1's four raw files are splits of the successful combined raw cfe8fba9;
+  cycles 2 and 3 each retain separate command and exit receipts. No source or
+  driver changes occur during the cycles. This qualifies the four released
+  drivers, not a new three-run private-preferences probe.
+  Original BEFORE b135defe has app plus five driver/probe hashes. Original
+  AFTER 3c4389d1 omits the private probe row but matches all five common rows.
+  The later /tmp/birc-nc-cycles-AFTER-complete.txt adds that current probe hash;
+  Root verifies all six hashes and exact digest-row equality with BEFORE.
+  It is a post-cycle receipt, not a retroactive complete contemporaneous
+  snapshot of native/helper/source identities. Full current provenance is
+  /tmp/birc-FINAL-INSTALLED.txt (05c9e8ef): default app/out-link, launcher,
+  Keychain/native/libexec, six helper wrappers and entry sources, all five
+  drivers, Make/Nix/lock, laws/PROOF and changed production sources. Root
+  reads it and independently verifies all 37 digest rows. Root also reads
+  and verifies all 92 current production rows in /tmp/birc-pkg3-SRC.manifest
+  (26233a77). No past narrow receipt is relabeled as a full paired snapshot.
+  The framed theme-render witness is admitted as standalone only. Its
+  original 34 checks pass (raw539f1c7c), then its reviewed DRY/comment cleanup
+  and six additional exact-color controls pass (rawfd15e9ae). Root reads both
+  complete raws under /tmp/birc-theme-ws. Fixture bc0eec28 preserves all old
+  assertion bodies/order; Make is 127d1ea9. This tests framed source and pure
+  workspace spans, not native background painting or the preference worker.
+  Production sources remain unchanged since the cached post-DRY package.
+  Muse is idle after recording project-scoped handover-2026-10-07.md; Root's
+  durable continuation is this checklist and the raw/manifest paths above.
+  Eleven fixture-correction groups and the single bounded copied-timer run
+  still require separate approval. Three-notify promotion is approved only
+  after all three gates pass; only followup-guards has passed so far. Twelve
+  donor target definitions and aggregate composition remain open. The latest
+  stock proof timed out with exit124/no verdict before DRY; no later proof
+  was run. No full make check, Root source/index integration, commit or push.
+  Root HEAD remains 4b4cbef5; staged/non-TODO working/index hashes are still
+  a5f4cf92/a68e0300/0dd76fb4. Clone-only changes are not in Root's nix run .

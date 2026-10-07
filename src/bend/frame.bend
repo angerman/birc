@@ -293,7 +293,7 @@ def crlf(+s: String) -> List<&2, U32>:
   List.append(&2, U32, string_to_octets(s), CR() <> LF() <> Nil{})
 
 def emit_line(+rem_rev: List<&2, U32>, lines: List<&2, String>) -> List<&2, String>:
-  Irc.sanitize_in(line_from_octets(List.reverse(&2, U32, rem_rev))) <> lines
+  Irc.sanitize_keep_style(line_from_octets(List.reverse(&2, U32, rem_rev))) <> lines
 
 # RFC 1459: a line ends in CRLF. A CR not followed by LF is a bare CR
 # and drops the whole line, like the over-long case. A CR at the end of

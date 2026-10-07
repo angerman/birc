@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./split.bend as Sp
 import ./view.bend as V
 import ./links.bend as Links
+import ./wire_style.bend as Ws
 import ./columns.bend as Cols
 
 # Legacy tokenizer adapters preserve the original proof/test vocabulary.
@@ -16,6 +17,7 @@ type TextSpan is Data:
   Code{text: String}
   Link{url: String, text: String}
   Styled{attrs: U32, text: String}
+  WCol{fg: U32, attrs: U32, text: String}
 
 def STAR() -> Char:
   Chr{42}
@@ -65,8 +67,29 @@ def tokenize.runs(runs: List<&2, Links.Run>) -> List<&2, TextSpan>:
     case Nil{}: Nil{}
     case Con{h, t}: tokenize.run(h) <> tokenize.runs(t)
 
+def tokenize.paint(+attrs: U32, +fg: U32, +has_fg: Bool, +text: String) -> TextSpan:
+  match has_fg:
+    case True{}: WCol{fg, attrs, text}
+    case False{}: tokenize.styled(attrs, text)
+
+def tokenize.finished(+url: Maybe<&2, String>, +attrs: U32, +fg: U32, +has_fg: Bool, +text: String) -> TextSpan:
+  match url:
+    case None{}: tokenize.paint(attrs, fg, has_fg, text)
+    case Some{+link}: Link{link, text}
+
+def tokenize.styled_run(run: Ws.SRun) -> TextSpan:
+  match run:
+    case Ws.SRun{+attrs, +fg, +has_fg, +text, +url}: tokenize.finished(url, attrs, fg, has_fg, text)
+
+def tokenize.styled_runs(+xs: List<&2, Ws.SRun>) -> List<&2, TextSpan>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{h, t}: tokenize.styled_run(h) <> tokenize.styled_runs(t)
+
+# Wire-aware: control-free input tokenizes exactly as before (one unstyled
+# run), while wire codes become WCol/Styled spans instead of painted bytes.
 def tokenize(+s: String) -> List<&2, TextSpan>:
-  tokenize.runs(Links.render(s))
+  tokenize.styled_runs(Ws.render(s))
 
 # Reconstruct the legacy single-style spelling for the tokenizer laws.
 # Emoji and escaped source remain in Client; display spans are not source text.
@@ -89,6 +112,8 @@ def show_spans.chunk(sp: TextSpan) -> String:
     case Link{_, +text}:
       text
     case Styled{attrs, text}:
+      show_spans.styled(attrs, text)
+    case WCol{_, attrs, text}:
       show_spans.styled(attrs, text)
 
 def show_spans.chunks(+xs: List<&2, TextSpan>) -> List<&2, String>:
@@ -118,6 +143,8 @@ def span_hit(k: SpanKind, h: TextSpan) -> Bool:
           True{}
         case Styled{attrs, _}:
           U32.is_ne(U32.and(attrs, 1), 0)
+        case WCol{_, attrs, _}:
+          U32.is_ne(U32.and(attrs, 1), 0)
         case _:
           False{}
     case WantItalic{}:
@@ -126,6 +153,8 @@ def span_hit(k: SpanKind, h: TextSpan) -> Bool:
           True{}
         case Styled{attrs, _}:
           U32.is_ne(U32.and(attrs, 4), 0)
+        case WCol{_, attrs, _}:
+          U32.is_ne(U32.and(attrs, 4), 0)
         case _:
           False{}
     case WantCode{}:
@@ -133,6 +162,8 @@ def span_hit(k: SpanKind, h: TextSpan) -> Bool:
         case Code{_}:
           True{}
         case Styled{attrs, _}:
+          U32.is_ne(U32.and(attrs, 2), 0)
+        case WCol{_, attrs, _}:
           U32.is_ne(U32.and(attrs, 2), 0)
         case _:
           False{}
@@ -211,6 +242,8 @@ def span_op(sp: TextSpan) -> V.SpanOp:
       V.Lnk{url, text}
     case Styled{attrs, text}:
       V.Spn{attrs, text}
+    case WCol{+fg, +attrs, +text}:
+      V.Col{attrs, fg, text}
 
 def span_ops(xs: List<&2, TextSpan>) -> List<&2, V.SpanOp>:
   match xs:

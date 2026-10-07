@@ -34,7 +34,7 @@ def chunk(state: ReadState, bytes: List<&2, U32>) -> ReadState:
 def finish_client(drop: Bool, cl: Cl.Client, rem: List<&2, U32>) -> Cl.Client:
   match drop:
     case True{}: cl
-    case False{}: Feed.feed_all(cl, Cl.replay_lines(Irc.sanitize_in(Fr.line_from_octets(rem))))
+    case False{}: Feed.feed_all(cl, Cl.replay_lines(Irc.sanitize_keep_style(Fr.line_from_octets(rem))))
 
 def finish(f: File, state: ReadState) -> IO(Cl.Client):
   match state:

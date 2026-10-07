@@ -126,9 +126,12 @@ def mode.flag_chars(s: String) -> Bool:
 
 # Key arguments never enter logs or history. Match the MODE parameter, not
 # an arbitrary substring of its target or message text; uppercase K differs.
+# Framed atoms normalize before this shared predicate, so styled flags and
+# channels redact exactly like their visible text.
 def mode_has_key(+m: Irc.Message) -> Bool:
-  +flags = Irc.msg_param(m, 1n)
-  Irc.ieq(Irc.msg_command(m), "MODE") && channel(Irc.msg_param(m, 0n))
+  +chan = Irc.proto_atom(Irc.msg_param(m, 0n))
+  +flags = Irc.proto_atom(Irc.msg_param(m, 1n))
+  Irc.ieq(Irc.msg_command(m), "MODE") && channel(chan)
     && mode.sign(flags) && mode.flag_chars(flags) && String.contains(flags, "k")
     && Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n)
 

@@ -4,6 +4,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./split.bend as Sp
 import ./links.bend as Links
+import ./wire_style.bend as Ws
 import ./columns.bend as Cols
 import ./media.bend as M
 import ./theme.bend as Theme
@@ -219,22 +220,31 @@ def status_color(+net: String) -> U32:
   status_color.on(net, String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
 
 
-# Live rendering maps lexical runs directly. The proof-only tokenizer adapter
-# lives in view_laws.bend, not in the production paint path.
-def render_run(run: Links.Run) -> SpanOp:
-  match run:
-    case Links.Run{attrs, text, url}:
-      match url:
-        case None{}: Spn{attrs, text}
-        case Some{link}: Lnk{link, text}
+# Live rendering maps wire-styled lexical runs directly. Wire codes are opaque
+# boundaries for markdown: each style run lexes separately, and a URL keeps
+# its link only when it would linkify in the glued visible text. The
+# proof-only tokenizer adapter lives in view_laws.bend, not in this path.
+def render_run.styled(+has_fg: Bool, +attrs: U32, +fg: U32, +text: String) -> SpanOp:
+  match has_fg:
+    case True{}: Col{attrs, fg, text}
+    case False{}: Spn{attrs, text}
 
-def render_runs(runs: List<&2, Links.Run>) -> List<&2, SpanOp>:
+def render_run.url(+url: Maybe<&2, String>, +attrs: U32, +fg: U32, +has_fg: Bool, +text: String) -> SpanOp:
+  match url:
+    case None{}: render_run.styled(has_fg, attrs, fg, text)
+    case Some{+link}: Lnk{link, text}
+
+def render_run(run: Ws.SRun) -> SpanOp:
+  match run:
+    case Ws.SRun{+attrs, +fg, +has_fg, +text, +url}: render_run.url(url, attrs, fg, has_fg, text)
+
+def render_runs(runs: List<&2, Ws.SRun>) -> List<&2, SpanOp>:
   match runs:
     case Nil{}: Nil{}
     case Con{h, t}: render_run(h) <> render_runs(t)
 
 def render_spans(text: String) -> List<&2, SpanOp>:
-  render_runs(Links.render(text))
+  render_runs(Ws.render(text))
 
 def FG_TEXT() -> U32:
   13158600

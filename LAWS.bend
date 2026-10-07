@@ -46,6 +46,7 @@ import ./src/bend/isupport.bend as Isupport
 import ./src/bend/history_search.bend as Hs
 import ./src/bend/session_cards.bend as SessionCards
 import ./src/bend/cards_view.bend as CardsView
+import ./src/bend/wire_style.bend as Ws
 
 law first_server_welcome_assigns_nickname:
   {Sess.registration_client(False{}, Cl.init("me", "s"), ":s 001 Guest42 :welcome") == Some{Cl.init("Guest42", "s")} : Maybe<&2, Cl.Client>}
@@ -377,6 +378,74 @@ law tokenize_unclosed_source_order:
 # LAW: the live operation for inline code retains the dim attribute.
 law code_span_dim:
   {VL.span_op(VL.Code{"code"}) == V.Spn{2, "code"} : V.SpanOp}
+
+# LAW: a doubled bold toggle is plain text (toggles cancel, bytes vanish).
+law wire_toggle_twice_is_plain:
+  {Ws.parse(SCon{Chr{2}, SCon{Chr{2}, "hi"}}) == Ws.parse("hi") : List<&2, Ws.Seg>}
+
+# LAW: 0x0F resets bold and mIRC color; later text is unstyled.
+law wire_reset_clears_style:
+  {Ws.parse(SCon{Chr{2}, SCon{Chr{3}, "04a" ++ SCon{Chr{15}, "b"}}}) == [Ws.Seg{1, 16711680, True{}, "a"}, Ws.Seg{0, 0, False{}, "b"}] : List<&2, Ws.Seg>}
+
+# LAW: visible wire text matches inbound sanitize (exact history/URL bytes).
+law wire_visible_matches_sanitize:
+  {Ws.visible(Ws.parse(SCon{Chr{3}, "04red" ++ SCon{Chr{15}, " end"}})) == Irc.sanitize_in(SCon{Chr{3}, "04red" ++ SCon{Chr{15}, " end"}}) : String}
+
+# LAW: out-of-range mIRC colors reset the color (fail closed, bytes consumed).
+law wire_invalid_color_has_no_style:
+  {Ws.parse(SCon{Chr{3}, "99x"}) == [Ws.Seg{0, 0, False{}, "x"}] : List<&2, Ws.Seg>}
+
+# LAW: mIRC color 4 is red.
+law wire_palette_red:
+  {Ws.fg_of(4) == 16711680 : U32}
+
+# LAW: non-formatting controls never reach painted spans.
+law wire_controls_dropped:
+  {Ws.visible(Ws.parse("a" ++ SCon{Chr{27}, "b"})) == "ab" : String}
+
+# LAW: wire styles cannot forge links after an alphanumeric boundary.
+law wire_style_cannot_forge_link:
+  {VL.tokenize_has_link("a" ++ SCon{Chr{2}, "https://x.test"}) == False{} : Bool}
+
+# LAW: SOH is a lexical boundary: it splits segs and paints no byte.
+law wire_soh_is_boundary:
+  {Ws.parse("htt" ++ SCon{Chr{1}, "ps://x.test"}) == [Ws.Seg{0, 0, False{}, "htt"}, Ws.Seg{0, 0, False{}, "ps://x.test"}] : List<&2, Ws.Seg>}
+
+# LAW: SOH cannot forge a link from glued bytes.
+law wire_soh_cannot_forge_link:
+  {VL.tokenize_has_link("htt" ++ SCon{Chr{1}, "ps://x.test"}) == False{} : Bool}
+
+# LAW: a URL whose token continues past a style boundary stays literal.
+law wire_last_token_link_degrades:
+  {VL.tokenize_has_link("https://x.test." ++ SCon{Chr{2}, "evil"}) == False{} : Bool}
+
+# LAW: a URL closed by a space keeps its link across a style boundary.
+law wire_spaced_link_survives_style:
+  {VL.tokenize_has_link("see https://a.test ok" ++ SCon{Chr{2}, "more"}) == True{} : Bool}
+
+# LAW: the style-preserving sanitizer keeps formatting bytes.
+law wire_keep_style_preserves_controls:
+  {Irc.sanitize_keep_style("a" ++ SCon{Chr{2}, "b"}) == "a" ++ SCon{Chr{2}, "b"} : String}
+
+# LAW: the style-preserving sanitizer still drops field breaks.
+law wire_keep_style_drops_tab:
+  {Irc.sanitize_keep_style("a\tb") == "ab" : String}
+
+# LAW: kept styles render the same visible text sanitize would store.
+law wire_keep_visible_matches_sanitize:
+  {Ws.visible(Ws.parse(Irc.sanitize_keep_style(SCon{Chr{3}, "04red"}))) == Irc.sanitize_in(SCon{Chr{3}, "04red"}) : String}
+
+# LAW: feed stores style-bearing bytes.
+law wire_feed_preserves_style:
+  {CL.buf_texts(Feed.feed(Cl.init("me", "s"), ":a!a@h PRIVMSG me :" ++ SCon{Chr{2}, "hi"}), 1n) == "<a> " ++ SCon{Chr{2}, "hi"} ++ "|" : String}
+
+# LAW: BIRC2 history preserves style bytes.
+law wire_history_preserves_style:
+  {Hist.serialize_line_for("e", "#t", Cl.Line{Cl.Msg{}, "ts", SCon{Chr{2}, "hi"}, "a", 0n}) == "BIRC2\te\t#t\tMSG\tts\ta\t" ++ SCon{Chr{2}, "hi"} ++ "\n" : String}
+
+# LAW: a control-infixed verb dispatches like its stripped form.
+law wire_verb_survives_style_byte:
+  {Irc.parse(":me!u@h JO" ++ SCon{Chr{31}, "IN #room"}) == Irc.parse(":me!u@h JOIN #room") : Maybe<&2, Irc.Message>}
 
 # LAW: M7.2 overlong framer input yields no lines.
 law overlong_drop:
@@ -1444,3 +1513,62 @@ law cards_view_overlay_revalidates_stale_token:
 
 law cards_adapter_exact_url_preserved:
   {Cards.known_urls(SessionCards.ad_cards(SessionCards.observe_visible(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/r?a=b#frag", "alice", 1n}]), "#t"))))), Cards.CardInline{1n}) == ["https://x.test/r?a=b#frag"] : List<&2, String>}
+
+# G3 framed atoms: one canonical seam keeps identity, privacy, mention,
+# media, and membership sites consistent with the visible text.
+law proto_atom_strips_framing_styles:
+  {Irc.proto_atom("a" ++ SCon{Chr{2}, "b" ++ SCon{Chr{1}, "c"}}) == "abc" : String}
+
+law proto_atom_matches_visible_on_soh:
+  {Irc.proto_atom("a" ++ SCon{Chr{1}, "b"}) == Ws.visible(Ws.parse("a" ++ SCon{Chr{1}, "b"})) : String}
+
+law styled_mode_flags_keep_key_private:
+  {Commands.mode_has_key.line(":a!u@h MODE #room +" ++ SCon{Chr{2}, "k secret"}) == True{} : Bool}
+
+law styled_mode_channel_keeps_key_private:
+  {Commands.mode_has_key.line(":a!u@h MODE #ro" ++ SCon{Chr{2}, "om +k secret"}) == True{} : Bool}
+
+law nonkey_mode_stays_visible:
+  {Commands.mode_has_key.line(":a!u@h MODE #room +o bob") == False{} : Bool}
+
+law styled_credential_author_suppressed:
+  {Sub.credential_echo(Cl.init("me", "s"), ":me" ++ SCon{Chr{2}, "!u@h PRIVMSG NickServ :IDENTIFY x"}) == True{} : Bool}
+
+law infixed_credential_verb_suppressed:
+  {Sub.credential_echo(Cl.init("me", "s"), ":me!u@h PRIVMSG NickServ :IDENTI" ++ SCon{Chr{2}, "FY x"}) == True{} : Bool}
+
+law peer_credential_stays_chat:
+  {Sub.credential_echo(Cl.init("me", "s"), ":alice!u@h PRIVMSG me :IDENTIFY x") == False{} : Bool}
+
+law media_soh_scheme_has_no_target:
+  {Media.targets("htt" ++ SCon{Chr{1}, "ps://x.test/a.png"}) == Nil{} : List<&2, String>}
+
+law media_infixed_style_has_no_target:
+  {Media.targets("https://x.test/a" ++ SCon{Chr{2}, ".png"}) == Nil{} : List<&2, String>}
+
+law media_styled_image_kept:
+  {Media.targets("pic " ++ SCon{Chr{2}, "https://x.test/a.png end"}) == ["https://x.test/a.png"] : List<&2, String>}
+
+law mention_styled_nick_hits:
+  {Cl.is_mention("hi m" ++ SCon{Chr{2}, "e"}, "me") == True{} : Bool}
+
+law mention_styled_continuation_misses:
+  {Cl.is_mention("me" ++ SCon{Chr{2}, "ow"}, "me") == False{} : Bool}
+
+law mention_color_split_hits:
+  {Cl.is_mention("hi m" ++ SCon{Chr{3}, "04e"}, "me") == True{} : Bool}
+
+law mention_reset_split_misses:
+  {Cl.is_mention("me" ++ SCon{Chr{15}, "ow"}, "me") == False{} : Bool}
+
+law styled_self_kick_clears_intent:
+  {JoinPlan.desired_names(JoinPlan.received(JoinPlan.initial("#room"), Cl.init("me", "s"), ":op!u@h KICK #room me" ++ SCon{Chr{2}, " :bye"})) == Nil{} : List<&2, String>}
+
+law styled_channel_kick_clears_client:
+  {CL.has_buf(Feed.feed_all(Cl.init("me", "s"), (":me!m@h JOIN #room" <> (":op!u@h KICK #ro" ++ SCon{Chr{1}, "om me :bye"}) <> Nil{})), "#room") == False{} : Bool}
+
+law url_runs_share_view_exclusions:
+  {Ws.extract_runs(Ws.url_runs("htt" ++ SCon{Chr{1}, "ps://x.test"})) == Nil{} : List<&2, String>}
+
+law peer_kick_preserves_intent:
+  {JoinPlan.desired_names(JoinPlan.received(JoinPlan.initial("#room"), Cl.init("me", "s"), ":op!u@h KICK #room alice :bye")) == ["#room"] : List<&2, String>}

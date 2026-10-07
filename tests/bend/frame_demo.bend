@@ -104,7 +104,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "c0_us",
       report_ex(Fr.push_ex(False{}, Nil{}, Fr.string_to_octets("ab" ++ SCon{Chr{31}, "cd\r\n"}))),
-      "lines=abcd| rem= drop=False"
+      "lines=ab" ++ SCon{Chr{31}, "cd|"} ++ " rem= drop=False"
+    )
+    Unit <- E.must_eq(
+      "c0_hostile_stripped",
+      report_ex(Fr.push_ex(False{}, Nil{}, Fr.string_to_octets("a" ++ SCon{Chr{7}, "b" ++ SCon{Chr{27}, "c" ++ SCon{Chr{0}, "d" ++ SCon{Chr{127}, "e\r\n"}}}}))),
+      "lines=abcde| rem= drop=False"
     )
     Unit <- E.must("overlong_octets_again", Fr.overlong_drop_ok())
     Unit <- E.must("legal_max_again", Fr.legal_max_ok())

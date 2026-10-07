@@ -246,6 +246,167 @@ def nick_of_prefix(s: String) -> String:
     case SCon{+h, t}:
       nick_of_prefix.keep(h, nick_of_prefix(t), is_bang_or_at(h))
 
+# Inbound: drop C0 except SOH (CTCP), drop DEL, strip mIRC colour (0x03+digits).
+def is_c0_drop(+c: Char) -> Bool:
+  +n = code_of(c)
+  (U32.is_lt(n, 32) && Bool.not(U32.is_eq(n, 1))) || U32.is_eq(n, 127)
+
+def skip_one_digit_on(+h: Char, t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      t
+    case False{}:
+      SCon{h, t}
+
+def skip_one_digit(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_one_digit_on(h, t, Char.is_digit(h))
+
+def starts_digit(s: String) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{h, _}: Char.is_digit(h)
+
+def skip_mirc_com(+h: Char, t: String, comma: Bool) -> String:
+  match comma:
+    case True{}:
+      skip_one_digit(skip_one_digit(t))
+    case False{}:
+      SCon{h, t}
+
+def skip_mirc_comma(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, +t}:
+      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
+
+def skip_mirc_d2.on(+h: Char, +t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      skip_mirc_comma(t)
+    case False{}:
+      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
+
+def skip_mirc_d2(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_mirc_d2.on(h, t, Char.is_digit(h))
+
+def skip_mirc_d1.on(+h: Char, t: String, dig: Bool) -> String:
+  match dig:
+    case True{}:
+      skip_mirc_d2(t)
+    case False{}:
+      SCon{h, t}
+
+def skip_mirc_d1(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      skip_mirc_d1.on(h, t, Char.is_digit(h))
+
+# 0x03 then optional 1–2 fg digits; comma belongs to the color code only
+# when a foreground digit was eaten and a background digit follows it.
+def skip_mirc(+s: String) -> String:
+  skip_mirc_d1(s)
+
+type SanPh is Data:
+  SanStr{}
+  SanHit{h: Char, color: Bool, drop: Bool}
+
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
+def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
+  match fuel:
+    case 0n:
+      SNil{}
+    case 1n+p:
+      match ph:
+        case SanStr{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+hd, t}:
+              sanitize_in_go(p, SanHit{hd, code_is(hd, 3), is_c0_drop(hd)}, t)
+        case SanHit{h, color, drop}:
+          match color:
+            case True{}:
+              sanitize_in_go(p, SanStr{}, skip_mirc(s))
+            case False{}:
+              match drop:
+                case True{}:
+                  sanitize_in_go(p, SanStr{}, s)
+                case False{}:
+                  SCon{h, sanitize_in_go(p, SanStr{}, s)}
+
+def sanitize_in(+s: String) -> String:
+  sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
+
+def proto_soh.keep(+h: Char, r: String, soh: Bool) -> String:
+  match soh:
+    case True{}:
+      r
+    case False{}:
+      SCon{h, r}
+
+def proto_soh(+s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+h, t}:
+      proto_soh.keep(h, proto_soh(t), code_is(h, 1))
+
+# Canonical protocol atom for identity and policy comparisons: nicknames,
+# channels, mode flags, verbs, and credential words. Framed lines keep
+# their style bytes, so every comparison site normalizes through this one
+# seam: sanitize exactly like inbound, then drop SOH as well. Bodies and
+# history keep their own bytes; this equals the supported-style visible
+# text on every input.
+def proto_atom(+s: String) -> String:
+  proto_soh(sanitize_in(s))
+
+# Style-bearing inbound bytes: SOH (CTCP framing) plus the mIRC formatting
+# set (toggles, color introducer, reset, monospace). The color introducer
+# keeps its parameter bytes so the view decoder consumes exactly what
+# skip_mirc would. Every other C0/DEL byte is dropped, including TAB/CR/LF,
+# so BIRC2 fields and stored lines stay intact while chat styles survive.
+def is_style_keep(+c: Char) -> Bool:
+  +n = code_of(c)
+  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
+    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
+
+type KeepPh is Data:
+  KeepStr{}
+  KeepHit{h: Char, drop: Bool}
+
+def sanitize_keep_style_go(fuel: Nat, ph: KeepPh, +s: String) -> String:
+  match fuel:
+    case 0n:
+      SNil{}
+    case 1n+p:
+      match ph:
+        case KeepStr{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+hd, t}:
+              sanitize_keep_style_go(p, KeepHit{hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd))}, t)
+        case KeepHit{h, drop}:
+          match drop:
+            case True{}:
+              sanitize_keep_style_go(p, KeepStr{}, s)
+            case False{}:
+              SCon{h, sanitize_keep_style_go(p, KeepStr{}, s)}
+
+def sanitize_keep_style(+s: String) -> String:
+  sanitize_keep_style_go(Nat.add(1n, Nat.mul(4n, String.length(s))), KeepStr{}, s)
+
 # ---- parse --------------------------------------------------------------
 
 def push_param(ps: List<&2, String>, p: String) -> List<&2, String>:
@@ -355,8 +516,12 @@ def parse_after_prefix.empty(empty: Bool, +time: String, +cmd: String, +more: St
     case True{}:
       None{}
     case False{}:
-      +num = Bool.pick(U32, is_numeric3(cmd), parse_numeric3(cmd), 0)
-      Some{Message{time, nick, cmd, num, parse_params(more)}}
+      # Protocol verbs are never styled: normalize control bytes so framed
+      # style-bearing lines dispatch exactly like stripped ones. Bodies keep
+      # their bytes; identity params re-sanitize at their own use sites.
+      +verb = proto_atom(cmd)
+      +num = Bool.pick(U32, is_numeric3(verb), parse_numeric3(verb), 0)
+      Some{Message{time, nick, verb, num, parse_params(more)}}
 
 def parse_after_prefix.cmd2(+time: String, +cmd: String, more: String, +nick: String) -> Maybe<&2, Message>:
   parse_after_prefix.empty(String.is_empty(cmd), time, cmd, more, nick)
@@ -488,108 +653,6 @@ def strip_ctl(s: String) -> String:
       SNil{}
     case SCon{+h, t}:
       strip_ctl.keep(h, strip_ctl(t), is_crlf(h))
-
-# Inbound: drop C0 except SOH (CTCP), drop DEL, strip mIRC colour (0x03+digits).
-def is_c0_drop(+c: Char) -> Bool:
-  +n = code_of(c)
-  (U32.is_lt(n, 32) && Bool.not(U32.is_eq(n, 1))) || U32.is_eq(n, 127)
-
-def skip_one_digit_on(+h: Char, t: String, dig: Bool) -> String:
-  match dig:
-    case True{}:
-      t
-    case False{}:
-      SCon{h, t}
-
-def skip_one_digit(+s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, t}:
-      skip_one_digit_on(h, t, Char.is_digit(h))
-
-def starts_digit(s: String) -> Bool:
-  match s:
-    case SNil{}: False{}
-    case SCon{h, _}: Char.is_digit(h)
-
-def skip_mirc_com(+h: Char, t: String, comma: Bool) -> String:
-  match comma:
-    case True{}:
-      skip_one_digit(skip_one_digit(t))
-    case False{}:
-      SCon{h, t}
-
-def skip_mirc_comma(+s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, +t}:
-      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
-
-def skip_mirc_d2.on(+h: Char, +t: String, dig: Bool) -> String:
-  match dig:
-    case True{}:
-      skip_mirc_comma(t)
-    case False{}:
-      skip_mirc_com(h, t, code_is(h, 44) && starts_digit(t))
-
-def skip_mirc_d2(+s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, t}:
-      skip_mirc_d2.on(h, t, Char.is_digit(h))
-
-def skip_mirc_d1.on(+h: Char, t: String, dig: Bool) -> String:
-  match dig:
-    case True{}:
-      skip_mirc_d2(t)
-    case False{}:
-      SCon{h, t}
-
-def skip_mirc_d1(+s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+h, t}:
-      skip_mirc_d1.on(h, t, Char.is_digit(h))
-
-# 0x03 then optional 1–2 fg digits; comma belongs to the color code only
-# when a foreground digit was eaten and a background digit follows it.
-def skip_mirc(+s: String) -> String:
-  skip_mirc_d1(s)
-
-type SanPh is Data:
-  SanStr{}
-  SanHit{h: Char, color: Bool, drop: Bool}
-
-# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
-def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
-  match fuel:
-    case 0n:
-      SNil{}
-    case 1n+p:
-      match ph:
-        case SanStr{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              sanitize_in_go(p, SanHit{hd, code_is(hd, 3), is_c0_drop(hd)}, t)
-        case SanHit{h, color, drop}:
-          match color:
-            case True{}:
-              sanitize_in_go(p, SanStr{}, skip_mirc(s))
-            case False{}:
-              match drop:
-                case True{}:
-                  sanitize_in_go(p, SanStr{}, s)
-                case False{}:
-                  SCon{h, sanitize_in_go(p, SanStr{}, s)}
-
-def sanitize_in(+s: String) -> String:
-  sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
 
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))

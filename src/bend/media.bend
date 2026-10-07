@@ -2,6 +2,7 @@
 # Bounded view-only media policy. Bend owns request identity and scheduling.
 import Base
 import ./links.bend as Links
+import ./wire_style.bend as Ws
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
 
@@ -41,9 +42,9 @@ def image_prefix.rev(s: String) -> Bool:
     case SCon{Chr{40}, SCon{Chr{93}, t}}: image_alt_rev(t)
     case _: False{}
 
-def image_closed(xs: List<&2, Links.Run>) -> Bool:
+def image_closed(xs: List<&2, Ws.SRun>) -> Bool:
   match xs:
-    case Con{Links.Run{0, SCon{Chr{41}, _}, None{}}, _}: True{}
+    case Con{Ws.SRun{0, _, _, SCon{Chr{41}, _}, None{}}, _}: True{}
     case _: False{}
 
 def targets.keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, String>:
@@ -51,11 +52,13 @@ def targets.keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, Str
     case True{}: url <> tail
     case False{}: tail
 
-# Reuse the shared exact-URL lexer; code/styled opaque runs cannot trigger fetches.
-def targets.go(xs: List<&2, Links.Run>, +previous: String) -> List<&2, String>:
+# Consume the same boundary-aware runs the view paints and /open collects:
+# style bytes split runs, so glued forgeries and style-infixed URLs never
+# autofetch while genuine styled images still do.
+def targets.go(xs: List<&2, Ws.SRun>, +previous: String) -> List<&2, String>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Links.Run{+attrs, +text, url}, +tail}:
+    case Con{Ws.SRun{+attrs, _, _, +text, url}, +tail}:
       match url:
         case None{}:
           targets.go(tail, Bool.pick(String, U32.is_eq(attrs, 0), previous ++ text, ""))
@@ -64,7 +67,7 @@ def targets.go(xs: List<&2, Links.Run>, +previous: String) -> List<&2, String>:
             exact, targets.go(tail, ""))
 
 def targets(text: String) -> List<&2, String>:
-  List.take(&2, String, targets.go(Links.render(text), ""), CAP())
+  List.take(&2, String, targets.go(Ws.url_runs(text), ""), CAP())
 
 type Target is Data:
   Inline{id: Nat}

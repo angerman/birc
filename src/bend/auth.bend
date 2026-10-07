@@ -139,14 +139,14 @@ def server_source(+prefix: String) -> Bool:
   String.is_empty(prefix) || Endpoint.host_ok(prefix)
 
 def server_control(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
-  server_source(prefix) && Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl))
+  server_source(prefix) && Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl))
 
 def trusted_notice(config: Cl.AuthConfig, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match config:
     case Cl.AuthDisabled{}: False{}
     case Cl.AuthConfig{_, _, _, wanted, _}:
       String.eq(prefix, wanted) && Irc.ieq(Irc.msg_command(m), "NOTICE")
-        && Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl))
+        && Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl))
 
 def nick_confirm.config(config: Cl.AuthConfig, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match config:
@@ -183,8 +183,8 @@ def nick_probed(ok: Bool, +cl: Cl.Client) -> Reply:
 def sasl_trusted(event: Irc.SaslEvent, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match event:
     case Irc.SaslPlus{}: server_source(prefix)
-    case Irc.SaslAck{}: server_source(prefix) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
-    case Irc.SaslNak{}: server_source(prefix) && (Irc.ieq(Irc.msg_param(m, 0n), Cl.nick_of(cl)) || String.eq(Irc.msg_param(m, 0n), "*"))
+    case Irc.SaslAck{}: server_source(prefix) && (Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl)) || String.eq(Irc.proto_atom(Irc.msg_param(m, 0n)), "*"))
+    case Irc.SaslNak{}: server_source(prefix) && (Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl)) || String.eq(Irc.proto_atom(Irc.msg_param(m, 0n)), "*"))
     case Irc.SaslOther{}: False{}
     case _: server_control(cl, prefix, m)
 

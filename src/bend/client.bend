@@ -182,7 +182,7 @@ def feed_priv.key.on(+from: String, +target: String, self: Bool) -> String:
 def feed_priv.key(+cl: Cl.Client, +from: String, +target: String) -> String:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
-      feed_priv.key.on(from, target, Irc.ieq(from, nick))
+      feed_priv.key.on(from, target, Irc.ieq(Irc.proto_atom(from), nick))
 
 def feed_priv.private_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
   match pair:
@@ -191,7 +191,7 @@ def feed_priv.private_got(pair: Cl.Client & Maybe<&2, Nat>, +from: String, notic
         case True{}:
           feed_priv.write.notice(cl2, bi, from, body, ts)
         case False{}:
-          feed_priv.write.body(cl2, bi, from, body, ts, is_action(body), Bool.not(Irc.ieq(from, Cl.nick_of(cl2))))
+          feed_priv.write.body(cl2, bi, from, body, ts, is_action(body), Bool.not(Irc.ieq(Irc.proto_atom(from), Cl.nick_of(cl2))))
     case (cl2, None{}):
       feed_priv.drop_log(cl2, from)
 
@@ -221,7 +221,7 @@ def feed_priv.to_server.on(empty: Bool, broadcast: Bool) -> Bool:
 # pseudo-target is broadcast; messages to our nick and self echoes stay private.
 def feed_priv.to_server(+cl: Cl.Client, +from: String, +target: String, notice: Bool) -> Bool:
   feed_priv.to_server.on(String.is_empty(from), notice && (Irc.ieq(target, "*")
-    || (Irc.ieq(target, "AUTH") && Bool.not(Irc.ieq(target, Cl.nick_of(cl)) || Irc.ieq(from, Cl.nick_of(cl))))))
+    || (Irc.ieq(target, "AUTH") && Bool.not(Irc.ieq(target, Cl.nick_of(cl)) || Irc.ieq(Irc.proto_atom(from), Cl.nick_of(cl))))))
 
 def feed_priv.route.on(+cl: Cl.Client, +target: String, +from: String, +notice: Bool, +body: String, +ts: String, chan: Bool) -> Cl.Client:
   match chan:
@@ -252,7 +252,7 @@ def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
 def join_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String, joins: Bool) -> Cl.Buffer:
   match joins:
     case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, now, fmt_join(from, chan))
+      Cl.buf_log_ts(b, Cl.System{}, now, fmt_join(from, Cl.target_name(chan)))
     case False{}:
       b
 
@@ -291,7 +291,7 @@ def feed_join(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
 def part_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String, joins: Bool) -> Cl.Buffer:
   match joins:
     case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, now, fmt_part(from, chan))
+      Cl.buf_log_ts(b, Cl.System{}, now, fmt_part(from, Cl.target_name(chan)))
     case False{}:
       b
 
@@ -335,7 +335,7 @@ def fmt_kick(+victim: String, +chan: String) -> String:
   "<- " ++ victim ++ " kicked from " ++ chan
 
 def kick_upd(+victim: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
-  Cl.buf_log_ts(Cl.nick_del(b, victim), Cl.System{}, now, fmt_kick(victim, chan))
+  Cl.buf_log_ts(Cl.nick_del(b, victim), Cl.System{}, now, fmt_kick(victim, Cl.target_name(chan)))
 
 def feed_kick.at(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, +bi: Nat, +victim: String, +chan: String) -> Cl.Client:
   Cl.Client{nick, server, Cl.buf_modify(bufs, bi, kick_upd(victim, chan, now)), active, now, stg, auth, log_seq}
@@ -517,7 +517,7 @@ def feed_nick(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_nick.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
 
 def topic_upd(+from: String, +topic: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
-  Cl.buf_log_ts(Cl.set_topic(b, topic), Cl.System{}, now, fmt_topic_set(from, topic))
+  Cl.buf_log_ts(Cl.set_topic(b, Irc.sanitize_in(topic)), Cl.System{}, now, fmt_topic_set(from, topic))
 
 def feed_topic.from_cl(+cl2: Cl.Client, +bi: Nat, +from: String, +topic: String) -> Cl.Client:
   match cl2:
@@ -546,7 +546,7 @@ def split_names(+s: String) -> List<&2, String>:
   List.filter(~String, ~split_names.keep, String.split(s, Chr{32}))
 
 def topic_set(+topic: String, b: Cl.Buffer) -> Cl.Buffer:
-  Cl.set_topic(b, topic)
+  Cl.set_topic(b, Irc.sanitize_in(topic))
 
 def feed_num.topic.cl(+cl2: Cl.Client, +bi: Nat, +topic: String) -> Cl.Client:
   match cl2:
@@ -564,7 +564,7 @@ def feed_num.topic(+cl: Cl.Client, +chan: String, +topic: String) -> Cl.Client:
   feed_num.topic.pair(wire_get(cl, chan, True{}, False{}), topic)
 
 def names_upd(+names: String, b: Cl.Buffer) -> Cl.Buffer:
-  Cl.nick_add_all(b, split_names(names))
+  Cl.nick_add_all(b, split_names(Irc.sanitize_in(names)))
 
 def feed_num.names.cl(+cl2: Cl.Client, +bi: Nat, +names: String) -> Cl.Client:
   match cl2:
@@ -662,7 +662,7 @@ def feed_num.other_reply(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Clien
 def feed_num.by(+cl: Cl.Client, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
   match k:
     case N001{}:
-      Cl.client_log(Cl.set_nick(cl, Irc.msg_param(m, 0n)), 0n, Cl.System{}, Irc.msg_param(m, 1n))
+      Cl.client_log(Cl.set_nick(cl, Irc.sanitize_in(Irc.msg_param(m, 0n))), 0n, Cl.System{}, Irc.msg_param(m, 1n))
     case N332{}:
       feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
     case N353{}:
@@ -686,7 +686,7 @@ def feed_self.empty(empty: Bool, +cl: Cl.Client, +from: String) -> Bool:
     case False{}:
       match cl:
         case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
-          Irc.ieq(from, nick)
+          Irc.ieq(Irc.proto_atom(from), nick)
 
 def feed_self(+cl: Cl.Client, +from: String) -> Bool:
   feed_self.empty(String.is_empty(from), cl, from)
@@ -695,14 +695,14 @@ def feed_kick.with(+cl: Cl.Client, +chan: String, +victim: String) -> Cl.Client:
   feed_kick.pick(cl, chan, victim, feed_self(cl, victim), wire_find(cl, chan))
 
 def feed_kick(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
-  feed_kick.with(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
+  feed_kick.with(cl, Irc.msg_param(m, 0n), Irc.proto_atom(Irc.msg_param(m, 1n)))
 
 def feed_mode.got(+cl: Cl.Client, +from: String, +ps: List<&2, String>, found: Maybe<&2, Nat>) -> Cl.Client:
   match found:
     case None{}:
       cl
     case Some{+bi}:
-      Cl.client_log(cl, bi, Cl.System{}, fmt_mode(from, ps))
+      Cl.client_log(cl, bi, Cl.System{}, Irc.sanitize_in(fmt_mode(from, ps)))
 
 def first_param(+ps: List<&2, String>) -> String:
   match ps:

@@ -144,13 +144,13 @@ def hostile_body() -> String:
     ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
     ++ SCon{Chr{27}, "x"}
 
+# Wire codes are styles, never painted bytes or link boundaries: 0x1F/0x1D set
+# underline/italic, dropped ESC glues the trailing x, and no control forges a
+# link (the glued visible text has no URL boundary). Updated for wire_style.
 def draw_hostile_ok() -> Bool:
   String.eq(
     show_ops(V.line_ops(Cl.Line{Cl.Msg{}, "", hostile_body(), "", 0n})),
-    "L:0|13158600|look "
-      ++ SCon{Chr{31}, "Lhttps://evil.example"}
-      ++ SCon{Chr{29}, "[https://github.com/zw3rk/birc]https://github.com/zw3rk/birc"}
-      ++ SCon{Chr{27}, "x"}
+    "L:0|13158600|look Lhttps://evil.examplehttps://github.com/zw3rk/bircx"
   )
 
 def draw_tabs_ok() -> Bool:

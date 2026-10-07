@@ -307,7 +307,7 @@ def received.kick(self: Bool, state: State, name: String) -> State:
 # distinct server-side refusal and cancels intent until an explicit JOIN.
 def received.command(+state: State, +cl: Cl.Client, +m: Irc.Message, cmd: Irc.Cmd) -> State:
   match cmd:
-    case Irc.Kick{}: received.kick(Irc.ieq(Irc.msg_param(m, 1n), Cl.nick_of(cl)), state, Irc.msg_param(m, 0n))
+    case Irc.Kick{}: received.kick(Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)))
     case _: state
 
 def received.welcome(welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:

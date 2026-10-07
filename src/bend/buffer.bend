@@ -15,7 +15,7 @@ def target_name.known(+name: String, key: String) -> String:
     case _: name
 
 def target_name(+raw: String) -> String:
-  +clean = Irc.sanitize_in(raw)
+  +clean = Irc.proto_atom(raw)
   target_name.known(clean, Irc.rfc1459(clean))
 
 # STATUSMSG fallback for a message audience, never for a stored channel name.
@@ -336,7 +336,7 @@ def is_mention.on(empty: Bool, +body: String, +nick: String) -> Bool:
   match empty:
     case True{}: False{}
     case False{}:
-      str_mentions(Irc.rfc1459(body), Irc.rfc1459(nick), True{})
+      str_mentions(Irc.rfc1459(Irc.proto_atom(body)), Irc.rfc1459(nick), True{})
 
 def is_mention(+body: String, +nick: String) -> Bool:
   is_mention.on(String.is_empty(nick), body, nick)
@@ -981,7 +981,7 @@ def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
       diagnostic_fresh.fin(List.foldl(~&2, ~Buffer, ~DiagnosticFresh, ~diagnostic_fresh_buf, bufs, DiagnosticFresh{cl, cutoff}))
 
 def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
-  buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_in(text), "", 0n})
+  buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_keep_style(text), "", 0n})
 
 def buf_reconnect.on(internal: Bool, b: Buffer, now: String) -> Buffer:
   match internal:
@@ -1227,7 +1227,7 @@ def client_log_author_ts.record(mirror: Bool, +cl: Client, +i: Nat, kind: LineKi
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
       +next: Nat = 1n+log_seq
-      +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_in(text), Irc.sanitize_in(author), next}
+      +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_keep_style(text), Irc.sanitize_in(author), next}
       client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
 
 def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:

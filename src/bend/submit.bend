@@ -4,6 +4,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./client.bend as Feed
 import ./links.bend as Links
+import ./wire_style.bend as Ws
 import ./endpoint.bend as Endpoint
 import ./diagnostic.bend as Diagnostic
 import ./irc_commands.bend as Commands
@@ -72,7 +73,7 @@ def credential_words(pair: String & String) -> Bool:
         || (Irc.ieq(verb, "SET") && credential_set(Irc.take_until_space(Irc.drop_spaces(rest))))
 
 def credential_body(+body: String) -> Bool:
-  credential_words(Irc.take_until_space(Irc.drop_spaces(Irc.strip_ctl(body))))
+  credential_words(Irc.take_until_space(Irc.drop_spaces(Irc.proto_atom(Irc.strip_ctl(body)))))
 
 def credential_target(+cl: Cl.Client, +target: String) -> Bool:
   +nick = Irc.nick_of_prefix(Cl.target_name(target))
@@ -142,7 +143,7 @@ def credential_echo.parsed(+cl: Cl.Client, parsed: Maybe<&2, Irc.Message>) -> Bo
   match parsed:
     case None{}: False{}
     case Some{+m}:
-      Irc.ieq(Irc.msg_nick(m), Cl.nick_of(cl)) && credential_wire(cl, Some{m})
+      Irc.ieq(Irc.proto_atom(Irc.msg_nick(m)), Cl.nick_of(cl)) && credential_wire(cl, Some{m})
 
 # An echoed copy of our own service credential command has the same privacy
 # policy as the local echo. Other authors and ordinary messages stay chat.
@@ -1008,12 +1009,12 @@ def is_http_pfx(+s: String) -> Bool:
   Links.is_url_prefix(s)
 
 def extract_urls(+s: String) -> List<&2, String>:
-  Links.extract(s)
+  Ws.extract(s)
 
 def lines_urls.line(skip: Bool, +text: String) -> List<&2, String>:
   match skip:
     case True{}: Nil{}
-    case False{}: Links.extract(text)
+    case False{}: Ws.extract(text)
 
 def lines_urls.go(fuel: Nat, lines: List<&2, Cl.Line>) -> List<&2, String>:
   match fuel:

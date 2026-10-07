@@ -93,22 +93,25 @@ def upsert(+xs: List<&2, Entry>, +target: String, +nick: String, status: Irc.Typ
   +rest = remove_one(xs, target, nick)
   upsert.pick(rest, Entry{target, nick, status, now_ms}, existed)
 
+def apply_event.set(+entries: List<&2, Entry>, +nick: String, +target: String, status: Irc.TypingStatus, +now_ms: U32) -> State:
+  match status:
+    case Irc.TypingDone{}:
+      State{remove_one(entries, Irc.proto_atom(target), Irc.proto_atom(nick))}
+    case Irc.TypingActive{}:
+      State{upsert(entries, Irc.proto_atom(target), Irc.proto_atom(nick), Irc.TypingActive{}, now_ms)}
+    case Irc.TypingPaused{}:
+      State{upsert(entries, Irc.proto_atom(target), Irc.proto_atom(nick), Irc.TypingPaused{}, now_ms)}
+
 def apply_event(+state: State, e: Irc.TypingEvent, +now_ms: U32) -> State:
   match state:
     case State{+entries}:
       match e:
-        case Irc.TypingSet{+nick, +target, status}:
-          match status:
-            case Irc.TypingDone{}:
-              State{remove_one(entries, target, nick)}
-            case Irc.TypingActive{}:
-              State{upsert(entries, target, nick, Irc.TypingActive{}, now_ms)}
-            case Irc.TypingPaused{}:
-              State{upsert(entries, target, nick, Irc.TypingPaused{}, now_ms)}
+        case Irc.TypingSet{+nick, +target, +status}:
+          apply_event.set(entries, nick, target, status, now_ms)
         case Irc.TypingClear{+nick, +target}:
-          State{remove_one(entries, target, nick)}
+          State{remove_one(entries, Irc.proto_atom(target), Irc.proto_atom(nick))}
         case Irc.TypingClearAll{+nick}:
-          State{remove_all(entries, nick)}
+          State{remove_all(entries, Irc.proto_atom(nick))}
 
 def apply(+state: State, e: Irc.TypingEvent, +now_ms: U32) -> State:
   apply_event(state, e, now_ms)

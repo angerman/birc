@@ -76,7 +76,7 @@ def serialize_line_for.recon(marker: Bool, +endpoint: String, +target: String, k
     case False{}:
       "BIRC2\t" ++ Irc.sanitize_in(endpoint) ++ "\t" ++ Irc.sanitize_in(target) ++ "\t"
         ++ serialize_kind(kind) ++ "\t" ++ Irc.sanitize_in(ts) ++ "\t"
-        ++ Irc.sanitize_in(author) ++ "\t" ++ Irc.sanitize_in(text) ++ "\n"
+        ++ Irc.sanitize_in(author) ++ "\t" ++ Irc.sanitize_keep_style(text) ++ "\n"
 
 def serialize_line_for(+endpoint: String, +target: String, line: Cl.Line) -> String:
   match line:

@@ -16,11 +16,15 @@ def forge_msg() -> String:
     ++ SCon{Chr{31}, "Lhttps://evil.example"}
     ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
 
+def no_forge_stored() -> String:
+  "<a> look "
+    ++ SCon{Chr{31}, "Lhttps://evil.example"}
+    ++ SCon{Chr{29}, "https://github.com/zw3rk/birc"}
+
 def no_forge_pack() -> Bool:
-  String.eq(
-    CL.buf_texts(Feed.feed(Cl.init("me", "s"), forge_msg()), 1n),
-    "<a> look Lhttps://evil.examplehttps://github.com/zw3rk/birc|"
-  )
+  +cl = Feed.feed(Cl.init("me", "s"), forge_msg())
+  String.eq(CL.buf_texts(cl, 1n), no_forge_stored() ++ "|")
+    && Bool.not(VL.tokenize_has_link(no_forge_stored()))
 
 def join_us_name() -> Bool:
   +cl = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #a" ++ SCon{Chr{31}, "b"})
