@@ -50,14 +50,16 @@
           pkgs = import nixpkgs { inherit system; };
           bend = self.packages.${system}.bend;
           media = pkgs.callPackage ./nix/media.nix {};
+          cards = pkgs.callPackage ./nix/cards.nix {};
           upload = pkgs.callPackage ./nix/upload.nix {};
           preferences = pkgs.callPackage ./nix/preferences.nix {};
+          search = pkgs.callPackage ./nix/search.nix {};
           tlsCflags = "-isystem ${pkgs.lib.getDev pkgs.openssl}/include";
           tlsLdflags = "-L${pkgs.lib.getLib pkgs.openssl}/lib -rpath ${pkgs.lib.getLib pkgs.openssl}/lib -lssl -lcrypto";
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media upload preferences
+              bend bun clang (python3.withPackages (packages: [ packages.pillow ])) media cards upload preferences search
               bashInteractive gnumake git
               coreutils findutils gnugrep gnused gawk
               diffutils file which cacert openssl.dev openssl.bin

@@ -4,15 +4,18 @@
 # endpoint isolation, replay of framed records only).
 # Results import into *search* through the checkpoint-neutral buffer replace
 # used by memory search, so restored rows are never appended again.
-# Integration seams (integrator-owned, flagged, not implemented here):
-# a Sub.Slash HistoryCmd arm calling submit_history, Session interception
-# running search_file/import_page, and CAP-lane negotiation state feeding
-# the `negotiated` argument. This module never owns CAP END.
-# MERGE POINTS (flagged for the integrator, Session/Net owned):
-# checked native open before search_file (disk_file_admitted rule),
-# ticket+generation+endpoint completion checks (search_completion_admitted),
-# negotiated-flag reset (chat_negotiated), and preference gating
-# (disk_search_allowed) ahead of any disk IO.
+# Integration seams: /history is a Session-owned catalog alias intercepted
+# by Session.submit_input_hist (Session owns the verb, like connect);
+# search/page IO runs search_open_file/import_page, and the shared CAP
+# registry (CapNotify.chathistory_ok) feeds the `negotiated` argument
+# through chat_negotiated. This module never owns CAP END.
+# MERGE POINTS (flagged, Session/Net owned): history_search_io.open_private
+# runs the descriptor-checked native open and feeds search_opened directly
+# (search_open_admitted keeps the pure admission policy for laws); the live
+# loop stamps tickets/generations/endpoints and checks
+# search_completion_admitted (history_page_admitted for paged fetches)
+# before import; net.bend captures the Session import seed as the history
+# checkpoint before live dispatch.
 import Base
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
@@ -21,6 +24,7 @@ import ./history.bend as Hist
 import ./frame.bend as Fr
 import ./irc_commands.bend as Commands
 import ./utc_time.bend as Utc
+import ./cap_notify.bend as CapNotify
 
 def PAGE_SIZE() -> Nat:
   50n
@@ -38,7 +42,7 @@ def SEEN_CAP() -> Nat:
   100n
 
 def CAP_NAME() -> String:
-  "draft/chathistory"
+  CapNotify.CAP_CHATHISTORY()
 
 # ---- shared word scan -------------------------------------------------
 # Same Irc.take_until_space scan as Sub.take_word: drop all separators.
@@ -214,6 +218,11 @@ type DiskResult is Data:
   DiskFound{page: DiskPage}
   DiskFailed{diagnostic: String}
 
+# Empty result page: no matches, complete. Missing-file and disabled
+# searches land here instead of manufacturing rows.
+def empty_page() -> DiskPage:
+  DiskPage{Nil{}, 0n, 0n, True{}}
+
 # Checkpoint-neutral like memory search: buf_set_lines_at keeps log_seq,
 # and *search* is synthetic so results are never appended again.
 def import_page.at(+cl: Cl.Client, +bi: Nat, lines: List<&2, Cl.Line>) -> Cl.Client:
@@ -293,12 +302,41 @@ def scan_chunk(bytes: List<&2, U32>, state: ScanState, +query: DiskQuery, +endpo
     case Nil{}: state
     case Con{+byte, t}: scan_chunk(t, scan_step(query, endpoint, cursor, state, byte), query, endpoint, cursor)
 
-def search_finish(state: ScanState, f: File) -> IO(DiskResult):
+def search_finish_page(state: ScanState) -> DiskPage:
   match state:
     case ScanState{+kept, +evicted, _, _, _, _, _}:
-      do IO<DiskResult>:
-        Unit <- File.close(f)
-        return DiskFound{DiskPage{kept, next_cursor(kept), Nat.add(List.length(&2, DiskMatch, kept), evicted), Nat.is_eq(evicted, 0n)}}
+      DiskPage{kept, next_cursor(kept), Nat.add(List.length(&2, DiskMatch, kept), evicted), Nat.is_eq(evicted, 0n)}
+
+def search_finish(state: ScanState, f: File) -> IO(DiskResult):
+  do IO<DiskResult>:
+    Unit <- File.close(f)
+    return DiskFound{search_finish_page(state)}
+
+# Pure scan of retained-descriptor bytes. The helper and native scans hand
+# Bend the exact checked-fd content as one String; this folds it through
+# the SAME octet core as the File driver in bounded windows (windows are
+# arbitrary chunk splits, which the byte state machine already tolerates),
+# so a scan never reopens by pathname and both drivers share one policy.
+def SCAN_WINDOW() -> Nat:
+  65536n
+
+def scan_content.go(fuel: Nat, state: ScanState, +content: String, +query: DiskQuery, +endpoint: String, +cursor: Nat) -> DiskPage:
+  match fuel:
+    case 0n: search_finish_page(state)
+    case 1n+p:
+      scan_content.go(p, scan_chunk(Fr.string_to_octets(String.take(content, SCAN_WINDOW())), state, query, endpoint, cursor),
+        String.drop(content, SCAN_WINDOW()), query, endpoint, cursor)
+
+def scan_content(+content: String, +query: DiskQuery, +endpoint: String, +cursor: Nat) -> DiskPage:
+  # Fuel covers char/byte String semantics either way (UTF-8 runs at most
+  # four bytes per scalar); spare fuel folds no-op windows over "".
+  scan_content.go(Nat.add(1n, Nat.mul(4n, String.length(content))), scan_initial(), content, query, endpoint, cursor)
+
+# Fresh-search cursor: the scan keeps matches older than the cursor, so a
+# first page passes an offset past any scannable content (helper and native
+# scans cap content at 8 MiB). Paged requests carry real prior offsets.
+def SEARCH_CURSOR_FRESH() -> Nat:
+  16777216n
 
 def search_failure(f: File, +stage: String, error: U32 & String) -> IO(DiskResult):
   do IO<DiskResult>:
@@ -311,10 +349,21 @@ def search_failure(f: File, +stage: String, error: U32 & String) -> IO(DiskResul
 def scan_eof_truncated(+remaining: Nat, empty: Bool) -> Bool:
   empty && Nat.is_gt(remaining, 0n)
 
+# Shrink status from the production scanners (bit 5, past the five
+# file-evidence bits in search_evidence_bits below): early EOF against
+# the snapshot fails closed. Same mask test, stated before first use.
+def search_evidence_truncated(+bits: U32) -> Bool:
+  U32.is_eq(U32.and(bits, 32), 32)
+
+# One owner for the shrink diagnostic: the affine File driver and both
+# production scanners fail an early-EOF snapshot with this exact text.
+def scan_changed_text() -> String:
+  "history changed; restart search"
+
 def search_loop.truncated(f: File, state: ScanState) -> IO(DiskResult):
   do IO<DiskResult>:
     Unit <- File.close(f)
-    return DiskFailed{"history changed; restart search"}
+    return DiskFailed{scan_changed_text()}
 
 def search_loop.eof(truncated: Bool, f: File, state: ScanState) -> IO(DiskResult):
   match truncated:
@@ -353,7 +402,7 @@ def search_size.over(moved: Bool, f: File, +size: Nat, +query: DiskQuery, +endpo
     case True{}:
       do IO<DiskResult>:
         Unit <- File.close(f)
-        return DiskFailed{"history changed; restart search"}
+        return DiskFailed{scan_changed_text()}
     case False{}: search_loop(1n+size, f, query, endpoint, cursor, scan_initial(), size)
 
 def search_size(pair: File & Result<&1, &1, U32 & String, U32>, +query: DiskQuery, +endpoint: String, +cursor: Nat) -> IO(DiskResult):
@@ -362,41 +411,177 @@ def search_size(pair: File & Result<&1, &1, U32 & String, U32>, +query: DiskQuer
     case (f, Done{+size}):
       search_size.over(Nat.is_gt(cursor, U32.to_nat(size)), f, U32.to_nat(size), query, endpoint, cursor)
 
+# ---- admission predicates (open gates) --------------------------------------
+# Pure rules for integrator-owned Session/CAP decisions. Each names the
+# merge point that must enforce it; this module never touches Session,
+# Workspace, Client, Buffer, Net, or View state itself.
+
+# Disk search results are admitted only for the live request: the ticket
+# must be the outstanding one, the generation current, and the endpoint
+# exactly equal (host spelling and port scope, never case-folded).
+# MERGE POINT: Session interception stamps (ticket, gen, endpoint) when the
+# search starts and checks this predicate before import_page.
+def search_completion_admitted(+ticket: Nat, +want_ticket: Nat, +gen: Nat, +want_gen: Nat, +endpoint: String, +want_endpoint: String) -> Bool:
+  Nat.is_eq(ticket, want_ticket) && Nat.is_eq(gen, want_gen) && String.eq(endpoint, want_endpoint)
+
+# Ticket generation for paged disk/server fetches. Tickets start at zero
+# and strictly advance; a new search invalidates older completions.
+def search_ticket0() -> Nat:
+  0n
+
+def next_search_ticket(+t: Nat) -> Nat:
+  1n+t
+
+# Paged fetches additionally require a known cursor anchor: an empty
+# oldest msgid means no page was ever issued, so BEFORE/AFTER paging
+# against it is rejected even for a live ticket.
+def history_page_admitted(+ticket: Nat, +want_ticket: Nat, +gen: Nat, +want_gen: Nat, +endpoint: String, +want_endpoint: String, +oldest: String) -> Bool:
+  search_completion_admitted(ticket, want_ticket, gen, want_gen, endpoint, want_endpoint)
+    && Bool.not(String.is_empty(oldest))
+
+# Private history files open only when the final path is a regular file
+# owned by us, reached without a final symlink, with a private (0600) mode.
+# Reads reject; they never repair. Mirrors the native append rule.
+# MERGE POINT: the checked native open ahead of search_file.
+def disk_file_admitted(is_regular: Bool, owned: Bool, final_symlink: Bool, mode_private: Bool) -> Bool:
+  is_regular && owned && Bool.not(final_symlink) && mode_private
+
+# The negotiated flag that gates CHATHISTORY wire output is scoped to one
+# endpoint and generation: any endpoint change or generation bump clears it
+# until the next ACK arrives on the new connection.
+# MERGE POINT: the CAP lane / Session owns the flag and applies this reset.
+def chat_negotiated(acked: Bool, endpoint_stable: Bool, gen_current: Bool) -> Bool:
+  acked && endpoint_stable && gen_current
+
+# Disk search needs both the history preference and a configured path, so
+# disabled history performs no disk IO at all.
+# MERGE POINT: Session checks this before search_file; search_file keeps its
+# empty-path short-circuit as defense in depth.
+def disk_search_allowed(history_on: Bool, +path: String) -> Bool:
+  match history_on:
+    case False{}: False{}
+    case True{}: Bool.not(String.is_empty(path))
+
+# Checked-open admission: the preference gate plus private-file evidence
+# from the descriptor-checked native open (regular, euid-owned, no final
+# symlink, 0600). Pure policy for laws and the helper/native scan drivers;
+# the affine-FD open enforces the same rule natively before handing the
+# retained descriptor to search_open_file.
+def search_open_admitted(history_on: Bool, +path: String, is_regular: Bool, owned: Bool, final_symlink: Bool, mode_private: Bool) -> Bool:
+  disk_search_allowed(history_on, path)
+    && disk_file_admitted(is_regular, owned, final_symlink, mode_private)
+
+# ---- checked-open evidence -----------------------------------------------
+# One record per path from the descriptor-checked open (native O_NOFOLLOW
+# probe or the linked FFI seam). Scans gate on the record and retain a
+# single File handle; a scan never re-opens by path mid-search. Missing
+# files report an empty page like the bare-open path, never a refusal.
+type SearchEvidence is Data:
+  SearchEvidence{regular: Bool, owned: Bool, final_symlink: Bool, mode_private: Bool, missing: Bool}
+
+def search_evidence_refused() -> SearchEvidence:
+  SearchEvidence{False{}, False{}, False{}, False{}, False{}}
+
+def search_evidence_missing(+ev: SearchEvidence) -> Bool:
+  match ev:
+    case SearchEvidence{_, _, _, _, +missing}: missing
+
+def search_evidence_admitted(+ev: SearchEvidence) -> Bool:
+  match ev:
+    case SearchEvidence{+regular, +owned, +symlink, +private, +missing}:
+      Bool.not(missing) && disk_file_admitted(regular, owned, symlink, private)
+
+# Native evidence word: bits 0..4 carry regular|owned|symlink|private|
+# missing, matching the C law and the helper scan head.
+def search_evidence_bits.bit(+bits: U32, +mask: U32) -> Bool:
+  U32.is_eq(U32.and(bits, mask), mask)
+
+def search_evidence_bits(+bits: U32) -> SearchEvidence:
+  SearchEvidence{search_evidence_bits.bit(bits, 1), search_evidence_bits.bit(bits, 2),
+    search_evidence_bits.bit(bits, 4), search_evidence_bits.bit(bits, 8), search_evidence_bits.bit(bits, 16)}
+
+def search_evidence_bit(+b: Bool) -> String:
+  match b:
+    case True{}: "1"
+    case False{}: "0"
+
+def search_evidence_sig(+ev: SearchEvidence) -> String:
+  match ev:
+    case SearchEvidence{+regular, +owned, +symlink, +private, +missing}:
+      search_evidence_bit(regular) ++ "," ++ search_evidence_bit(owned) ++ ","
+        ++ search_evidence_bit(symlink) ++ "," ++ search_evidence_bit(private) ++ "," ++ search_evidence_bit(missing)
+
+# Helper wire line: `SE` plus five bits (regular owned symlink private
+# missing) with an optional trailing newline. Anything else refuses closed.
+def parse_search_evidence.bit(+w: String, +i: Nat) -> Bool:
+  String.eq(String.take(String.drop(w, i), 1n), "1")
+
+def parse_search_evidence.checked(ok: Bool, +w: String) -> SearchEvidence:
+  match ok:
+    case True{}:
+      SearchEvidence{parse_search_evidence.bit(w, 2n), parse_search_evidence.bit(w, 3n), parse_search_evidence.bit(w, 4n),
+        parse_search_evidence.bit(w, 5n), parse_search_evidence.bit(w, 6n)}
+    case False{}: search_evidence_refused()
+
+def parse_search_evidence.word(clean: Bool, +w: String) -> SearchEvidence:
+  match clean:
+    case True{}:
+      parse_search_evidence.checked(Nat.is_eq(String.length(w), 7n) && String.eq(String.take(w, 2n), "SE"), w)
+    case False{}: search_evidence_refused()
+
+def parse_search_evidence.tail(+w: String, +r: String) -> SearchEvidence:
+  parse_search_evidence.word(String.is_empty(r), w)
+
+def parse_search_evidence.pair(pair: String & String) -> SearchEvidence:
+  match pair:
+    case (+w, +r): parse_search_evidence.tail(w, Irc.drop_spaces(r))
+
+def parse_search_evidence.stripped(nl: Bool, +line: String) -> SearchEvidence:
+  match nl:
+    case True{}: parse_search_evidence.pair(Irc.take_until_space(String.take(line, Nat.sub(String.length(line), 1n))))
+    case False{}: parse_search_evidence.pair(Irc.take_until_space(line))
+
+def parse_search_evidence(+line: String) -> SearchEvidence:
+  parse_search_evidence.stripped(String.ends_with(line, "\n"), line)
+
+# Retained-descriptor scan: the caller holds a private File (opened through
+# the checked native open behind search_open_admitted) and this scan runs
+# bounded 4096-byte chunks to the initial snapshot size, failing closed on
+# size/read/early-EOF errors. No path handling here, so a scan never
+# re-opens by path mid-search.
+# Open-result mapping for the affine-FD seam: the checked native open
+# reports missing as ENOENT (2) and every refusal (symlink, non-regular,
+# foreign, non-private) as EACCES (13) on both backends.
+def search_open.refused(refused: Bool, +code: U32, +msg: String) -> IO(DiskResult):
+  match refused:
+    case True{}: IO.pure(DiskResult, DiskFailed{"history search refused: file not admitted"})
+    case False{}: IO.pure(DiskResult, DiskFailed{Hist.read_failure_text((code, msg), "open failed")})
+
 def search_open.missing(missing: Bool, +code: U32, +msg: String) -> IO(DiskResult):
   match missing:
     case True{}: IO.pure(DiskResult, DiskFound{DiskPage{Nil{}, 0n, 0n, True{}}})
-    case False{}: IO.pure(DiskResult, DiskFailed{Hist.read_failure_text((code, msg), "open failed")})
+    case False{}: search_open.refused(U32.is_eq(code, 13), code, msg)
 
 def search_open.failed(error: U32 & String) -> IO(DiskResult):
   match error:
     case (+code, +msg): search_open.missing(U32.is_eq(code, 2), code, msg)
 
+def search_open_file(f: File, +endpoint: String, +query: DiskQuery, +cursor: Nat) -> IO(DiskResult):
+  do IO<DiskResult>:
+    pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
+    search_size(pair, query, endpoint, cursor)
+
 def search_opened(+query: DiskQuery, +endpoint: String, +cursor: Nat, result: Result<&1, &1, U32 & String, File>) -> IO(DiskResult):
   match result:
     case Fail{error}: search_open.failed(error)
-    case Done{f}:
-      do IO<DiskResult>:
-        pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
-        search_size(pair, query, endpoint, cursor)
+    case Done{f}: search_open_file(f, endpoint, query, cursor)
 
-# MERGE POINT: bare File.open. The integrator must admit the path through a
-# checked native open (O_NOFOLLOW, regular file, euid-owned, mode 0600 per
-# disk_file_admitted) before this read; Session must also consult
-# disk_search_allowed so disabled history performs no disk IO at all.
-def search_file.go(+path: String, +endpoint: String, +query: DiskQuery, +cursor: Nat) -> IO(DiskResult):
-  do IO<DiskResult>:
-    result : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-    search_opened(query, endpoint, cursor, result)
-
-def search_file.pick(disabled: Bool, +path: String, +endpoint: String, +query: DiskQuery, +cursor: Nat) -> IO(DiskResult):
-  match disabled:
-    case True{}: IO.pure(DiskResult, DiskFound{DiskPage{Nil{}, 0n, 0n, True{}}})
-    case False{}: search_file.go(path, endpoint, query, cursor)
-
-# An empty path means history is disabled: report no matches, not an error.
-def search_file(+path: String, +endpoint: String, +query: DiskQuery, +cursor: Nat) -> IO(DiskResult):
-  search_file.pick(String.is_empty(path), path, endpoint, query, cursor)
-
+# Path-based scans enter through history_search_io.search_file_checked,
+# which opens the retained descriptor behind the checked native open and
+# feeds search_opened directly. No probe-then-reopen window remains
+# anywhere: the helper and native drivers hand scan_content the exact
+# checked-descriptor bytes, and the retained-handle entry above stays for
+# caller-held Files.
 # ---- draft/chathistory capability ---------------------------------------
 # Detection mirrors the SASL cap check. Negotiation state and CAP END stay
 # with the CAP lane; these builders only gate on the given flag.
@@ -406,11 +591,11 @@ type CapEvent is Data:
   ChathistoryNak{}
   ChathistoryOther{}
 
-def cap_offered(xs: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}: False{}
-    case Con{+h, t}:
-      Irc.ieq(h, CAP_NAME()) || String.starts_with(h, CAP_NAME() ++ "=") || cap_offered(t)
+# Shared with the single CAP registry: name and value matching live in
+# CapNotify.has_cap, so this module never owns a second matcher. Matching
+# is case-insensitive (a mixed-case valued offer counts, like the registry).
+def cap_offered(+xs: List<&2, String>) -> Bool:
+  CapNotify.has_cap(xs, CAP_NAME())
 
 def cap_event.nak(nak: Bool) -> CapEvent:
   match nak:
@@ -427,24 +612,16 @@ def cap_event.cap(ok: Bool, +m: Irc.Message) -> CapEvent:
     case False{}: ChathistoryOther{}
     case True{}: cap_event.ack(Irc.ieq(Irc.msg_param(m, 1n), "ACK"), Irc.ieq(Irc.msg_param(m, 1n), "NAK"))
 
-# The '*' recipient is the established pre-registration broadcast address.
-# Only the single CAP/registration owner knows the phase, so it supplies
-# `registered`: an unregistered session may accept '*', a registered one
-# must see its own current nick. Any other wrong recipient is rejected in
-# both phases — never global wrong-recipient acceptance.
-# MERGE POINT: Session passes its JoinPlan.welcomed registration flag
-# (owned with the CAP lane); this module never infers phase from traffic.
-def cap_recipient_ok(+recipient: String, +self: String, registered: Bool) -> Bool:
-  Irc.ieq(recipient, self) || (Bool.not(registered) && String.eq(recipient, "*"))
-
 # Trust: the full source prefix must be server-shaped (Message.nick alone
 # loses the !/@ user markers, so a dotted user nick would pass a nick-only
-# check) and the first CAP parameter must pass the phase-aware recipient
-# gate above. Anything else is ChathistoryOther, never an ACK/NAK.
+# check) and the first CAP parameter must pass the single shared recipient
+# phase gate in CapNotify (Session passes its JoinPlan.welcomed flag; this
+# module never infers phase from traffic and never forks a recipient rule).
+# Anything else is ChathistoryOther, never an ACK/NAK.
 def cap_event.msg(+m: Irc.Message, +prefix: String, +server: String, +self: String, registered: Bool) -> CapEvent:
   cap_event.cap(Irc.ieq(Irc.msg_command(m), "CAP")
     && Irc.source_is_server(prefix, server)
-    && cap_recipient_ok(Irc.msg_param(m, 0n), self, registered)
+    && CapNotify.cap_recipient_name_ok(Irc.msg_param(m, 0n), self, registered)
     && cap_offered(String.split(Irc.msg_param(m, 2n), Chr{32})), m)
 
 def cap_event.parsed(m: Maybe<&2, Irc.Message>, +line: String, +server: String, +self: String, registered: Bool) -> CapEvent:
@@ -472,9 +649,10 @@ def valid_msgid(+s: String) -> Bool:
 # `msgid=<id>` or `timestamp=<iso>`. Bare user input defaults to a msgid
 # unless it has UTC-stamp shape (contains T, ends Z, long enough that short
 # opaque ids never match); a token carrying `=` must use a recognized
-# prefix. Timestamps must be full UTC stamps
-# (YYYY-MM-DDThh:mm:ss[.frac]Z with calendar range checks) through the
-# shared server-time validator; malformed refs are rejected, never
+# prefix. Timestamps must be exact IRCv3 chathistory stamps
+# (YYYY-MM-DDThh:mm:ss.sssZ: length 24, '.' at 19, three millisecond
+# digits, 'Z' at 23) with calendar range checks through the shared
+# server-time validator; malformed refs are rejected, never
 # truncated or sent raw. A bare stamp-shaped token that fails validation
 # is rejected too: spell the id explicitly (`msgid=<id>`) instead.
 
@@ -487,13 +665,28 @@ def looks_timestamp(+s: String) -> Bool:
 def valid_msgid_bare(+s: String) -> Bool:
   Commands.word(s) && Nat.is_le(String.length(s), 128n) && Bool.not(String.contains(s, "="))
 
-def timestamp_parsed(got: Maybe<&2, Utc.Utc>) -> Bool:
+def CHAT_STAMP_LEN() -> Nat:
+  24n
+
+# Exact IRCv3 chathistory shape: length 24, '.' at 19, three millisecond
+# digits at 20..22, 'Z' at 23. Calendar range checks stay with the shared
+# server-time validator; Utc.parse is never weakened for this gate.
+def chat_stamp_shape(+s: String) -> Bool:
+  Nat.is_eq(String.length(s), CHAT_STAMP_LEN())
+    && String.eq(String.take(String.drop(s, 19n), 1n), ".")
+    && Utc.digits(s, 20n, 3n)
+    && String.eq(String.take(String.drop(s, 23n), 1n), "Z")
+
+def chat_stamp_parsed(got: Maybe<&2, Utc.Utc>, +s: String) -> Bool:
   match got:
-    case Some{_}: True{}
     case None{}: False{}
+    case Some{_}: chat_stamp_shape(s)
+
+def chat_stamp_ok(+s: String) -> Bool:
+  chat_stamp_parsed(Utc.parse(s), s)
 
 def valid_timestamp_bare(+s: String) -> Bool:
-  Commands.word(s) && Bool.not(String.contains(s, "=")) && timestamp_parsed(Utc.parse(s))
+  Commands.word(s) && Bool.not(String.contains(s, "=")) && chat_stamp_ok(s)
 
 def anchor_wire.keep(ok: Bool, +token: String) -> Maybe<&2, String>:
   match ok:
@@ -734,6 +927,19 @@ def batch_line(batch: ChatBatch, +self: String, +line: String) -> ChatBatch:
       batch_collect(ref, target, channel, messages, overflow, self, line)
     case _: batch
 
+# Live-loop interception: a framed line whose `batch` tag equals the active
+# collect ref belongs to the chathistory batch and must reach the batch
+# collector, never ordinary Feed. Archived mentions/DM stay quiet there
+# while untagged live lines alert through Feed.
+# MERGE POINT: net.bend checks this before Feed.feed on each framed line.
+def batch_claims.ref(+ref: String, +line: String) -> Bool:
+  Bool.not(String.is_empty(ref)) && String.eq(tag_value(line, "batch"), ref)
+
+def batch_claims(batch: ChatBatch, +line: String) -> Bool:
+  match batch:
+    case ChatCollect{+ref, _, _, _, _}: batch_claims.ref(ref, line)
+    case _: False{}
+
 def batch_close.done(done: Bool, +ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool) -> ChatBatch:
   match done:
     case True{}: ChatDone{ref, target, messages, overflow}
@@ -801,6 +1007,31 @@ def batch_overflow(batch: ChatBatch) -> Bool:
     case ChatDone{_, _, _, +overflow}: overflow
     case ChatIdle{}: False{}
 
+# Completed batches drain into their real target buffer. Anything else has
+# no import target and stays out of the source buffers.
+def batch_import_target(+batch: ChatBatch) -> String:
+  match batch:
+    case ChatDone{_, +target, _, _}: target
+    case _: ""
+
+# ---- batch-claimed IDs ------------------------------------------------------
+# Imported archive rows keep fresh stable IDs. The claimed set names exactly
+# those IDs per-ID (never a chunk floor bump) so notify can exclude archived
+# rows while live rows keep alerting. N9 consumes this shared vocabulary.
+def batch_claimed_range.go(fuel: Nat, +lo: Nat) -> List<&2, Nat>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p: (1n+lo) <> batch_claimed_range.go(p, 1n+lo)
+
+def batch_claimed_ids(+pre: Nat, +post: Nat) -> List<&2, Nat>:
+  batch_claimed_range.go(Nat.sub(post, pre), pre)
+
+def batch_claimed_member(+claimed: List<&2, Nat>, +id: Nat) -> Bool:
+  List.contains(~Nat, ~Nat.is_eq, claimed, id)
+
+def batch_claimed_quiet(+claimed: List<&2, Nat>, +id: Nat) -> Bool:
+  batch_claimed_member(claimed, id)
+
 def server_oldest(+xs: List<&2, ServerMatch>) -> String:
   match xs:
     case Nil{}: ""
@@ -822,6 +1053,13 @@ def message_noun.one(one: Bool, +count: Nat) -> String:
 def message_noun(+count: Nat) -> String:
   message_noun.one(Nat.is_eq(count, 1n), count)
 
+# Shared known-cursor formatter: advertised paging anchors are always
+# explicit `msgid=` refs, never bare ids. Bare equals-bearing ids are
+# rejected by anchor_wire and bare stamp-shaped ids misroute to timestamp=,
+# while the cursor helpers prefix msgid=; the header must match them.
+def cursor_ref(+msgid: String) -> String:
+  "msgid=" ++ msgid
+
 def render_server_header.capped(capped: Bool, +base: String) -> Cl.Line:
   match capped:
     case True{}: header_line(base ++ " (batch capped at 100)")
@@ -833,7 +1071,7 @@ def render_server_header.empty(empty: Bool, +target: String, +count: Nat, +oldes
     case False{}:
       render_server_header.capped(overflow,
         "server history: " ++ message_noun(count) ++ " for " ++ target
-          ++ " (" ++ oldest ++ ".." ++ newest ++ "); /history before " ++ target ++ " " ++ oldest ++ " for older")
+          ++ " (" ++ oldest ++ ".." ++ newest ++ "); /history before " ++ target ++ " " ++ cursor_ref(oldest) ++ " for older")
 
 def render_server_header(+target: String, +count: Nat, +oldest: String, +newest: String, +overflow: Bool) -> Cl.Line:
   render_server_header.empty(Nat.is_eq(count, 0n), target, count, oldest, newest, overflow)
@@ -847,6 +1085,46 @@ def import_server_page(+cl: Cl.Client, +target: String, +matches: List<&2, Serve
   import_page.got(Cl.buf_get(cl, "*search*", False{}, True{}),
     render_server_header(target, List.length(&2, ServerMatch, matches),
       server_oldest(matches), server_newest(matches), overflow) <> format_server(matches))
+
+# Source-buffer backfill: admitted server matches import into their real
+# target with stable accepted fresh IDs (Hist.apply_entry mints through
+# client_restore, dropping the wire id0), so media admission sees them.
+# Matches without a msgid carry no identity (the id0 shape) and foreign
+# targets are excluded, never imported bare. The seen ledger skips repeat
+# and overlap msgids (within the page too), so a genuinely new opaque
+# msgid mints exactly one row; the updated ledger returns alongside.
+def import_source_fresh.seen(keep: Bool, +m: ServerMatch, rest: List<&2, ServerMatch>) -> List<&2, ServerMatch>:
+  match keep:
+    case True{}: m <> rest
+    case False{}: rest
+
+def import_source_fresh(matches: List<&2, ServerMatch>, +target: String, +seen: List<&2, String>) -> List<&2, ServerMatch>:
+  match matches:
+    case Nil{}: Nil{}
+    case Con{+m, t}:
+      match m:
+        case ServerMatch{+mtarget, _, +msgid}:
+          import_source_fresh.seen(Bool.not(String.is_empty(msgid)) && Irc.ieq(mtarget, target)
+            && Bool.not(List.contains(~String, ~String.eq, seen, msgid)), m,
+            import_source_fresh(t, target, msgid <> seen))
+
+def import_source_apply(matches: List<&2, ServerMatch>, +cl: Cl.Client, +target: String) -> Cl.Client:
+  match matches:
+    case Nil{}: cl
+    case Con{+m, t}:
+      match m:
+        case ServerMatch{_, +line, _}: import_source_apply(t, Hist.apply_entry(cl, target, line), target)
+
+def import_source_msgids(matches: List<&2, ServerMatch>) -> List<&2, String>:
+  match matches:
+    case Nil{}: Nil{}
+    case Con{+m, t}:
+      match m:
+        case ServerMatch{_, _, +msgid}: msgid <> import_source_msgids(t)
+
+def import_source_page(+cl: Cl.Client, +target: String, +matches: List<&2, ServerMatch>, overflow: Bool, +seen: List<&2, String>) -> Cl.Client & List<&2, String>:
+  +fresh = import_source_fresh(matches, target, seen)
+  (import_source_apply(fresh, cl, target), List.append(&2, String, import_source_msgids(fresh), seen))
 
 # ---- fetch cursor ---------------------------------------------------------
 # Bounded msgid memory dedupes refetch overlap. Oldest/newest drive
@@ -945,7 +1223,7 @@ def cursor_page(+c: HistoryCursor, +msgids: List<&2, String>, dir: FetchDir) -> 
 # carrying `=` stays a msgid; bare-stamp detection lives only on the
 # user-typed anchor_wire path above.
 def msgid_anchor(+msgid: String) -> Maybe<&2, String>:
-  anchor_wire.keep(valid_msgid(msgid), "msgid=" ++ msgid)
+  anchor_wire.keep(valid_msgid(msgid), cursor_ref(msgid))
 
 def before_cursor_line(+target: String, +msgid: String, +limit: Nat) -> Maybe<&2, String>:
   before_line.emit(target, msgid_anchor(msgid), limit)
@@ -1005,46 +1283,346 @@ def filter_unseen_cap(+c: HistoryCursor, msgs: List<&2, BatchMsg>, +cap: Nat) ->
 def filter_unseen(+c: HistoryCursor, msgs: List<&2, BatchMsg>) -> List<&2, BatchMsg>:
   filter_unseen_cap(c, msgs, BATCH_CAP())
 
-# ---- admission predicates (open gates) --------------------------------------
-# Pure rules for integrator-owned Session/CAP decisions. Each names the
-# merge point that must enforce it; this module never touches Session,
-# Workspace, Client, Buffer, Net, or View state itself.
+# ---- live history owner ---------------------------------------------------
+# Session carries one HistLive: the chathistory batch collector, the
+# outstanding/completed search stamps, the server-fetch cursor anchor, the
+# live connection sync point, and the accumulated CAP registry. Stale
+# tickets, wrong generations, and endpoint mismatches stay quiet; any live
+# sync move resets the batch and negotiated caps (chat_negotiated reset).
 
-# Disk search results are admitted only for the live request: the ticket
-# must be the outstanding one, the generation current, and the endpoint
-# exactly equal (host spelling and port scope, never case-folded).
-# MERGE POINT: Session interception stamps (ticket, gen, endpoint) when the
-# search starts and checks this predicate before import_page.
-def search_completion_admitted(+ticket: Nat, +want_ticket: Nat, +gen: Nat, +want_gen: Nat, +endpoint: String, +want_endpoint: String) -> Bool:
-  Nat.is_eq(ticket, want_ticket) && Nat.is_eq(gen, want_gen) && String.eq(endpoint, want_endpoint)
+type HistStamp is Data:
+  HistStamp{ticket: Nat, gen: Nat, endpoint: String}
 
-# Private history files open only when the final path is a regular file
-# owned by us, reached without a final symlink, with a private (0600) mode.
-# Reads reject; they never repair. Mirrors the native append rule.
-# MERGE POINT: the checked native open ahead of search_file.
-def disk_file_admitted(is_regular: Bool, owned: Bool, final_symlink: Bool, mode_private: Bool) -> Bool:
-  is_regular && owned && Bool.not(final_symlink) && mode_private
+type HistLive is Data:
+  HistLive{batch: ChatBatch, caps: CapNotify.Caps, want: HistStamp, got: HistStamp, cursor_oldest: String, live_gen: Nat, live_endpoint: String, seen: List<&2, String>, used: Nat, archived: List<&2, Nat>, bticket: Nat, wkind: Nat, wtarget: String}
 
-# The negotiated flag that gates CHATHISTORY wire output is scoped to one
-# endpoint and generation: any endpoint change or generation bump clears it
-# until the next ACK arrives on the new connection.
-# MERGE POINT: the CAP lane / Session owns the flag and applies this reset.
-def chat_negotiated(acked: Bool, endpoint_stable: Bool, gen_current: Bool) -> Bool:
-  acked && endpoint_stable && gen_current
+def hist_stamp0() -> HistStamp:
+  HistStamp{0n, 0n, ""}
 
-# Disk search needs both the history preference and a configured path, so
-# disabled history performs no disk IO at all.
-# MERGE POINT: Session checks this before search_file; search_file keeps its
-# empty-path short-circuit as defense in depth.
-def disk_search_allowed(history_on: Bool, +path: String) -> Bool:
-  match history_on:
-    case False{}: False{}
-    case True{}: Bool.not(String.is_empty(path))
+def hist_live0() -> HistLive:
+  HistLive{ChatIdle{}, CapNotify.caps0(), hist_stamp0(), hist_stamp0(), "", 0n, "", Nil{}, 0n, Nil{}, 0n, 0n, ""}
+
+# Request-kind vocabulary: the outstanding want is either a disk search or a
+# server fetch. Completions bind (kind, target, ticket): disk pages admit
+# search tickets only; batch drains admit fetch tickets with the exact batch
+# ticket and the exact issued target (case-insensitive, no '#' prefix
+# fallback: issued `#b` never authorizes `##b`, nick `bob` never `#bob`).
+def REQ_NONE() -> Nat:
+  0n
+
+def REQ_SEARCH() -> Nat:
+  1n
+
+def REQ_FETCH() -> Nat:
+  2n
+
+def request_target_ok(+wtarget: String, +btarget: String) -> Bool:
+  Bool.not(String.is_empty(wtarget)) && Bool.not(String.is_empty(btarget))
+    && Irc.ieq(btarget, wtarget)
+
+def hist_live_batch(+hl: HistLive) -> ChatBatch:
+  match hl:
+    case HistLive{+batch, _, _, _, _, _, _, _, _, _, _, _, _}: batch
+
+def hist_live_negotiated(+hl: HistLive) -> Bool:
+  match hl:
+    case HistLive{_, +caps, _, _, _, _, _, _, _, _, _, _, _}: CapNotify.chathistory_ok(caps)
+
+def hist_live_gen(+hl: HistLive) -> Nat:
+  match hl:
+    case HistLive{_, _, _, _, _, +gen, _, _, _, _, _, _, _}: gen
+
+def hist_live_endpoint(+hl: HistLive) -> String:
+  match hl:
+    case HistLive{_, _, _, _, _, _, +le, _, _, _, _, _, _}: le
+
+def hist_live_want(+hl: HistLive) -> HistStamp:
+  match hl:
+    case HistLive{_, _, +want, _, _, _, _, _, _, _, _, _, _}: want
+
+def hist_stamp_ticket(+s: HistStamp) -> Nat:
+  match s:
+    case HistStamp{+ticket, _, _}: ticket
+
+def hist_live_batch_ticket(+hl: HistLive) -> Nat:
+  match hl:
+    case HistLive{_, _, _, _, _, _, _, _, _, _, +bticket, _, _}: bticket
+
+def hist_live_used(+hl: HistLive) -> Nat:
+  match hl:
+    case HistLive{_, _, _, _, _, _, _, _, +used, _, _, _, _}: used
+
+def hist_live_want_target(+hl: HistLive) -> String:
+  match hl:
+    case HistLive{_, _, _, _, _, _, _, _, _, _, _, _, +wtarget}: wtarget
+
+# Auto-completion guard: a done batch whose open stamped the CURRENT
+# outstanding ticket, bound to a fetch request for the batch target.
+# Unsolicited, stale, search-ticketed, and mistargeted batches never
+# self-complete.
+def hist_batch_self_complete.stamp(+want: HistStamp, +batch: ChatBatch, +bticket: Nat, +wkind: Nat, +wtarget: String) -> Bool:
+  match want:
+    case HistStamp{+wt, _, _}:
+      Nat.is_eq(wkind, REQ_FETCH()) && batch_done(batch) && Nat.is_eq(bticket, wt)
+        && request_target_ok(wtarget, batch_import_target(batch))
+
+def hist_batch_self_complete(+hl: HistLive) -> Bool:
+  match hl:
+    case HistLive{+batch, _, +want, _, _, _, _, _, _, _, +bticket, +wkind, +wtarget}:
+      hist_batch_self_complete.stamp(want, batch, bticket, wkind, wtarget)
+
+# Latest drain's claimed IDs: exactly the fresh IDs its import minted, so
+# the history checkpoint and a future notify bind can exclude archived rows
+# without a floor bump. Replaced per drain, never accumulated.
+def hist_live_archived(+hl: HistLive) -> List<&2, Nat>:
+  match hl:
+    case HistLive{_, _, _, _, _, _, _, _, _, +archived, _, _, _}: archived
+
+def hist_live_seen(+hl: HistLive) -> List<&2, String>:
+  match hl:
+    case HistLive{_, _, _, _, _, _, _, +seen, _, _, _, _, _}: seen
+
+# A drained batch returns to idle so the next BATCH open starts fresh and a
+# second drain imports nothing. Stamps, cursor, CAP state, and the ledger
+# are untouched.
+def hist_live_clear_batch(+hl: HistLive) -> HistLive:
+  match hl:
+    case HistLive{_, +caps, +want, +got, +cur, +lg, +le, +seen, +used, +archived, _, +wkind, +wtarget}:
+      HistLive{ChatIdle{}, caps, want, got, cur, lg, le, seen, used, archived, 0n, wkind, wtarget}
+
+# An admitted import consumes its exact ticket once: the same completion
+# can never import again.
+def hist_live_consume(+hl: HistLive) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, _, +archived, +bticket, +wkind, +wtarget}:
+      match want:
+        case HistStamp{+ticket, _, _}:
+          HistLive{batch, caps, want, got, cur, lg, le, seen, ticket, archived, bticket, wkind, wtarget}
+
+def hist_live_note_seen(+hl: HistLive, +seen: List<&2, String>) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, _, +used, +archived, +bticket, +wkind, +wtarget}:
+      HistLive{batch, caps, want, got, cur, lg, le, List.take(&2, String, seen, SEEN_CAP()), used, archived, bticket, wkind, wtarget}
+
+def hist_live_note_archived(+hl: HistLive, +ids: List<&2, Nat>) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, +used, _, +bticket, +wkind, +wtarget}:
+      HistLive{batch, caps, want, got, cur, lg, le, seen, used, List.take(&2, Nat, ids, BATCH_CAP()), bticket, wkind, wtarget}
+
+# A sync move resets the batch, negotiated caps, and the outstanding
+# request binding; the import ledger (seen msgids, archived IDs) is
+# endpoint-scoped, so a same-endpoint generation bump keeps it while an
+# endpoint move clears it. Staying put preserves everything so refetch
+# overlap across pages still dedupes.
+def hist_live_sync.moved(same_end: Bool, +want: HistStamp, +got: HistStamp, +cur: String, +gen: Nat, +endpoint: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>) -> HistLive:
+  match same_end:
+    case True{}: HistLive{ChatIdle{}, CapNotify.caps0(), want, got, cur, gen, endpoint, seen, used, archived, 0n, 0n, ""}
+    case False{}: HistLive{ChatIdle{}, CapNotify.caps0(), want, got, cur, gen, endpoint, Nil{}, used, Nil{}, 0n, 0n, ""}
+
+def hist_live_sync.same(same: Bool, same_end: Bool, +batch: ChatBatch, +caps: CapNotify.Caps, +want: HistStamp, +got: HistStamp, +cur: String, +gen: Nat, +endpoint: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String) -> HistLive:
+  match same:
+    case True{}: HistLive{batch, caps, want, got, cur, gen, endpoint, seen, used, archived, bticket, wkind, wtarget}
+    case False{}: hist_live_sync.moved(same_end, want, got, cur, gen, endpoint, seen, used, archived)
+
+def hist_live_sync(+hl: HistLive, +gen: Nat, +endpoint: String) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, +used, +archived, +bticket, +wkind, +wtarget}:
+      hist_live_sync.same(Nat.is_eq(lg, gen) && String.eq(le, endpoint), String.eq(le, endpoint),
+        batch, caps, want, got, cur, gen, endpoint, seen, used, archived, bticket, wkind, wtarget)
+
+# A begin stamps the outstanding (kind, target, ticket): search/page arm disk
+# completions, an issued fetch arms batch completion for its target.
+def hist_live_begin.stamp(+want: HistStamp, +batch: ChatBatch, +caps: CapNotify.Caps, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String) -> HistLive & Nat:
+  match want:
+    case HistStamp{+ticket, _, _}:
+      (HistLive{batch, caps, HistStamp{1n+ticket, lg, le}, hist_stamp0(), cur, lg, le, seen, used, archived, bticket, wkind, wtarget}, 1n+ticket)
+
+def hist_live_begin.with(+hl: HistLive, +wkind: Nat, +wtarget: String) -> HistLive & Nat:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, +used, +archived, +bticket, _, _}:
+      hist_live_begin.stamp(want, batch, caps, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget)
+
+def hist_live_begin(+hl: HistLive) -> HistLive & Nat:
+  hist_live_begin.with(hl, REQ_SEARCH(), "")
+
+def hist_live_begin_fetch(+hl: HistLive, +wtarget: String) -> HistLive & Nat:
+  hist_live_begin.with(hl, REQ_FETCH(), wtarget)
+
+def hist_live_complete(+hl: HistLive, +ticket: Nat, +gen: Nat, +endpoint: String) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, _, +cur, +lg, +le, +seen, +used, +archived, +bticket, +wkind, +wtarget}:
+      HistLive{batch, caps, want, HistStamp{ticket, gen, endpoint}, cur, lg, le, seen, used, archived, bticket, wkind, wtarget}
+
+def hist_live_fetch_cursor(+hl: HistLive, +oldest: String) -> HistLive:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, _, +lg, +le, +seen, +used, +archived, +bticket, +wkind, +wtarget}:
+      HistLive{batch, caps, want, got, oldest, lg, le, seen, used, archived, bticket, wkind, wtarget}
+
+# Direct disk-page import: exact stamps against the live owner, no ticket
+# rotation (the synchronous memory path imports pristine sessions too).
+def hist_live_search_ok.stamps(+want: HistStamp, +got: HistStamp, +lg: Nat, +le: String) -> Bool:
+  match want:
+    case HistStamp{+wt, +wg, +we}:
+      match got:
+        case HistStamp{+gt, +gg, +ge}:
+          search_completion_admitted(gt, wt, gg, wg, ge, we) && Nat.is_eq(wg, lg) && String.eq(we, le)
+
+def hist_live_search_ok(+hl: HistLive) -> Bool:
+  match hl:
+    case HistLive{_, _, +want, +got, _, +lg, +le, _, _, _, _, _, _}: hist_live_search_ok.stamps(want, got, lg, le)
+
+# Async completion admission: an outstanding NONZERO ticket that no import
+# consumed, plus exact live stamps, bound to a disk-search request. Initial
+# state, unrequested completions, fetch tickets, and repeats stay quiet.
+def hist_live_done_ok.stamps(+want: HistStamp, +got: HistStamp, +lg: Nat, +le: String, +used: Nat, +wkind: Nat) -> Bool:
+  match want:
+    case HistStamp{+wt, +wg, +we}:
+      match got:
+        case HistStamp{+gt, +gg, +ge}:
+          Nat.is_eq(wkind, REQ_SEARCH()) && Nat.is_gt(wt, 0n) && Bool.not(Nat.is_eq(wt, used))
+            && search_completion_admitted(gt, wt, gg, wg, ge, we) && Nat.is_eq(wg, lg) && String.eq(we, le)
+
+def hist_live_done_ok(+hl: HistLive) -> Bool:
+  match hl:
+    case HistLive{_, _, +want, +got, _, +lg, +le, _, +used, _, _, +wkind, _}: hist_live_done_ok.stamps(want, got, lg, le, used, wkind)
+
+def hist_live_page_ok.stamps(+want: HistStamp, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +used: Nat, +wkind: Nat) -> Bool:
+  match want:
+    case HistStamp{+wt, +wg, +we}:
+      match got:
+        case HistStamp{+gt, +gg, +ge}:
+          Nat.is_eq(wkind, REQ_FETCH()) && Nat.is_gt(wt, 0n) && Bool.not(Nat.is_eq(wt, used))
+            && history_page_admitted(gt, wt, gg, wg, ge, we, cur) && Nat.is_eq(wg, lg) && String.eq(we, le)
+
+def hist_live_page_ok(+hl: HistLive) -> Bool:
+  match hl:
+    case HistLive{_, _, +want, +got, +cur, +lg, +le, _, +used, _, _, +wkind, _}: hist_live_page_ok.stamps(want, got, cur, lg, le, used, wkind)
+
+# Per-line live step: collect/close/open batch lines are claimed for history
+# and stay out of auth, feed, CAP, typing, and join recovery. A line tagged
+# for any OTHER batch is archive traffic too: suppressed from the live path
+# (batch untouched, never collected) rather than shown as live. Anything
+# else updates the shared CAP registry and continues live.
+def batch_quiet.opened(m: Maybe<&2, ChatBatch>) -> Bool:
+  match m:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def batch_quiet.close_head(dash: Bool, +t: String) -> String:
+  match dash:
+    case True{}: t
+    case False{}: ""
+
+def batch_quiet.close_tail(p0: String) -> String:
+  match p0:
+    case SCon{+h, +t}: batch_quiet.close_head(Char.is_eq(h, Chr{45}), t)
+    case SNil{}: ""
+
+def batch_quiet.close_shaped(+m: Irc.Message) -> Bool:
+  +bare = batch_quiet.close_tail(Irc.msg_param(m, 0n))
+  Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 1n)
+    && Commands.word(bare)
+    && Nat.is_le(String.length(bare), 64n)
+
+def batch_quiet.msg(+m: Irc.Message, +line: String, +server: String) -> Bool:
+  Irc.ieq(Irc.msg_command(m), "BATCH")
+    && Irc.source_is_server(Irc.source_prefix(line), server)
+    && (batch_quiet.close_shaped(m) || batch_quiet.opened(batch_open.msg(m, line, server)))
+
+def batch_quiet.parsed(mm: Maybe<&2, Irc.Message>, +line: String, +server: String) -> Bool:
+  match mm:
+    case None{}: False{}
+    case Some{+msg}: batch_quiet.msg(msg, line, server)
+
+# Unmatched CONTROLS from a trusted server source with validated +/- ref
+# and arity are archive traffic: stray/duplicate closes stay seq-quiet.
+# Peer/forged, bad-arity, and nonsense BATCH lines still trace live via
+# Feed, exactly as open/close rejection always did. Tagged lines keep the
+# retained tag suppression.
+def batch_suppressed(+line: String, +server: String) -> Bool:
+  Bool.not(String.is_empty(tag_value(line, "batch"))) || batch_quiet.parsed(Irc.parse(line), line, server)
+
+def hist_collect_step.suppressed(suppress: Bool, +batch: ChatBatch) -> ChatBatch & Bool:
+  match suppress:
+    case True{}: (batch, True{})
+    case False{}: (batch, False{})
+
+def hist_collect_step.claimed(claimed: Bool, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
+  match claimed:
+    case True{}: (batch_line(batch, self, line), True{})
+    case False{}: hist_collect_step.suppressed(batch_suppressed(line, server), batch)
+
+def hist_collect_step.done(done: Bool, +closed: ChatBatch, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
+  match done:
+    case True{}: (closed, True{})
+    case False{}: hist_collect_step.claimed(batch_claims(batch, line), batch, self, line, server)
+
+def hist_collect_step(+batch: ChatBatch, +self: String, +server: String, +line: String) -> ChatBatch & Bool:
+  +closed = batch_close(batch, line, server)
+  hist_collect_step.done(batch_done(closed), closed, batch, self, line, server)
+
+def hist_idle_step.quiet(pair: ChatBatch & Bool) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  match pair:
+    case (+b, +c): (b, c, None{})
+
+def hist_idle_step.opened(opened: Maybe<&2, ChatBatch>, +batch: ChatBatch, +line: String, +ticket: Nat, +server: String) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  match opened:
+    case None{}: hist_idle_step.quiet(hist_collect_step.suppressed(batch_suppressed(line, server), batch))
+    case Some{+fresh}: (fresh, True{}, Some{ticket})
+
+def hist_idle_step(+batch: ChatBatch, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  hist_idle_step.opened(batch_open(line, server), batch, line, ticket, server)
+
+def hist_batch_step.collected(pair: ChatBatch & Bool) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  match pair:
+    case (+batch, +claimed): (batch, claimed, None{})
+
+# A newly opened batch stamps the outstanding ticket so auto-completion
+# only ever completes a batch that arrived under the current request.
+# Unsolicited batches (stamped 0 or a stale ticket) never auto-complete.
+def hist_batch_step(batch: ChatBatch, +self: String, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  match batch:
+    case ChatCollect{+ref, +target, +channel, +messages, +overflow}:
+      hist_batch_step.collected(hist_collect_step(ChatCollect{ref, target, channel, messages, overflow}, self, server, line))
+    case ChatIdle{}: hist_idle_step(ChatIdle{}, server, line, ticket)
+    case ChatDone{+ref, +target, +messages, +overflow}:
+      hist_idle_step(ChatDone{ref, target, messages, overflow}, server, line, ticket)
+
+def hist_live_step.claimed(claimed: Bool, +batch: ChatBatch, +caps: CapNotify.Caps, +want: HistStamp, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
+  match claimed:
+    case True{}: (HistLive{batch, caps, want, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget}, True{})
+    case False{}:
+      (HistLive{batch, CapNotify.caps_apply_line(caps, server, self, line, registered), want, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget}, False{})
+
+def hist_batch_ticket.keep(stamped: Maybe<&2, Nat>, +keep: Nat) -> Nat:
+  match stamped:
+    case None{}: keep
+    case Some{+t}: t
+
+def hist_live_step.rest(rest: Bool & Maybe<&2, Nat>, +batch: ChatBatch, +caps: CapNotify.Caps, +want: HistStamp, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
+  match rest:
+    case (+claimed, +stamped):
+      hist_live_step.claimed(claimed, batch, caps, want, got, cur, lg, le, seen, used, archived,
+        hist_batch_ticket.keep(stamped, bticket), wkind, wtarget, self, server, line, registered)
+
+def hist_live_step.fields(triple: ChatBatch & Bool & Maybe<&2, Nat>, +caps: CapNotify.Caps, +want: HistStamp, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
+  match triple:
+    case (+batch, rest): hist_live_step.rest(rest, batch, caps, want, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget, self, server, line, registered)
+
+def hist_live_step.ticket(+want: HistStamp) -> Nat:
+  match want:
+    case HistStamp{+ticket, _, _}: ticket
+
+def hist_live_step(+hl: HistLive, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
+  match hl:
+    case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, +used, +archived, +bticket, +wkind, +wtarget}:
+      hist_live_step.fields(hist_batch_step(batch, self, server, line, hist_live_step.ticket(want)),
+        caps, want, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget, self, server, line, registered)
 
 # ---- /history requests ----------------------------------------------------
 # Malformed input selects ReqUsage, never a partial fetch. Search/page run
-# in the live session (Session interception over search_file); fetch lines
-# are ordinary wire output gated on negotiation.
+# as an async retained-fd scan owned by the live session; fetch lines are
+# ordinary wire output gated on negotiation.
 
 type HistoryRequest is Data:
   ReqSearch{text: String, target: String, rest: String}
@@ -1239,6 +1817,9 @@ def unavailable() -> String:
 def live_only() -> String:
   "disk history search runs in the live session"
 
+def search_disabled() -> String:
+  "disk history is disabled"
+
 def echo_history(+cl: Cl.Client, +msg: String) -> Cl.Client:
   Cl.client_log(cl, Cl.active_of(cl), Cl.Error{}, msg)
 
@@ -1252,11 +1833,16 @@ def submit_fetch.line(+cl: Cl.Client, line: Maybe<&2, String>, +negotiated: Bool
     case None{}: (echo_history(cl, usage()), Nil{})
     case Some{+l}: submit_fetch.gated(cl, l, negotiated)
 
+def submit_history.search(+cl: Cl.Client, on: Bool) -> Cl.Client & List<&2, String>:
+  match on:
+    case True{}: (echo_history(cl, live_only()), Nil{})
+    case False{}: (echo_history(cl, search_disabled()), Nil{})
+
 def submit_history.req(+cl: Cl.Client, req: HistoryRequest, +negotiated: Bool) -> Cl.Client & List<&2, String>:
   match req:
     case ReqUsage{}: (echo_history(cl, usage()), Nil{})
-    case ReqSearch{_, _, _}: (echo_history(cl, live_only()), Nil{})
-    case ReqPage{_, _, _, _}: (echo_history(cl, live_only()), Nil{})
+    case ReqSearch{_, _, _}: submit_history.search(cl, Cl.settings_history(Cl.get_settings(cl)))
+    case ReqPage{_, _, _, _}: submit_history.search(cl, Cl.settings_history(Cl.get_settings(cl)))
     case ReqLatest{+target, +limit}: submit_fetch.line(cl, latest_line(target, limit), negotiated)
     case ReqBefore{+target, +anchor, +limit}: submit_fetch.line(cl, before_line(target, anchor, limit), negotiated)
     case ReqAfter{+target, +anchor, +limit}: submit_fetch.line(cl, after_line(target, anchor, limit), negotiated)

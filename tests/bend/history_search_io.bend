@@ -7,6 +7,7 @@ import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history.bend as Hist
 import ../../src/bend/history_search.bend as Hs
+import ../../src/bend/history_search_io.bend as HSIO
 
 def num2.pad(+n: Nat, small: Bool) -> String:
   match small:
@@ -63,6 +64,16 @@ def file_size(+path: String) -> IO(Nat):
     f : File <- IO.try(File, File.open(path, "r"))
     pair : File & Result<&1, &1, U32 & String, U32> <- File.size(f)
     file_size.sized(pair)
+
+def run_code(got: Result<&1, &1, U32 & String, U32 & (String & String)>) -> U32:
+  match got:
+    case Fail{_}: 99
+    case Done{(+code, _)}: code
+
+def run(+prog: String, args: List<&1, String>) -> IO(U32):
+  do IO<U32>:
+    got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(prog, args, "", 4096, 5000)
+    return run_code(got)
 
 def show_complete(done: Bool) -> String:
   match done:
@@ -170,16 +181,18 @@ def main() -> IO(Unit):
   +split : String = "BIRC2\ta:6667\t#chan\tMSG\t10:00:00\talice\t" ++ repeat(18n, "x") ++ "café split\n"
   do IO<Unit>:
     Unit <- write_file(path, content)
+    +c600 : U32 <- run("chmod", ["600", path])
+    Unit <- E.must("page_fixtures", U32.is_eq(c600, 0))
     +size : Nat <- file_size(path)
     # First page: newest 50 of 60; extras are excluded by the exact total.
-    +r1 : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", ""}, size)
+    +r1 : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", ""}, size, True{})
     Unit <- E.must_eq("page1_sig", result_sig(r1),
       "50|60|partial|" ++ Nat.show(Nat.mul(10n, rec_len)))
     +p1 : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(r1))
     Unit <- E.must_eq("page1_first", page_first(p1), "needle 10")
     Unit <- E.must_eq("page1_last", page_last(p1), "needle 59")
     # Second page: the older 10, then the window is exhausted.
-    +r2 : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", ""}, result_next(r1))
+    +r2 : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", ""}, result_next(r1), True{})
     Unit <- E.must_eq("page2_sig", result_sig(r2), "10|10|complete|0")
     +p2 : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(r2))
     Unit <- E.must_eq("page2_texts", page_texts(p2),
@@ -193,33 +206,33 @@ def main() -> IO(Unit):
     Unit <- E.must("import_header", String.starts_with(search_texts(Hs.import_page(fixture_client(), "needle", p1)),
       "disk history: newest 50 of 60 matches for \"needle\""))
     # Endpoint isolation both directions.
-    +rb : Hs.DiskResult <- Hs.search_file(path, "b:6667", Hs.DiskQuery{"needle", ""}, size)
+    +rb : Hs.DiskResult <- HSIO.search_file_checked(path, "b:6667", Hs.DiskQuery{"needle", ""}, size, True{})
     Unit <- E.must_eq("endpoint_b", result_sig(rb), "1|1|complete|"
       ++ Nat.show(Nat.mul(60n, rec_len)))
     +pb : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(rb))
     Unit <- E.must_eq("endpoint_b_text", page_first(pb), "needle foreign")
     # Target filters.
-    +rt : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", "#other"}, size)
+    +rt : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", "#other"}, size, True{})
     Unit <- E.must_eq("target_miss", result_sig(rt), "0|0|complete|0")
-    +rh : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", "#chan"}, size)
+    +rh : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", "#chan"}, size, True{})
     Unit <- E.must_eq("target_hit", result_sig(rh),
       "50|60|partial|" ++ Nat.show(Nat.mul(10n, rec_len)))
     # Missing and disabled files report no matches, not errors.
-    +rm : Hs.DiskResult <- Hs.search_file("build/history_search.absent", "a:6667", Hs.DiskQuery{"needle", ""}, 0n)
+    +rm : Hs.DiskResult <- HSIO.search_file_checked("build/history_search.absent", "a:6667", Hs.DiskQuery{"needle", ""}, 0n, True{})
     Unit <- E.must_eq("missing_file", result_sig(rm), "0|0|complete|0")
-    +rd : Hs.DiskResult <- Hs.search_file("", "a:6667", Hs.DiskQuery{"needle", ""}, 0n)
+    +rd : Hs.DiskResult <- HSIO.search_file_checked("", "a:6667", Hs.DiskQuery{"needle", ""}, 0n, True{})
     Unit <- E.must_eq("disabled_path", result_sig(rd), "0|0|complete|0")
     # A cursor past EOF fails closed instead of returning a wrong page.
-    +ro : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", ""}, Nat.add(size, 100n))
+    +ro : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", ""}, Nat.add(size, 100n), True{})
     Unit <- E.must_eq("cursor_overflow", result_sig(ro), "fail:history changed; restart search")
     # Appends never disturb older offsets: the old cursor still pages.
     Unit <- write_file(path, grown)
     +size2 : Nat <- file_size(path)
-    +r2b : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", ""}, result_next(r1))
+    +r2b : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", ""}, result_next(r1), True{})
     Unit <- E.must_eq("append_stable", result_sig(r2b), "10|10|complete|0")
     +p2b : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(r2b))
     Unit <- E.must_eq("append_stable_texts", page_texts(p2b), page_texts(p2))
-    +r1b : Hs.DiskResult <- Hs.search_file(path, "a:6667", Hs.DiskQuery{"needle", ""}, size2)
+    +r1b : Hs.DiskResult <- HSIO.search_file_checked(path, "a:6667", Hs.DiskQuery{"needle", ""}, size2, True{})
     Unit <- E.must_eq("append_newest", result_sig(r1b),
       "50|62|partial|" ++ Nat.show(Nat.mul(12n, rec_len)))
     +p1b : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(r1b))
@@ -227,8 +240,10 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("append_last", page_last(p1b), "needle 60")
     # Multibyte records decode; a split scalar never becomes a match.
     Unit <- write_file(utf8_path, pad ++ split)
+    +c600u : U32 <- run("chmod", ["600", utf8_path])
+    Unit <- E.must("utf8_fixtures", U32.is_eq(c600u, 0))
     +usize : Nat <- file_size(utf8_path)
-    +ru : Hs.DiskResult <- Hs.search_file(utf8_path, "a:6667", Hs.DiskQuery{"café", ""}, usize)
+    +ru : Hs.DiskResult <- HSIO.search_file_checked(utf8_path, "a:6667", Hs.DiskQuery{"café", ""}, usize, True{})
     Unit <- E.must_eq("utf8_sig", result_sig(ru), "1|1|complete|"
       ++ Nat.show(String.length(pad)))
     +pu : Hs.DiskPage <- IO.pure(Hs.DiskPage, result_page(ru))

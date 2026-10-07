@@ -168,6 +168,12 @@ law Sys.media_program:
 def Sys.media_program():
   import "../ffi/timui_ffi.c"
 
+law Sys.notify_default:
+  IO(String)
+
+def Sys.notify_default():
+  import "../ffi/timui_ffi.c"
+
 law Sys.exit_done:
   IO(Unit)
 

@@ -3,33 +3,41 @@
 import Base
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
+import ./theme.bend as Theme
 
 type Preferences is Data:
-  Preferences{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, images: Bool, mutes: List<&2, String>, channels: List<&2, String>, known_channels: Bool}
+  Preferences{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, images: Bool, mutes: List<&2, String>, channels: List<&2, String>, known_channels: Bool, theme: Theme.Id}
 
 def MAX_WIRE() -> U32:
   40960
 
 def images(prefs: Preferences) -> Bool:
   match prefs:
-    case Preferences{_, _, _, _, _, _, _, images, _, _, _}: images
+    case Preferences{_, _, _, _, _, _, _, images, _, _, _, _}: images
 
 def channels(prefs: Preferences) -> List<&2, String>:
   match prefs:
-    case Preferences{_, _, _, _, _, _, _, _, _, channels, _}: channels
+    case Preferences{_, _, _, _, _, _, _, _, _, channels, _, _}: channels
 
 def known_channels(prefs: Preferences) -> Bool:
   match prefs:
-    case Preferences{_, _, _, _, _, _, _, _, _, _, known}: known
+    case Preferences{_, _, _, _, _, _, _, _, _, _, known, _}: known
+
+def theme(prefs: Preferences) -> Theme.Id:
+  match prefs:
+    case Preferences{_, _, _, _, _, _, _, _, _, _, _, +th}: th
+
+def capture_themed(+cl: Cl.Client, images: Bool, channels: List<&2, String>, +th: Theme.Id) -> Preferences:
+  +stg = Cl.get_settings(cl)
+  Preferences{Cl.settings_joins(stg), Cl.settings_ts(stg), Cl.settings_motd(stg), Cl.settings_history(stg), Cl.settings_hist_cap(stg), Cl.settings_autoreconn(stg), Cl.settings_bell(stg), images, Cl.settings_mutes(stg), channels, True{}, th}
 
 def capture(+cl: Cl.Client, images: Bool, channels: List<&2, String>) -> Preferences:
-  +stg = Cl.get_settings(cl)
-  Preferences{Cl.settings_joins(stg), Cl.settings_ts(stg), Cl.settings_motd(stg), Cl.settings_history(stg), Cl.settings_hist_cap(stg), Cl.settings_autoreconn(stg), Cl.settings_bell(stg), images, Cl.settings_mutes(stg), channels, True{}}
+  capture_themed(cl, images, channels, Theme.Dark{})
 
 # Update only durable fields; authentication, unreads, lag and bell sequence survive.
 def apply(+cl: Cl.Client, prefs: Preferences) -> Cl.Client:
   match prefs:
-    case Preferences{joins, ts, motd, history, cap, auto, bell, _, mutes, _, _}:
+    case Preferences{joins, ts, motd, history, cap, auto, bell, _, mutes, _, _, _}:
       +s0 = Cl.get_settings(cl)
       +s1 = Cl.set_joins(s0, joins)
       +s2 = Cl.set_ts(s1, ts)
@@ -49,12 +57,19 @@ def records_text(xs: List<&2, String>, +kind: String) -> String:
     case Nil{}: ""
     case Con{h, t}: kind ++ "\t" ++ h ++ "\n" ++ records_text(t, kind)
 
+def show_theme.record(+th: Theme.Id) -> String:
+  match th:
+    case Theme.Dark{}: ""
+    case Theme.Light{}: "theme\tlight\n"
+    case Theme.Mono{}: "theme\tmono\n"
+
 def show(prefs: Preferences) -> String:
   match prefs:
-    case Preferences{joins, ts, motd, history, cap, auto, bell, images, mutes, channels, known}:
+    case Preferences{joins, ts, motd, history, cap, auto, bell, images, mutes, channels, known, theme}:
       "BIRC_PREFS1\nsettings\t" ++ bit(joins) ++ "\t" ++ bit(ts) ++ "\t" ++ bit(motd)
         ++ "\t" ++ bit(history) ++ "\t" ++ U32.show(cap) ++ "\t" ++ bit(auto)
         ++ "\t" ++ bit(bell) ++ "\t" ++ bit(images) ++ "\n"
+        ++ show_theme.record(theme)
         ++ records_text(mutes, "mute") ++ records_text(channels, "channel")
         ++ Bool.pick(String, known, "", "scope\t0\n")
 
@@ -91,7 +106,7 @@ def list_ok(xs: List<&2, String>, +channel: Bool) -> Bool:
 
 def valid(prefs: Preferences) -> Bool:
   match prefs:
-    case Preferences{_, _, _, _, _, _, _, _, +mutes, +channels, known}:
+    case Preferences{_, _, _, _, _, _, _, _, +mutes, +channels, known, _}:
       Nat.is_le(List.length(&2, String, mutes), 64n) && Nat.is_le(List.length(&2, String, channels), 14n)
         && list_ok(mutes, False{}) && list_ok(channels, True{})
         && (known || List.is_empty(&2, String, channels))
@@ -136,7 +151,7 @@ def parse_settings.fields(fields: List<&2, String>) -> Maybe<&2, Preferences>:
         auto : Bool <- parse_bit(a)
         bell : Bool <- parse_bit(b)
         images : Bool <- parse_bit(i)
-        return Preferences{joins, ts, motd, history, hist_cap, auto, bell, images, Nil{}, Nil{}, True{}}
+        return Preferences{joins, ts, motd, history, hist_cap, auto, bell, images, Nil{}, Nil{}, True{}, Theme.Dark{}}
     case _: None{}
 
 def parse_record.mute(ok: Bool, prefs: Preferences, value: String) -> Maybe<&2, Preferences>:
@@ -144,35 +159,45 @@ def parse_record.mute(ok: Bool, prefs: Preferences, value: String) -> Maybe<&2, 
     case False{}: None{}
     case True{}:
       match prefs:
-        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known}:
-          Some{Preferences{j, t, m, h, cap, a, b, i, List.append(&2, String, mutes, value <> Nil{}), channels, known}}
+        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, +th}:
+          Some{Preferences{j, t, m, h, cap, a, b, i, List.append(&2, String, mutes, value <> Nil{}), channels, known, th}}
 
 def parse_record.channel(ok: Bool, prefs: Preferences, value: String) -> Maybe<&2, Preferences>:
   match ok:
     case False{}: None{}
     case True{}:
       match prefs:
-        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known}:
-          Some{Preferences{j, t, m, h, cap, a, b, i, mutes, List.append(&2, String, channels, value <> Nil{}), known}}
+        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, +th}:
+          Some{Preferences{j, t, m, h, cap, a, b, i, mutes, List.append(&2, String, channels, value <> Nil{}), known, th}}
 
 def parse_record.scope(ok: Bool, prefs: Preferences) -> Maybe<&2, Preferences>:
   match ok:
     case False{}: None{}
     case True{}:
       match prefs:
-        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, _}:
-          Some{Preferences{j, t, m, h, cap, a, b, i, mutes, channels, False{}}}
+        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, _, +th}:
+          Some{Preferences{j, t, m, h, cap, a, b, i, mutes, channels, False{}, th}}
+
+def parse_record.theme(got: Maybe<&2, Theme.Id>, prefs: Preferences) -> Maybe<&2, Preferences>:
+  match got:
+    case None{}: None{}
+    case Some{+th}:
+      match prefs:
+        case Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, _}:
+          Some{Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, th}}
 
 def parse_record.fields(fields: List<&2, String>, +prefs: Preferences) -> Maybe<&2, Preferences>:
   match fields:
     case "mute" <> +value <> Nil{}:
       match prefs:
-        case Preferences{j, t, m, h, cap, a, b, i, +mutes, channels, known}:
-          parse_record.mute(text_ok(value, 512) && Nat.is_lt(List.length(&2, String, mutes), 64n) && Bool.not(has(mutes, value)), Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known}, value)
+        case Preferences{j, t, m, h, cap, a, b, i, +mutes, channels, known, +th}:
+          parse_record.mute(text_ok(value, 512) && Nat.is_lt(List.length(&2, String, mutes), 64n) && Bool.not(has(mutes, value)), Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, th}, value)
     case "channel" <> +value <> Nil{}:
       match prefs:
-        case Preferences{j, t, m, h, cap, a, b, i, mutes, +channels, +known}:
-          parse_record.channel(known && channel_ok(value) && Nat.is_lt(List.length(&2, String, channels), 14n) && Bool.not(has(channels, value)), Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known}, value)
+        case Preferences{j, t, m, h, cap, a, b, i, mutes, +channels, +known, +th}:
+          parse_record.channel(known && channel_ok(value) && Nat.is_lt(List.length(&2, String, channels), 14n) && Bool.not(has(channels, value)), Preferences{j, t, m, h, cap, a, b, i, mutes, channels, known, th}, value)
+    case "theme" <> +value <> Nil{}:
+      parse_record.theme(Theme.parse(value), prefs)
     case "scope" <> "0" <> Nil{}:
       parse_record.scope(known_channels(prefs) && List.is_empty(&2, String, channels(prefs)), prefs)
     case _: None{}

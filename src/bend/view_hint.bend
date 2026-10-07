@@ -2,6 +2,7 @@
 # A transient status-row hint never replaces input or enters chat history.
 import Base
 import ./buffer.bend as Cl
+import ./theme.bend as Theme
 import ./view.bend as V
 
 def spaces(n: Nat) -> String:
@@ -23,3 +24,16 @@ def status.on(empty: Bool, vm: V.ViewModel, rows: U32, +cols: U32, hint: String)
 
 def status(vm: V.ViewModel, rows: U32, cols: U32, +hint: String) -> V.ViewModel:
   status.on(String.is_empty(hint), vm, rows, cols, hint)
+
+def status_themed.on(empty: Bool, vm: V.ViewModel, rows: U32, +cols: U32, hint: String, +th: Theme.Id) -> V.ViewModel:
+  match empty:
+    case True{}: vm
+    case False{}:
+      match vm:
+        case V.ViewModel{ops, input}:
+          V.ViewModel{List.append(&2, V.DrawOp, ops,
+            [V.OpText{0, V.status_y(rows), cols, V.FG_TEXT_themed(th), 1,
+              hint ++ spaces(Cl.clamp_nat(U32.to_nat(cols), 1024n))}]), input}
+
+def status_themed(vm: V.ViewModel, rows: U32, cols: U32, +hint: String, +th: Theme.Id) -> V.ViewModel:
+  status_themed.on(String.is_empty(hint), vm, rows, cols, hint, th)

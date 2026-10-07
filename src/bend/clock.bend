@@ -27,6 +27,20 @@ law millis:
 def millis():
   import "../ffi/clock_ffi.c"
 
+# Default-off numeric PONG-path trace. Stages: 1 reader post, 2 UI chunk,
+# 3 UI enqueue, 4 writer receive, 5 line sent, 6 reader reply. The reader
+# reply stage opens its own branch, so a late QUIT can never join the PONG
+# chain; PONG stages 6/1/2/4/5 share the read's carried request ID so every
+# hop matches by numeric identity, never by order; Cont 4/5 carry the low
+# batch txn so FIFO sends match their receive by ID. Txn 0 is unidentified
+# (non-PING chunks, stage 3, bare sends). Counts stay numeric; only stage 5
+# carries the send result. Silent unless BIRC_NET_TRACE is set.
+law net_trace:
+  U32 -> U32 -> U32 -> IO(Unit)
+
+def net_trace(stage, txn, count):
+  import "../ffi/clock_ffi.c"
+
 def hhmmss() -> IO(String):
   do IO<String>:
     n : U32 <- local_secs()

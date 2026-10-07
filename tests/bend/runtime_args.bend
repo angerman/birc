@@ -6,7 +6,7 @@ import ../../src/bend/args.bend as Args
 def resolved(+env_user: String, got: Args.Parsed) -> String:
   match got:
     case Args.Bad{+msg}: "bad:" ++ msg
-    case Args.Good{Args.Cfg{_, _, _, _, +nick, _, _, +user, _, explicit, _, _, _}}:
+    case Args.Good{Args.Cfg{_, _, _, _, +nick, _, _, +user, _, explicit, _, _, _, _}}:
       Args.resolve_nick(nick, explicit, Bool.pick(String, String.is_empty(user), env_user, user))
 
 def main() -> IO(Unit):

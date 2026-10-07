@@ -9,6 +9,8 @@ import ./endpoint.bend as Endpoint
 import ./diagnostic.bend as Diagnostic
 import ./irc_commands.bend as Commands
 import ./message_chunks.bend as Chunks
+import ./theme.bend as Theme
+import ./isupport.bend as Is
 
 def empty_out() -> List<&2, String>:
   Nil{}
@@ -28,6 +30,16 @@ def images_status(intent: Maybe<&2, Bool>) -> String:
   match intent:
     case None{}: "usage: /images on|off"
     case Some{on}: Bool.pick(String, on, "automatic images on", "automatic images off")
+
+# ---- shared named-theme argument policy --------------------------------
+
+def theme_arg(+arg: String) -> Maybe<&2, Theme.Id>:
+  Theme.parse(arg)
+
+def theme_status(intent: Maybe<&2, Theme.Id>) -> String:
+  match intent:
+    case None{}: "usage: /theme dark|light|mono"
+    case Some{+id}: "theme " ++ Theme.show(id)
 
 # ---- shared space scan; command verb drops exactly one separator --------
 
@@ -1204,6 +1216,7 @@ type Slash is Data:
   SearchCmd{}
   PreviewCmd{}
   ImagesCmd{}
+  ThemeCmd{}
   UploadCmd{}
   LogCmd{}
   WhoisCmd{}
@@ -1237,14 +1250,17 @@ def slash_rows() -> List<&2, SlashRow>:
     <> SlashRow{"mute", MuteCmd{}}
     <> SlashRow{"unmute", UnmuteCmd{}}
     <> SlashRow{"mutes", MutesCmd{}}
-    # Session owns connection and pane commands; keep their aliases here too.
+    # Session owns connection, pane, and history commands; keep their
+    # aliases here too (history sits beside search in completion order).
     <> SlashRow{"connect", Unknown{}}
     <> SlashRow{"reconnect", Unknown{}}
     <> SlashRow{"open", OpenCmd{}}
     <> SlashRow{"links", LinksCmd{}}
     <> SlashRow{"search", SearchCmd{}}
+    <> SlashRow{"history", Unknown{}}
     <> SlashRow{"preview", PreviewCmd{}}
     <> SlashRow{"images", ImagesCmd{}}
+    <> SlashRow{"theme", ThemeCmd{}}
     <> SlashRow{"log", LogCmd{}}
     <> SlashRow{"split", Unknown{}}
     <> SlashRow{"vsplit", Unknown{}}
@@ -1361,6 +1377,11 @@ def preference_images(parsed: Maybe<&2, Bool>) -> Maybe<&2, String>:
     case None{}: None{}
     case Some{_}: Some{"images"}
 
+def preference_theme(parsed: Maybe<&2, Theme.Id>) -> Maybe<&2, String>:
+  match parsed:
+    case None{}: None{}
+    case Some{_}: Some{"theme"}
+
 def preference_intent(input: Input) -> Maybe<&2, String>:
   match input:
     case CommandInput{SetCmd{}, _, rest}: preference_set.words(take_word(rest))
@@ -1368,6 +1389,7 @@ def preference_intent(input: Input) -> Maybe<&2, String>:
     case CommandInput{MuteCmd{}, _, rest}: preference_mute.words(take_word(Irc.drop_spaces(rest)))
     case CommandInput{UnmuteCmd{}, _, rest}: preference_mute.words(take_word(Irc.drop_spaces(rest)))
     case CommandInput{ImagesCmd{}, _, rest}: preference_images(images_arg(Irc.drop_spaces(rest)))
+    case CommandInput{ThemeCmd{}, _, rest}: preference_theme(theme_arg(Irc.drop_spaces(rest)))
     case _: None{}
 
 def input_sensitive.words(+cl: Cl.Client, pair: String & String) -> Bool:
@@ -1387,6 +1409,96 @@ def input_sensitive.mode_wire(wire: Maybe<&2, String>) -> Bool:
     case None{}: False{}
     case Some{line}: Commands.mode_has_key.line(line)
 
+# Lenient raw fallback: when the wire fails to build (opaque trailing text,
+# unparseable secret), still flag a plausible key tail via the shared
+# conservative detector. Mirrors Commands.mode explicit/implicit without
+# requiring well-formed words. A signed first word is an explicit target
+# exactly when it is a general channel AND the second word is flags-shaped
+# (mirroring mode.explicit's channel(first) && sign(rest) disjunct, lenient
+# on short unsigned tails like "k"); the old "+#"-only literal missed
+# explicit +channel keys such as "+foo +k secret". Signed flags ("+k")
+# stay on the active-buffer fallback, since bare flags never name a target.
+# An unsigned non-channel first word that the wire rejects (styled or
+# control-polluted targets) still suppresses history when the second word
+# is a key tail with following args: the typed secret must not become
+# recallable just because no wire was emitted. Valid non-key commands have
+# no key tail in second position and stay recallable. A signed channel
+# first word likewise admits a control-polluted key tail (color-wrapped
+# flags normalize to non-signed text) through the shared key-tail owner.
+def input_sensitive.mode_raw.decide(+cl: Cl.Client, +first: String, +second: String, +tail: List<&2, String>, signed: Bool, chan: Bool, signed_target: Bool) -> Bool:
+  match signed:
+    case True{}:
+      match signed_target:
+        case True{}: Commands.mode_maybe_key(first, second, Bool.not(List.is_empty(&2, String, tail)))
+        case False{}: Commands.mode_maybe_key(Cl.active_buf_name(cl), first, True{})
+    case False{}:
+      match chan:
+        case True{}: Commands.mode_maybe_key(first, second, Bool.not(List.is_empty(&2, String, tail)))
+        case False{}: Commands.mode_maybe_key(Cl.active_buf_name(cl), first, True{}) || Commands.mode_key_tail(second, Bool.not(List.is_empty(&2, String, tail)))
+
+def input_sensitive.mode_raw.two(+cl: Cl.Client, +first: String, +second: String, +tail: List<&2, String>) -> Bool:
+  +chan = Commands.channel(first)
+  +key_tail = Commands.mode_key_tail(second, Bool.not(List.is_empty(&2, String, tail)))
+  input_sensitive.mode_raw.decide(cl, first, second, tail, Commands.mode.sign(first), chan, chan && (Commands.mode_maybe_signed_norm(second) || key_tail))
+
+def input_sensitive.mode_raw.rest(+cl: Cl.Client, +first: String, +rest: List<&2, String>) -> Bool:
+  match rest:
+    case Nil{}: False{}
+    case Con{+second, +tail}: input_sensitive.mode_raw.two(cl, first, second, tail)
+
+def input_sensitive.mode_raw.words(+cl: Cl.Client, +words: List<&2, String>) -> Bool:
+  match words:
+    case Nil{}: False{}
+    case Con{+first, +rest}: input_sensitive.mode_raw.rest(cl, first, rest)
+
+def input_sensitive.mode_raw(+cl: Cl.Client, +args: String) -> Bool:
+  input_sensitive.mode_raw.words(cl, Commands.words(args))
+
+def input_sensitive.mode_both(+cl: Cl.Client, +rest: String) -> Bool:
+  input_sensitive.mode_wire(mode_command(cl, rest)) || input_sensitive.mode_raw(cl, rest)
+
+def input_sensitive.mode_wire_iso(+iso: Is.State, wire: Maybe<&2, String>) -> Bool:
+  match wire:
+    case None{}: False{}
+    case Some{+line}: Is.mode_has_key_iso.line(iso, line)
+
+def input_sensitive.mode_raw_iso.decide(+iso: Is.State, +cl: Cl.Client, +first: String, +second: String, +tail: List<&2, String>, signed: Bool, chan: Bool, signed_target: Bool) -> Bool:
+  match signed:
+    case True{}:
+      match signed_target:
+        case True{}: Commands.mode_maybe_key_target(Is.sensitive_target(iso, first), second, Bool.not(List.is_empty(&2, String, tail)))
+        case False{}: Commands.mode_maybe_key_target(Is.sensitive_target(iso, Cl.active_buf_name(cl)), first, True{})
+    case False{}:
+      match chan:
+        case True{}: Commands.mode_maybe_key_target(Is.sensitive_target(iso, first), second, Bool.not(List.is_empty(&2, String, tail)))
+        case False{}: Commands.mode_maybe_key_target(Is.sensitive_target(iso, Cl.active_buf_name(cl)), first, True{}) || Commands.mode_key_tail(second, Bool.not(List.is_empty(&2, String, tail)))
+
+def input_sensitive.mode_raw_iso.two(+iso: Is.State, +cl: Cl.Client, +first: String, +second: String, +tail: List<&2, String>) -> Bool:
+  +chan = Commands.channel(first) || Is.is_channel(iso, first)
+  +key_tail = Commands.mode_key_tail(second, Bool.not(List.is_empty(&2, String, tail)))
+  input_sensitive.mode_raw_iso.decide(iso, cl, first, second, tail, Commands.mode.sign(first), chan, chan && (Commands.mode_maybe_signed_norm(second) || key_tail))
+
+def input_sensitive.mode_raw_iso.rest(+iso: Is.State, +cl: Cl.Client, +first: String, +rest: List<&2, String>) -> Bool:
+  match rest:
+    case Nil{}: False{}
+    case Con{+second, +tail}: input_sensitive.mode_raw_iso.two(iso, cl, first, second, tail)
+
+def input_sensitive.mode_raw_iso.words(+iso: Is.State, +cl: Cl.Client, +words: List<&2, String>) -> Bool:
+  match words:
+    case Nil{}: False{}
+    case Con{+first, +rest}: input_sensitive.mode_raw_iso.rest(iso, cl, first, rest)
+
+def input_sensitive.mode_raw_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Bool:
+  input_sensitive.mode_raw_iso.words(iso, cl, Commands.words(args))
+
+def input_sensitive.mode_negotiated(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Bool:
+  input_sensitive.mode_wire_iso(iso, mode_command(cl, rest)) || input_sensitive.mode_raw_iso(iso, cl, rest)
+
+def input_sensitive.negotiated_mode(+iso: Is.State, +cl: Cl.Client, input: Input) -> Bool:
+  match input:
+    case CommandInput{ModeCmd{}, _, rest}: input_sensitive.mode_negotiated(iso, cl, rest)
+    case _: False{}
+
 # Classify the original input against its original active buffer. Submission
 # and simultaneous navigation can change focus before history is retained.
 def input_sensitive.parsed(+cl: Cl.Client, input: Input) -> Bool:
@@ -1397,7 +1509,7 @@ def input_sensitive.parsed(+cl: Cl.Client, input: Input) -> Bool:
     case CommandInput{NoticeCmd{}, _, rest}: input_sensitive.notice_words(cl, take_word(rest))
     # Channel keys are runtime-only, including manual keyed joins.
     case CommandInput{Join{}, _, rest}: input_sensitive.join_words(take_word(rest))
-    case CommandInput{ModeCmd{}, _, rest}: input_sensitive.mode_wire(mode_command(cl, rest))
+    case CommandInput{ModeCmd{}, _, rest}: input_sensitive.mode_both(cl, rest)
     # Raw/quote may carry authentication commands unknown to this client.
     # Keep the complete escape hatch outside composer history; it has no echo.
     case CommandInput{RawCmd{}, _, _}: True{}
@@ -1405,6 +1517,13 @@ def input_sensitive.parsed(+cl: Cl.Client, input: Input) -> Bool:
 
 def input_sensitive(+cl: Cl.Client, +raw: String) -> Bool:
   input_sensitive.parsed(cl, parse_input(raw))
+
+# Live composer owner: the fixed stateless check OR the negotiated MODE
+# recheck under the Session iso. Either may fire (fail closed); the fixed
+# half keeps every prior suppression, the negotiated half resolves
+# negotiated-only targets through the one shared target owner.
+def input_sensitive_iso(+iso: Is.State, +cl: Cl.Client, +raw: String) -> Bool:
+  input_sensitive(cl, raw) || input_sensitive.negotiated_mode(iso, cl, parse_input(raw))
 
 def submit_is_open.parsed(input: Input) -> Bool:
   match input:
@@ -1453,6 +1572,83 @@ def needs_connection(input: Input) -> Bool:
     case CommandInput{cmd, _, +rest}: command_needs_connection(cmd, rest)
     case EmptyInput{}: False{}
 
+def submit_msg_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match internal:
+    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}:
+      +key = Is.chan_target_cl(iso, cl, who)
+      +chan = Is.is_channel(iso, who)
+      +cm = Is.casemapping(iso)
+      +types = Is.chantypes(iso)
+      +status = Is.statusmsg(iso)
+      +sigils = Is.prefix_sigils(iso)
+      submit_msg.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body)
+
+def submit_msg_with.bad(+iso: Is.State, +cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match bad:
+    case True{}:
+      (echo_err(cl, "usage: /msg nick text"), empty_out())
+    case False{}:
+      submit_msg_with.readonly(iso, Cl.target_is_synthetic(who), cl, who, body)
+
+def submit_msg_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+who, +body):
+      +target = Cl.target_name(who)
+      submit_msg_with.bad(iso, cl, String.is_empty(target) || String.is_empty(body), target, body)
+
+def submit_msg_with(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_msg_with.words(iso, cl, take_word(rest))
+
+def submit_query_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match internal:
+    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
+    case False{}:
+      +key = Is.chan_target_cl(iso, cl, who)
+      +chan = Is.is_channel(iso, who)
+      +cm = Is.casemapping(iso)
+      +types = Is.chantypes(iso)
+      +status = Is.statusmsg(iso)
+      +sigils = Is.prefix_sigils(iso)
+      submit_query.text(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body, Bool.not(String.is_empty(body)))
+
+def submit_query_with.empty(+iso: Is.State, +cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
+    case False{}:
+      submit_query_with.readonly(iso, Cl.target_is_synthetic(who) && Bool.not(String.is_empty(body)), cl, who, body)
+
+def submit_query_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+who, +body):
+      +target = Cl.target_name(who)
+      submit_query_with.empty(iso, cl, String.is_empty(target), target, body)
+
+def submit_query_with(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_query_with.words(iso, cl, take_word(Irc.drop_spaces(rest)))
+
+def submit_notice_with.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +target: String, body: String) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "usage: /notice target text"), Nil{})
+    case True{}:
+      +key = Is.chan_target_cl(iso, cl, target)
+      +chan = Is.is_channel(iso, target)
+      +cm = Is.casemapping(iso)
+      +types = Is.chantypes(iso)
+      +status = Is.statusmsg(iso)
+      +sigils = Is.prefix_sigils(iso)
+      submit_notice.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), target, body)
+
+def submit_notice_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+target, +body):
+      submit_notice_with.valid(iso, Commands.word(target) && Commands.framing(body) && Bool.not(Cl.target_is_synthetic(target) || String.is_empty(body)),
+        cl, target, Commands.trailing(body))
+
+def submit_notice_with(+iso: Is.State, +cl: Cl.Client, rest: String) -> Cl.Client & List<&2, String>:
+  submit_notice_with.words(iso, cl, take_word(rest))
+
 def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:
     case Join{}:
@@ -1493,6 +1689,8 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_preview(cl, rest)
     case ImagesCmd{}:
       (echo_sys(cl, images_status(images_arg(Irc.drop_spaces(rest)))), empty_out())
+    case ThemeCmd{}:
+      (echo_sys(cl, theme_status(theme_arg(Irc.drop_spaces(rest)))), empty_out())
     case LogCmd{}:
       (Cl.log_open(cl), empty_out())
     case UploadCmd{}:
@@ -1517,6 +1715,77 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
       submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
     case NoticeCmd{}:
       submit_notice(cl, rest)
+    case RawCmd{}:
+      submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
+    case Unknown{}:
+      submit_unknown(cl, verb)
+
+def submit_cmd_with.do(+iso: Is.State, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+  match cmd:
+    case Join{}:
+      submit_join(cl, rest)
+    case Part{}:
+      submit_part(cl, rest)
+    case CloseCmd{}:
+      submit_close(cl, rest)
+    case Msg{}:
+      submit_msg_with(iso, cl, rest)
+    case QueryCmd{}:
+      submit_query_with(iso, cl, rest)
+    case Nick{}:
+      submit_nick(cl, rest)
+    case Me{}:
+      submit_me(cl, rest)
+    case Quit{}:
+      submit_quit(cl, rest)
+    case SettingsCmd{}:
+      submit_settings(cl)
+    case SetCmd{}:
+      submit_set(cl, rest)
+    case ToggleCmd{}:
+      submit_toggle(cl, rest)
+    case MuteCmd{}:
+      submit_mute(cl, rest)
+    case UnmuteCmd{}:
+      submit_unmute(cl, rest)
+    case MutesCmd{}:
+      submit_mutes(cl)
+    case LinksCmd{}:
+      submit_links(cl)
+    case OpenCmd{}:
+      submit_open_cmd(cl, rest)
+    case SearchCmd{}:
+      submit_search(cl, rest)
+    case PreviewCmd{}:
+      submit_preview(cl, rest)
+    case ImagesCmd{}:
+      (echo_sys(cl, images_status(images_arg(Irc.drop_spaces(rest)))), empty_out())
+    case ThemeCmd{}:
+      (echo_sys(cl, theme_status(theme_arg(Irc.drop_spaces(rest)))), empty_out())
+    case LogCmd{}:
+      (Cl.log_open(cl), empty_out())
+    case UploadCmd{}:
+      (echo_err(cl, "upload requires an active session confirmation"), empty_out())
+    case WhoisCmd{}:
+      submit_wire(cl, Commands.whois(rest), "usage: /whois [server] nick[,nick]")
+    case WhoCmd{}:
+      submit_wire(cl, Commands.who(Cl.active_buf_name(cl), rest), "usage: /who [mask [o]]")
+    case ListCmd{}:
+      submit_wire(cl, Commands.list(rest), "usage: /list [channels [server]]")
+    case NamesCmd{}:
+      submit_wire(cl, Commands.names(Cl.active_buf_name(cl), rest), "usage: /names [channels [server]]")
+    case TopicCmd{}:
+      submit_wire(cl, Commands.topic(Cl.active_buf_name(cl), rest), "usage: /topic [#channel] [:text]")
+    case ModeCmd{}:
+      submit_mode(cl, rest)
+    case KickCmd{}:
+      submit_wire(cl, Commands.kick(Cl.active_buf_name(cl), rest), "usage: /kick [#channel] nick [reason]")
+    case InviteCmd{}:
+      submit_wire(cl, Commands.invite(Cl.active_buf_name(cl), rest), "usage: /invite nick [#channel]")
+    case AwayCmd{}:
+      submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
+    case NoticeCmd{}:
+      submit_notice_with(iso, cl, rest)
     case RawCmd{}:
       submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
     case Unknown{}:
@@ -1549,6 +1818,15 @@ def submit_parsed(+cl: Cl.Client, input: Input) -> Cl.Client & List<&2, String>:
 
 def submit(+cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit_parsed(cl, parse_input(input))
+
+def submit_parsed_with(+iso: Is.State, +cl: Cl.Client, input: Input) -> Cl.Client & List<&2, String>:
+  match input:
+    case EmptyInput{}: (cl, empty_out())
+    case PlainInput{+text}: submit_plain(cl, text)
+    case CommandInput{cmd, +verb, +rest}: submit_cmd_with.do(iso, cl, verb, rest, cmd)
+
+def submit_with(+iso: Is.State, +cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
+  submit_parsed_with(iso, cl, parse_input(input))
 
 def out_all_ok.go(+xs: List<&2, String>, ok: Bool) -> Bool:
   match xs:

@@ -9,6 +9,7 @@ import ../../src/bend/preferences_worker.bend as W
 import ../../src/bend/preferences.bend as P
 import ../../src/bend/session.bend as S
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/theme.bend as Theme
 import ../../src/bend/actor.bend as A
 
 type Stage is Data:
@@ -50,7 +51,7 @@ def load(stage: Stage, got: Maybe<&2, P.Preferences>, code: U32) -> Stage:
     case Stage{ctx, st}: completed(C.loaded(ctx, st, 1, 1n, got, code))
 
 def stored(history: Bool, cap: U32) -> P.Preferences:
-  P.Preferences{False{}, True{}, False{}, history, cap, True{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}}
+  P.Preferences{False{}, True{}, False{}, history, cap, True{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}}
 
 def settled(history: Bool, cap: U32) -> Stage:
   observe(load(reading(initial("")), Some{stored(history, cap)}, 0))

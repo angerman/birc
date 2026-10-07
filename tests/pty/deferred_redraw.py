@@ -43,7 +43,7 @@ class Demo:
             env = {name: value for name, value in os.environ.items()
                    if not name.startswith(("BIRC_", "TIMUI_"))}
             env.update(TERM="xterm-256color", BIRC_PREFERENCES="none", BIRC_HISTORY="none",
-                       BIRC_IMAGES="off", BIRC_FRAME_PROFILE="1", XDG_CONFIG_HOME=str(folder))
+                       BIRC_IMAGES="off", BIRC_CARDS="off", BIRC_FRAME_PROFILE="1", XDG_CONFIG_HOME=str(folder))
             self.proc = subprocess.Popen(
                 [str(binary), "--plain", "--demo", "--nick", "probe", "--frames", "0"],
                 stdin=slave, stdout=slave, stderr=subprocess.PIPE, env=env, start_new_session=True)

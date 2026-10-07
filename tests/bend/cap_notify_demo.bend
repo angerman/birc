@@ -21,8 +21,8 @@ def server_text(+cl: Cl.Client) -> String:
 def handshake_ok() -> Bool:
   +plain = Sess.handshake_lines("me", False{})
   +sasl = Sess.handshake_lines("me", True{})
-  String.eq(String.join(plain, "|"), "CAP LS 302|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP END|NICK me|USER me 0 * :me")
-    && String.eq(String.join(sasl, "|"), "CAP LS 302|CAP REQ :sasl|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|NICK me|USER me 0 * :me")
+  String.eq(String.join(plain, "|"), "CAP LS 302|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|CAP END|NICK me|USER me 0 * :me")
+    && String.eq(String.join(sasl, "|"), "CAP LS 302|CAP REQ :sasl|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|NICK me|USER me 0 * :me")
 
 def auth_delegation_ok() -> Bool:
   String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me NAK :sasl" <> Nil{})), "CAP END")
@@ -63,22 +63,22 @@ def out_wire_ok() -> Bool:
     && Bool.not(Cap.step_live(Cap.step_out(started_st, 1100, False{}, True{}, "#a", False{})))
 
 # G6.1: hostile CAP ACK (user prefix, wrong recipient, bare line) never
-# enables; our server addressing us or '*' does.
+# enables; our server addressing us or preregistration '*' does.
 def hostile_cap_ok() -> Bool:
-  +legit = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags")
-  +star = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP * ACK :message-tags")
-  +spoof = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":alice!u@h CAP me ACK :message-tags")
-  +other = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP other ACK :message-tags")
-  +bare = Cap.caps_apply_line(Cap.caps0(), "s", "me", "CAP me ACK :message-tags")
+  +legit = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +star = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP * ACK :message-tags", False{})
+  +spoof = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":alice!u@h CAP me ACK :message-tags", True{})
+  +other = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP other ACK :message-tags", True{})
+  +bare = Cap.caps_apply_line(Cap.caps0(), "s", "me", "CAP me ACK :message-tags", True{})
   Cap.tags_ok(legit) && Cap.tags_ok(star)
     && Bool.not(Cap.tags_ok(spoof)) && Bool.not(Cap.tags_ok(other)) && Bool.not(Cap.tags_ok(bare))
 
 # G6.2: ACK -cap / DEL clear; enable and re-enable still work.
 def cap_removal_ok() -> Bool:
-  +on = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags")
-  +neg = Cap.caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags")
-  +del = Cap.caps_apply_line(on, "s", "me", ":s CAP me DEL :message-tags")
-  +reack = Cap.caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags")
+  +on = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +neg = Cap.caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags", True{})
+  +del = Cap.caps_apply_line(on, "s", "me", ":s CAP me DEL :message-tags", True{})
+  +reack = Cap.caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags", True{})
   Cap.tags_ok(on) && Bool.not(Cap.tags_ok(neg)) && Bool.not(Cap.tags_ok(del)) && Cap.tags_ok(reack)
 
 # G6.3: server-shaped AWAY/ACCOUNT stay on the unknown-command path at feed
@@ -140,12 +140,12 @@ def g66_sentinel_ok() -> Bool:
 # server are trusted; URL, delimiter, and empty-label sources are not. A
 # valid single-label server is never user presence.
 def source_gate_ok() -> Bool:
-  +single = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags")
-  +dotted = Cap.caps_apply_line(Cap.caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags")
-  +url = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags")
-  +colon = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags")
-  +comma = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags")
-  +empty_label = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a..b CAP me ACK :message-tags")
+  +single = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +dotted = Cap.caps_apply_line(Cap.caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags", True{})
+  +url = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags", True{})
+  +colon = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags", True{})
+  +comma = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags", True{})
+  +empty_label = Cap.caps_apply_line(Cap.caps0(), "s", "me", ":a..b CAP me ACK :message-tags", True{})
   +hub = Feed.feed(Cl.init("me", "s"), ":hub AWAY :nightly restart")
   Cap.tags_ok(single) && Cap.tags_ok(dotted)
     && Bool.not(Cap.tags_ok(url)) && Bool.not(Cap.tags_ok(colon)) && Bool.not(Cap.tags_ok(comma)) && Bool.not(Cap.tags_ok(empty_label))
@@ -207,7 +207,7 @@ def star_sasl_cap_end_ok() -> Bool:
 # active; offline resets quietly; empty draft ends with done; untagged or
 # mistargeted ticks stay quiet.
 def live_tagged() -> Cap.Reg:
-  Cap.Reg{Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags"), Cap.out0()}
+  Cap.Reg{Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags", True{}), Cap.out0()}
 
 def live_tick_ok() -> Bool:
   +fire_tx = Cap.reg_text(Cap.live_tick(live_tagged(), 1000, True{}, "#a", "hi"))
@@ -250,6 +250,9 @@ def main() -> IO(Unit):
     Unit <- E.must("feed_malformed", feed_malformed_ok())
     Unit <- E.must("out_wire", out_wire_ok())
     Unit <- E.must("g61_hostile_cap", hostile_cap_ok())
+    Unit <- E.must("cap_prereg_star_ack_enables", Cap.tags_ok(Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP * ACK :message-tags", False{})))
+    Unit <- E.must("cap_registered_star_ack_rejected", Bool.not(Cap.tags_ok(Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP * ACK :message-tags", True{}))))
+    Unit <- E.must("cap_registered_star_del_retains_tags", Cap.tags_ok(Cap.caps_apply_line(Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :message-tags", True{}), "s", "me", ":s CAP * DEL :message-tags", True{})))
     Unit <- E.must("g62_cap_removal", cap_removal_ok())
     Unit <- E.must("g63_hostile_notify", hostile_notify_ok())
     Unit <- E.must("g64_stale_quiet", stale_quiet_ok())

@@ -17655,6 +17655,29 @@ TIMUI_API void timui_draw_text(TimuiCellBuffer *buf, int x, int y,
   timui_draw_text_linked(buf, x, y, text, st,
                          0); /* Z7: unlinked == linked with id 0 */
 }
+/* W1: the one shared native URI admission owner. An admitted URI must
+ * survive OSC 8 emission byte-exact, so decline anything the emitter
+ * cannot reproduce: C0/DEL/C1 controls and malformed UTF-8 (which the
+ * emitter would drop or replace). Never rewrite an admitted target. */
+static int timui_uri_admitted(const char *uri) {
+  size_t i = 0, len;
+  len = strlen(uri);
+  while (i < len) {
+    uint32_t cp = 0;
+    int adv = timui_utf8_decode(uri + i, len - i, &cp);
+    if (adv <= 0)
+      return 0; /* truncated: emission cannot reproduce it */
+    if (cp == 0xFFFDu && adv != 3)
+      return 0; /* malformed: decoder reports U+FFFD with adv 1 for
+                 * invalid lead, bad continuation, overlong, surrogate,
+                 * and above-max input, while a literal U+FFFD (EF BF BD)
+                 * advances 3; emission would substitute bytes */
+    if (cp < 0x20u || cp == 0x7Fu || (cp >= 0x80u && cp <= 0x9Fu))
+      return 0; /* control: emission would drop it */
+    i += (size_t)adv;
+  }
+  return 1;
+}
 TIMUI_API uint32_t timui_hyperlink_set(TimuiCellBuffer *buf, const char *uri) {
   size_t n;
   if (!buf || !uri)
@@ -17662,6 +17685,8 @@ TIMUI_API uint32_t timui_hyperlink_set(TimuiCellBuffer *buf, const char *uri) {
   n = strlen(uri);
   if (n > TIMUI_HYPERLINK_MAX_BYTES)
     return 0; /* never turn an unsupported target into a different URL */
+  if (!timui_uri_admitted(uri))
+    return 0; /* decline unsafe/malformed URI, never rewrite it */
   if (buf->link_count >= buf->link_cap) {
     int nc;
     TimuiHyperlink *nl;

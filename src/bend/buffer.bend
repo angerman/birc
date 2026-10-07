@@ -3,6 +3,37 @@ import Base
 import ./irc.bend as Irc
 import ./diagnostic.bend as Diagnostic
 
+# Negotiated ISUPPORT sets (I2 dynamic): Session supplies chantypes/status
+# sigils/casemapping Strings from its iso; fixed wrappers below delegate
+# with the long-standing defaults so an absent burst changes nothing.
+def has_ch(+s: String, +c: Char) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{+h, +t}: Char.is_eq(h, c) || has_ch(t, c)
+
+def dflt_types() -> String:
+  "#&+!"
+
+def dflt_status() -> String:
+  "@+"
+
+def dflt_sigils() -> String:
+  "@+"
+
+def dflt_strip() -> String:
+  "@+~&%"
+
+def dflt_cm() -> String:
+  "rfc1459"
+
+def buf_eq_cm(+cm: String, +a: String, +b: String) -> Bool:
+  String.eq(Irc.fold_casemap(cm, a), Irc.fold_casemap(cm, b))
+
+def head_in_types(+types: String, +t: String) -> Bool:
+  match t:
+    case SNil{}: False{}
+    case SCon{+h, _}: has_ch(types, h)
+
 # Creation and wire/history routing normalize identity before policy checks
 # and lookup. Generic local lookup compares the names actually stored.
 def target_name.known(+name: String, key: String) -> String:
@@ -18,16 +49,42 @@ def target_name(+raw: String) -> String:
   +clean = Irc.proto_atom(raw)
   target_name.known(clean, Irc.rfc1459(clean))
 
+def target_channel_with.name(+types: String, +status: String, +sigils: String, +name: String) -> Bool:
+  match name:
+    case SNil{}: False{}
+    case SCon{+h, +t}: has_ch(types, h) || (has_ch(status, h) && has_ch(sigils, h) && head_in_types(types, t))
+
+def target_channel_with(+types: String, +status: String, +sigils: String, +raw: String) -> Bool:
+  target_channel_with.name(types, status, sigils, target_name(raw))
+
+def target_key_with.tail(+s: String) -> String:
+  match s:
+    case SNil{}: SNil{}
+    case SCon{_, +t}: t
+
+def target_key_with.strip(+s: String, strip: Bool) -> String:
+  match strip:
+    case True{}: target_key_with.tail(s)
+    case False{}: s
+
+def target_key_with.name(+types: String, +status: String, +sigils: String, +name: String) -> String:
+  match name:
+    case SNil{}: SNil{}
+    case SCon{+h, +t}: target_key_with.strip(SCon{h, t}, has_ch(status, h) && has_ch(sigils, h) && head_in_types(types, t))
+
+def target_key_with(+types: String, +status: String, +sigils: String, +raw: String) -> String:
+  target_key_with.name(types, status, sigils, target_name(raw))
+
 # STATUSMSG fallback for a message audience, never for a stored channel name.
 # `message_key` first resolves ambiguous audiences against resident channels.
 def target_key(+raw: String) -> String:
-  Irc.chan_target(target_name(raw))
+  target_key_with(dflt_types(), dflt_status(), dflt_sigils(), raw)
 
 def target_is_synthetic(+raw: String) -> Bool:
   String.starts_with(target_name(raw), "*")
 
 def target_channel(+raw: String) -> Bool:
-  Irc.starts_channel(target_name(raw))
+  target_channel_with(dflt_types(), dflt_status(), dflt_sigils(), raw)
 
 def target_wire(+raw: String) -> Bool:
   Bool.not(target_is_synthetic(raw))
@@ -227,18 +284,32 @@ def set_lag(+s: Settings, lag: U32) -> Settings:
     case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _, seq}:
       Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
-def mute_match(+m: String, +from: String, +chan: String, +server: String) -> Bool:
-  Irc.ieq(m, from)
-    || Irc.ieq(m, from ++ chan)
-    || Irc.ieq(m, from ++ "@" ++ server)
-    || Irc.ieq(m, from ++ chan ++ "@" ++ server)
-    || Irc.ieq(m, from ++ "*@" ++ server)
+def set_bell_seq(+s: Settings, seq: U32) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, _}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
 
-def is_muted_list(mutes: List<&2, String>, +from: String, +chan: String, +server: String) -> Bool:
+# Mute matching sole owner (I2-DRY): identity comparisons fold under the
+# given CASEMAPPING; fixed wrappers delegate with the default mapping.
+# Placed early: render filtering below needs it before is_muted_client.
+def mute_match_cm(+cm: String, +m: String, +from: String, +chan: String, +server: String) -> Bool:
+  buf_eq_cm(cm, m, from)
+    || buf_eq_cm(cm, m, from ++ chan)
+    || buf_eq_cm(cm, m, from ++ "@" ++ server)
+    || buf_eq_cm(cm, m, from ++ chan ++ "@" ++ server)
+    || buf_eq_cm(cm, m, from ++ "*@" ++ server)
+
+def is_muted_list_cm(+cm: String, mutes: List<&2, String>, +from: String, +chan: String, +server: String) -> Bool:
   match mutes:
     case Nil{}: False{}
     case Con{+m, t}:
-      mute_match(m, from, chan, server) || is_muted_list(t, from, chan, server)
+      mute_match_cm(cm, m, from, chan, server) || is_muted_list_cm(cm, t, from, chan, server)
+
+def mute_match(+m: String, +from: String, +chan: String, +server: String) -> Bool:
+  mute_match_cm(dflt_cm(), m, from, chan, server)
+
+def is_muted_list(mutes: List<&2, String>, +from: String, +chan: String, +server: String) -> Bool:
+  is_muted_list_cm(dflt_cm(), mutes, from, chan, server)
 
 def add_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   pat <> mutes
@@ -273,37 +344,52 @@ def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
       +hit = Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick(m), pat)
       del_mute_list.rest(del_mute_list(t, pat), m, hit)
 
-def line_from_nick(+ln: Line, +nick: String) -> Bool:
+# Render filtering sole owner (I2-DRY): view mute checks fold the pattern,
+# author, and channel under the given CASEMAPPING; fixed wrappers delegate
+# with the default mapping.
+def line_from_nick_cm(+cm: String, +ln: Line, +nick: String) -> Bool:
   match ln:
     case Line{kind, _, _, +author, _}:
       match kind:
-        case Msg{}: Irc.ieq(author, nick)
-        case Self{}: Irc.ieq(author, nick)
-        case Action{}: Irc.ieq(author, nick)
-        case Notice{}: Irc.ieq(author, nick)
-        case Highlight{}: Irc.ieq(author, nick)
+        case Msg{}: buf_eq_cm(cm, author, nick)
+        case Self{}: buf_eq_cm(cm, author, nick)
+        case Action{}: buf_eq_cm(cm, author, nick)
+        case Notice{}: buf_eq_cm(cm, author, nick)
+        case Highlight{}: buf_eq_cm(cm, author, nick)
         case _: False{}
 
-def is_line_muted_pat(+m: String, +ln: Line, +chan: String, +server: String) -> Bool:
+def is_line_muted_pat_cm(+cm: String, +m: String, +ln: Line, +chan: String, +server: String) -> Bool:
   +nick = mute_pat_nick(m)
-  mute_match(m, nick, chan, server) && line_from_nick(ln, nick)
+  mute_match_cm(cm, m, nick, chan, server) && line_from_nick_cm(cm, ln, nick)
 
-def is_line_muted(mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
+def is_line_muted_cm(+cm: String, mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
   match mutes:
     case Nil{}: False{}
     case Con{+m, t}:
-      is_line_muted_pat(m, ln, chan, server) || is_line_muted(t, ln, chan, server)
+      is_line_muted_pat_cm(cm, m, ln, chan, server) || is_line_muted_cm(cm, t, ln, chan, server)
+
+def line_from_nick(+ln: Line, +nick: String) -> Bool:
+  line_from_nick_cm(dflt_cm(), ln, nick)
+
+def is_line_muted_pat(+m: String, +ln: Line, +chan: String, +server: String) -> Bool:
+  is_line_muted_pat_cm(dflt_cm(), m, ln, chan, server)
+
+def is_line_muted(mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
+  is_line_muted_cm(dflt_cm(), mutes, ln, chan, server)
 
 def filter_muted_lines.rest(tail: List<&2, Line>, +ln: Line, muted: Bool) -> List<&2, Line>:
   match muted:
     case True{}: tail
     case False{}: ln <> tail
 
-def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+def filter_muted_lines_cm(+cm: String, lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
   match lines:
     case Nil{}: Nil{}
     case Con{+ln, t}:
-      filter_muted_lines.rest(filter_muted_lines(t, mutes, chan, server), ln, is_line_muted(mutes, ln, chan, server))
+      filter_muted_lines.rest(filter_muted_lines_cm(cm, t, mutes, chan, server), ln, is_line_muted_cm(cm, mutes, ln, chan, server))
+
+def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+  filter_muted_lines_cm(dflt_cm(), lines, mutes, chan, server)
 
 def is_nick_char(+c: Char) -> Bool:
   match c:
@@ -332,14 +418,21 @@ def str_mentions(s: String, +needle: String, left_ok: Bool) -> Bool:
       str_mentions.hit(SCon{h, t}, needle, left_ok)
         || str_mentions(t, needle, Bool.not(is_nick_char(h)))
 
-def is_mention.on(empty: Bool, +body: String, +nick: String) -> Bool:
+# Negotiated mention fold (I2-dynamic3 R3): body and nick compare under the
+# Session CASEMAPPING through the shared fold owner, so a nick that only
+# folds under the default mapping never highlights. Fixed is_mention keeps
+# law behavior by delegating with the default mapping.
+def is_mention_cm.on(empty: Bool, +cm: String, +body: String, +nick: String) -> Bool:
   match empty:
     case True{}: False{}
     case False{}:
-      str_mentions(Irc.rfc1459(Irc.proto_atom(body)), Irc.rfc1459(nick), True{})
+      str_mentions(Irc.fold_casemap(cm, Irc.proto_atom(body)), Irc.fold_casemap(cm, nick), True{})
+
+def is_mention_cm(+cm: String, +body: String, +nick: String) -> Bool:
+  is_mention_cm.on(String.is_empty(nick), cm, body, nick)
 
 def is_mention(+body: String, +nick: String) -> Bool:
-  is_mention.on(String.is_empty(nick), body, nick)
+  is_mention_cm(dflt_cm(), body, nick)
 
 def alert_status(level: AlertLevel) -> U32:
   match level:
@@ -359,37 +452,53 @@ def buf_unread_status.pick(ge: Bool, +s1: U32, +s2: U32) -> U32:
 def buf_unread_status.max(+s1: U32, +s2: U32) -> U32:
   buf_unread_status.pick(U32.is_ge(s1, s2), s1, s2)
 
-def buf_unread_status(unreads: List<&2, Alert>, +name: String) -> U32:
-  match unreads:
-    case Nil{}: 0
-    case Con{Alert{+target, level}, t}:
-      buf_unread_status.max(buf_unread_status.item(Irc.ieq(target, name), level), buf_unread_status(t, name))
-
 def del_unread_items.hit(tail: List<&2, Alert>, +u: Alert, hit: Bool) -> List<&2, Alert>:
   match hit:
     case True{}: tail
     case False{}: u <> tail
-
-def del_unread_items(unreads: List<&2, Alert>, +name: String) -> List<&2, Alert>:
-  match unreads:
-    case Nil{}: Nil{}
-    case Con{+u, t}:
-      match u:
-        case Alert{+target, _}:
-          del_unread_items.hit(del_unread_items(t, name), u, Irc.ieq(target, name))
-
-def add_unread_item(+unreads: List<&2, Alert>, +name: String, level: AlertLevel) -> List<&2, Alert>:
-  Alert{name, level} <> del_unread_items(unreads, name)
 
 def rename_unreads.put(has: Bool, unreads: List<&2, Alert>, name: String, level: AlertLevel) -> List<&2, Alert>:
   match has:
     case False{}: unreads
     case True{}: Alert{name, level} <> unreads
 
-def rename_unreads(+unreads: List<&2, Alert>, +from: String, +to: String) -> List<&2, Alert>:
-  +level = buf_unread_status.max(buf_unread_status(unreads, from), buf_unread_status(unreads, to))
-  rename_unreads.put(U32.is_gt(level, 0), del_unread_items(del_unread_items(unreads, from), to), to,
+# Unread identity/mutation sole owner (I2-DRY): status, delete, add, and
+# NICK rename all compare under the given CASEMAPPING; fixed wrappers
+# delegate with the default mapping. Distinct fold-siblings retain separate
+# alerts; repeat same-channel coalesces only itself.
+def buf_unread_status_cm(+cm: String, unreads: List<&2, Alert>, +name: String) -> U32:
+  match unreads:
+    case Nil{}: 0
+    case Con{Alert{+target, level}, t}:
+      buf_unread_status.max(buf_unread_status.item(buf_eq_cm(cm, target, name), level), buf_unread_status_cm(cm, t, name))
+
+def del_unread_items_cm(+cm: String, unreads: List<&2, Alert>, +name: String) -> List<&2, Alert>:
+  match unreads:
+    case Nil{}: Nil{}
+    case Con{+u, t}:
+      match u:
+        case Alert{+target, _}:
+          del_unread_items.hit(del_unread_items_cm(cm, t, name), u, buf_eq_cm(cm, target, name))
+
+def add_unread_item_cm(+cm: String, +unreads: List<&2, Alert>, +name: String, level: AlertLevel) -> List<&2, Alert>:
+  Alert{name, level} <> del_unread_items_cm(cm, unreads, name)
+
+def rename_unreads_cm(+cm: String, +unreads: List<&2, Alert>, +from: String, +to: String) -> List<&2, Alert>:
+  +level = buf_unread_status.max(buf_unread_status_cm(cm, unreads, from), buf_unread_status_cm(cm, unreads, to))
+  rename_unreads.put(U32.is_gt(level, 0), del_unread_items_cm(cm, del_unread_items_cm(cm, unreads, from), to), to,
     Bool.pick(AlertLevel, U32.is_eq(level, 2), Mention{}, Activity{}))
+
+def buf_unread_status(unreads: List<&2, Alert>, +name: String) -> U32:
+  buf_unread_status_cm(dflt_cm(), unreads, name)
+
+def del_unread_items(unreads: List<&2, Alert>, +name: String) -> List<&2, Alert>:
+  del_unread_items_cm(dflt_cm(), unreads, name)
+
+def add_unread_item(+unreads: List<&2, Alert>, +name: String, level: AlertLevel) -> List<&2, Alert>:
+  add_unread_item_cm(dflt_cm(), unreads, name, level)
+
+def rename_unreads(+unreads: List<&2, Alert>, +from: String, +to: String) -> List<&2, Alert>:
+  rename_unreads_cm(dflt_cm(), unreads, from, to)
 
 def purge_nick_lines.rest(tail: List<&2, Line>, +h: Line, hit: Bool) -> List<&2, Line>:
   match hit:
@@ -556,10 +665,18 @@ def log_seq_of(+cl: Client) -> Nat:
   match cl:
     case Client{_, _, _, _, _, _, _, seq}: seq
 
-def is_muted_client(+cl: Client, +from: String, +chan: String) -> Bool:
+def set_log_seq(+cl: Client, +seq: Nat) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, _}:
+      Client{nick, server, bufs, active, now, stg, auth, seq}
+
+def is_muted_client_cm(+cm: String, +cl: Client, +from: String, +chan: String) -> Bool:
   match cl:
     case Client{_, +server, _, _, _, +stg, +auth, +log_seq}:
-      is_muted_list(settings_mutes(stg), from, chan, server)
+      is_muted_list_cm(cm, settings_mutes(stg), from, chan, server)
+
+def is_muted_client(+cl: Client, +from: String, +chan: String) -> Bool:
+  is_muted_client_cm(dflt_cm(), cl, from, chan)
 
 def add_mute_client(+cl: Client, +pat: String) -> Client:
   match cl:
@@ -730,31 +847,48 @@ def mark_unread.level(is_hl: Bool) -> AlertLevel:
     case True{}: Mention{}
     case False{}: Activity{}
 
-def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
+# Mark sole owner (I2-DRY): check/status/add all compare under the given
+# CASEMAPPING through the shared _cm owners, so a plain message to one
+# sibling never inherits its fold-sibling Mention and never deletes it.
+# Repeat same-channel coalesces only itself. Fixed wrappers delegate with
+# the default mapping; negotiated writes call mark_unread_idx_cm.
+def mark_unread.check_cm(+cm: String, is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
   match is_server:
     case True{}: stg
     case False{}:
       +unreads = settings_unreads(stg)
-      set_unreads(stg, add_unread_item(unreads, name, mark_unread.level(is_hl || U32.is_eq(buf_unread_status(unreads, name), 2))))
+      set_unreads(stg, add_unread_item_cm(cm, unreads, name, mark_unread.level(is_hl || U32.is_eq(buf_unread_status_cm(cm, unreads, name), 2))))
 
-def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+def mark_unread.buf_cm(+cm: String, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
   match got:
     case None{}: stg
     case Some{b}:
       match b:
         case Buffer{+name, _, _, _, _, _}:
-          mark_unread.check(False{}, is_hl, name, stg)
+          mark_unread.check_cm(cm, False{}, is_hl, name, stg)
 
-def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+def mark_unread_idx.on_cm(+cm: String, is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
   match is_active:
     case True{}: stg
-    case False{}: mark_unread.buf(got, is_hl, stg)
+    case False{}: mark_unread.buf_cm(cm, got, is_hl, stg)
 
-def mark_unread_idx(+cl: Client, +i: Nat, is_hl: Bool) -> Client:
+def mark_unread_idx_cm(+cm: String, +cl: Client, +i: Nat, is_hl: Bool) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +act, +now, +stg, +auth, +log_seq}:
-      +stg2 = mark_unread_idx.on(Nat.is_eq(i, act) || Nat.is_eq(i, 0n), nth_buf(bufs, i), is_hl, stg)
+      +stg2 = mark_unread_idx.on_cm(cm, Nat.is_eq(i, act) || Nat.is_eq(i, 0n), nth_buf(bufs, i), is_hl, stg)
       Client{nick, server, bufs, act, now, stg2, auth, log_seq}
+
+def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
+  mark_unread.check_cm(dflt_cm(), is_server, is_hl, name, stg)
+
+def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+  mark_unread.buf_cm(dflt_cm(), got, is_hl, stg)
+
+def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
+  mark_unread_idx.on_cm(dflt_cm(), is_active, got, is_hl, stg)
+
+def mark_unread_idx(+cl: Client, +i: Nat, is_hl: Bool) -> Client:
+  mark_unread_idx_cm(dflt_cm(), cl, i, is_hl)
 
 def clear_unread(+cl: Client, +name: String) -> Client:
   match cl:
@@ -781,7 +915,7 @@ def buf_find.go(xs: List<&2, Buffer>, +name: String, +i: Nat) -> Maybe<&2, Nat>:
     case Con{h, +t}:
       match h:
         case Buffer{+n, _, _, _, _, _}:
-          buf_find.rest(buf_find.go(t, name, 1n+i), Irc.ieq(n, name), i)
+          buf_find.rest(buf_find.go(t, name, 1n+i), buf_eq_cm(dflt_cm(), n, name), i)
 
 def buf_find.skip0(xs: List<&2, Buffer>, +name: String) -> Maybe<&2, Nat>:
   match xs:
@@ -794,6 +928,27 @@ def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_find.skip0(bufs, name)
+
+def buf_find_cm.go(xs: List<&2, Buffer>, +cm: String, +name: String, +i: Nat) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{h, +t}:
+      match h:
+        case Buffer{+n, _, _, _, _, _}:
+          buf_find.rest(buf_find_cm.go(t, cm, name, 1n+i), buf_eq_cm(cm, n, name), i)
+
+def buf_find_cm.skip0(xs: List<&2, Buffer>, +cm: String, +name: String) -> Maybe<&2, Nat>:
+  match xs:
+    case Nil{}:
+      None{}
+    case Con{_, t}:
+      buf_find_cm.go(t, cm, name, 1n)
+
+def buf_find_cm(+cl: Client, +cm: String, +name: String) -> Maybe<&2, Nat>:
+  match cl:
+    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+      buf_find_cm.skip0(bufs, cm, name)
 
 # A + channel may itself be named +#room. At message boundaries, prefer an
 # exact resident channel to interpreting its leading + as a STATUSMSG prefix.
@@ -822,6 +977,31 @@ def message_key.name(+cl: Client, +name: String) -> String:
 
 def message_key(+cl: Client, +raw: String) -> String:
   message_key.name(cl, target_name(raw))
+
+def message_key_with.resident(+types: String, +status: String, +sigils: String, +name: String, got: Maybe<&2, Buffer>) -> String:
+  match got:
+    case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key_with(types, status, sigils, name))
+    case None{}: target_key_with(types, status, sigils, name)
+
+def message_key_with.found(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, found: Maybe<&2, Nat>) -> String:
+  match cl:
+    case Client{_, _, bufs, _, _, _, _, _}:
+      match found:
+        case None{}: target_key_with(types, status, sigils, name)
+        case Some{i}: message_key_with.resident(types, status, sigils, name, nth_buf(bufs, i))
+
+def message_key_with.head(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, actual_channel: Bool) -> String:
+  match actual_channel:
+    case False{}: target_key_with(types, status, sigils, name)
+    case True{}: message_key_with.found(cl, cm, types, status, sigils, name, buf_find_cm(cl, cm, name))
+
+def message_key_with.name(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String) -> String:
+  match name:
+    case SNil{}: ""
+    case SCon{+h, +t}: message_key_with.head(cl, cm, types, status, sigils, SCon{h, t}, has_ch(types, h))
+
+def message_key_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +raw: String) -> String:
+  message_key_with.name(cl, cm, types, status, sigils, target_name(raw))
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:
@@ -1185,6 +1365,10 @@ def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Clien
   +canonical = target_name(name)
   buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
+def buf_get_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
+  +canonical = target_name(name)
+  buf_get.fin(cl, canonical, is_channel || target_channel_with(types, status, sigils, canonical), create, buf_find_cm(cl, cm, canonical))
+
 # ---- scrollback ---------------------------------------------------------
 
 # Tests pass ts="" (init.now is empty). Live/demo set Client.now at the IO
@@ -1275,18 +1459,37 @@ def replay_lines(+text: String) -> List<&2, String>:
 
 # ---- nicks --------------------------------------------------------------
 
-def is_sigil(+c: Char) -> Bool:
-  Irc.code_is(c, 64) || Irc.code_is(c, 43) || Irc.code_is(c, 126) || Irc.code_is(c, 38) || Irc.code_is(c, 37)
+def is_sigil_set(+sigils: String, +c: Char) -> Bool:
+  has_ch(sigils, c)
 
-def nick_strip(+s: String) -> String:
+def nick_strip_set(+sigils: String, +s: String) -> String:
   match s:
     case SNil{}:
       SNil{}
     case SCon{+h, +t}:
-      Bool.pick(String, is_sigil(h), nick_strip(t), SCon{h, t})
+      Bool.pick(String, is_sigil_set(sigils, h), nick_strip_set(sigils, t), SCon{h, t})
+
+def is_sigil(+c: Char) -> Bool:
+  is_sigil_set(dflt_strip(), c)
+
+def nick_strip(+s: String) -> String:
+  nick_strip_set(dflt_strip(), s)
 
 def nick_eq(a: String, b: String) -> Bool:
-  Irc.ieq(a, b)
+  buf_eq_cm(dflt_cm(), a, b)
+
+def nick_eq_cm(+cm: String, +a: String, +b: String) -> Bool:
+  buf_eq_cm(cm, a, b)
+
+def nick_has_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, +t}: buf_eq_cm(cm, h, nick) || nick_has_cm.go(cm, t, nick)
+
+def nick_has_cm(+b: Buffer, +cm: String, +nick: String) -> Bool:
+  match b:
+    case Buffer{_, _, _, _, +nicks, _}:
+      nick_has_cm.go(cm, nicks, nick)
 
 def nick_has(+b: Buffer, +nick: String) -> Bool:
   match b:
@@ -1338,7 +1541,7 @@ def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
     case Nil{}:
       Nil{}
     case Con{+h, +t}:
-      Bool.pick(List<&2, String>, Irc.ieq(h, nick), t, h <> nick_del.go(t, nick))
+      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, nick), t, h <> nick_del.go(t, nick))
 
 def nick_del(+b: Buffer, +raw: String) -> Buffer:
   match b:
@@ -1350,12 +1553,68 @@ def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2,
     case Nil{}:
       Nil{}
     case Con{+h, +t}:
-      Bool.pick(List<&2, String>, Irc.ieq(h, from), to <> t, h <> nick_rename.go(t, from, to))
+      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, from), to <> t, h <> nick_rename.go(t, from, to))
 
 def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
       Buffer{name, ch, topic, lines, nick_rename.go(nicks, nick_strip(from), nick_strip(to)), scroll}
+
+def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, nick), t, h <> nick_del_cm.go(cm, t, nick))
+
+def nick_del_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{name, ch, topic, lines, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)), scroll}
+
+def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, from), to <> t, h <> nick_rename_cm.go(cm, t, from, to))
+
+def nick_rename_cm(+b: Buffer, +cm: String, +sigils: String, +from: String, +to: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{name, ch, topic, lines, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)), scroll}
+
+def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      match empty:
+        case True{}:
+          Buffer{name, ch, topic, lines, nicks, scroll}
+        case False{}:
+          nick_add.keep(
+            Buffer{name, ch, topic, lines, nicks, scroll},
+            nick_has_cm(Buffer{name, ch, topic, lines, nicks, scroll}, cm, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
+            nick)
+
+def nick_add_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
+  +n = nick_strip_set(sigils, raw)
+  nick_add_cm.body(cm, b, n, String.is_empty(n))
+
+def nick_add_who_cm(+cm: String, +sigils: String, +who: String, b: Buffer) -> Buffer:
+  nick_add_cm(b, cm, sigils, who)
+
+def nick_add_idx_cm(+cl: Client, +cm: String, +sigils: String, +i: Nat, +who: String) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
+      Client{nick, server, buf_modify(bufs, i, nick_add_who_cm(cm, sigils, who)), active, now, stg, auth, log_seq}
+
+def nick_add_all_cm.go(xs: List<&2, String>, +cm: String, +sigils: String, +b: Buffer) -> Buffer:
+  match xs:
+    case Nil{}: b
+    case Con{+h, +t}: nick_add_all_cm.go(t, cm, sigils, nick_add_cm(b, cm, sigils, h))
+
+def nick_add_all_cm(+b: Buffer, +cm: String, +sigils: String, +ns: List<&2, String>) -> Buffer:
+  nick_add_all_cm.go(ns, cm, sigils, b)
 
 # ---- set topic / active / nick ------------------------------------------
 
@@ -1425,6 +1684,11 @@ def query_target(+b: Buffer, +target: String) -> Bool:
     case Buffer{+name, ch, _, _, _, _}:
       Bool.not(ch) && is_query_name(name) && Irc.ieq(name, target)
 
+def query_target_cm(+cm: String, +b: Buffer, +target: String) -> Bool:
+  match b:
+    case Buffer{+name, ch, _, _, _, _}:
+      Bool.not(ch) && is_query_name(name) && buf_eq_cm(cm, name, target)
+
 def query_lines.keep(hit: Bool, b: Buffer, rest: List<&2, Line>) -> List<&2, Line>:
   match hit:
     case False{}: rest
@@ -1436,6 +1700,11 @@ def query_lines(bufs: List<&2, Buffer>, +target: String) -> List<&2, Line>:
   match bufs:
     case Nil{}: Nil{}
     case Con{+b, t}: query_lines.keep(query_target(b, target), b, query_lines(t, target))
+
+def query_lines_cm(+cm: String, bufs: List<&2, Buffer>, +target: String) -> List<&2, Line>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, t}: query_lines.keep(query_target_cm(cm, b, target), b, query_lines_cm(cm, t, target))
 
 def line_id_le(a: Line, b: Line) -> Bool:
   match a:
@@ -1452,6 +1721,11 @@ def coalesce_queries.base(got: Maybe<&2, Buffer>, b: Buffer, +target: String) ->
   match got:
     case None{}: b
     case Some{+preferred}: coalesce_queries.choose(query_target(preferred, target), preferred, b)
+
+def coalesce_queries.base_cm(+cm: String, got: Maybe<&2, Buffer>, b: Buffer, +target: String) -> Buffer:
+  match got:
+    case None{}: b
+    case Some{+preferred}: coalesce_queries.choose(query_target_cm(cm, preferred, target), preferred, b)
 
 def coalesce_queries.buffer(b: Buffer, target: String, +merged: List<&2, Line>) -> Buffer:
   match b:
@@ -1470,12 +1744,31 @@ def coalesce_queries.keep(hit: Bool, seen: Bool, b: Buffer, +target: String, mer
 def coalesce_queries.step(+hit: Bool, +seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, next: Bool -> List<&2, Buffer>) -> List<&2, Buffer>:
   coalesce_queries.keep(hit, seen, b, target, merged, preferred, next(seen || hit))
 
+def coalesce_queries.keep_cm(+cm: String, hit: Bool, seen: Bool, b: Buffer, +target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, rest: List<&2, Buffer>) -> List<&2, Buffer>:
+  match hit:
+    case False{}: b <> rest
+    case True{}:
+      match seen:
+        case True{}: rest
+        case False{}:
+          coalesce_queries.buffer(coalesce_queries.base_cm(cm, preferred, b, target), target, merged) <> rest
+
+def coalesce_queries.step_cm(+cm: String, +hit: Bool, +seen: Bool, b: Buffer, target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, next: Bool -> List<&2, Buffer>) -> List<&2, Buffer>:
+  coalesce_queries.keep_cm(cm, hit, seen, b, target, merged, preferred, next(seen || hit))
+
 def coalesce_queries.go(bufs: List<&2, Buffer>, +target: String, +merged: List<&2, Line>, +preferred: Maybe<&2, Buffer>, seen: Bool) -> List<&2, Buffer>:
   match bufs:
     case Nil{}: Nil{}
     case Con{+b, t}:
       coalesce_queries.step(query_target(b, target), seen, b, target, merged, preferred,
         found => coalesce_queries.go(t, target, merged, preferred, found))
+
+def coalesce_queries.go_cm(+cm: String, bufs: List<&2, Buffer>, +target: String, +merged: List<&2, Line>, +preferred: Maybe<&2, Buffer>, seen: Bool) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, t}:
+      coalesce_queries.step_cm(cm, query_target_cm(cm, b, target), seen, b, target, merged, preferred,
+        found => coalesce_queries.go_cm(cm, t, target, merged, preferred, found))
 
 # Global event IDs let query collisions merge in arrival order without
 # renumbering old events (and therefore without saving them a second time).
@@ -1496,6 +1789,19 @@ def coalesce_queries(+cl: Client, target: String) -> Client:
     case Client{nick, server, +bufs, +active, now, stg, auth, seq}:
       +preferred = coalesce_queries.preferred(Nat.is_eq(active, 0n), nth_buf(bufs, active))
       Client{nick, server, coalesce_queries.bufs(bufs, target, preferred), active, now, stg, auth, seq}
+
+def coalesce_queries.bufs_cm(+cm: String, bufs: List<&2, Buffer>, +target: String, preferred: Maybe<&2, Buffer>) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{server, +tail}:
+      +merged = take_last(List.sort(~Line, ~line_id_le, query_lines_cm(cm, tail, target)), SCROLL_CAP())
+      server <> coalesce_queries.go_cm(cm, tail, target, merged, preferred, False{})
+
+def coalesce_queries_cm(+cm: String, +cl: Client, target: String) -> Client:
+  match cl:
+    case Client{nick, server, +bufs, +active, now, stg, auth, seq}:
+      +preferred = coalesce_queries.preferred(Nat.is_eq(active, 0n), nth_buf(bufs, active))
+      Client{nick, server, coalesce_queries.bufs_cm(cm, bufs, target, preferred), active, now, stg, auth, seq}
 
 def scroll_zero(b: Buffer) -> Buffer:
   set_buf_scroll(b, 0n)
@@ -1748,3 +2054,60 @@ def client_bufs(+cl: Client) -> List<&2, Buffer>:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       bufs
+
+# ---- per-Sid allocation ceiling -------------------------------------------
+# Multiserver slices share one bound owner: lines with id >= ceiling never
+# admit, and the sequence clamps to ceiling-1 on overflow. Existing IDs
+# (< ceiling) are preserved; overflow suffixes drop. Single-server paths
+# never call these (unbounded).
+def ceil_lines.keep(kept: Bool, +h: Line, +rest: List<&2, Line>) -> List<&2, Line>:
+  match kept:
+    case True{}: h <> rest
+    case False{}: rest
+
+def ceil_lines.buf(+h: Line, +rest: List<&2, Line>, +ceiling: Nat) -> List<&2, Line>:
+  match h:
+    case Line{+kind, +ts, +text, +author, +id}:
+      ceil_lines.keep(Nat.is_lt(id, ceiling), Line{kind, ts, text, author, id}, rest)
+
+def ceil_lines.go(+xs: List<&2, Line>, +ceiling: Nat) -> List<&2, Line>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, +t}:
+      +rest = ceil_lines.go(t, ceiling)
+      ceil_lines.buf(h, rest, ceiling)
+
+def ceil_bufs.buf(+h: Buffer, +rest: List<&2, Buffer>, +ceiling: Nat) -> List<&2, Buffer>:
+  match h:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+      Buffer{name, ch, topic, ceil_lines.go(lines, ceiling), nicks, scroll} <> rest
+
+def ceil_bufs.go(+xs: List<&2, Buffer>, +ceiling: Nat) -> List<&2, Buffer>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, +t}:
+      +rest = ceil_bufs.go(t, ceiling)
+      ceil_bufs.buf(h, rest, ceiling)
+
+def ceil_seq.kept(fits: Bool, +seq: Nat, +ceiling: Nat) -> Nat:
+  match fits:
+    case True{}: seq
+    case False{}: Nat.sub(ceiling, 1n)
+
+def ceil_seq(+seq: Nat, +ceiling: Nat) -> Nat:
+  ceil_seq.kept(Nat.is_lt(seq, ceiling), seq, ceiling)
+
+def clamp_client_ceiling(+cl: Client, +ceiling: Nat) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +seq}:
+      Client{nick, server, ceil_bufs.go(bufs, ceiling), active, now, stg, auth, ceil_seq(seq, ceiling)}
+
+def client_overflows.kept(fits: Bool) -> Bool:
+  match fits:
+    case True{}: False{}
+    case False{}: True{}
+
+def client_overflows(+cl: Client, +ceiling: Nat) -> Bool:
+  match cl:
+    case Client{_, _, _, _, _, _, _, +seq}:
+      client_overflows.kept(Nat.is_lt(seq, ceiling))

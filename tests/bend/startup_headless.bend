@@ -9,13 +9,14 @@ import ../../src/bend/preferences_runtime.bend as R
 import ../../src/bend/preferences_worker.bend as W
 import ../../src/bend/session.bend as S
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/theme.bend as Theme
 
 def session() -> S.Session:
   S.session_with_client_at(Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6697,
     "NickServ!service@services.example", "confirmed", "synthetic-account", "synthetic-secret"), "#initial", 6697)
 
 def stored(history: Bool) -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, history, 1, False{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}}
+  P.Preferences{False{}, False{}, False{}, history, 1, False{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}}
 
 def options(on: Bool, explicit: Bool) -> W.Options:
   W.Options{on, explicit, False{}, False{}}

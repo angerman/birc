@@ -75,6 +75,9 @@ typedef uint64_t Loc;
 #ifndef CID_SYS_MEDIA_PROGRAM
 #define CID_SYS_MEDIA_PROGRAM CID(Sys.media_program)
 #endif
+#ifndef CID_SYS_NOTIFY_DEFAULT
+#define CID_SYS_NOTIFY_DEFAULT CID(Sys.notify_default)
+#endif
 #ifndef CID_TIMUI_MEDIA_ADD
 #define CID_TIMUI_MEDIA_ADD CID(Timui.media_add)
 #endif
@@ -1663,6 +1666,20 @@ Term sys_media_program_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) sys_media_program_use(void) {
   io_eff(CID_SYS_MEDIA_PROGRAM, sys_media_program_run, 0);
+}
+#endif
+#if CID_SYS_NOTIFY_DEFAULT
+Term sys_notify_default_run(Env e, Term *f, IoWork *w) {
+  (void)f;
+  (void)w;
+#ifdef __APPLE__
+  return io_str(e, "osascript", 9);
+#else
+  return io_str(e, "notify-send", 11);
+#endif
+}
+static void __attribute__((constructor)) sys_notify_default_use(void) {
+  io_eff(CID_SYS_NOTIFY_DEFAULT, sys_notify_default_run, 0);
 }
 #endif
 #if CID_SYS_CLIPBOARD_PROGRAM

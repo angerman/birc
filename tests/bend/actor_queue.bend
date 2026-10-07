@@ -46,7 +46,7 @@ def run_socket(sock: Socket, +port: U32, +frames: U32, +count: Nat, +mode: Strin
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
-    Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{Some{Tr.Plain{sock}}, 1, Nil{}, Out.budget_frames(frames), False{}}, evt, cmd, boot, False{}))
+    Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{Some{Tr.Plain{sock}}, 1, Nil{}, Nil{}, 1, Out.budget_frames(frames), False{}}, evt, cmd, boot, False{}))
     _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{lines(count)})
     # A second producer command fills the capacity-one queue while an
     # internal Pump is scheduled. Awaiting a self-send would deadlock here.

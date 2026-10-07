@@ -18,10 +18,11 @@
 # A removal takes no value: `-TOKEN=value` is malformed and keeps prior
 # metadata. An empty `STATUSMSG=` instead clears the audience entirely. A bare
 # `STATUSMSG` with no `=` keeps the previous value, like every other valueless
-# token. A non-empty STATUSMSG must be a subset of the current PREFIX sigils;
-# otherwise the previous value is kept. Effective authorization always
-# intersects stored STATUSMSG with current PREFIX sigils, so a later PREFIX
-# change cannot leave a stale sigil authorized.
+# token. A syntactically valid non-empty STATUSMSG is stored as declared,
+# regardless of the current PREFIX, so a STATUSMSG-first burst survives until
+# the PREFIX arrives. Effective authorization always intersects stored
+# STATUSMSG with current PREFIX sigils, so either update order authorizes
+# correctly and a later PREFIX change cannot leave a stale sigil authorized.
 #
 # This module never stores channel keys. `redact_*` only decides which MODE
 # arguments may render. Precise redaction needs every mode character
@@ -29,28 +30,42 @@
 # argument, exactly like the client does today. After `-CHANMODES` only
 # prefix modes stay precise; every other mode is Unknown so key-bearing
 # `+lks`-style inputs hide all args until valid readvertisement.
+# A CHANMODES value with one mode letter in two classes is ambiguous (the
+# first-hit order would be our guess, not the server's), so the whole value
+# is rejected and the previous map — certainty included — is kept.
 # `redact_wire`/`redact_line` dispatch MODE (target/flags/args at 0/1/2:)
 # from numeric 324 (recipient/target/flags/args at 0/1/2/3:); the 324 offsets
 # stay correct because the leading recipient param is accounted for.
 #
-# Integrator: thread one State per endpoint, reset it on endpoint change, feed
-# server lines through `feed` (source- and recipient-gated), gate JoinPlan
-# admission through `join_admit`, route message audiences through
-# `chan_target_cl` (exact resident first, STATUSMSG fallback second), and
-# render MODE/324 arguments through `redact_wire`/`redact_line`. `apply_line`
-# is parse-only and trusts its caller; use `feed` for wire input.
-# Adopt `cm_eq`/`cm_fold` in Client/Buffer lookup, roster compare, draft
-# identity, and View completion so every identity uses the negotiated
-# CASEMAPPING; those shared modules are intentionally untouched here.
+# Live runtime (I2): Session holds one State per endpoint in its `iso`
+# field (session.bend, reusing this canonical State). Framed 005 lines feed
+# it through `feed_state` with server-only trust (step_on_framed_ms); a Dial
+# to a new endpoint resets via `endpoint` (session_after); `join_admit`
+# gates joins at submit/flush time (session_admit/session_outs_admitted,
+# JoinPlan.flush_iso); `redact_params`/`mode_class`/`takes_arg` drive live
+# MODE/324 display (session_redact_wire); `chan_target_cl` routes STATUSMSG
+# audiences with exact-resident precedence (session_chan_target); `cm_eq`
+# compares 001 nicks under the negotiated CASEMAPPING (session_cm_eq).
+# `apply_line` is parse-only and trusts its caller; use `feed` for wire input.
+# The fold itself lives in `Irc.fold_casemap` (one shared owner) so the
+# fixed compare and every negotiated compare stay identical by
+# construction. Full `cm_eq` adoption inside Client/Buffer lookup, roster
+# compare, draft identity, and View completion still needs Client-carried
+# casemapping state; those shared modules are intentionally untouched here.
 # `join_admit` reuses `Channels.valid` for every non-head check by swapping an
 # advertised non-fixed head to `#` (one byte, same length); the original name
 # must first pass `Cl.target_wire` and canonical equality, so a swapped check
 # cannot admit reserved synthetics. If `valid` ever treats `#` specially,
 # teach it the advertised set instead.
-# Merge points (unchanged from f672365/cc7d169 plus new certainty/subset):
-# per-endpoint State, feed/join_admit/chan_target_cl/redact wiring, cm_eq
-# adoption, plus `cm_known`/`mode_class` uncertainty and `is_channel`/
-# `chan_target` PREFIX-subset intersection.
+# Key privacy uses the one shared conservative detector
+# (`Commands.mode_maybe_key_target` over `Commands.mode_chan_target`, also
+# via the fixed `Commands.mode_maybe_key` and the raw fallback in
+# `Submit.input_sensitive`): signed-or-short tails mentioning 'k' with an
+# argument slot redact; longer unsigned words do not. The live composer
+# entry `Submit.input_sensitive_iso` ORs that fixed check with a negotiated
+# recheck (`mode_has_key_iso` plus a negotiated raw fallback) under the
+# Session iso, so negotiated-only targets resolve through the one shared
+# target owner `sensitive_target` instead of a second prefix lexer.
 #
 # Bend elaborates top-down here: every callee is defined before its caller,
 # and only self-recursion is used.
@@ -273,32 +288,34 @@ def statusmsg.set(+types: String, +status: String, +a: String, +b: String, +c: S
     case True{}: Chans{types, val, a, b, c, d, mpl, ml, known}
     case False{}: Chans{types, status, a, b, c, d, mpl, ml, known}
 
-# STATUSMSG must be a subset of the current PREFIX sigils: the server can
-# only authorize audiences its prefix modes define. Empty clears regardless.
-def statusmsg_subset.go(+val: String, +sigils: String) -> Bool:
-  match val:
-    case SNil{}: True{}
-    case SCon{+h, +t}: has_char(sigils, h) && statusmsg_subset.go(t, sigils)
-
-def statusmsg_subset(+val: String, +sigils: String) -> Bool:
-  statusmsg_subset.go(val, sigils)
-
-def priv_sigils_only(+pv: Priv) -> String:
-  match pv:
-    case Priv{_, +sig, _}: sig
-
-def chans_statusmsg.sub(+ch: Chans, +sigils: String, +val: String, +has_eq: Bool) -> Chans:
+# STATUSMSG stores the declared value when syntactically valid, regardless
+# of the current PREFIX: a STATUSMSG-first burst must survive until the
+# PREFIX arrives. Effective authorization always intersects the stored value
+# with the current PREFIX sigils in is_channel/chan_target, so either update
+# order authorizes correctly and stale sigils stay refused. Empty clears.
+def chans_statusmsg.sub(+ch: Chans, +val: String, +has_eq: Bool) -> Chans:
   match ch:
     case Chans{+types, +status, +a, +b, +c, +d, +mpl, +ml, +known}:
-      statusmsg.set(types, status, a, b, c, d, mpl, ml, known, val, has_eq && (String.is_empty(val) || (chantypes_ok(val) && statusmsg_subset(val, sigils))))
+      statusmsg.set(types, status, a, b, c, d, mpl, ml, known, val, has_eq && (String.is_empty(val) || chantypes_ok(val)))
 
 def chans_statusmsg(+ch: Chans, +pv: Priv, +val: String, +has_eq: Bool) -> Chans:
-  chans_statusmsg.sub(ch, priv_sigils_only(pv), val, has_eq)
+  match pv:
+    case Priv{_, _, _}: chans_statusmsg.sub(ch, val, has_eq)
+
+def chanmodes.apart(+a: String, +b: String) -> Bool:
+  match a:
+    case SNil{}: True{}
+    case SCon{+h, +t}: Bool.not(has_char(b, h)) && chanmodes.apart(t, b)
+
+def chanmodes.disjoint(+a: String, +b: String, +c: String, +d: String) -> Bool:
+  chanmodes.apart(a, b) && chanmodes.apart(a, c) && chanmodes.apart(a, d)
+    && chanmodes.apart(b, c) && chanmodes.apart(b, d) && chanmodes.apart(c, d)
 
 def chanmodes.classes(+a: String, +b: String, +c: String, +d: String) -> Bool:
   all_letters(a) && all_letters(b) && all_letters(c) && all_letters(d)
     && Nat.is_le(String.length(a), 32n) && Nat.is_le(String.length(b), 32n)
     && Nat.is_le(String.length(c), 32n) && Nat.is_le(String.length(d), 32n)
+    && chanmodes.disjoint(a, b, c, d)
 
 def chans_chanmodes.keep(+types: String, +status: String, +oa: String, +ob: String, +oc: String, +od: String, +mpl: U32, +ml: String, +known: Bool, +a: String, +b: String, +c: String, +d: String, ok: Bool) -> Chans:
   match ok:
@@ -493,48 +510,11 @@ def casemap.set(+cm: String, +val: String, +has_eq: Bool) -> String:
   casemap.keep(cm, casemap_value(val), has_eq)
 
 # ---- negotiated casemapping compare ---------------------------------------
-# ascii folds A-Z only; rfc1459-strict adds []\ <-> {|} but not ^~;
-# rfc1459 (the default) also folds ^ <-> ~ via Irc.rfc1459.
-
-def strict_code.rb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 125
-    case False{}: n
-
-def strict_code.bs(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 124
-    case False{}: strict_code.rb(n, U32.is_eq(n, 93))
-
-def strict_code.lb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 123
-    case False{}: strict_code.bs(n, U32.is_eq(n, 92))
-
-def strict_code(+n: U32) -> U32:
-  strict_code.lb(n, U32.is_eq(n, 91))
-
-def strict_char(+c: Char) -> Char:
-  match c:
-    case Chr{n}: Chr{strict_code(n)}
-
-def strict.go(+s: String) -> String:
-  match s:
-    case SNil{}: SNil{}
-    case SCon{+h, t}: SCon{strict_char(h), strict.go(t)}
-
-def strict_fold(+s: String) -> String:
-  strict.go(String.to_upper(s))
-
-def cm_fold.cm(+cm: String, +s: String) -> String:
-  match cm:
-    case "ascii": String.to_upper(s)
-    case "rfc1459-strict": strict_fold(s)
-    case _: Irc.rfc1459(s)
-
+# The fold itself lives in Irc.fold_casemap (one shared owner); the state
+# only supplies the negotiated mapping name.
 def cm_fold(+st: State, +s: String) -> String:
   match st:
-    case State{_, _, _, _, +cm, _}: cm_fold.cm(cm, s)
+    case State{_, _, _, _, +cm, _}: Irc.fold_casemap(cm, s)
 
 def cm_eq(+st: State, +a: String, +b: String) -> Bool:
   String.eq(cm_fold(st, a), cm_fold(st, b))
@@ -989,11 +969,25 @@ def takes_arg(+st: State, +mode: Char, +adding: Bool) -> Bool:
 
 # ---- secret-safe MODE redaction -------------------------------------------
 
+def sensitive_target(+st: State, +target: String) -> Bool:
+  # Normalize negotiated-only channel heads at the same sensitivity seam.
+  is_channel(st, Irc.proto_atom(target)) || Commands.mode_chan_target(target)
+
 def suspicious(+st: State, +target: String, +flags: String, +args: List<&2, String>) -> Bool:
-  (is_channel(st, target) || Irc.starts_channel(target))
-    && Commands.mode.sign(flags) && Commands.mode.flag_chars(flags)
-    && String.contains(flags, "k")
-    && Bool.not(List.is_empty(&2, String, args))
+  Commands.mode_maybe_key_target(sensitive_target(st, target),
+    flags, Bool.not(List.is_empty(&2, String, args)))
+
+def mode_has_key_iso(+st: State, +m: Irc.Message) -> Bool:
+  Irc.ieq(Irc.msg_command(m), "MODE")
+    && Commands.mode_maybe_key_target(sensitive_target(st, Irc.msg_param(m, 0n)), Irc.msg_param(m, 1n), Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n))
+
+def mode_has_key_iso.parsed(+st: State, m: Maybe<&2, Irc.Message>) -> Bool:
+  match m:
+    case None{}: False{}
+    case Some{+msg}: mode_has_key_iso(st, msg)
+
+def mode_has_key_iso.line(+st: State, wire: String) -> Bool:
+  mode_has_key_iso.parsed(st, Irc.parse(wire))
 
 def walk_key.again(+adding: Bool, +next: Nat, +key: Maybe<&2, Nat>, +ok: Bool) -> Walk:
   match key:
@@ -1242,6 +1236,24 @@ def network(+st: State) -> String:
 def casemapping(+st: State) -> String:
   match st:
     case State{_, _, _, _, +cm, _}: cm
+
+def chantypes(+st: State) -> String:
+  match st:
+    case State{+ch, _, _, _, _, _}:
+      match ch:
+        case Chans{+types, _, _, _, _, _, _, _, _}: types
+
+def statusmsg(+st: State) -> String:
+  match st:
+    case State{+ch, _, _, _, _, _}:
+      match ch:
+        case Chans{_, +status, _, _, _, _, _, _, _}: status
+
+def prefix_sigils(+st: State) -> String:
+  match st:
+    case State{_, +pv, _, _, _, _}:
+      match pv:
+        case Priv{_, +sig, _}: sig
 
 # ---- canonical rendering (goldens) ----------------------------------------
 

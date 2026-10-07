@@ -6,18 +6,18 @@ import ../../src/bend/args.bend as A
 def port(got: A.Parsed) -> String:
   match got:
     case A.Bad{msg}: "bad:" ++ msg
-    case A.Good{A.Cfg{_, _, _, p, _, _, _, _, _, _, _, _, _}}: U32.show(p)
+    case A.Good{A.Cfg{_, _, _, p, _, _, _, _, _, _, _, _, _, _}}: U32.show(p)
 
 def secure(got: A.Parsed) -> String:
   match got:
     case A.Bad{msg}: "bad:" ++ msg
-    case A.Good{A.Cfg{_, _, _, _, _, _, _, _, _, _, _, tls, _}}:
+    case A.Good{A.Cfg{_, _, _, _, _, _, _, _, _, _, _, tls, _, _}}:
       Bool.show(tls)
 
 def endpoint(got: A.Parsed) -> String:
   match got:
     case A.Bad{msg}: "bad:" ++ msg
-    case A.Good{A.Cfg{_, _, host, p, _, _, _, _, _, _, _, tls, _}}:
+    case A.Good{A.Cfg{_, _, host, p, _, _, _, _, _, _, _, tls, _, _}}:
       host ++ ":" ++ U32.show(p) ++ ":" ++ Bool.show(tls)
 
 def many_mode(n: Nat, acc: List<&2, String>) -> List<&2, String>:

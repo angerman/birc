@@ -11,18 +11,53 @@ import ./clock.bend as Clock
 import ./actor.bend as Act
 import ./history.bend as Hist
 import ./history_io.bend as HistIO
+import ./history_search.bend as Hs
+import ./history_search_io.bend as HSIO
 import ./typing.bend as Ty
 import ./media.bend as M
+import ./cards.bend as C
+import ./cards_view.bend as CV
+import ./cards_net.bend as CN
 import ./links.bend as Links
 import ./args.bend as Args
 import ./auth_bridge.bend as AuthBridge
 import ./upload.bend as Up
 import ./upload_io.bend as UploadIO
 import ./view_hint.bend as Hint
+import ./theme.bend as Theme
 import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
 import ./startup_headless.bend as Headless
 import ./preferences_live.bend as LoadedPrefs
+import ./notify.bend as N
+import ./notify_io.bend as NIO
+
+def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
+  Sess.notify_live_init_ep(N.on(), Cl.log_seq_of(Sess.session_cl(st)), Sess.notify_scope_of(st))
+
+def net_notify_observe(+nl: Sess.NotifyLive, +st: Sess.Session, deliver: Bool, +claimed: List<&2, Nat>) -> Sess.NotifyLive & List<&2, N.Req>:
+  Sess.notify_live_observe(nl, st, deliver, claimed)
+
+def net_notify_complete(+nl: Sess.NotifyLive, +ticket: Nat, +endpoint: String) -> Sess.NotifyLive & List<&2, N.Req> & Bool:
+  Sess.notify_live_complete(nl, ticket, endpoint)
+
+def net_notify_cancel(+nl: Sess.NotifyLive, +endpoint: String) -> Sess.NotifyLive & Bool:
+  Sess.notify_live_cancel(nl, endpoint)
+
+def net_notify_reset_endpoint(+nl: Sess.NotifyLive, +new_endpoint: String, +new_floor: Nat) -> Sess.NotifyLive:
+  Sess.notify_live_reset_endpoint(nl, new_endpoint, new_floor)
+
+def net_notify_off(+nl: Sess.NotifyLive) -> Sess.NotifyLive:
+  Sess.notify_live_off(nl)
+
+def net_notify_seed_postrestore(+nl: Sess.NotifyLive, +st: Sess.Session) -> Sess.NotifyLive:
+  Sess.notify_live_seed_postrestore(nl, st)
+
+def net_notify_merge_claims(+nl: Sess.NotifyLive, +fresh: List<&2, Nat>) -> Sess.NotifyLive:
+  Sess.notify_live_merge_claims(nl, fresh)
+
+def net_notify_seed_accepted(accepted: Bool, +nl: Sess.NotifyLive, +installed: List<&2, Nat>) -> Sess.NotifyLive:
+  Sess.notify_live_seed_accepted(accepted, nl, installed)
 
 def endpoint(+host: String, +port: U32) -> String:
   host ++ ":" ++ U32.show(port)
@@ -134,6 +169,11 @@ def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
     case V.ViewModel{+ops, +inp}:
       T.Timui.frame(ui, ops, inp, seed)
 
+def paint_overlay(+vm: V.ViewModel, +full: C.Fullscreen, +media: M.State, +client: Cl.Client, +rows: U32, +cols: U32) -> V.ViewModel:
+  match vm:
+    case V.ViewModel{+ops, +inp}:
+      V.ViewModel{List.append(&2, V.DrawOp, ops, CV.overlay_ops(full, media, client, rows, cols)), inp}
+
 def paint_go.hint(
   ui: T.Ui,
   +cl: Cl.Client,
@@ -144,24 +184,43 @@ def paint_go.hint(
   split: Sp.State,
   +typers: List<&2, String>,
   +media: M.State,
-  hint: String
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  hint: String,
+  +th: Theme.Id
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, +cols}:
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, Hint.status(V.view_draft.state_typing_media(cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media), rows, cols, hint), seed)
+        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed)
 
-def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State) -> IO(T.Ui & T.UiKeys):
-  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, "")
+def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +cm: String, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
+  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th)
 
-def paint_session.hint(ui: T.Ui, st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
+def paint_session.hint(ui: T.Ui, +st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _}:
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names(typing, Cl.active_buf_name(cl)), media, hint)
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme}:
+      +cm = Sess.session_cm(st)
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), cm, hint, theme)
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   paint_session.hint(ui, st, Sess.session_upload_hint(st))
+
+# Cards paint (wsnet sidecar): inline rows from the sidecar worker state
+# plus the revalidated fullscreen overlay, over the same _cm row set the
+# scheduler uses. Mirrors paint_session but takes the loop sidecar instead
+# of the Session cf cell.
+def paint_session_cards.hint(ui: T.Ui, +st: Sess.Session, +cards: C.State, +full: C.Fullscreen, hint: String) -> IO(T.Ui & T.UiKeys):
+  match st:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme}:
+      +cm = Sess.session_cm(st)
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, cm, hint, theme)
+
+def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys):
+  match found:
+    case (+cs, +fl): paint_session_cards.hint(ui, st, cs, fl, Sess.session_upload_hint(st))
 
 def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty: Bool) -> IO(U32):
   match empty:
@@ -170,6 +229,7 @@ def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty
     case False{}:
       do IO<U32>:
         ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Cont{outs})
+        Unit <- Clock.net_trace(3, 0, 0)
         return gen
 
 def launch_result(r: Result<&1, &1, U32 & String, U32 & (String & String)>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
@@ -195,6 +255,11 @@ def open_clicked.go(+notice: Maybe<&2, Chan(Sess.UiMsg)>, +url: String, empty: B
 def open_clicked(+notice: Maybe<&2, Chan(Sess.UiMsg)>, +url: String) -> IO(Unit):
   open_clicked.go(notice, url, String.is_empty(url))
 
+def search_spawn(native: Bool, +endpoint: String, +query: Hs.DiskQuery, +cursor: Nat, +history_on: Bool, +ticket: Nat, +gen: Nat, +wgen: U32, +orig: String, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match native:
+    case True{}: IO.spawn(Unit, HSIO.search_run_native(endpoint, query, cursor, history_on, ticket, gen, wgen, orig, evt))
+    case False{}: IO.spawn(Unit, HSIO.search_run(endpoint, query, cursor, history_on, ticket, gen, wgen, orig, evt))
+
 def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +gen: U32) -> IO(U32):
   match c:
     case Sess.Dial{+host, port, _, +nick}:
@@ -209,11 +274,18 @@ def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +g
       emit_outs(chan, outs, gen, List.is_empty(&2, String, outs))
     case Sess.Pump{_}:
       IO.pure(U32, gen)
+    case Sess.Pong{_, _, _}:
+      IO.pure(U32, gen)
     case Sess.Begin{_}:
       IO.pure(U32, gen)
     case Sess.OpenUrl{+url}:
       do IO<U32>:
         Unit <- open_clicked(Some{evt}, url)
+        return gen
+    case Sess.Search{+text, +target, +cursor, +orig, +endpoint, +history_on, +ticket, +sgen, _}:
+      do IO<U32>:
+        helper : String <- HSIO.program()
+        Unit <- search_spawn(String.eq(helper, "native"), endpoint, Hs.DiskQuery{text, target}, cursor, history_on, ticket, sgen, gen, orig, evt)
         return gen
 
 def step_size(
@@ -394,12 +466,25 @@ def frame_result.upload(pair: Sess.Session & Bool, ui: T.Ui, +enter: Bool, +type
         # Native Enter already cleared the editor, even when suppressed here.
         return frame_result.hot(result, handled, handled && enter, typed)
 
+# Fullscreen pre-step (C8 live): F9 toggles, Escape closes. A handled key is
+# zeroed before the upload step and the combined handled flag flows into the
+# upload step, so a consumed Escape neither cancels an upload nor quits.
+def frame_result.full_upload(pair: Sess.Session & Bool, +fs: Bool, ui: T.Ui, +enter: Bool, +typed: String, +rows: U32, cols: U32, click: U32, +key: U32, mods: U32, codepoint: U32, wheel: U32, more: Bool, +url: String, +clipboard: String, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match pair:
+    case (+st, +up):
+      # Authorize only a request that existed before this frame's submission.
+      # A coalesced Enter+F8 cannot stage and approve a new public upload.
+      frame_result.upload((st, fs || up), ui, enter, typed, rows, cols, click, key, mods, codepoint, wheel, more, url, clipboard, notice)
+
+def frame_result.full(pair: Sess.Session & Bool, ui: T.Ui, +enter: Bool, +typed: String, +rows: U32, cols: U32, click: U32, +key: U32, +mods: U32, codepoint: U32, wheel: U32, more: Bool, +url: String, +clipboard: String, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match pair:
+    case (+st, +fs):
+      frame_result.full_upload(Sess.session_upload_key(st, Bool.pick(U32, fs, 0, key), mods), fs, ui, enter, typed, rows, cols, click, key, mods, codepoint, wheel, more, url, clipboard, notice)
+
 def frame_result.keys(ui: T.Ui, +st: Sess.Session, keys: T.UiKeys, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match keys:
     case T.UiKeys{enter, +typed, +rows, cols, click, +key, +mods, codepoint, wheel, more, +url, +clipboard}:
-      # Authorize only a request that existed before this frame's submission.
-      # A coalesced Enter+F8 cannot stage and approve a new public upload.
-      frame_result.upload(Sess.session_upload_key(st, key, mods), ui, T.flag_on(enter), typed, rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), url, clipboard, notice)
+      frame_result.full(Sess.session_fullscreen_key(st, key, mods), ui, T.flag_on(enter), typed, rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), url, clipboard, notice)
 
 def frame_result.present_pack(packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool, before: Sess.Session) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match packed:
@@ -410,6 +495,40 @@ def frame_result.present(result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Boo
   match result:
     case (packed, hot): (frame_result.present_pack(packed, before), hot)
 
+# G6 live: composer frames step outbound typing after applying keys, so the
+# first keystroke sends active without waiting for the one-second tick and a
+# cleared composer sends done. The tick+merge decision is the shared
+# Sess.frame_tick_typing entry: halt frames and non-Cont commands return
+# untouched (no stepping, no commit, no wire), so a live span survives for
+# the next TypingTick; Cont frames merge at most one TAGMSG. Halt frames
+# skip without reading the clock: shutdown owns the wire.
+def frame_result.clock(ticked: Sess.Session & Sess.NetCmd, ui: T.Ui, halt: Bool, more: Bool, hot: Bool) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match ticked:
+    case (+st3, +cmd3):
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        return ((ui, st3, cmd3, halt, more), hot)
+
+def frame_result.halt(halt: Bool, ui: T.Ui, +st: Sess.Session, cmd: Sess.NetCmd, more: Bool, hot: Bool) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match halt:
+    case True{}:
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        # The 0 timestamp is unused on the skip path: no clock read on halt.
+        frame_result.clock(Sess.frame_tick_typing(cmd, st, 0, True{}), ui, halt, more, hot)
+    case False{}:
+      do IO<(T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool>:
+        now_ms : U32 <- Clock.millis()
+        frame_result.clock(Sess.frame_tick_typing(cmd, st, now_ms, False{}), ui, halt, more, hot)
+
+def frame_result.packed(packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool, hot: Bool) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match packed:
+    case (ui, +st2, cmd, halt, more):
+      frame_result.halt(halt, ui, st2, cmd, more, hot)
+
+def frame_result.typed(result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
+  match result:
+    case (packed, hot):
+      frame_result.packed(packed, hot)
+
 def frame_result(got: T.Ui & T.UiKeys, +st: Sess.Session, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match got:
     case (ui, keys):
@@ -417,7 +536,7 @@ def frame_result(got: T.Ui & T.UiKeys, +st: Sess.Session, +notice: Maybe<&2, Cha
         result : (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool <- frame_result.keys(ui, st, keys, notice)
         # Native begin reads keys before drawing. Only a request that existed
         # across this completed frame becomes eligible for a later F8.
-        return frame_result.present(result, st)
+        frame_result.typed(frame_result.present(result, st))
 
 def on_frame.defer.go(ui: T.Ui, +st: Sess.Session, +ncmd: Sess.NetCmd, +halt: Bool, more: Bool, hot: Bool) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   apply_pack(ui, st, ncmd, halt, more || (hot && Bool.not(halt)))
@@ -548,8 +667,28 @@ def on_chunk.paint(
 ) -> IO(Unit):
   on_frame(got, st, False{}, True{}, evt, cmd, ack, gen, k)
 
+def on_chunk_go.rest(
+  rest: List<&2, String> & Nat & List<&2, Nat>,
+  +st2: Sess.Session,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  # The live drain exports its seed and claimed IDs alongside; the drain
+  # already installed the claimed set in the session owner, which the
+  # history checkpoint below consumes as its exclusion set.
+  match rest:
+    case (+outs, _):
+      do IO<Unit>:
+        gen2 : U32 <- emit_outs(cmd, outs, gen, List.is_empty(&2, String, outs))
+        got : T.Ui & T.UiKeys <- paint_session(ui, st2)
+        on_chunk.paint(got, st2, evt, cmd, ack, gen2, k)
+
 def on_chunk_go(
-  pair: Sess.Session & List<&2, String>,
+  pair: Sess.Session & List<&2, String> & Nat & List<&2, Nat>,
   ui: T.Ui,
   +evt: Chan(Sess.UiMsg),
   +cmd: Chan(Sess.NetCmd),
@@ -558,11 +697,7 @@ def on_chunk_go(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
-    case (+st2, +outs):
-      do IO<Unit>:
-        gen2 : U32 <- emit_outs(cmd, outs, gen, List.is_empty(&2, String, outs))
-        got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-        on_chunk.paint(got, st2, evt, cmd, ack, gen2, k)
+    case (+st2, rest): on_chunk_go.rest(rest, st2, ui, evt, cmd, ack, gen, k)
 
 def on_chunk.framed(
   framed: List<&2, String> & List<&2, U32> & Bool,
@@ -579,7 +714,7 @@ def on_chunk.framed(
     case (+lines, rem, drop):
       do IO<Unit>:
         stamps : List<&2, Maybe<&2, String>> <- Clock.line_stamps(lines)
-        on_chunk_go(Sess.step_on_framed_ms(st, (lines, rem, drop), stamps, now_ms), ui, evt, cmd, ack, gen, k)
+        on_chunk_go(Sess.step_on_framed_drained(st, (lines, rem, drop), stamps, now_ms), ui, evt, cmd, ack, gen, k)
 
 def on_chunk(
   ui: T.Ui,
@@ -589,10 +724,12 @@ def on_chunk(
   +ack: Chan(Unit),
   +gen: U32,
   xs: List<&2, U32>,
+  req: U32,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     now_ms : U32 <- Clock.millis()
+    Unit <- Clock.net_trace(2, req, 0)
     on_chunk.framed(Sess.frame_chunk(st, xs), ui, st, evt, cmd, ack, gen, now_ms, k)
 
 def on_up_go(
@@ -695,8 +832,8 @@ def on_evt(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match e:
-    case Sess.Chunk{xs}:
-      on_chunk(ui, st, evt, cmd, ack, gen, xs, k)
+    case Sess.Chunk{xs, req}:
+      on_chunk(ui, st, evt, cmd, ack, gen, xs, req, k)
     case Sess.Up{}:
       on_up(ui, st, evt, cmd, ack, gen, k)
     case Sess.Eof{}:
@@ -750,6 +887,39 @@ def on_typing_tick.retry(pair: Sess.Session & Bool, retry: Bool) -> Sess.Session
   match pair:
     case (st, changed): (st, changed || retry)
 
+# G6 live: the tick expires inbound typing beside stepping outbound typing.
+# At most one TAGMSG wire leaves through the bounded actor path per tick.
+def on_typing_tick.emit(
+  ticked: Sess.Session & List<&2, String>,
+  changed: Bool,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match ticked:
+    case (+st3, +outs):
+      do IO<Unit>:
+        gen2 : U32 <- emit_outs(cmd, outs, gen, List.is_empty(&2, String, outs))
+        on_typing_tick.pick((st3, changed), ui, evt, cmd, ack, gen2, k)
+
+def on_typing_tick.typed(
+  expired: Sess.Session & Bool,
+  +now_ms: U32,
+  retry: Bool,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match expired:
+    case (+st2, changed):
+      on_typing_tick.emit(Sess.session_tick_typing(st2, now_ms), changed || retry, ui, evt, cmd, ack, gen, k)
+
 def on_typing_tick.ready(
   got: T.Ui & U32,
   +st: Sess.Session,
@@ -762,7 +932,7 @@ def on_typing_tick.ready(
 ) -> IO(Unit):
   match got:
     case (ui, ready):
-      on_typing_tick.pick(on_typing_tick.retry(Sess.session_expire_typing(st, now_ms), T.flag_on(ready)), ui, evt, cmd, ack, gen, k)
+      on_typing_tick.typed(Sess.session_expire_typing(st, now_ms), now_ms, T.flag_on(ready), ui, evt, cmd, ack, gen, k)
 
 def on_typing_tick(
   ui: T.Ui,
@@ -917,6 +1087,20 @@ def upload_stage(acc: T.Ui & Sess.Session & U32 & Bool, +evt: Chan(Sess.UiMsg), 
     case (ui, +st, gen, more):
       upload_stage.job(Sess.session_upload_take(st), ui, gen, more, evt, k)
 
+# Cards scheduling stage (C8 live): observe bounded visible candidates over
+# the exact painted rows, then spawn at most one worker. Runs after media so
+# both workers share one retained per-tick ordering; scheduling never repaints.
+def cards_live_stage.staged(pair: Sess.Session & Maybe<&2, C.Request>, ui: T.Ui, gen: U32, more: Bool, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+st, _): k((ui, st, gen, more))
+
+def cards_live_stage(acc: T.Ui & Sess.Session & U32 & Bool, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match acc:
+    case (ui, +st, gen, more):
+      do IO<Unit>:
+        staged : Sess.Session & Maybe<&2, C.Request> <- CN.cards_stage_session(st, evt)
+        cards_live_stage.staged(staged, ui, gen, more, k)
+
 def upload_owned(state: Up.State, request: Up.Request) -> Bool:
   match state:
     case Up.Busy{active, _, _}: Up.request_eq(active, request)
@@ -936,7 +1120,7 @@ def on_upload.url(fits: Bool, ui: T.Ui, +st: Sess.Session, url: String, +evt: Ch
     case True{}:
       # Submit the validated URL through the ordinary echo/wire path. Keep
       # the real draft and composer history; the helper is not a keystroke.
-      on_upload.sent(Sess.apply_keys(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}), ui, st, evt, cmd, ack, gen, k)
+      on_upload.sent(Sess.apply_keys(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}, Sess.session_negotiated(st)), ui, st, evt, cmd, ack, gen, k)
 
 def on_upload.completed(pair: Sess.Session & Maybe<&2, String>, ui: T.Ui, request: Up.Request, allowed: Bool, +error: U32, http_status: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
@@ -972,6 +1156,24 @@ def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +tic
           M.retained_tokens(M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)))
         on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, k)
 
+# Cards completion (C8 live): stale results release the worker without storing
+# and stay quiet; accepted ones store the bounded card and repaint so the new
+# rows paint under the anchor line.
+def on_card.quiet(pair: Sess.Session & Bool, ui: T.Ui, +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+next, _): k((ui, next, gen, False{}))
+
+def on_card.paint(pair: Sess.Session & Bool, ui: T.Ui, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+next, _): paint_input(ui, next, False{}, evt, cmd, ack, gen, k)
+
+def on_card(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match accepted:
+    case False{}:
+      on_card.quiet(CN.on_card_session(False{}, st, generation, ticket, url, payload), ui, gen, k)
+    case True{}:
+      on_card.paint(CN.on_card_session(True{}, st, generation, ticket, url, payload), ui, evt, cmd, ack, gen, k)
+
 def images_enabled.got(result: Result<&1, &1, U32 & String, String>) -> Bool:
   match result:
     case Fail{_}: True{}
@@ -981,6 +1183,28 @@ def images_enabled() -> IO(Bool):
   do IO<Bool>:
     result : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_IMAGES")
     return images_enabled.got(result)
+
+def on_search.landed(landed: Bool, +st2: Sess.Session, ui: T.Ui, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match landed:
+    case True{}: paint_input(ui, st2, False{}, evt, cmd, ack, gen, k)
+    case False{}: k((ui, st2, gen, False{}))
+
+def on_search.rest(rest: Nat & Bool, +st2: Sess.Session, ui: T.Ui, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match rest:
+    case (_, +imported): on_search.landed(imported, st2, ui, evt, cmd, ack, gen, k)
+
+def on_search.done(pair: Sess.Session & Nat & Bool, ui: T.Ui, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (+st2, rest): on_search.rest(rest, st2, ui, evt, cmd, ack, gen, k)
+
+def on_search.gated(admitted: Bool, +st: Sess.Session, ui: T.Ui, +ticket: Nat, +gen2: Nat, +endpoint: String, +orig: String, +result: Hs.DiskResult, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match admitted:
+    case True{}:
+      on_search.done(Sess.history_search_done(st, ticket, gen2, endpoint, orig, result), ui, evt, cmd, ack, gen, k)
+    case False{}: k((ui, st, gen, False{}))
+
+def on_search(+st: Sess.Session, ui: T.Ui, +ticket: Nat, +gen2: Nat, +wgen: U32, +endpoint: String, +orig: String, +result: Hs.DiskResult, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  on_search.gated(U32.is_eq(gen, wgen), st, ui, ticket, gen2, endpoint, orig, result, evt, cmd, ack, gen, k)
 
 def on_msg_go(
   m: Sess.UiMsg,
@@ -1005,17 +1229,19 @@ def on_msg_go(
       on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, k)
     case Sess.Reconnect{+host, port, scheduled_gen}:
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
+    case Sess.SearchDone{+ticket, +gen2, +wgen, +endpoint, +orig, +result}:
+      on_search(st, ui, ticket, gen2, wgen, endpoint, orig, result, evt, cmd, ack, gen, k)
     case Sess.MediaFetched{+generation, +ticket, +url, payload}:
       on_media(Sess.session_accept_media_result(st, generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
-    # C8-SESSION-ADAPTER: pass-through until the parent merge threads the
-    # cards adapter state through the loop; then route to CardsNet.on_card.
-    case Sess.CardFetched{_, _, _, _}: k((ui, st, gen, False{}))
+    case Sess.CardFetched{+generation, +ticket, +url, payload}:
+      on_card(Sess.session_accept_card_result(st, generation, ticket, url), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
     case Sess.UploadFetched{+request, result, error, http_status}:
       on_upload(upload_owned(Sess.session_upload(st), request), ui, st, request, result, error, http_status, evt, cmd, ack, gen, k)
     case Sess.PreferencesLoaded{_, _, _}: k((ui, st, gen, False{}))
     case Sess.PreferencesSaved{_, _}: k((ui, st, gen, False{}))
     case Sess.PreferencesDeadline{_}: k((ui, st, gen, False{}))
     case Sess.HistoryLoaded{_, _, _, _}: k((ui, st, gen, False{}))
+    case Sess.NotifyDone{_, _}: k((ui, st, gen, False{}))
     case Sess.FromNet{+got, +e}:
       on_from(got, e, ui, st, evt, cmd, ack, gen, Sess.event_current(Sess.FromNet{got, e}, gen), k)
 
@@ -1083,7 +1309,7 @@ def live_step.saved(
     case (+st, failed):
       do IO<Unit>:
         pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
-        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, after => upload_stage(after, evt, k)))
+        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, after => cards_live_stage(after, evt, done => upload_stage(done, evt, k))))
 
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
@@ -1107,7 +1333,7 @@ def live_step.next(
         +observed_st : Sess.Session <- IO.pure(Sess.Session, auth_notice(new_st, auth_code))
         # Save only the current event. Imported rows get fresh IDs and must
         # become the next baseline, never part of this append comparison.
-        notice : Maybe<&2, String> <- HistIO.maybe_save_history.check(allowed && Cl.settings_history(Cl.get_settings(Sess.session_cl(observed_st))), hist_path, new_endpoint, old_cl, Sess.session_cl(observed_st))
+        notice : Maybe<&2, String> <- HistIO.maybe_save_history.check_except(allowed && Cl.settings_history(Cl.get_settings(Sess.session_cl(observed_st))), hist_path, new_endpoint, old_cl, Sess.session_cl(observed_st), Hs.hist_live_archived(Sess.session_hist_live(observed_st)))
         # A save failure belongs only in the non-persisted diagnostic buffer.
         # Repaint through the existing coalesced continuation, never UiError:
         # saving an Error chat row would recursively fail and notify again.
@@ -1201,6 +1427,26 @@ def live_step.recv(
     case Some{+m}:
       live_step.dispatch(m, ui, st, evt, cmd, ack, gen, scheduled, hist_path, ctx, k)
 
+# Keep the recursive Session cell intact across Chan.recv; Ui and the
+# affine received message stay outside it. An absent internal cell fails
+# closed through the existing owned shutdown path, never a demo substitute.
+def live_step.recv_wait(
+  +saved: List<&2, Sess.Session>,
+  g: Maybe<&1, Sess.UiMsg>,
+  ui: T.Ui,
+  +evt: Chan(Sess.UiMsg),
+  +cmd: Chan(Sess.NetCmd),
+  +ack: Chan(Unit),
+  +gen: U32,
+  +scheduled: Bool,
+  +hist_path: String,
+  +ctx: PrefLive.Context,
+  k: ((T.Ui & Sess.Session & U32 & Bool) & PrefLive.Context) -> IO(Unit)
+) -> IO(Unit):
+  match saved:
+    case Nil{}: shutdown_failed(ui, cmd, ack, "birc: missing live session wait state")
+    case Con{+st, _}: live_step.recv(g, ui, st, evt, cmd, ack, gen, scheduled, hist_path, ctx, k)
+
 def live_step(
   ui: T.Ui,
   +st: Sess.Session,
@@ -1213,9 +1459,10 @@ def live_step(
   +ctx: PrefLive.Context,
   k: ((T.Ui & Sess.Session & U32 & Bool) & PrefLive.Context) -> IO(Unit)
 ) -> IO(Unit):
+  +saved: List<&2, Sess.Session> = [st]
   do IO<Unit>:
     g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-    live_step.recv(g, ui, st, evt, cmd, ack, gen, scheduled, hist_path, ctx, k)
+    live_step.recv_wait(saved, g, ui, evt, cmd, ack, gen, scheduled, hist_path, ctx, k)
 
 def live_go(
   fuel: Nat,
@@ -1501,6 +1748,7 @@ def heartbeat_step(ok: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
         Unit <- IO.sleep(5000)
         ms : U32 <- Clock.millis()
         nxt : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{ ("PING :birc_" ++ U32.show(ms)) <> Nil{} })
+        Unit <- Clock.net_trace(3, 0, 0)
         heartbeat_step(nxt, cmd)
 
 def heartbeat(+cmd: Chan(Sess.NetCmd)) -> IO(Unit):
@@ -1538,7 +1786,8 @@ def start_ui_load(
   do IO<Unit>:
     cl : Cl.Client <- start_ui_client(gated, hist_path, endpoint(host, port), hist_cap, nick, host, now)
     on : Bool <- images_enabled()
-    start_ui_go(ui, Sess.session_set_media(Sess.session_with_client_at(live_client(cl, host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), frames, evt, cmd, ack, hist_path)
+    con : Bool <- CN.cards_enabled()
+    start_ui_go(ui, Sess.session_set_cards(Sess.session_set_media(Sess.session_with_client_at(live_client(cl, host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), C.initial(con)), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   gated: Bool,
@@ -1656,8 +1905,9 @@ def run_live_prepared(options: PrefWorker.Options, +frames: U32, +host: String, 
     +cap : U32 <- Hist.resolve_history_cap()
     +now : String <- Clock.hhmmss()
     on : Bool <- images_enabled()
+    con : Bool <- CN.cards_enabled()
     result : LoadedPrefs.Context & Sess.Session & Bool <- Headless.prepare(options,
-      Sess.session_set_media(Sess.session_with_client_at(live_client(Cl.set_now(Cl.init_with_cap(nick, host, cap), now), host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), 1, path)
+      Sess.session_set_cards(Sess.session_set_media(Sess.session_with_client_at(live_client(Cl.set_now(Cl.init_with_cap(nick, host, cap), now), host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), C.initial(con)), 1, path)
     run_live_prepared.result(result, path, frames, host, port, nick, evt, cmd, boot, force_tls)
 
 def run_live_interactive(+frames: U32, +host: String, +port: U32, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Act.Boot), force_tls: Bool) -> IO(Unit):
@@ -1706,7 +1956,8 @@ def run_demo_go(
     Unit <- IO.spawn(Unit, Act.idle_start_tls(evt, cmd, frames, force_tls))
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     on : Bool <- images_enabled()
-    open_watch(ui, Sess.session_set_media(Sess.session_set_now(Sess.session_demo_at(cl, chan, port), ts), M.initial(on)), 0, evt, cmd, ack, frames, "")
+    con : Bool <- CN.cards_enabled()
+    open_watch(ui, Sess.session_set_cards(Sess.session_set_media(Sess.session_set_now(Sess.session_demo_at(cl, chan, port), ts), M.initial(on)), C.initial(con)), 0, evt, cmd, ack, frames, "")
 
 def run_demo_tty(+frames: U32, +cl: Cl.Client, +chan: String, +ts: String, port: U32, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:

@@ -113,7 +113,7 @@ class HistoryLive(Live):
                    if not name.startswith(("BIRC_", "TIMUI_"))
                    and name not in {"TMUX", "STY", "ZELLIJ", "SSH_CONNECTION", "KITTY_WINDOW_ID", "TERM_PROGRAM"}}
             env.update(TERM="xterm-ghostty", TERM_PROGRAM="ghostty", BIRC_HISTORY=str(self.archive),
-                       BIRC_IMAGES="off" if mode == "off" else "on",
+                       BIRC_IMAGES="off" if mode == "off" else "on", BIRC_CARDS="off",
                        BIRC_PREFERENCES=str(folder / "preferences.toml"), BIRC_PREFS_HELPER=str(folder / "prefs-helper"),
                        BIRC_MEDIA_HELPER=str(folder / "image-helper"), XDG_CONFIG_HOME=str(folder / "config"),
                        XDG_CACHE_HOME=str(folder / "cache"))

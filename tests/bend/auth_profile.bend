@@ -51,12 +51,14 @@ def endpoint_controls() -> IO(Unit):
   +host = Sess.endpoint_client(credentials(), "other.example", 6667, 6667)
   +port = Sess.endpoint_client(credentials(), "irc.example", 6667, 6668)
   +back = Sess.endpoint_client(host, "irc.example", 6667, 6667)
+  +case_only = Sess.endpoint_client(credentials(), "IRC.EXAMPLE", 6667, 6667)
   do IO<Unit>:
     Unit <- E.must_eq("same endpoint retains credential", Cl.client_sasl_pass(same), "secret")
     Unit <- E.must_eq("host switch clears credential", Cl.client_sasl_pass(host), "")
     Unit <- E.must_eq("port switch clears credential", Cl.client_sasl_pass(port), "")
     Unit <- E.must_eq("returning to initial endpoint never restores credential", Cl.client_sasl_pass(back), "")
     Unit <- E.must("changed endpoints cannot enable SASL", Bool.not(Cl.client_has_sasl(host)) && Bool.not(Cl.client_has_sasl(port)))
+    Unit <- E.must_eq("gate4 case-only clears credential", Cl.client_sasl_pass(case_only), "")
     IO.pure(Unit, Unit{})
 
 def sasl_controls() -> IO(Unit):

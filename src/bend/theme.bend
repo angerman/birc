@@ -34,7 +34,7 @@ def parse.go(+dark: Bool, +light: Bool, +mono: Bool) -> Maybe<&2, Id>:
 def parse(+name: String) -> Maybe<&2, Id>:
   parse.go(Irc.ieq(name, "dark"), Irc.ieq(name, "light"), Irc.ieq(name, "mono"))
 
-# Historic dark values, one per LineKind. View.style_of pins the same table.
+# Historic dark values, one per LineKind, shared by the fixed View adapter.
 def kind_dark(k: Cl.LineKind) -> U32:
   match k:
     case Cl.Msg{}: 13158600
@@ -141,14 +141,8 @@ def status_dim(+id: Id) -> U32:
     case Light{}: 6710886
     case Mono{}: MONO_FG()
 
-# Canonical status selector: one table plus one predicate set.
-# Merge point (integrator owns view.bend): live View still duplicates these
-# tables. Rewire View.style_of(k) to kind_fg(Theme.default(), k),
-# View.status_color(net) to status_of(Theme.default(), net), and
-# View.status_color_themed(id, net) to status_of(id, net), deleting
-# View.status_themed.on; nick_color_idx already delegates to nick_row.
-# The theme_dark_*/theme_status_* laws and theme_demo adapter guards pin
-# both sides of that swap, so it is behavior-preserving by construction.
+# Canonical status selector for fixed and themed View adapters.
+# Online accepts a lowercase prefix; offline and connecting match exactly.
 def status_of.on(+ok: U32, +err: U32, +warn: U32, +dim: U32, +online: Bool, +offline: Bool, +conn: Bool) -> U32:
   match online:
     case True{}: ok

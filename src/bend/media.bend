@@ -47,6 +47,15 @@ def image_closed(xs: List<&2, Ws.SRun>) -> Bool:
     case Con{Ws.SRun{0, _, _, SCon{Chr{41}, _}, None{}}, _}: True{}
     case _: False{}
 
+# Compatibility delegator: same Ws.SRun close-paren verdict as image_closed.
+def image_closed_runs(xs: List<&2, Ws.SRun>) -> Bool:
+  image_closed(xs)
+
+# Per-run media verdict shared with Cards: automatic image URLs plus explicit
+# ![alt](url) intents. Cards walks the same runs and keeps the complement.
+def media_run_hit(+previous: String, +exact: String, +tail: List<&2, Ws.SRun>) -> Bool:
+  auto_url(exact) || (image_prefix.rev(String.reverse(previous)) && image_closed_runs(tail))
+
 def targets.keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, String>:
   match hit:
     case True{}: url <> tail
@@ -63,7 +72,7 @@ def targets.go(xs: List<&2, Ws.SRun>, +previous: String) -> List<&2, String>:
         case None{}:
           targets.go(tail, Bool.pick(String, U32.is_eq(attrs, 0), previous ++ text, ""))
         case Some{+exact}:
-          targets.keep(auto_url(exact) || (image_prefix.rev(String.reverse(previous)) && image_closed(tail)),
+          targets.keep(media_run_hit(previous, exact, tail),
             exact, targets.go(tail, ""))
 
 def targets(text: String) -> List<&2, String>:
@@ -443,6 +452,14 @@ def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
     case State{_, _, _, +active, _, _, _}:
       complete.on(exact(active, gen, ticket, url), False{}, state, 0)
 
+# Full-budget native rejection records a token-zero failed identity for the
+# exact worker, so observe/enqueue/take does not immediately relaunch the
+# same automatic helper while every native slot stays owned. Wrong
+# ticket/generation/URL arrivals keep the owner untouched; disabled and
+# dead targets record nothing; manual intents still retry via enqueue.
+def reject_full(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> State:
+  complete(state, client, gen, ticket, url, 0)
+
 # Zero denotes a placeholder, never native payload ownership. Compute this on
 # the prospective completion with token zero before admitting its new payload.
 def retained_tokens.ready(xs: List<&2, Ready>) -> List<&2, U32>:
@@ -469,6 +486,27 @@ def token(state: State, target: Target, url: String) -> U32:
   match state:
     case State{_, _, _, _, _, ready, Supported{}}: token_from(ready, target, url)
     case _: 0
+
+# Fullscreen entry target (C8 live): the newest ready result with an accepted
+# nonzero token whose source is still live. Ready is newest-first, so the head
+# hit wins. Unsupported terminals pick nothing; callers revalidate anyway.
+def fullscreen_pick.keep(hit: Bool, h: Ready, rest: Maybe<&2, Ready>) -> Maybe<&2, Ready>:
+  match hit:
+    case True{}: Some{h}
+    case False{}: rest
+
+def fullscreen_pick.go(xs: List<&2, Ready>, +client: Cl.Client) -> Maybe<&2, Ready>:
+  match xs:
+    case Nil{}: None{}
+    case Con{+h, t}:
+      match h:
+        case Ready{+target, +url, +token}:
+          fullscreen_pick.keep(Bool.not(U32.is_zero(token)) && alive(client, target, url), h, fullscreen_pick.go(t, client))
+
+def fullscreen_pick(+state: State, +client: Cl.Client) -> Maybe<&2, Ready>:
+  match state:
+    case State{_, _, _, _, _, ready, Supported{}}: fullscreen_pick.go(ready, client)
+    case _: None{}
 
 def urls_ready(xs: List<&2, Ready>, +target: Target) -> List<&2, String>:
   match xs:

@@ -62,7 +62,7 @@ def boundary_body(+target: String, notice: Bool) -> String:
 
 def composer_len.session(st: Sess.Session) -> Nat:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _}: Sess.hist_len(hist)
+    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: Sess.hist_len(hist)
 
 def composer_len.result(result: Sess.Session & Sess.NetCmd & Bool) -> Nat:
   match result:

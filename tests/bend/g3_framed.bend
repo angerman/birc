@@ -9,6 +9,7 @@ import ../../src/bend/irc.bend as Irc
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
+import ./mode_view_guard.bend as ModeView
 import ../../src/bend/history.bend as H
 import ../../src/bend/frame.bend as F
 import ../../src/bend/submit.bend as Sub
@@ -89,9 +90,14 @@ def main() -> IO(Unit):
     Unit <- E.must("soh-framed mode channel never persists a key", mode_private(":alice!u@h MODE #ro" ++ ctl(1, "om") ++ " +k " ++ secret()))
     Unit <- E.must("styled 324 flags never persist a key", mode_private(":irc 324 me #room +" ++ ctl(2, "k") ++ " " ++ secret()))
     Unit <- E.must("styled 324 channel never persists a key", mode_private(":irc 324 me #ro" ++ ctl(2, "om") ++ " +k " ++ secret()))
+    Unit <- E.must_eq("MODE styled source preserves bold byte", ModeView.stored(Feed.feed(base(), ":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob")), "alice MODE #ro" ++ ctl(2, "om") ++ " +o bob")
+    Unit <- E.must_eq("MODE styled View keeps visible text", ModeView.visible(Feed.feed(base(), ":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob")), "alice MODE #room +o bob")
+    Unit <- E.must_eq("MODE ordinary View keeps visible text", ModeView.visible(Feed.feed(base(), ":alice!u@h MODE #room +o bob")), "alice MODE #room +o bob")
+    Unit <- E.must_eq("MODE hostile ESC does not enter stored source", ModeView.stored(Feed.feed(base(), ":alice!u@h MODE #ro" ++ ctl(27, "om") ++ " +o bob")), "alice MODE #room +o bob")
+    Unit <- E.must_eq("MODE hostile ESC does not enter View text", ModeView.visible(Feed.feed(base(), ":alice!u@h MODE #ro" ++ ctl(27, "om") ++ " +o bob")), "alice MODE #room +o bob")
     Unit <- E.must("ordinary mode key stays redacted", mode_private(":alice!u@h MODE #room +k " ++ secret()))
     Unit <- E.must("ordinary mode still renders", mode_visible(":alice!u@h MODE #room +o bob", "alice MODE #room +o bob"))
-    Unit <- E.must("styled non-key mode still renders", mode_visible(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob", "alice MODE #room +o bob"))
+    Unit <- E.must("styled non-key mode still renders", mode_visible(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob", "alice MODE #ro" ++ ctl(2, "om") ++ " +o bob"))
     Unit <- E.must("styled self author echo suppressed", echo_suppressed(":me" ++ ctl(2, "") ++ "!u@h PRIVMSG NickServ :IDENTIFY " ++ passw()))
     Unit <- E.must("soh self author echo suppressed", echo_suppressed(":me" ++ ctl(1, "") ++ "!u@h PRIVMSG NickServ :IDENTIFY " ++ passw()))
     Unit <- E.must("infixed credential verb echo suppressed", echo_suppressed(":me!u@h PRIVMSG NickServ :IDENTI" ++ ctl(2, "FY") ++ " " ++ passw()))

@@ -1,4 +1,7 @@
 # One lexical rule for displayed chat links and /links /open collection.
+# Inner Markdown lexer only: wire control bytes are opaque boundaries owned
+# by wire_style.bend. View, /open, Media, and Cards read Ws.url_runs;
+# Links.render lexes one style run, never wire bytes.
 import Base
 import ./emoji.bend as Emoji
 

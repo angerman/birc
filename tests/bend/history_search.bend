@@ -245,15 +245,15 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("cmd_between", maybe_line(Hs.between(True{}, "#a", "m1", "m9", 50n)), "CHATHISTORY BETWEEN #a msgid=m1 msgid=m9 50")
     # H5.5 prefixed and timestamp anchors.
     Unit <- E.must_eq("cmd_before_prefixed", maybe_line(Hs.before(True{}, "#a", "msgid=m1", 25n)), "CHATHISTORY BEFORE #a msgid=m1 25")
-    Unit <- E.must_eq("cmd_before_stamp", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00Z", 25n)),
-      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00Z 25")
-    Unit <- E.must_eq("cmd_before_stamp_prefixed", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00Z", 25n)),
-      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00Z 25")
+    Unit <- E.must_eq("cmd_before_stamp", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00.000Z", 25n)),
+      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00.000Z 25")
+    Unit <- E.must_eq("cmd_before_stamp_prefixed", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00.000Z", 25n)),
+      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00.000Z 25")
     Unit <- E.must_eq("cmd_after_stamp", maybe_line(Hs.after(True{}, "#a", "timestamp=2026-10-03T10:00:00.123Z", 5n)),
       "CHATHISTORY AFTER #a timestamp=2026-10-03T10:00:00.123Z 5")
     Unit <- E.must_eq("cmd_around_prefixed", maybe_line(Hs.around(True{}, "#a", "msgid=m7", 3n)), "CHATHISTORY AROUND #a msgid=m7 3")
-    Unit <- E.must_eq("cmd_between_mixed", maybe_line(Hs.between(True{}, "#a", "m1", "2026-10-03T10:00:00Z", 10n)),
-      "CHATHISTORY BETWEEN #a msgid=m1 timestamp=2026-10-03T10:00:00Z 10")
+    Unit <- E.must_eq("cmd_between_mixed", maybe_line(Hs.between(True{}, "#a", "m1", "2026-10-03T10:00:00.000Z", 10n)),
+      "CHATHISTORY BETWEEN #a msgid=m1 timestamp=2026-10-03T10:00:00.000Z 10")
     # Command builders: negative.
     Unit <- E.must_eq("cmd_unnegotiated", maybe_line(Hs.latest(False{}, "#a", 10n)), "<none>")
     Unit <- E.must_eq("cmd_synthetic", maybe_line(Hs.latest(True{}, "*search*", 10n)), "<none>")
@@ -284,12 +284,27 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("cmd_explicit_stamp_bad_day", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-02-30T10:00:00Z", 10n)), "<none>")
     Unit <- E.must_eq("cmd_explicit_stamp_opaque", maybe_line(Hs.before(True{}, "#a", "timestamp=opaqueT12345678Z", 10n)), "<none>")
     Unit <- E.must_eq("cmd_bare_opaque_stamp_rejected", maybe_line(Hs.before(True{}, "#a", "opaqueT12345678Z", 10n)), "<none>")
+    # Exact .sss chathistory stamps: bare and explicit fractions other than
+    # exactly three millisecond digits are rejected; .123Z is accepted.
+    Unit <- E.must_eq("cmd_before_stamp_no_ms", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_before_stamp_dot1", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00.1Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_before_stamp_dot12", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00.12Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_before_stamp_dot1234", maybe_line(Hs.before(True{}, "#a", "2026-10-03T10:00:00.1234Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_explicit_stamp_no_ms", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_explicit_stamp_dot1", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00.1Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_explicit_stamp_dot12", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00.12Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_explicit_stamp_dot1234", maybe_line(Hs.before(True{}, "#a", "timestamp=2026-10-03T10:00:00.1234Z", 10n)), "<none>")
+    Unit <- E.must_eq("cmd_around_stamp_millis", maybe_line(Hs.around(True{}, "#a", "2026-10-03T10:00:00.123Z", 5n)),
+      "CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00.123Z 5")
+    Unit <- E.must_eq("cmd_after_stamp_millis_bare", maybe_line(Hs.after(True{}, "#a", "2026-10-03T10:00:00.123Z", 5n)),
+      "CHATHISTORY AFTER #a timestamp=2026-10-03T10:00:00.123Z 5")
     # H5.8 explicit msgid values may carry `=`; bare user `=` stays rejected.
     Unit <- E.must_eq("cmd_explicit_msgid_equals", maybe_line(Hs.before(True{}, "#a", "msgid=a=b", 10n)),
       "CHATHISTORY BEFORE #a msgid=a=b 10")
     Unit <- E.must_eq("cmd_bare_equals_rejected", maybe_line(Hs.before(True{}, "#a", "a=b", 10n)), "<none>")
-    Unit <- E.must_eq("cmd_around_stamp_prefixed", maybe_line(Hs.around(True{}, "#a", "timestamp=2026-10-03T10:00:00Z", 5n)),
-      "CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00Z 5")
+    Unit <- E.must_eq("cmd_around_stamp_prefixed", maybe_line(Hs.around(True{}, "#a", "timestamp=2026-10-03T10:00:00.000Z", 5n)),
+      "CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00.000Z 5")
+    Unit <- E.must_eq("cmd_around_stamp_prefixed_no_ms", maybe_line(Hs.around(True{}, "#a", "timestamp=2026-10-03T10:00:00Z", 5n)), "<none>")
     # Batch open: positive and negative.
     Unit <- E.must_eq("batch_open", open_ref(Hs.batch_open(":irc.test BATCH +abc chathistory #chan", "irc.test")), "abc|#chan")
     Unit <- E.must_eq("batch_open_case", open_ref(Hs.batch_open(":irc.test batch +abc Chathistory #chan", "irc.test")), "abc|#chan")
@@ -425,8 +440,9 @@ def main() -> IO(Unit):
     # Submit adapter: wire output is gated; usage never sends.
     Unit <- E.must_eq("sub_fetch", submitted_outs(fixture_client(), "latest #a 5", True{}), "CHATHISTORY LATEST #a * 5")
     Unit <- E.must_eq("sub_fetch_before", submitted_outs(fixture_client(), "before #a m1 5", True{}), "CHATHISTORY BEFORE #a msgid=m1 5")
-    Unit <- E.must_eq("sub_fetch_before_stamp", submitted_outs(fixture_client(), "before #a 2026-10-03T10:00:00Z 5", True{}),
-      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00Z 5")
+    Unit <- E.must_eq("sub_fetch_before_stamp", submitted_outs(fixture_client(), "before #a 2026-10-03T10:00:00.000Z 5", True{}),
+      "CHATHISTORY BEFORE #a timestamp=2026-10-03T10:00:00.000Z 5")
+    Unit <- E.must_eq("sub_fetch_before_stamp_no_ms", submitted_outs(fixture_client(), "before #a 2026-10-03T10:00:00Z 5", True{}), "")
     Unit <- E.must_eq("sub_fetch_gated", submitted_outs(fixture_client(), "latest #a 5", False{}), "")
     Unit <- E.must("sub_fetch_gated_echo", String.ends_with(submitted_echo(fixture_client(), "latest #a 5", False{}),
       "server history unavailable (draft/chathistory not negotiated)|"))

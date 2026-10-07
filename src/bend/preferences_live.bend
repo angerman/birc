@@ -31,8 +31,9 @@ def port(st: Sess.Session, gen: U32) -> U32:
   Bool.pick(U32, U32.is_zero(gen), 0, Sess.session_port(st))
 
 def capture(+st: Sess.Session, +gen: U32) -> P.Preferences:
-  P.capture(Sess.session_cl(st), M.enabled(Sess.session_media(st)),
-    Bool.pick(List<&2, String>, U32.is_zero(gen), Nil{}, Sess.session_desired_channels(st)))
+  P.capture_themed(Sess.session_cl(st), M.enabled(Sess.session_media(st)),
+    Bool.pick(List<&2, String>, U32.is_zero(gen), Nil{}, Sess.session_desired_channels(st)),
+    Sess.session_theme(st))
 
 def initial(options: W.Options, +st: Sess.Session, +gen: U32) -> Context:
   match options:
@@ -56,6 +57,9 @@ def start(ctx: Context, evt: Chan(Sess.UiMsg)) -> IO(Context):
 
 def busy(ctx: Context) -> Bool:
   R.busy(state(ctx))
+
+def active(ctx: Context) -> Bool:
+  R.active(state(ctx))
 
 def waiting(ctx: Context) -> Bool:
   R.waiting(state(ctx))
@@ -83,8 +87,8 @@ def apply(got: Maybe<&2, P.Preferences>, +st: Sess.Session) -> Sess.Session:
   match got:
     case None{}: st
     case Some{+prefs}:
-      Sess.session_set_media(Sess.session_set_client(st, P.apply(Sess.session_cl(st), prefs)),
-        M.set_enabled(Sess.session_media(st), P.images(prefs)))
+      Sess.session_set_theme(Sess.session_set_media(Sess.session_set_client(st, P.apply(Sess.session_cl(st), prefs)),
+        M.set_enabled(Sess.session_media(st), P.images(prefs))), P.theme(prefs))
 
 def seed(on: Bool, st: Sess.Session, baseline: Nat, got: Maybe<&2, P.Preferences>) -> Sess.Session:
   match on:
@@ -110,11 +114,35 @@ def loaded.completion(result: R.Completion, st: Sess.Session, baseline: Nat, +co
 
 def loaded(+ctx: Context, +st: Sess.Session, +gen: U32, +ticket: Nat, got: Maybe<&2, P.Preferences>, +code: U32) -> Context & Sess.Session & List<&2, String> & Bool:
   +observed = R.observe(R.mark(state(ctx), Sess.session_preference_edits(st)), host(st, gen), port(st, gen), capture(st, gen), Sess.session_channel_revision(st))
-  loaded.completion(R.loaded(observed, ticket, got, code), st, R.read_revision(observed), code, R.owns_read(observed, ticket))
+  # The observed scope includes gen-zero global jobs. Runtime still retires
+  # exact stale tickets; only an actual current Read can add a Session notice.
+  loaded.completion(R.loaded(observed, ticket, got, code), st, R.read_revision(observed), code, R.read_current(observed, ticket))
 
-def saved(+ctx: Context, st: Sess.Session, +ticket: Nat, +code: U32) -> Context & Sess.Session & List<&2, String> & Bool:
-  +owned = R.owns_write(state(ctx), ticket)
-  (wrap(R.saved_result(state(ctx), ticket, code)), notice(Bool.pick(U32, owned, code, 0), "write", st), Nil{}, owned && Bool.not(U32.is_zero(code)))
+def saved_context(ctx: Context, ticket: Nat, code: U32) -> Context:
+  wrap(R.saved_result(state(ctx), ticket, code))
+
+def saved_admitted(ctx: Context, +st: Sess.Session, +ticket: Nat) -> Bool:
+  +owned = state(ctx)
+  # Focus may move the global Context without changing this original Session.
+  # Global jobs have no Session endpoint; admit them only while still global.
+  R.write_at(owned, ticket, Cl.server_of(Sess.session_cl(st)), Sess.session_port(st))
+    || (R.write_current(owned, ticket) && R.write_at(owned, ticket, "", 0))
+
+def saved(+ctx: Context, +st: Sess.Session, +ticket: Nat, +code: U32) -> Context & Sess.Session & List<&2, String> & Bool:
+  +owned = saved_admitted(ctx, st, ticket)
+  (saved_context(ctx, ticket, code), notice(Bool.pick(U32, owned, code, 0), "write", st), Nil{}, owned && Bool.not(U32.is_zero(code)))
+
+def retired_read(result: R.Completion) -> Context:
+  match result:
+    case R.Completion{next, _, _, _}: wrap(next)
+
+# Physical completion only: keep Runtime's exact ticket and reconciliation,
+# but never accept a stale read as current settings or produce Session effects.
+def retire(ctx: Context, m: Sess.UiMsg) -> Context:
+  match m:
+    case Sess.PreferencesLoaded{ticket, got, code}: retired_read(R.loaded.eligible(False{}, state(ctx), ticket, got, code))
+    case Sess.PreferencesSaved{ticket, code}: saved_context(ctx, ticket, code)
+    case _: ctx
 
 def drain.result(result: Context & Sess.Session & List<&2, String> & Bool, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match result:

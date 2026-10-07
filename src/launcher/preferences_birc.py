@@ -21,6 +21,7 @@ MAX_CHANNELS = 14
 MAX_SERVERS = 16
 BOOL_KEYS = ("joins", "ts", "motd", "history", "autoreconn", "bell", "images")
 SETTING_KEYS = {*BOOL_KEYS, "hist_cap", "mutes"}
+THEME_NAMES = ("dark", "light", "mono")
 
 
 class Refusal(Exception):
@@ -67,9 +68,11 @@ def strings(value, cap, bound, *, channel=False):
 
 
 def settings(value):
-    if (not isinstance(value, dict) or set(value) != SETTING_KEYS
+    if (not isinstance(value, dict)
+            or (set(value) != SETTING_KEYS and set(value) != SETTING_KEYS | {"theme"})
             or any(type(value[key]) is not bool for key in BOOL_KEYS)
-            or type(value["hist_cap"]) is not int or not 0 <= value["hist_cap"] <= 4294967295):
+            or type(value["hist_cap"]) is not int or not 0 <= value["hist_cap"] <= 4294967295
+            or ("theme" in value and value["theme"] not in THEME_NAMES)):
         raise Refusal(2)
     strings(value["mutes"], MAX_MUTES, 512)
     return value
@@ -110,11 +113,21 @@ def parse_wire(body):
                      (fields[i] == "1" for i in (1, 2, 3, 4, 6, 7, 8))))
     value.update(hist_cap=int(fields[5]), mutes=[])
     channels = []
+    theme = None
     for line in lines[2:]:
         parts = line.split("\t")
-        if len(parts) != 2 or parts[0] not in {"mute", "channel"}:
+        if len(parts) != 2 or parts[0] not in {"mute", "channel", "theme"}:
             raise Refusal(2)
-        (value["mutes"] if parts[0] == "mute" else channels).append(parts[1])
+        if parts[0] == "mute":
+            value["mutes"].append(parts[1])
+        elif parts[0] == "channel":
+            channels.append(parts[1])
+        elif theme is not None or parts[1] not in THEME_NAMES:
+            raise Refusal(2)
+        else:
+            theme = parts[1]
+    if theme is not None:
+        value["theme"] = theme
     settings(value)
     strings(channels, MAX_CHANNELS, 505, channel=True)
     return value, channels
@@ -124,7 +137,9 @@ def wire(value, channels, known=True):
     values = [str(int(value[key])) for key in ("joins", "ts", "motd", "history")]
     values.append(str(value["hist_cap"]))
     values.extend(str(int(value[key])) for key in ("autoreconn", "bell", "images"))
+    theme = value.get("theme", "dark")
     return ("BIRC_PREFS1\nsettings\t" + "\t".join(values) + "\n"
+            + ("" if theme == "dark" else "theme\t" + theme + "\n")
             + "".join("mute\t" + item + "\n" for item in value["mutes"])
             + "".join("channel\t" + item + "\n" for item in channels)
             + ("" if known else "scope\t0\n"))
@@ -136,6 +151,8 @@ def encode(value):
     for key in ("joins", "ts", "motd", "history", "hist_cap", "autoreconn", "bell", "images"):
         item = stg[key]
         lines.append(f"{key} = {str(item).lower()}")
+    if stg.get("theme", "dark") != "dark":
+        lines.append("theme = " + json.dumps(stg["theme"], ensure_ascii=False))
     # JSON strings/arrays use the TOML basic-string subset and preserve Unicode.
     lines.append("mutes = " + json.dumps(stg["mutes"], ensure_ascii=False))
     for server in value["servers"]:

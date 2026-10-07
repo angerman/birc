@@ -4,8 +4,11 @@
 
 let
   media = callPackage ./media.nix {};
+  cards = callPackage ./cards.nix {};
   upload = callPackage ./upload.nix {};
   preferences = callPackage ./preferences.nix {};
+  search = callPackage ./search.nix {};
+  notify = callPackage ./notify.nix {};
 in stdenv.mkDerivation {
   pname = "birc";
   version = "0.1.0";
@@ -58,8 +61,11 @@ in stdenv.mkDerivation {
     cp birc $out/bin/birc
     wrapProgram $out/bin/birc \
       --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image" \
+      --set-default BIRC_CARDS_HELPER "${cards}/bin/birc-cards" \
       --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload" \
       --set-default BIRC_PREFS_HELPER "${preferences}/bin/birc-preferences" \
+      --set-default BIRC_SEARCH_HELPER "${search}/bin/birc-history-search" \
+      --set-default BIRC_NOTIFY_HELPER "${notify}/bin/birc-notify" \
       --set-default SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt"
     cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
     makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \

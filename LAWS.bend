@@ -36,6 +36,11 @@ import ./src/bend/history_startup.bend as StartupHistory
 import ./src/bend/server_id.bend as Sid
 import ./src/bend/ipv6.bend as V6
 import ./src/bend/drafts.bend as Drafts
+import ./src/bend/session_drafts.bend as AD
+import ./src/bend/workspace.bend as WS
+import ./src/bend/workspace_isolation_proof.bend as WI
+import ./src/bend/workspace_isolation_route.bend as WIR
+import ./src/bend/workspace_isolation_selectors.bend as WIS
 import ./src/bend/cards.bend as Cards
 import ./src/bend/cap_notify.bend as CapNotify
 import ./src/bend/links.bend as Links
@@ -58,7 +63,8 @@ law rejected_welcome_preserves_live_state:
   for acc: Sess.LiveAcc
   for line: String
   for stamp: Maybe<&2, String>
-  {Sess.live_step.registered(None{}, acc, line, stamp) == acc : Sess.LiveAcc}
+  for welcomed: Bool
+  {Sess.live_step.registered(None{}, acc, line, stamp, welcomed) == acc : Sess.LiveAcc}
 
 law refused_startup_archive_keeps_current_client:
   for current: Cl.Client
@@ -968,6 +974,68 @@ law draft_entries_match_buffer_slots:
 
 law draft_control_query_coexist:
   {Drafts.coexist_ok() == True{} : Bool}
+
+law draft_session_focus_gate_keeps_buffer_on_reject:
+  {AD.focus_gate_ok() == True{} : Bool}
+
+law draft_session_split_gate_keeps_buffer_on_reject:
+  {AD.split_gate_ok() == True{} : Bool}
+
+law draft_session_endpoint_replace_clears_server:
+  {AD.endpoint_replace_ok() == True{} : Bool}
+
+law draft_session_submit_clears_only_on_accept:
+  {AD.submit_clear_ok() == True{} : Bool}
+
+law draft_session_multiline_submit_atomic:
+  {AD.multiline_ok() == True{} : Bool}
+
+law draft_session_modal_stash_preserves_typed:
+  {AD.modal_stash_ok() == True{} : Bool}
+
+# Same complete fixture: online [B,A], A JOIN, switch B, B JOIN, extra B JOIN.
+# Seeding still follows Session initialization; only seed_floor/id_ceiling
+# are delta-expanded. Both B lookups select id1 on every rollback/normal leaf.
+# Keep all three isolation observations and the actual post-AD strict guards.
+law workspace_parts_isolate_state:
+  {WI.after_a(Nat.add(WS.id_base(WS.s1()), WS.id_range()), WS.do_step.got(WIR.route.guarded(Nat.add(WS.id_base(WS.s0()), WS.id_range()), WI.initial_parts(WS.nat_max(WS.id_base(WS.s1()), WS.nat_max(0n, 0n))), WS.s0(), WS.s0(), 0, WI.scope_a(), Nil{}, WIS.a_trip(), Drafts.empty()))) == True{} : Bool}
+
+law workspace_generations_drop_stale:
+  {WS.generation_ok() == True{} : Bool}
+
+law workspace_endpoint_replace_isolates:
+  {WS.endpoint_ok() == True{} : Bool}
+
+law draft_session_disconnected_multiline_holds:
+  {AD.disconnected_multiline_ok() == True{} : Bool}
+
+law draft_session_submit_focus_atomic:
+  {AD.submit_focus_atomic_ok() == True{} : Bool}
+
+law draft_session_multiline_privacy_per_line:
+  {AD.multiline_privacy_ok() == True{} : Bool}
+
+law draft_session_multiline_negotiated_mode_privacy:
+  {AD.multiline_negotiated_mode_ok() == True{} : Bool}
+
+law draft_session_multiline_negotiated_implicit_privacy:
+  {AD.multiline_negotiated_implicit_ok() == True{} : Bool}
+
+law workspace_epoch_reuse_rejects_stale:
+  {WS.epoch_reuse_ok() == True{} : Bool}
+
+law workspace_composer_reset_on_replace:
+  {WS.composer_reset_ok() == True{} : Bool}
+
+law session_supplied_submit_completes_once:
+  {Sess.supplied_seam_ok() == True{} : Bool}
+
+law workspace_runtime_applies_routed_inbound:
+  {WS.runtime_inbound_ok() == True{} : Bool}
+
+law workspace_redial_emits_scoped_dial:
+  {WS.runtime_redial_ok() == True{} : Bool}
+
 # Cards are bounded, text-universal link previews; fullscreen reuses media tokens.
 law cards_queue_capped:
   {Cards.pending_count(Cards.enqueue_urls(["https://x/1", "https://x/2", "https://x/3", "https://x/4", "https://x/5", "https://x/6", "https://x/7", "https://x/8", "https://x/9"], Cards.initial(True{}), Cards.CardInline{1n})) == 8n : Nat}
@@ -1040,6 +1108,32 @@ law typing_out_lifecycle:
 # genuine forward U32 wrap stays live.
 law typing_out_unseen_first_tick:
   {CapNotify.out_unseen_ok() == True{} : Bool}
+
+# LAW: live CAP lines update the stored session registration: quiet at reg0,
+# enabled after a live ACK, hostile lines shut, endpoint change resets, and
+# a registered '*' line leaves caps unchanged.
+law g6_live_reg_binding:
+  {Sess.live_reg_ok() == True{} : Bool}
+
+# LAW: live outbound typing runs active, single done, quiet; stale ticks stay
+# quiet and preserve the span; offline ticks reset; at most one wire per tick.
+law g6_live_tick_binding:
+  {Sess.live_tick_ok() == True{} : Bool}
+
+# LAW: outbound typing compares targets under the negotiated Session
+# CASEMAPPING: ascii-distinct alias queries emit done(old) then active(new).
+law g6_live_tick_cm_alias:
+  {Sess.live_tick_cm_alias_ok() == True{} : Bool}
+
+# LAW: same-target typing ticks under a negotiated mapping stay rate-limited
+# and preserve the span.
+law g6_live_tick_cm_throttle:
+  {Sess.live_tick_cm_throttle_ok() == True{} : Bool}
+
+# LAW: the frame merge appends the typing wire to Cont, leaves other commands
+# alone, and the live path keeps a single CAP-END owner.
+law g6_live_merge_owner:
+  {Sess.live_merge_ok() == True{} : Bool}
 
 # LAW: CAP trust and presence exclusion share the validated host gate: a
 # configured single-label server and a valid dotted server count, prereg star
@@ -1309,6 +1403,174 @@ law isupport_lifecycle_burst_order2_refuses:
 law isupport_lifecycle_resident_preserved:
   {Isupport.chan_target_cl(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=@ :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN +#room"), "+#room") == "+#room" : String}
 
+# STATUSMSG-first separate bursts retain ^ and authorize it once PREFIX lands.
+law isupport_statusmsg_first_separate_stores:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=^ :are supported"), ":s 005 me PREFIX=(o)^ :are supported")) == "isupport chantypes=#&+! status=^ chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+law isupport_statusmsg_first_separate_authorizes:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=^ :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), "^#room") == True{} : Bool}
+
+# Same-burst ^ authorizes in both token orders.
+law isupport_burst_hat_order1_authorizes:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(o)^ STATUSMSG=^ :are supported"), "^#room") == True{} : Bool}
+
+law isupport_burst_hat_order2_authorizes:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG=^ PREFIX=(o)^ :are supported"), "^#room") == True{} : Bool}
+
+# PREFIX-first separate stale @ is stored but never authorized.
+law isupport_prefix_first_stale_refused:
+  {Isupport.is_channel(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=@ :are supported"), "@#room") == False{} : Bool}
+
+# Malformed STATUSMSG keeps the previous audience and authorizes nothing new.
+law isupport_malformed_statusmsg_keeps_empty:
+  {Isupport.show(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me STATUSMSG= :are supported"), ":s 005 me PREFIX=(o)^ :are supported"), ":s 005 me STATUSMSG=abc :are supported")) == "isupport chantypes=#&+! status= chanmodes=b,k,l,imnpst modes=3 prefix=(o)^ extra= nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# Invalid CHANMODES while withdrawn keeps uncertainty; valid readvert alone restores precision.
+law isupport_withdrawn_invalid_stays_uncertain:
+  {Isupport.cm_known(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,l :are supported"), ":s 005 me -CHANMODES :are supported"), ":s 005 me CHANMODES=b1,k,l,im :are supported")) == False{} : Bool}
+
+law isupport_readvert_after_invalid_precise:
+  {Isupport.redact_params(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,l :are supported"), ":s 005 me -CHANMODES :are supported"), ":s 005 me CHANMODES=b1,k,l,im :are supported"), ":s 005 me CHANMODES=b,k,s,l :are supported"), "#c", "+lks", ["s3cret", "50"]) == ["[channel key hidden]", "50"] : List<&2, String>}
+
+# Live Session holds per-endpoint defaults in its iso field.
+law isupport_live_holds_defaults:
+  {Sess.session_iso(Sess.session0("me", "irc", "#t")) == Isupport.defaults() : Isupport.State}
+
+# Live join admission gates foreign channel types.
+law isupport_live_admit_gates:
+  {Sess.session_admit(Sess.session_set_iso(Sess.session0("me", "irc", "#t"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# CHANNELLEN=18 :are supported")), "&local", "") == False{} : Bool}
+
+# A Dial to a new endpoint resets live metadata to defaults.
+law isupport_live_endpoint_resets:
+  {Sess.session_iso(Sess.session_on_cmd(Sess.session_set_iso(Sess.session0("me", "irc", "#t"), Isupport.apply_line(Isupport.defaults(), ":s 005 me PREFIX=(q)~ :are supported")), Sess.Dial{"other.example", 6697, 1, "me"})) == Isupport.defaults() : Isupport.State}
+
+# Shared conservative detector flags bare unsigned k with an argument.
+law mode_maybe_key_flags_unsigned:
+  {Commands.mode_maybe_key("#c", "k", True{}) == True{} : Bool}
+
+# Longer unsigned words are not mode attempts.
+law mode_maybe_key_rejects_monkey:
+  {Commands.mode_maybe_key("#c", "monkey", True{}) == False{} : Bool}
+
+# Malformed signed tails redact through the shared detector.
+law isupport_malformed_signed_hides:
+  {Isupport.redact_params(Isupport.defaults(), "#c", "+k!", ["s3cret"]) == ["[channel key hidden]"] : List<&2, String>}
+
+# The shared target owner sees STATUSMSG audiences as channel-shaped.
+law mode_audience_key_detected:
+  {Commands.mode_has_key.line("MODE @#room +k s3cret") == True{} : Bool}
+
+# Both certainty owners agree on audience keys.
+law mode_audience_key_agrees:
+  {Isupport.redact_params(Isupport.defaults(), "@#room", "+k", ["s3cret"]) == ["[channel key hidden]"] : List<&2, String>}
+
+# User targets are still not key-bearing.
+law mode_maybe_key_rejects_user:
+  {Commands.mode_maybe_key("me", "+k", True{}) == False{} : Bool}
+
+# The raw fallback reads signed +channel first words as explicit targets.
+law mode_raw_plus_channel_explicit:
+  {Sub.input_sensitive.mode_raw(Cl.init("me", "s"), "+foo +k secret") == True{} : Bool}
+
+# Opaque +channel keys stay sensitive when the wire fails to build.
+law mode_opaque_plus_channel_sensitive:
+  {Sub.input_sensitive(Cl.init("me", "s"), "/mode +foo +k :opaque secret words") == True{} : Bool}
+
+# Bare +#room is an explicit target while bare +else stays implicit flags.
+law mode_explicit_plus_contrast:
+  {Commands.mode.explicit(Irc.take_until_space("+#other")) && Bool.not(Commands.mode.explicit(Irc.take_until_space("+else"))) == True{} : Bool}
+
+# Unsigned k redacts through the shared detector.
+law isupport_unsigned_k_hidden:
+  {Isupport.redact_params(Isupport.defaults(), "#c", "k", ["s3cret"]) == ["[channel key hidden]"] : List<&2, String>}
+
+# Live display redacts negotiated-only channel keys.
+law session_redact_wire_hides_dollar:
+  {Sess.session_redact_wire(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=$ :are supported"), ":a!u@h MODE $room +k s3cret") == ":a!u@h MODE $room +k [channel key hidden]" : String}
+
+# Live display leaves ordinary modes byte-identical.
+law session_redact_wire_keeps_ordinary:
+  {Sess.session_redact_wire(Isupport.defaults(), ":a!u@h MODE #c +o bob") == ":a!u@h MODE #c +o bob" : String}
+
+# Recovery flush drops channels the negotiated bounds refuse.
+law flush_iso_drops_refused:
+  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"&local", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n}, Cl.init("me", "s"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# :are supported")) == JoinPlan.Flush{JoinPlan.State{Nil{}, True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
+
+# Recovery flush keeps admitted channels exactly as before.
+law flush_iso_keeps_admitted:
+  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n}, Cl.init("me", "s"), Isupport.defaults()) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n}, ["JOIN #t"], JoinPlan.Quiet{}} : JoinPlan.Flush}
+
+# Live outbound admission refuses server-narrowed joins.
+law session_outs_refuse_foreign:
+  {Sess.session_outs_admitted(Sess.session_set_iso(Sess.session0("me", "irc", "#t"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# :are supported")), ["JOIN &local"]) == False{} : Bool}
+
+# Live outbound admission keeps own-type joins.
+law session_outs_admit_own:
+  {Sess.session_outs_admitted(Sess.session_set_iso(Sess.session0("me", "irc", "#t"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# :are supported")), ["JOIN #room"]) == True{} : Bool}
+
+# Live identity compare keeps brackets distinct under ascii.
+law session_cm_eq_ascii_brackets:
+  {Sess.session_cm_eq(Sess.session_set_iso(Sess.session0("me", "irc", "#t"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")), "a[b", "a{b") == False{} : Bool}
+
+# Live audience routing prefers the resident +channel.
+law session_chan_target_prefers_live_resident:
+  {Sess.session_chan_target(Sess.session_set_client(Sess.session0("me", "s", "#t"), Feed.feed(Cl.init("me", "s"), ":me!u@h JOIN +#room")), "+#room") == "+#room" : String}
+
+# Live 001 handling refuses bracket-differing nicks under ascii.
+law registration_iso_ascii_refuses:
+  {Sess.registration_client_iso(True{}, Cl.init("a{b", "s"), ":s 001 A[B :welcome", Isupport.apply_line(Isupport.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")) == None{} : Maybe<&2, Cl.Client>}
+
+# The shared fold maps ascii A-Z only.
+law fold_casemap_ascii:
+  {Irc.fold_casemap("ascii", "a[b") == "A[B" : String}
+
+# The shared fold maps strict brackets.
+law fold_casemap_strict:
+  {Irc.fold_casemap("rfc1459-strict", "a[b") == "A{B" : String}
+
+# An overlapping CHANMODES value is rejected; the previous map is kept.
+law isupport_chanmodes_overlap_rejected:
+  {Isupport.show(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,s,ls :are supported")) == "isupport chantypes=#&+! status=@+ chanmodes=b,k,l,imnpst modes=3 prefix=(ov)@+ extra=~&% nicklen=9 channellen=50 topiclen=390 kicklen=390 network= casemapping=rfc1459 maxlist= updated=true" : String}
+
+# Overlap after withdrawal stays uncertain.
+law isupport_overlap_withdrawn_stays_uncertain:
+  {Isupport.cm_known(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,l,s :are supported"), ":s 005 me -CHANMODES :are supported"), ":s 005 me CHANMODES=b,k,s,ls :are supported")) == False{} : Bool}
+
+# Overlap-after-withdrawal hides every +lks argument.
+law isupport_overlap_hides_all:
+  {Isupport.redact_params(Isupport.apply_line(Isupport.apply_line(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,l,s :are supported"), ":s 005 me -CHANMODES :are supported"), ":s 005 me CHANMODES=b,k,s,ls :are supported"), "#c", "+lks", ["50", "s3cret"]) == ["[channel key hidden]"] : List<&2, String>}
+
+# Valid b,k,l,s redacts only the key at index 1.
+law isupport_valid_limit_key_precise:
+  {Isupport.redact_params(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANMODES=b,k,l,s :are supported"), "#c", "+lks", ["50", "s3cret"]) == ["50", "[channel key hidden]"] : List<&2, String>}
+
+# Negotiated $room keys are sensitive under the live iso.
+law mode_dollar_key_negotiated_sensitive:
+  {Sub.input_sensitive_iso(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=$ :are supported"), Cl.init("me", "s"), "/mode $room +k s3cret") == True{} : Bool}
+
+# Long signed $room key tails are sensitive under the live iso.
+law mode_dollar_long_key_negotiated_sensitive:
+  {Sub.input_sensitive_iso(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=$ :are supported"), Cl.init("me", "s"), "/mode $room +foo+k s3cret") == True{} : Bool}
+
+# Ordinary $room modes stay recallable under the live iso.
+law mode_dollar_ordinary_recallable:
+  {Sub.input_sensitive_iso(Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=$ :are supported"), Cl.init("me", "s"), "/mode $room +o bob") == False{} : Bool}
+
+# The one target owner agrees with the fixed detector on audiences.
+law mode_sensitive_target_agrees_audience:
+  {Isupport.sensitive_target(Isupport.defaults(), "@#room") == True{} : Bool}
+
+# A rejected styled target with a key tail stays out of history.
+law mode_styled_target_suppressed:
+  {Sub.input_sensitive(Cl.init("me", "s"), "/mode " ++ SCon{Chr{2}, "+room" ++ SCon{Chr{2}, " +k :opaque s3cret"}}) == True{} : Bool}
+
+# The styled target still emits no wire (control rejection preserved).
+law mode_styled_target_wire_rejected:
+  {Commands.mode("s", "me", SCon{Chr{2}, "+room" ++ SCon{Chr{2}, " +k :opaque s3cret"}}) == None{} : Maybe<&2, String>}
+
+# Ordinary explicit modes stay recallable.
+law mode_ordinary_explicit_recallable:
+  {Sub.input_sensitive(Cl.init("me", "s"), "/mode #t +o bob") == False{} : Bool}
 # LAW: an observed offline typing reset (same shape as out0) stays quiet on a
 # backward tick to max; a truly fresh out0 at max still fires; a genuine
 # forward max -> 4000 wrap still fires.
@@ -1391,8 +1653,8 @@ law chathistory_anchor_rejects_malformed:
   {Hs.before_line("#a", "m 1", 25n) == None{} : Maybe<&2, String>}
 
 law chathistory_between_prefixes_both:
-  {Hs.between_line("#a", "m1", "2026-10-03T10:00:00Z", 10n)
-    == Some{"CHATHISTORY BETWEEN #a msgid=m1 timestamp=2026-10-03T10:00:00Z 10"} : Maybe<&2, String>}
+  {Hs.between_line("#a", "m1", "2026-10-03T10:00:00.000Z", 10n)
+    == Some{"CHATHISTORY BETWEEN #a msgid=m1 timestamp=2026-10-03T10:00:00.000Z 10"} : Maybe<&2, String>}
 
 law chathistory_batch_open_rejects_user_prefix:
   {Hs.batch_open(":alice!u@h BATCH +r chathistory #a", "irc.test") == None{} : Maybe<&2, Hs.ChatBatch>}
@@ -1414,6 +1676,12 @@ law history_search_completion_admitted:
 
 law history_search_completion_rejects_stale_gen:
   {Hs.search_completion_admitted(7n, 7n, 2n, 3n, "a:6667", "a:6667") == False{} : Bool}
+
+law search_emit_spawns_worker:
+  {Sess.emit_spawns_search(Sess.Search{"q", "#a", 0n, "q", "a:6667", True{}, 1n, 3n, 0}) == True{} : Bool}
+
+law pong_emit_stays_quiet:
+  {Sess.emit_spawns_search(Sess.Pong{1, "PONG :x" <> Nil{}, 7}) == False{} : Bool}
 
 law disk_file_admitted_private:
   {Hs.disk_file_admitted(True{}, True{}, False{}, True{}) == True{} : Bool}
@@ -1439,8 +1707,8 @@ law chathistory_explicit_msgid_accepts_equals:
   {Hs.before_line("#a", "msgid=a=b", 10n) == Some{"CHATHISTORY BEFORE #a msgid=a=b 10"} : Maybe<&2, String>}
 
 law chathistory_around_accepts_explicit_stamp:
-  {Hs.around_line("#a", "timestamp=2026-10-03T10:00:00Z", 5n)
-    == Some{"CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00Z 5"} : Maybe<&2, String>}
+  {Hs.around_line("#a", "timestamp=2026-10-03T10:00:00.000Z", 5n)
+    == Some{"CHATHISTORY AROUND #a timestamp=2026-10-03T10:00:00.000Z 5"} : Maybe<&2, String>}
 
 law history_filter_keeps_saved_tail_under_cap:
   {List.length(&2, Hs.BatchMsg, Hs.filter_unseen_cap(Hs.HistoryCursor{"#a", "", "", ["s0", "s1"], 2n},
@@ -1513,6 +1781,136 @@ law cards_view_overlay_revalidates_stale_token:
 
 law cards_adapter_exact_url_preserved:
   {Cards.known_urls(SessionCards.ad_cards(SessionCards.observe_visible(SessionCards.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/r?a=b#frag", "alice", 1n}]), "#t"))))), Cards.CardInline{1n}) == ["https://x.test/r?a=b#frag"] : List<&2, String>}
+
+# C8 live wires the Session-retained cards/full state through the Net/App
+# loop: one boundary-aware run seam shared by View, /open, Media, and Cards;
+# exact host+port endpoint gating with same-endpoint text retention; worker
+# ownership until the exact completion; F9/Escape fullscreen binding with
+# per-paint revalidation; and card rows shared by paint, navigation, and
+# visible scheduling.
+law cards_live_styled_infix_schedules_nothing:
+  {List.is_empty(&2, String, Cards.targets("https://x.test/re" ++ SCon{Chr{2}, ""} ++ "ad")) == True{} : Bool}
+
+law cards_live_soh_prefix_schedules_nothing:
+  {List.is_empty(&2, String, Cards.targets("x" ++ SCon{Chr{1}, ""} ++ "https://x.test/read")) == True{} : Bool}
+
+law cards_live_ordinary_url_positive:
+  {Cards.targets("see https://x.test/read") == ["https://x.test/read"] : List<&2, String>}
+
+law cards_live_media_soh_prefix_schedules_nothing:
+  {List.is_empty(&2, String, Media.targets("x" ++ SCon{Chr{1}, ""} ++ "https://x.test/a.png")) == True{} : Bool}
+
+law cards_live_extract_shares_seam:
+  {Ws.extract("https://x.test/re" ++ SCon{Chr{2}, ""} ++ "ad") == [] : List<&2, String>}
+
+law cards_live_bare_duplicate_kept:
+  {Cards.targets("![a](https://x.test/doc) or https://x.test/doc") == ["https://x.test/doc"] : List<&2, String>}
+
+law cards_live_media_run_hit_image_intent:
+  {Media.media_run_hit("![a](", "https://x.test/doc", [Ws.SRun{0, 0, False{}, ")", None{}}]) == True{} : Bool}
+
+law cards_live_session_online_schedules_visible_page:
+  {Cards.pending_count(Sess.session_cards(Sess.session_observe_visible_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t"))))) == 1n : Nat}
+
+law cards_live_session_disabled_schedules_nothing:
+  {Cards.pending_count(Sess.session_cards(Sess.session_observe_visible_cards(Sess.session_set_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.set_enabled(Cards.initial(True{}), False{}))))) == 0n : Nat}
+
+law cards_live_session_exact_completion_accepted:
+  {Sess.session_accept_card_result(Sess.session_set_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}), 1n, 1n, "https://x.test/read") == True{} : Bool}
+
+law cards_live_session_stale_completion_rejected:
+  {Sess.session_accept_card_result(Sess.session_set_cards(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), "#t")), Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}), 1n, 2n, "https://x.test/read") == False{} : Bool}
+
+law cards_live_stale_completion_stores_nothing:
+  {Cards.ready_count(Cards.complete(Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), 1n, 2n, "https://x.test/read", "T\nD\n")) == 0n : Nat}
+
+law cards_live_exact_completion_stores:
+  {Cards.ready_count(Cards.complete(Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}]), 1n, 1n, "https://x.test/read", "T\nD\n")) == 1n : Nat}
+
+law cards_live_dial_cards_resets_on_endpoint_change:
+  {Cards.pending_count(Sess.dial_cards(False{}, Cards.State{True{}, 1n, 2n, None{}, [Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}], Nil{}})) == 0n : Nat}
+
+law cards_live_dial_cards_retains_same_endpoint:
+  {Cards.ready_count(Sess.dial_cards(True{}, Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.Ready{Cards.CardInline{1n}, "https://x.test/read", "T", "D", ""}]})) == 1n : Nat}
+
+law cards_live_dial_full_closes_on_change:
+  {Sess.dial_full(False{}, Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7}, Media.initial(True{}), Cl.init("me", "s")) == Cards.FullOff{} : Cards.Fullscreen}
+
+law cards_live_reset_retains_active_worker:
+  {Cards.active_target(Cards.reset(Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}})) == Some{Cards.CardInline{1n}} : Maybe<&2, Cards.Target>}
+
+law cards_live_stale_keeps_worker:
+  {Cards.active_target(Cards.reject(Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, 1n, 2n, "https://x.test/read")) == Some{Cards.CardInline{1n}} : Maybe<&2, Cards.Target>}
+
+law cards_live_fullscreen_pick_newest_alive:
+  {Media.fullscreen_pick(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Some{Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}} : Maybe<&2, Media.Ready>}
+
+law cards_live_fullscreen_open_live_token:
+  {Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png") == Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7} : Cards.Fullscreen}
+
+law cards_live_f9_key_number:
+  {Sess.KEY_F9() == 23 : U32}
+
+law cards_live_rows_cap_matches:
+  {V.card_rows_cap() == Cards.ROWS_MAX() : Nat}
+
+law cards_live_empty_entries_match_baseline:
+  {List.length(&2, V.BodyRow, V.wrap_line_media_cards(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty(), Nil{})) == List.length(&2, V.BodyRow, V.wrap_line_media(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty())) : Nat}
+
+law cards_live_ready_card_paints_rows:
+  {List.length(&2, V.BodyRow, V.wrap_line_media_cards(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty(), Cards.paint_entries(Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.Ready{Cards.CardInline{1n}, "https://x.test/read", "Hello", "A description", ""}]}))) == 3n : Nat}
+
+law cards_live_pending_never_paints:
+  {List.is_empty(&2, V.CardEntry, Cards.paint_entries(Cards.State{True{}, 1n, 2n, None{}, [Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}], Nil{}})) == True{} : Bool}
+
+law chathistory_anchor_rejects_missing_ms:
+  {Hs.before_line("#a", "2026-10-03T10:00:00Z", 25n) == None{} : Maybe<&2, String>}
+
+law chathistory_anchor_rejects_short_fraction:
+  {Hs.before_line("#a", "2026-10-03T10:00:00.1Z", 10n) == None{} : Maybe<&2, String>}
+
+law chathistory_anchor_rejects_long_fraction:
+  {Hs.before_line("#a", "2026-10-03T10:00:00.1234Z", 10n) == None{} : Maybe<&2, String>}
+
+law chathistory_stamp_shape_accepts_millis:
+  {Hs.chat_stamp_ok("2026-10-03T10:00:00.123Z") == True{} : Bool}
+
+law history_ticket_advances:
+  {Hs.next_search_ticket(7n) == 8n : Nat}
+
+law history_page_admitted_live:
+  {Hs.history_page_admitted(7n, 7n, 3n, 3n, "a:6667", "a:6667", "m1") == True{} : Bool}
+
+law history_page_needs_cursor:
+  {Hs.history_page_admitted(7n, 7n, 3n, 3n, "a:6667", "a:6667", "") == False{} : Bool}
+
+law history_open_admitted_private:
+  {Hs.search_open_admitted(True{}, "build/x", True{}, True{}, False{}, True{}) == True{} : Bool}
+
+law history_open_rejects_symlink:
+  {Hs.search_open_admitted(True{}, "build/x", True{}, True{}, True{}, True{}) == False{} : Bool}
+
+law caps_chathistory_ack_enables:
+  {CapNotify.chathistory_ok(CapNotify.caps_apply_line(CapNotify.caps0(), "s", "me", ":s CAP me ACK :draft/chathistory", True{})) == True{} : Bool}
+
+law caps_chathistory_nak_quiet:
+  {CapNotify.chathistory_ok(CapNotify.caps_apply_line(CapNotify.caps0(), "s", "me", ":s CAP me NAK :draft/chathistory", True{})) == False{} : Bool}
+
+law chathistory_cap_shared_detection:
+  {Hs.cap_offered(["DRAFT/CHATHISTORY=V2"]) == True{} : Bool}
+
+law history_fetch_needs_connection:
+  {Hs.history_needs_connection("latest #a") == True{} : Bool}
+
+law history_search_needs_no_connection:
+  {Hs.history_needs_connection("search hello") == False{} : Bool}
+
+law history_command_known:
+  {Sub.slash_known("history") == True{} : Bool}
+
+law history_import_seeds_log_seq:
+  {Pair.snd(Sess.Session, Nat, Sess.history_import_search(Sess.session_demo(Cl.init("me", "s"), "#a"), "hi",
+    Hs.DiskPage{[Hs.DiskMatch{"#a", Cl.Line{Cl.Msg{}, "", "a", "", 0n}, 5n}], 5n, 1n, True{}})) == 0n : Nat}
 
 # G3 framed atoms: one canonical seam keeps identity, privacy, mention,
 # media, and membership sites consistent with the visible text.

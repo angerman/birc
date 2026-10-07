@@ -21,7 +21,7 @@ def many_demo(n: Nat, acc: List<&2, String>) -> List<&2, String>:
 
 def show_cfg(+cfg: Args.Cfg) -> String:
   match cfg:
-    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, _, _, _, _}:
+    case Args.Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, +sp, _, _, _, _, _}:
       "demo=" ++ Bool.show(demo)
         ++ " frames=" ++ U32.show(frames)
         ++ " host=" ++ host
@@ -87,7 +87,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq(
       "help",
       show_parsed(Args.parse(xs1("--help-irc"))),
-      "bad:usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls|--plain]"
+      "bad:usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--server HOST[:PORT]] [--demo] [--help-irc] [--tls|--plain]"
     )
     Unit <- E.must_eq(
       "demo_after_connect",

@@ -5,6 +5,7 @@ import ./irc.bend as Irc
 import ./buffer.bend as Cl
 import ./auth.bend as Auth
 import ./channel_policy.bend as Channels
+import ./isupport.bend as Isupport
 
 type Channel is Data:
   Channel{name: String, key: String}
@@ -68,6 +69,12 @@ def remember(+state: State, +name: String, +key: String, replace: Bool) -> State
       remember.allowed(valid_channel(name, key)
         && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
 
+def remember_iso(+state: State, +name: String, +key: String, replace: Bool, +iso: Isupport.State) -> State:
+  match state:
+    case State{+desired, _, _, _, _, _}:
+      remember.allowed(valid_channel(name, key) && Isupport.join_admit(iso, name, key)
+        && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
+
 def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
   match xs:
     case Nil{}: Nil{}
@@ -82,18 +89,21 @@ def forget_all(state: State) -> State:
   match state:
     case State{_, welcome, sent, barrier, held, revision}: State{Nil{}, welcome, sent, barrier, held, revision}
 
-def initial.names(names: List<&2, String>, state: State) -> State:
+def initial_iso.names(names: List<&2, String>, state: State, +iso: Isupport.State) -> State:
   match names:
     case Nil{}: state
-    case Con{name, rest}: initial.names(rest, remember(state, name, "", True{}))
+    case Con{name, rest}: initial_iso.names(rest, remember_iso(state, name, "", True{}, iso), iso)
 
-def initial.parsed(parsed: Maybe<&2, List<&2, String>>, state: State) -> State:
+def initial_iso.parsed(parsed: Maybe<&2, List<&2, String>>, state: State, +iso: Isupport.State) -> State:
   match parsed:
     case None{}: state
-    case Some{names}: initial.names(names, state)
+    case Some{names}: initial_iso.names(names, state, iso)
+
+def initial_iso(chan: String, +iso: Isupport.State) -> State:
+  initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, False{}, 0n}, iso)
 
 def initial(chan: String) -> State:
-  initial.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, False{}, 0n})
+  initial_iso(chan, Isupport.defaults())
 
 def compat.state(+joined: Bool, state: State) -> State:
   match state:
@@ -135,7 +145,7 @@ def bump(state: State) -> State:
 def endpoint.fresh(state: State, chan: String, cl: Cl.Client) -> State:
   match state:
     case State{_, _, _, _, held, revision}:
-      reset(initial.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision}), cl)
+      reset(initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision}, Isupport.defaults()), cl)
 
 def endpoint(same: Bool, state: State, chan: String, cl: Cl.Client) -> State:
   match same:
@@ -325,6 +335,29 @@ def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&
 def received(state: State, +cl: Cl.Client, +line: String) -> State:
   received.parsed(state, cl, line, Irc.parse(line))
 
+# Negotiated KICK victim (I2-dynamic2 F1): the self-KICK refusal that cancels
+# desired membership compares the victim under the Session CASEMAPPING.
+# Welcome detection keeps the fixed auth control (never forked).
+def received.command_with(+cm: String, +state: State, +cl: Cl.Client, +m: Irc.Message, cmd: Irc.Cmd) -> State:
+  match cmd:
+    case Irc.Kick{}: received.kick(Cl.buf_eq_cm(cm, Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)))
+    case _: state
+
+def received.welcome_with(+cm: String, welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:
+  match welcome:
+    case False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
+    case True{}:
+      match state:
+        case State{desired, _, sent, barrier, held, revision}: State{desired, True{}, sent, barrier, held, revision}
+
+def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
+  match parsed:
+    case None{}: state
+    case Some{+m}: received.welcome_with(cm, U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m), state, cl, m)
+
+def received_with(+cm: String, state: State, +cl: Cl.Client, +line: String) -> State:
+  received.parsed_with(cm, state, cl, line, Irc.parse(line))
+
 def ready(barrier: Barrier, +cl: Cl.Client) -> Bool:
   match barrier:
     case NoAuth{}: True{}
@@ -358,16 +391,38 @@ def hold(state: State, cl: Cl.Client) -> Flush:
         case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision}, Nil{}, Quiet{}}
         case NeedAuth{baseline, report}: hold.done(hold.report(report, failed(Cl.get_auth(cl))), desired, welcome, baseline, held, revision)
 
-def flush.ready(ready: Bool, state: State, cl: Cl.Client) -> Flush:
+# Recovery flush drops desired channels the negotiated 005 bounds refuse
+# (narrowed CHANTYPES/CHANNELLEN); the rest emit exactly as before. With
+# defaults (no burst yet) admission equals base validity, so every
+# remembered channel is kept and flush behaves exactly as before.
+def admitted.keep(keep: Bool, +name: String, +key: String, rest: List<&2, Channel>) -> List<&2, Channel>:
+  match keep:
+    case True{}: Channel{name, key} <> rest
+    case False{}: rest
+
+def admitted.go(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{Channel{+name, +key}, +rest}: admitted.keep(Isupport.join_admit(iso, name, key), name, key, admitted.go(rest, iso))
+
+def admitted(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
+  admitted.go(xs, iso)
+
+def flush_iso.ready(ready: Bool, state: State, cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match ready:
     case False{}: hold(state, cl)
     case True{}:
       match state:
-        case State{+desired, welcome, _, barrier, held, revision}: Flush{State{desired, welcome, True{}, barrier, held, revision}, lines(desired), Quiet{}}
+        case State{+desired, welcome, _, barrier, held, revision}:
+          +kept = admitted(desired, iso)
+          Flush{State{kept, welcome, True{}, barrier, held, revision}, lines(kept), Quiet{}}
 
-def flush(+state: State, +cl: Cl.Client) -> Flush:
+def flush_iso(+state: State, +cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match state:
     case State{_, welcome, sent, +barrier, held, revision}:
       match welcome sent held:
-        case True{} False{} False{}: flush.ready(ready(barrier, cl), state, cl)
+        case True{} False{} False{}: flush_iso.ready(ready(barrier, cl), state, cl, iso)
         case _ _ _: Flush{state, Nil{}, Quiet{}}
+
+def flush(+state: State, +cl: Cl.Client) -> Flush:
+  flush_iso(state, cl, Isupport.defaults())

@@ -98,6 +98,11 @@ def mode.target(+active: String, nick: String) -> String:
 def mode.sign(+args: String) -> Bool:
   String.starts_with(args, "+") || String.starts_with(args, "-")
 
+# The "+#" carve-out is intentional, not gap-B duplication: a bare "+#room"
+# names a modeless channel / STATUSMSG audience, never implicit flags,
+# while a bare flag-shaped "+else" stays implicit. Pinned by the contrast
+# pair "mode plus-prefixed channel query" (explicit "MODE +#other") and
+# "mode single unseen plus word stays implicit flags" ("MODE #room +else").
 def mode.explicit(pair: String & String) -> Bool:
   match pair:
     case (+first, rest):
@@ -124,16 +129,74 @@ def mode.flag_chars(s: String) -> Bool:
         || (U32.is_ge(c, 65) && U32.is_le(c, 90))
         || (U32.is_ge(c, 97) && U32.is_le(c, 122))) && mode.flag_chars(rest)
 
-# Key arguments never enter logs or history. Match the MODE parameter, not
-# an arbitrary substring of its target or message text; uppercase K differs.
-# Framed atoms normalize before this shared predicate, so styled flags and
-# channels redact exactly like their visible text.
+# Conservative key detector shared by Commands/I2/Submit: a channel MODE tail
+# mentioning 'k' with an argument slot is key-bearing when signed (even if
+# flag-malformed like "+k!") or a bare short unsigned token like "k". Longer
+# unsigned words ("monkey") are not mode attempts. Uppercase K differs.
+# A 'k'-mentioning tail the wire itself rejects (styled/control-polluted
+# flags like bold-wrapped "+k") is plausibly a key attempt whose secret
+# must not become recallable: fail closed via the exact wire predicate
+# word_chars, not a second lexer. Plain words are unaffected, so "monkey"
+# still rejects and ordinary modes stay recallable.
+# Fail closed: ambiguous tails redact. Match the MODE parameter, not an
+# arbitrary substring of its target or message text.
+#
+# The key-target certainty has ONE owner: mode_chan_target. A STATUSMSG
+# audience (@#room) is channel-shaped even though channel() rejects its
+# leading sigil, so the fixed predicate is starts_channel, not channel.
+# Negotiated-only types ($room under CHANTYPES=$) additionally need live
+# 005 state; Isupport ORs its negotiated is_channel into
+# mode_maybe_key_target via the one shared target owner
+# Isupport.sensitive_target. Every key-bearing call site (mode_has_key,
+# Submit.input_sensitive, Submit.input_sensitive_iso, Isupport.suspicious)
+# routes through this pair.
+def mode_maybe_short(+flags: String) -> Bool:
+  Nat.is_le(String.length(flags), 2n)
+
+def mode_maybe_signed(+flags: String) -> Bool:
+  mode.sign(flags) || mode_maybe_short(flags)
+
+# Formatting strip for sensitivity classification ONLY (I2-dynamic2 F5):
+# drop C0 controls (bold/color/etc.) and DEL/C1 so a styled flag word like
+# bold-wrapped "+k" is still recognized as flags-shaped when deciding
+# whether a signed target (e.g. +#room) carries a key attempt. Never used
+# for outbound wire construction, which keeps rejecting such input.
+def strip_format.keep(+h: Char, r: String, keep: Bool) -> String:
+  match keep:
+    case True{}: SCon{h, r}
+    case False{}: r
+
+def strip_format.go(+s: String) -> String:
+  match s:
+    case SNil{}: SNil{}
+    case SCon{+h, +t}:
+      +c = Char.to_u32(h)
+      strip_format.keep(h, strip_format.go(t), U32.is_ge(c, 32) && Bool.not(U32.is_ge(c, 127) && U32.is_le(c, 159)))
+
+def strip_format(+s: String) -> String:
+  strip_format.go(s)
+
+def mode_maybe_signed_norm(+flags: String) -> Bool:
+  mode_maybe_signed(strip_format(flags))
+
+def mode_chan_target(+target: String) -> Bool:
+  # Sensitivity follows the same normalized identity as Client lookup.
+  # This does not admit styled atoms into strict outbound wire construction.
+  Irc.starts_channel(Irc.proto_atom(target))
+
+def mode_key_tail(+flags: String, has_arg: Bool) -> Bool:
+  String.contains(flags, "k") && has_arg && (mode_maybe_signed(flags) || Bool.not(word_chars(flags)))
+
+def mode_maybe_key_target(+target_ok: Bool, +flags: String, has_arg: Bool) -> Bool:
+  target_ok && mode_key_tail(flags, has_arg)
+
+def mode_maybe_key(+target: String, +flags: String, has_arg: Bool) -> Bool:
+  mode_maybe_key_target(mode_chan_target(target), flags, has_arg)
+
+# Key arguments never enter logs or history.
 def mode_has_key(+m: Irc.Message) -> Bool:
-  +chan = Irc.proto_atom(Irc.msg_param(m, 0n))
-  +flags = Irc.proto_atom(Irc.msg_param(m, 1n))
-  Irc.ieq(Irc.msg_command(m), "MODE") && channel(chan)
-    && mode.sign(flags) && mode.flag_chars(flags) && String.contains(flags, "k")
-    && Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n)
+  Irc.ieq(Irc.msg_command(m), "MODE")
+    && mode_maybe_key(Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n))
 
 def mode_has_key.parsed(m: Maybe<&2, Irc.Message>) -> Bool:
   match m:

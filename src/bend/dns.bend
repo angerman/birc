@@ -84,6 +84,14 @@ law TCP.send_for:
 def TCP.send_for(sock, text, timeout_ms):
   import "../ffi/dns_ffi.c"
 
+# IPv6 UDP bind. Base UDP.bind is AF_INET-only, so v6 loopback binds go
+# here. v6 literals only; v4 text, garbage, and ports above 65535 fail.
+law UDP.bind6:
+  String -> U32 -> IO(Result<&1, &1, U32 & String, Socket>)
+
+def UDP.bind6(host, port):
+  import "../ffi/dns_ffi.c"
+
 law send_octets_for:
   Socket -> String -> U32 -> List<&2, U32> -> U32 -> IO(Socket & Result<&1, &1, U32 & String, Unit>)
 

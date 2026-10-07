@@ -141,7 +141,7 @@ class Live:
                    if not name.startswith(("BIRC_", "TIMUI_"))
                    and name not in {"TMUX", "STY", "ZELLIJ", "SSH_CONNECTION", "KITTY_WINDOW_ID", "TERM_PROGRAM"}}
             env.update(TERM="xterm-ghostty", TERM_PROGRAM="ghostty", BIRC_HISTORY="none",
-                       BIRC_PREFERENCES="none", BIRC_IMAGES="on", BIRC_MEDIA_HELPER=str(helper),
+                       BIRC_PREFERENCES="none", BIRC_IMAGES="on", BIRC_CARDS="off", BIRC_MEDIA_HELPER=str(helper),
                        BIRC_MARKER_CASE=mode, XDG_CONFIG_HOME=str(folder))
             if mode == "none":
                 env["TIMUI_IMAGE_PROTOCOL"] = "none"

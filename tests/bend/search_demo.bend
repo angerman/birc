@@ -68,6 +68,18 @@ def last_text(xs: List<&2, Cl.Line>) -> String:
 def empty_query_active() -> String:
   Sub.active_name(take_client(Sub.submit(fixture(), "/search")))
 
+def ctl(+n: U32, +s: String) -> String:
+  SCon{Chr{n}, s}
+
+def color_fixture() -> Cl.Client:
+  Feed.feed_all(
+    Cl.init("me", "irc.example"),
+    ":me!u@h JOIN #birc"
+      <> (":alice!u@h PRIVMSG #birc :" ++ ctl(3, "04hello"))
+      <> ":bob!u@h PRIVMSG #birc :call 04 now"
+      <> Nil{}
+  )
+
 def fill_buffers.go(n: Nat, +i: Nat, cl: Cl.Client) -> Cl.Client:
   match n:
     case 0n:
@@ -109,6 +121,16 @@ def main() -> IO(Unit):
     )
     Unit <- E.must_eq("empty_usage", empty_query_active(), "#birc")
     Unit <- E.must("fuzzy", Feed.search_text_matches("Hello World", "hlo"))
+    Unit <- E.must_eq(
+      "style04_only_literal",
+      texts_at(take_client(Sub.submit(color_fixture(), "/search 04")), "*search*"),
+      "[#birc] <bob> call 04 now|"
+    )
+    Unit <- E.must_eq(
+      "hello_styled_traversal",
+      texts_at(take_client(Sub.submit(color_fixture(), "/search hello")), "*search*"),
+      "[#birc] <alice> " ++ ctl(3, "04hello") ++ "|"
+    )
     Unit <- E.must_eq("full_count", Nat.show(CL.nbuf(full_search_client())), "16")
     Unit <- E.must_eq("full_active", Sub.active_name(full_search_client()), "#full13")
     Unit <- E.must(

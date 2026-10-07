@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 /* park=1: EAGAIN waits again (TCP reader). park=0: EAGAIN is None (DNS). */
@@ -46,8 +47,10 @@ static Term recv_try(Env e, int fd, u32 max, IoWork *w, int park) {
   ssize_t n;
   u32 code;
   Term r;
-  if (max > 4096u)
-    max = 4096u;
+  /* One recv coalesces a burst into few UI cycles (fewer paints before a
+   * trailing PING); the framer stays size-agnostic with overlong-drop. */
+  if (max > 65536u)
+    max = 65536u;
   data = io_mem(malloc((size_t)max + 1u));
   memset(&src, 0, sizeof src);
   slen = (socklen_t)sizeof src;
@@ -93,6 +96,52 @@ static Term recv_more(Env e, IoWork *w) {
 #ifndef CID_SEND_OCTETS_FOR
 #define CID_SEND_OCTETS_FOR CID(send_octets_for)
 #endif
+#ifndef CID_UDP_BIND6
+#define CID_UDP_BIND6 CID(UDP.bind6)
+#endif
+
+#if CID_UDP_BIND6
+/* IPv6 UDP bind. Base UDP.bind is AF_INET-only (io_sys_addr rejects
+ * "::1" with EINVAL), so the v6 loopback probe binds here. v6 literals
+ * only: v4 text and garbage fail EINVAL, like a family mismatch. The
+ * owned socket stays nonblocking for life, like UDP.bind. */
+Term udp_bind6_run(Env e, Term *f, IoWork *w) {
+  struct sockaddr_in6 at;
+  u64 len = 0;
+  char *host = io_cstr(e, f[0], &len);
+  int fd = -1;
+  u32 err = EINVAL;
+  int flags;
+  (void)w;
+  memset(&at, 0, sizeof at);
+  if (host && strlen(host) == len && (u32)f[1] <= 65535u &&
+      inet_pton(AF_INET6, host, &at.sin6_addr) == 1) {
+    at.sin6_family = AF_INET6;
+    at.sin6_port = htons((uint16_t)(u32)f[1]);
+    fd = socket(AF_INET6, SOCK_DGRAM, 0);
+    err = fd < 0 ? (u32)errno : 0;
+    if (fd >= 0 && bind(fd, (struct sockaddr *)&at, sizeof at) != 0) {
+      err = (u32)errno;
+      (void)close(fd);
+      fd = -1;
+    }
+  }
+  free(host);
+  if (fd >= 0) {
+    flags = fcntl(fd, F_GETFL);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+      err = (u32)errno;
+      (void)close(fd);
+      fd = -1;
+    }
+  }
+  return fd < 0 ? io_fail(e, err != 0 ? err : 1u, NULL)
+                : io_done(e, io_hand((u64)fd));
+}
+static void __attribute__((constructor)) udp_bind6_use(void) {
+  io_eff(CID_UDP_BIND6, udp_bind6_run, 0);
+}
+#endif
 
 #if CID_TCP_CONNECT_FOR
 /* Unlike a raced IO.within, this operation closes its own descriptor when
@@ -110,6 +159,40 @@ static Term tcp_connect_for_more(Env e, IoWork *w) {
     return io_fail(e, (u32)err, NULL);
   }
   return io_done(e, io_hand((u64)fd));
+}
+/* Owned nonblocking dial-trace sink (default-off test seam).
+ * BIRC_DIAL_TRACE arms; BIRC_DIAL_TRACE_FD names the harness-owned
+ * write pipe. Everything else is refused: unset/empty switch,
+ * unparsable fd, stdio fds, non-FIFO, or a blocking fd (checked
+ * read-only via F_GETFL -- inherited flags are NEVER mutated here).
+ * One write() on a validated nonblocking FIFO is bounded; every
+ * error (EAGAIN, EPIPE, EINTR) drops the marker instead of widening
+ * the dial path. The harness configures O_NONBLOCK pre-fork and
+ * drains promptly; the runtime ignores SIGPIPE, so a closed reader
+ * surfaces as EPIPE, never a signal death. */
+static void dial_trace_emit(void) {
+  static const char mark[] = "native-setup-started\n";
+  const char *on = getenv("BIRC_DIAL_TRACE");
+  const char *fds;
+  long fd;
+  int flags;
+  struct stat st;
+  char *end = NULL;
+  if (!on || !*on)
+    return;
+  fds = getenv("BIRC_DIAL_TRACE_FD");
+  if (!fds || !*fds)
+    return;
+  errno = 0;
+  fd = strtol(fds, &end, 10);
+  if (errno != 0 || !end || *end != '\0' || fd <= 2 || fd > 1024 * 1024)
+    return;
+  flags = fcntl((int)fd, F_GETFL);
+  if (flags < 0 || !(flags & O_NONBLOCK))
+    return;
+  if (fstat((int)fd, &st) != 0 || !S_ISFIFO(st.st_mode))
+    return;
+  (void)write((int)fd, mark, sizeof mark - 1);
 }
 Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
   struct sockaddr_storage dst;
@@ -145,6 +228,13 @@ Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
     else if (connect(fd, (struct sockaddr *)&dst, dstlen) != 0)
       err = errno;
   }
+  /* Actual native setup-start evidence (default-off test seam): the
+   * connect() above issued the SYN. Gen-less by design (no actor
+   * state here); the harness correlates by dial phase. The owned
+   * sink refuses unbounded fds, so this never parks serial IO;
+   * production output unchanged when unset. */
+  if (err == 0 || err == EINPROGRESS || err == EWOULDBLOCK)
+    dial_trace_emit();
   if (err == EINPROGRESS || err == EWOULDBLOCK || err == EINTR) {
     w->hand = (intptr_t)fd;
     w->size = io_tick() + (u64)(u32)f[2] * 1000000ull;

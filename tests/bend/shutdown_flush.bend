@@ -11,9 +11,9 @@ import ../../src/bend/net.bend as Net
 import ../../src/bend/timui.bend as T
 import ../../src/bend/app.bend as App
 
-def reader(dup: Socket, +evt: Chan(Sess.UiMsg), +done: Chan(Unit)) -> IO(Unit):
+def reader(dup: Socket, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +done: Chan(Unit)) -> IO(Unit):
   do IO<Unit>:
-    Unit <- Act.reader_run(Tr.Plain{dup}, evt, 1)
+    Unit <- Act.reader_run(Tr.Plain{dup}, evt, 1, cmd, Act.ReadFr{False{}, Nil{}, Out.pong_first(1)})
     _ : Bool <- Chan.send(Unit, done, Unit{})
     return Unit{}
 
@@ -47,11 +47,11 @@ def run(sock: Socket, dup: Socket, +half_close: Bool) -> IO(Unit):
     +gate : Chan(Unit) <- Chan.new(Unit, 1)
     # A stale acknowledgement must not release either shutdown case.
     _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.FromNet{0, Sess.WriterDone{}})
-    Unit <- IO.spawn(Unit, reader(dup, evt, done))
-    Unit <- IO.spawn(Unit, writer(Act.Writer{Some{Tr.Plain{sock}}, 1, "NOTICE #t :pending" <> "QUIT :shutdown-test" <> Nil{}, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
+    Unit <- IO.spawn(Unit, reader(dup, evt, cmd, done))
+    Unit <- IO.spawn(Unit, writer(Act.Writer{Some{Tr.Plain{sock}}, 1, "NOTICE #t :pending" <> "QUIT :shutdown-test" <> Nil{}, Out.repeat_txn(1, 2n), 2, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
     Unit <- await_reader(half_close, done)
     Unit <- IO.spawn(Unit, release(gate))
-    Net.shutdown(ui, cmd, ack, evt, 1, True{})
+    Net.shutdown(ui, cmd, ack, evt, 1, True{}, True{})
 
 def idle(net: Sess.NetState, +gen: U32) -> IO(Unit):
   do IO<Unit>:
@@ -61,9 +61,9 @@ def idle(net: Sess.NetState, +gen: U32) -> IO(Unit):
     +ack : Chan(Unit) <- Chan.new(Unit, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     +gate : Chan(Unit) <- Chan.new(Unit, 1)
-    Unit <- IO.spawn(Unit, writer(Act.Writer{None{}, gen, Nil{}, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
+    Unit <- IO.spawn(Unit, writer(Act.Writer{None{}, gen, Nil{}, Nil{}, 1, Out.budget_frames(1), False{}}, evt, cmd, boot, gate))
     Unit <- IO.spawn(Unit, release(gate))
-    Net.shutdown(ui, cmd, ack, evt, gen, Net.shutdown_waits(net))
+    Net.shutdown(ui, cmd, ack, evt, gen, Net.shutdown_waits(net), True{})
 
 def doubled(pair: Socket & Result<&1, &1, U32 & String, Socket>, half_close: Bool) -> IO(Unit):
   match pair:

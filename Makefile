@@ -33,6 +33,8 @@ test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 test%: export BIRC_IMAGES ?= off
 check: export BIRC_IMAGES ?= off
+test%: export BIRC_CARDS := off
+check: export BIRC_CARDS := off
 test%: export BIRC_PREFERENCES := none
 check: export BIRC_PREFERENCES := none
 test%: export BIRC_IMAGE_CACHE := none
@@ -451,6 +453,10 @@ test-upload-native-ubsan: ## UBSan: raw upload keys and fatal-output cleanup own
 test-pty-upload: build-ui ## Loopback upload consent, paste refusal, drafts, stale scope, and bounded quit.
 	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/birc
 
+.PHONY: test-pty-upload-preferences-private
+test-pty-upload-preferences-private: $(PTY_BUILD) ## Owned settings-enabled upload and refusal; standalone, optional PTY_APP selects app.
+	$(NIXRUN) sh -c 'set -eu; helper="$$(command -v birc-preferences)"; for mode in coalesced full all; do timeout 120 python3 tests/pty/upload_preferences_private.py "$$1" "$$helper" "$$mode"; done' sh "$(PTY_APP)"
+
 test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-dispatch test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
 test-review-pure: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
 test-pty: test-pty-upload
@@ -610,7 +616,7 @@ build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
 build: build-proto build-ui ## Build protocol harness and TimUI client.
 
-.PHONY: build-package test-package test-keychain-package test-tls-package
+.PHONY: build-package test-package test-keychain-package test-tls-package test-notify-package test-runtime-helpers-package
 build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --option timeout 900 --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
@@ -627,6 +633,12 @@ test-tls-package: build-package ## Installed TLS trust, pinned OpenSSL linkage, 
 test-upload-package: build-package ## Installed uploader provenance, CA trust, clean PATH, and loopback override controls.
 	$(NIXRUN) timeout 30 python3 tests/upload_package.py ./$(BLDDIR)/package-birc
 	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/package-birc/bin/birc
+
+test-notify-package: build-package ## Installed notify helper provenance, clean-PATH delivery, and quiet no-helper retention.
+	$(NIXRUN) timeout 600 python3 tests/notify_package.py ./$(BLDDIR)/package-birc
+
+test-runtime-helpers-package: build-package ## Installed cards/search/preferences provenance and local dispatch (standalone until qualified).
+	$(NIXRUN) timeout 120 python3 tests/runtime_helpers_package.py ./$(BLDDIR)/package-birc
 
 test-proto: build-proto ## Run Bend protocol golden harness.
 	$(NIXRUN) sh scripts/check-golden.sh proto_demo=ok ./$(BLDDIR)/birc-proto
@@ -760,6 +772,48 @@ test-drafts: ## Per-buffer drafts + multiline composition goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend tests/bend/drafts_demo.bend -o $(BLDDIR)/drafts_demo
 	$(NIXRUN) sh scripts/check-golden.sh drafts_demo=ok ./$(BLDDIR)/drafts_demo
+
+.PHONY: test-notify-followup-guards
+test-notify-followup-guards: ## notify follow-up pure guards: reconnect floor/lease, chained threading (JS backend; standalone until heavy-lane green).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_followup_guards.bend -o $(BLDDIR)/notify_followup_guards.js
+	$(NIXRUN) sh scripts/check-golden.sh notify_followup_guards=ok timeout 30 bun $(BLDDIR)/notify_followup_guards.js
+
+.PHONY: test-notify-attr-blocked
+test-notify-attr-blocked: ## notify blocked attribution qual: START/release barrier, retire/reuse, B-failure-only-B, all9 drain, replay quiet (C backend; standalone until heavy-lane green).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/notify_attr_blocked.bend -o $(BLDDIR)/notify_attr_blocked.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_attr_blocked.c -o $(BLDDIR)/notify_attr_blocked'
+	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 18 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_attr_blocked=ok timeout 90 ./$(BLDDIR)/notify_attr_blocked'
+
+.PHONY: test-notify-followup-static
+test-notify-followup-static: ## notify follow-up lightweight static pins (no compiler; standalone).
+	bash scripts/check-notify-followup.sh
+
+.PHONY: test-notify-order
+test-notify-order: ## Notify order-independent dispatch subcheck (JS backend; standalone).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_order.bend -o $(BLDDIR)/notify_order.js
+	$(NIXRUN) sh scripts/check-golden.sh notify_order=ok timeout 30 bun $(BLDDIR)/notify_order.js
+
+.PHONY: test-notify-runtime
+test-notify-runtime: ## Notify policy, queue and argv seams subcheck (JS backend; standalone; no worker delivery).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_runtime.bend -o $(BLDDIR)/notify_runtime.js
+	$(NIXRUN) sh scripts/check-golden.sh notify_runtime=ok timeout 30 bun $(BLDDIR)/notify_runtime.js
+
+.PHONY: test-notify-held-blocked
+test-notify-held-blocked: ## R1 held-lease latch: latch-blocked helper (start ACK + release, inside 2s) + teardowns/wrong-ticket never spawn 2, received exact completion runs FIFO once (C backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/notify_held_blocked.bend -o $(BLDDIR)/notify_held_blocked.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_held_blocked.c -o $(BLDDIR)/notify_held_blocked'
+	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 18 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; mkdir "$$d/unreleased"; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 2 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/unreleased/notify-send"; chmod +x "$$d/unreleased/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" BIRC_NOTIFY_HELPER_UNREL="$$d/unreleased/notify-send" sh scripts/check-golden.sh notify_held_blocked=ok timeout 90 ./$(BLDDIR)/notify_held_blocked'
+
+.PHONY: test-notify-full-witness
+test-notify-full-witness: ## Notify full companion witness only (JS; excludes notify_order/notify_runtime; standalone).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_full.bend -o $(BLDDIR)/notify_full.js
+	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"\$$*\" >> \"\$$0.log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_full=ok timeout 60 bun $(BLDDIR)/notify_full.js'
 
 test-search: ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
@@ -1497,3 +1551,143 @@ test-package-build-profile: ## Default-off Nix timers preserve command order and
 test-bend-telemetry: ## Offline compiler/Bun telemetry opt-out guards.
 	$(NIXRUN) timeout 15 python3 tests/bend_telemetry.py
 test-review-pure: test-bend-telemetry
+
+.PHONY: test-cap-notify
+test-cap-notify: ## Standalone CAP registry, handshake, notify and typing guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/cap_notify_demo.bend -o $(BLDDIR)/cap_notify_demo.js
+	$(NIXRUN) sh scripts/check-golden.sh cap_notify_demo=ok timeout 30 bun $(BLDDIR)/cap_notify_demo.js
+
+# Admitted runtime core fixtures: standalone until canonical-source qualification.
+.PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
+test-session-drafts: ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/session_drafts_demo.bend -o $(BLDDIR)/session_drafts_demo
+	$(NIXRUN) sh scripts/check-golden.sh session_drafts_demo=ok ./$(BLDDIR)/session_drafts_demo
+
+test-workspace: ## Multiserver workspace wiring goldens (partitions, routing, generations, scopes).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/workspace_demo.bend -o $(BLDDIR)/workspace_demo
+	$(NIXRUN) sh scripts/check-golden.sh workspace_demo=ok ./$(BLDDIR)/workspace_demo
+
+test-wsnet-gates: ## wsnet G2/G4/M1-M3 envelope, union gate, and first-frame/load guards (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/wsnet_gates.bend -o $(BLDDIR)/wsnet_gates.js
+	$(NIXRUN) sh scripts/check-golden.sh wsnet_gates=ok timeout 30 bun $(BLDDIR)/wsnet_gates.js
+
+test-ws-first-connect: ## Startup-only pending endpoint override, credentials/drafts/upload, and unchanged live busy guards (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ws_first_connect.bend -o $(BLDDIR)/ws_first_connect.js
+	$(NIXRUN) sh scripts/check-golden.sh ws_first_connect=ok timeout 30 bun $(BLDDIR)/ws_first_connect.js
+
+test-ws-shutdown-pending: ## WsNet pending Dials skip shutdown wait; ready and default states retain it (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/ws_shutdown_pending.bend -o $(BLDDIR)/ws_shutdown_pending.js
+	$(NIXRUN) sh scripts/check-golden.sh ws_shutdown_pending=ok timeout 30 bun $(BLDDIR)/ws_shutdown_pending.js
+
+# Supporting runtime fixtures: standalone until canonical-source qualification.
+.PHONY: test-draft-nick-rename test-outbound-txn test-reader-pongs test-net-live-wait-cell
+test-draft-nick-rename: ## CM NICK-to-draft rename: store semantics plus live-arrival guards (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/draft_nick_rename.bend -o $(BLDDIR)/draft_nick_rename.js
+	$(NIXRUN) sh scripts/check-golden.sh draft_nick_rename=ok timeout 30 bun $(BLDDIR)/draft_nick_rename.js
+
+test-outbound-txn: ## Trace txn helpers (repeat/split/next) via the JS backend.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/outbound_txn.bend -o $(BLDDIR)/outbound_txn.js
+	$(NIXRUN) sh scripts/check-golden.sh outbound_txn=ok timeout 30 bun $(BLDDIR)/outbound_txn.js
+
+test-reader-pongs: ## Reader-owned PONG purity: exact replies, split reassembly, overlong silence.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/reader_pongs.bend -o $(BLDDIR)/reader_pongs
+	$(NIXRUN) sh scripts/check-golden.sh reader_pongs=ok ./$(BLDDIR)/reader_pongs
+
+test-net-live-wait-cell: ## Live-step wait-cell payload characterization (pure shape, no channel).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/net_live_wait_cell.bend -o $(BLDDIR)/net_live_wait_cell
+	$(NIXRUN) sh scripts/check-golden.sh net_live_wait_cell=ok timeout 15 ./$(BLDDIR)/net_live_wait_cell
+
+.PHONY: test-notify-binding-gates
+test-notify-binding-gates: ## notify gates 1-4 + attribution over framed bursts with a fake-helper barrier (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_binding_gates.bend -o $(BLDDIR)/notify_binding_gates.js
+	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nprintf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_binding_gates=ok timeout 60 bun $(BLDDIR)/notify_binding_gates.js'
+
+.PHONY: test-notify-held
+test-notify-held: ## R1 held-helper lease: blocked + reset/off/on/cancel never spawns 2, old exact runs FIFO once (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/notify_held.bend -o $(BLDDIR)/notify_held.js
+	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nsleep 0.2\nprintf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_held=ok timeout 60 bun $(BLDDIR)/notify_held.js'
+
+.PHONY: test-workspace-005-source
+test-workspace-005-source: ## Live 005 source/recipient and CHANMODES certainty guards (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/workspace_005_source.bend -o $(BLDDIR)/workspace_005_source.js
+	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh workspace_005_source=ok timeout 30 bun $(BLDDIR)/workspace_005_source.js
+
+.PHONY: test-theme-selector-boundaries
+test-theme-selector-boundaries: ## Fixed/default and themed status boundary colors (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/theme_selector_boundaries.bend -o $(BLDDIR)/theme_selector_boundaries.js
+	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh theme_selector_boundaries=ok timeout 30 bun $(BLDDIR)/theme_selector_boundaries.js
+
+.PHONY: test-theme-ws-render
+test-theme-ws-render: ## Framed end-to-end theme guard (retained wire styles, Ws paint under Dark/Light/Mono).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/theme_ws_render.bend -o $(BLDDIR)/theme_ws_render.js
+	$(NIXRUN) sh scripts/check-golden.sh theme_ws_render=ok timeout 30 bun $(BLDDIR)/theme_ws_render.js
+
+.PHONY: test-ws-media-stage-native
+test-ws-media-stage-native: ## Actual media None/Some stages and exact physical/event ownership (native).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/ws_media_stage_native.bend -o $(BLDDIR)/ws_media_stage_native.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_media_stage_native.c -o $(BLDDIR)/ws_media_stage_native'
+	$(NIXRUN) timeout 60 python3 tests/native/ws_media_stage.py ./$(BLDDIR)/ws_media_stage_native
+
+.PHONY: test-mss-stale-held
+test-mss-stale-held: ## Held stale 903 drops by generation fence over real sockets.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/mss_stale_socket.bend -o $(BLDDIR)/mss_stale_socket.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/mss_stale_socket.c -o $(BLDDIR)/mss_stale_socket'
+	$(NIXRUN) timeout 60 python3 tests/net/mss_stale_socket.py ./$(BLDDIR)/mss_stale_socket
+
+.PHONY: test-sessws-s1s5
+test-sessws-s1s5: ## SessWS S1-S5 repair guards plus G1-G5 completion/history/seam/FIFO/runtime goldens (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/sessws_s1s5_demo.bend -o $(BLDDIR)/sessws_s1s5_demo.js
+	$(NIXRUN) sh scripts/check-golden.sh sessws_s1s5_demo=ok timeout 30 bun $(BLDDIR)/sessws_s1s5_demo.js
+
+# SOURCE UNRUN: standalone until compile/native/three PTY runs qualify.
+.PHONY: test-ws-carrier-native
+test-ws-carrier-native: ## Actual routed/parked carrier +/- callbacks and owned PTY teardown (standalone).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend tests/bend/ws_carrier_native.bend -o $(BLDDIR)/ws_carrier_native.c
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_carrier_native.c -o $(BLDDIR)/ws_carrier_native'
+	$(NIXRUN) sh scripts/check-golden.sh ws_carrier_native=ok timeout 60 python3 tests/pty/ws_carrier_native.py $(BLDDIR)/ws_carrier_native
+
+.PHONY: test-ws-upload-frame
+test-ws-upload-frame: ## True upload frame qual: physical AD keys through ws_first.frame/ws_paint/ws_routed + owned fake helper (native CC PTY; standalone until heavy-lane green; Main registers after green).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh -c 'set -eu -o pipefail; for token in "ws_first.frame" "WsNet.ws_paint" "WsNet.ws_routed" "T.Timui.open" "T.Timui.close" "T.Timui.tty" "T.Tty.ready" "Chan.recv" "App.main()"; do grep -q "$$token" tests/bend/ws_upload_frame.bend || { printf "%s\n" "frame entry missing: $$token" >&2; exit 1; }; done; for token in "UiKeys" "UploadFetched" "ws_first.painted" "ws_frame" "T.Timui.frame" "session_upload_key" "session_upload_take" "session_upload_present(" "step_enter" "live_step_keys" "upload_spawn" "session_upload_complete" "ws_upload.keyed" "ws_upload.presented" "ws_upload.restored" "Up.offer" "Up.confirm" "Up.take_job" "Up.finish" "Up.cancel" "U.offer" "U.confirm" "U.take_job" "U.finish" "U.cancel" "@unsafe"; do ! grep -q "$$token" tests/bend/ws_upload_frame.bend || { printf "%s\n" "injected-state bypass present: $$token" >&2; exit 1; }; done'
+	$(NIXRUN) timeout 300 bend tests/bend/ws_upload_frame.bend -o $(BLDDIR)/ws_upload_frame.c
+	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_upload_frame.c -o $(BLDDIR)/ws_upload_frame'
+	$(NIXRUN) timeout 120 python3 tests/pty/ws_upload_frame.py ./$(BLDDIR)/ws_upload_frame
+
+# Conditional Notify promotion: apply only after exact runtime/static qualification.
+test-review-pure: test-notify-followup-guards test-notify-attr-blocked test-notify-followup-static
+
+.PHONY: test-nix-eval-selftest
+test-nix-eval-selftest: ## Synthetic run_phase fixture: orphan timeout verdict and owned-group kill.
+	$(NIXRUN) timeout 60 python3 tests/nix_eval_profile.py --self-test
+
+.PHONY: test-workspace-isolation-step
+test-workspace-isolation-step: ## Workspace isolation criteria and one-result step projections (JS backend).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/workspace_isolation_step.bend -o $(BLDDIR)/workspace_isolation_step.js
+	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh workspace_isolation_step=ok timeout 30 bun $(BLDDIR)/workspace_isolation_step.js
+
+.PHONY: test-cards-live
+test-cards-live: ## C8 live integration goldens (JS): boundary seam, Session scheduling, worker, endpoint, fullscreen, rows.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend tests/bend/cards_live.bend -o $(BLDDIR)/cards_live.js
+	$(NIXRUN) sh scripts/check-golden.sh cards_live=ok timeout 60 bun $(BLDDIR)/cards_live.js

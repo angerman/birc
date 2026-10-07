@@ -43,7 +43,8 @@ struct BircTlsRead {
   void *work;
   size_t size;
   size_t got;
-  unsigned char bytes[4096];
+  /* Same burst coalescing as the plaintext clamp; one heap read at a time. */
+  unsigned char bytes[65536];
 };
 struct BircTlsWrite {
   BircTls *handle;

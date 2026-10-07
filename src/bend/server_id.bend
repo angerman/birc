@@ -51,6 +51,7 @@ def cmd_gen_ok(cmd: Sess.NetCmd, +gen: U32) -> Bool:
   match cmd:
     case Sess.Dial{_, _, +g, _}: U32.is_eq(g, gen)
     case Sess.Pump{+g}: U32.is_eq(g, gen)
+    case Sess.Pong{+g, _, _}: U32.is_eq(g, gen)
     case Sess.Begin{+g}: U32.is_eq(g, gen)
     case _: True{}
 

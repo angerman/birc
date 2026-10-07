@@ -179,6 +179,18 @@ def lines_after(lines: List<&2, Cl.Line>, +seq: Nat) -> List<&2, Cl.Line>:
         case Cl.Line{_, _, _, _, +id}:
           lines_after.keep(Nat.is_gt(id, seq), line, lines_after(t, seq))
 
+# Exclusion variant: imported archive rows (the drain's claimed IDs) become
+# the next baseline instead of being appended again. Live rows are never
+# excluded: claim sets only ever hold fresh import IDs.
+def lines_after_except(lines: List<&2, Cl.Line>, +seq: Nat, +excluded: List<&2, Nat>) -> List<&2, Cl.Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+line, t}:
+      match line:
+        case Cl.Line{_, _, _, _, +id}:
+          lines_after.keep(Nat.is_gt(id, seq) && Bool.not(List.contains(~Nat, ~Nat.is_eq, excluded, id)),
+            line, lines_after_except(t, seq, excluded))
+
 def extract_new_buf(+seq: Nat, b: Cl.Buffer) -> String:
   match b:
     case Cl.Buffer{+name, _, _, lines, _, _}:
@@ -207,6 +219,14 @@ def new_entries(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool) -> List<&2, H
         Bool.pick(List<&2, HistEntry>, Cl.target_is_synthetic(name), Nil{}, new_entries.lines(lines_after(lines, seq), name, first)),
         new_entries(t, seq, False{}))
 
+def new_entries_except(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool, +excluded: List<&2, Nat>) -> List<&2, HistEntry>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
+      List.append(&2, HistEntry,
+        Bool.pick(List<&2, HistEntry>, Cl.target_is_synthetic(name), Nil{}, new_entries.lines(lines_after_except(lines, seq, excluded), name, first)),
+        new_entries_except(t, seq, False{}, excluded))
+
 def entry_line(entry: HistEntry) -> Cl.Line:
   match entry:
     case Entry{_, line}: line
@@ -227,6 +247,11 @@ def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Cl
   match new_cl:
     case Cl.Client{_, _, bufs, _, _, _, _, _}:
       serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
+
+def extract_new_history_for_except(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
+  match new_cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _}:
+      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
 
 # ---- applying history on load ---------------------------------------------
 
@@ -316,7 +341,11 @@ def apply_entry.target(is_srv: Bool, +cl: Cl.Client, +target: String, ln: Cl.Lin
     case False{}: apply_entry.got(history_target(cl, target), ln)
 
 def apply_entry(+cl: Cl.Client, +target: String, ln: Cl.Line) -> Cl.Client:
-  apply_entry.target(Irc.ieq(target, "server"), cl, target, ln)
+  # Only the synthetic control identity routes to index 0. A peer named
+  # `server` is a query: buf_find skips control, target_name leaves the
+  # plain name alone, and the BIRC2 loader already routes plain "server"
+  # through history_target (only "*server*" parses to ServerEntry).
+  apply_entry.target(Irc.ieq(target, "*server*"), cl, target, ln)
 
 def apply_hist_entry(entry: HistEntry, cl: Cl.Client) -> Cl.Client:
   match entry:

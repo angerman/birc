@@ -13,7 +13,7 @@ def auth_options0() -> AuthOptions:
   AuthOptions{Cl.SaslOnly{}, "", ""}
 
 type Cfg is Data:
-  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String, nick_explicit: Bool, auth: AuthOptions, tls: Bool, port_explicit: Bool}
+  Cfg{demo: Bool, frames: U32, host: String, port: U32, nick: String, chan: String, replay: String, sasl_user: String, sasl_pass: String, nick_explicit: Bool, auth: AuthOptions, tls: Bool, port_explicit: Bool, servers: List<&2, Ep.Endpoint>}
 
 type Parsed is Data:
   Good{cfg: Cfg}
@@ -23,7 +23,7 @@ type Num is Data:
   Num{ok: Bool, n: U32}
 
 def cfg0() -> Cfg:
-  Cfg{True{}, 0, "", Policy.TLS_PORT(), "birc", "#birc", "", "", "", False{}, auth_options0(), Policy.default_secure(), False{}}
+  Cfg{True{}, 0, "", Policy.TLS_PORT(), "birc", "#birc", "", "", "", False{}, auth_options0(), Policy.default_secure(), False{}, Nil{}}
 
 def parse_u32.on(m: Maybe<&2, U32>) -> Num:
   match m:
@@ -37,68 +37,90 @@ def parse_u32(+s: String) -> Num:
 
 def set_frames(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{demo, n, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, _, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, n, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_host(+cfg: Cfg, +host: String) -> Cfg:
   match cfg:
-    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{_, frames, _, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{False{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_port(+cfg: Cfg, n: U32) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, _}:
-      Cfg{demo, frames, host, n, nick, chan, replay, su, sp, explicit, auth, tls, True{}}
+    case Cfg{demo, frames, +host, _, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, _, +servers}:
+      Cfg{demo, frames, host, n, nick, chan, replay, su, sp, explicit, auth, tls, True{}, servers}
 
 def set_nick(+cfg: Cfg, +nick: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp, _, auth, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, True{}, auth, tls, port_explicit}
+    case Cfg{demo, frames, +host, port, _, +chan, +replay, +su, +sp, _, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, True{}, auth, tls, port_explicit, servers}
 
 def set_chan(+cfg: Cfg, +chan: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, +host, port, +nick, _, +replay, +su, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_replay(+cfg: Cfg, +replay: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, _, +su, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_demo(+cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{_, frames, +host, port, +nick, +chan, +replay, +su, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{True{}, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_sasl_user(+cfg: Cfg, +user: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp, explicit, auth, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, user, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, _, +sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, user, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_sasl_pass(+cfg: Cfg, +pass: String) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _, explicit, auth, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, pass, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, +host, port, +nick, +chan, +replay, +su, _, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, pass, explicit, auth, tls, port_explicit, servers}
 
 def set_auth(+cfg: Cfg, auth: AuthOptions) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, _, tls, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, _, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def set_secure(+cfg: Cfg, tls: Bool) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, _, port_explicit}:
-      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, _, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
+
+# Extra multiserver endpoints (--server, repeatable). At most 3: the primary
+# HOST plus extras must fit the 4 workspace slots.
+def servers_full2(+xs: List<&2, Ep.Endpoint>) -> Bool:
+  match xs:
+    case Con{_, _}: True{}
+    case _: False{}
+
+def servers_full1(+xs: List<&2, Ep.Endpoint>) -> Bool:
+  match xs:
+    case Con{_, +t}: servers_full2(t)
+    case _: False{}
+
+def servers_full(+xs: List<&2, Ep.Endpoint>) -> Bool:
+  match xs:
+    case Con{_, +t}: servers_full1(t)
+    case _: False{}
+
+def add_server_endpoint(+cfg: Cfg, +ep: Ep.Endpoint) -> Cfg:
+  match cfg:
+    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, +servers}:
+      Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, List.append(&2, Ep.Endpoint, servers, ep <> Nil{})}
 
 # Resolve defaults once; a port never selects the transport.
 def resolve_port(cfg: Cfg) -> Cfg:
   match cfg:
-    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, +tls, +port_explicit}:
-      Cfg{demo, frames, host, Policy.default_port(tls, port_explicit, port), nick, chan, replay, su, sp, explicit, auth, tls, port_explicit}
+    case Cfg{demo, frames, host, port, nick, chan, replay, su, sp, explicit, auth, +tls, +port_explicit, +servers}:
+      Cfg{demo, frames, host, Policy.default_port(tls, port_explicit, port), nick, chan, replay, su, sp, explicit, auth, tls, port_explicit, servers}
 
 def auth_of(cfg: Cfg) -> AuthOptions:
   match cfg:
-    case Cfg{_, _, _, _, _, _, _, _, _, _, auth, _, _}: auth
+    case Cfg{_, _, _, _, _, _, _, _, _, _, auth, _, _, _}: auth
 
 # Resolve once after the CLI/environment SASL user is known. Nicknames are
 # values, not sentinels: explicit "birc" and "me" must remain unchanged.
@@ -117,7 +139,7 @@ type Step is Data:
 
 def explicit_port(cfg: Cfg) -> Maybe<&2, U32>:
   match cfg:
-    case Cfg{_, _, _, p, _, _, _, _, _, _, _, _, explicit}:
+    case Cfg{_, _, _, p, _, _, _, _, _, _, _, _, explicit, _}:
       Bool.pick(Maybe<&2, U32>, explicit, Some{p}, None{})
 
 def args_port.selected(got: Maybe<&2, U32>, t: List<&2, String>, cfg: Cfg) -> Step:
@@ -278,13 +300,23 @@ def auth_options_valid(options: AuthOptions) -> Bool:
     case AuthOptions{mode, +prefix, +success}:
       Auth.valid_config(mode, prefix, success)
 
+def args_finish.ws(+cfg: Cfg, +demo: Bool, +replay: String, +servers: List<&2, Ep.Endpoint>, ws: Bool) -> Step:
+  match ws:
+    case False{}: Stop{Good{resolve_port(cfg)}}
+    case True{}: Stop{Bad{"birc: --server needs a live connection (not --demo or --replay)"}}
+
+def args_finish.live(+cfg: Cfg) -> Step:
+  match cfg:
+    case Cfg{+demo, _, _, _, _, _, +replay, _, _, _, _, _, _, +servers}:
+      args_finish.ws(cfg, demo, replay, servers, Bool.not(List.is_empty(&2, Ep.Endpoint, servers)) && (demo || Bool.not(String.is_empty(replay))))
+
 def args_finish(valid: Bool, cfg: Cfg) -> Step:
   match valid:
-    case True{}: Stop{Good{resolve_port(cfg)}}
+    case True{}: args_finish.live(cfg)
     case False{}: Stop{Bad{"birc: NickServ authentication requires an exact --nickserv-prefix and control-free --nickserv-success"}}
 
 def USAGE() -> String:
-  "usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--demo] [--help-irc] [--tls|--plain]"
+  "usage: birc [--frames N] [--connect HOST[:PORT]] [--port N] [--nick N] [--channel #c] [--replay FILE] [--sasl-user USER] [--sasl-pass PASS] [--auth sasl|nickserv|sasl-nickserv] [--nickserv-prefix nick!user@host] [--nickserv-success TEXT] [--server HOST[:PORT]] [--demo] [--help-irc] [--tls|--plain]"
 
 type Flag is Data:
   FDemo{}
@@ -302,13 +334,14 @@ type Flag is Data:
   FHelp{}
   FTls{}
   FPlain{}
+  FServer{}
   FUnknown{}
 
 type FlagRow is Data:
   FlagRow{name: String, f: Flag}
 
 def flag_rows() -> List<&2, FlagRow>:
-  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--auth", FAuth{}} <> FlagRow{"--nickserv-prefix", FNickServPrefix{}} <> FlagRow{"--nickserv-success", FNickServSuccess{}} <> FlagRow{"--help-irc", FHelp{}} <> FlagRow{"--tls", FTls{}} <> FlagRow{"--plain", FPlain{}} <> Nil{}
+  FlagRow{"--demo", FDemo{}} <> FlagRow{"--frames", FFrames{}} <> FlagRow{"--connect", FConnect{}} <> FlagRow{"--port", FPort{}} <> FlagRow{"--nick", FNick{}} <> FlagRow{"--channel", FChan{}} <> FlagRow{"--replay", FReplay{}} <> FlagRow{"--sasl-user", FSaslUser{}} <> FlagRow{"--sasl-pass", FSaslPass{}} <> FlagRow{"--auth", FAuth{}} <> FlagRow{"--nickserv-prefix", FNickServPrefix{}} <> FlagRow{"--nickserv-success", FNickServSuccess{}} <> FlagRow{"--help-irc", FHelp{}} <> FlagRow{"--tls", FTls{}} <> FlagRow{"--plain", FPlain{}} <> FlagRow{"--server", FServer{}} <> Nil{}
 
 def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
   match xs:
@@ -318,6 +351,25 @@ def flag_of(xs: List<&2, FlagRow>, +h: String) -> Flag:
       match row:
         case FlagRow{+name, +f}:
           Bool.pick(Flag, String.eq(name, h), f, flag_of(t, h))
+
+def servers_of(cfg: Cfg) -> List<&2, Ep.Endpoint>:
+  match cfg:
+    case Cfg{_, _, _, _, _, _, _, _, _, _, _, _, _, +servers}: servers
+
+def args_server.append(+t: List<&2, String>, +cfg: Cfg, +ep: Ep.Endpoint, full: Bool) -> Step:
+  match full:
+    case True{}: Stop{Bad{"birc: too many --server flags (at most 4 servers total)"}}
+    case False{}: Go{t, add_server_endpoint(cfg, ep)}
+
+def args_server.parsed(got: Result<&2, &2, String, Ep.Endpoint>, +t: List<&2, String>, +cfg: Cfg) -> Step:
+  match got:
+    case Fail{msg}: Stop{Bad{"birc: --server " ++ msg}}
+    case Done{+ep}: args_server.append(t, cfg, ep, servers_full(servers_of(cfg)))
+
+def args_server(+xs: List<&2, String>, +cfg: Cfg) -> Step:
+  match xs:
+    case Nil{}: Stop{Bad{"birc: --server expects HOST[:PORT]"}}
+    case Con{+h, +t}: args_server.parsed(Ep.parse(h), t, cfg)
 
 def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
   match f:
@@ -349,6 +401,8 @@ def args_opt.do(+t: List<&2, String>, +cfg: Cfg, +h: String, f: Flag) -> Step:
       Mode{t, set_secure(cfg, True{}), True{}}
     case FPlain{}:
       Mode{t, set_secure(cfg, False{}), False{}}
+    case FServer{}:
+      args_server(t, cfg)
     case FHelp{}:
       Stop{Bad{USAGE()}}
     case FUnknown{}:

@@ -224,6 +224,46 @@ def rename_query.line(st: State, line: String) -> State:
 def rename_queries(st: State, lines: List<&2, String>) -> State:
   List.foldl(~&2, ~String, ~State, ~rename_query.line, lines, st)
 
+# Negotiated pane rename (I2-dynamic3 R2): query keys compare under the
+# Session CASEMAPPING through the shared buf_eq_cm owner, so an unrelated
+# peer NICK that only folds under the default mapping keeps its pane.
+# Admission stays admitted-only via the shared nick_rename_allowed gate;
+# the fixed chain above keeps law behavior.
+def rename_query.key_cm(+cm: String, +key: String, +from: String, +to: String) -> String:
+  Bool.pick(String, Cl.is_query_name(key) && Cl.buf_eq_cm(cm, key, from), to, key)
+
+def rename_query.names_cm(+cm: String, st: State, +from: String, +to: String) -> State:
+  match st:
+    case Off{}: Off{}
+    case On{axis, +first, +second, focus}:
+      On{axis, rename_query.key_cm(cm, first, from, to), rename_query.key_cm(cm, second, from, to), focus}
+
+def rename_query.accepted_cm(+cm: String, allowed: Bool, st: State, from: String, to: String) -> State:
+  match allowed:
+    case False{}: st
+    case True{}: rename_query.names_cm(cm, st, from, to)
+
+def rename_query.nick_cm(+cm: String, nick: Bool, st: State, +m: Irc.Message) -> State:
+  match nick:
+    case False{}: st
+    case True{}: rename_query.accepted_cm(cm, Cl.nick_rename_allowed(Irc.msg_nick(m), Irc.msg_param(m, 0n)), st, Cl.target_name(Irc.msg_nick(m)), Cl.target_name(Irc.msg_param(m, 0n)))
+
+def rename_query.parsed_cm(+cm: String, st: State, m: Maybe<&2, Irc.Message>) -> State:
+  match m:
+    case None{}: st
+    case Some{+msg}: rename_query.nick_cm(cm, Irc.ieq(Irc.msg_command(msg), "NICK"), st, msg)
+
+def rename_query.line_cm(+cm: String, st: State, line: String) -> State:
+  rename_query.parsed_cm(cm, st, Irc.parse(line))
+
+def rename_queries_cm.go(+cm: String, lines: List<&2, String>, st: State) -> State:
+  match lines:
+    case Nil{}: st
+    case Con{+h, +t}: rename_queries_cm.go(cm, t, rename_query.line_cm(cm, st, h))
+
+def rename_queries_cm(+cm: String, st: State, lines: List<&2, String>) -> State:
+  rename_queries_cm.go(cm, lines, st)
+
 def normalize.on(ok: Bool, st: State) -> State:
   match ok:
     case True{}: st

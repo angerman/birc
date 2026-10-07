@@ -7,6 +7,7 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
+import ./mode_view_guard.bend as ModeView
 import ../../src/bend/history.bend as H
 import ../../src/bend/frame.bend as F
 import ../../src/bend/session.bend as S
@@ -56,8 +57,8 @@ def kick_after(+wire: String) -> S.Session:
   S.st_of_chunk(S.step_on_chunk_ms(kick_base(), F.string_to_octets(wire ++ "\r\n"), 1000))
 
 def media_after(+body: String) -> S.Session:
-  S.st_of_chunk(S.step_on_chunk_ms(media_base(),
-    F.string_to_octets(":alice!a@h PRIVMSG #room :" ++ body ++ "\r\n"), 1000))
+  S.session_observe_visible_media(S.st_of_chunk(S.step_on_chunk_ms(media_base(),
+    F.string_to_octets(":alice!a@h PRIVMSG #room :" ++ body ++ "\r\n"), 1000)))
 
 # ---- (1) MODE / 324 via Session --------------------------------------------
 def trav_mode_private(+wire: String) -> Bool:
@@ -160,6 +161,38 @@ def trav_req_exact(+body: String, +want: String) -> Bool:
   +cl = S.session_cl(st)
   req_exact(M.take_job(S.session_media(st)), want, last_nat(buf_ids(cl, 1n), 999999n))
 
+# Byte feeding maintains media state; visible ownership schedules separately.
+def media_unobserved(+body: String) -> S.Session:
+  S.st_of_chunk(S.step_on_chunk_ms(media_base(),
+    F.string_to_octets(":alice!a@h PRIVMSG #room :" ++ body ++ "\r\n"), 1000))
+
+def trav_media_feed_only(+body: String, +want: String) -> Bool:
+  +st = media_unobserved(body)
+  Nat.is_eq(M.pending_count(S.session_media(st)), 0n)
+    && String.eq(String.join(visible_urls(st), ","), want)
+    && String.eq(String.join(Sub.active_buf_urls(S.session_cl(st)), ","), want)
+    && Bool.not(has_job(M.take_job(S.session_media(st))))
+
+def trav_media_stage(+body: String, +want: String) -> Bool:
+  +raw = media_unobserved(body)
+  +st = S.session_observe_visible_media(raw)
+  M.enabled(S.session_media(st)) && M.supported(S.session_media(st))
+    && Nat.is_eq(M.pending_count(S.session_media(st)), 1n)
+    && String.eq(String.join(visible_urls(st), ","), want)
+    && String.eq(String.join(Sub.active_buf_urls(S.session_cl(st)), ","), want)
+    && req_exact(M.take_job(S.session_media(st)), want, last_nat(buf_ids(S.session_cl(raw), 1n), 999999n))
+    && String.eq(CL.buf_texts(S.session_cl(raw), 1n), CL.buf_texts(S.session_cl(st), 1n))
+
+def trav_media_stage_disabled(+body: String, +want: String) -> Bool:
+  +raw = media_unobserved(body)
+  +off = S.session_set_media(raw, M.set_enabled(S.session_media(raw), False{}))
+  +st = S.session_observe_visible_media(off)
+  Bool.not(M.enabled(S.session_media(st)))
+    && Nat.is_eq(M.pending_count(S.session_media(st)), 0n)
+    && Bool.not(has_job(M.take_job(S.session_media(st))))
+    && String.eq(String.join(Sub.active_buf_urls(S.session_cl(st)), ","), want)
+    && String.eq(CL.buf_texts(S.session_cl(raw), 1n), CL.buf_texts(S.session_cl(st), 1n))
+
 def alert_level_at(level: Cl.AlertLevel) -> U32:
   match level:
     case Cl.Mention{}: 2
@@ -216,14 +249,22 @@ def trav_mode_restore_visible(+wire: String, +want: String) -> Bool:
 
 def main() -> IO(Unit):
   do IO<Unit>:
+    Unit <- E.must("trav byte feed keeps visible nonempty URL but schedules no job", trav_media_feed_only("pic " ++ img() ++ " end", img()))
+    Unit <- E.must("trav visible owner schedules exact source request without changing bytes", trav_media_stage("pic " ++ img() ++ " end", img()))
+    Unit <- E.must("trav disabled visible owner rejects same valid URL without changing bytes", trav_media_stage_disabled("pic " ++ img() ++ " end", img()))
     Unit <- E.must("trav styled mode flags never persist a key", trav_mode_private(":alice!u@h MODE #room +" ++ ctl(2, "k") ++ " " ++ secret()))
     Unit <- E.must("trav styled mode channel never persists a key", trav_mode_private(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +k " ++ secret()))
     Unit <- E.must("trav soh-framed mode channel never persists a key", trav_mode_private(":alice!u@h MODE #ro" ++ ctl(1, "om") ++ " +k " ++ secret()))
     Unit <- E.must("trav styled 324 flags never persist a key", trav_mode_private(":irc 324 me #room +" ++ ctl(2, "k") ++ " " ++ secret()))
     Unit <- E.must("trav styled 324 channel never persists a key", trav_mode_private(":irc 324 me #ro" ++ ctl(2, "om") ++ " +k " ++ secret()))
+    Unit <- E.must_eq("trav MODE styled source preserves bold byte", ModeView.stored(S.session_cl(mode_after(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob"))), "alice MODE #ro" ++ ctl(2, "om") ++ " +o bob")
+    Unit <- E.must_eq("trav MODE styled View keeps visible text", ModeView.visible(S.session_cl(mode_after(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob"))), "alice MODE #room +o bob")
+    Unit <- E.must_eq("trav MODE ordinary View keeps visible text", ModeView.visible(S.session_cl(mode_after(":alice!u@h MODE #room +o bob"))), "alice MODE #room +o bob")
+    Unit <- E.must_eq("trav MODE hostile ESC does not enter stored source", ModeView.stored(S.session_cl(mode_after(":alice!u@h MODE #ro" ++ ctl(27, "om") ++ " +o bob"))), "alice MODE #room +o bob")
+    Unit <- E.must_eq("trav MODE hostile ESC does not enter View text", ModeView.visible(S.session_cl(mode_after(":alice!u@h MODE #ro" ++ ctl(27, "om") ++ " +o bob"))), "alice MODE #room +o bob")
     Unit <- E.must("trav ordinary mode key stays redacted", trav_mode_private(":alice!u@h MODE #room +k " ++ secret()))
     Unit <- E.must("trav ordinary mode still renders", trav_mode_visible(":alice!u@h MODE #room +o bob", "alice MODE #room +o bob"))
-    Unit <- E.must("trav styled non-key mode still renders", trav_mode_visible(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob", "alice MODE #room +o bob"))
+    Unit <- E.must("trav styled non-key mode still renders", trav_mode_visible(":alice!u@h MODE #ro" ++ ctl(2, "om") ++ " +o bob", "alice MODE #ro" ++ ctl(2, "om") ++ " +o bob"))
     Unit <- E.must("trav styled nick mention hits", trav_mention_hit("hi m" ++ ctl(2, "e")))
     Unit <- E.must("trav styled continuation is not a mention", trav_mention_miss("me" ++ ctl(2, "ow")))
     Unit <- E.must("trav color-split nick mention hits", trav_mention_hit("hi m" ++ ctl(3, "04e")))

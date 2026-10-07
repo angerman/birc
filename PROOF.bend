@@ -15,6 +15,7 @@ import ./src/bend/cards.bend as Cards
 import ./src/bend/cap_notify.bend as CapNotify
 import ./src/bend/session_cards.bend as SessionCards
 import ./src/bend/cards_view.bend as CardsView
+import ./src/bend/workspace_isolation_proof.bend as WI
 import ./LAWS.bend as Laws
 
 def Laws.first_server_welcome_assigns_nickname():
@@ -23,7 +24,7 @@ def Laws.first_server_welcome_assigns_nickname():
 def Laws.later_welcome_cannot_replace_nickname():
   {==}
 
-def Laws.rejected_welcome_preserves_live_state(acc, line, stamp):
+def Laws.rejected_welcome_preserves_live_state(acc, line, stamp, welcomed):
   {==}
 
 def Laws.refused_startup_archive_keeps_current_client(current, snapshot):
@@ -1215,6 +1216,63 @@ def Laws.draft_entries_match_buffer_slots():
 def Laws.draft_control_query_coexist():
   {==}
 
+def Laws.draft_session_focus_gate_keeps_buffer_on_reject():
+  {==}
+
+def Laws.draft_session_split_gate_keeps_buffer_on_reject():
+  {==}
+
+def Laws.draft_session_endpoint_replace_clears_server():
+  {==}
+
+def Laws.draft_session_submit_clears_only_on_accept():
+  {==}
+
+def Laws.draft_session_multiline_submit_atomic():
+  {==}
+
+def Laws.draft_session_modal_stash_preserves_typed():
+  {==}
+
+def Laws.workspace_parts_isolate_state():
+  WI.case_b_isolation()
+
+def Laws.workspace_generations_drop_stale():
+  {==}
+
+def Laws.workspace_endpoint_replace_isolates():
+  {==}
+
+def Laws.draft_session_disconnected_multiline_holds():
+  {==}
+
+def Laws.draft_session_submit_focus_atomic():
+  {==}
+
+def Laws.draft_session_multiline_privacy_per_line():
+  {==}
+
+def Laws.draft_session_multiline_negotiated_mode_privacy():
+  {==}
+
+def Laws.draft_session_multiline_negotiated_implicit_privacy():
+  {==}
+
+def Laws.workspace_epoch_reuse_rejects_stale():
+  {==}
+
+def Laws.workspace_composer_reset_on_replace():
+  {==}
+
+def Laws.session_supplied_submit_completes_once():
+  {==}
+
+def Laws.workspace_runtime_applies_routed_inbound():
+  {==}
+
+def Laws.workspace_redial_emits_scoped_dial():
+  {==}
+
 def Laws.cards_queue_capped():
   {==}
 
@@ -1273,6 +1331,21 @@ def Laws.typing_out_lifecycle():
   {==}
 
 def Laws.typing_out_unseen_first_tick():
+  {==}
+
+def Laws.g6_live_reg_binding():
+  {==}
+
+def Laws.g6_live_tick_binding():
+  {==}
+
+def Laws.g6_live_tick_cm_alias():
+  {==}
+
+def Laws.g6_live_tick_cm_throttle():
+  {==}
+
+def Laws.g6_live_merge_owner():
   {==}
 
 def Laws.cap_source_validated():
@@ -1515,6 +1588,135 @@ def Laws.isupport_lifecycle_burst_order2_refuses():
 def Laws.isupport_lifecycle_resident_preserved():
   {==}
 
+def Laws.isupport_statusmsg_first_separate_stores():
+  {==}
+
+def Laws.isupport_statusmsg_first_separate_authorizes():
+  {==}
+
+def Laws.isupport_burst_hat_order1_authorizes():
+  {==}
+
+def Laws.isupport_burst_hat_order2_authorizes():
+  {==}
+
+def Laws.isupport_prefix_first_stale_refused():
+  {==}
+
+def Laws.isupport_malformed_statusmsg_keeps_empty():
+  {==}
+
+def Laws.isupport_withdrawn_invalid_stays_uncertain():
+  {==}
+
+def Laws.isupport_readvert_after_invalid_precise():
+  {==}
+
+def Laws.isupport_live_holds_defaults():
+  {==}
+
+def Laws.isupport_live_admit_gates():
+  {==}
+
+def Laws.isupport_live_endpoint_resets():
+  {==}
+
+def Laws.mode_maybe_key_flags_unsigned():
+  {==}
+
+def Laws.mode_maybe_key_rejects_monkey():
+  {==}
+
+def Laws.isupport_malformed_signed_hides():
+  {==}
+
+def Laws.mode_audience_key_detected():
+  {==}
+
+def Laws.mode_audience_key_agrees():
+  {==}
+
+def Laws.mode_maybe_key_rejects_user():
+  {==}
+
+def Laws.mode_raw_plus_channel_explicit():
+  {==}
+
+def Laws.mode_opaque_plus_channel_sensitive():
+  {==}
+
+def Laws.mode_explicit_plus_contrast():
+  {==}
+
+def Laws.isupport_unsigned_k_hidden():
+  {==}
+
+def Laws.session_redact_wire_hides_dollar():
+  {==}
+
+def Laws.session_redact_wire_keeps_ordinary():
+  {==}
+
+def Laws.flush_iso_drops_refused():
+  {==}
+
+def Laws.flush_iso_keeps_admitted():
+  {==}
+
+def Laws.session_outs_refuse_foreign():
+  {==}
+
+def Laws.session_outs_admit_own():
+  {==}
+
+def Laws.session_cm_eq_ascii_brackets():
+  {==}
+
+def Laws.session_chan_target_prefers_live_resident():
+  {==}
+
+def Laws.registration_iso_ascii_refuses():
+  {==}
+
+def Laws.fold_casemap_ascii():
+  {==}
+
+def Laws.fold_casemap_strict():
+  {==}
+
+def Laws.isupport_chanmodes_overlap_rejected():
+  {==}
+
+def Laws.isupport_overlap_withdrawn_stays_uncertain():
+  {==}
+
+def Laws.isupport_overlap_hides_all():
+  {==}
+
+def Laws.isupport_valid_limit_key_precise():
+  {==}
+
+def Laws.mode_dollar_key_negotiated_sensitive():
+  {==}
+
+def Laws.mode_dollar_long_key_negotiated_sensitive():
+  {==}
+
+def Laws.mode_dollar_ordinary_recallable():
+  {==}
+
+def Laws.mode_sensitive_target_agrees_audience():
+  {==}
+
+def Laws.mode_styled_target_suppressed():
+  {==}
+
+def Laws.mode_styled_target_wire_rejected():
+  {==}
+
+def Laws.mode_ordinary_explicit_recallable():
+  {==}
+
 def Laws.typing_out_observed_sentinel():
   {==}
 
@@ -1608,6 +1810,12 @@ def Laws.history_search_completion_admitted():
 def Laws.history_search_completion_rejects_stale_gen():
   {==}
 
+def Laws.search_emit_spawns_worker():
+  {==}
+
+def Laws.pong_emit_stays_quiet():
+  {==}
+
 def Laws.disk_file_admitted_private():
   {==}
 
@@ -1696,6 +1904,129 @@ def Laws.cards_view_overlay_revalidates_stale_token():
   {==}
 
 def Laws.cards_adapter_exact_url_preserved():
+  {==}
+
+def Laws.cards_live_styled_infix_schedules_nothing():
+  {==}
+
+def Laws.cards_live_soh_prefix_schedules_nothing():
+  {==}
+
+def Laws.cards_live_ordinary_url_positive():
+  {==}
+
+def Laws.cards_live_media_soh_prefix_schedules_nothing():
+  {==}
+
+def Laws.cards_live_extract_shares_seam():
+  {==}
+
+def Laws.cards_live_bare_duplicate_kept():
+  {==}
+
+def Laws.cards_live_media_run_hit_image_intent():
+  {==}
+
+def Laws.cards_live_session_online_schedules_visible_page():
+  {==}
+
+def Laws.cards_live_session_disabled_schedules_nothing():
+  {==}
+
+def Laws.cards_live_session_exact_completion_accepted():
+  {==}
+
+def Laws.cards_live_session_stale_completion_rejected():
+  {==}
+
+def Laws.cards_live_stale_completion_stores_nothing():
+  {==}
+
+def Laws.cards_live_exact_completion_stores():
+  {==}
+
+def Laws.cards_live_dial_cards_resets_on_endpoint_change():
+  {==}
+
+def Laws.cards_live_dial_cards_retains_same_endpoint():
+  {==}
+
+def Laws.cards_live_dial_full_closes_on_change():
+  {==}
+
+def Laws.cards_live_reset_retains_active_worker():
+  {==}
+
+def Laws.cards_live_stale_keeps_worker():
+  {==}
+
+def Laws.cards_live_fullscreen_pick_newest_alive():
+  {==}
+
+def Laws.cards_live_fullscreen_open_live_token():
+  {==}
+
+def Laws.cards_live_f9_key_number():
+  {==}
+
+def Laws.cards_live_rows_cap_matches():
+  {==}
+
+def Laws.cards_live_empty_entries_match_baseline():
+  {==}
+
+def Laws.cards_live_ready_card_paints_rows():
+  {==}
+
+def Laws.cards_live_pending_never_paints():
+  {==}
+
+def Laws.chathistory_anchor_rejects_missing_ms():
+  {==}
+
+def Laws.chathistory_anchor_rejects_short_fraction():
+  {==}
+
+def Laws.chathistory_anchor_rejects_long_fraction():
+  {==}
+
+def Laws.chathistory_stamp_shape_accepts_millis():
+  {==}
+
+def Laws.history_ticket_advances():
+  {==}
+
+def Laws.history_page_admitted_live():
+  {==}
+
+def Laws.history_page_needs_cursor():
+  {==}
+
+def Laws.history_open_admitted_private():
+  {==}
+
+def Laws.history_open_rejects_symlink():
+  {==}
+
+def Laws.caps_chathistory_ack_enables():
+  {==}
+
+def Laws.caps_chathistory_nak_quiet():
+  {==}
+
+def Laws.chathistory_cap_shared_detection():
+  {==}
+
+def Laws.history_fetch_needs_connection():
+  {==}
+
+def Laws.history_search_needs_no_connection():
+  {==}
+
+def Laws.history_command_known():
+  {==}
+
+def Laws.history_import_seeds_log_seq():
   {==}
 
 def Laws.proto_atom_strips_framing_styles():

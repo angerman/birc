@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# Desired keys and chat rows bind to exact saved host spelling and port.
+# Chat rows and desired keys bind to case-insensitive host and exact port.
+# Credentials bind to exact host spelling and port.
 import Base
 import ./expect.bend as E
 import ./reconnect_recovery.bend as R
@@ -23,7 +24,7 @@ def client_controls() -> IO(Unit):
   +before = marked()
   +changed = Sess.endpoint_client(before, "IRC.EXAMPLE", 6667, 6667)
   do IO<Unit>:
-    Unit <- E.must("case-only endpoint change clears old chat targets", Bool.not(present(Cl.buf_find(changed, "#other"))))
+    Unit <- E.must("case-only endpoint change retains old chat targets", present(Cl.buf_find(changed, "#other")))
     Unit <- E.must("identical endpoint retains old chat targets", present(Cl.buf_find(Sess.endpoint_client(before, "irc.example", 6667, 6667), "#other")))
     Unit <- E.must("case-only scope change preserves event IDs", Nat.is_eq(Cl.log_seq_of(changed), Cl.log_seq_of(before)))
     Unit <- E.must("case-only scope change preserves log buffer", Nat.is_eq(List.length(&2, Cl.Buffer, Cl.log_buffers(changed)), 1n))
@@ -33,7 +34,7 @@ def client_controls() -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must_eq("case-only host change cannot retain desired keys", rejoined("/connect IRC.EXAMPLE 6667"), "JOIN #start")
+    Unit <- E.must_eq("case-only host change retains desired keys", rejoined("/connect IRC.EXAMPLE 6667"), "JOIN #start|JOIN #other secret-key|JOIN +#third")
     Unit <- E.must_eq("identical host and port retain every desired key", rejoined("/connect irc.example 6667"), "JOIN #start|JOIN #other secret-key|JOIN +#third")
     Unit <- E.must_eq("different port cannot retain desired keys", rejoined("/connect irc.example 6668"), "JOIN #start")
     Unit <- E.must_eq("different host cannot retain desired keys", rejoined("/connect other.example 6667"), "JOIN #start")

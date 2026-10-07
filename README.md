@@ -428,7 +428,8 @@ Their server identity cannot be recovered safely. Reconnect dividers and
 | <kbd>Ctrl</kbd> + <kbd>K</kbd> | Delete from the composer cursor to the end of the line |
 | <kbd>Enter</kbd> | Send typed message or slash command; snap scroll to latest |
 | <kbd>F8</kbd> | Confirm the currently staged public file upload |
-| <kbd>Esc</kbd> | Cancel a pending/running upload; otherwise disconnect and quit |
+| <kbd>F9</kbd> | Show the newest ready image fullscreen; press again or <kbd>Esc</kbd> to close |
+| <kbd>Esc</kbd> | Close the fullscreen overlay; else cancel a pending/running upload; otherwise disconnect and quit |
 | <kbd>F10</kbd> | Cleanly disconnect and quit |
 
 ### Mouse Navigation
@@ -658,6 +659,23 @@ TIMUI_IMAGE_PROTOCOL=kitty nix run . -- --connect irc.libera.chat:6697 --nick YO
 Use this override only in a terminal that supports Kitty graphics. It does not
 enable multiplexer passthrough. Correcting the shell's terminal identity also
 restores automatic detection; do not set Ghostty's identity in Apple Terminal.
+
+### Link cards and fullscreen images
+
+Visible `https://` page links (never images, plaintext, code, or styled
+fragments) also fetch bounded OpenGraph text cards through one `birc-cards`
+helper worker. Ready cards paint up to four dim text rows under their chat
+line; chat history keeps the exact original text. Fetching a card discloses
+your IP address to its host. Start with `BIRC_CARDS=off` to prevent automatic
+requests; disabling keeps a running worker until its exact completion but
+stores nothing new. Reconnecting to the same host and port keeps text cards;
+connecting elsewhere drops them and closes the overlay.
+
+Press F9 to show the newest ready image fullscreen, and F9 or Esc to close
+it. The overlay re-checks its image token, source, and terminal support on
+every paint, so it closes itself when the image is gone. Use
+`BIRC_CARDS_HELPER` to override the cards helper path for development and
+synthetic tests; an explicitly empty value uses `birc-cards` from PATH.
 
 Use `make shell` before invoking `./build/birc` directly. The Nix package defaults
 an unset helper variable to its absolute helper path. Use `BIRC_MEDIA_HELPER`

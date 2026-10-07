@@ -2,9 +2,10 @@
 # One active helper and at most 16 coalesced endpoint jobs. Keys never enter here.
 import Base
 import ./preferences.bend as P
+import ./theme.bend as Theme
 
 type Edits is Data:
-  Edits{joins: Bool, ts: Bool, motd: Bool, history: Bool, cap: Bool, auto: Bool, bell: Bool, images: Bool, mutes: Bool}
+  Edits{joins: Bool, ts: Bool, motd: Bool, history: Bool, cap: Bool, auto: Bool, bell: Bool, images: Bool, mutes: Bool, theme: Bool}
 
 type Job is Data:
   Read{ticket: Nat, host: String, port: U32, revision: Nat, deferred: List<&2, Deferred>}
@@ -27,7 +28,7 @@ def initial(on: Bool, +host: String, +port: U32, +snapshot: P.Preferences, +revi
   match on:
     case False{}: Disabled{}
     case True{}:
-      +mask : Edits = Edits{False{}, False{}, False{}, False{}, cap, False{}, False{}, images, False{}}
+      +mask : Edits = Edits{False{}, False{}, False{}, False{}, cap, False{}, False{}, images, False{}, False{}}
       State{host, port, 1n, None{}, Queue{Read{0n, host, port, revision, Deferred{snapshot, mask, revision, explicit, True{}, False{}} <> Nil{}} <> Nil{}, 0, False{}}, False{}, False{}, True{}, snapshot, mask, revision, explicit, False{}}
 
 def enabled(state: State) -> Bool:
@@ -67,8 +68,8 @@ def same(+host: String, +port: U32, other: String, n: U32) -> Bool:
 
 def canonical(prefs: P.Preferences) -> P.Preferences:
   match prefs:
-    case P.Preferences{j, t, m, h, c, a, b, i, u, channels, _}:
-      P.Preferences{j, t, m, h, c, a, b, i, u, channels, True{}}
+    case P.Preferences{j, t, m, h, c, a, b, i, u, channels, _, +th}:
+      P.Preferences{j, t, m, h, c, a, b, i, u, channels, True{}, th}
 
 def equal(a: P.Preferences, b: P.Preferences) -> Bool:
   String.eq(P.show(canonical(a)), P.show(canonical(b)))
@@ -78,17 +79,17 @@ def changed_bool(+a: Bool, +b: Bool) -> Bool:
 
 def edits(prior: Edits, before: P.Preferences, after: P.Preferences) -> Edits:
   match prior:
-    case Edits{j, t, m, h, c, a, b, i, u}:
+    case Edits{j, t, m, h, c, a, b, i, u, th}:
       match before:
-        case P.Preferences{j0, t0, m0, h0, c0, a0, b0, i0, u0, _, _}:
+        case P.Preferences{j0, t0, m0, h0, c0, a0, b0, i0, u0, _, _, th0}:
           match after:
-            case P.Preferences{j1, t1, m1, h1, c1, a1, b1, i1, u1, _, _}:
-              Edits{j || changed_bool(j0, j1), t || changed_bool(t0, t1), m || changed_bool(m0, m1), h || changed_bool(h0, h1), c || Bool.not(U32.is_eq(c0, c1)), a || changed_bool(a0, a1), b || changed_bool(b0, b1), i || changed_bool(i0, i1), u || Bool.not(String.eq(P.records_text(u0, "mute"), P.records_text(u1, "mute")))}
+            case P.Preferences{j1, t1, m1, h1, c1, a1, b1, i1, u1, _, _, th1}:
+              Edits{j || changed_bool(j0, j1), t || changed_bool(t0, t1), m || changed_bool(m0, m1), h || changed_bool(h0, h1), c || Bool.not(U32.is_eq(c0, c1)), a || changed_bool(a0, a1), b || changed_bool(b0, b1), i || changed_bool(i0, i1), u || Bool.not(String.eq(P.records_text(u0, "mute"), P.records_text(u1, "mute"))), th || Bool.not(String.eq(Theme.show(th0), Theme.show(th1)))}
 
 def mark.field(+name: String, mask: Edits) -> Edits:
   match mask:
-    case Edits{j, t, m, h, c, a, b, i, u}:
-      Edits{j || String.eq(name, "joins"), t || String.eq(name, "ts"), m || String.eq(name, "motd"), h || String.eq(name, "history"), c || String.eq(name, "hist_cap"), a || String.eq(name, "autoreconn"), b || String.eq(name, "bell"), i || String.eq(name, "images"), u || String.eq(name, "mutes")}
+    case Edits{j, t, m, h, c, a, b, i, u, th}:
+      Edits{j || String.eq(name, "joins"), t || String.eq(name, "ts"), m || String.eq(name, "motd"), h || String.eq(name, "history"), c || String.eq(name, "hist_cap"), a || String.eq(name, "autoreconn"), b || String.eq(name, "bell"), i || String.eq(name, "images"), u || String.eq(name, "mutes"), th || String.eq(name, "theme")}
 
 def mark.names(names: List<&2, String>, mask: Edits) -> Edits:
   match names:
@@ -97,7 +98,7 @@ def mark.names(names: List<&2, String>, mask: Edits) -> Edits:
 
 def mask_text(mask: Edits) -> String:
   match mask:
-    case Edits{j, t, m, h, c, a, b, i, u}: P.bit(j) ++ P.bit(t) ++ P.bit(m) ++ P.bit(h) ++ P.bit(c) ++ P.bit(a) ++ P.bit(b) ++ P.bit(i) ++ P.bit(u)
+    case Edits{j, t, m, h, c, a, b, i, u, th}: P.bit(j) ++ P.bit(t) ++ P.bit(m) ++ P.bit(h) ++ P.bit(c) ++ P.bit(a) ++ P.bit(b) ++ P.bit(i) ++ P.bit(u) ++ P.bit(th)
 
 def mark.changed(changed: Bool, state: State, mask: Edits) -> State:
   match changed:
@@ -117,12 +118,12 @@ def mark(+state: State, names: List<&2, String>) -> State:
 
 def merge(+global: Bool, keep_channels: Bool, mask: Edits, current: P.Preferences, stored: P.Preferences) -> P.Preferences:
   match mask:
-    case Edits{j, t, m, h, c, a, b, i, u}:
+    case Edits{j, t, m, h, c, a, b, i, u, th}:
       match current:
-        case P.Preferences{j0, t0, m0, h0, c0, a0, b0, i0, u0, channels0, _}:
+        case P.Preferences{j0, t0, m0, h0, c0, a0, b0, i0, u0, channels0, _, th0}:
           match stored:
-            case P.Preferences{j1, t1, m1, h1, c1, a1, b1, i1, u1, channels1, _}:
-              P.Preferences{Bool.pick(Bool, global && Bool.not(j), j1, j0), Bool.pick(Bool, global && Bool.not(t), t1, t0), Bool.pick(Bool, global && Bool.not(m), m1, m0), Bool.pick(Bool, global && Bool.not(h), h1, h0), Bool.pick(U32, global && Bool.not(c), c1, c0), Bool.pick(Bool, global && Bool.not(a), a1, a0), Bool.pick(Bool, global && Bool.not(b), b1, b0), Bool.pick(Bool, global && Bool.not(i), i1, i0), Bool.pick(List<&2, String>, global && Bool.not(u), u1, u0), Bool.pick(List<&2, String>, keep_channels, channels0, channels1), True{}}
+            case P.Preferences{j1, t1, m1, h1, c1, a1, b1, i1, u1, channels1, _, th1}:
+              P.Preferences{Bool.pick(Bool, global && Bool.not(j), j1, j0), Bool.pick(Bool, global && Bool.not(t), t1, t0), Bool.pick(Bool, global && Bool.not(m), m1, m0), Bool.pick(Bool, global && Bool.not(h), h1, h0), Bool.pick(U32, global && Bool.not(c), c1, c0), Bool.pick(Bool, global && Bool.not(a), a1, a0), Bool.pick(Bool, global && Bool.not(b), b1, b0), Bool.pick(Bool, global && Bool.not(i), i1, i0), Bool.pick(List<&2, String>, global && Bool.not(u), u1, u0), Bool.pick(List<&2, String>, keep_channels, channels0, channels1), True{}, Bool.pick(Theme.Id, global && Bool.not(th), th1, th0)}
 
 def queue.same(job: Job, host: String, port: U32) -> Bool:
   match job:
@@ -212,26 +213,26 @@ def defer.queue(q: Queue, host: String, port: U32, prefs: P.Preferences, mask: E
     case Queue{jobs, code, lost}: Queue{defer.jobs(jobs, host, port, prefs, mask, revision, explicit, first, dirty), code, lost}
 
 def edits.empty() -> Edits:
-  Edits{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
+  Edits{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
 
 def edits.union(a: Edits, b: Edits) -> Edits:
   match a:
-    case Edits{j0, t0, m0, h0, c0, a0, b0, i0, u0}:
+    case Edits{j0, t0, m0, h0, c0, a0, b0, i0, u0, th0}:
       match b:
-        case Edits{j1, t1, m1, h1, c1, a1, b1, i1, u1}: Edits{j0 || j1, t0 || t1, m0 || m1, h0 || h1, c0 || c1, a0 || a1, b0 || b1, i0 || i1, u0 || u1}
+        case Edits{j1, t1, m1, h1, c1, a1, b1, i1, u1, th1}: Edits{j0 || j1, t0 || t1, m0 || m1, h0 || h1, c0 || c1, a0 || a1, b0 || b1, i0 || i1, u0 || u1, th0 || th1}
 
 def edits.fresh(a: Edits, b: Edits) -> Edits:
   match a:
-    case Edits{j0, t0, m0, h0, c0, a0, b0, i0, u0}:
+    case Edits{j0, t0, m0, h0, c0, a0, b0, i0, u0, th0}:
       match b:
-        case Edits{j1, t1, m1, h1, c1, a1, b1, i1, u1}: Edits{j0 && Bool.not(j1), t0 && Bool.not(t1), m0 && Bool.not(m1), h0 && Bool.not(h1), c0 && Bool.not(c1), a0 && Bool.not(a1), b0 && Bool.not(b1), i0 && Bool.not(i1), u0 && Bool.not(u1)}
+        case Edits{j1, t1, m1, h1, c1, a1, b1, i1, u1, th1}: Edits{j0 && Bool.not(j1), t0 && Bool.not(t1), m0 && Bool.not(m1), h0 && Bool.not(h1), c0 && Bool.not(c1), a0 && Bool.not(a1), b0 && Bool.not(b1), i0 && Bool.not(i1), u0 && Bool.not(u1), th0 && Bool.not(th1)}
 
 # Global patches retain each endpoint's own public names.
 def globals(current: P.Preferences, endpoint: P.Preferences) -> P.Preferences:
   match current:
-    case P.Preferences{j, t, m, h, c, a, b, i, u, _, _}:
+    case P.Preferences{j, t, m, h, c, a, b, i, u, _, _, +th}:
       match endpoint:
-        case P.Preferences{_, _, _, _, _, _, _, _, _, channels, known}: P.Preferences{j, t, m, h, c, a, b, i, u, channels, known}
+        case P.Preferences{_, _, _, _, _, _, _, _, _, channels, known, _}: P.Preferences{j, t, m, h, c, a, b, i, u, channels, known, th}
 
 def rebase.job(job: Job, +prefs: P.Preferences, +mask: Edits, diff: Edits) -> Job:
   match job:
@@ -520,12 +521,15 @@ def loaded.match(same_ticket: Bool, current: Bool, state: State, got: Maybe<&2, 
     case False{}: Completion{state, None{}, False{}, False{}}
     case True{}: loaded.endpoint(current, state, got, code, job)
 
-def loaded(+state: State, +ticket: Nat, got: Maybe<&2, P.Preferences>, code: U32) -> Completion:
+def loaded.eligible(eligible: Bool, +state: State, +ticket: Nat, +got: Maybe<&2, P.Preferences>, code: U32) -> Completion:
   match state:
     case Disabled{}: Completion{Disabled{}, None{}, False{}, False{}}
     case State{host, port, _, Some{Read{+owned, +read_host, +read_port, read_revision, deferred}}, _, _, _, _, _, _, _, _, _}:
-      loaded.match(Nat.is_eq(ticket, owned), same(host, port, read_host, read_port), state, got, code, Read{owned, read_host, read_port, read_revision, deferred})
+      loaded.match(Nat.is_eq(ticket, owned), eligible && same(host, port, read_host, read_port), state, got, code, Read{owned, read_host, read_port, read_revision, deferred})
     case _: Completion{state, None{}, False{}, False{}}
+
+def loaded(+state: State, +ticket: Nat, got: Maybe<&2, P.Preferences>, code: U32) -> Completion:
+  loaded.eligible(True{}, state, ticket, got, code)
 
 def saved.match(same: Bool, state: State) -> State:
   match same:
@@ -538,6 +542,16 @@ def saved(+state: State, ticket: Nat) -> State:
     case State{_, _, _, Some{Write{owned, _, _, _}}, _, _, _, _, _, _, _, _, _}:
       saved.match(Nat.is_eq(ticket, owned), state)
     case _: state
+
+def read_current(state: State, +ticket: Nat) -> Bool:
+  match state:
+    case State{host, port, _, Some{Read{owned, h, p, _, _}}, _, _, _, _, _, _, _, _, _}: Nat.is_eq(ticket, owned) && same(host, port, h, p)
+    case _: False{}
+
+def write_at(state: State, +ticket: Nat, +host: String, +port: U32) -> Bool:
+  match state:
+    case State{_, _, _, Some{Write{owned, h, p, _}}, _, _, _, _, _, _, _, _, _}: Nat.is_eq(ticket, owned) && same(host, port, h, p)
+    case _: False{}
 
 def write_current(state: State, +ticket: Nat) -> Bool:
   match state:

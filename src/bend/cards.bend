@@ -4,6 +4,7 @@
 # terminal image support. The helper owns fetching; Bend owns scheduling.
 import Base
 import ./links.bend as Links
+import ./wire_style.bend as Ws
 import ./buffer.bend as Cl
 import ./split.bend as Sp
 import ./media.bend as M
@@ -48,27 +49,29 @@ def eligible_url(+url: String) -> Bool:
     && Bool.not(String.is_empty(url)) && Nat.is_le(String.length(url), URL_MAX())
     && Bool.not(has_del(url))
 
-def member(xs: List<&2, String>, +url: String) -> Bool:
-  match xs:
-    case Nil{}: False{}
-    case Con{+h, t}: String.eq(h, url) || member(t, url)
-
-def targets_filter.keep(keep: Bool, +url: String, tail: List<&2, String>) -> List<&2, String>:
-  match keep:
+def targets_keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, String>:
+  match hit:
     case True{}: url <> tail
     case False{}: tail
 
-def targets_filter(xs: List<&2, String>, +media: List<&2, String>) -> List<&2, String>:
+# One walk over the shared boundary-aware runs: exact chat URLs minus the run
+# the media worker owns (automatic images and explicit ![alt](url) intents via
+# the shared per-run verdict). A bare duplicate of an image-intent URL keeps
+# its own card run; flattened string exclusion would drop it. Code and styled
+# runs stay opaque via Ws; style-infixed and SOH-glued links degrade first.
+def targets_go(xs: List<&2, Ws.SRun>, +previous: String) -> List<&2, String>:
   match xs:
     case Nil{}: Nil{}
-    case Con{+url, tail}:
-      targets_filter.keep(eligible_url(url) && Bool.not(member(media, url)),
-        url, targets_filter(tail, media))
+    case Con{Ws.SRun{+attrs, _, _, +text, url}, +tail}:
+      match url:
+        case None{}:
+          targets_go(tail, Bool.pick(String, U32.is_eq(attrs, 0), previous ++ text, ""))
+        case Some{+exact}:
+          targets_keep(eligible_url(exact) && Bool.not(M.media_run_hit(previous, exact, tail)),
+            exact, targets_go(tail, ""))
 
-# Exact chat URLs minus anything the media worker already owns (automatic
-# images and explicit ![alt](url) intents). Code runs stay opaque via Links.
 def targets(+text: String) -> List<&2, String>:
-  List.take(&2, String, targets_filter(Links.extract(text), M.targets(text)), CAP())
+  List.take(&2, String, targets_go(Ws.url_runs(text), ""), CAP())
 
 type Fields is Data:
   Fields{title: String, desc: String, image: String}
@@ -139,6 +142,13 @@ def enabled(state: State) -> Bool:
 def generation(state: State) -> Nat:
   match state:
     case State{_, gen, _, _, _, _}: gen
+
+def active_target(+state: State) -> Maybe<&2, Target>:
+  match state:
+    case State{_, _, _, active, _, _}:
+      match active:
+        case None{}: None{}
+        case Some{Request{+target, _, _, _}}: Some{target}
 
 def pending_count(state: State) -> Nat:
   match state:
@@ -488,6 +498,27 @@ def rows_for_target.maybe(m: Maybe<&2, Ready>, +w: U32) -> List<&2, V.BodyRow>:
 def rows_for_target(state: State, +target: Target, +url: String, +w: U32) -> List<&2, V.BodyRow>:
   rows_for_target.maybe(card(state, target, url), w)
 
+def ready_target(r: Ready) -> Target:
+  match r:
+    case Ready{+target, _, _, _, _}: target
+
+def paint_entries.entry(target: Target, +texts: List<&2, String>, tail: List<&2, V.CardEntry>) -> List<&2, V.CardEntry>:
+  match target:
+    case CardInline{id}: V.CardEntry{id, texts} <> tail
+    case CardManual{}: tail
+
+def paint_entries.go(xs: List<&2, Ready>) -> List<&2, V.CardEntry>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+r, t}: paint_entries.entry(ready_target(r), card_texts(r), paint_entries.go(t))
+
+# Width-independent paint data for the View cascade: one entry per ready
+# inline card with its formatted texts. View wraps at pane width and caps rows
+# per card. Manual cards have no anchor line and stay out of chat paint.
+def paint_entries(state: State) -> List<&2, V.CardEntry>:
+  match state:
+    case State{_, _, _, _, _, ready}: paint_entries.go(ready)
+
 # ---- Visible admission (same panes, rows, mutes, and anchors as paint) ----
 
 def visible_urls(urls: List<&2, String>, +id: Nat) -> List<&2, Candidate>:
@@ -568,11 +599,85 @@ def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +medi
 def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
   newest(visible_panes(cl, rows, cols, split, media))
 
+# Cards-aware scheduling over the exact painted rows: card rows that push a
+# chat line out of the viewport also keep it out of the scheduled set.
+# Negotiated-cm scheduling over the exact painted rows: the same
+# cm-aware anchored owner the live paint path uses
+# (V.anchored_lines_media_cards_cm), so mute filtering agrees with paint and
+# offscreen rows stay unscheduled. Default-RFC scheduling would mute rows
+# paint retains (e.g. a[b under CASEMAPPING=ascii with muted a{b) and leak
+# hidden URLs into the queue.
+def visible_buffer_cards.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}:
+      match b:
+        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
+          visible_crop(V.anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, server,
+            List.length(&2, Cl.Line, lines), media, cards), lines, height, scroll)
+
+def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  match b:
+    case Cl.Buffer{name, _, _, _, _, _}:
+      visible_buffer_cards.allowed_cm(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
+        b, height, w, show_ts, mutes, server, media, cards)
+
+def visible_split_cards_cm(+cm: String, pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  match pair:
+    case (+r1, +r2):
+      match cl:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+          List.append(&2, Candidate,
+            visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
+              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards),
+            visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
+              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards))
+
+def visible_single_cards_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  match cl:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+      visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
+        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards)
+
+def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  match split:
+    case Sp.Off{}: visible_single_cards_cm(cm, cl, rows, cols, media, cards)
+    case Sp.On{axis, first, second, _}:
+      visible_split_cards_cm(cm, V.split_rects(axis, V.lay_body_rect(V.lay(rows, cols, 0))), cl, first, second, media, cards)
+
+def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  newest(visible_panes_cards_cm(cm, cl, rows, cols, split, media, cards))
+
+# Fixed-default scheduling delegates to the cm-aware traversal with the
+# long-standing default mapping, so an absent burst changes nothing.
+def visible_buffer_cards.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_buffer_cards.allowed_cm(Cl.dflt_cm(), allowed, b, height, w, show_ts, mutes, server, media, cards)
+
+def visible_buffer_cards(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, server, media, cards)
+
+def visible_split_cards(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_split_cards_cm(Cl.dflt_cm(), pair, cl, first, second, media, cards)
+
+def visible_single_cards(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_single_cards_cm(Cl.dflt_cm(), cl, rows, cols, media, cards)
+
+def visible_panes_cards(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_panes_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, cards)
+
+def visible_candidates_cards(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_candidates_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, cards)
+
 # ---- Fullscreen images (one overlay; Bend owns open/close, C only paints) ----
 
 type Fullscreen is Data:
   FullOff{}
   FullOn{target: M.Target, url: String, token: U32}
+
+# One retained cell: the cards worker state plus the fullscreen overlay.
+# Session keeps a single boxed one-element list of these (live_context idiom).
+type Retained is Data:
+  Retained{st: State, full: Fullscreen}
 
 # Only accepted nonzero media tokens open, and only on supported terminals.
 # Unsupported terminals keep exact URL text plus the one media log line.

@@ -23,10 +23,10 @@ def submit_no_wire(pair: Cl.Client & List<&2, String>) -> Bool:
 
 def local_commands(+net: Sess.NetState) -> Bool:
   +cl = Cl.init("me", "s")
-  +settings = result_client(Sess.apply_keys(cl, net, 6667, "/settings", True{}))
-  +disabled = result_client(Sess.apply_keys(settings, net, 6667, "/set autoreconn off", True{}))
-  +preview = result_client(Sess.apply_keys(cl, net, 6667, "/preview /tmp/x.png", True{}))
-  +search = result_client(Sess.apply_keys(cl, net, 6667, "/search hello", True{}))
+  +settings = result_client(Sess.apply_keys(cl, net, 6667, "/settings", True{}, False{}))
+  +disabled = result_client(Sess.apply_keys(settings, net, 6667, "/set autoreconn off", True{}, False{}))
+  +preview = result_client(Sess.apply_keys(cl, net, 6667, "/preview /tmp/x.png", True{}, False{}))
+  +search = result_client(Sess.apply_keys(cl, net, 6667, "/search hello", True{}, False{}))
   String.eq(Sub.active_name(settings), "*settings*")
     && Bool.not(Cl.settings_autoreconn(Cl.get_settings(disabled)))
     && String.eq(Sub.active_name(preview), "*preview*")
@@ -50,9 +50,9 @@ def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("offline_local", local_commands(Sess.Offline{}))
     Unit <- E.must("connecting_local", local_commands(Sess.Connecting{}))
-    Unit <- E.must("offline_wire_rejected", no_wire(Sess.apply_keys(channel(), Sess.Offline{}, 6667, "hello", True{})))
-    Unit <- E.must("connecting_wire_rejected", no_wire(Sess.apply_keys(channel(), Sess.Connecting{}, 6667, "/me hello", True{})))
-    Unit <- E.must("offline_close_local", no_wire(Sess.apply_keys(channel(), Sess.Offline{}, 6667, "/close", True{})))
+    Unit <- E.must("offline_wire_rejected", no_wire(Sess.apply_keys(channel(), Sess.Offline{}, 6667, "hello", True{}, False{})))
+    Unit <- E.must("connecting_wire_rejected", no_wire(Sess.apply_keys(channel(), Sess.Connecting{}, 6667, "/me hello", True{}, False{})))
+    Unit <- E.must("offline_close_local", no_wire(Sess.apply_keys(channel(), Sess.Offline{}, 6667, "/close", True{}, False{})))
     Unit <- E.must("synthetic_me_rejected", submit_no_wire(Sub.submit(client(Sub.submit(Cl.init("me", "s"), "/settings")), "/me waves")))
     Unit <- E.must("channel_me_allowed", Bool.not(submit_no_wire(Sub.submit(channel(), "/me waves"))))
     Unit <- E.must("query_me_allowed", Bool.not(submit_no_wire(Sub.submit(client(Sub.submit(Cl.init("me", "s"), "/query alice")), "/me waves"))))

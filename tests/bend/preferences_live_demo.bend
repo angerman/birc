@@ -6,12 +6,13 @@ import ../../src/bend/preferences_runtime.bend as R
 import ../../src/bend/preferences_live.bend as L
 import ../../src/bend/session.bend as S
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/theme.bend as Theme
 
 def session() -> S.Session:
   S.session_demo_at(Cl.init("me", "irc.example"), "#initial", 6697)
 
 def snapshot(known: Bool, channels: List<&2, String>) -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, True{}, 200, True{}, False{}, False{}, Nil{}, channels, known}
+  P.Preferences{False{}, False{}, False{}, True{}, 200, True{}, False{}, False{}, Nil{}, channels, known, Theme.Dark{}}
 
 def started(pair: R.State & Maybe<&2, R.Job>) -> L.Context:
   match pair:

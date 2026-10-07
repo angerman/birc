@@ -28,13 +28,19 @@ def CAP_ACCOUNT() -> String:
 def CAP_AWAY() -> String:
   "away-notify"
 
+# Single owner of the chathistory capability name and negotiated bit. The
+# history-search policy matches through this registry (never a second
+# owner); the live session reads chathistory_ok as `negotiated`.
+def CAP_CHATHISTORY() -> String:
+  "draft/chathistory"
+
 # Requested set, in stable wire order. Outbound typing rides on message-tags.
 def wanted.sasl(want: Bool) -> List<&2, String>:
   match want:
     case True{}:
-      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> Nil{}
+      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> Nil{}
     case False{}:
-      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> Nil{}
+      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> Nil{}
 
 def wanted(+has_sasl: Bool) -> List<&2, String>:
   wanted.sasl(has_sasl)
@@ -132,12 +138,18 @@ def cap_caps_text(+m: Irc.Message) -> String:
   cap_caps_text.star(m, Irc.ieq(Irc.msg_param(m, 1n), "LS") && String.eq(Irc.msg_param(m, 2n), "*"))
 
 # G6.1: CAP state changes only on lines from a validated server source
-# addressed to our current nick (or the established '*' registration
-# recipient). A peer user cannot set our caps, and another recipient's
+# addressed to our current nick. The established '*' recipient is the
+# pre-registration broadcast address: the single CAP/registration owner
+# supplies `registered`, and a registered session must see its own current
+# nick. A peer user cannot set our caps, and another recipient's
 # negotiation is not ours. An empty prefix carries no attestation and stays
-# shut.
-def cap_recipient_ok(+m: Irc.Message, +nick: String) -> Bool:
-  Irc.ieq(Irc.msg_param(m, 0n), nick) || String.eq(Irc.msg_param(m, 0n), "*")
+# shut. This name-level gate is the shared owner (history_search delegates
+# here); no second recipient rule may fork it.
+def cap_recipient_name_ok(+recipient: String, +nick: String, registered: Bool) -> Bool:
+  Irc.ieq(recipient, nick) || (Bool.not(registered) && String.eq(recipient, "*"))
+
+def cap_recipient_ok(+m: Irc.Message, +nick: String, registered: Bool) -> Bool:
+  cap_recipient_name_ok(Irc.msg_param(m, 0n), nick, registered)
 
 # Source validation mirrors Auth.server_source through the shared
 # Endpoint.host_ok primitive: single-label and dotted servers alike are
@@ -149,16 +161,16 @@ def cap_recipient_ok(+m: Irc.Message, +nick: String) -> Bool:
 def server_source(+prefix: String) -> Bool:
   Endpoint.host_ok(prefix)
 
-def cap_trusted(+prefix: String, +server: String, +nick: String, +m: Irc.Message) -> Bool:
-  server_source(prefix) && cap_recipient_ok(m, nick)
+def cap_trusted(+prefix: String, +server: String, +nick: String, +m: Irc.Message, registered: Bool) -> Bool:
+  server_source(prefix) && cap_recipient_ok(m, nick, registered)
 
 def cap_event.gated(+m: Irc.Message, ok: Bool) -> CapEvent:
   match ok:
     case False{}: CapEvent{CapOther{}, Nil{}}
     case True{}: CapEvent{cap_kind(Irc.msg_param(m, 1n)), Commands.words(cap_caps_text(m))}
 
-def cap_event(+server: String, +nick: String, +prefix: String, +m: Irc.Message) -> CapEvent:
-  cap_event.gated(m, Irc.ieq(Irc.msg_command(m), "CAP") && cap_trusted(prefix, server, nick, m))
+def cap_event(+server: String, +nick: String, +prefix: String, +m: Irc.Message, registered: Bool) -> CapEvent:
+  cap_event.gated(m, Irc.ieq(Irc.msg_command(m), "CAP") && cap_trusted(prefix, server, nick, m, registered))
 
 def cap_kind_of(e: CapEvent) -> CapKind:
   match e:
@@ -169,13 +181,13 @@ def cap_is_ls(k: CapKind) -> Bool:
     case CapLs{}: True{}
     case _: False{}
 
-def cap_kind_line.parsed(+server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>) -> CapKind:
+def cap_kind_line.parsed(+server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>, registered: Bool) -> CapKind:
   match m:
     case None{}: CapOther{}
-    case Some{+msg}: cap_kind_of(cap_event(server, nick, Irc.source_prefix(line), msg))
+    case Some{+msg}: cap_kind_of(cap_event(server, nick, Irc.source_prefix(line), msg, registered))
 
-def cap_kind_line(+server: String, +nick: String, +line: String) -> CapKind:
-  cap_kind_line.parsed(server, nick, line, Irc.parse(line))
+def cap_kind_line(+server: String, +nick: String, +line: String, registered: Bool) -> CapKind:
+  cap_kind_line.parsed(server, nick, line, Irc.parse(line), registered)
 
 # Servers may advertise values ('sasl=PLAIN'); match the bare name too.
 def cap_match.one(+have: String, +want: String) -> Bool:
@@ -190,22 +202,22 @@ def has_cap(+xs: List<&2, String>, +want: String) -> Bool:
   has_cap.go(xs, want)
 
 type Caps is Data:
-  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool}
+  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool, chathistory: Bool}
 
 def caps0() -> Caps:
-  Caps{False{}, False{}, False{}, False{}, False{}}
+  Caps{False{}, False{}, False{}, False{}, False{}, False{}}
 
 def caps_enable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa}:
-      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL())}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch}:
+      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL()), ch || cap_match.one(name, CAP_CHATHISTORY())}
 
 # G6.2: removal mirrors enable. A DEL line clears every listed cap, and a
 # '-' entry inside an ACK clears that one cap; other caps are untouched.
 def caps_disable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa}:
-      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL()))}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch}:
+      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL())), ch && Bool.not(cap_match.one(name, CAP_CHATHISTORY()))}
 
 def cap_negated(+name: String) -> Bool:
   String.starts_with(name, "-")
@@ -246,25 +258,29 @@ def caps_apply(+caps: Caps, e: CapEvent) -> Caps:
   match e:
     case CapEvent{+kind, +xs}: caps_apply.kind(caps, xs, kind)
 
-def caps_apply_line.parsed(+caps: Caps, +server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>) -> Caps:
+def caps_apply_line.parsed(+caps: Caps, +server: String, +nick: String, +line: String, m: Maybe<&2, Irc.Message>, registered: Bool) -> Caps:
   match m:
     case None{}: caps
-    case Some{+msg}: caps_apply(caps, cap_event(server, nick, Irc.source_prefix(line), msg))
+    case Some{+msg}: caps_apply(caps, cap_event(server, nick, Irc.source_prefix(line), msg, registered))
 
-def caps_apply_line(+caps: Caps, +server: String, +nick: String, +line: String) -> Caps:
-  caps_apply_line.parsed(caps, server, nick, line, Irc.parse(line))
+def caps_apply_line(+caps: Caps, +server: String, +nick: String, +line: String, registered: Bool) -> Caps:
+  caps_apply_line.parsed(caps, server, nick, line, Irc.parse(line), registered)
 
 def tags_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, +mt, _, _, _}: mt
+    case Caps{_, +mt, _, _, _, _}: mt
 
 def account_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, +ac, _, _}: ac
+    case Caps{_, _, +ac, _, _, _}: ac
 
 def away_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, +aw, _}: aw
+    case Caps{_, _, _, +aw, _, _}: aw
+
+def chathistory_ok(+caps: Caps) -> Bool:
+  match caps:
+    case Caps{_, _, _, _, _, +ch}: ch
 
 # ---- account/away notify --------------------------------------------------
 # The server only sends these about visible users, so no roster check is
@@ -458,10 +474,18 @@ def step_out.target(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, +targ
     case True{}: step_out.same(target, live, sent_ms, now_ms, composing)
     case False{}: step_out.moved(cur, live, now_ms, target, composing)
 
-def step_out.scope(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
+# Negotiated target comparison: the same/different-target decision folds under
+# the caller's CASEMAPPING through the shared Cl.buf_eq_cm comparator (one
+# fold owner: Irc.fold_casemap), matching the cards/message `_cm` threading.
+# Fixed wrappers below delegate with Cl.dflt_cm() ("rfc1459"), which folds
+# exactly like Irc.ieq, so an absent 005 burst changes nothing.
+def step_out.scope_cm(+cm: String, +cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match valid:
-    case True{}: step_out.target(cur, live, sent_ms, now_ms, target, composing, Irc.ieq(cur, target))
+    case True{}: step_out.target(cur, live, sent_ms, now_ms, target, composing, Cl.buf_eq_cm(cm, cur, target))
     case False{}: (Out{"", False{}, now_ms, True{}}, Nil{})
+
+def step_out.scope(+cur: String, live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
+  step_out.scope_cm(Cl.dflt_cm(), cur, live, sent_ms, now_ms, valid, target, composing)
 
 # G6.5: the uninitialized state is unobserved, not a timestamp. sent_ms only
 # becomes a baseline after a first tick; without that, the half-range stale
@@ -480,15 +504,21 @@ def step_out.stale(+sent_ms: U32, +now_ms: U32, seen: Bool) -> Bool:
 
 # G6.4: a tick older than the last send (clock skew) stays quiet AND keeps
 # its state on every path: no done/active send, no live flip, no sent_ms move.
-def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
+def step_out.fresh_cm(+cm: String, +cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
   match stale:
     case True{}: (Out{cur, live, sent_ms, True{}}, Nil{})
-    case False{}: step_out.scope(cur, live, sent_ms, now_ms, valid, target, composing)
+    case False{}: step_out.scope_cm(cm, cur, live, sent_ms, now_ms, valid, target, composing)
 
-def step_out(+st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
+def step_out.fresh(+cur: String, +live: Bool, +sent_ms: U32, +now_ms: U32, valid: Bool, +target: String, composing: Bool, stale: Bool) -> OutState & List<&2, String>:
+  step_out.fresh_cm(Cl.dflt_cm(), cur, live, sent_ms, now_ms, valid, target, composing, stale)
+
+def step_out_cm(+cm: String, +st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
   match st:
     case Out{+cur, +live, +sent, +seen}:
-      step_out.fresh(cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, step_out.stale(sent, now_ms, seen))
+      step_out.fresh_cm(cm, cur, live, sent, now_ms, online && tags_ok && out_target_ok(target), target, composing, step_out.stale(sent, now_ms, seen))
+
+def step_out(+st: OutState, +now_ms: U32, online: Bool, tags_ok: Bool, +target: String, composing: Bool) -> OutState & List<&2, String>:
+  step_out_cm(Cl.dflt_cm(), st, now_ms, online, tags_ok, target, composing)
 
 # ---- session-owned registration state -------------------------------------
 # One value for the integrator to store: negotiated caps plus outbound typing.
@@ -501,18 +531,21 @@ type Reg is Data:
 def reg0() -> Reg:
   Reg{caps0(), out0()}
 
-def reg_on_line(+reg: Reg, +server: String, +nick: String, +line: String) -> Reg:
+def reg_on_line(+reg: Reg, +server: String, +nick: String, +line: String, registered: Bool) -> Reg:
   match reg:
-    case Reg{+caps, +out}: Reg{caps_apply_line(caps, server, nick, line), out}
+    case Reg{+caps, +out}: Reg{caps_apply_line(caps, server, nick, line, registered), out}
 
 def reg_out.done(+caps: Caps, pair: OutState & List<&2, String>) -> Reg & List<&2, String>:
   match pair:
     case (+out, +outs): (Reg{caps, out}, outs)
 
-def reg_out(+reg: Reg, +now_ms: U32, online: Bool, +target: String, composing: Bool) -> Reg & List<&2, String>:
+def reg_out_cm(+cm: String, +reg: Reg, +now_ms: U32, online: Bool, +target: String, composing: Bool) -> Reg & List<&2, String>:
   match reg:
     case Reg{+caps, +out}:
-      reg_out.done(caps, step_out(out, now_ms, online, tags_ok(caps), target, composing))
+      reg_out.done(caps, step_out_cm(cm, out, now_ms, online, tags_ok(caps), target, composing))
+
+def reg_out(+reg: Reg, +now_ms: U32, online: Bool, +target: String, composing: Bool) -> Reg & List<&2, String>:
+  reg_out_cm(Cl.dflt_cm(), reg, now_ms, online, target, composing)
 
 def step_reg(pair: Reg & List<&2, String>) -> Reg:
   match pair:
@@ -532,8 +565,11 @@ def reg_target(+reg: Reg) -> String:
 def live_composing(+target: String, +draft: String) -> Bool:
   out_target_ok(target) && Bool.not(String.is_empty(draft))
 
+def live_tick_cm(+cm: String, +reg: Reg, +now_ms: U32, online: Bool, +target: String, +draft: String) -> Reg & List<&2, String>:
+  reg_out_cm(cm, reg, now_ms, online, target, live_composing(target, draft))
+
 def live_tick(+reg: Reg, +now_ms: U32, online: Bool, +target: String, +draft: String) -> Reg & List<&2, String>:
-  reg_out(reg, now_ms, online, target, live_composing(target, draft))
+  live_tick_cm(Cl.dflt_cm(), reg, now_ms, online, target, draft)
 
 # ---- law/test predicates ---------------------------------------------------
 
@@ -573,33 +609,35 @@ def cap_end_single_owner_ok() -> Bool:
     && list_has(req_lines(False{}), "CAP REQ :away-notify")
 
 def caps_parse_ok() -> Bool:
-  +acked = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify")
-  +lsed = caps_apply_line(caps0(), "s", "me", ":s CAP me LS * :away-notify")
-  +naked = caps_apply_line(caps0(), "s", "me", ":s CAP me NAK :message-tags")
-  +chat = caps_apply_line(caps0(), "s", "me", ":alice!u@h PRIVMSG me :CAP ACK message-tags")
+  +acked = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify", True{})
+  +lsed = caps_apply_line(caps0(), "s", "me", ":s CAP me LS * :away-notify", True{})
+  +naked = caps_apply_line(caps0(), "s", "me", ":s CAP me NAK :message-tags", True{})
+  +chat = caps_apply_line(caps0(), "s", "me", ":alice!u@h PRIVMSG me :CAP ACK message-tags", True{})
   tags_ok(acked) && account_ok(acked) && Bool.not(away_ok(acked))
     && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed))
     && Bool.not(tags_ok(naked))
     && Bool.not(tags_ok(chat))
 
 # G6.1 guards: user prefixes and foreign recipients never enable; our server
-# addressing us (or the '*' registration recipient) does.
+# addressing us (or the '*' registration recipient while unregistered) does.
+# A registered '*' line is rejected: caps stay unchanged.
 def cap_trust_ok() -> Bool:
-  +legit = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags")
-  +star = caps_apply_line(caps0(), "s", "me", ":s CAP * ACK :message-tags")
-  +spoof = caps_apply_line(caps0(), "s", "me", ":alice!u@h CAP me ACK :message-tags")
-  +other = caps_apply_line(caps0(), "s", "me", ":s CAP other ACK :message-tags")
-  +bare = caps_apply_line(caps0(), "s", "me", "CAP me ACK :message-tags")
+  +legit = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +star = caps_apply_line(caps0(), "s", "me", ":s CAP * ACK :message-tags", False{})
+  +star_reg = caps_apply_line(caps0(), "s", "me", ":s CAP * ACK :message-tags", True{})
+  +spoof = caps_apply_line(caps0(), "s", "me", ":alice!u@h CAP me ACK :message-tags", True{})
+  +other = caps_apply_line(caps0(), "s", "me", ":s CAP other ACK :message-tags", True{})
+  +bare = caps_apply_line(caps0(), "s", "me", "CAP me ACK :message-tags", True{})
   tags_ok(legit) && tags_ok(star)
-    && Bool.not(tags_ok(spoof)) && Bool.not(tags_ok(other)) && Bool.not(tags_ok(bare))
+    && Bool.not(tags_ok(star_reg)) && Bool.not(tags_ok(spoof)) && Bool.not(tags_ok(other)) && Bool.not(tags_ok(bare))
 
 # G6.2 guards: DEL clears, '-cap' inside ACK clears, enable still works, and
 # untouched caps survive a removal.
 def caps_removal_ok() -> Bool:
-  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify away-notify")
-  +neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags")
-  +del = caps_apply_line(on, "s", "me", ":s CAP me DEL :account-notify away-notify")
-  +reack = caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags")
+  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify away-notify", True{})
+  +neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags", True{})
+  +del = caps_apply_line(on, "s", "me", ":s CAP me DEL :account-notify away-notify", True{})
+  +reack = caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags", True{})
   +direct = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapDel{}, "message-tags" <> Nil{}})
   +direct_neg = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapAck{}, "-message-tags" <> Nil{}})
   tags_ok(on) && account_ok(on) && away_ok(on)
@@ -761,9 +799,9 @@ def reg_live(pair: Reg & List<&2, String>) -> Bool:
 # after it, and a NAK-only server stays quiet. Hostile CAP lines never arm it.
 def reg_gating_ok() -> Bool:
   +bare = reg0()
-  +acked = reg_on_line(reg_on_line(bare, "s", "me", ":s CAP me LS :message-tags"), "s", "me", ":s CAP me ACK :message-tags")
-  +naked = reg_on_line(bare, "s", "me", ":s CAP me NAK :message-tags")
-  +spoofed = reg_on_line(bare, "s", "me", ":alice!u@h CAP me ACK :message-tags")
+  +acked = reg_on_line(reg_on_line(bare, "s", "me", ":s CAP me LS :message-tags", True{}), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +naked = reg_on_line(bare, "s", "me", ":s CAP me NAK :message-tags", True{})
+  +spoofed = reg_on_line(bare, "s", "me", ":alice!u@h CAP me ACK :message-tags", True{})
   +bare_quiet = reg_quiet(reg_out(bare, 1000, True{}, "#a", True{}))
   bare_quiet && reg_denied(reg_out(naked, 1000, True{}, "#a", True{})) && reg_denied(reg_out(spoofed, 1000, True{}, "#a", True{})) && reg_live(reg_out(acked, 1000, True{}, "#a", True{}))
 
@@ -848,15 +886,15 @@ def out_sentinel_ok() -> Bool:
 # and rejects URL, delimiter, and empty-label sources; peer prefixes and a
 # valid single-label server never drive CAP state or user presence.
 def cap_source_ok() -> Bool:
-  +single = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags")
-  +dotted = caps_apply_line(caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags")
-  +url = caps_apply_line(caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags")
-  +colon = caps_apply_line(caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags")
-  +comma = caps_apply_line(caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags")
-  +empty_label = caps_apply_line(caps0(), "s", "me", ":a..b CAP me ACK :message-tags")
+  +single = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags", True{})
+  +dotted = caps_apply_line(caps0(), "irc.example.com", "me", ":irc.example.com CAP me ACK :message-tags", True{})
+  +url = caps_apply_line(caps0(), "s", "me", ":http://evil.com/x CAP me ACK :message-tags", True{})
+  +colon = caps_apply_line(caps0(), "s", "me", ":a:b.c CAP me ACK :message-tags", True{})
+  +comma = caps_apply_line(caps0(), "s", "me", ":a,b.c CAP me ACK :message-tags", True{})
+  +empty_label = caps_apply_line(caps0(), "s", "me", ":a..b CAP me ACK :message-tags", True{})
   tags_ok(single) && tags_ok(dotted)
     && Bool.not(tags_ok(url)) && Bool.not(tags_ok(colon)) && Bool.not(tags_ok(comma)) && Bool.not(tags_ok(empty_label))
-    && cap_is_ls(cap_kind_line("s", "me", ":s CAP * LS :sasl message-tags"))
-    && Bool.not(cap_is_ls(cap_kind_line("s", "me", ":alice!u@h CAP * LS :sasl")))
+    && cap_is_ls(cap_kind_line("s", "me", ":s CAP * LS :sasl message-tags", False{}))
+    && Bool.not(cap_is_ls(cap_kind_line("s", "me", ":alice!u@h CAP * LS :sasl", False{})))
     && is_other(notify_event("s", "hub", Irc.Message{"", "hub", "AWAY", 0, "nightly restart" <> Nil{}}))
     && is_away_on(notify_event("s", "bob!u@h", Irc.Message{"", "bob", "AWAY", 0, "out" <> Nil{}}), "bob", "out")

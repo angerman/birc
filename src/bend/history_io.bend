@@ -41,6 +41,14 @@ def maybe_save_history.check(enabled: Bool, +path: String, +endpoint: String, +o
     case False{}: IO.pure(Maybe<&2, String>, None{})
     case True{}: history_append_file(path, H.extract_new_history_for(endpoint, old_cl, new_cl))
 
+# Exclusion variant: imported archive rows (the drain's claimed IDs,
+# installed in the session owner) become the next baseline instead of
+# being appended again. Live rows always save.
+def maybe_save_history.check_except(enabled: Bool, +path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> IO(Maybe<&2, String>):
+  match enabled:
+    case False{}: IO.pure(Maybe<&2, String>, None{})
+    case True{}: history_append_file(path, H.extract_new_history_for_except(endpoint, old_cl, new_cl, excluded))
+
 def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> IO(Maybe<&2, String>):
   maybe_save_history.check(
     Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(new_cl)),

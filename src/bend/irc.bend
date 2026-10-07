@@ -167,6 +167,46 @@ def rfc1459(+s: String) -> String:
 def ieq(+a: String, +b: String) -> Bool:
   String.eq(rfc1459(a), rfc1459(b))
 
+# Negotiated CASEMAPPING fold shared by fixed and 005-driven compares.
+# ascii folds A-Z only; rfc1459-strict adds []\ <-> {|} but not ^~;
+# rfc1459 (the default) also folds ^ <-> ~. Unknown names fail closed
+# to the default rfc1459 mapping.
+def strict_code.rb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 125
+    case False{}: n
+
+def strict_code.bs(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 124
+    case False{}: strict_code.rb(n, U32.is_eq(n, 93))
+
+def strict_code.lb(+n: U32, hit: Bool) -> U32:
+  match hit:
+    case True{}: 123
+    case False{}: strict_code.bs(n, U32.is_eq(n, 92))
+
+def strict_code(+n: U32) -> U32:
+  strict_code.lb(n, U32.is_eq(n, 91))
+
+def strict_char(+c: Char) -> Char:
+  match c:
+    case Chr{n}: Chr{strict_code(n)}
+
+def strict.go(+s: String) -> String:
+  match s:
+    case SNil{}: SNil{}
+    case SCon{+h, t}: SCon{strict_char(h), strict.go(t)}
+
+def strict_fold(+s: String) -> String:
+  strict.go(String.to_upper(s))
+
+def fold_casemap(+cm: String, +s: String) -> String:
+  match cm:
+    case "ascii": String.to_upper(s)
+    case "rfc1459-strict": strict_fold(s)
+    case _: rfc1459(s)
+
 def is_chan_type(+c: Char) -> Bool:
   code_is(c, 35) || code_is(c, 38) || code_is(c, 43) || code_is(c, 33)  # # & + !
 
@@ -245,6 +285,110 @@ def nick_of_prefix(s: String) -> String:
       ""
     case SCon{+h, t}:
       nick_of_prefix.keep(h, nick_of_prefix(t), is_bang_or_at(h))
+
+# ---- parse --------------------------------------------------------------
+
+def push_param(ps: List<&2, String>, p: String) -> List<&2, String>:
+  p <> ps
+
+def params_done(ps: List<&2, String>) -> List<&2, String>:
+  List.reverse(&2, String, ps)
+
+type ParPhase is Data:
+  ParFuel{}
+  ParRest{}
+  ParColon{}
+  ParMid{}
+
+# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed parse_params.go
+def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>, +h: Char, t: String, +rest: String, colon: Bool, pair: String & String) -> List<&2, String>:
+  match fuel:
+    case 0n:
+      params_done(ps)
+    case 1n+p:
+      match phase:
+        case ParFuel{}:
+          parse_params.go(p, ParRest{}, drop_spaces(s), ps, h, t, rest, colon, pair)
+        case ParRest{}:
+          match s:
+            case SNil{}:
+              params_done(ps)
+            case SCon{+hd, +tl}:
+              parse_params.go(p, ParColon{}, "", ps, hd, tl, SCon{hd, tl}, is_colon(hd), pair)
+        case ParColon{}:
+          match colon:
+            case True{}:
+              params_done(push_param(ps, t))
+            case False{}:
+              parse_params.go(p, ParMid{}, s, ps, h, t, rest, False{}, take_until_space(rest))
+        case ParMid{}:
+          (tok, more) = pair
+          parse_params.go(p, ParFuel{}, more, push_param(ps, tok), h, t, rest, False{}, ("", ""))
+
+def parse_params(+s: String) -> List<&2, String>:
+  parse_params.go(
+    Nat.add(1n, Nat.mul(4n, String.length(s))),
+    ParFuel{},
+    s,
+    Nil{},
+    Chr{0},
+    "",
+    "",
+    False{},
+    ("", "")
+  )
+
+def take_8_exact.on(+sub: String, is8: Bool) -> String:
+  match is8:
+    case True{}:
+      sub
+    case False{}:
+      ""
+
+def take_8_exact(+s: String) -> String:
+  +sub = String.take(s, 8n)
+  take_8_exact.on(sub, Nat.is_eq(String.length(sub), 8n))
+
+def take_8_hhmmss.pick(is_t: Bool, +t: String, +rest: String) -> String:
+  match is_t:
+    case True{}:
+      take_8_exact(t)
+    case False{}:
+      rest
+
+def take_8_hhmmss.go(fuel: Nat, s: String) -> String:
+  match fuel:
+    case 0n:
+      ""
+    case 1n+p:
+      match s:
+        case SNil{}:
+          ""
+        case SCon{+h, +t}:
+          take_8_hhmmss.pick(code_is(h, 84), t, take_8_hhmmss.go(p, t))
+
+def extract_time_val(+val: String) -> String:
+  take_8_hhmmss.go(Nat.add(1n, String.length(val)), val)
+
+def parse_server_time.is_time(+tag: String, is_tm: Bool) -> String:
+  match is_tm:
+    case True{}:
+      extract_time_val(String.drop(tag, 5n))
+    case False{}:
+      ""
+
+def parse_server_time.on_tag(+tag: String, acc: String) -> String:
+  match acc:
+    case SNil{}:
+      parse_server_time.is_time(tag, String.starts_with(tag, "time="))
+    case SCon{+h, +t}:
+      SCon{h, t}
+
+def parse_server_time.step(acc: String, tag: String) -> String:
+  parse_server_time.on_tag(tag, acc)
+
+def parse_server_time(+tags: String) -> String:
+  List.foldl(~&2, ~String, ~String, ~parse_server_time.step, String.split(tags, Chr{59}), "")
 
 # Inbound: drop C0 except SOH (CTCP), drop DEL, strip mIRC colour (0x03+digits).
 def is_c0_drop(+c: Char) -> Bool:
@@ -370,146 +514,6 @@ def proto_soh(+s: String) -> String:
 # text on every input.
 def proto_atom(+s: String) -> String:
   proto_soh(sanitize_in(s))
-
-# Style-bearing inbound bytes: SOH (CTCP framing) plus the mIRC formatting
-# set (toggles, color introducer, reset, monospace). The color introducer
-# keeps its parameter bytes so the view decoder consumes exactly what
-# skip_mirc would. Every other C0/DEL byte is dropped, including TAB/CR/LF,
-# so BIRC2 fields and stored lines stay intact while chat styles survive.
-def is_style_keep(+c: Char) -> Bool:
-  +n = code_of(c)
-  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
-    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
-
-type KeepPh is Data:
-  KeepStr{}
-  KeepHit{h: Char, drop: Bool}
-
-def sanitize_keep_style_go(fuel: Nat, ph: KeepPh, +s: String) -> String:
-  match fuel:
-    case 0n:
-      SNil{}
-    case 1n+p:
-      match ph:
-        case KeepStr{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              sanitize_keep_style_go(p, KeepHit{hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd))}, t)
-        case KeepHit{h, drop}:
-          match drop:
-            case True{}:
-              sanitize_keep_style_go(p, KeepStr{}, s)
-            case False{}:
-              SCon{h, sanitize_keep_style_go(p, KeepStr{}, s)}
-
-def sanitize_keep_style(+s: String) -> String:
-  sanitize_keep_style_go(Nat.add(1n, Nat.mul(4n, String.length(s))), KeepStr{}, s)
-
-# ---- parse --------------------------------------------------------------
-
-def push_param(ps: List<&2, String>, p: String) -> List<&2, String>:
-  p <> ps
-
-def params_done(ps: List<&2, String>) -> List<&2, String>:
-  List.reverse(&2, String, ps)
-
-type ParPhase is Data:
-  ParFuel{}
-  ParRest{}
-  ParColon{}
-  ParMid{}
-
-# checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed parse_params.go
-def parse_params.go(fuel: Nat, phase: ParPhase, s: String, ps: List<&2, String>, +h: Char, t: String, +rest: String, colon: Bool, pair: String & String) -> List<&2, String>:
-  match fuel:
-    case 0n:
-      params_done(ps)
-    case 1n+p:
-      match phase:
-        case ParFuel{}:
-          parse_params.go(p, ParRest{}, drop_spaces(s), ps, h, t, rest, colon, pair)
-        case ParRest{}:
-          match s:
-            case SNil{}:
-              params_done(ps)
-            case SCon{+hd, +tl}:
-              parse_params.go(p, ParColon{}, "", ps, hd, tl, SCon{hd, tl}, is_colon(hd), pair)
-        case ParColon{}:
-          match colon:
-            case True{}:
-              params_done(push_param(ps, t))
-            case False{}:
-              parse_params.go(p, ParMid{}, s, ps, h, t, rest, False{}, take_until_space(rest))
-        case ParMid{}:
-          (tok, more) = pair
-          parse_params.go(p, ParFuel{}, more, push_param(ps, tok), h, t, rest, False{}, ("", ""))
-
-def parse_params(+s: String) -> List<&2, String>:
-  parse_params.go(
-    Nat.add(1n, Nat.mul(4n, String.length(s))),
-    ParFuel{},
-    s,
-    Nil{},
-    Chr{0},
-    "",
-    "",
-    False{},
-    ("", "")
-  )
-
-def take_8_exact.on(+sub: String, is8: Bool) -> String:
-  match is8:
-    case True{}:
-      sub
-    case False{}:
-      ""
-
-def take_8_exact(+s: String) -> String:
-  +sub = String.take(s, 8n)
-  take_8_exact.on(sub, Nat.is_eq(String.length(sub), 8n))
-
-def take_8_hhmmss.pick(is_t: Bool, +t: String, +rest: String) -> String:
-  match is_t:
-    case True{}:
-      take_8_exact(t)
-    case False{}:
-      rest
-
-def take_8_hhmmss.go(fuel: Nat, s: String) -> String:
-  match fuel:
-    case 0n:
-      ""
-    case 1n+p:
-      match s:
-        case SNil{}:
-          ""
-        case SCon{+h, +t}:
-          take_8_hhmmss.pick(code_is(h, 84), t, take_8_hhmmss.go(p, t))
-
-def extract_time_val(+val: String) -> String:
-  take_8_hhmmss.go(Nat.add(1n, String.length(val)), val)
-
-def parse_server_time.is_time(+tag: String, is_tm: Bool) -> String:
-  match is_tm:
-    case True{}:
-      extract_time_val(String.drop(tag, 5n))
-    case False{}:
-      ""
-
-def parse_server_time.on_tag(+tag: String, acc: String) -> String:
-  match acc:
-    case SNil{}:
-      parse_server_time.is_time(tag, String.starts_with(tag, "time="))
-    case SCon{+h, +t}:
-      SCon{h, t}
-
-def parse_server_time.step(acc: String, tag: String) -> String:
-  parse_server_time.on_tag(tag, acc)
-
-def parse_server_time(+tags: String) -> String:
-  List.foldl(~&2, ~String, ~String, ~parse_server_time.step, String.split(tags, Chr{59}), "")
 
 def parse_after_prefix.empty(empty: Bool, +time: String, +cmd: String, +more: String, +nick: String) -> Maybe<&2, Message>:
   match empty:
@@ -654,6 +658,43 @@ def strip_ctl(s: String) -> String:
     case SCon{+h, t}:
       strip_ctl.keep(h, strip_ctl(t), is_crlf(h))
 
+
+# Style-bearing inbound bytes: SOH (CTCP framing) plus the mIRC formatting
+# set (toggles, color introducer, reset, monospace). The color introducer
+# keeps its parameter bytes so the view decoder consumes exactly what
+# skip_mirc would. Every other C0/DEL byte is dropped, including TAB/CR/LF,
+# so BIRC2 fields and stored lines stay intact while chat styles survive.
+def is_style_keep(+c: Char) -> Bool:
+  +n = code_of(c)
+  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
+    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
+
+type KeepPh is Data:
+  KeepStr{}
+  KeepHit{h: Char, drop: Bool}
+
+def sanitize_keep_style_go(fuel: Nat, ph: KeepPh, +s: String) -> String:
+  match fuel:
+    case 0n:
+      SNil{}
+    case 1n+p:
+      match ph:
+        case KeepStr{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+hd, t}:
+              sanitize_keep_style_go(p, KeepHit{hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd))}, t)
+        case KeepHit{h, drop}:
+          match drop:
+            case True{}:
+              sanitize_keep_style_go(p, KeepStr{}, s)
+            case False{}:
+              SCon{h, sanitize_keep_style_go(p, KeepStr{}, s)}
+
+def sanitize_keep_style(+s: String) -> String:
+  sanitize_keep_style_go(Nat.add(1n, Nat.mul(4n, String.length(s))), KeepStr{}, s)
+
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
 
@@ -797,14 +838,20 @@ def typing_target.pick(+nick: String, +target: String, channel: Bool) -> String:
 def typing_target(+nick: String, +target: String) -> String:
   typing_target.pick(nick, target, starts_channel(target))
 
-def typing_set_event(+nick: String, +target: String, status: TypingStatus) -> TypingEvent:
+# Identity seam: TypingEvents carry normalized atoms so styled wire
+# bytes can neither pollute stored names nor evade clears. Bodies,
+# history, and framed lines keep their own bytes untouched.
+def typing_set_event.norm(+n: String, +t: String, status: TypingStatus) -> TypingEvent:
   match status:
     case TypingDone{}:
-      TypingClear{nick, typing_target(nick, target)}
+      TypingClear{n, typing_target(n, t)}
     case TypingActive{}:
-      TypingSet{nick, typing_target(nick, target), TypingActive{}}
+      TypingSet{n, typing_target(n, t), TypingActive{}}
     case TypingPaused{}:
-      TypingSet{nick, typing_target(nick, target), TypingPaused{}}
+      TypingSet{n, typing_target(n, t), TypingPaused{}}
+
+def typing_set_event(+nick: String, +target: String, status: TypingStatus) -> TypingEvent:
+  typing_set_event.norm(proto_atom(nick), proto_atom(target), status)
 
 def typing_tagmsg(+m: Message, status: TypingStatus) -> TypingEvent:
   typing_set_event(msg_nick(m), msg_param(m, 0n), status)
@@ -817,7 +864,7 @@ def typing_from_tagmsg(+m: Message, status: Maybe<&2, TypingStatus>) -> Maybe<&2
       None{}
 
 def typing_from_kick(+m: Message) -> TypingEvent:
-  TypingClear{msg_param(m, 1n), chan_target(msg_param(m, 0n))}
+  TypingClear{proto_atom(msg_param(m, 1n)), chan_target(proto_atom(msg_param(m, 0n)))}
 
 def typing_from_message(+m: Message) -> TypingEvent:
   typing_set_event(msg_nick(m), msg_param(m, 0n), TypingDone{})
@@ -831,13 +878,13 @@ def typing_event_cmd(+m: Message, status: Maybe<&2, TypingStatus>, c: Cmd) -> Ma
     case Notice{}:
       Some{typing_from_message(m)}
     case Part{}:
-      Some{TypingClear{msg_nick(m), chan_target(msg_param(m, 0n))}}
+      Some{TypingClear{proto_atom(msg_nick(m)), chan_target(proto_atom(msg_param(m, 0n)))}}
     case Kick{}:
       Some{typing_from_kick(m)}
     case Quit{}:
-      Some{TypingClearAll{msg_nick(m)}}
+      Some{TypingClearAll{proto_atom(msg_nick(m))}}
     case Nick{}:
-      Some{TypingClearAll{msg_nick(m)}}
+      Some{TypingClearAll{proto_atom(msg_nick(m))}}
     case _:
       None{}
 

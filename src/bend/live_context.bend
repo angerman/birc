@@ -68,6 +68,19 @@ def gate_matches(gate: Gate, +gen: U32, +ep: String) -> Bool:
     case Waiting{wanted, scope}: U32.is_eq(wanted, gen) && String.eq(scope, ep)
     case Ready{}: False{}
 
+def gate_of.details(value: Details) -> Gate:
+  match value:
+    case Details{_, gate, _, _, _, _}: gate
+
+def gate_of(ctx: Context) -> Gate:
+  gate_of.details(details(ctx))
+
+# Acceptance is exactly the Waiting->Ready resolve: every reject path (stale
+# ticket, wrong gen/endpoint, changed settings, waiting prefs) keeps the
+# gate, so a stale completion can never seed notify state.
+def history_accepted(before: Context, after: Context) -> Bool:
+  gate_ready(gate_of(after)) && Bool.not(gate_ready(gate_of(before)))
+
 def history_allowed.details(value: Details, +st: S.Session) -> Bool:
   match value:
     case Details{_, gate, decision, _, _, _}:
@@ -85,6 +98,27 @@ def waiting.details(value: Details) -> Bool:
 
 def waiting(ctx: Context) -> Bool:
   waiting.details(details(ctx))
+
+def busy.details(value: Details) -> Bool:
+  match value:
+    case Details{prefs, _, _, _, _, _}: L.busy(prefs)
+
+def busy(ctx: Context) -> Bool:
+  busy.details(details(ctx))
+
+def active.details(value: Details) -> Bool:
+  match value:
+    case Details{prefs, _, _, _, _, _}: L.active(prefs)
+
+def active(ctx: Context) -> Bool:
+  active.details(details(ctx))
+
+def clean.details(value: Details) -> Bool:
+  match value:
+    case Details{prefs, _, _, _, _, _}: R.clean(L.state(prefs))
+
+def clean(ctx: Context) -> Bool:
+  clean.details(details(ctx))
 
 def gate_scope(gate: Gate, +st: S.Session, gen: U32) -> Gate:
   match gate:
@@ -148,6 +182,16 @@ def saved.details(value: Details, st: S.Session, ticket: Nat, code: U32) -> Cont
 
 def saved(ctx: Context, st: S.Session, ticket: Nat, code: U32) -> Context & S.Session & List<&2, String> & Bool:
   saved.details(details(ctx), st, ticket, code)
+
+# Retire only the physical preference ticket. Stale origins cannot resolve
+# history policy, install settings, resume JOINs, or add Session diagnostics.
+def retire.details(value: Details, m: S.UiMsg) -> Context:
+  match value:
+    case Details{prefs, gate, decision, path, active, next}:
+      wrap(Details{L.retire(prefs, m), gate, decision, path, active, next})
+
+def retire(ctx: Context, m: S.UiMsg) -> Context:
+  retire.details(details(ctx), m)
 
 def start.archive(active: Maybe<&2, Archive>, prefs: L.Context, gate: Gate, decision: Maybe<&2, Bool>, +path: String, next: Nat, evt: Chan(S.UiMsg)) -> IO(Context):
   match active:

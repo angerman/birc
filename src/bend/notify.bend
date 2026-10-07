@@ -17,10 +17,19 @@
 # Titles and bodies both pass the diagnostic redaction (credentials and
 # URLs never leak) and are bounded before any metadata handoff. Delivery
 # lives in notify_io.bend; this module stays pure and proof-facing.
-# Session dispatch, default helper provisioning, and async delivery are
-# open runtime gates (N9.3), not a completed desktop feature.
+#
+# Collection walks buffers in buffer order, but event ids are global per
+# scope: folding buffer-ordered events through a per-scope hi-watermark lets
+# a higher id in an earlier buffer shadow lower fresh ids collected later.
+# Sorting by (scope, id) before decide makes collection+dispatch
+# order-independent: every fresh event notifies exactly once in ascending id
+# order, and the mark still owns at-most-once (replays stay silent).
+# Session dispatch and async delivery have pure seams here and in
+# session.bend/notify_io.bend; threading Notify.State through the live loop
+# and default helper provisioning stay parent merge points (N9.3).
 import Base
 import ./irc.bend as Irc
+import ./buffer.bend as Cl
 import ./diagnostic.bend as Diagnostic
 
 def BODY_CAP() -> Nat:
@@ -208,6 +217,65 @@ def decide(+st: State, +ev: NotifyEvent, user: String, pass: String) -> State & 
   +send = enabled(st) && want(ev) && fresh(st, event_scope(ev), event_id(ev))
   decide.send(st, ev, user, pass, send)
 
+def chr_lt.le(+a: U32, +b: U32, le: Bool) -> Bool:
+  match le:
+    case True{}: Bool.not(U32.is_eq(a, b))
+    case False{}: False{}
+
+def chr_lt(+a: U32, +b: U32) -> Bool:
+  chr_lt.le(a, b, U32.is_le(a, b))
+
+def str_lt.cmp(lt: Bool, gt: Bool, +tail_lt: Bool) -> Bool:
+  match lt:
+    case True{}: True{}
+    case False{}:
+      match gt:
+        case True{}: False{}
+        case False{}: tail_lt
+
+def str_lt.go(+a: String, +b: String) -> Bool:
+  match a:
+    case SNil{}:
+      match b:
+        case SNil{}: False{}
+        case SCon{_, _}: True{}
+    case SCon{+ha, +ta}:
+      match b:
+        case SNil{}: False{}
+        case SCon{+hb, +tb}:
+          +ca = Char.to_u32(ha)
+          +cb = Char.to_u32(hb)
+          str_lt.cmp(chr_lt(ca, cb), chr_lt(cb, ca), str_lt.go(ta, tb))
+
+def str_lt(+a: String, +b: String) -> Bool:
+  str_lt.go(a, b)
+
+def ev_lt.scope(+ida: Nat, +sa: String, +idb: Nat, +sb: String) -> Bool:
+  str_lt.cmp(str_lt(sa, sb), str_lt(sb, sa), Nat.is_lt(ida, idb))
+
+def ev_lt.b(+b: NotifyEvent, +ida: Nat, +sa: String) -> Bool:
+  match b:
+    case NotifyEvent{+idb, +sb, _, _, _, _, _}: ev_lt.scope(ida, sa, idb, sb)
+
+def ev_lt(+a: NotifyEvent, +b: NotifyEvent) -> Bool:
+  match a:
+    case NotifyEvent{+ida, +sa, _, _, _, _, _}: ev_lt.b(b, ida, sa)
+
+def sort_inserted(lt: Bool, +ev: NotifyEvent, +h: NotifyEvent, +t: List<&2, NotifyEvent>, +rec: List<&2, NotifyEvent>) -> List<&2, NotifyEvent>:
+  match lt:
+    case True{}: ev <> h <> t
+    case False{}: rec
+
+def sort_insert(+ev: NotifyEvent, +sorted: List<&2, NotifyEvent>) -> List<&2, NotifyEvent>:
+  match sorted:
+    case Nil{}: ev <> Nil{}
+    case Con{+h, +t}: sort_inserted(ev_lt(ev, h), ev, h, t, h <> sort_insert(ev, t))
+
+def sort_events(+evs: List<&2, NotifyEvent>) -> List<&2, NotifyEvent>:
+  match evs:
+    case Nil{}: Nil{}
+    case Con{+h, +t}: sort_insert(h, sort_events(t))
+
 def step.after(pair: State & Maybe<&2, Req>) -> State:
   match pair:
     case (st2, _): st2
@@ -246,3 +314,174 @@ def status(+st: State) -> String:
       match en:
         case True{}: "notifications: on (" ++ Nat.show(List.length(&2, Mark, seen)) ++ " scopes)"
         case False{}: "notifications: off"
+
+# ---- bounded async-delivery queue -------------------------------------------
+# decide() stays the at-most-once gate: every queued Req already advanced its
+# scope mark, so queued Reqs are unique per scope+id by construction. The queue
+# is fail-closed (reject-new past QUEUE_CAP, never evict) and FIFO; the frame
+# path stages at most a bounded handful per frame into detached workers.
+def QUEUE_CAP() -> Nat:
+  8n
+
+type Queue is Data:
+  Queue{pending: List<&2, Req>}
+
+def queue_empty() -> Queue:
+  Queue{Nil{}}
+
+def queue_len(+q: Queue) -> Nat:
+  match q:
+    case Queue{+pending}: List.length(&2, Req, pending)
+
+def enqueue.admit(full: Bool, +pending: List<&2, Req>, +r: Req) -> Queue:
+  match full:
+    case True{}: Queue{pending}
+    case False{}: Queue{List.append(&2, Req, pending, r <> Nil{})}
+
+def enqueue(q: Queue, r: Req) -> Queue:
+  match q:
+    case Queue{+pending}:
+      enqueue.admit(Nat.is_ge(List.length(&2, Req, pending), QUEUE_CAP()), pending, r)
+
+def enqueue_all(+q: Queue, +rs: List<&2, Req>) -> Queue:
+  List.foldl(~&2, ~Req, ~Queue, ~enqueue, rs, q)
+
+def take_jobs(+q: Queue, +n: Nat) -> Queue & List<&2, Req>:
+  match q:
+    case Queue{+pending}:
+      (Queue{List.drop(&2, Req, pending, n)}, List.take(&2, Req, pending, n))
+
+# Single-handoff drain: one call hands the whole bounded queue to the single
+# worker, FIFO. The worker delivers the handed list one job at a time; the
+# queue keeps only what was never handed (nothing here: drain_all takes all).
+def drain_all(+q: Queue) -> Queue & List<&2, Req>:
+  take_jobs(q, queue_len(q))
+
+# ---- staged dispatch (marks on admit) ----------------------------------------
+# decide() advances marks for every fresh event, even when the bounded queue
+# has no room left: dropped reqs would consume at-most-once without ever
+# reaching the worker. The staged fold instead admits each fresh event into
+# the queue first and advances that scope's mark only on admit; a full queue
+# leaves state, queue, and scan floor untouched so a later step can retry.
+# hi tracks the highest admitted id (seeded with the scan floor); the live
+# step stores it back as the new floor, so only admitted rows advance.
+type Stage is Data:
+  Stage{st: State, queue: Queue, reqs: List<&2, Req>, hi: Nat, user: String, pass: String}
+
+def stage_st(+s: Stage) -> State:
+  match s:
+    case Stage{+st, _, _, _, _, _}: st
+
+def stage_queue(+s: Stage) -> Queue:
+  match s:
+    case Stage{_, +q, _, _, _, _}: q
+
+def stage_reqs(+s: Stage) -> List<&2, Req>:
+  match s:
+    case Stage{_, _, +reqs, _, _, _}: reqs
+
+def stage_hi(+s: Stage) -> Nat:
+  match s:
+    case Stage{_, _, _, +hi, _, _}: hi
+
+def stage_admitted(full: Bool, +st: State, +q: Queue, +reqs: List<&2, Req>, +hi: Nat, +ev: NotifyEvent, +user: String, +pass: String) -> Stage:
+  match full:
+    case True{}: Stage{st, q, reqs, hi, user, pass}
+    case False{}:
+      +req : Req = Req{title_of(ev, user, pass), body_of(event_text(ev), user, pass)}
+      Stage{remember(st, event_scope(ev), event_id(ev)), enqueue(q, req), List.append(&2, Req, reqs, req <> Nil{}), Nat.max(hi, event_id(ev)), user, pass}
+
+def stage_send(send: Bool, +st: State, +q: Queue, +reqs: List<&2, Req>, +hi: Nat, +ev: NotifyEvent, +user: String, +pass: String) -> Stage:
+  match send:
+    case False{}: Stage{st, q, reqs, hi, user, pass}
+    case True{}: stage_admitted(Nat.is_ge(queue_len(q), QUEUE_CAP()), st, q, reqs, hi, ev, user, pass)
+
+def stage_step.ev(+st: State, +q: Queue, +reqs: List<&2, Req>, +hi: Nat, +ev: NotifyEvent, +user: String, +pass: String) -> Stage:
+  stage_send(enabled(st) && want(ev) && fresh(st, event_scope(ev), event_id(ev)), st, q, reqs, hi, ev, user, pass)
+
+def stage_step(acc: Stage, ev: NotifyEvent) -> Stage:
+  match acc:
+    case Stage{+st, +q, +reqs, +hi, +user, +pass}:
+      stage_step.ev(st, q, reqs, hi, ev, user, pass)
+
+def stage(+st: State, +events: List<&2, NotifyEvent>, +user: String, +pass: String, +q: Queue, +floor: Nat) -> Stage:
+  List.foldl(~&2, ~NotifyEvent, ~Stage, ~stage_step, sort_events(events), Stage{st, q, Nil{}, floor, user, pass})
+
+# ---- batch-claimed archive exclusion (per-ID, no floor bump) ------------------
+# H5's batch claim arrives as an ID set at the dispatch seam. Claimed rows are
+# filtered before sort/stage, so marks and the scan floor advance only for
+# admitted live rows. A chunk-level or global-floor bump would suppress
+# interleaved live rows with lower IDs; per-ID filtering does not. The set is
+# a plain List<Nat> so the seam works whether or not H5's claim type has
+# merged; H5 maps its batch IDs through claimed_from_ids (identity).
+def claimed_from_ids(+ids: List<&2, Nat>) -> List<&2, Nat>:
+  ids
+
+def claimed_hit(ids: List<&2, Nat>, +id: Nat) -> Bool:
+  match ids:
+    case Nil{}: False{}
+    case Con{+h, t}: Nat.is_eq(h, id) || claimed_hit(t, id)
+
+def claimed_filter.keep(hit: Bool, +ev: NotifyEvent, +tail: List<&2, NotifyEvent>) -> List<&2, NotifyEvent>:
+  match hit:
+    case True{}: tail
+    case False{}: ev <> tail
+
+def claimed_filter(events: List<&2, NotifyEvent>, +claimed: List<&2, Nat>) -> List<&2, NotifyEvent>:
+  match events:
+    case Nil{}: Nil{}
+    case Con{+ev, t}:
+      +hit = claimed_hit(claimed, event_id(ev))
+      claimed_filter.keep(hit, ev, claimed_filter(t, claimed))
+
+def stage_claimed(+st: State, +events: List<&2, NotifyEvent>, +user: String, +pass: String, +q: Queue, +floor: Nat, +claimed: List<&2, Nat>) -> Stage:
+  stage(st, claimed_filter(events, claimed), user, pass, q, floor)
+
+# ---- durable claim set (bounded union, floor prune) ---------------------------
+# Stored exclusions survive across chunks until the scan floor passes them;
+# the floor itself never bumps for archive rows, so interleaved live rows
+# stay eligible. The bound covers every single accepted import in full: an
+# install restores at most MAX_BUFFERS targets of at most SCROLL_CAP rows
+# each (history.bend reader bound; per-target room clamps to spare scroll),
+# dividers never qualify as mentions/DMs, and installed ids are fresh and
+# sequential above the pre-import sequence -- so qualifying installed ids
+# never exceed MAX_BUFFERS * SCROLL_CAP. Union keeps stored-first order and
+# prunes stored ids at/below the scan floor BEFORE capping (proven
+# exclusions: the floor and marks already cover them), dedups fresh against
+# the pruned set (dupes use no capacity, last wins), and rejects-new past
+# the cap (drops newest, never evicts stored): the same fail-closed
+# in-lane policy as the bounded notify queue, which also rejects-new past
+# QUEUE_CAP instead of evicting. Stored claims are therefore never evicted
+# for fresh ones; past-cap fresh ids stay unclaimed (a later scan may
+# notify them) rather than silently displacing proven exclusions.
+def CLAIM_CAP() -> Nat:
+  Nat.mul(Cl.MAX_BUFFERS(), Cl.SCROLL_CAP())
+
+def claim_prune.keep(keep: Bool, +id: Nat, +tail: List<&2, Nat>) -> List<&2, Nat>:
+  match keep:
+    case True{}: id <> tail
+    case False{}: tail
+
+def claim_prune(+xs: List<&2, Nat>, +floor: Nat) -> List<&2, Nat>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: claim_prune.keep(Nat.is_gt(h, floor), h, claim_prune(t, floor))
+
+def claim_fresh.keep(hit: Bool, +h: Nat, +tail: List<&2, Nat>) -> List<&2, Nat>:
+  match hit:
+    case True{}: tail
+    case False{}: h <> tail
+
+def claim_fresh(fresh: List<&2, Nat>, +stored: List<&2, Nat>) -> List<&2, Nat>:
+  match fresh:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      +tail = claim_fresh(t, stored)
+      claim_fresh.keep(claimed_hit(stored, h) || claimed_hit(tail, h), h, tail)
+
+def claim_union(+stored: List<&2, Nat>, +fresh: List<&2, Nat>) -> List<&2, Nat>:
+  +combined = List.append(&2, Nat, stored, claim_fresh(fresh, stored))
+  List.take(&2, Nat, combined, CLAIM_CAP())
+
+def claim_union_floor(+stored: List<&2, Nat>, +fresh: List<&2, Nat>, +floor: Nat) -> List<&2, Nat>:
+  claim_union(claim_prune(stored, floor), fresh)

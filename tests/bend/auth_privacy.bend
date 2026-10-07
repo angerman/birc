@@ -26,7 +26,7 @@ def result_st(trip: S.Session & S.NetCmd & Bool) -> S.Session:
 
 def result_hist(+st: S.Session) -> S.Hist:
   match st:
-    case S.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _}: hist
+    case S.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: hist
 
 def private_ok() -> Bool:
   +base = Cl.init("me", "irc")
