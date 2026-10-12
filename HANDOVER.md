@@ -1,5 +1,32 @@
 # birc pickup — 2026-10-08
 
+## Status — 2026-10-12: candidate integrated into master
+
+`master` (`03cb8c2`) now contains the former final candidate, rebased onto
+`1f988c9`. There is one branch and no linked worktree. Everything from "Start
+here" through "Current candidate evidence" describes the two trees as they were
+on 2026-10-08: its `master` results apply to `1f988c9`, not to the current
+tree, and `build/package-birc` still points to that older package. The
+integration step of remaining-work item 8 is done; its qualification is not.
+
+Checked on the integrated tree, with a host load average of 40-55 on 14 cores:
+
+- `make -j1 BIRC_NIX_SHELL=1 test-wire-style test-g3-framed test-g3-traversal`:
+  **PASS**.
+- App emit, `bend src/bend/app.bend`: exit 0 in 318 s (293 s CPU), 33.2 MB of
+  C. The recipe's fixed 300 s bound therefore timed out twice in
+  `make build-ui` (exit 124). Control on `1f988c9` under the same load: 203 s
+  (92 s CPU), 16.0 MB.
+- Native compile, `make -o build/birc_bend.c BUILD_TIMEOUT=900 build-ui` on
+  that emitted C: **PASS**, 514 s including Nix shell startup.
+- `test-ui` (demo and replay smoke): **PASS**, `birc=ok` twice.
+
+Not run on this tree: `make proof`, `make check`, `build-package`, and the
+package, PTY and sanitizer suites. The proof timeout recorded below stands
+until rerun. Build times on a quiet host are unmeasured.
+
+Roll back locally with `git reset --hard 1f988c9`.
+
 ## Start here
 
 This is a local work checkpoint, not a release or a claim that all checks pass.
@@ -164,10 +191,11 @@ upstream.
 
 ## Branch and worktree cleanup — 2026-10-12
 
-Only `master` and `checkpoint/birc-final-candidate-2026-10-08` remain as
-branches; there are no linked worktrees. The 183 other branches, 22 detached
-worktree HEADs and 17 uncommitted worktree states were recorded first under
-`refs/archive/2026-10-12/{heads,detached,wip}/`. `git branch` does not show
+Only `master` remains as a branch; there are no linked worktrees. The 183
+agent branches, 22 detached worktree HEADs and 17 uncommitted worktree states
+were recorded first under `refs/archive/2026-10-12/{heads,detached,wip}/`.
+After the integration above, the checkpoint tip `8c03cab` moved there too, as
+`heads/checkpoint/birc-final-candidate-2026-10-08`. `git branch` does not show
 them. A `wip/` ref is a commit on top of the old HEAD; `detached-w-final7295`
 keeps its staged layer as a separate parent commit.
 
