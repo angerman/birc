@@ -1,10 +1,47 @@
 # birc — agent instructions
 
+## Work mode — current process authority (2026-10-12)
+
+Follow `~/.config/ai/AGENTS.md` and the shared `iterate-fast` workflow.
+**BUILD is the default. HARDEN is for an explicit audit, release, or final
+qualification.** These modes replace older procedural rules in goals, plans,
+review checklists and this file: per-commit freezes, separate red commits,
+mandatory model/provider chains, repeated approval packets and full-suite
+reruns. Product scope, technical contracts, compatibility, source restrictions,
+security and data-safety requirements still apply.
+
+- In BUILD, choose one real user action and the smallest command that proves
+  it. Implement a vertical slice, run focused checks, and commit useful work.
+  For defects, add a failing case and a correct sibling before or with the fix.
+  A new API may be built with its tests; no design/red review gate is required.
+- Repair test setup, teardown, imports, mocks, build flags and observations
+  without approval when the intended product oracle stays intact. This includes
+  existing fixtures. Explain the repair and preserve meaningful positive and
+  negative cases. Never change expected product behavior, weaken rejection or
+  cleanup, relax safety deadlines, or hide failures to make a candidate pass.
+  Ask when the intended behavior is unresolved.
+- Keep the author through correction rounds. Use isolated worktrees for
+  concurrent writers. Review the changed behavior and its affected assumptions;
+  put unrelated findings in the existing backlog. Do not create new review
+  rounds, execution packets or plan amendments for routine corrections.
+- Run one relevant broad gate on the integrated batch. Carry unchanged evidence
+  forward; repeat checks only for changed inputs, failures or unresolved risk.
+  HARDEN adds the independent review and platform, compatibility, sanitizer and
+  release checks needed for the final claim. Keep synthetic, host and real-device
+  evidence distinct.
+- After two unsuccessful correction rounds, reduce to one reproducer and decide
+  the next implementation step. Do not grow an evidence framework. Keep one
+  short pickup note with the current result, open blocker and next command.
+- Bound heavyweight commands and owned child processes; serialize heavy builds
+  when the host is busy. Preserve cleanup, user files and unrelated work.
+  Instrument before optimizing. Never push without explicit authorization;
+  stricter project no-remote and crypto rules below remain in force.
+
 When using Bend:
 - run `bend guide` to learn it
 - use `LAWS.bend` to keep important rules
-- run `bend PROOF.bend` before committing
-- parallelize the code whenever possible
+- run affected law checks while iterating; run the full proof with the integrated batch gate
+- use parallel work only for independent, useful slices with separate writers
 
 When using timui.h:
 - one header, C99, POSIX file descriptors, no ncurses
@@ -36,7 +73,7 @@ Nix provisions dependencies. The root Makefile is the sole driver.
 ```
 make bootstrap   # create flake.lock (once)
 make shell       # enter the locked shell
-make check       # proof + Bend tests + net + UI smoke
+make check       # integrated batch gate: proof + Bend tests + net + UI smoke
 make run-demo    # offline TimUI demo
 make run HOST=…  # live verified TLS IRC; optional PORT=… or TRANSPORT=plain
 ```
@@ -165,7 +202,9 @@ silent flake/source pin updates. Routine Nix work uses
 - `src/launcher/keychain_birc.py` owns nonsecret TOML profiles and macOS `security` access. Verified TLS profiles need no relay or unsafe flag. Plaintext requires a declared trusted IPv4 loopback relay or per-launch `--allow-insecure-auth`. Resolve the TLS/default-port selection before endpoint-bound Keychain lookup. Never test real credentials or Keychain writes. Versioned ASCII envelopes preserve Unicode through security's hex-print behavior. The wrapper sends raw UTF-8 through an inherited EOF pipe; the separate one-shot `BIRC_AUTH_OK\n` pipe is emitted only on Bend's monotonic auth-success edge. Descriptor env values are not secrets; the native bridge sets CLOEXEC. Never infer success from stdout or child exit. Manual service credential commands skip local echo/history, but manually typed composer drafts remain visible.
 - Headless (stdin is not a tty) awaits the bounded initial registration result before painting `--frames N` and exiting; initial failure exits nonzero. On a tty, `N` is a message cap and the loop parks; loop tests need a pty (`make test-pty`).
 - IRCv3 `+typing` state is Bend-owned, capped at 32 entries, and expires from a one-second `TypingTick`; active lasts 6 s and paused lasts 30 s. The tick repaints only for expiry changes, writable short frames, or timed input pending after a non-key paint. The last case repairs a watcher that parked before the frame read input; normal Esc still has its 50-ms watcher deadline. Partial UTF-8 has no idle expiry. `UiKeys.more` is input-only; terminal recovery does not schedule synthetic input wakes. Ordinary frames have a 40-ms output budget; writable repairs have 200 ms; still-full repairs do not wait.
-- A new or changed pty test must pass three consecutive runs before its commit.
+- Use deterministic progress conditions in PTY tests. Repeat the affected case
+  when investigating a timing or race defect; do not require three reruns before
+  every commit. Preserve real deadlines and terminal/process cleanup assertions.
 - Prove laws; do not weaken them to make a candidate pass.
 - The pinned Bend `Bool.pick` evaluates both alternatives eagerly. For recursive branches or row construction, use parameter matches or a lazy continuation; do not pass recursive calls as its values. `BIRC_FRAME_PROFILE=1` measures pure View separately from native frame phases; instrumentation is default-off.
 - Keep proof-facing queue rules in `outbound.bend`, not the IO actor module. Importing the actor into `LAWS.bend` brings foreign/unsafe dependencies and the checker rejects the proof set.
