@@ -156,8 +156,23 @@ Exact Root prebuild, proof and focused-check logs are archived in
 split is preserved byte-for-byte; both layers are combined in the master pickup
 commit. No unrelated source was replaced and no lock file changed.
 
-At handover, all review agents are finished. Muse in sibling tmux pane `%4`
-(PID 25426) is idle on hold. Do not restore its old conversation; start a fresh
-session with this file. Assign one integration coordinator. Workers may review
-or edit disjoint source areas concurrently, but only the coordinator releases
-heavy checks. No work is pushed upstream.
+At handover, all review agents are finished and the Muse pane is gone. Do not
+restore its old conversation; start a fresh session with this file. Assign one
+integration coordinator. Workers may review or edit disjoint source areas
+concurrently, but only the coordinator releases heavy checks. No work is pushed
+upstream.
+
+## Branch and worktree cleanup — 2026-10-12
+
+Only `master` and `checkpoint/birc-final-candidate-2026-10-08` remain as
+branches; there are no linked worktrees. The 183 other branches, 22 detached
+worktree HEADs and 17 uncommitted worktree states were recorded first under
+`refs/archive/2026-10-12/{heads,detached,wip}/`. `git branch` does not show
+them. A `wip/` ref is a commit on top of the old HEAD; `detached-w-final7295`
+keeps its staged layer as a separate parent commit.
+
+```sh
+git for-each-ref refs/archive                                  # list
+git branch NAME refs/archive/2026-10-12/heads/NAME             # restore one
+git for-each-ref --format='delete %(refname)' refs/archive | git update-ref --stdin   # drop all
+```
