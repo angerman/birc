@@ -9,7 +9,7 @@ on 2026-10-08: its `master` results apply to `1f988c9`, not to the current
 tree, and `build/package-birc` still points to that older package. The
 integration step of remaining-work item 8 is done; its qualification is not.
 
-Checked on the integrated tree, with a host load average of 40-55 on 14 cores:
+Checked on the integrated tree, with a host load average of 40-55 on 10 cores:
 
 - `make -j1 BIRC_NIX_SHELL=1 test-wire-style test-g3-framed test-g3-traversal`:
   **PASS**.
@@ -21,11 +21,31 @@ Checked on the integrated tree, with a host load average of 40-55 on 14 cores:
   that emitted C: **PASS**, 514 s including Nix shell startup.
 - `test-ui` (demo and replay smoke): **PASS**, `birc=ok` twice.
 
-Not run on this tree: `make proof`, `make check`, `build-package`, and the
-package, PTY and sanitizer suites. The proof timeout recorded below stands
-until rerun. Build times on a quiet host are unmeasured.
+Not run on this tree: `make proof`, `make check`, and the package, PTY and
+sanitizer suites. The proof timeout recorded below stands until rerun. Build
+times on a quiet host are unmeasured.
 
 Roll back locally with `git reset --hard 1f988c9`.
+
+### Prebuild — 2026-10-13
+
+- Dev binary: **built**. `build/birc` (11.9 MB) is the current tree. Emit
+  393 s and compile 477 s at load 80-91, each under a 900 s bound; the recipe's
+  fixed 300 s emit bound would have failed. The emitted C is byte-identical to
+  the 2026-10-12 emit. `test-ui`: **PASS**. A following plain
+  `make -j1 build-ui` is a 2 s no-op, so `make run-demo` and `make run HOST=…`
+  start without rebuilding.
+- Package: **not built**. The `build-package` Nix command timed out four times
+  (exit 124) with bounds of 1800, 1800, 3600 and 9000 s. `build/package-birc`
+  still points to the pre-integration package. Sampled stages: third attempt,
+  codegen 33.6 min and compile cut off after 26 min; fourth, codegen 106 min
+  and compile cut off after 43 min.
+- The cause is not established. A fixed CPU loop took 16 s in a shell and 68 s
+  in a Nix daemon builder at load 25, but 15 s and 16 s at load 14 while the
+  build still crawled. The host then had about 60 MB free and compressed
+  1-3 GB of pages every 2 s. Builder CPU time and memory are not readable
+  without privileges. The same package built in 252 s on 2026-10-06.
+- Next, on a quiet host: `make -j1 build-package`, then `make -j1 test-package`.
 
 ## Start here
 
