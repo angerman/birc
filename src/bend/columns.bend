@@ -59,17 +59,17 @@ def cluster_cut(head: String, tail: String) -> Cut:
   +text = String.reverse(head)
   Cut{text, tail, cluster_width_go(text, 0, False{}, False{}, False{})}
 
-def cluster_join(s: String, head: String, k: String -> String -> Cut) -> Cut:
+def cluster_join(s: String, head: String, fuel: Nat, ri: Bool) -> Cut:
   match s:
     case SNil{}: cluster_cut(head, "")
-    case SCon{h, t}: k(t, SCon{h, head})
+    case SCon{h, t}: cluster_go(fuel, t, ri, SCon{h, head})
 
-def cluster_char(attached: Bool, zwj: Bool, +s: String, +h: Char, +t: String, +ri: Bool, head: String, k: String -> Bool -> String -> Cut) -> Cut:
+def cluster_char(attached: Bool, zwj: Bool, +s: String, +h: Char, +t: String, +ri: Bool, head: String, fuel: Nat) -> Cut:
   match attached:
-    case True{}: k(t, ri && Bool.not(regional(Char.to_u32(h))), SCon{h, head})
+    case True{}: cluster_go(fuel, t, ri && Bool.not(regional(Char.to_u32(h))), SCon{h, head})
     case False{}:
       match zwj:
-        case True{}: cluster_join(t, SCon{h, head}, rest => acc => k(rest, ri, acc))
+        case True{}: cluster_join(t, SCon{h, head}, fuel, ri)
         case False{}: cluster_cut(head, s)
 
 # Match timui_grapheme_next exactly within its documented common classes:
@@ -82,13 +82,18 @@ def cluster_go(fuel: Nat, s: String, +ri: Bool, head: String) -> Cut:
         case SNil{}: cluster_cut(head, "")
         case SCon{+h, +t}:
           +c = Char.to_u32(h)
-          cluster_char(extend(c) || (ri && regional(c)), U32.is_eq(c, 8205), SCon{h, t}, h, t, ri, head, rest => r => acc => cluster_go(p, rest, r, acc))
+          cluster_char(extend(c) || (ri && regional(c)), U32.is_eq(c, 8205), SCon{h, t}, h, t, ri, head, p)
+
+def cluster_crlf_cut(nl: Bool, +h: Char, +next: Char, +rest: String) -> Cut:
+  match nl:
+    case True{}: Cut{SCon{h, SCon{next, ""}}, rest, 0}
+    case False{}: Cut{SCon{h, ""}, SCon{next, rest}, 0}
 
 def cluster_crlf(s: String, +h: Char) -> Cut:
   match s:
     case SNil{}: Cut{SCon{h, ""}, "", 0}
     case SCon{+next, +rest}:
-      Bool.pick(Cut, U32.is_eq(Char.to_u32(next), 10), Cut{SCon{h, SCon{next, ""}}, rest, 0}, Cut{SCon{h, ""}, SCon{next, rest}, 0})
+      cluster_crlf_cut(U32.is_eq(Char.to_u32(next), 10), h, next, rest)
 
 def cluster_start(cr: Bool, lf: Bool, +h: Char, t: String) -> Cut:
   match cr:
@@ -106,9 +111,9 @@ def cluster(s: String) -> Cut:
     case SCon{+h, +t}:
       cluster_start(U32.is_eq(Char.to_u32(h), 13), U32.is_eq(Char.to_u32(h), 10), h, t)
 
-def text_width_piece(piece: Cut, k: String -> U32) -> U32:
+def text_width_piece(piece: Cut, fuel: Nat) -> U32:
   match piece:
-    case Cut{_, tail, w}: U32.add(w, k(tail))
+    case Cut{_, tail, w}: U32.add(w, text_width_go(fuel, tail))
 
 def text_width_go(fuel: Nat, s: String) -> U32:
   match fuel:
@@ -116,22 +121,22 @@ def text_width_go(fuel: Nat, s: String) -> U32:
     case 1n+p:
       match s:
         case SNil{}: 0
-        case SCon{h, t}: text_width_piece(cluster(SCon{h, t}), rest => text_width_go(p, rest))
+        case SCon{h, t}: text_width_piece(cluster(SCon{h, t}), p)
 
 def text_width(+s: String) -> U32:
   text_width_go(Nat.add(1n, String.length(s)), s)
 
-def take_cluster(fits: Bool, +s: String, piece: Cut, +used: U32, head: String, k: String -> U32 -> String -> Cut) -> Cut:
+def take_cluster(fits: Bool, +s: String, piece: Cut, +used: U32, head: String, +cap: U32, fuel: Nat) -> Cut:
   match fits:
     case False{}: Cut{String.reverse(head), s, used}
     case True{}:
       match piece:
-        case Cut{+text, tail, width}: k(tail, U32.add(used, width), String.reverse(text) ++ head)
+        case Cut{+text, tail, width}: take_go(fuel, tail, cap, U32.add(used, width), String.reverse(text) ++ head)
 
-def take_piece(piece: Cut, +s: String, +cap: U32, +used: U32, head: String, k: String -> U32 -> String -> Cut) -> Cut:
+def take_piece(piece: Cut, +s: String, +cap: U32, +used: U32, head: String, fuel: Nat) -> Cut:
   match piece:
     case Cut{+text, +tail, +width}:
-      take_cluster(U32.is_le(U32.add(used, width), cap), s, Cut{text, tail, width}, used, head, k)
+      take_cluster(U32.is_le(U32.add(used, width), cap), s, Cut{text, tail, width}, used, head, cap, fuel)
 
 # Fit complete common grapheme clusters. The returned width is in columns,
 # not code points or UTF-8 bytes.
@@ -142,7 +147,7 @@ def take_go(fuel: Nat, s: String, +cap: U32, +used: U32, head: String) -> Cut:
       match s:
         case SNil{}: Cut{String.reverse(head), "", used}
         case SCon{+h, +t}:
-          take_piece(cluster(SCon{h, t}), SCon{h, t}, cap, used, head, rest => w => acc => take_go(p, rest, cap, w, acc))
+          take_piece(cluster(SCon{h, t}), SCon{h, t}, cap, used, head, p)
 
 def take(+s: String, cap: U32) -> Cut:
   take_go(Nat.add(1n, String.length(s)), s, cap, 0, "")
