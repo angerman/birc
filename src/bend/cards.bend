@@ -475,9 +475,13 @@ def nonempty(xs: List<&2, String>) -> List<&2, String>:
     case Con{+h, t}: nonempty.keep(String.is_empty(h), h, nonempty(t))
 
 def card_texts(r: CardReady) -> List<&2, String>:
+# The empty-title URL fallback fires only when a description keeps the card
+# text-bearing: all-empty cards yield no texts (zero rows in both cascades),
+# while image-only cards keep their single thumbnail row.
   match r:
     case CardReady{_, +url, +title, +desc, +image}:
-      nonempty([Bool.pick(String, String.is_empty(title), url, title), desc,
+      nonempty([Bool.pick(String, String.is_empty(title),
+        Bool.pick(String, String.is_empty(desc), "", url), title), desc,
         Bool.pick(String, String.is_empty(image), "", "image: " ++ image)])
 
 def rows_for_texts(xs: List<&2, String>, +w: U32) -> List<&2, V.BodyRow>:

@@ -93,7 +93,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("full card paints three rows", Nat.show(List.length(&2, V.BodyRow, C.rows_for(full_card(), 80))), "3")
     Unit <- E.must_eq("card row text", sequence(C.rows_for(full_card(), 80)), "Hello|A description|image: https://x.test/i.png")
     Unit <- E.must_eq("empty title falls back to URL", sequence(C.rows_for(C.CardReady{C.CardInline{1n}, page(), "", "D", ""}, 80)), page() ++ "|D")
-    Unit <- E.must_eq("empty card still names URL", sequence(C.rows_for(C.CardReady{C.CardInline{1n}, page(), "", "", ""}, 80)), page())
+    Unit <- E.must_eq("empty card paints nothing", sequence(C.rows_for(C.CardReady{C.CardInline{1n}, page(), "", "", ""}, 80)), "")
     +long : String = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     Unit <- E.must_eq("card rows capped at four", Nat.show(List.length(&2, V.BodyRow, C.rows_for(C.CardReady{C.CardInline{1n}, page(), "T", long, ""}, 10))), "4")
     +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
