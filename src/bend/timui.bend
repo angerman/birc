@@ -61,9 +61,9 @@ def Timui.view_begin(ui):
 # reseeds the composer from input, including "". Key policy is Bend's
 # (Sess.key_pol). The UI does not poll. Watchers park; this frame does not wait.
 law Timui.frame:
-  Ui -> List<&2, V.DrawOp> -> String -> U32 -> IO(Ui & UiKeys)
+  Ui -> List<&2, V.DrawOp> -> String -> U32 -> U32 -> IO(Ui & UiKeys)
 
-def Timui.frame(ui, ops, input, seed):
+def Timui.frame(ui, ops, input, seed, compose_x):
   import "../ffi/timui_ffi.c"
 
 # Read-only, nonblocking maintenance probe for timed input or writable output.

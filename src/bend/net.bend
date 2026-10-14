@@ -164,10 +164,10 @@ def frame_clipboard.on(+text: String, empty: Bool, notice: Maybe<&2, Chan(Sess.U
 def frame_clipboard(+text: String, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
   frame_clipboard.on(text, String.is_empty(text), notice)
 
-def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32) -> IO(T.Ui & T.UiKeys):
+def paint_vm(ui: T.Ui, +vm: V.ViewModel, +seed: U32, +compose_x: U32) -> IO(T.Ui & T.UiKeys):
   match vm:
     case V.ViewModel{+ops, +inp}:
-      T.Timui.frame(ui, ops, inp, seed)
+      T.Timui.frame(ui, ops, inp, seed, compose_x)
 
 def paint_overlay(+vm: V.ViewModel, +full: C.Fullscreen, +media: M.State, +client: Cl.Client, +rows: U32, +cols: U32) -> V.ViewModel:
   match vm:
@@ -194,7 +194,7 @@ def paint_go.hint(
     case Sess.Size{+rows, +cols}:
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed)
+        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl)))
 
 def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +cm: String, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
   paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th)

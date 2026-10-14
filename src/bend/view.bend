@@ -1351,15 +1351,16 @@ def mid_w(+cols: U32) -> U32:
 def status_y.on(+rows: U32, ge: Bool) -> U32:
   match ge:
     case True{}:
-      U32.sub(rows, 2)
+      U32.sub(rows, 1)
     case False{}:
       0
 
 def status_y(+rows: U32) -> U32:
-  status_y.on(rows, U32.is_ge(rows, 2))
+  status_y.on(rows, U32.is_ge(rows, 1))
 
 # Body last occupied row is y+h-1. Keep y+h <= status_y so the box never
-# reaches the status (or composer) row. Prefer y=1 (row 0 is tabs bar).
+# reaches the status row. The composer lives on the last inner body row.
+# Prefer y=1 (row 0 is tabs bar).
 def body_top.small(+end: U32, ge: Bool) -> U32:
   match ge:
     case True{}:
@@ -1496,6 +1497,63 @@ def last_body_row.of(lay0: Lay) -> U32:
 def last_body_row(+rows: U32) -> U32:
   last_body_row.of(lay(rows, 80, 0))
 
+# Inline composer: the last inner body row is always reserved, even for an
+# empty draft, so history layout never jumps. History paints in the box
+# above that row; the <nick> prefix paints at the row with normal nick
+# styling, and C draws the text_area widget after it at body_x+compose_x.
+def body_hist_h.on(+h: U32, zero: Bool) -> U32:
+  match zero:
+    case True{}:
+      0
+    case False{}:
+      U32.sub(h, 1)
+
+def body_hist_h(+h: U32) -> U32:
+  body_hist_h.on(h, U32.is_zero(h))
+
+def body_hist_rect(r: Rect) -> Rect:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      Rect{x, y, w, body_hist_h(h)}
+
+def composer_nick(+nick: String) -> String:
+  Bool.pick(String, String.is_empty(nick), "*", nick)
+
+def composer_prefix(+nick: String) -> String:
+  "<" ++ composer_nick(nick) ++ "> "
+
+def composer_x(+nick: String) -> U32:
+  Cols.text_width(composer_prefix(nick))
+
+def composer_spans(+nick: String) -> List<&2, SpanOp>:
+  +shown = composer_nick(nick)
+  Spn{0, "<"} <> (Col{1, nick_color(shown), shown} <> (Spn{0, "> "} <> Nil{}))
+
+def composer_ops(r: Rect, +nick: String) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      OpLine{inner_x(x), inner_last(y, h), inner_w(w), FG_TEXT(), composer_spans(nick)} <> Nil{}
+
+# Split mode: C draws one text widget in the bottom-most/left-most body
+# (src/ffi/timui_ffi.c chooser over the OpSplit panes), so Bend paints the
+# <nick> prefix only in that widget pane. Side-by-side panes share a
+# bottom edge and the left pane wins; stacked panes share a left edge
+# and the bottom pane wins. Mirrors the C ordering on outer rects:
+# inner bottom is y+h-1 and inner x is x+1, so the order agrees.
+def split_second_wins(+b1: U32, +x1: U32, +b2: U32, +x2: U32) -> Bool:
+  U32.is_gt(b2, b1) || (U32.is_eq(b2, b1) && U32.is_lt(x2, x1))
+
+def split_widget_is_r1(r1: Rect, r2: Rect) -> Bool:
+  match r1 r2:
+    case Rect{+x1, +y1, _, +h1} Rect{+x2, +y2, _, +h2}:
+      Bool.not(split_second_wins(U32.add(y1, h1), x1, U32.add(y2, h2), x2))
+
+def split_composer_rect(+r1: Rect, +r2: Rect) -> Rect:
+  Bool.pick(Rect, split_widget_is_r1(r1, r2), r1, r2)
+
+def split_composer_ops(+r1: Rect, +r2: Rect, +nick: String) -> List<&2, DrawOp>:
+  composer_ops(split_composer_rect(r1, r2), nick)
+
 
 def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
   match ge:
@@ -1610,7 +1668,7 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
 
 def view_ops.rest(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
   List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, body_ops(br, bod),
+    List.append(&2, DrawOp, body_ops(body_hist_rect(br), bod),
     List.append(&2, DrawOp, nick_ops(nr, title, nicks),
       op_text(sr, FG_DIM(), st) <> Nil{})))
 
@@ -1636,7 +1694,7 @@ def view_ops(
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st))
+        List.append(&2, DrawOp, view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st), composer_ops(br, nick)))
 
 def preview_path_of.on(+topic: String, preview: Bool) -> String:
   match preview:
@@ -1650,7 +1708,7 @@ def preview_path_of(+b: Cl.Buffer) -> String:
 
 def rect_vis_h(r: Rect) -> Nat:
   match r:
-    case Rect{_, _, _, +h}: Sp.inner_extent(h)
+    case Rect{_, _, _, +h}: Sp.inner_extent(body_hist_h(h))
 
 def rect_vis_w(r: Rect) -> U32:
   match r:
@@ -2000,11 +2058,11 @@ def view_ops_split(
                op_split(body, axis)
                  <> List.append(&2, DrawOp, body_box(r1, title1),
                       List.append(&2, DrawOp, image_ops(r1, preview1),
-                        List.append(&2, DrawOp, body_ops(r1, body1),
+                        List.append(&2, DrawOp, body_ops(body_hist_rect(r1), body1),
                           List.append(&2, DrawOp, body_box(r2, title2),
-                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(r2, body2))))))),
+                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(body_hist_rect(r2), body2))))))),
         List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
-          op_text(status_rect, FG_DIM(), status) <> Nil{}))
+          List.append(&2, DrawOp, op_text(status_rect, FG_DIM(), status) <> Nil{}, split_composer_ops(r1, r2, nick))))
 
 def view_split_source.rects(
   pair: Rect & Rect,
@@ -2430,6 +2488,18 @@ def FG_DIM_themed(+th: Theme.Id) -> U32:
 def FG_TEXT_themed(+th: Theme.Id) -> U32:
   Theme.kind_fg(th, Cl.Msg{})
 
+def composer_spans_themed(+nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  +shown = composer_nick(nick)
+  Spn{0, "<"} <> (Col{1, nick_color_themed(th, shown), shown} <> (Spn{0, "> "} <> Nil{}))
+
+def composer_ops_themed(r: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      OpLine{inner_x(x), inner_last(y, h), inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th)} <> Nil{}
+
+def split_composer_ops_themed(+r1: Rect, +r2: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
+  composer_ops_themed(split_composer_rect(r1, r2), nick, th)
+
 def user_header_ops.split_themed(r: Rect, +base: String, +net: String, empty: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
   match r:
     case Rect{+x, +y, +w, _}:
@@ -2779,7 +2849,7 @@ def nick_ops_themed(r: Rect, +title: String, +names: List<&2, String>, +th: Them
 
 def view_ops.rest_themed(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +th: Theme.Id) -> List<&2, DrawOp>:
   List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, body_ops_themed(br, bod, th),
+    List.append(&2, DrawOp, body_ops_themed(body_hist_rect(br), bod, th),
     List.append(&2, DrawOp, nick_ops_themed(nr, title, nicks, th),
       op_text(sr, FG_DIM_themed(th), st) <> Nil{})))
 
@@ -2806,7 +2876,7 @@ def view_ops_themed(
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, user_header_ops_themed(ur, nick, server, net, th), body_box_themed(br, btitle, th)),
-        view_ops.rest_themed(br, bod, preview, nr, ntitle, nicks, sr, st, th))
+        List.append(&2, DrawOp, view_ops.rest_themed(br, bod, preview, nr, ntitle, nicks, sr, st, th), composer_ops_themed(br, nick, th)))
 
 def view_ops_split_themed(
   lay0: Lay,
@@ -2840,11 +2910,11 @@ def view_ops_split_themed(
                op_split(body, axis)
                  <> List.append(&2, DrawOp, body_box_themed(r1, title1, th),
                       List.append(&2, DrawOp, image_ops(r1, preview1),
-                        List.append(&2, DrawOp, body_ops_themed(r1, body1, th),
+                        List.append(&2, DrawOp, body_ops_themed(body_hist_rect(r1), body1, th),
                           List.append(&2, DrawOp, body_box_themed(r2, title2, th),
-                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops_themed(r2, body2, th))))))),
+                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops_themed(body_hist_rect(r2), body2, th))))))),
         List.append(&2, DrawOp, nick_ops_themed(nicks_rect, ntitle, nicks, th),
-          op_text(status_rect, FG_DIM_themed(th), status) <> Nil{}))
+          List.append(&2, DrawOp, op_text(status_rect, FG_DIM_themed(th), status) <> Nil{}, split_composer_ops_themed(r1, r2, nick, th))))
 
 def view_split_source.rects_themed(
   pair: Rect & Rect,

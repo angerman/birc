@@ -1200,25 +1200,18 @@ static void birc_render_selection(TimuiCellBuffer *buf, BircUi *bu) {
 }
 
 
-static int draw_composer(TimuiFrame *fr, int x, int y, int width, TimuiStyle st,
+static int draw_composer(TimuiFrame *fr, int x, int y, int width,
                          BircUi *stt, size_t *tlen) {
   TimuiId id;
   TimuiRect r;
   TimuiTextAreaResult res;
-  int prompt_w;
   size_t n;
   if (!fr || !stt) return 0;
-  (void)st;
-  prompt_w = width > 2 ? 2 : 0;
-  if (prompt_w > 0) {
-    TimuiStyle p_st = timui_style_make(0xFFD700, TIMUI_COLOR_DEFAULT, 0);
-    timui_label(fr, x, y, (TimuiStr){"❯ ", 4}, p_st);
-  }
   id = TIMUI_ID("birc.composer");
   if (timui_focus(fr) != id) timui_set_focus(fr, id);
-  r.x = x + prompt_w;
+  r.x = x;
   r.y = y;
-  r.w = width - prompt_w;
+  r.w = width;
   if (r.w < 1) r.w = 1;
   r.h = 1;
   res = timui_text_area_mut(fr, id, r, &stt->st, TIMUI_TEXT_AREA_ENTER_SUBMITS);
@@ -1232,6 +1225,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   uint64_t n_in = 0;
   char *input;
   u32 seed = (u32)f[3];
+  u32 compose_x = (u32)f[4];
   TimuiFrame *fr = NULL;
   BircUi *bu = birc_state(ui);
   uint64_t profile_t0 = bu && bu->profile_enabled ? birc_profile_now_ns() : 0;
@@ -1286,9 +1280,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     TimuiRect root = timui_root(fr);
     TimuiCellBuffer *buf = timui_frame_buffer(fr);
     TimuiStyle panel = timui_theme_style(&ui->theme, TIMUI_SLOT_PANEL);
-    TimuiStyle text = timui_theme_style(&ui->theme, TIMUI_SLOT_TEXT);
     TimuiStyle border = timui_theme_style(&ui->theme, TIMUI_SLOT_BORDER);
-    int input_y = root.h >= 1 ? root.y + root.h - 1 : root.y;
     BircLay ly;
     rows = root.h < 4 ? 4u : (uint32_t)root.h;
     cols = root.w < 1 ? 1u : (uint32_t)root.w;
@@ -1320,20 +1312,66 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->st.cursor = ilen;
       bu->st.scroll_y = 0;
     }
-    enter = draw_composer(fr, root.x, input_y, root.w, text, bu, &tlen);
+    /* Inline composer: the widget sits on the last inner body row after
+     * Bend's <nick> prefix. body_inner[0] is the chat body (first OpBox
+     * with x==0); split mode captures both panes. Pick the bottom-most,
+     * left-most valid body so the widget stays near the status line. */
+    if (bu) {
+      int chosen = -1;
+      int i;
+      for (i = 0; i < bu->body_count; i++) {
+        TimuiRect in = bu->body_inner[i];
+        if (in.w <= 0 || in.h <= 0)
+          continue;
+        if (chosen < 0) {
+          chosen = i;
+        } else {
+          TimuiRect cur = bu->body_inner[chosen];
+          int in_bottom = in.y + in.h;
+          int cur_bottom = cur.y + cur.h;
+          if (in_bottom > cur_bottom ||
+              (in_bottom == cur_bottom && in.x < cur.x))
+            chosen = i;
+        }
+      }
+      if (chosen >= 0) {
+        TimuiRect in = bu->body_inner[chosen];
+        int cy = in.y + in.h - 1;
+        int64_t cx = (int64_t)compose_x;
+        int cxx;
+        int cw;
+        if (cx < 0)
+          cx = 0;
+        if (cx > in.w)
+          cx = in.w;
+        cxx = in.x + (int)cx;
+        cw = in.w - (int)cx;
+        enter = draw_composer(fr, cxx, cy, cw, bu, &tlen);
+      } else {
+        enter = 0;
+        tlen = 0;
+      }
+    }
     if (bu) {
       if (ui->ia.mouse_pressed) {
         int body_hit = -1;
         int i;
-        for (i = 0; i < bu->body_count; i++)
-          if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->body_inner[i]))
+        for (i = 0; i < bu->body_count; i++) {
+          TimuiRect in = bu->body_inner[i];
+          /* The draft row is not selectable chat history. */
+          if (in.h > 0 && ui->ia.mouse_y >= in.y + in.h - 1)
+            continue;
+          if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, in))
             body_hit = i;
+        }
         if (body_hit >= 0) {
           bu->sel.active = 0;
           bu->sel.dragging = 1;
           bu->sel.start_x = bu->sel.cur_x = ui->ia.mouse_x;
           bu->sel.start_y = bu->sel.cur_y = ui->ia.mouse_y;
           bu->sel.pane = bu->body_inner[body_hit];
+          if (bu->sel.pane.h > 0)
+            bu->sel.pane.h -= 1;
         } else if (birc_pt_in_rect(ui->ia.mouse_x, ui->ia.mouse_y, bu->nicks_inner)) {
           bu->sel.active = 0;
           bu->sel.dragging = 1;

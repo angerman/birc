@@ -161,7 +161,7 @@ def frame_retain() -> IO(Unit):
   do IO<Unit>:
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     ui2 : T.Ui <- T.Timui.view_begin(ui)
-    pair : T.Ui & T.UiKeys <- T.Timui.frame(ui2, ops, "", 0)
+    pair : T.Ui & T.UiKeys <- T.Timui.frame(ui2, ops, "", 0, 0)
     frame_done(pair)
 
 def frame_mode(mode: String) -> IO(Unit):
