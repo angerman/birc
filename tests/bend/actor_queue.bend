@@ -17,8 +17,8 @@ def queue_drop(drop: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
     case False{}: IO.pure(Unit, Unit{})
     case True{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
-        _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :offline" <> Nil{}})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :offline" <> Nil{}})
         return Unit{}
 
 def queue_redial(redial: Bool, port: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
@@ -26,8 +26,8 @@ def queue_redial(redial: Bool, port: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
     case False{}: IO.pure(Unit, Unit{})
     case True{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", port, 2, "probe"})
-        _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :fresh" <> Nil{}})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", port, 2, "probe"})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :fresh" <> Nil{}})
         return Unit{}
 
 def wait_event(g: Maybe<&1, Sess.UiMsg>, k: Unit -> IO(Unit)) -> IO(Unit):
@@ -47,11 +47,11 @@ def run_socket(sock: Socket, +port: U32, +frames: U32, +count: Nat, +mode: Strin
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{Some{Tr.Plain{sock}}, 1, Nil{}, Nil{}, 1, Out.budget_frames(frames), False{}}, evt, cmd, boot, False{}))
-    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{lines(count)})
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{lines(count)})
     # A second producer command fills the capacity-one queue while an
     # internal Pump is scheduled. Awaiting a self-send would deadlock here.
-    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"QUIT :queue-test" <> Nil{}})
-    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{0})
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"QUIT :queue-test" <> Nil{}})
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{0})
     Unit <- queue_drop(String.eq(mode, "drop"), cmd)
     Unit <- queue_redial(String.eq(mode, "redial"), port, cmd)
     Unit <- IO.sleep(350)

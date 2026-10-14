@@ -152,7 +152,7 @@ def search_file_checked(+path: String, +endpoint: String, +query: Hs.DiskQuery, 
 # loop's incarnation fence. No scan runs, and nothing posts, when disabled.
 def post_search_done(+result: Hs.DiskResult, +ticket: Nat, +gen: Nat, +wgen: U32, +endpoint: String, +orig: String, evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.SearchDone{ticket, gen, wgen, endpoint, orig, result})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.SearchDone{ticket, gen, wgen, endpoint, orig, result})
     return Unit{}
 
 def search_run.post.go(post: Bool, +path: String, +endpoint: String, +query: Hs.DiskQuery, +cursor: Nat, +ticket: Nat, +gen: Nat, +wgen: U32, +orig: String, evt: Chan(Sess.UiMsg)) -> IO(Unit):

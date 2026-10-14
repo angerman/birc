@@ -88,8 +88,8 @@ type Candidate is Data:
 type Request is Data:
   Request{target: Target, url: String, generation: Nat, ticket: Nat}
 
-type Ready is Data:
-  Ready{target: Target, url: String, token: U32}
+type MediaReady is Data:
+  MediaReady{target: Target, url: String, token: U32}
 
 # Terminal support is independent of the user's automatic-preview preference.
 # Reported is sticky for the lifetime of an unsupported UI, including reconnect.
@@ -99,7 +99,7 @@ type Display is Data:
   Reported{}
 
 type State is Data:
-  State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>, pending: List<&2, Request>, ready: List<&2, Ready>, display: Display}
+  State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>, pending: List<&2, Request>, ready: List<&2, MediaReady>, display: Display}
 
 def initial(on: Bool) -> State:
   State{on, 1n, 1n, None{}, Nil{}, Nil{}, Supported{}}
@@ -140,7 +140,7 @@ def set_supported(+state: State, +on: Bool) -> State:
       +changed = Bool.pick(Bool, on, Bool.not(supported(state)), supported(state))
       State{enabled, Bool.pick(Nat, changed, 1n+gen, gen), ticket, active,
         Bool.pick(List<&2, Request>, on, pending, Nil{}),
-        Bool.pick(List<&2, Ready>, on, ready, Nil{}), set_supported.display(on, display)}
+        Bool.pick(List<&2, MediaReady>, on, ready, Nil{}), set_supported.display(on, display)}
 
 def generation(state: State) -> Nat:
   match state:
@@ -152,7 +152,7 @@ def pending_count(state: State) -> Nat:
 
 def ready_count(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, _, ready, _}: List.length(&2, Ready, ready)
+    case State{_, _, _, _, _, ready, _}: List.length(&2, MediaReady, ready)
 
 def bounded(+state: State) -> Bool:
   Nat.is_le(pending_count(state), CAP()) && Nat.is_le(ready_count(state), CAP())
@@ -173,21 +173,21 @@ def manual(target: Target) -> Bool:
     case Manual{}: True{}
     case Inline{_}: False{}
 
-def ready_matches(e: Ready, +target: Target, +url: String) -> Bool:
+def ready_matches(e: MediaReady, +target: Target, +url: String) -> Bool:
   match e:
-    case Ready{t, u, _}: target_eq(t, target) && String.eq(u, url)
+    case MediaReady{t, u, _}: target_eq(t, target) && String.eq(u, url)
 
-def ready_has(xs: List<&2, Ready>, +target: Target, +url: String) -> Bool:
+def ready_has(xs: List<&2, MediaReady>, +target: Target, +url: String) -> Bool:
   match xs:
     case Nil{}: False{}
     case Con{+h, t}: ready_matches(h, target, url) || ready_has(t, target, url)
 
-def ready_keep(hit: Bool, h: Ready, tail: List<&2, Ready>) -> List<&2, Ready>:
+def ready_keep(hit: Bool, h: MediaReady, tail: List<&2, MediaReady>) -> List<&2, MediaReady>:
   match hit:
     case True{}: tail
     case False{}: h <> tail
 
-def ready_without(xs: List<&2, Ready>, +target: Target, +url: String) -> List<&2, Ready>:
+def ready_without(xs: List<&2, MediaReady>, +target: Target, +url: String) -> List<&2, MediaReady>:
   match xs:
     case Nil{}: Nil{}
     case Con{+h, t}: ready_keep(ready_matches(h, target, url), h, ready_without(t, target, url))
@@ -219,7 +219,7 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
       match state:
         case State{on, +gen, +ticket, active, pending, +ready, display}:
           State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
-            Bool.pick(List<&2, Ready>, manual(target), ready_without(ready, target, url), ready), display}
+            Bool.pick(List<&2, MediaReady>, manual(target), ready_without(ready, target, url), ready), display}
 
 def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: String) -> State:
   match eligible:
@@ -305,13 +305,13 @@ def newest_candidates(+xs: List<&2, Candidate>, +state: State) -> List<&2, Candi
     List.sort(~Candidate, ~candidate_newest, candidate_partition(xs, state, True{})),
     List.sort(~Candidate, ~candidate_newest, candidate_partition(xs, state, False{}))), Nil{}), CAP())
 
-def visible_ready(xs: List<&2, Ready>, +selected: List<&2, Candidate>, +keep_selected: Bool) -> List<&2, Ready>:
+def visible_ready(xs: List<&2, MediaReady>, +selected: List<&2, Candidate>, +keep_selected: Bool) -> List<&2, MediaReady>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Ready{+target, +url, token}, tail}:
+    case Con{MediaReady{+target, +url, token}, tail}:
       +hit = candidate_has(selected, target, url)
       ready_keep(Bool.not((hit && keep_selected) || (Bool.not(hit) && Bool.not(keep_selected))),
-        Ready{target, url, token}, visible_ready(tail, selected, keep_selected))
+        MediaReady{target, url, token}, visible_ready(tail, selected, keep_selected))
 
 # The completion FIFO remains unchanged. Refresh its bounded priority only for
 # this visible-admission path, so a new preview evicts a hidden result first.
@@ -319,7 +319,7 @@ def enqueue_candidates(+xs: List<&2, Candidate>, state: State) -> State:
   match state:
     case State{on, gen, ticket, active, pending, +ready, display}:
       enqueue_candidates.go(xs, State{on, gen, ticket, active, pending,
-        List.append(&2, Ready, visible_ready(ready, xs, True{}), visible_ready(ready, xs, False{})), display})
+        List.append(&2, MediaReady, visible_ready(ready, xs, True{}), visible_ready(ready, xs, False{})), display})
 
 def visible_result.active(active: Maybe<&2, Request>, +selected: List<&2, Candidate>) -> Bool:
   match active:
@@ -332,7 +332,7 @@ def visible_result.active(active: Maybe<&2, Request>, +selected: List<&2, Candid
 def visible_result_allowed(state: State, +selected: List<&2, Candidate>) -> Bool:
   match state:
     case State{_, _, _, active, _, ready, _}:
-      Nat.is_lt(List.length(&2, Ready, visible_ready(ready, selected, True{})), CAP())
+      Nat.is_lt(List.length(&2, MediaReady, visible_ready(ready, selected, True{})), CAP())
         || visible_result.active(active, selected)
 
 def take_job(state: State) -> State & Maybe<&2, Request>:
@@ -403,12 +403,12 @@ def keep_pending(xs: List<&2, Request>, +client: Cl.Client, +gen: Nat) -> List<&
         case Request{target, url, g, _}:
           pending_keep(Nat.is_eq(g, gen) && alive(client, target, url), h, keep_pending(t, client, gen))
 
-def keep_ready(xs: List<&2, Ready>, +client: Cl.Client) -> List<&2, Ready>:
+def keep_ready(xs: List<&2, MediaReady>, +client: Cl.Client) -> List<&2, MediaReady>:
   match xs:
     case Nil{}: Nil{}
     case Con{+h, t}:
       match h:
-        case Ready{target, url, _}: ready_keep(Bool.not(alive(client, target, url)), h, keep_ready(t, client))
+        case MediaReady{target, url, _}: ready_keep(Bool.not(alive(client, target, url)), h, keep_ready(t, client))
 
 def maintain(state: State, +client: Cl.Client) -> State:
   match state:
@@ -436,8 +436,8 @@ def complete.on(hit: Bool, accepted: Bool, +state: State, token: U32) -> State:
     case True{}:
       match state:
         case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
-          State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, Ready>, accepted,
-            List.take(&2, Ready, Ready{target, url, token} <> ready, CAP()), ready), display}
+          State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, MediaReady>, accepted,
+            List.take(&2, MediaReady, MediaReady{target, url, token} <> ready, CAP()), ready), display}
         case _: state
 
 def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String, token: U32) -> State:
@@ -462,10 +462,10 @@ def reject_full(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url
 
 # Zero denotes a placeholder, never native payload ownership. Compute this on
 # the prospective completion with token zero before admitting its new payload.
-def retained_tokens.ready(xs: List<&2, Ready>) -> List<&2, U32>:
+def retained_tokens.ready(xs: List<&2, MediaReady>) -> List<&2, U32>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Ready{_, _, +token}, tail}:
+    case Con{MediaReady{_, _, +token}, tail}:
       match token:
         case 0: retained_tokens.ready(tail)
         case _: token <> retained_tokens.ready(tail)
@@ -475,12 +475,12 @@ def retained_tokens(state: State) -> List<&2, U32>:
     case State{_, _, _, _, _, ready, Supported{}}: retained_tokens.ready(ready)
     case _: Nil{}
 
-def token_from(xs: List<&2, Ready>, +target: Target, +url: String) -> U32:
+def token_from(xs: List<&2, MediaReady>, +target: Target, +url: String) -> U32:
   match xs:
     case Nil{}: 0
     case Con{+h, t}:
       match h:
-        case Ready{_, _, +token}: Bool.pick(U32, ready_matches(h, target, url), token, token_from(t, target, url))
+        case MediaReady{_, _, +token}: Bool.pick(U32, ready_matches(h, target, url), token, token_from(t, target, url))
 
 def token(state: State, target: Target, url: String) -> U32:
   match state:
@@ -490,28 +490,28 @@ def token(state: State, target: Target, url: String) -> U32:
 # Fullscreen entry target (C8 live): the newest ready result with an accepted
 # nonzero token whose source is still live. Ready is newest-first, so the head
 # hit wins. Unsupported terminals pick nothing; callers revalidate anyway.
-def fullscreen_pick.keep(hit: Bool, h: Ready, rest: Maybe<&2, Ready>) -> Maybe<&2, Ready>:
+def fullscreen_pick.keep(hit: Bool, h: MediaReady, rest: Maybe<&2, MediaReady>) -> Maybe<&2, MediaReady>:
   match hit:
     case True{}: Some{h}
     case False{}: rest
 
-def fullscreen_pick.go(xs: List<&2, Ready>, +client: Cl.Client) -> Maybe<&2, Ready>:
+def fullscreen_pick.go(xs: List<&2, MediaReady>, +client: Cl.Client) -> Maybe<&2, MediaReady>:
   match xs:
     case Nil{}: None{}
     case Con{+h, t}:
       match h:
-        case Ready{+target, +url, +token}:
+        case MediaReady{+target, +url, +token}:
           fullscreen_pick.keep(Bool.not(U32.is_zero(token)) && alive(client, target, url), h, fullscreen_pick.go(t, client))
 
-def fullscreen_pick(+state: State, +client: Cl.Client) -> Maybe<&2, Ready>:
+def fullscreen_pick(+state: State, +client: Cl.Client) -> Maybe<&2, MediaReady>:
   match state:
     case State{_, _, _, _, _, ready, Supported{}}: fullscreen_pick.go(ready, client)
     case _: None{}
 
-def urls_ready(xs: List<&2, Ready>, +target: Target) -> List<&2, String>:
+def urls_ready(xs: List<&2, MediaReady>, +target: Target) -> List<&2, String>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Ready{t, url, _}, tail}: targets.keep(target_eq(t, target), url, urls_ready(tail, target))
+    case Con{MediaReady{t, url, _}, tail}: targets.keep(target_eq(t, target), url, urls_ready(tail, target))
 
 def urls_pending(xs: List<&2, Request>, +target: Target, +gen: Nat) -> List<&2, String>:
   match xs:

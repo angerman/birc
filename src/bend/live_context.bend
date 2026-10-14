@@ -13,7 +13,7 @@ import ./history_startup_io.bend as F
 import ./history_io.bend as Save
 
 type Gate is Data:
-  Ready{}
+  Open{}
   Waiting{gen: U32, endpoint: String}
 
 type Archive is Data:
@@ -31,7 +31,7 @@ def wrap(details: Details) -> Context:
 def details(ctx: Context) -> Details:
   match ctx:
     case Context{value <> Nil{}}: value
-    case _: Details{L.wrap(R.Disabled{}), Ready{}, Some{True{}}, "", None{}, 0n}
+    case _: Details{L.wrap(R.Disabled{}), Open{}, Some{True{}}, "", None{}, 0n}
 
 def now(cl: Cl.Client) -> String:
   match cl:
@@ -44,11 +44,11 @@ def initial(options: W.Options, +st: S.Session, +gen: U32, path: String) -> Cont
   match options:
     case W.Options{+on, explicit, images, cap}:
       wrap(Details{L.initial(W.Options{on, explicit, images, cap}, st, gen),
-        Bool.pick(Gate, on && Bool.not(U32.is_zero(gen)), Waiting{gen, endpoint(st)}, Ready{}),
+        Bool.pick(Gate, on && Bool.not(U32.is_zero(gen)), Waiting{gen, endpoint(st)}, Open{}),
         Bool.pick(Maybe<&2, Bool>, on, None{}, Some{True{}}), path, None{}, 0n})
 
 def prepared(prefs: L.Context, path: String, known: Bool) -> Context:
-  wrap(Details{prefs, Ready{}, Some{known}, path, None{}, 0n})
+  wrap(Details{prefs, Open{}, Some{known}, path, None{}, 0n})
 
 def explicit_history(+st: S.Session) -> Bool:
   List.contains(~String, ~String.eq, S.session_preference_edits(st), "history")
@@ -60,13 +60,13 @@ def decision_known(got: Maybe<&2, Bool>) -> Bool:
 
 def gate_ready(gate: Gate) -> Bool:
   match gate:
-    case Ready{}: True{}
+    case Open{}: True{}
     case _: False{}
 
 def gate_matches(gate: Gate, +gen: U32, +ep: String) -> Bool:
   match gate:
     case Waiting{wanted, scope}: U32.is_eq(wanted, gen) && String.eq(scope, ep)
-    case Ready{}: False{}
+    case Open{}: False{}
 
 def gate_of.details(value: Details) -> Gate:
   match value:
@@ -122,7 +122,7 @@ def clean(ctx: Context) -> Bool:
 
 def gate_scope(gate: Gate, +st: S.Session, gen: U32) -> Gate:
   match gate:
-    case Ready{}: Ready{}
+    case Open{}: Open{}
     case Waiting{_, _}: Waiting{gen, endpoint(st)}
 
 def archive_needed(gate: Gate, prefs: L.Context, active: Maybe<&2, Archive>) -> Bool:
@@ -243,8 +243,8 @@ def history.install(current: Bool, prefs: L.Context, gate: Gate, +decision: Mayb
     case True{}:
       do IO<Context & S.Session>:
         local : Cl.Client <- history.flush(decision_known(decision) || explicit_history(st), path, ep, S.session_cl(st))
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Begin{gen})
-        return (wrap(Details{prefs, Ready{}, decision, path, None{}, next}), S.session_set_client(st, H.install_startup(H.report_diagnostics(local, snapshot), snapshot)))
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{gen})
+        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, H.install_startup(H.report_diagnostics(local, snapshot), snapshot)))
 
 def history.result(owned: Bool, ctx: Details, +st: S.Session, +gen: U32, got_gen: U32, +ep: String, snapshot: Cl.Client, cmd: Chan(S.NetCmd)) -> IO(Context & S.Session):
   match owned:

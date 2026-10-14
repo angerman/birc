@@ -641,22 +641,22 @@ Term tls_close_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) birc_tls_use(void) {
 #if CID_TLS_OPEN_FOR
-  io_eff(CID_TLS_OPEN_FOR, tls_open_for_run, 0);
+  io_eff(CID_TLS_OPEN_FOR, tls_open_for_run);
 #endif
 #if CID_TLS_RECV_OCTETS
-  io_eff(CID_TLS_RECV_OCTETS, tls_recv_octets_run, 0);
+  io_eff(CID_TLS_RECV_OCTETS, tls_recv_octets_run);
 #endif
 #if CID_TLS_SEND_FOR
-  io_eff(CID_TLS_SEND_FOR, tls_send_for_run, 0);
+  io_eff(CID_TLS_SEND_FOR, tls_send_for_run);
 #endif
 #if CID_TLS_DUP
-  io_eff(CID_TLS_DUP, tls_dup_run, 0);
+  io_eff(CID_TLS_DUP, tls_dup_run);
 #endif
 #if CID_TLS_SHUTDOWN
-  io_eff(CID_TLS_SHUTDOWN, tls_shutdown_run, 0);
+  io_eff(CID_TLS_SHUTDOWN, tls_shutdown_run);
 #endif
 #if CID_TLS_CLOSE
-  io_eff(CID_TLS_CLOSE, tls_close_run, 0);
+  io_eff(CID_TLS_CLOSE, tls_close_run);
 #endif
 }
 #endif /* BIRC_TLS_CORE_ONLY */

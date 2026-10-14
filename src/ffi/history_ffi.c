@@ -112,7 +112,7 @@ Term history_append_private_run(Env e, Term *f, IoWork *w) {
 }
 
 static void __attribute__((constructor)) history_append_private_use(void) {
-  io_eff(CID_APPEND_PRIVATE, history_append_private_run, 0);
+  io_eff(CID_APPEND_PRIVATE, history_append_private_run);
 }
 #endif
 #endif /* BIRC_HISTORY_CORE_ONLY */

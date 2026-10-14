@@ -87,7 +87,7 @@ def register(sock: Tr.Conn, +nick: String, has_sasl: Bool) -> IO(Tr.Conn & Bool)
 
 def post(+evt: Chan(Sess.UiMsg), +gen: U32, e: Sess.NetEvt) -> IO(Unit):
   do IO<Unit>:
-    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.FromNet{gen, e})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.FromNet{gen, e})
     return Unit{}
 
 # The reader shadows the UI framer over the same verbatim bytes and owns the
@@ -130,13 +130,13 @@ def reader_answered.pong(exhausted: Bool, +pongs: List<&2, String>, +xs: List<&2
   match exhausted:
     case True{}:
       do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Pong{gen, pongs, 0})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Pong{gen, pongs, 0})
         Unit <- post(evt, gen, Sess.Chunk{xs, 0})
         Unit <- Clock.net_trace(1, 0, 0)
         k(dup)(ReadFr{drop2, rem2, 0})
     case False{}:
       do IO<Unit>:
-        ok : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Pong{gen, pongs, req})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Pong{gen, pongs, req})
         Unit <- Clock.net_trace(6, req, 0)
         Unit <- post(evt, gen, Sess.Chunk{xs, req})
         Unit <- Clock.net_trace(1, req, 0)
@@ -285,12 +285,12 @@ def writer_fail(+evt: Chan(Sess.UiMsg), +gen: U32, +msg: String) -> IO(Unit):
   post(evt, gen, Sess.NetFail{msg})
 
 type Boot is Data:
-  Ready{}
+  Booted{}
   Down{msg: String}
 
 def boot_down(+boot: Chan(Boot), +msg: String) -> IO(Unit):
   do IO<Unit>:
-    ok : Bool <- Chan.send(Boot, boot, Down{msg})
+    _ : Result<&1, &1, Boot, Unit> <- Chan.send(Boot, boot, Down{msg})
     return Unit{}
 
 def err_msg(e: U32 & String) -> String:
@@ -304,7 +304,7 @@ def arm_ready(live: Bool, +boot: Chan(Boot)) -> IO(Unit):
       IO.pure(Unit, Unit{})
     case True{}:
       do IO<Unit>:
-        ok : Bool <- Chan.send(Boot, boot, Ready{})
+        _ : Result<&1, &1, Boot, Unit> <- Chan.send(Boot, boot, Booted{})
         return Unit{}
 
 def arm_fail(
@@ -553,7 +553,7 @@ def writer_finish(st: Writer, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
 
 def pump_send(+cmd: Chan(Sess.NetCmd), gen: U32) -> IO(Unit):
   do IO<Unit>:
-    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{gen})
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{gen})
     return Unit{}
 
 # Never await a self-send on the socket-owning task: cmd may already be full.

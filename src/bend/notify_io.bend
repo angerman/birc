@@ -122,7 +122,7 @@ def program_or_default(+default: String) -> IO(Maybe<&2, String>):
 
 def post_msg(+evt: Chan(Sess.UiMsg), +m: Sess.UiMsg) -> IO(Unit):
   do IO<Unit>:
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, m)
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, m)
     return Unit{}
 
 def post_diag(diag: Maybe<&2, String>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):

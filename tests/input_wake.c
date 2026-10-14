@@ -62,7 +62,7 @@ Term io_box(Env e, u64 cid, Term v) { (void)e; (void)cid; return v; }
 Term io_tup(Env e, Term a, Term b) { (void)e; (void)a; return b; }
 Term io_done(Env e, Term v) { (void)e; return v; }
 Term io_fail(Env e, u32 code, const char *text) { (void)e; (void)text; return code; }
-void io_eff(u32 cid, Effect run, u32 need) { (void)cid; (void)run; (void)need; }
+void io_eff(u32 cid, Effect run) { (void)cid; (void)run; }
 u64 io_tick(void) { return now_ms * 1000000; }
 Term io_wait_on(IoWork *w, int fd, short events, uint64_t deadline, IoMore more) {
   (void)w;

@@ -48,13 +48,13 @@ def show_u32s.go(+xs: List<&2, U32>, +acc: String) -> String:
 def show_u32s(+xs: List<&2, U32>) -> String:
   show_u32s.go(xs, "")
 
-def ready1(+url: String, +token: U32) -> M.Ready:
-  M.Ready{M.Manual{}, url, token}
+def ready1(+url: String, +token: U32) -> M.MediaReady:
+  M.MediaReady{M.Manual{}, url, token}
 
-def media_with(+ready: List<&2, M.Ready>) -> M.State:
+def media_with(+ready: List<&2, M.MediaReady>) -> M.State:
   M.State{True{}, 1n, 1n, None{}, Nil{}, ready, M.Supported{}}
 
-def st_with(+ready: List<&2, M.Ready>) -> Sess.Session:
+def st_with(+ready: List<&2, M.MediaReady>) -> Sess.Session:
   Sess.session_set_media(Sess.session_with_client_at(Cl.init("me", "h.example"), "#a", 6697), media_with(ready))
 
 def set_media.got(+got: Maybe<&2, W.Part>, +ws: W.Workspace, +media: M.State) -> W.Workspace:
@@ -530,17 +530,17 @@ def main() -> IO(Unit):
   +ws_media = set_media(set_media(ws2, s0(), media_with(ready1("https://x.test/a.png", 11) <> ready1("https://x.test/b.png", 12) <> Nil{})), s1(), media_with(ready1("https://x.test/c.png", 21) <> Nil{}))
   +parts = W.ws_parts(ws_media)
   +st0 = st_with(ready1("https://x.test/a.png", 11) <> Nil{})
-  +big0 : List<&2, M.Ready> = ready1("u0", 1) <> ready1("u1", 2) <> ready1("u2", 3) <> ready1("u3", 4) <> ready1("u4", 5) <> Nil{}
-  +big1 : List<&2, M.Ready> = ready1("v0", 6) <> ready1("v1", 7) <> ready1("v2", 8) <> ready1("v3", 9) <> ready1("v4", 10) <> Nil{}
+  +big0 : List<&2, M.MediaReady> = ready1("u0", 1) <> ready1("u1", 2) <> ready1("u2", 3) <> ready1("u3", 4) <> ready1("u4", 5) <> Nil{}
+  +big1 : List<&2, M.MediaReady> = ready1("v0", 6) <> ready1("v1", 7) <> ready1("v2", 8) <> ready1("v3", 9) <> ready1("v4", 10) <> Nil{}
   +ws_big = set_media(set_media(ws2, s0(), media_with(big0)), s1(), media_with(big1))
   +st_big0 = st_with(big0)
   +trip_images = FirstOut.from(WsNet.ws_first.act(ws2, "/images off", True{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{}))
   +keyed = trip_ws(trip_images)
   +kst = W.current_session(keyed)
   +seed0 = Sess.session_set_media(kst, M.initial(WsNet.ws_load.images_on(kst, True{})))
-  +full8 : List<&2, M.Ready> = ready1("a0", 41) <> ready1("a1", 42) <> ready1("a2", 43) <> ready1("a3", 44) <> ready1("a4", 45) <> ready1("a5", 46) <> ready1("a6", 47) <> ready1("a7", 48) <> Nil{}
+  +full8 : List<&2, M.MediaReady> = ready1("a0", 41) <> ready1("a1", 42) <> ready1("a2", 43) <> ready1("a3", 44) <> ready1("a4", 45) <> ready1("a5", 46) <> ready1("a6", 47) <> ready1("a7", 48) <> Nil{}
   +ws_full = set_media(set_media(ws2, s0(), media_with(full8)), s1(), media_with(Nil{}))
-  +full7 : List<&2, M.Ready> = ready1("b0", 51) <> ready1("b1", 52) <> ready1("b2", 53) <> ready1("b3", 54) <> ready1("b4", 55) <> ready1("b5", 56) <> ready1("b6", 57) <> Nil{}
+  +full7 : List<&2, M.MediaReady> = ready1("b0", 51) <> ready1("b1", 52) <> ready1("b2", 53) <> ready1("b3", 54) <> ready1("b4", 55) <> ready1("b5", 56) <> ready1("b6", 57) <> Nil{}
   +ws_room7 = set_media(set_media(ws2, s0(), media_with(full7)), s1(), media_with(Nil{}))
   +b_active = b_active_st()
   +b_fresh = b_fresh_st()

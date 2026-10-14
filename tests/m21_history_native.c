@@ -83,7 +83,7 @@ char *io_cstr(Env e, Term term, u64 *size) {
   return owned[index];
 }
 Term io_tup(Env e, Term first, Term second) { (void)e; return (first << 32) | second; }
-void io_eff(u32 cid, Effect run, u32 need) { (void)cid; (void)run; (void)need; }
+void io_eff(u32 cid, Effect run) { (void)cid; (void)run; }
 /* Run the actual helper callback synchronously, then the actual owning pack. */
 static Term io_work(IoWork *work, void (*call)(IoWork *), Term (*pack)(Env, IoWork *)) {
   Env env = {NULL, NULL};

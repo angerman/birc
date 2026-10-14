@@ -45,7 +45,6 @@ static size_t node_count;
 static u32 failure_code, consumed_strings;
 static const char *failure_stage;
 static Effect effects[32];
-static u32 needs[32];
 static IoWork *io_park, *io_runs;
 static u64 tick_offset;
 static Term io_node(Env e, u64 cid, Term a, Term b) {
@@ -74,9 +73,9 @@ static char *io_cstr(Env e, Term value, u64 *size) {
   *size = (u64)strlen(text);
   return strdup(text);
 }
-static void io_eff(u32 cid, Effect effect, u32 need) {
+static void io_eff(u32 cid, Effect effect) {
   if (cid >= 32u || effects[cid] != NULL) abort();
-  effects[cid] = effect; needs[cid] = need;
+  effects[cid] = effect;
 }
 static u64 io_tick(void) {
   struct timespec now;
@@ -172,7 +171,7 @@ static int ffi_buffers_and_wake(Certificates *c) {
   size_t sent = 0u, got = 0u;
   unsigned char peek[1];
   CHECK(pair_new(&p, c, c->certificate, "localhost") == 0 && handshake(&p, 0u) == 0);
-  CHECK(effects[C_recv_octets] == tls_recv_octets_run && needs[C_recv_octets] == 0u);
+  CHECK(effects[C_recv_octets] == tls_recv_octets_run);
   CHECK(effects[C_open_for] == tls_open_for_run && effects[C_send_for] == tls_send_for_run);
   CHECK(effects[C_dup] == tls_dup_run && effects[C_shutdown] == tls_shutdown_run && effects[C_close] == tls_close_run);
   args[0] = (Term)(uintptr_t)p.client; args[1] = 2u;

@@ -1059,10 +1059,10 @@ law cards_observe_schedules_visible_candidate:
   {Cards.pending_count(Cards.observe(Cards.initial(True{}), Cl.init("me", "s"), [Cards.Candidate{Cards.CardInline{1n}, "https://example.test/read"}], True{})) == 1n : Nat}
 
 law cards_fullscreen_closes_when_unsupported:
-  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.set_supported(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, False{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
+  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.set_supported(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, False{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
 
 law cards_fullscreen_closes_on_eviction:
-  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
+  {Cards.maintain_full(Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png"), Media.initial(True{}), Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Cards.FullOff{} : Cards.Fullscreen}
 
 law cards_code_opaque:
   {List.is_empty(&2, String, Cards.targets("`https://example.test/read`")) == True{} : Bool}
@@ -1831,7 +1831,7 @@ law cards_live_dial_cards_resets_on_endpoint_change:
   {Cards.pending_count(Sess.dial_cards(False{}, Cards.State{True{}, 1n, 2n, None{}, [Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}], Nil{}})) == 0n : Nat}
 
 law cards_live_dial_cards_retains_same_endpoint:
-  {Cards.ready_count(Sess.dial_cards(True{}, Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.Ready{Cards.CardInline{1n}, "https://x.test/read", "T", "D", ""}]})) == 1n : Nat}
+  {Cards.ready_count(Sess.dial_cards(True{}, Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.CardReady{Cards.CardInline{1n}, "https://x.test/read", "T", "D", ""}]})) == 1n : Nat}
 
 law cards_live_dial_full_closes_on_change:
   {Sess.dial_full(False{}, Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7}, Media.initial(True{}), Cl.init("me", "s")) == Cards.FullOff{} : Cards.Fullscreen}
@@ -1843,10 +1843,10 @@ law cards_live_stale_keeps_worker:
   {Cards.active_target(Cards.reject(Cards.State{True{}, 1n, 2n, Some{Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}}, Nil{}, Nil{}}, 1n, 2n, "https://x.test/read")) == Some{Cards.CardInline{1n}} : Maybe<&2, Cards.Target>}
 
 law cards_live_fullscreen_pick_newest_alive:
-  {Media.fullscreen_pick(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Some{Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}} : Maybe<&2, Media.Ready>}
+  {Media.fullscreen_pick(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])) == Some{Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}} : Maybe<&2, Media.MediaReady>}
 
 law cards_live_fullscreen_open_live_token:
-  {Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.Ready{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png") == Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7} : Cards.Fullscreen}
+  {Cards.open(Media.State{True{}, 1n, 2n, None{}, Nil{}, [Media.MediaReady{Media.Inline{1n}, "https://x.test/a.png", 7}], Media.Supported{}}, Media.Inline{1n}, "https://x.test/a.png") == Cards.FullOn{Media.Inline{1n}, "https://x.test/a.png", 7} : Cards.Fullscreen}
 
 law cards_live_f9_key_number:
   {Sess.KEY_F9() == 23 : U32}
@@ -1858,7 +1858,7 @@ law cards_live_empty_entries_match_baseline:
   {List.length(&2, V.BodyRow, V.wrap_line_media_cards(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty(), Nil{})) == List.length(&2, V.BodyRow, V.wrap_line_media(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty())) : Nat}
 
 law cards_live_ready_card_paints_rows:
-  {List.length(&2, V.BodyRow, V.wrap_line_media_cards(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty(), Cards.paint_entries(Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.Ready{Cards.CardInline{1n}, "https://x.test/read", "Hello", "A description", ""}]}))) == 3n : Nat}
+  {List.length(&2, V.BodyRow, V.wrap_line_media_cards(Cl.Line{Cl.Msg{}, "", "see https://x.test/read", "alice", 1n}, 80, False{}, Media.empty(), Cards.paint_entries(Cards.State{True{}, 1n, 2n, None{}, Nil{}, [Cards.CardReady{Cards.CardInline{1n}, "https://x.test/read", "Hello", "A description", ""}]}))) == 3n : Nat}
 
 law cards_live_pending_never_paints:
   {List.is_empty(&2, V.CardEntry, Cards.paint_entries(Cards.State{True{}, 1n, 2n, None{}, [Cards.Request{Cards.CardInline{1n}, "https://x.test/read", 1n, 1n}], Nil{}})) == True{} : Bool}

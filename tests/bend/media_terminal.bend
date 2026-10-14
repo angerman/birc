@@ -112,7 +112,7 @@ def main() -> IO(Unit):
     Unit <- E.must("support re-enable cannot revive old generation", Bool.not(M.accept(M.set_supported(blocked, True{}), client(), 1n, 1n, url())))
     +drained : M.State = M.complete(blocked, client(), 1n, 1n, url(), 7)
     Unit <- E.must("late completion releases worker without token or report loss", Bool.not(has_active(drained)) && quiet(drained) && M.reported(drained))
-    +cached : M.State = M.State{True{}, 1n, 3n, Some{M.Request{M.Inline{1n}, url(), 1n, 1n}}, [M.Request{M.Inline{1n}, "https://offline.invalid/b.png", 1n, 2n}], [M.Ready{M.Inline{1n}, url(), 7}], M.Supported{}}
+    +cached : M.State = M.State{True{}, 1n, 3n, Some{M.Request{M.Inline{1n}, url(), 1n, 1n}}, [M.Request{M.Inline{1n}, "https://offline.invalid/b.png", 1n, 2n}], [M.MediaReady{M.Inline{1n}, url(), 7}], M.Supported{}}
     Unit <- E.must("support removal clears preexisting pending and ready ownership", quiet(M.set_supported(cached, False{})) && has_active(M.set_supported(cached, False{})))
     +before : S.Session = initial(False{}, True{})
     +after : S.Session = pair_state(chunk(before))

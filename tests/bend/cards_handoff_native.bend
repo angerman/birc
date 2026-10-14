@@ -61,7 +61,7 @@ def chatBQ() -> Cl.Client:
      Cl.Line{Cl.Msg{}, "", "see " ++ image1(), "bob", 9n}])
 
 def media9() -> M.State:
-  M.State{True{}, 1n, 1n, None{}, Nil{}, M.Ready{M.Inline{9n}, image1(), 11} <> Nil{}, M.Supported{}}
+  M.State{True{}, 1n, 1n, None{}, Nil{}, M.MediaReady{M.Inline{9n}, image1(), 11} <> Nil{}, M.Supported{}}
 
 def stB(+chat: Cl.Client, +media: M.State) -> Sess.Session:
   Sess.session_set_media(Sess.session_set_size(Sess.session_online(Sess.session_with_client(chat, "#t")), 24, 80), media)
@@ -120,7 +120,7 @@ def finish(+res: Chan(WsNet.WsLoop & Bool), trip: T.Ui & WsNet.WsLoop & Bool) ->
     case (ui, +loop, repaint):
       do IO<Unit>:
         Unit <- T.Timui.close(ui)
-        _ : Bool <- Chan.send(WsNet.WsLoop & Bool, res, (loop, repaint))
+        _ : Result<&1, &1, WsNet.WsLoop & Bool, Unit> <- Chan.send(WsNet.WsLoop & Bool, res, (loop, repaint))
         return Unit{}
 
 def loop_cards(+loop: WsNet.WsLoop) -> WsNet.WsCardsAll:

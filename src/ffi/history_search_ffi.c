@@ -346,7 +346,7 @@ Term search_scan_run(Env e, Term *f, IoWork *w) {
 }
 
 static void __attribute__((constructor)) search_scan_use(void) {
-  io_eff(CID_SEARCH_SCAN, search_scan_run, 0);
+  io_eff(CID_SEARCH_SCAN, search_scan_run);
 }
 #endif
 #ifndef CID_HISTORY_SEARCH_OPEN
@@ -379,7 +379,7 @@ Term history_search_open_run(Env e, Term *f, IoWork *w) {
 }
 
 static void __attribute__((constructor)) history_search_open_use(void) {
-  io_eff(CID_HISTORY_SEARCH_OPEN, history_search_open_run, 0);
+  io_eff(CID_HISTORY_SEARCH_OPEN, history_search_open_run);
 }
 #endif
 #endif /* BIRC_HISTORY_SEARCH_CORE_ONLY */

@@ -84,7 +84,7 @@ Term utc_local_parts_run(Env e, Term *f, IoWork *w) {
                 io_tup(e, (Term)local.minute, (Term)local.second));
 }
 static void __attribute__((constructor)) utc_local_parts_use(void) {
-  io_eff(CID_UTC_LOCAL_PARTS, utc_local_parts_run, 0);
+  io_eff(CID_UTC_LOCAL_PARTS, utc_local_parts_run);
 }
 #endif
 
@@ -101,7 +101,7 @@ Term local_secs_run(Env e, Term *f, IoWork *w) {
                 + (uint32_t)lt.tm_sec);
 }
 static void __attribute__((constructor)) local_secs_use(void) {
-  io_eff(CID_LOCAL_SECS, local_secs_run, 0);
+  io_eff(CID_LOCAL_SECS, local_secs_run);
 }
 #endif
 #if CID_MILLIS
@@ -118,7 +118,7 @@ Term millis_run(Env e, Term *f, IoWork *w) {
   return (Term)ms;
 }
 static void __attribute__((constructor)) millis_use(void) {
-  io_eff(CID_MILLIS, millis_run, 0);
+  io_eff(CID_MILLIS, millis_run);
 }
 #endif
 #if CID_NET_TRACE
@@ -253,7 +253,7 @@ Term net_trace_run(Env e, Term *f, IoWork *w) {
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) net_trace_use(void) {
-  io_eff(CID_NET_TRACE, net_trace_run, 0);
+  io_eff(CID_NET_TRACE, net_trace_run);
 }
 #endif
 #endif /* BIRC_CLOCK_FFI_C */

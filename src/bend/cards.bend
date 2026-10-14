@@ -120,14 +120,14 @@ type Candidate is Data:
 type Request is Data:
   Request{target: Target, url: String, generation: Nat, ticket: Nat}
 
-type Ready is Data:
-  Ready{target: Target, url: String, title: String, desc: String, image: String}
+type CardReady is Data:
+  CardReady{target: Target, url: String, title: String, desc: String, image: String}
 
 # Text cards need no terminal image protocol, so there is no display gate.
 # Fullscreen below reuses Media support instead of a second report path.
 type State is Data:
   State{enabled: Bool, generation: Nat, ticket: Nat, active: Maybe<&2, Request>,
-    pending: List<&2, Request>, ready: List<&2, Ready>}
+    pending: List<&2, Request>, ready: List<&2, CardReady>}
 
 def initial(on: Bool) -> State:
   State{on, 1n, 1n, None{}, Nil{}, Nil{}}
@@ -156,7 +156,7 @@ def pending_count(state: State) -> Nat:
 
 def ready_count(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, _, ready}: List.length(&2, Ready, ready)
+    case State{_, _, _, _, _, ready}: List.length(&2, CardReady, ready)
 
 def bounded(+state: State) -> Bool:
   Nat.is_le(pending_count(state), CAP()) && Nat.is_le(ready_count(state), CAP())
@@ -177,29 +177,29 @@ def manual(target: Target) -> Bool:
     case CardManual{}: True{}
     case CardInline{_}: False{}
 
-def ready_title(r: Ready) -> String:
+def ready_title(r: CardReady) -> String:
   match r:
-    case Ready{_, _, +title, _, _}: title
+    case CardReady{_, _, +title, _, _}: title
 
-def ready_url(r: Ready) -> String:
+def ready_url(r: CardReady) -> String:
   match r:
-    case Ready{_, +url, _, _, _}: url
+    case CardReady{_, +url, _, _, _}: url
 
-def ready_matches(e: Ready, +target: Target, +url: String) -> Bool:
+def ready_matches(e: CardReady, +target: Target, +url: String) -> Bool:
   match e:
-    case Ready{t, u, _, _, _}: target_eq(t, target) && String.eq(u, url)
+    case CardReady{t, u, _, _, _}: target_eq(t, target) && String.eq(u, url)
 
-def ready_has(xs: List<&2, Ready>, +target: Target, +url: String) -> Bool:
+def ready_has(xs: List<&2, CardReady>, +target: Target, +url: String) -> Bool:
   match xs:
     case Nil{}: False{}
     case Con{+h, t}: ready_matches(h, target, url) || ready_has(t, target, url)
 
-def ready_keep(hit: Bool, h: Ready, tail: List<&2, Ready>) -> List<&2, Ready>:
+def ready_keep(hit: Bool, h: CardReady, tail: List<&2, CardReady>) -> List<&2, CardReady>:
   match hit:
     case True{}: tail
     case False{}: h <> tail
 
-def ready_without(xs: List<&2, Ready>, +target: Target, +url: String) -> List<&2, Ready>:
+def ready_without(xs: List<&2, CardReady>, +target: Target, +url: String) -> List<&2, CardReady>:
   match xs:
     case Nil{}: Nil{}
     case Con{+h, t}: ready_keep(ready_matches(h, target, url), h, ready_without(t, target, url))
@@ -231,7 +231,7 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
       match state:
         case State{on, +gen, +ticket, active, pending, +ready}:
           State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
-            Bool.pick(List<&2, Ready>, manual(target), ready_without(ready, target, url), ready)}
+            Bool.pick(List<&2, CardReady>, manual(target), ready_without(ready, target, url), ready)}
 
 def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: String) -> State:
   match eligible:
@@ -359,12 +359,12 @@ def keep_pending(xs: List<&2, Request>, +client: Cl.Client, +gen: Nat) -> List<&
         case Request{target, url, g, _}:
           pending_keep(Nat.is_eq(g, gen) && alive(client, target, url), h, keep_pending(t, client, gen))
 
-def keep_ready(xs: List<&2, Ready>, +client: Cl.Client) -> List<&2, Ready>:
+def keep_ready(xs: List<&2, CardReady>, +client: Cl.Client) -> List<&2, CardReady>:
   match xs:
     case Nil{}: Nil{}
     case Con{+h, t}:
       match h:
-        case Ready{target, url, _, _, _}: ready_keep(Bool.not(alive(client, target, url)), h, keep_ready(t, client))
+        case CardReady{target, url, _, _, _}: ready_keep(Bool.not(alive(client, target, url)), h, keep_ready(t, client))
 
 def maintain(state: State, +client: Cl.Client) -> State:
   match state:
@@ -395,8 +395,8 @@ def complete.on(hit: Bool, accepted: Bool, +state: State, +fields: Fields) -> St
         case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready}:
           match fields:
             case Fields{+title, +desc, +image}:
-              State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, Ready>, accepted,
-                List.take(&2, Ready, Ready{target, url, title, desc, image} <> ready, CAP()), ready)}
+              State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, CardReady>, accepted,
+                List.take(&2, CardReady, CardReady{target, url, title, desc, image} <> ready, CAP()), ready)}
         case _: state
 
 def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String, +payload: String) -> State:
@@ -409,17 +409,17 @@ def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
     case State{_, _, _, +active, _, _}:
       complete.on(exact(active, gen, ticket, url), False{}, state, Fields{"", "", ""})
 
-def card_for.pick(hit: Bool, +h: Ready, rest: Maybe<&2, Ready>) -> Maybe<&2, Ready>:
+def card_for.pick(hit: Bool, +h: CardReady, rest: Maybe<&2, CardReady>) -> Maybe<&2, CardReady>:
   match hit:
     case True{}: Some{h}
     case False{}: rest
 
-def card_for(xs: List<&2, Ready>, +target: Target, +url: String) -> Maybe<&2, Ready>:
+def card_for(xs: List<&2, CardReady>, +target: Target, +url: String) -> Maybe<&2, CardReady>:
   match xs:
     case Nil{}: None{}
     case Con{+h, t}: card_for.pick(ready_matches(h, target, url), h, card_for(t, target, url))
 
-def card(state: State, target: Target, url: String) -> Maybe<&2, Ready>:
+def card(state: State, target: Target, url: String) -> Maybe<&2, CardReady>:
   match state:
     case State{_, _, _, _, _, ready}: card_for(ready, target, url)
 
@@ -428,10 +428,10 @@ def urls_keep(hit: Bool, url: String, tail: List<&2, String>) -> List<&2, String
     case True{}: url <> tail
     case False{}: tail
 
-def urls_ready(xs: List<&2, Ready>, +target: Target) -> List<&2, String>:
+def urls_ready(xs: List<&2, CardReady>, +target: Target) -> List<&2, String>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Ready{t, url, _, _, _}, tail}: urls_keep(target_eq(t, target), url, urls_ready(tail, target))
+    case Con{CardReady{t, url, _, _, _}, tail}: urls_keep(target_eq(t, target), url, urls_ready(tail, target))
 
 def urls_pending(xs: List<&2, Request>, +target: Target, +gen: Nat) -> List<&2, String>:
   match xs:
@@ -474,9 +474,9 @@ def nonempty(xs: List<&2, String>) -> List<&2, String>:
     case Nil{}: Nil{}
     case Con{+h, t}: nonempty.keep(String.is_empty(h), h, nonempty(t))
 
-def card_texts(r: Ready) -> List<&2, String>:
+def card_texts(r: CardReady) -> List<&2, String>:
   match r:
-    case Ready{_, +url, +title, +desc, +image}:
+    case CardReady{_, +url, +title, +desc, +image}:
       nonempty([Bool.pick(String, String.is_empty(title), url, title), desc,
         Bool.pick(String, String.is_empty(image), "", "image: " ++ image)])
 
@@ -487,10 +487,10 @@ def rows_for_texts(xs: List<&2, String>, +w: U32) -> List<&2, V.BodyRow>:
 
 # One ready card paints at most ROWS_MAX dim text rows. The image reference
 # linkifies through render_spans; thumbnails stay on the media worker.
-def rows_for(+r: Ready, +w: U32) -> List<&2, V.BodyRow>:
+def rows_for(+r: CardReady, +w: U32) -> List<&2, V.BodyRow>:
   List.take(&2, V.BodyRow, rows_for_texts(card_texts(r), w), ROWS_MAX())
 
-def rows_for_target.maybe(m: Maybe<&2, Ready>, +w: U32) -> List<&2, V.BodyRow>:
+def rows_for_target.maybe(m: Maybe<&2, CardReady>, +w: U32) -> List<&2, V.BodyRow>:
   match m:
     case None{}: Nil{}
     case Some{+r}: rows_for(r, w)
@@ -498,16 +498,16 @@ def rows_for_target.maybe(m: Maybe<&2, Ready>, +w: U32) -> List<&2, V.BodyRow>:
 def rows_for_target(state: State, +target: Target, +url: String, +w: U32) -> List<&2, V.BodyRow>:
   rows_for_target.maybe(card(state, target, url), w)
 
-def ready_target(r: Ready) -> Target:
+def ready_target(r: CardReady) -> Target:
   match r:
-    case Ready{+target, _, _, _, _}: target
+    case CardReady{+target, _, _, _, _}: target
 
 def paint_entries.entry(target: Target, +texts: List<&2, String>, tail: List<&2, V.CardEntry>) -> List<&2, V.CardEntry>:
   match target:
     case CardInline{id}: V.CardEntry{id, texts} <> tail
     case CardManual{}: tail
 
-def paint_entries.go(xs: List<&2, Ready>) -> List<&2, V.CardEntry>:
+def paint_entries.go(xs: List<&2, CardReady>) -> List<&2, V.CardEntry>:
   match xs:
     case Nil{}: Nil{}
     case Con{+r, t}: paint_entries.entry(ready_target(r), card_texts(r), paint_entries.go(t))

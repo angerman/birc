@@ -11,7 +11,7 @@
 
 static Term tuple_a[2], tuple_b[2];
 static unsigned tuples;
-void io_eff(u32 cid, Effect run, u32 need) { (void)cid; (void)run; (void)need; }
+void io_eff(u32 cid, Effect run) { (void)cid; (void)run; }
 Term io_tup(Env e, Term a, Term b) {
   (void)e;
   if (tuples >= 2u) abort();

@@ -31,10 +31,6 @@ typedef struct IoWork {
 
 typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 
-#ifndef IO_READ
-#define IO_READ 1u
-#endif
-
 #ifndef CID
 #define CID(x) 1u
 #endif
@@ -107,7 +103,7 @@ Term io_box(Env e, u64 cid, Term v);
 Term io_tup(Env e, Term a, Term b);
 Term io_done(Env e, Term v);
 Term io_fail(Env e, u32 code, const char *text);
-void io_eff(u32 cid, Effect run, u32 need);
+void io_eff(u32 cid, Effect run);
 typedef Term (*IoMore)(Env e, IoWork *w);
 u64 io_tick(void);
 Term io_wait_on(IoWork *w, int fd, short evts, uint64_t time, IoMore more);

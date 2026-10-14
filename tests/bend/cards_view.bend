@@ -13,8 +13,8 @@ import ../../src/bend/history.bend as H
 def page() -> String:
   "https://x.test/read"
 
-def full_card() -> C.Ready:
-  C.Ready{C.CardInline{1n}, page(), "Hello", "A description", "https://x.test/i.png"}
+def full_card() -> C.CardReady:
+  C.CardReady{C.CardInline{1n}, page(), "Hello", "A description", "https://x.test/i.png"}
 
 def spans_text(xs: List<&2, V.SpanOp>) -> String:
   match xs:
@@ -77,26 +77,26 @@ def set_named(+cl: Cl.Client, name: String) -> Cl.Client:
   set_named.found(Cl.buf_find(cl, name), cl)
 
 def ready_media() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/a.png", 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, "https://x.test/a.png", 7}], M.Supported{}}
 
 def card_client() -> Cl.Client:
   Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see https://x.test/a.png", "alice", 1n}])
 
 def retokened() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/a.png", 9}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, "https://x.test/a.png", 9}], M.Supported{}}
 
 def relocated() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, "https://x.test/other.png", 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, "https://x.test/other.png", 7}], M.Supported{}}
 
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("full card paints three rows", Nat.show(List.length(&2, V.BodyRow, C.rows_for(full_card(), 80))), "3")
     Unit <- E.must_eq("card row text", sequence(C.rows_for(full_card(), 80)), "Hello|A description|image: https://x.test/i.png")
-    Unit <- E.must_eq("empty title falls back to URL", sequence(C.rows_for(C.Ready{C.CardInline{1n}, page(), "", "D", ""}, 80)), page() ++ "|D")
-    Unit <- E.must_eq("empty card still names URL", sequence(C.rows_for(C.Ready{C.CardInline{1n}, page(), "", "", ""}, 80)), page())
+    Unit <- E.must_eq("empty title falls back to URL", sequence(C.rows_for(C.CardReady{C.CardInline{1n}, page(), "", "D", ""}, 80)), page() ++ "|D")
+    Unit <- E.must_eq("empty card still names URL", sequence(C.rows_for(C.CardReady{C.CardInline{1n}, page(), "", "", ""}, 80)), page())
     +long : String = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    Unit <- E.must_eq("card rows capped at four", Nat.show(List.length(&2, V.BodyRow, C.rows_for(C.Ready{C.CardInline{1n}, page(), "T", long, ""}, 10))), "4")
-    +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.Ready{C.CardInline{1n}, page(), "T", "D", ""}],}
+    Unit <- E.must_eq("card rows capped at four", Nat.show(List.length(&2, V.BodyRow, C.rows_for(C.CardReady{C.CardInline{1n}, page(), "T", long, ""}, 10))), "4")
+    +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
     Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, C.rows_for_target(known, C.CardInline{2n}, page(), 80))), "0")
     Unit <- E.must_eq("known target paints", Nat.show(List.length(&2, V.BodyRow, C.rows_for_target(known, C.CardInline{1n}, page(), 80))), "2")
     +src : Cl.Line = Cl.Line{Cl.Msg{}, "12:00:00", "see " ++ page(), "alice", 1n}

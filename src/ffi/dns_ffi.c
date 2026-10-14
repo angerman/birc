@@ -139,7 +139,7 @@ Term udp_bind6_run(Env e, Term *f, IoWork *w) {
                 : io_done(e, io_hand((u64)fd));
 }
 static void __attribute__((constructor)) udp_bind6_use(void) {
-  io_eff(CID_UDP_BIND6, udp_bind6_run, 0);
+  io_eff(CID_UDP_BIND6, udp_bind6_run);
 }
 #endif
 
@@ -246,7 +246,7 @@ Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
                   : io_done(e, io_hand((u64)fd));
 }
 static void __attribute__((constructor)) tcp_connect_for_use(void) {
-  io_eff(CID_TCP_CONNECT_FOR, tcp_connect_for_run, 0);
+  io_eff(CID_TCP_CONNECT_FOR, tcp_connect_for_run);
 }
 #endif
 
@@ -325,7 +325,7 @@ Term tcp_send_for_run(Env e, Term *f, IoWork *w) {
   return birc_write_more(e, w);
 }
 static void __attribute__((constructor)) tcp_send_for_use(void) {
-  io_eff(CID_TCP_SEND_FOR, tcp_send_for_run, 0);
+  io_eff(CID_TCP_SEND_FOR, tcp_send_for_run);
 }
 #endif
 
@@ -379,7 +379,7 @@ Term send_octets_for_run(Env e, Term *f, IoWork *w) {
   return err != 0 ? birc_write_end(e, w, err) : birc_write_more(e, w);
 }
 static void __attribute__((constructor)) send_octets_for_use(void) {
-  io_eff(CID_SEND_OCTETS_FOR, send_octets_for_run, 0);
+  io_eff(CID_SEND_OCTETS_FOR, send_octets_for_run);
 }
 #endif
 
@@ -388,7 +388,7 @@ Term recv_octets_run(Env e, Term *f, IoWork *w) {
   return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], w, 1);
 }
 static void __attribute__((constructor)) recv_octets_use(void) {
-  io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ);
+  io_eff(CID_RECV_OCTETS, recv_octets_run);
 }
 #endif
 #if CID_RECV_NB
@@ -397,7 +397,7 @@ Term recv_nb_run(Env e, Term *f, IoWork *w) {
   return recv_try(e, (int)io_hand_v(f[0]), (u32)f[1], NULL, 0);
 }
 static void __attribute__((constructor)) recv_nb_use(void) {
-  io_eff(CID_RECV_NB, recv_nb_run, 0);
+  io_eff(CID_RECV_NB, recv_nb_run);
 }
 #endif
 #if CID_SOCKET_DUP
@@ -411,7 +411,7 @@ Term socket_dup_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, f[0], io_done(e, io_hand((u64)d)));
 }
 static void __attribute__((constructor)) socket_dup_use(void) {
-  io_eff(CID_SOCKET_DUP, socket_dup_run, 0);
+  io_eff(CID_SOCKET_DUP, socket_dup_run);
 }
 #endif
 #if CID_SOCKET_SHUTDOWN
@@ -423,7 +423,7 @@ Term socket_shutdown_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, f[0], io_done(e, term_pak(CID_UNIT, 0)));
 }
 static void __attribute__((constructor)) socket_shutdown_use(void) {
-  io_eff(CID_SOCKET_SHUTDOWN, socket_shutdown_run, 0);
+  io_eff(CID_SOCKET_SHUTDOWN, socket_shutdown_run);
 }
 #endif
 #endif /* BIRC_DNS_FFI_C */

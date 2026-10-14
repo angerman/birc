@@ -202,7 +202,7 @@ def net_fwd.got(g: Maybe<&1, Sess.UiMsg>, +s: Key.ServerId, +main: Chan(WsMsg), 
     case None{}: IO.pure(Unit, Unit{})
     case Some{+m}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(WsMsg, main, WsNet{Sid.RoutedMsg{s, m}})
+        _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsNet{Sid.RoutedMsg{s, m}})
         k(Unit{})
 
 @unsafe
@@ -216,7 +216,7 @@ def ui_fwd.got(g: Maybe<&1, Sess.UiMsg>, +main: Chan(WsMsg), k: Unit -> IO(Unit)
     case None{}: IO.pure(Unit, Unit{})
     case Some{+m}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(WsMsg, main, WsUi{m})
+        _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsUi{m})
         k(Unit{})
 
 @unsafe
@@ -233,7 +233,7 @@ def prefs_fwd.got(g: Maybe<&1, Sess.UiMsg>, +main: Chan(WsMsg), k: Unit -> IO(Un
     case None{}: IO.pure(Unit, Unit{})
     case Some{+m}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(WsMsg, main, WsPrefs{m})
+        _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsPrefs{m})
         k(Unit{})
 
 @unsafe
@@ -251,10 +251,10 @@ def boot_fwd.got(g: Maybe<&1, Act.Boot>, +s: Key.ServerId, +gen: U32, +main: Cha
     case None{}: IO.pure(Unit, Unit{})
     case Some{e}:
       match e:
-        case Act.Ready{}: IO.pure(Unit, Unit{})
+        case Act.Booted{}: IO.pure(Unit, Unit{})
         case Act.Down{+msg}:
           do IO<Unit>:
-            _ : Bool <- Chan.send(WsMsg, main, WsNet{Sid.RoutedMsg{s, Sess.FromNet{gen, Sess.InitialFail{msg}}}})
+            _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsNet{Sid.RoutedMsg{s, Sess.FromNet{gen, Sess.InitialFail{msg}}}})
             return Unit{}
 
 def boot_fwd(+s: Key.ServerId, +gen: U32, +boot: Chan(Act.Boot), +main: Chan(WsMsg)) -> IO(Unit):
@@ -266,7 +266,7 @@ def boot_fwd(+s: Key.ServerId, +gen: U32, +boot: Chan(Act.Boot), +main: Chan(WsM
 def redial_watch(+main: Chan(WsMsg), +intent: Sid.Intent) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.sleep(2000)
-    _ : Bool <- Chan.send(WsMsg, main, WsRedial{intent})
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsRedial{intent})
     return Unit{}
 
 @unsafe
@@ -274,7 +274,7 @@ def ws_typing_watch(+main: Chan(WsMsg)) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.sleep(1000)
     now_ms : U32 <- Clock.millis()
-    _ : Bool <- Chan.send(WsMsg, main, WsTick{now_ms})
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsTick{now_ms})
     ws_typing_watch(main)
 
 def ws_evt.pick(+c0: Chan(Sess.UiMsg), +c1: Chan(Sess.UiMsg), +c2: Chan(Sess.UiMsg), +c3: Chan(Sess.UiMsg), +n: Nat) -> Chan(Sess.UiMsg):
@@ -306,11 +306,11 @@ def ws_emit.to(+cmd: Sess.NetCmd, +c: Chan(Sess.NetCmd), +evt: Chan(Sess.UiMsg))
   match cmd:
     case Sess.Dial{+host, +port, gen, +nick}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.NetCmd, c, Sess.Dial{host, port, gen, nick})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, c, Sess.Dial{host, port, gen, nick})
         return Unit{}
     case Sess.Drop{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.NetCmd, c, Sess.Drop{})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, c, Sess.Drop{})
         return Unit{}
     case Sess.Cont{+outs}:
       do IO<Unit>:
@@ -320,7 +320,7 @@ def ws_emit.to(+cmd: Sess.NetCmd, +c: Chan(Sess.NetCmd), +evt: Chan(Sess.UiMsg))
     case Sess.Pong{_, _, _}: IO.pure(Unit, Unit{})
     case Sess.Begin{+gen}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.NetCmd, c, Sess.Begin{gen})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, c, Sess.Begin{gen})
         return Unit{}
     case Sess.OpenUrl{+url}: Net.open_clicked(Some{evt}, url)
     case Sess.Search{+text, +target, +cursor, +orig, +endpoint, +history_on, +ticket, +sgen, +wgen}:
@@ -1203,12 +1203,12 @@ def ws_cards_stage(+ws: W.Workspace, +evts: WsEvts, +cards: WsCardsAll) -> IO(W.
 # and every step. The revalidated state writes back even when the key
 # falls through. A handled key is zeroed by the caller before key
 # dispatch, so a consumed Escape neither cancels an upload nor quits.
-def ws_fullscreen.pick(pick: Maybe<&2, M.Ready>, +cs: C.State, +media: M.State) -> C.State & C.Fullscreen & Bool:
+def ws_fullscreen.pick(pick: Maybe<&2, M.MediaReady>, +cs: C.State, +media: M.State) -> C.State & C.Fullscreen & Bool:
   match pick:
     case None{}: (cs, C.FullOff{}, True{})
-    case Some{M.Ready{+target, +url, _}}: (cs, C.open(media, target, url), True{})
+    case Some{M.MediaReady{+target, +url, _}}: (cs, C.open(media, target, url), True{})
 
-def ws_fullscreen.toggle(open: Bool, +pick: Maybe<&2, M.Ready>, +cs: C.State, +fl: C.Fullscreen, +media: M.State) -> C.State & C.Fullscreen & Bool:
+def ws_fullscreen.toggle(open: Bool, +pick: Maybe<&2, M.MediaReady>, +cs: C.State, +fl: C.Fullscreen, +media: M.State) -> C.State & C.Fullscreen & Bool:
   match open:
     case True{}: (cs, C.FullOff{}, True{})
     case False{}: ws_fullscreen.pick(pick, cs, media)
@@ -1370,7 +1370,7 @@ def ws_redial(+ws: W.Workspace, +intent: Sid.Intent, +cmds: WsCmds, +evts: WsEvt
 # ---- frame --------------------------------------------------------------------
 def ws_more_send(+main: Chan(WsMsg)) -> IO(Unit):
   do IO<Unit>:
-    _ : Bool <- Chan.send(WsMsg, main, WsUi{Sess.UiContinue{}})
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsUi{Sess.UiContinue{}})
     return Unit{}
 
 def ws_more.go(enqueue: Bool, +pending: Bool, +main: Chan(WsMsg)) -> IO(Bool):
@@ -1518,7 +1518,7 @@ def ws_begin_all.go(+xs: List<&2, W.Part>, +cmds: WsCmds) -> IO(Unit):
       match h:
         case W.Part{+id, +gen, _, _}:
           do IO<Unit>:
-            _ : Bool <- Chan.send(Sess.NetCmd, ws_cmd.at(cmds, ws_id_nat(id)), Sess.Begin{gen})
+            _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, ws_cmd.at(cmds, ws_id_nat(id)), Sess.Begin{gen})
             ws_begin_all.go(t, cmds)
 
 def ws_begin_all(+cmds: WsCmds, +ws: W.Workspace) -> IO(Unit):

@@ -163,7 +163,7 @@ Term setup_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, (Term)code, value);
 }
 static void __attribute__((constructor)) setup_use(void) {
-  io_eff(CID_SETUP, setup_run, 0);
+  io_eff(CID_SETUP, setup_run);
 }
 #endif
 #if CID_NOTIFY
@@ -172,7 +172,7 @@ Term notify_run(Env e, Term *f, IoWork *w) {
   return (Term)birc_auth_notify();
 }
 static void __attribute__((constructor)) notify_use(void) {
-  io_eff(CID_NOTIFY, notify_run, 0);
+  io_eff(CID_NOTIFY, notify_run);
 }
 #endif
 #endif

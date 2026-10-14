@@ -101,20 +101,20 @@ def restored() -> Cl.Client:
     0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
   Startup.install(current, snapshot)
 
-def ready(n: Nat, +id: Nat) -> List<&2, M.Ready>:
+def ready(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
   match n:
     case 0n: Nil{}
-    case 1n+p: M.Ready{M.Inline{id}, url(id), U32.from_nat(id)} <> ready(p, 1n+id)
+    case 1n+p: M.MediaReady{M.Inline{id}, url(id), U32.from_nat(id)} <> ready(p, 1n+id)
 
 def selected(n: Nat, +id: Nat) -> List<&2, M.Candidate>:
   match n:
     case 0n: Nil{}
     case 1n+p: M.Candidate{M.Inline{id}, url(id)} <> selected(p, 1n+id)
 
-def failed(n: Nat, +id: Nat) -> List<&2, M.Ready>:
+def failed(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
   match n:
     case 0n: Nil{}
-    case 1n+p: M.Ready{M.Inline{id}, url(id), 0} <> failed(p, 1n+id)
+    case 1n+p: M.MediaReady{M.Inline{id}, url(id), 0} <> failed(p, 1n+id)
 
 def manual_client() -> Cl.Client:
   Cl.Client{"me", "s", List.append(&2, Cl.Buffer, Cl.client_bufs(client()),

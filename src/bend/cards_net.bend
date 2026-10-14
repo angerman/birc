@@ -70,7 +70,7 @@ def cards_run(req: C.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
       do IO<Unit>:
         program : String <- cards_program()
         result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, cards_args(url), "", 2800000, 11000)
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.CardFetched{generation, ticket, url, cards_payload(result)})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.CardFetched{generation, ticket, url, cards_payload(result)})
         return Unit{}
 
 def cards_spawn(job: Maybe<&2, C.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):

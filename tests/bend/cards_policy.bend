@@ -49,7 +49,7 @@ def populate(+n: Nat, state: C.State) -> C.State:
     case 1n+p:
       populate(p, complete_job(C.take_job(C.enqueue(state, C.CardInline{1n}, "https://x.test/" ++ Nat.show(n))), client(), "t" ++ Nat.show(n) ++ "\nd\ni"))
 
-def shown_title(m: Maybe<&2, C.Ready>) -> String:
+def shown_title(m: Maybe<&2, C.CardReady>) -> String:
   match m:
     case None{}: "missing"
     case Some{+r}: C.ready_title(r)
@@ -115,8 +115,8 @@ def main() -> IO(Unit):
     Unit <- E.must("wrong ticket rejected", Bool.not(C.accept(active(), client(), 1n, 2n, page())))
     Unit <- E.must("wrong URL rejected", Bool.not(C.accept(active(), client(), 1n, 1n, "https://x.test/other")))
     Unit <- E.must_eq("wrong result does not release worker", job_of(C.take_job(C.complete(active(), client(), 1n, 2n, page(), "t\nd\n"))), "none")
-    Unit <- E.must_eq("accepted title stored", shown_title(C.card_for([C.Ready{C.CardInline{1n}, page(), "T", "D", ""}], C.CardInline{1n}, page())), "T")
-    Unit <- E.must_eq("unknown card is missing", shown_title(C.card_for([C.Ready{C.CardInline{1n}, page(), "T", "D", ""}], C.CardInline{2n}, page())), "missing")
+    Unit <- E.must_eq("accepted title stored", shown_title(C.card_for([C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}], C.CardInline{1n}, page())), "T")
+    Unit <- E.must_eq("unknown card is missing", shown_title(C.card_for([C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}], C.CardInline{2n}, page())), "missing")
     Unit <- E.must_eq("accepted completion occupies identity", Nat.show(C.pending_count(C.enqueue(C.complete(active(), client(), 1n, 1n, page(), "T\nD\n"), C.CardInline{1n}, page()))), "0")
     Unit <- E.must_eq("empty completion still occupies identity", Nat.show(C.pending_count(C.enqueue(C.complete(active(), client(), 1n, 1n, page(), ""), C.CardInline{1n}, page()))), "0")
     Unit <- E.must_eq("disabled auto request rejected", Nat.show(C.pending_count(C.enqueue(C.initial(False{}), C.CardInline{1n}, page()))), "0")

@@ -311,7 +311,7 @@ Term timui_view_begin_run(Env e, Term *f, IoWork *w) {
   return f[0];
 }
 static void __attribute__((constructor)) timui_view_begin_use(void) {
-  io_eff(CID_TIMUI_VIEW_BEGIN, timui_view_begin_run, 0);
+  io_eff(CID_TIMUI_VIEW_BEGIN, timui_view_begin_run);
 }
 
 static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
@@ -473,7 +473,7 @@ Term timui_image_supported_run(Env e, Term *f, IoWork *w) {
       (Term)(timui_image_protocol(ui) != TIMUI_IMAGE_PROTOCOL_NONE ? 1u : 0u));
 }
 static void __attribute__((constructor)) timui_image_supported_use(void) {
-  io_eff(CID_TIMUI_IMAGE_SUPPORTED, timui_image_supported_run, 0);
+  io_eff(CID_TIMUI_IMAGE_SUPPORTED, timui_image_supported_run);
 }
 #endif
 
@@ -494,7 +494,7 @@ Term timui_media_add_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, f[0], (Term)(uint64_t)token);
 }
 static void __attribute__((constructor)) timui_media_add_use(void) {
-  io_eff(CID_TIMUI_MEDIA_ADD, timui_media_add_run, 0);
+  io_eff(CID_TIMUI_MEDIA_ADD, timui_media_add_run);
 }
 #endif
 #if CID_TIMUI_MEDIA_CLEAR
@@ -506,7 +506,7 @@ Term timui_media_clear_run(Env e, Term *f, IoWork *w) {
   return f[0];
 }
 static void __attribute__((constructor)) timui_media_clear_use(void) {
-  io_eff(CID_TIMUI_MEDIA_CLEAR, timui_media_clear_run, 0);
+  io_eff(CID_TIMUI_MEDIA_CLEAR, timui_media_clear_run);
 }
 #endif
 
@@ -579,7 +579,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   return io_done(e, io_hand((uint64_t)(uintptr_t)ui));
 }
 static void __attribute__((constructor)) timui_open_use(void) {
-  io_eff(CID_TIMUI_OPEN, timui_open_run, 0);
+  io_eff(CID_TIMUI_OPEN, timui_open_run);
 }
 static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
@@ -956,7 +956,7 @@ Term timui_redraw_ready_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, f[0], (Term)(uint64_t)ready);
 }
 static void __attribute__((constructor)) timui_redraw_ready_use(void) {
-  io_eff(CID_TIMUI_REDRAW_READY, timui_redraw_ready_run, 0);
+  io_eff(CID_TIMUI_REDRAW_READY, timui_redraw_ready_run);
 }
 #endif
 
@@ -1436,7 +1436,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   }
 }
 static void __attribute__((constructor)) timui_frame_use(void) {
-  io_eff(CID_TIMUI_FRAME, timui_frame_run, 0);
+  io_eff(CID_TIMUI_FRAME, timui_frame_run);
 }
 Term timui_close_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
@@ -1491,7 +1491,7 @@ Term timui_close_run(Env e, Term *f, IoWork *w) {
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) timui_close_use(void) {
-  io_eff(CID_TIMUI_CLOSE, timui_close_run, 0);
+  io_eff(CID_TIMUI_CLOSE, timui_close_run);
 }
 #ifdef CID_TIMUI_ISATTY
 Term timui_isatty_run(Env e, Term *f, IoWork *w) {
@@ -1501,7 +1501,7 @@ Term timui_isatty_run(Env e, Term *f, IoWork *w) {
   return (Term)(isatty(0) ? 1u : 0u);
 }
 static void __attribute__((constructor)) timui_isatty_use(void) {
-  io_eff(CID_TIMUI_ISATTY, timui_isatty_run, 0);
+  io_eff(CID_TIMUI_ISATTY, timui_isatty_run);
 }
 #endif
 #ifdef CID_TIMUI_TTY
@@ -1514,7 +1514,7 @@ Term timui_tty_run(Env e, Term *f, IoWork *w) {
   return io_tup(e, f[0], io_done(e, io_hand((u64)ui->fd.read_fd)));
 }
 static void __attribute__((constructor)) timui_tty_use(void) {
-  io_eff(CID_TIMUI_TTY, timui_tty_run, 0);
+  io_eff(CID_TIMUI_TTY, timui_tty_run);
 }
 #endif
 #if defined(CID_TTY_READY) || defined(CID_WINCH_READY)
@@ -1548,7 +1548,7 @@ static Term fd_ready_run(Env e, Term *f, IoWork *w) {
 #endif
 #ifdef CID_TTY_READY
 static void __attribute__((constructor)) tty_ready_use(void) {
-  io_eff(CID_TTY_READY, fd_ready_run, 0);
+  io_eff(CID_TTY_READY, fd_ready_run);
 }
 #endif
 #ifdef CID_TTY_CLOSE
@@ -1559,7 +1559,7 @@ Term tty_close_run(Env e, Term *f, IoWork *w) {
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) tty_close_use(void) {
-  io_eff(CID_TTY_CLOSE, tty_close_run, 0);
+  io_eff(CID_TTY_CLOSE, tty_close_run);
 }
 #endif
 #if defined(CID_WINCH_OPEN) || defined(CID_WINCH_CLOSE)
@@ -1612,12 +1612,12 @@ Term winch_open_run(Env e, Term *f, IoWork *w) {
   return io_done(e, io_hand((u64)pfd[0]));
 }
 static void __attribute__((constructor)) winch_open_use(void) {
-  io_eff(CID_WINCH_OPEN, winch_open_run, 0);
+  io_eff(CID_WINCH_OPEN, winch_open_run);
 }
 #endif
 #ifdef CID_WINCH_READY
 static void __attribute__((constructor)) winch_ready_use(void) {
-  io_eff(CID_WINCH_READY, fd_ready_run, 0);
+  io_eff(CID_WINCH_READY, fd_ready_run);
 }
 #endif
 #ifdef CID_WINCH_CLOSE
@@ -1640,7 +1640,7 @@ Term winch_close_run(Env e, Term *f, IoWork *w) {
   return term_pak(CID_UNIT, 0);
 }
 static void __attribute__((constructor)) winch_close_use(void) {
-  io_eff(CID_WINCH_CLOSE, winch_close_run, 0);
+  io_eff(CID_WINCH_CLOSE, winch_close_run);
 }
 #endif
 #if CID_SYS_OPEN_PROGRAM
@@ -1654,7 +1654,7 @@ Term sys_open_program_run(Env e, Term *f, IoWork *w) {
 #endif
 }
 static void __attribute__((constructor)) sys_open_program_use(void) {
-  io_eff(CID_SYS_OPEN_PROGRAM, sys_open_program_run, 0);
+  io_eff(CID_SYS_OPEN_PROGRAM, sys_open_program_run);
 }
 #endif
 #if CID_SYS_MEDIA_PROGRAM
@@ -1665,7 +1665,7 @@ Term sys_media_program_run(Env e, Term *f, IoWork *w) {
   return io_str(e, program, strlen(program));
 }
 static void __attribute__((constructor)) sys_media_program_use(void) {
-  io_eff(CID_SYS_MEDIA_PROGRAM, sys_media_program_run, 0);
+  io_eff(CID_SYS_MEDIA_PROGRAM, sys_media_program_run);
 }
 #endif
 #if CID_SYS_NOTIFY_DEFAULT
@@ -1679,7 +1679,7 @@ Term sys_notify_default_run(Env e, Term *f, IoWork *w) {
 #endif
 }
 static void __attribute__((constructor)) sys_notify_default_use(void) {
-  io_eff(CID_SYS_NOTIFY_DEFAULT, sys_notify_default_run, 0);
+  io_eff(CID_SYS_NOTIFY_DEFAULT, sys_notify_default_run);
 }
 #endif
 #if CID_SYS_CLIPBOARD_PROGRAM
@@ -1693,7 +1693,7 @@ Term sys_clipboard_program_run(Env e, Term *f, IoWork *w) {
 #endif
 }
 static void __attribute__((constructor)) sys_clipboard_program_use(void) {
-  io_eff(CID_SYS_CLIPBOARD_PROGRAM, sys_clipboard_program_run, 0);
+  io_eff(CID_SYS_CLIPBOARD_PROGRAM, sys_clipboard_program_run);
 }
 #endif
 #if CID_SYS_EXIT_DONE
@@ -1712,7 +1712,7 @@ Term sys_exit_done_run(Env e, Term *f, IoWork *w) {
   _Exit(birc_output_failure ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 static void __attribute__((constructor)) sys_exit_done_use(void) {
-  io_eff(CID_SYS_EXIT_DONE, sys_exit_done_run, 0);
+  io_eff(CID_SYS_EXIT_DONE, sys_exit_done_run);
 }
 #endif
 #if CID_SYS_EXIT_FAIL
@@ -1732,7 +1732,7 @@ Term sys_exit_fail_run(Env e, Term *f, IoWork *w) {
   _Exit(EXIT_FAILURE);
 }
 static void __attribute__((constructor)) sys_exit_fail_use(void) {
-  io_eff(CID_SYS_EXIT_FAIL, sys_exit_fail_run, 0);
+  io_eff(CID_SYS_EXIT_FAIL, sys_exit_fail_run);
 }
 #endif
 #endif /* BIRC_TIMUI_FFI_C */

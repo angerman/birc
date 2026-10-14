@@ -139,7 +139,7 @@ def helper_post(notice: Maybe<&2, Chan(Sess.UiMsg)>, +msg: String) -> IO(Unit):
     case None{}: IO.pure(Unit, Unit{})
     case Some{+evt}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiError{msg})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.UiError{msg})
         return Unit{}
 
 def helper_notify(result: Maybe<&2, String>, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
@@ -228,7 +228,7 @@ def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty
       IO.pure(U32, gen)
     case False{}:
       do IO<U32>:
-        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Cont{outs})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, chan, Sess.Cont{outs})
         Unit <- Clock.net_trace(3, 0, 0)
         return gen
 
@@ -264,11 +264,11 @@ def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +g
   match c:
     case Sess.Dial{+host, port, _, +nick}:
       do IO<U32>:
-        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Dial{host, port, U32.add(gen, 1), nick})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, chan, Sess.Dial{host, port, U32.add(gen, 1), nick})
         return U32.add(gen, 1)
     case Sess.Drop{}:
       do IO<U32>:
-        ok : Bool <- Chan.send(Sess.NetCmd, chan, Sess.Drop{})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, chan, Sess.Drop{})
         return gen
     case Sess.Cont{+outs}:
       emit_outs(chan, outs, gen, List.is_empty(&2, String, outs))
@@ -333,7 +333,7 @@ def ack_key(is_key: Bool, +ack: Chan(Unit)) -> IO(Unit):
   match is_key:
     case True{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Unit, ack, Unit{})
+        _ : Result<&1, &1, Unit, Unit> <- Chan.send(Unit, ack, Unit{})
         return Unit{}
     case False{}:
       IO.pure(Unit, Unit{})
@@ -343,7 +343,7 @@ def more_pending(+scheduled: Bool, +consumed: Bool, +more: Bool) -> Bool:
 
 def more_enqueue(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiContinue{})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.UiContinue{})
     return Unit{}
 
 def more_schedule.go(enqueue: Bool, +pending: Bool, +evt: Chan(Sess.UiMsg)) -> IO(Bool):
@@ -762,7 +762,7 @@ def on_up(
 def reconnect_watch(+evt: Chan(Sess.UiMsg), +host: String, +port: U32, +gen: U32) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.sleep(2000)
-    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Reconnect{host, port, gen})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.Reconnect{host, port, gen})
     return Unit{}
 
 def emit_fail_cmd(
@@ -774,7 +774,7 @@ def emit_fail_cmd(
   match c:
     case Sess.Dial{+host, port, _, _}:
       do IO<U32>:
-        dropped : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
         Unit <- IO.spawn(Unit, reconnect_watch(evt, host, port, gen))
         return gen
     case other:
@@ -1023,7 +1023,7 @@ def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
       do IO<Unit>:
         program : String <- T.Sys.media_program()
         result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, media_args(url), "", 2800000, 11000)
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
         return Unit{}
 
 def media_spawn(job: Maybe<&2, M.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
@@ -1060,7 +1060,7 @@ def upload_run.result(result: String & U32 & U32, request: Up.Request, +evt: Cha
   match result:
     case (output, error, http_status):
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UploadFetched{request, output, error, http_status})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.UploadFetched{request, output, error, http_status})
         return Unit{}
 
 def upload_run(+request: Up.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
@@ -1512,6 +1512,12 @@ def tty_watch.ack(
     case Some{_}:
       k(tty)
 
+# Bend 2.0.37: Chan.send answers Done{} once taken, Fail{value} when closed.
+def sent_ok(-A: Type, r: Result<&1, &1, A, Unit>) -> Bool:
+  match r:
+    case Done{_}: True{}
+    case Fail{_}: False{}
+
 def tty_watch.on(
   ok: Bool,
   tty: T.Tty,
@@ -1530,8 +1536,8 @@ def tty_watch.on(
 def tty_watch(tty: T.Tty, +evt: Chan(Sess.UiMsg), +ack: Chan(Unit)) -> IO(Unit):
   do IO<Unit>:
     tty2 : T.Tty <- T.Tty.ready(tty)
-    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.UiKey{})
-    tty_watch.on(ok, tty2, ack, t => tty_watch(t, evt, ack))
+    r : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.UiKey{})
+    tty_watch.on(sent_ok(Sess.UiMsg, r), tty2, ack, t => tty_watch(t, evt, ack))
 
 def winch_watch.on(ok: Bool, w: T.Winch, k: T.Winch -> IO(Unit)) -> IO(Unit):
   match ok:
@@ -1544,8 +1550,8 @@ def winch_watch.on(ok: Bool, w: T.Winch, k: T.Winch -> IO(Unit)) -> IO(Unit):
 def winch_watch(w: T.Winch, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
     w2 : T.Winch <- T.Winch.ready(w)
-    ok : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
-    winch_watch.on(ok, w2, w3 => winch_watch(w3, evt))
+    r : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
+    winch_watch.on(sent_ok(Sess.UiMsg, r), w2, w3 => winch_watch(w3, evt))
 
 # A one-second Bend-owned tick expires typing and repairs short frames or
 # timed input read by a non-key paint before the tty watcher observed it.
@@ -1556,7 +1562,7 @@ def typing_watch(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.sleep(1000)
     now_ms : U32 <- Clock.millis()
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.TypingTick{now_ms})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.TypingTick{now_ms})
     typing_watch(evt)
 
 def watch_start.boot(pair: (T.Ui & Sess.Session & U32 & Bool) & PrefLive.Context, +frames: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), hist_path: String) -> IO(Unit):
@@ -1747,9 +1753,9 @@ def heartbeat_step(ok: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
       do IO<Unit>:
         Unit <- IO.sleep(5000)
         ms : U32 <- Clock.millis()
-        nxt : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{ ("PING :birc_" ++ U32.show(ms)) <> Nil{} })
+        nxt : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{ ("PING :birc_" ++ U32.show(ms)) <> Nil{} })
         Unit <- Clock.net_trace(3, 0, 0)
-        heartbeat_step(nxt, cmd)
+        heartbeat_step(sent_ok(Sess.NetCmd, nxt), cmd)
 
 def heartbeat(+cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   heartbeat_step(True{}, cmd)
@@ -1822,7 +1828,7 @@ def boot_watch.event(e: Act.Boot, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit)
   match e:
     case Act.Down{+msg}:
       Act.post(evt, gen, Sess.InitialFail{msg})
-    case Act.Ready{}:
+    case Act.Booted{}:
       IO.pure(Unit, Unit{})
 
 def boot_watch.got(g: Maybe<&1, Act.Boot>, +evt: Chan(Sess.UiMsg), +gen: U32) -> IO(Unit):
@@ -1853,7 +1859,7 @@ def boot_headless(g: Maybe<&1, Act.Boot>, +cmd: Chan(Sess.NetCmd), start: Unit -
       match e:
         case Act.Down{+msg}:
           boot_headless.fail(cmd, msg)
-        case Act.Ready{}:
+        case Act.Booted{}:
           start(Unit{})
 
 # Interactive startup paints immediately. Headless EOF instead waits for

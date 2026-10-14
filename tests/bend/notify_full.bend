@@ -623,7 +623,7 @@ def lc_waiting() -> LC.Context:
   LC.wrap(LC.Details{PL.wrap(PR.Disabled{}), LC.Waiting{7, scope()}, Some{True{}}, "", Some{LC.Archive{3n, 7, scope(), 500, True{}, "me", "irc.test", "", False{}}}, 4n})
 
 def lc_ready() -> LC.Context:
-  LC.wrap(LC.Details{PL.wrap(PR.Disabled{}), LC.Ready{}, Some{True{}}, "", None{}, 4n})
+  LC.wrap(LC.Details{PL.wrap(PR.Disabled{}), LC.Open{}, Some{True{}}, "", None{}, 4n})
 
 def nl_r3_kept() -> Sess.NotifyLive:
   Sess.notify_live_seed_accepted(False{}, nl_full_busy(), Nil{})

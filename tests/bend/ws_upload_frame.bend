@@ -57,7 +57,7 @@ def phase.state(+state: U.State) -> String:
   match state:
     case U.Idle{}: "idle"
     case U.Confirm{_, _}: "confirm"
-    case U.Ready{_, _}: "ready"
+    case U.Armed{_, _}: "ready"
     case U.Busy{_, _, _}: "busy"
 
 def phase.got(+got: Maybe<&2, W.Part>) -> String:

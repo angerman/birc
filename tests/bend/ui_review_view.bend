@@ -51,7 +51,7 @@ def main() -> IO(Unit):
     Unit <- E.must("idle local preview helper-only", helper_only(M.empty()))
     Unit <- E.must("pending local preview helper-only", helper_only(M.enqueue(M.initial(False{}), M.Manual{}, path())))
     Unit <- E.must("failed local preview helper-only", helper_only(M.State{False{}, 1n, 2n, None{}, Nil{}, Nil{}, M.Supported{}}))
-    +ready : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Manual{}, path(), 7}], M.Supported{}}
+    +ready : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Manual{}, path(), 7}], M.Supported{}}
     Unit <- E.must("accepted local preview helper-only", helper_only(ready))
     Unit <- E.must("accepted local preview paints token", has_token(production(ready, Sp.Off{})))
     Unit <- E.must("legacy pure preview adapter remains", Bool.not(no_raw(V.view_draft(client(), 24, 80, "", "demo"))))

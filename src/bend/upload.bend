@@ -13,7 +13,7 @@ type Request is Data:
 type State is Data:
   Idle{}
   Confirm{request: Request, remaining: List<&2, String>}
-  Ready{request: Request, remaining: List<&2, String>}
+  Armed{request: Request, remaining: List<&2, String>}
   Busy{request: Request, remaining: List<&2, String>, allowed: Bool}
 
 def empty() -> State:
@@ -27,7 +27,7 @@ def active(state: State) -> Bool:
 def pending(state: State) -> Bool:
   match state:
     case Confirm{_, _}: True{}
-    case Ready{_, _}: True{}
+    case Armed{_, _}: True{}
     case _: False{}
 
 def CAP() -> Nat:
@@ -281,12 +281,12 @@ def retain(+state: State, +scope: Scope, +online: Bool) -> State:
   match state:
     case Idle{}: Idle{}
     case Confirm{+request, _}: retain.valid(online && scope_eq(request_scope(request), scope), state)
-    case Ready{+request, _}: retain.valid(online && scope_eq(request_scope(request), scope), state)
+    case Armed{+request, _}: retain.valid(online && scope_eq(request_scope(request), scope), state)
     case Busy{+request, _, _}: retain.valid(online && scope_eq(request_scope(request), scope), state)
 
 def confirm.retained(state: State) -> State:
   match state:
-    case Confirm{request, remaining}: Ready{request, remaining}
+    case Confirm{request, remaining}: Armed{request, remaining}
     case _: state
 
 # The caller supplies a dedicated physical-key action, never pasted text.
@@ -300,7 +300,7 @@ def cancel(state: State) -> State:
 
 def take_job(state: State) -> State & Maybe<&2, Request>:
   match state:
-    case Ready{+request, remaining}: (Busy{request, remaining, True{}}, Some{request})
+    case Armed{+request, remaining}: (Busy{request, remaining, True{}}, Some{request})
     case _: (state, None{})
 
 def ascii_path(s: String) -> Bool:

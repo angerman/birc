@@ -32,7 +32,7 @@ def loaded(pair: Maybe<&2, P.Preferences> & U32, ticket: Nat, +evt: Chan(Sess.Ui
   match pair:
     case (prefs, code):
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesLoaded{ticket, prefs, code})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesLoaded{ticket, prefs, code})
         return Unit{}
 
 def run(job: R.Job, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
@@ -44,7 +44,7 @@ def run(job: R.Job, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     case R.Write{ticket, host, port, prefs}:
       do IO<Unit>:
         code : U32 <- F.save(host, port, prefs)
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesSaved{ticket, code})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesSaved{ticket, code})
         return Unit{}
 
 def start(got: Maybe<&2, R.Job>, evt: Chan(Sess.UiMsg)) -> IO(Unit):
@@ -64,5 +64,5 @@ def DRAIN_START_MS() -> U32:
 def deadline(ticket: Nat, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.sleep(DRAIN_MS())
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesDeadline{ticket})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.PreferencesDeadline{ticket})
     return Unit{}

@@ -25,7 +25,7 @@ def pending() -> M.State:
   M.enqueue(M.initial(True{}), M.Inline{1n}, url())
 
 def ready() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, url(), 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, url(), 7}], M.Supported{}}
 
 def spans_text(xs: List<&2, V.SpanOp>) -> String:
   match xs:
@@ -99,7 +99,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("paused inside image", ops_shape(V.body_ops(V.Rect{0, 0, 14, 4}, V.body_of.buf_media(inside, 2n, 12, False{}, Nil{}, "s", ready()))), "1,1,12,6,2,2,7;")
     Unit <- E.must_eq("resize preserves virtual image position", ops_shape(V.body_ops(V.Rect{0, 0, 42, 4}, V.body_of.buf_media(inside, 2n, 40, False{}, Nil{}, "s", ready()))), "1,1,40,6,2,2,7;")
     +manual : Cl.Buffer = Cl.Buffer{"*preview*", False{}, url(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
-    +manual_media : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Manual{}, url(), 9}], M.Supported{}}
+    +manual_media : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Manual{}, url(), 9}], M.Supported{}}
     +manual_paused : Cl.Buffer = V.scroll_buf_media(manual, 2n, 20, False{}, Nil{}, "s", 2n, 0n, manual_media)
     Unit <- E.must_eq("manual preview uses expanded navigation rows", ops_shape(V.body_ops(V.Rect{0, 0, 22, 4}, V.body_of.buf_media(manual_paused, 2n, 20, False{}, Nil{}, "s", manual_media))), "1,1,20,6,2,2,9;")
     Unit <- E.must("split media painted", Bool.not(String.is_empty(vm_shape(V.view_draft.state_typing_media(client(), 24, 80, "", "online", Nil{}, Sp.On{Sp.SideBySide{}, "server", "server", 0}, ready())))))

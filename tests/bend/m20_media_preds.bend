@@ -12,10 +12,10 @@ def lines(+n: Nat) -> List<&2, Cl.Line>:
     case 0n: Nil{}
     case 1n+p: Cl.Line{Cl.Msg{}, "", url(n), "alice", n} <> lines(p)
 
-def ready(+n: Nat) -> List<&2, M.Ready>:
+def ready(+n: Nat) -> List<&2, M.MediaReady>:
   match n:
     case 0n: Nil{}
-    case 1n+p: M.Ready{M.Inline{n}, url(n), U32.from_nat(n)} <> ready(p)
+    case 1n+p: M.MediaReady{M.Inline{n}, url(n), U32.from_nat(n)} <> ready(p)
 
 def client() -> Cl.Client:
   Cl.Client{"me", "s", [Cl.Buffer{"*server*", False{}, "", lines(8n), Nil{}, Cl.ScrollAt{0n, 0n}},
@@ -23,7 +23,7 @@ def client() -> Cl.Client:
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 8n}
 
 def full() -> M.State:
-  M.State{True{}, 1n, 9n, None{}, Nil{}, M.Ready{M.Manual{}, "manual.png", 8} <> ready(7n), M.Supported{}}
+  M.State{True{}, 1n, 9n, None{}, Nil{}, M.MediaReady{M.Manual{}, "manual.png", 8} <> ready(7n), M.Supported{}}
 
 def started(pair: M.State & Maybe<&2, M.Request>) -> M.State:
   match pair:

@@ -161,7 +161,7 @@ def rows_text(xs: List<&2, V.BodyRow>) -> String:
     case Con{h, t}: row_text(h) ++ "|" ++ rows_text(t)
 
 def ready_media() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 7}], M.Supported{}}
 
 def img_client() -> Cl.Client:
   Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see " ++ image(), "alice", 1n}])
@@ -170,15 +170,15 @@ def media_online() -> Sess.Session:
   Sess.session_set_media(Sess.session_online(Sess.session_with_client(img_client(), "#t")), ready_media())
 
 def cards_with_ready() -> C.State:
-  C.State{True{}, 1n, 2n, None{}, Nil{}, [C.Ready{C.CardInline{1n}, page(), "Hello", "A description", ""}]}
+  C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "Hello", "A description", ""}]}
 
-def pick_ready(m: Maybe<&2, M.Ready>) -> String:
+def pick_ready(m: Maybe<&2, M.MediaReady>) -> String:
   match m:
     case None{}: "none"
-    case Some{M.Ready{M.Inline{id}, +url, _}}: Nat.show(id) ++ ":" ++ url
-    case Some{M.Ready{M.Manual{}, +url, _}}: "manual:" ++ url
+    case Some{M.MediaReady{M.Inline{id}, +url, _}}: Nat.show(id) ++ ":" ++ url
+    case Some{M.MediaReady{M.Manual{}, +url, _}}: "manual:" ++ url
 
-def pick_shape(m: Maybe<&2, M.Ready>) -> String:
+def pick_shape(m: Maybe<&2, M.MediaReady>) -> String:
   pick_ready(m)
 
 def fs_handled(pair: Sess.Session & Bool) -> String:
@@ -203,7 +203,7 @@ def lines2_client() -> Cl.Client:
      Cl.Line{Cl.Msg{}, "", "see https://x.test/p2", "alice", 2n}])
 
 def cards_ready_id2() -> C.State:
-  C.State{True{}, 1n, 2n, None{}, Nil{}, [C.Ready{C.CardInline{2n}, "https://x.test/p2", "Hello", "A description", ""}]}
+  C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{2n}, "https://x.test/p2", "Hello", "A description", ""}]}
 
 def cand_ids(xs: List<&2, C.Candidate>) -> String:
   match xs:
@@ -251,7 +251,7 @@ def gate1_media_client() -> Cl.Client:
      Cl.Line{Cl.Msg{}, "", "see https://x.test/b.png", "alice", 2n}])
 
 def gate1_media_ready() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 7}], M.Supported{}}
 
 def gate1_media_online() -> Sess.Session:
   Sess.session_set_media(Sess.session_online(Sess.session_with_client(gate1_media_client(), "#t")), gate1_media_ready())
@@ -265,7 +265,7 @@ def gate1_cards_client() -> Cl.Client:
      Cl.Line{Cl.Msg{}, "", "see " ++ image(), "alice", 2n}])
 
 def gate1_cards_media() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{2n}, image(), 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{2n}, image(), 7}], M.Supported{}}
 
 def gate1_cards_online() -> Sess.Session:
   Sess.session_set_media(Sess.session_online(Sess.session_with_client(gate1_cards_client(), "#t")), gate1_cards_media())
@@ -274,10 +274,10 @@ def gate1_cards_fs() -> Sess.Session:
   fs_st(Sess.session_fullscreen_key(gate1_cards_online(), Sess.KEY_F9(), 0))
 
 def gate1_stale_media() -> Sess.Session:
-  Sess.session_set_media(gate1_media_fs(), M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 9}], M.Supported{}})
+  Sess.session_set_media(gate1_media_fs(), M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 9}], M.Supported{}})
 
 def gate1_stale_cards() -> Sess.Session:
-  Sess.session_set_media(gate1_cards_fs(), M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{2n}, image(), 9}], M.Supported{}})
+  Sess.session_set_media(gate1_cards_fs(), M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{2n}, image(), 9}], M.Supported{}})
 
 def gate1_media_closed() -> Sess.Session:
   fs_st(Sess.session_fullscreen_key(gate1_media_fs(), Sess.KEY_ESCAPE(), 0))
@@ -486,7 +486,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("F9 with mods ignored", fs_handled(Sess.session_fullscreen_key(media_online(), Sess.KEY_F9(), 1)), "ignored")
     Unit <- E.must_eq("fullscreen pick is newest alive", pick_shape(M.fullscreen_pick(ready_media(), img_client())), "1:" ++ image())
     Unit <- E.must_eq("fullscreen pick skips dead", pick_shape(M.fullscreen_pick(ready_media(), Cl.init("me", "s"))), "none")
-    +retokened : Sess.Session = Sess.session_set_media(fs_opened, M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 9}], M.Supported{}})
+    +retokened : Sess.Session = Sess.session_set_media(fs_opened, M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 9}], M.Supported{}})
     Unit <- E.must_eq("stale token paints nothing", overlay_of(retokened, 24, 80), "")
     +unsupported : Sess.Session = Sess.session_set_media(fs_opened, M.set_supported(ready_media(), False{}))
     Unit <- E.must_eq("unsupported paints nothing", overlay_of(unsupported, 24, 80), "")

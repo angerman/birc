@@ -1601,7 +1601,7 @@ def session_cl(+st: Session) -> Cl.Client:
       cl
 
 # Explicit accepted settings intent, not a value difference or a log-text guess.
-# Only the ten canonical durable names are inserted by the submission hook.
+# Only the eleven canonical durable names are inserted by the submission hook.
 def session_preference_edits(st: Session) -> List<&2, String>:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, edits, _, _, _, _, _}: edits
@@ -2371,7 +2371,7 @@ def upload_hint(request: Up.Request, remaining: List<&2, String>) -> String:
 def session_upload_hint.state(state: Up.State) -> String:
   match state:
     case Up.Confirm{request, remaining}: upload_hint(request, remaining)
-    case Up.Ready{request, remaining}: upload_hint(request, remaining)
+    case Up.Armed{request, remaining}: upload_hint(request, remaining)
     case _: ""
 
 def session_upload_hint(+st: Session) -> String:
@@ -3061,10 +3061,10 @@ def session_cards_job_allowed(+st: Session) -> Bool:
 # newest ready alive image; the stored token revalidates on every paint and
 # every step, so disable/reset/eviction/endpoint/source loss closes it. The
 # revalidated state writes back even when the key falls through.
-def session_fullscreen_key.pick(pick: Maybe<&2, M.Ready>, +st: Session, +media: M.State) -> Session & Bool:
+def session_fullscreen_key.pick(pick: Maybe<&2, M.MediaReady>, +st: Session, +media: M.State) -> Session & Bool:
   match pick:
     case None{}: (st, True{})
-    case Some{M.Ready{+target, +url, _}}: (session_set_full(st, C.open(media, target, url)), True{})
+    case Some{M.MediaReady{+target, +url, _}}: (session_set_full(st, C.open(media, target, url)), True{})
 
 def session_fullscreen_key.toggle(open: Bool, +st: Session, +media: M.State, +cl: Cl.Client) -> Session & Bool:
   match open:

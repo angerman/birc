@@ -29,7 +29,7 @@ def fill(fuel: Nat, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
     case 0n: IO.pure(Unit, Unit{})
     case 1n+p:
       do IO<Unit>:
-        _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
         fill(p, evt)
 
 def drain(fuel: Nat, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
@@ -91,7 +91,7 @@ def run() -> IO(Unit):
     Unit <- drain(64n, evt)
     continuation : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
     Unit <- E.must("only one continuation follows the full queue", is_continue(continuation))
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.Resize{})
     again : Bool <- Net.more_schedule(True{}, True{}, True{}, evt)
     Unit <- E.must("a paste tail stays pending", again)
     next : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)

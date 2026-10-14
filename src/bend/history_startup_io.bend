@@ -20,7 +20,7 @@ def load(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: Stri
 def run(ticket: Nat, gen: U32, path: String, +endpoint: String, cap: U32, nick: String, host: String, now: String, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   do IO<Unit>:
     cl : Cl.Client <- load(path, endpoint, cap, nick, host, now)
-    _ : Bool <- Chan.send(Sess.UiMsg, evt, Sess.HistoryLoaded{ticket, gen, endpoint, cl})
+    _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.HistoryLoaded{ticket, gen, endpoint, cl})
     return Unit{}
 
 def start(ticket: Nat, gen: U32, path: String, endpoint: String, cap: U32, nick: String, host: String, now: String, evt: Chan(Sess.UiMsg)) -> IO(Unit):

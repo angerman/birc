@@ -8,9 +8,9 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-  # Bend 2 (bendlang/bend), pinned to an immutable commit.
+  # Bend 2 (bendlang/bend), pinned to an immutable commit (v2.0.37).
   inputs.bend-src = {
-    url = "github:bendlang/bend/7d8a3eb036042c6549461054d25a10f26d361c5c";
+    url = "github:bendlang/bend/4ff8545f19b09b7d2b8ca2303668100eac8efd66";
     flake = false;
   };
 
@@ -66,7 +66,7 @@
             ];
             BIRC_NIX_SHELL = "1";
             BIRC_BEND_SRC = "${bend-src}";
-            BIRC_BEND_REV = "7d8a3eb036042c6549461054d25a10f26d361c5c";
+            BIRC_BEND_REV = "4ff8545f19b09b7d2b8ca2303668100eac8efd66";
             CC = "${pkgs.clang}/bin/clang";
             BIRC_OPENSSL_DEV = "${pkgs.lib.getDev pkgs.openssl}";
             BIRC_OPENSSL_LIB = "${pkgs.lib.getLib pkgs.openssl}";
@@ -84,6 +84,34 @@
               export PYTHONDONTWRITEBYTECODE=1
               # nix develop can omit SSL_CERT_FILE from captured attributes.
               export SSL_CERT_FILE="''${SSL_CERT_FILE:-$BIRC_TLS_CA}"
+              # Persistent Bun cache for direct `bun` use (the `bend` wrapper
+              # applies the same precedence). An explicit
+              # BUN_INSTALL_CACHE_DIR, BIRC_BUN_CACHE, or
+              # BIRC_BUN_TMPDIR_CACHE=1 override keeps working.
+              if [ -z "''${BUN_INSTALL_CACHE_DIR:-}" ]; then
+                if [ -n "''${BIRC_BUN_CACHE:-}" ]; then
+                  export BUN_INSTALL_CACHE_DIR="$BIRC_BUN_CACHE"
+                elif [ "''${BIRC_BUN_TMPDIR_CACHE:-0}" != "1" ]; then
+                  if [ -n "''${XDG_CACHE_HOME:-}" ]; then
+                    export BUN_INSTALL_CACHE_DIR="$XDG_CACHE_HOME/birc/bun"
+                  elif [ -n "''${HOME:-}" ]; then
+                    export BUN_INSTALL_CACHE_DIR="$HOME/.cache/birc/bun"
+                  fi
+                fi
+              fi
+              if [ -n "''${BUN_INSTALL_CACHE_DIR:-}" ] && [ -z "''${BUN_RUNTIME_TRANSPILER_CACHE_PATH:-}" ]; then
+                export BUN_RUNTIME_TRANSPILER_CACHE_PATH="$BUN_INSTALL_CACHE_DIR/transpiler"
+              fi
+              # Toolchain cache (default-off): only a persistent directory is
+              # defined; CC is unchanged, so builds behave exactly as before
+              # unless the user explicitly runs ccache/sccache themselves.
+              if [ -z "''${CCACHE_DIR:-}" ]; then
+                if [ -n "''${XDG_CACHE_HOME:-}" ]; then
+                  export CCACHE_DIR="$XDG_CACHE_HOME/birc/ccache"
+                elif [ -n "''${HOME:-}" ]; then
+                  export CCACHE_DIR="$HOME/.cache/birc/ccache"
+                fi
+              fi
             '';
           };
         });

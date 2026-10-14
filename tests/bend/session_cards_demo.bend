@@ -75,10 +75,10 @@ def unmuted_client() -> Cl.Client:
   set_named(Feed.feed(submitted(Sub.submit(channel("#room"), "/mute alice")), ":bob!u@h PRIVMSG #room :see " ++ page()), "#room")
 
 def ready_media() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 7}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 7}], M.Supported{}}
 
 def retokened_media() -> M.State:
-  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.Ready{M.Inline{1n}, image(), 9}], M.Supported{}}
+  M.State{True{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Inline{1n}, image(), 9}], M.Supported{}}
 
 def media_ad() -> SC.AD:
   SC.with_cards(Sess.session_set_media(Sess.session_online(Sess.session_with_client(img_client(), "#t")), ready_media()), C.initial(True{}), C.FullOff{})
@@ -162,7 +162,7 @@ def idle_keys() -> Sess.Keys:
 def enter_keys(+line: String) -> Sess.Keys:
   Sess.keys_of(line, True{}, 0, 0, 0, 0, 0, 0, 0)
 
-def card_title(m: Maybe<&2, C.Ready>) -> String:
+def card_title(m: Maybe<&2, C.CardReady>) -> String:
   match m:
     case None{}: "missing"
     case Some{+r}: C.ready_title(r)
@@ -291,7 +291,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("stale completion stays quiet", on_card_repaint(CN.on_card(False{}, started(), 1n, 1n, page(), "T\nD\n")), "quiet")
     Unit <- E.must_eq("stale on_card stores nothing", Nat.show(SC.ad_ready(on_card_ad(CN.on_card(False{}, started(), 1n, 1n, page(), "T\nD\n")))), "0")
     # ---- card text rows ----
-    +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.Ready{C.CardInline{1n}, page(), "T", "D", ""}],}
+    +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
     Unit <- E.must_eq("known target paints rows", Nat.show(List.length(&2, V.BodyRow, CV.card_rows(known, C.CardInline{1n}, page(), 80))), "2")
     Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, CV.card_rows(known, C.CardInline{2n}, page(), 80))), "0")
     IO.print("session_cards_demo=ok")

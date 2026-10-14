@@ -46,7 +46,7 @@ def phase(state: U.State) -> String:
   match state:
     case U.Idle{}: "idle"
     case U.Confirm{U.Request{_, path}, _}: "confirm:" ++ path
-    case U.Ready{U.Request{_, path}, _}: "ready:" ++ path
+    case U.Armed{U.Request{_, path}, _}: "ready:" ++ path
     case U.Busy{_, _, allowed}: "busy:" ++ Bool.show(allowed)
 
 def repeated(n: Nat, +part: String) -> String:

@@ -44,7 +44,7 @@ def ws_ok(+ws: W.Workspace) -> Bool:
 
 def ctx_ok(value: PrefLive.Details) -> Bool:
   match value:
-    case PrefLive.Details{_, PrefLive.Ready{}, Some{True{}}, "carrier.history", None{}, 0n}: True{}
+    case PrefLive.Details{_, PrefLive.Open{}, Some{True{}}, "carrier.history", None{}, 0n}: True{}
     case _: False{}
 
 # Check the same physical identities in smaller parameter-match trees.
@@ -129,13 +129,13 @@ def parked_some.got(g: Maybe<&1, WsNet.WsMsg>, +mode: String, +saved: List<&2, W
     case Some{msg}:
       WsNet.ws_parked.recv(Some{msg}, saved, ui, main, cmds, evts, pevts, ack, trip => finish(mode, False{}, trip))
 
-def parked_some.sent(sent: Bool, +mode: String, +saved: List<&2, WsNet.WsLoop>, ui: T.Ui, +main: Chan(WsNet.WsMsg), +cmds: WsNet.WsCmds, +evts: WsNet.WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit)) -> IO(Unit):
-  match sent:
-    case False{}:
+def parked_some.sent(r: Result<&1, &1, WsNet.WsMsg, Unit>, +mode: String, +saved: List<&2, WsNet.WsLoop>, ui: T.Ui, +main: Chan(WsNet.WsMsg), +cmds: WsNet.WsCmds, +evts: WsNet.WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit)) -> IO(Unit):
+  match r:
+    case Fail{_}:
       do IO<Unit>:
         Unit <- T.Timui.close(ui)
         T.Sys.exit_fail("birc: carrier queue refused message")
-    case True{}:
+    case Done{_}:
       do IO<Unit>:
         Unit <- Chan.close(WsNet.WsMsg, main)
         g : Maybe<&1, WsNet.WsMsg> <- Chan.recv(WsNet.WsMsg, main)
@@ -143,8 +143,8 @@ def parked_some.sent(sent: Bool, +mode: String, +saved: List<&2, WsNet.WsLoop>, 
 
 def parked_some(+mode: String, +saved: List<&2, WsNet.WsLoop>, +msg: WsNet.WsMsg, ui: T.Ui, +main: Chan(WsNet.WsMsg), +cmds: WsNet.WsCmds, +evts: WsNet.WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit)) -> IO(Unit):
   do IO<Unit>:
-    sent : Bool <- Chan.send(WsNet.WsMsg, main, msg)
-    parked_some.sent(sent, mode, saved, ui, main, cmds, evts, pevts, ack)
+    r : Result<&1, &1, WsNet.WsMsg, Unit> <- Chan.send(WsNet.WsMsg, main, msg)
+    parked_some.sent(r, mode, saved, ui, main, cmds, evts, pevts, ack)
 
 def quiet_tick(value: W.TickOut) -> Bool:
   match value:

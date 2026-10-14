@@ -66,11 +66,11 @@ def cancel_commands(cancel: Bool, +cmd: Chan(S.NetCmd)) -> IO(Unit):
     case False{}: Chan.close(S.NetCmd, cmd)
     case True{}:
       do IO<Unit>:
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Cont{"PRIVMSG peer :must never send" <> Nil{}})
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Dial{"127.0.0.1", 0, 2, "me"})
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Begin{1})
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Drop{})
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Begin{2})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Cont{"PRIVMSG peer :must never send" <> Nil{}})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Dial{"127.0.0.1", 0, 2, "me"})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{1})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Drop{})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{2})
         Chan.close(S.NetCmd, cmd)
 
 def cancellation(+cancel: Bool) -> IO(Unit):

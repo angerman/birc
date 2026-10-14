@@ -7,7 +7,7 @@ import ../../src/bend/session.bend as Sess
 def boot_expected(g: Maybe<&1, Act.Boot>, +failed: Bool) -> Bool:
   match g:
     case Some{Act.Down{_}}: failed
-    case Some{Act.Ready{}}: Bool.not(failed)
+    case Some{Act.Booted{}}: Bool.not(failed)
     case _: False{}
 
 def arrived(g: Maybe<&1, Sess.UiMsg>, +up: Bool) -> Bool:
@@ -39,7 +39,7 @@ def run(a: U32, b: U32, +failed: Bool) -> IO(Unit):
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- IO.spawn(Unit, Act.actor_boot("127.0.0.1", a, "probe", 1, evt, cmd, boot, False{}, 0))
-    _ : Bool <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", b, 2, "next"})
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", b, 2, "next"})
     first : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
     Unit <- E.must("initial outcome", boot_expected(first, failed))
     Unit <- Chan.close(Act.Boot, boot)

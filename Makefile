@@ -24,6 +24,10 @@ NIXRUN := $(NIX) $(NIX_FEATURES) develop --no-update-lock-file . --command
 endif
 
 BLDDIR := build
+# Resolve prerequisites from the Makefile's own directory when driven via
+# `make -f` from elsewhere (test-nix-preflight runs proto-parity in a temp
+# dir). In-tree builds resolve locally first; VPATH is only a fallback.
+VPATH := $(dir $(lastword $(MAKEFILE_LIST)))
 APP := src/bend/app.bend
 PROTO := tests/bend/proto_demo.bend
 PTY_APP ?= ./$(BLDDIR)/birc

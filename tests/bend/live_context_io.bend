@@ -113,7 +113,7 @@ def finish(result: C.Context & S.Session, +cmd: Chan(S.NetCmd)) -> IO(Unit):
   match result:
     case (ctx, st):
       do IO<Unit>:
-        _ : Bool <- Chan.send(S.NetCmd, cmd, S.Cont{Nil{}})
+        _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Cont{Nil{}})
         got : Maybe<&1, S.NetCmd> <- Chan.recv(S.NetCmd, cmd)
         +begin : U32 = marker(got)
         Unit <- check_tail(Bool.not(U32.is_zero(begin)), cmd)
