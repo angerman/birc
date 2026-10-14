@@ -28,6 +28,8 @@ in stdenv.mkDerivation {
 
   buildPhase = ''
     runHook preBuild
+    # Hermetic build: keep Bun caches in the sandbox TMPDIR, never $HOME.
+    export BIRC_BUN_TMPDIR_CACHE=1
     ${lib.optionalString profileBuild ''
       birc_stage_started=$SECONDS
       printf 'birc-build stage=codegen begin\n' >&2

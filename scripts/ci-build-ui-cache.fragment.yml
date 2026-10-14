@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# Paste-in fragment: content-hash cache for the build-ui single-TU artifact.
+#
+# STATUS: inert reference. This repo currently has no .github/workflows, so
+# this file activates nothing. When a workflow exists, paste the steps into a
+# job that runs `make build-ui` (or convert this file to a workflow_call-only
+# reusable workflow under .github/workflows/).
+#
+# Design: the key is computed by scripts/build-ui-cache.sh from the exact
+# build-ui inputs (src/bend/*.bend + src/ffi/*.[ch] + src/ui/timui.h +
+# BEND_CORE_CFLAGS + bend version + CC identity). The cache stores the 33MB
+# TU (build/birc_bend.c), the linked binary (build/birc), and the toolchain
+# record (build/build-config). Restore verifies SHA-256 per payload and
+# fails closed (miss -> normal rebuild, never a stale artifact).
+#
+# Required job env: BIRC_UI_CACHE=1 to enable; without it the script is a
+# no-op and the build runs uncached (default-off safe flag).
+#
+# Paste-in steps (assume Nix + bend already provisioned, e.g. Determinate
+# Nix installer + `nix develop` wrapper used by the Makefile's NIXRUN):
+#
+#     - name: Compute build-ui cache key
+#       id: uicache-key
+#       run: |
+#         key=$(sh scripts/build-ui-cache.sh key)
+#         printf 'key=%s\n' "$key" >>"$GITHUB_OUTPUT"
+#         printf 'cache key: %s\n' "$key"
+#
+#     - name: Restore build-ui cache
+#       id: uicache-restore
+#       uses: actions/cache/restore@v4
+#       with:
+#         path: build/ui-cache
+#         key: ${{ steps.uicache-key.outputs.key }}
+#
+#     - name: Build UI (cache-aware)
+#       run: |
+#         export BIRC_UI_CACHE=1
+#         if ! sh scripts/build-ui-cache.sh restore; then
+#           make build-ui
+#           sh scripts/build-ui-cache.sh store
+#         fi
+#
+#     - name: Save build-ui cache
+#       # actions/cache/save always runs: a restored hit still needs saving
+#       # only on miss, so gate on the restore outcome to avoid resaving hits.
+#       if: steps.uicache-restore.outputs.cache-hit != 'true'
+#       uses: actions/cache/save@v4
+#       with:
+#         path: build/ui-cache
+#         key: ${{ steps.uicache-key.outputs.key }}
+#
+# Notes:
+# - No restore-keys / prefix fallback: a partial key match would restore a
+#   stale TU. Exact key only; miss means rebuild (fail closed).
+# - `make build-ui` itself is unchanged; the script wraps it. The Makefile
+#   wiring alternative (opt-in BIRC_UI_CACHE=1 branch inside the
+#   build/birc_bend.c + build/birc recipes) is intentionally NOT applied here.
+# - Cache size is ~35MB per entry (TU + binary + config); entries are
+#   immutable under their content key, so no eviction logic is needed.

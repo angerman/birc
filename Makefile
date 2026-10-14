@@ -94,35 +94,135 @@ export NIX_CFLAGS_COMPILE_$(BIRC_NIX_CC_SUFFIX) := $(call append_tls_flags,$(NIX
 export NIX_LDFLAGS_$(BIRC_NIX_CC_SUFFIX) := $(call append_tls_flags,$(NIX_LDFLAGS_$(BIRC_NIX_CC_SUFFIX)),$(BIRC_TLS_LDFLAGS))
 endif
 
-build-proto: ## Build the Bend protocol self-test binary.
+build-proto: $(BLDDIR)/birc-proto ## Build the Bend protocol self-test binary.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
 
 # Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
 # birc usage is --help-irc (args.bend).
 BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
 BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix nix/preferences.nix
 
+# Incremental + parallel Bend builds (BUILD mode).
+# Every Bend test binary is a real file target under $(BLDDIR)/ with prerequisites
+# on its own tests/bend/<stem>.bend plus all src/bend/*.bend. Phony test targets
+# depend on those files and only run the golden/driver, so fresh outputs skip
+# recompile. Missing sources fail closed (no rule / nonzero exit).
+# Parallelism: `make -jN check` and `make -jN test` are safe. Each binary writes
+# a distinct file, mkdir -p is parallel-safe, and check-golden logs use
+# mktemp. `proof` has no file outputs and is safe to run concurrently with
+# builds. Local iteration: `make -j$(nproc) check`. CI/bounded hosts:
+# `MAKEFLAGS=-j2 make check`. Do not use `make -j` with `update` (pin move).
+BEND_SRC_DEPS := $(wildcard src/bend/*.bend)
+# Default native Bend test binary (180s bound).
+$(BLDDIR)/%: tests/bend/%.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $< -o $@
+# JS backend fixtures (180s bound).
+$(BLDDIR)/%.js: tests/bend/%.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $< -o $@
+# Second-backend review fixtures: build/<guard>_review.js from tests/bend/<guard>.bend.
+$(BLDDIR)/%_review.js: tests/bend/%.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $< -o $@
+# Generated C intermediates (default 300s bound; 180s overrides below).
+$(BLDDIR)/%.c: tests/bend/%.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend $< -o $@
+# Long/short timeout overrides (literal deadlines keep test-build-deadlines green).
+$(BLDDIR)/irc_commands: tests/bend/irc_commands.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/message_split: tests/bend/message_split.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/reconnect_recovery: tests/bend/reconnect_recovery.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/reconnect_auth: tests/bend/reconnect_auth.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/mode_privacy: tests/bend/mode_privacy.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/reconnect_echoes: tests/bend/reconnect_echoes.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 900 bend $< -o $@
+$(BLDDIR)/ipv6_transport_native: tests/bend/ipv6_transport_native.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 bend $< -o $@
+$(BLDDIR)/richtext_demo: tests/bend/richtext_demo.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 90 bend $< -o $@
+$(BLDDIR)/ui_input_queue.c: tests/bend/ui_input_queue.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $< -o $@
+$(BLDDIR)/demo_identity.c: tests/bend/demo_identity.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $< -o $@
+# Protocol self-test binary (file target; build-proto phony depends on it).
+$(BLDDIR)/birc-proto: $(PROTO) $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
+# Generated-C link rules (FFI headers + build-config trigger re-link).
+$(BLDDIR)/live_context_io: $(BLDDIR)/live_context_io.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/live_context_io.c -o $(BLDDIR)/live_context_io'
+$(BLDDIR)/deferred_actor: $(BLDDIR)/deferred_actor.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_actor.c -o $(BLDDIR)/deferred_actor'
+$(BLDDIR)/deferred_frame: $(BLDDIR)/deferred_frame.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(DEFERRED_FRAME_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_frame.c -o $(BLDDIR)/deferred_frame'
+$(BLDDIR)/shutdown_flush: $(BLDDIR)/shutdown_flush.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/shutdown_flush.c -o $(BLDDIR)/shutdown_flush'
+$(BLDDIR)/notify_attr_blocked: $(BLDDIR)/notify_attr_blocked.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_attr_blocked.c -o $(BLDDIR)/notify_attr_blocked'
+$(BLDDIR)/notify_held_blocked: $(BLDDIR)/notify_held_blocked.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_held_blocked.c -o $(BLDDIR)/notify_held_blocked'
+$(BLDDIR)/ui_input_queue: $(BLDDIR)/ui_input_queue.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/ui_input_queue.c -o $(BLDDIR)/ui_input_queue'
+$(BLDDIR)/demo_identity: $(BLDDIR)/demo_identity.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/demo_identity.c -o $(BLDDIR)/demo_identity'
+$(BLDDIR)/ws_media_stage_native: $(BLDDIR)/ws_media_stage_native.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_media_stage_native.c -o $(BLDDIR)/ws_media_stage_native'
+$(BLDDIR)/mss_stale_socket: $(BLDDIR)/mss_stale_socket.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/mss_stale_socket.c -o $(BLDDIR)/mss_stale_socket'
+$(BLDDIR)/ws_carrier_native: $(BLDDIR)/ws_carrier_native.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_carrier_native.c -o $(BLDDIR)/ws_carrier_native'
+$(BLDDIR)/ws_upload_frame: $(BLDDIR)/ws_upload_frame.c $(BEND_UI_SRCS) $(BLDDIR)/build-config
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_upload_frame.c -o $(BLDDIR)/ws_upload_frame'
+
 .PHONY: test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy test-preferences test-preferences-pure test-preferences-helper test-preferences-io test-keychain-channels test-utc-time test-clock-local test-clock-local-native test-clock-local-native-ubsan
 
+test-irc-commands: $(BLDDIR)/irc_commands
+test-message-split: $(BLDDIR)/message_split
+test-reconnect-recovery: $(BLDDIR)/reconnect_recovery
+test-reconnect-auth: $(BLDDIR)/reconnect_auth
+test-mode-privacy: $(BLDDIR)/mode_privacy
 test-irc-commands test-message-split test-reconnect-recovery test-reconnect-auth test-mode-privacy: ## Recovery, trusted authentication, strict commands, and lossless message guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 900 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
-test-preferences-pure: ## Durable settings roundtrip without changing credentials or live state.
+test-preferences-pure: $(BLDDIR)/preferences_demo $(BLDDIR)/preferences_io_demo ## Durable settings roundtrip without changing credentials or live state.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_demo.bend -o $(BLDDIR)/preferences_demo
 	$(NIXRUN) sh scripts/check-golden.sh preferences_demo=ok timeout 15 ./$(BLDDIR)/preferences_demo
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_io_demo.bend -o $(BLDDIR)/preferences_io_demo
 	$(NIXRUN) sh scripts/check-golden.sh preferences_io_demo=ok timeout 15 ./$(BLDDIR)/preferences_io_demo
 
 test-preferences-helper: ## Owned private files, safe atomic replacement, and strict schemas.
 	$(NIXRUN) timeout 45 python3 tests/preferences.py
 
-test-preferences-io: ## Real bounded helper IO, safe diagnostics, and disabled no-write control.
+test-preferences-io: $(BLDDIR)/preferences_io_driver ## Real bounded helper IO, safe diagnostics, and disabled no-write control.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_io_driver.bend -o $(BLDDIR)/preferences_io_driver
 	$(NIXRUN) timeout 45 python3 tests/preferences_io.py ./$(BLDDIR)/preferences_io_driver
 
 test-keychain-channels: ## Saved channel names and exact explicit CLI override, without JOIN keys.
@@ -130,14 +230,12 @@ test-keychain-channels: ## Saved channel names and exact explicit CLI override, 
 
 test-preferences: test-preferences-pure test-preferences-helper test-preferences-io test-keychain-channels ## Private preferences and saved endpoint channel names.
 
-test-utc-time: ## Valid complete UTC dates and invalid/missing/duplicate server-time tags.
+test-utc-time: $(BLDDIR)/utc_time ## Valid complete UTC dates and invalid/missing/duplicate server-time tags.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/utc_time.bend -o $(BLDDIR)/utc_time
 	$(NIXRUN) sh scripts/check-golden.sh utc_time=ok timeout 15 ./$(BLDDIR)/utc_time
 
-test-clock-local: test-utc-time test-clock-local-native ## Local log timestamps use the event date and preserve raw protocol input.
+test-clock-local: test-utc-time test-clock-local-native $(BLDDIR)/clock_local_demo ## Local log timestamps use the event date and preserve raw protocol input.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/clock_local_demo.bend -o $(BLDDIR)/clock_local_demo
 	$(NIXRUN) env TZ=Asia/Seoul sh scripts/check-golden.sh clock_local_demo=ok timeout 15 ./$(BLDDIR)/clock_local_demo
 
 test-clock-local-native: ## libc date conversion, DST boundaries, leap seconds, and numeric FFI tuple ABI.
@@ -160,16 +258,14 @@ test-pty: test-pty-local-time
 
 .PHONY: test-reconnect-preferences test-preferences-runtime test-preferences-global
 .PHONY: test-reconnect-registration
-test-reconnect-registration: ## First-welcome nickname assignment, forged controls, and authenticated full-room recovery.
+test-reconnect-registration: $(BLDDIR)/reconnect_registration ## First-welcome nickname assignment, forged controls, and authenticated full-room recovery.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/reconnect_registration.bend -o $(BLDDIR)/reconnect_registration
 	$(NIXRUN) sh scripts/check-golden.sh reconnect_registration=ok timeout 15 ./$(BLDDIR)/reconnect_registration
 test-review-pure: test-reconnect-registration
 
 .PHONY: test-join-plan test-pty-reconnect-recovery
-test-join-plan: ## Bounded desired channels, exact runtime keys, once-only flush, and auth diagnostics.
+test-join-plan: $(BLDDIR)/join_plan_demo ## Bounded desired channels, exact runtime keys, once-only flush, and auth diagnostics.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/join_plan_demo.bend -o $(BLDDIR)/join_plan_demo
 	$(NIXRUN) sh scripts/check-golden.sh join_plan_demo=ok timeout 15 ./$(BLDDIR)/join_plan_demo
 
 test-pty-reconnect-recovery: $(PTY_BUILD) ## Manual/automatic SASL and NickServ recovery; settings and keyed channel guards.
@@ -177,14 +273,12 @@ test-pty-reconnect-recovery: $(PTY_BUILD) ## Manual/automatic SASL and NickServ 
 test-pty: test-pty-reconnect-recovery
 test-review-pure: test-join-plan
 
-test-reconnect-preferences: ## Async channel loading, runtime key revisions, offline removal, and auth barrier.
+test-reconnect-preferences: $(BLDDIR)/reconnect_preferences ## Async channel loading, runtime key revisions, offline removal, and auth barrier.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/reconnect_preferences.bend -o $(BLDDIR)/reconnect_preferences
 	$(NIXRUN) sh scripts/check-golden.sh reconnect_preferences=ok timeout 15 ./$(BLDDIR)/reconnect_preferences
 
-test-preferences-runtime: ## Bounded coalescing, stale completion isolation, and edit-wins loading.
+test-preferences-runtime: $(BLDDIR)/preferences_runtime_demo ## Bounded coalescing, stale completion isolation, and edit-wins loading.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_runtime_demo.bend -o $(BLDDIR)/preferences_runtime_demo
 	$(NIXRUN) sh scripts/check-golden.sh preferences_runtime_demo=ok timeout 15 ./$(BLDDIR)/preferences_runtime_demo
 
 test-preferences-global: ## Offline global settings never create a fabricated server profile.
@@ -194,79 +288,67 @@ test-preferences: test-preferences-runtime test-preferences-global
 test-review-pure: test-reconnect-preferences
 
 .PHONY: test-reconnect-echoes test-upload-diagnostics test-preferences-live test-preferences-channels test-preferences-package
-test-reconnect-echoes: ## Delayed membership echoes preserve intent and valid server prefixes authenticate.
+test-reconnect-echoes: $(BLDDIR)/reconnect_echoes ## Delayed membership echoes preserve intent and valid server prefixes authenticate.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 900 bend tests/bend/reconnect_echoes.bend -o $(BLDDIR)/reconnect_echoes
 	$(NIXRUN) sh scripts/check-golden.sh reconnect_echoes=ok timeout 15 ./$(BLDDIR)/reconnect_echoes
 
-test-upload-diagnostics: ## Numeric HTTP rejection details without exposing helper bodies or paths.
+test-upload-diagnostics: $(BLDDIR)/upload_diagnostics ## Numeric HTTP rejection details without exposing helper bodies or paths.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_diagnostics.bend -o $(BLDDIR)/upload_diagnostics
 	$(NIXRUN) sh scripts/check-golden.sh upload_diagnostics=ok timeout 15 ./$(BLDDIR)/upload_diagnostics
 	$(NIXRUN) timeout 45 python3 tests/upload_diagnostics.py
 
-test-preferences-live: ## Stored channel scope, explicit overrides, and Session preference application.
+test-preferences-live: $(BLDDIR)/preferences_live_demo.js ## Stored channel scope, explicit overrides, and Session preference application.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_live_demo.bend -o $(BLDDIR)/preferences_live_demo.js
 	$(NIXRUN) sh scripts/check-golden.sh preferences_live_demo=ok timeout 30 bun $(BLDDIR)/preferences_live_demo.js
 
 .PHONY: test-preferences-return-live
-test-preferences-return-live: ## A returning endpoint restores cached names and releases held JOINs once.
+test-preferences-return-live: $(BLDDIR)/preferences_return_live.js ## A returning endpoint restores cached names and releases held JOINs once.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preferences_return_live.bend -o $(BLDDIR)/preferences_return_live.js
 	$(NIXRUN) sh scripts/check-golden.sh preferences_return_live=ok timeout 30 bun $(BLDDIR)/preferences_return_live.js
 test-preferences: test-preferences-return-live
 
 .PHONY: test-history-startup test-history-startup-divider test-startup-headless test-startup-headless-io test-action-budget-admission
+test-history-startup: $(BLDDIR)/history_startup.js
+test-history-startup-divider: $(BLDDIR)/history_startup_divider.js
+test-startup-headless: $(BLDDIR)/startup_headless.js
 test-history-startup test-history-startup-divider test-startup-headless: ## Startup snapshot preservation, bounded dividers, and once-only settings.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@)).js
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 30 bun $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@)).js
 
-test-startup-headless-io: ## Owned archive and one fake helper resolve history policy before headless registration.
+test-startup-headless-io: $(BLDDIR)/startup_headless_io.js ## Owned archive and one fake helper resolve history policy before headless registration.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/startup_headless_io.bend -o $(BLDDIR)/startup_headless_io.js
 	$(NIXRUN) timeout 45 python3 tests/startup_headless.py bun $(BLDDIR)/startup_headless_io.js
-test-action-budget-admission: ## Reject zero ACTION body budgets and malformed wire targets.
+test-action-budget-admission: $(BLDDIR)/action_budget.js ## Reject zero ACTION body budgets and malformed wire targets.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/action_budget.bend -o $(BLDDIR)/action_budget.js
 	$(NIXRUN) sh scripts/check-golden.sh action_budget=ok timeout 30 bun $(BLDDIR)/action_budget.js
 test-review-pure: test-history-startup test-history-startup-divider test-startup-headless test-startup-headless-io test-action-budget-admission
 
 .PHONY: test-join-capacity
-test-join-capacity: ## Raw/local JOIN admission is atomic at the 14-channel recovery limit.
+test-join-capacity: $(BLDDIR)/join_capacity.js ## Raw/local JOIN admission is atomic at the 14-channel recovery limit.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/join_capacity.bend -o $(BLDDIR)/join_capacity.js
 	$(NIXRUN) sh scripts/check-golden.sh join_capacity=ok timeout 30 bun $(BLDDIR)/join_capacity.js
 test-review-pure: test-join-capacity
 
 .PHONY: test-live-context test-live-context-io test-history-startup-io test-deferred-actor
-test-live-context: ## Generation-scoped startup gate and stale archive admission guards.
+test-live-context: $(BLDDIR)/live_context.js ## Generation-scoped startup gate and stale archive admission guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/live_context.bend -o $(BLDDIR)/live_context.js
 	$(NIXRUN) sh scripts/check-golden.sh live_context=ok timeout 30 bun $(BLDDIR)/live_context.js
 
-test-live-context-io: ## Native archive completions, no-write controls, and import checkpoint effects.
+test-live-context-io: $(BLDDIR)/live_context_io ## Native archive completions, no-write controls, and import checkpoint effects.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/live_context_io.bend -o $(BLDDIR)/live_context_io.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/live_context_io.c -o $(BLDDIR)/live_context_io'
 	$(NIXRUN) timeout 180 python3 tests/live_context.py ./$(BLDDIR)/live_context_io
 
-test-history-startup-io: ## Owned archive worker preserves exact endpoint and typed request identity.
+test-history-startup-io: $(BLDDIR)/history_startup_io.js ## Owned archive worker preserves exact endpoint and typed request identity.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_startup_io.bend -o $(BLDDIR)/history_startup_io.js
 	$(NIXRUN) timeout 35 python3 tests/history_startup_io.py bun $(BLDDIR)/history_startup_io.js
 
 .PHONY: test-history-startup-boundary
-test-history-startup-boundary: ## Full 1024-row startup snapshots retain their oldest allowed archive record.
+test-history-startup-boundary: $(BLDDIR)/history_startup_boundary.js ## Full 1024-row startup snapshots retain their oldest allowed archive record.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_startup_boundary.bend -o $(BLDDIR)/history_startup_boundary.js
 	$(NIXRUN) timeout 45 python3 tests/history_startup_boundary.py bun $(BLDDIR)/history_startup_boundary.js
 
-test-deferred-actor: ## Held and canceled native actors close without dialing and acknowledge the writer.
+test-deferred-actor: $(BLDDIR)/deferred_actor ## Held and canceled native actors close without dialing and acknowledge the writer.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/deferred_actor.bend -o $(BLDDIR)/deferred_actor.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_actor.c -o $(BLDDIR)/deferred_actor'
 	$(NIXRUN) sh scripts/check-golden.sh deferred_actor=ok timeout 20 ./$(BLDDIR)/deferred_actor
 
 .PHONY: test-deferred-frame test-deferred-frame-native
@@ -275,12 +357,10 @@ test-deferred-actor: ## Held and canceled native actors close without dialing an
 DEFERRED_FRAME_CFLAGS ?= -std=c11 -O0 -pthread -w
 test-deferred-frame: ## Last-frame changes defer one repaint, preserving ACK, output, idle, and halt policy.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/deferred_frame.bend -o $(BLDDIR)/deferred_frame.c
 	$(MAKE) test-deferred-frame-native
 
-test-deferred-frame-native: ## Compile/run the existing generated callback guard; BUILD_TIMEOUT bounds retries.
+test-deferred-frame-native: $(BLDDIR)/deferred_frame ## Compile/run the existing generated callback guard; BUILD_TIMEOUT bounds retries.
 	@test -s $(BLDDIR)/deferred_frame.c
-	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(DEFERRED_FRAME_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/deferred_frame.c -o $(BLDDIR)/deferred_frame'
 	$(NIXRUN) sh scripts/check-golden.sh 'deferred_frame=ok cases=8' timeout 20 ./$(BLDDIR)/deferred_frame
 test-review-pure: test-deferred-frame
 
@@ -293,18 +373,18 @@ test-preferences-package: ## Provisioned preference helper uses literal argument
 	$(NIXRUN) timeout 60 python3 tests/preferences_package.py $(PREFS_HELPER)
 
 .PHONY: test-session-preferences-intent
-test-session-preferences-intent: ## Accepted settings commands retain explicit intent even when values do not change.
+test-session-preferences-intent: $(BLDDIR)/session_preferences_intent ## Accepted settings commands retain explicit intent even when values do not change.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/session_preferences_intent.bend -o $(BLDDIR)/session_preferences_intent
 	$(NIXRUN) sh scripts/check-golden.sh session_preferences_intent=ok timeout 15 ./$(BLDDIR)/session_preferences_intent
 
 test-preferences: test-preferences-live test-preferences-channels test-preferences-package
 test-review-pure: test-reconnect-echoes test-upload-diagnostics test-session-preferences-intent
 
 .PHONY: test-launch-channels test-reconnect-endpoint
+test-launch-channels: $(BLDDIR)/launch_channels
+test-reconnect-endpoint: $(BLDDIR)/reconnect_endpoint
 test-launch-channels test-reconnect-endpoint: ## Names-only CSV launch lists and exact host/port runtime scope.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 test-review-pure: test-launch-channels test-reconnect-endpoint
 test-review-pure: test-server-id test-ipv6 test-ipv6-glue test-ipv6-transport
@@ -347,19 +427,16 @@ test-keychain-tls: ## Offline TLS profile selection, credential isolation, and l
 test-build-tls: ## TLS compiler flags reach Bend binaries and invalidate cached builds correctly.
 	$(NIXRUN) timeout 30 python3 tests/build_tls.py
 
-test-tls-args: ## Secure defaults, mode conflicts, explicit-port order, and plaintext controls.
+test-tls-args: $(BLDDIR)/tls_args ## Secure defaults, mode conflicts, explicit-port order, and plaintext controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/tls_args.bend -o $(BLDDIR)/tls_args
 	$(NIXRUN) sh scripts/check-golden.sh tls_args=ok timeout 15 ./$(BLDDIR)/tls_args
 
-test-endpoint: ## Shared host:port syntax, DNS bounds, and conflicting-port controls.
+test-endpoint: $(BLDDIR)/endpoint_demo ## Shared host:port syntax, DNS bounds, and conflicting-port controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/endpoint_demo.bend -o $(BLDDIR)/endpoint_demo
 	$(NIXRUN) sh scripts/check-golden.sh endpoint_demo=ok timeout 15 ./$(BLDDIR)/endpoint_demo
 
-test-connect-endpoint: ## Slash host:port parsing and saved-port inheritance without transport inference.
+test-connect-endpoint: $(BLDDIR)/connect_endpoint ## Slash host:port parsing and saved-port inheritance without transport inference.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/connect_endpoint.bend -o $(BLDDIR)/connect_endpoint
 	$(NIXRUN) sh scripts/check-golden.sh connect_endpoint=ok timeout 15 ./$(BLDDIR)/connect_endpoint
 
 test-pty-tls: build-ui ## Owned loopback TLS: certificate/name checks, auth, reconnect, and bounded quit.
@@ -390,20 +467,17 @@ test-media-image: ## Check synthetic image formats, animation, fetch bounds, and
 test-media-cards: ## Bounded OpenGraph cards: fetch policy, shared cache budget, final-base hits.
 	$(NIXRUN) timeout 120 python3 tests/media_cards.py
 
-test-cards-policy: ## Card eligibility, scheduling, and fullscreen policy goldens.
+test-cards-policy: $(BLDDIR)/cards_policy ## Card eligibility, scheduling, and fullscreen policy goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/cards_policy.bend -o $(BLDDIR)/cards_policy
 	$(NIXRUN) sh scripts/check-golden.sh cards_policy=ok ./$(BLDDIR)/cards_policy
 
-test-cards-view: ## Card visible scheduling and fullscreen view goldens.
+test-cards-view: $(BLDDIR)/cards_view ## Card visible scheduling and fullscreen view goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/cards_view.bend -o $(BLDDIR)/cards_view
 	$(NIXRUN) sh scripts/check-golden.sh cards_view=ok ./$(BLDDIR)/cards_view
 
 .PHONY: test-session-cards
-test-session-cards: ## Cards/fullscreen Session adapter goldens (JS): scheduling, worker, stale paths, closure, wire.
+test-session-cards: $(BLDDIR)/session_cards_demo.js ## Cards/fullscreen Session adapter goldens (JS): scheduling, worker, stale paths, closure, wire.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/session_cards_demo.bend -o $(BLDDIR)/session_cards_demo.js
 	$(NIXRUN) sh scripts/check-golden.sh session_cards_demo=ok timeout 60 bun $(BLDDIR)/session_cards_demo.js
 
 .PHONY: test-media-image-cache
@@ -416,32 +490,27 @@ test-review-pure: test-media-image-cache
 test-upload-helper: ## Offline upload transport: source, TLS, streaming, deadlines, and safe URL output.
 	$(NIXRUN) timeout 30 python3 tests/upload.py
 
-test-upload-policy: ## Local path parsing, per-file consent, single-worker ownership, and stale results.
+test-upload-policy: $(BLDDIR)/upload_demo ## Local path parsing, per-file consent, single-worker ownership, and stale results.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_demo.bend -o $(BLDDIR)/upload_demo
 	$(NIXRUN) sh scripts/check-golden.sh upload_demo=ok timeout 15 ./$(BLDDIR)/upload_demo
 
-test-upload-session: ## Session consent, ordinary drafts/history/completion, and private dropped paths.
+test-upload-session: $(BLDDIR)/upload_session ## Session consent, ordinary drafts/history/completion, and private dropped paths.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_session.bend -o $(BLDDIR)/upload_session
 	$(NIXRUN) sh scripts/check-golden.sh upload_session=ok timeout 15 ./$(BLDDIR)/upload_session
 
 .PHONY: test-upload-dispatch
-test-upload-dispatch: ## Unknown slash commands keep priority over ambiguous local drops.
+test-upload-dispatch: $(BLDDIR)/upload_dispatch ## Unknown slash commands keep priority over ambiguous local drops.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_dispatch.bend -o $(BLDDIR)/upload_dispatch
 	$(NIXRUN) sh scripts/check-golden.sh upload_dispatch=ok timeout 15 ./$(BLDDIR)/upload_dispatch
 
 test-review-pure: test-upload-dispatch
 
-test-upload-io: ## Literal helper selection and numeric-only failure diagnostics.
+test-upload-io: $(BLDDIR)/upload_io_demo ## Literal helper selection and numeric-only failure diagnostics.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_io_demo.bend -o $(BLDDIR)/upload_io_demo
 	$(NIXRUN) sh scripts/check-golden.sh upload_io_demo=ok timeout 15 ./$(BLDDIR)/upload_io_demo
 
-test-upload-hint: ## Transient public-upload status preserves the ordinary composer draft.
+test-upload-hint: $(BLDDIR)/upload_hint ## Transient public-upload status preserves the ordinary composer draft.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/upload_hint.bend -o $(BLDDIR)/upload_hint
 	$(NIXRUN) sh scripts/check-golden.sh upload_hint=ok timeout 15 ./$(BLDDIR)/upload_hint
 
 test-upload-native: ## Actual FFI returns Esc/F8 to Bend without bypassing fatal-output cleanup.
@@ -466,54 +535,51 @@ test-review-pure: test-upload-helper test-upload-policy test-upload-session test
 test-pty: test-pty-upload
 test-sanitizers: test-upload-native-ubsan
 
-test-server-time: ## IRCv3 time tags reach parsed message timestamps.
+test-server-time: $(BLDDIR)/server_time_demo ## IRCv3 time tags reach parsed message timestamps.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/server_time_demo.bend -o $(BLDDIR)/server_time_demo
 	$(NIXRUN) sh scripts/check-golden.sh server_time_demo=ok ./$(BLDDIR)/server_time_demo
 
-test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire ## Log bounds, privacy, wire isolation, commands, retention, and IO controls.
+test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire $(BLDDIR)/diagnostic_demo ## Log bounds, privacy, wire isolation, commands, retention, and IO controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/diagnostic_demo.bend -o $(BLDDIR)/diagnostic_demo
 	$(NIXRUN) sh scripts/check-golden.sh diagnostic_demo=ok ./$(BLDDIR)/diagnostic_demo
 
 .PHONY: test-diagnostic-wire
+test-diagnostic-buffer: $(BLDDIR)/diagnostic_buffer
+test-diagnostic-submit: $(BLDDIR)/diagnostic_submit
+test-diagnostic-session: $(BLDDIR)/diagnostic_session
+test-diagnostic-restore: $(BLDDIR)/diagnostic_restore
+test-diagnostic-io: $(BLDDIR)/diagnostic_io
+test-diagnostic-wire: $(BLDDIR)/diagnostic_wire
 test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire:
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
-test-history-save-errors: ## Surface failed history saves; preserve successful, empty, and disabled writes.
+test-history-save-errors: $(BLDDIR)/history_save_errors ## Surface failed history saves; preserve successful, empty, and disabled writes.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_save_errors.bend -o $(BLDDIR)/history_save_errors
 	$(NIXRUN) timeout 30 python3 tests/history_save_errors.py ./$(BLDDIR)/history_save_errors
 
-test-reader-errors: ## Socket-read failure, orderly EOF, and no-data branch controls.
+test-reader-errors: $(BLDDIR)/reader_errors ## Socket-read failure, orderly EOF, and no-data branch controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/reader_errors.bend -o $(BLDDIR)/reader_errors
 	$(NIXRUN) sh scripts/check-golden.sh reader_errors=ok timeout 15 ./$(BLDDIR)/reader_errors
 
-test-clipboard-errors: ## Clipboard helper success, failure, timeout, and privacy controls.
+test-clipboard-errors: $(BLDDIR)/clipboard_errors ## Clipboard helper success, failure, timeout, and privacy controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/clipboard_errors.bend -o $(BLDDIR)/clipboard_errors
 	$(NIXRUN) timeout 30 python3 tests/clipboard_errors.py ./$(BLDDIR)/clipboard_errors
 
-test-media-policy: ## Bounded image requests, opt-out, stale results, and exact URL eligibility.
+test-media-policy: $(BLDDIR)/media_policy ## Bounded image requests, opt-out, stale results, and exact URL eligibility.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_policy.bend -o $(BLDDIR)/media_policy
 	$(NIXRUN) sh scripts/check-golden.sh media_policy=ok ./$(BLDDIR)/media_policy
 
 .PHONY: test-media-terminal
-test-media-terminal: ## Unsupported terminals preserve URLs, skip helpers, and log once.
+test-media-terminal: $(BLDDIR)/media_terminal.js ## Unsupported terminals preserve URLs, skip helpers, and log once.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_terminal.bend -o $(BLDDIR)/media_terminal.js
 	$(NIXRUN) sh scripts/check-golden.sh media_terminal=ok timeout 30 bun $(BLDDIR)/media_terminal.js
 
 test-review-pure: test-media-terminal
 
 .PHONY: test-media-history test-pty-history-images
-test-media-history: ## Visible restored images share live admission without changing history or focus.
+test-media-history: $(BLDDIR)/media_history.js ## Visible restored images share live admission without changing history or focus.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_history.bend -o $(BLDDIR)/media_history.js
 	$(NIXRUN) sh scripts/check-golden.sh media_history=ok timeout 30 bun $(BLDDIR)/media_history.js
 
 test-pty-history-images: $(PTY_BUILD) ## Pty: async visible history images, shared worker, opt-out, and stale results.
@@ -525,29 +591,25 @@ test-pty: test-pty-history-images
 .PHONY: test-media-regressions-js
 # Existing pure assertions use a second backend without repeated native
 # optimization. The production app and terminal guards still use normal -O2.
-test-media-regressions-js: ## Run unchanged media, viewport, and state fixtures with the JS backend.
+test-media-regressions-js: $(BLDDIR)/media_policy_review.js $(BLDDIR)/media_view_review.js $(BLDDIR)/media_anchor_review.js $(BLDDIR)/media_branches_review.js $(BLDDIR)/viewport_tail_review.js $(BLDDIR)/m20_media_review.js $(BLDDIR)/m20_state_review.js $(BLDDIR)/ui_review_view_review.js ## Run unchanged media, viewport, and state fixtures with the JS backend.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c 'set -eu; for guard in media_policy media_view media_anchor media_branches viewport_tail m20_media m20_state ui_review_view; do timeout 180 bend tests/bend/$$guard.bend -o $(BLDDIR)/$${guard}_review.js; sh scripts/check-golden.sh $${guard}=ok timeout 30 bun $(BLDDIR)/$${guard}_review.js; done'
+	$(NIXRUN) sh -c 'set -eu; for guard in media_policy media_view media_anchor media_branches viewport_tail m20_media m20_state ui_review_view; do sh scripts/check-golden.sh $${guard}=ok timeout 30 bun $(BLDDIR)/$${guard}_review.js; done'
 
-test-media-view: ## Image rows share wrapping, scrolling, split panes, and resize coordinates.
+test-media-view: $(BLDDIR)/media_view ## Image rows share wrapping, scrolling, split panes, and resize coordinates.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_view.bend -o $(BLDDIR)/media_view
 	$(NIXRUN) sh scripts/check-golden.sh media_view=ok ./$(BLDDIR)/media_view
 
-test-media-anchor: ## Manual error/completion anchors and distinct split-pane image clipping.
+test-media-anchor: $(BLDDIR)/media_anchor ## Manual error/completion anchors and distinct split-pane image clipping.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_anchor.bend -o $(BLDDIR)/media_anchor
 	$(NIXRUN) sh scripts/check-golden.sh media_anchor=ok timeout 15 ./$(BLDDIR)/media_anchor
 
 .PHONY: test-media-branches test-viewport-tail test-input-wake test-pty-esc-resize-wake
-test-media-branches: ## Exact fallback rows and multi-link image partitioning.
+test-media-branches: $(BLDDIR)/media_branches ## Exact fallback rows and multi-link image partitioning.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/media_branches.bend -o $(BLDDIR)/media_branches
 	$(NIXRUN) sh scripts/check-golden.sh media_branches=ok timeout 15 ./$(BLDDIR)/media_branches
 
-test-viewport-tail: ## Compare live-bottom and paused viewports against complete legacy rows.
+test-viewport-tail: $(BLDDIR)/viewport_tail ## Compare live-bottom and paused viewports against complete legacy rows.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/viewport_tail.bend -o $(BLDDIR)/viewport_tail
 	$(NIXRUN) sh scripts/check-golden.sh viewport_tail=ok timeout 15 ./$(BLDDIR)/viewport_tail
 
 test-media-native: ## Image payload ownership, terminal animation, clipping, and pending-frame guards.
@@ -571,37 +633,30 @@ test-pty-diagnostic: build-ui ## Pty: private log copies, helper errors, endpoin
 test-pty-esc-resize-wake: build-ui ## Pty: lone Esc after resize, with bounded trace and raw-screen evidence.
 	$(NIXRUN) timeout 120 python3 tests/pty/esc_resize_wake.py ./$(BLDDIR)/birc
 
-test-formatting: ## Rich style composition, emoji aliases, exact URLs, and raw-source guards.
+test-formatting: $(BLDDIR)/formatting_demo ## Rich style composition, emoji aliases, exact URLs, and raw-source guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/formatting_demo.bend -o $(BLDDIR)/formatting_demo
 	$(NIXRUN) sh scripts/check-golden.sh formatting_demo=ok ./$(BLDDIR)/formatting_demo
 
-test-theme: ## Theme palettes, desktop-notification policy, and extended emoji aliases.
+test-theme: $(BLDDIR)/theme_demo $(BLDDIR)/theme_emoji $(BLDDIR)/theme_notify ## Theme palettes, desktop-notification policy, and extended emoji aliases.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/theme_demo.bend -o $(BLDDIR)/theme_demo
 	$(NIXRUN) sh scripts/check-golden.sh theme_demo=ok timeout 30 ./$(BLDDIR)/theme_demo
-	$(NIXRUN) timeout 180 bend tests/bend/theme_emoji.bend -o $(BLDDIR)/theme_emoji
 	$(NIXRUN) sh scripts/check-golden.sh theme_emoji=ok timeout 30 ./$(BLDDIR)/theme_emoji
-	$(NIXRUN) timeout 180 bend tests/bend/theme_notify.bend -o $(BLDDIR)/theme_notify
 	$(NIXRUN) sh scripts/check-golden.sh theme_notify=ok timeout 30 ./$(BLDDIR)/theme_notify
 
 test-formatting-painter: build-ui ## Actual terminal attributes, aliases, and opaque hyperlink targets.
 	$(NIXRUN) timeout 15 python3 tests/formatting_painter.py ./$(BLDDIR)/birc fixtures/formatting.irc
 
-test-wire-style: ## Native IRC wire formatting, mIRC colors, safe controls, exact URLs.
+test-wire-style: $(BLDDIR)/wire_style ## Native IRC wire formatting, mIRC colors, safe controls, exact URLs.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/wire_style.bend -o $(BLDDIR)/wire_style
 	$(NIXRUN) sh scripts/check-golden.sh wire_style=ok timeout 15 ./$(BLDDIR)/wire_style
 
 .PHONY: test-g3-framed test-g3-traversal
-test-g3-framed: ## Styled MODE/credential/mention/KICK/media framed Feed/History guards (JS).
+test-g3-framed: $(BLDDIR)/g3_framed.js ## Styled MODE/credential/mention/KICK/media framed Feed/History guards (JS).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/g3_framed.bend -o $(BLDDIR)/g3_framed.js
 	$(NIXRUN) sh scripts/check-golden.sh g3_framed=ok timeout 60 bun $(BLDDIR)/g3_framed.js
 
-test-g3-traversal: ## Fr->Session traversal + live media path for G3 pairs (JS).
+test-g3-traversal: $(BLDDIR)/g3_traversal.js ## Fr->Session traversal + live media path for G3 pairs (JS).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/g3_traversal.bend -o $(BLDDIR)/g3_traversal.js
 	$(NIXRUN) sh scripts/check-golden.sh g3_traversal=ok timeout 60 bun $(BLDDIR)/g3_traversal.js
 test-review-pure: test-g3-framed test-g3-traversal
 FORCE:
@@ -657,14 +712,12 @@ test-build-config: ## Verify header dependencies and changed/unchanged compiler 
 test-build-deadlines: ## Require a positive deadline on every Bend compiler recipe.
 	$(NIXRUN) timeout 30 python3 tests/build_deadlines.py
 
-test-m20-state: ## Canonical identities, reconnect members, AUTH, split, and command metadata.
+test-m20-state: $(BLDDIR)/m20_state ## Canonical identities, reconnect members, AUTH, split, and command metadata.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m20_state.bend -o $(BLDDIR)/m20_state
 	$(NIXRUN) sh scripts/check-golden.sh m20_state=ok timeout 30 ./$(BLDDIR)/m20_state
 
-test-m20-media: ## Bend retained image tokens for refresh, capacity, failures, and stale targets.
+test-m20-media: $(BLDDIR)/m20_media ## Bend retained image tokens for refresh, capacity, failures, and stale targets.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m20_media.bend -o $(BLDDIR)/m20_media
 	$(NIXRUN) sh scripts/check-golden.sh m20_media=ok timeout 30 ./$(BLDDIR)/m20_media
 
 test-m20-native: ## Complete large selection and native payload ownership follow Bend policy.
@@ -680,24 +733,20 @@ test-m20: test-dns-validation test-cli-diagnostics test-ui-review-columns test-u
 test-m20: test-shutdown-ack test-shutdown-flush
 
 .PHONY: test-shutdown-ack test-shutdown-flush
-test-shutdown-ack: ## Only the current writer completion can acknowledge UI shutdown.
+test-shutdown-ack: $(BLDDIR)/shutdown_ack ## Only the current writer completion can acknowledge UI shutdown.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/shutdown_ack.bend -o $(BLDDIR)/shutdown_ack
 	$(NIXRUN) sh scripts/check-golden.sh shutdown_ack=ok timeout 15 ./$(BLDDIR)/shutdown_ack
 
 # The pinned compiler namespaces constructors by the fixture import path.
 # Keep these test-only aliases out of the production thin FFI.
 SHUTDOWN_FFI_ALIASES := $(foreach op,COL LNK SPN OPBOX OPSPLIT OPTEXT OPTABS OPLINE OPIMAGE OPMEDIA,-DCID_VIEW_$(op)=CID_______SRC_BEND_VIEW_$(op))
-test-shutdown-flush: ## Actual socket half-close/stale EOF cannot bypass queued QUIT or idle writer completion.
+test-shutdown-flush: $(BLDDIR)/shutdown_flush ## Actual socket half-close/stale EOF cannot bypass queued QUIT or idle writer completion.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/shutdown_flush.bend -o $(BLDDIR)/shutdown_flush.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/shutdown_flush.c -o $(BLDDIR)/shutdown_flush'
 	$(NIXRUN) timeout 15 python3 tests/net/shutdown_flush.py ./$(BLDDIR)/shutdown_flush
 
 .PHONY: test-dns-validation test-cli-diagnostics test-ui-review-columns test-ui-review-widgets test-png-16bit-oom test-ui-review-widgets-ubsan test-png-16bit-oom-ubsan
-test-dns-validation: ## Reject opcode and truncated-reply identity errors before TCP fallback.
+test-dns-validation: $(BLDDIR)/dns_validation ## Reject opcode and truncated-reply identity errors before TCP fallback.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/dns_validation.bend -o $(BLDDIR)/dns_validation
 	$(NIXRUN) sh scripts/check-golden.sh dns_validation=ok timeout 30 ./$(BLDDIR)/dns_validation
 
 test-cli-diagnostics: build-ui ## Exact single CLI error diagnostics and normal headless startup.
@@ -708,9 +757,8 @@ test-ui-review-widgets: ## Whole-cluster tab geometry and code-widget painting/s
 	$(NIXRUN) sh -c 'timeout 60 $$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -Isrc/ui tests/ui_review_widgets.c -o $(BLDDIR)/ui_review_widgets'
 	$(NIXRUN) sh scripts/check-golden.sh ui_review_widgets=ok timeout 15 ./$(BLDDIR)/ui_review_widgets
 
-test-ui-review-columns: test-ui-review-widgets ## Bend/native whole-cluster width and boundary parity, plus wrapping.
+test-ui-review-columns: test-ui-review-widgets $(BLDDIR)/ui_review_columns ## Bend/native whole-cluster width and boundary parity, plus wrapping.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ui_review_columns.bend -o $(BLDDIR)/ui_review_columns
 	$(NIXRUN) sh scripts/check-golden.sh ui_review_columns=ok timeout 30 ./$(BLDDIR)/ui_review_columns
 	$(NIXRUN) timeout 40 python3 tests/ui_review_columns.py ./$(BLDDIR)/ui_review_columns ./$(BLDDIR)/ui_review_widgets
 
@@ -738,56 +786,45 @@ test-pty-preview-retry: build-ui ## Pty: delayed helper failure completes before
 test-pty-deadlines: ## Require finite outer deadlines for every planned terminal test.
 	$(NIXRUN) timeout 30 python3 tests/pty_deadlines.py
 
-test-feed: test-feed-bench ## M1 feed goldens + X1 buf_find linear bound.
+test-feed: test-feed-bench $(BLDDIR)/feed_demo ## M1 feed goldens + X1 buf_find linear bound.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/feed_demo.bend -o $(BLDDIR)/feed_demo
 	$(NIXRUN) sh scripts/check-golden.sh feed_demo=ok ./$(BLDDIR)/feed_demo
 
-test-feed-bench: ## Run the existing feed bound independently of feed goldens.
+test-feed-bench: $(BLDDIR)/feed_bench ## Run the existing feed bound independently of feed goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/feed_bench.bend -o $(BLDDIR)/feed_bench
 	$(NIXRUN) sh scripts/check-golden.sh feed_bench=ok timeout 2 ./$(BLDDIR)/feed_bench
 
-test-submit: ## M2 submit goldens.
+test-submit: $(BLDDIR)/submit_demo ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/submit_demo.bend -o $(BLDDIR)/submit_demo
 	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
 
-test-server-id: ## Multiserver routing, isolation, and generation goldens.
+test-server-id: $(BLDDIR)/server_id_demo ## Multiserver routing, isolation, and generation goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/server_id_demo.bend -o $(BLDDIR)/server_id_demo
 	$(NIXRUN) sh scripts/check-golden.sh server_id_demo=ok ./$(BLDDIR)/server_id_demo
 
-test-ipv6: ## Bracketed IPv6 endpoints, AAAA DNS, and dial-plan goldens.
+test-ipv6: $(BLDDIR)/server_id_ipv6 ## Bracketed IPv6 endpoints, AAAA DNS, and dial-plan goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/server_id_ipv6.bend -o $(BLDDIR)/server_id_ipv6
 	$(NIXRUN) sh scripts/check-golden.sh server_id_ipv6=ok ./$(BLDDIR)/server_id_ipv6
 
-test-ipv6-glue: ## AAAA-first query dispatch goldens via the JS backend.
+test-ipv6-glue: $(BLDDIR)/ipv6_transport.js ## AAAA-first query dispatch goldens via the JS backend.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ipv6_transport.bend -o $(BLDDIR)/ipv6_transport.js
 	$(NIXRUN) sh scripts/check-golden.sh ipv6_transport=ok timeout 30 bun $(BLDDIR)/ipv6_transport.js
 
-test-ipv6-transport: ## Dual fallback, prod DNS/TCP, v6 UDP, stream deadlines, verified TLS/SNI.
+test-ipv6-transport: $(BLDDIR)/ipv6_transport_native ## Dual fallback, prod DNS/TCP, v6 UDP, stream deadlines, verified TLS/SNI.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/ipv6_transport_native.bend -o $(BLDDIR)/ipv6_transport_native
 	$(NIXRUN) timeout 120 python3 tests/ipv6_transport.py ./$(BLDDIR)/ipv6_transport_native $(OPENSSL)
-test-drafts: ## Per-buffer drafts + multiline composition goldens.
+test-drafts: $(BLDDIR)/drafts_demo ## Per-buffer drafts + multiline composition goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/drafts_demo.bend -o $(BLDDIR)/drafts_demo
 	$(NIXRUN) sh scripts/check-golden.sh drafts_demo=ok ./$(BLDDIR)/drafts_demo
 
 .PHONY: test-notify-followup-guards
-test-notify-followup-guards: ## notify follow-up pure guards: reconnect floor/lease, chained threading (JS backend; standalone until heavy-lane green).
+test-notify-followup-guards: $(BLDDIR)/notify_followup_guards.js ## notify follow-up pure guards: reconnect floor/lease, chained threading (JS backend; standalone until heavy-lane green).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_followup_guards.bend -o $(BLDDIR)/notify_followup_guards.js
 	$(NIXRUN) sh scripts/check-golden.sh notify_followup_guards=ok timeout 30 bun $(BLDDIR)/notify_followup_guards.js
 
 .PHONY: test-notify-attr-blocked
-test-notify-attr-blocked: ## notify blocked attribution qual: START/release barrier, retire/reuse, B-failure-only-B, all9 drain, replay quiet (C backend; standalone until heavy-lane green).
+test-notify-attr-blocked: $(BLDDIR)/notify_attr_blocked ## notify blocked attribution qual: START/release barrier, retire/reuse, B-failure-only-B, all9 drain, replay quiet (C backend; standalone until heavy-lane green).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/notify_attr_blocked.bend -o $(BLDDIR)/notify_attr_blocked.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_attr_blocked.c -o $(BLDDIR)/notify_attr_blocked'
 	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 18 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_attr_blocked=ok timeout 90 ./$(BLDDIR)/notify_attr_blocked'
 
 .PHONY: test-notify-followup-static
@@ -795,100 +832,86 @@ test-notify-followup-static: ## notify follow-up lightweight static pins (no com
 	bash scripts/check-notify-followup.sh
 
 .PHONY: test-notify-order
-test-notify-order: ## Notify order-independent dispatch subcheck (JS backend; standalone).
+test-notify-order: $(BLDDIR)/notify_order.js ## Notify order-independent dispatch subcheck (JS backend; standalone).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_order.bend -o $(BLDDIR)/notify_order.js
 	$(NIXRUN) sh scripts/check-golden.sh notify_order=ok timeout 30 bun $(BLDDIR)/notify_order.js
 
 .PHONY: test-notify-runtime
-test-notify-runtime: ## Notify policy, queue and argv seams subcheck (JS backend; standalone; no worker delivery).
+test-notify-runtime: $(BLDDIR)/notify_runtime.js ## Notify policy, queue and argv seams subcheck (JS backend; standalone; no worker delivery).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_runtime.bend -o $(BLDDIR)/notify_runtime.js
 	$(NIXRUN) sh scripts/check-golden.sh notify_runtime=ok timeout 30 bun $(BLDDIR)/notify_runtime.js
 
 .PHONY: test-notify-held-blocked
-test-notify-held-blocked: ## R1 held-lease latch: latch-blocked helper (start ACK + release, inside 2s) + teardowns/wrong-ticket never spawn 2, received exact completion runs FIFO once (C backend).
+test-notify-held-blocked: $(BLDDIR)/notify_held_blocked ## R1 held-lease latch: latch-blocked helper (start ACK + release, inside 2s) + teardowns/wrong-ticket never spawn 2, received exact completion runs FIFO once (C backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/notify_held_blocked.bend -o $(BLDDIR)/notify_held_blocked.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/notify_held_blocked.c -o $(BLDDIR)/notify_held_blocked'
 	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 18 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; mkdir "$$d/unreleased"; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nrel=\"\$$0.release\"\ni=0\nwhile [ \"\$$i\" -lt 2 ] && [ ! -e \"\$$rel\" ]; do sleep 0.05; i=\$$((i + 1)); done\nif [ -e \"\$$rel\" ]; then printf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"; else printf \"expired %%s\\\\n\" \"\$$*\" >> \"\$$log\"; exit 1; fi\n" > "$$d/unreleased/notify-send"; chmod +x "$$d/unreleased/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" BIRC_NOTIFY_HELPER_UNREL="$$d/unreleased/notify-send" sh scripts/check-golden.sh notify_held_blocked=ok timeout 90 ./$(BLDDIR)/notify_held_blocked'
 
 .PHONY: test-notify-full-witness
-test-notify-full-witness: ## Notify full companion witness only (JS; excludes notify_order/notify_runtime; standalone).
+test-notify-full-witness: $(BLDDIR)/notify_full.js ## Notify full companion witness only (JS; excludes notify_order/notify_runtime; standalone).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_full.bend -o $(BLDDIR)/notify_full.js
 	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"\$$*\" >> \"\$$0.log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_full=ok timeout 60 bun $(BLDDIR)/notify_full.js'
 
-test-search: ## M16.3 parallel scrollback search goldens.
+test-search: $(BLDDIR)/search_demo ## M16.3 parallel scrollback search goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/search_demo.bend -o $(BLDDIR)/search_demo
 	$(NIXRUN) sh scripts/check-golden.sh search_demo=ok ./$(BLDDIR)/search_demo
 
-test-split: ## M16.2 split-view state, focus, geometry, and routing goldens.
+test-split: $(BLDDIR)/split_demo ## M16.2 split-view state, focus, geometry, and routing goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/split_demo.bend -o $(BLDDIR)/split_demo
 	$(NIXRUN) sh scripts/check-golden.sh split_demo=ok ./$(BLDDIR)/split_demo
 
-test-preview: ## M16.1 local PNG preview command and DrawOp goldens.
+test-preview: $(BLDDIR)/preview_demo ## M16.1 local PNG preview command and DrawOp goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/preview_demo.bend -o $(BLDDIR)/preview_demo
 	$(NIXRUN) sh scripts/check-golden.sh preview_demo=ok ./$(BLDDIR)/preview_demo
 
-test-typing: ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
+test-typing: $(BLDDIR)/typing_demo ## M16.4 IRCv3 +typing parser, expiry, bounds, and view goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/typing_demo.bend -o $(BLDDIR)/typing_demo
 	$(NIXRUN) sh scripts/check-golden.sh typing_demo=ok ./$(BLDDIR)/typing_demo
 
-test-frame: ## M4 CRLF framer goldens.
+test-frame: $(BLDDIR)/frame_demo ## M4 CRLF framer goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/frame_demo.bend -o $(BLDDIR)/frame_demo
 	$(NIXRUN) sh scripts/check-golden.sh frame_demo=ok ./$(BLDDIR)/frame_demo
 
-test-net: ## M4 loopback TCP.send/recv + register/pong goldens.
+test-net: $(BLDDIR)/net_demo ## M4 loopback TCP.send/recv + register/pong goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/net_demo.bend -o $(BLDDIR)/net_demo
 	$(NIXRUN) sh scripts/check-golden.sh net_demo=ok ./$(BLDDIR)/net_demo
 
-test-dns: ## UDP A lookup identity + parse edges (no network).
+test-dns: $(BLDDIR)/dns_demo ## UDP A lookup identity + parse edges (no network).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/dns_demo.bend -o $(BLDDIR)/dns_demo
 	$(NIXRUN) sh scripts/check-golden.sh dns_demo=ok ./$(BLDDIR)/dns_demo
 	@! grep -F 'Dns.resolve("one.one.one.one")' tests/bend/dns_demo.bend
 
-test-dns-live: ## Live A lookup of one.one.one.one (not in check).
+test-dns-live: $(BLDDIR)/dns_live ## Live A lookup of one.one.one.one (not in check).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/dns_live.bend -o $(BLDDIR)/dns_live
 	$(NIXRUN) sh scripts/check-golden.sh dns_live=ok ./$(BLDDIR)/dns_live
 
-test-dns-timeout: ## K3: blackhole nameserver returns timeout, does not park.
+test-dns-timeout: $(BLDDIR)/dns_timeout ## K3: blackhole nameserver returns timeout, does not park.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/dns_timeout.bend -o $(BLDDIR)/dns_timeout
 	$(NIXRUN) sh scripts/check-golden.sh dns_timeout=ok timeout 15 ./$(BLDDIR)/dns_timeout
 
-test-dns-tcp: ## DNS TCP segmentation, length validation, and deadlines.
+test-dns-tcp: $(BLDDIR)/dns_tcp ## DNS TCP segmentation, length validation, and deadlines.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/dns_tcp.bend -o $(BLDDIR)/dns_tcp
 	$(NIXRUN) timeout 60 python3 tests/dns/tcp.py ./$(BLDDIR)/dns_tcp
 
-test-socket-deadline: ## Socket deadlines: exact writes, stalled peers, refused connects.
+test-socket-deadline: $(BLDDIR)/socket_deadline ## Socket deadlines: exact writes, stalled peers, refused connects.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/socket_deadline.bend -o $(BLDDIR)/socket_deadline
 	$(NIXRUN) timeout 60 python3 tests/dns/socket_deadline.py ./$(BLDDIR)/socket_deadline
 
-test-base64: ## Base64 and SASL PLAIN golden tests.
+test-base64: $(BLDDIR)/base64_demo ## Base64 and SASL PLAIN golden tests.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/base64_demo.bend -o $(BLDDIR)/base64_demo
 	$(NIXRUN) sh scripts/check-golden.sh base64_demo=ok ./$(BLDDIR)/base64_demo
 
-test-auth: ## Parsed SASL exchange, phase gating, and forged chat regression.
+test-auth: $(BLDDIR)/auth_demo ## Parsed SASL exchange, phase gating, and forged chat regression.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/auth_demo.bend -o $(BLDDIR)/auth_demo
 	$(NIXRUN) sh scripts/check-golden.sh auth_demo=ok ./$(BLDDIR)/auth_demo
 
 .PHONY: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge test-auth-bridge-ubsan test-pty-auth test-auth-profiles
+test-auth-profile: $(BLDDIR)/auth_profile
+test-auth-args: $(BLDDIR)/auth_args
+test-auth-privacy: $(BLDDIR)/auth_privacy
+test-auth-notice: $(BLDDIR)/auth_notice
+test-actor-auth-scope: $(BLDDIR)/actor_auth_scope
 test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope: ## Authentication profile, flag, actor scope, and credential privacy guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
 test-keychain-wrapper: ## Fake Keychain helper: private launch, safe prompt, and save only on verified success.
@@ -912,17 +935,21 @@ test-auth-profiles: test-auth-profile test-auth-args test-auth-privacy test-auth
 test-review-pure: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge
 test: test-pty-auth
 
-test-state: ## Bounded logging and structural state regressions.
+test-state: $(BLDDIR)/state_demo ## Bounded logging and structural state regressions.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/state_demo.bend -o $(BLDDIR)/state_demo
 	$(NIXRUN) sh scripts/check-golden.sh state_demo=ok ./$(BLDDIR)/state_demo
 
 .PHONY: test-state-review test-state-review-identity test-state-review-send test-state-review-history
 test-state-review: test-state-review-identity test-state-review-send test-state-review-history ## Canonical targets, exact outgoing echoes, recent restores, and close/focus transitions.
 
+test-state-review-identity: $(BLDDIR)/state_review_identity
+test-state-review-send: $(BLDDIR)/state_review_send
+test-state-review-history: $(BLDDIR)/state_review_history
+test-runtime-dns: $(BLDDIR)/runtime_dns
+test-runtime-reconnect: $(BLDDIR)/runtime_reconnect
+test-runtime-args: $(BLDDIR)/runtime_args
 test-state-review-identity test-state-review-send test-state-review-history test-runtime-dns test-runtime-reconnect test-runtime-args:
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
 .PHONY: test-runtime-review test-runtime-dns test-runtime-reconnect test-runtime-args test-cli-nick test-replay-stream
@@ -935,9 +962,8 @@ test-replay-stream: build-ui ## Replay all records across and beyond one-MiB rea
 	$(NIXRUN) timeout 90 python3 tests/net/replay_stream.py ./$(BLDDIR)/birc
 
 .PHONY: test-ui-review-view test-ui-review-output test-ui-review-native test-ui-review-native-ubsan test-pty-ui-review-selection test-pty-ui-review-media
-test-ui-review-view: ## Production previews are helper-only; preserve isolated legacy proof adapters.
+test-ui-review-view: $(BLDDIR)/ui_review_view ## Production previews are helper-only; preserve isolated legacy proof adapters.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ui_review_view.bend -o $(BLDDIR)/ui_review_view
 	$(NIXRUN) sh scripts/check-golden.sh ui_review_view=ok timeout 15 ./$(BLDDIR)/ui_review_view
 
 test-ui-review-output: build-ui ## Actual painter preserves Unicode clusters and complete OSC8 targets.
@@ -959,49 +985,40 @@ test-pty-ui-review-selection: build-ui ## Pty: Escape clears selected cells with
 test-pty-ui-review-media: build-ui ## Pty: actual helper rejection blocks raw PNG/APNG upload; accepted data is normalized.
 	$(NIXRUN) timeout 40 python3 tests/pty/ui_review_media.py ./$(BLDDIR)/birc
 
-test-history: ## Stable log identities, authored lines, and typed reconnect markers.
+test-history: $(BLDDIR)/history_demo ## Stable log identities, authored lines, and typed reconnect markers.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_demo.bend -o $(BLDDIR)/history_demo
 	$(NIXRUN) sh scripts/check-golden.sh history_demo=ok ./$(BLDDIR)/history_demo
 
-test-history-io: ## Streaming history keeps the newest records beyond one MiB.
+test-history-io: $(BLDDIR)/history_io ## Streaming history keeps the newest records beyond one MiB.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_io.bend -o $(BLDDIR)/history_io
 	$(NIXRUN) sh scripts/check-golden.sh history_io=ok ./$(BLDDIR)/history_io
 
-test-history-search: ## Disk-history search/paging and draft/chathistory policy goldens.
+test-history-search: $(BLDDIR)/history_search $(BLDDIR)/history_search_io ## Disk-history search/paging and draft/chathistory policy goldens.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_search.bend -o $(BLDDIR)/history_search
 	$(NIXRUN) sh scripts/check-golden.sh history_search=ok ./$(BLDDIR)/history_search
-	$(NIXRUN) timeout 180 bend tests/bend/history_search_io.bend -o $(BLDDIR)/history_search_io
 	$(NIXRUN) sh scripts/check-golden.sh history_search_io=ok ./$(BLDDIR)/history_search_io
 test-review-pure: test-history-search
 
-test-link-commands: ## Repeated link enumeration and opening preserve numbering.
+test-link-commands: $(BLDDIR)/link_commands_demo ## Repeated link enumeration and opening preserve numbering.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/link_commands_demo.bend -o $(BLDDIR)/link_commands_demo
 	$(NIXRUN) sh scripts/check-golden.sh link_commands_demo=ok ./$(BLDDIR)/link_commands_demo
 
-test-wrap: ## Styled, linked, wide, and combining spans wrap without losing targets.
+test-wrap: $(BLDDIR)/wrap_demo ## Styled, linked, wide, and combining spans wrap without losing targets.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/wrap_demo.bend -o $(BLDDIR)/wrap_demo
 	$(NIXRUN) sh scripts/check-golden.sh wrap_demo=ok ./$(BLDDIR)/wrap_demo
 
 .PHONY: test-m21-view
-test-m21-view: ## Word boundaries, styled clusters, safe headers, and history display fallbacks.
+test-m21-view: $(BLDDIR)/m21_view ## Word boundaries, styled clusters, safe headers, and history display fallbacks.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m21_view.bend -o $(BLDDIR)/m21_view
 	$(NIXRUN) sh scripts/check-golden.sh m21_view=ok timeout 15 ./$(BLDDIR)/m21_view
 
 .PHONY: test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-native-clusters-ubsan test-m21-clusters-output test-nix-preflight
-test-m21-runtime: ## DNS reply identity and terminated/unterminated replay equivalence.
+test-m21-runtime: $(BLDDIR)/m21_runtime ## DNS reply identity and terminated/unterminated replay equivalence.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m21_runtime.bend -o $(BLDDIR)/m21_runtime
 	$(NIXRUN) sh scripts/check-golden.sh m21_runtime=ok timeout 15 ./$(BLDDIR)/m21_runtime
 
-test-m21-sasl-env: ## SASL environment fallback and explicit CLI precedence.
+test-m21-sasl-env: $(BLDDIR)/m21_sasl_env ## SASL environment fallback and explicit CLI precedence.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m21_sasl_env.bend -o $(BLDDIR)/m21_sasl_env
 	$(NIXRUN) timeout 50 python3 tests/sasl_env.py ./$(BLDDIR)/m21_sasl_env
 
 test-media-image-bounds: ## Synthetic expanding GIF limits and APNG fallback decode accounting.
@@ -1024,14 +1041,16 @@ test-nix-preflight: ## Fixture guard uses provisioned Python, not the host inter
 	$(NIXRUN) timeout 30 python3 tests/nix_preflight.py
 
 .PHONY: test-m21-targets test-m21-session test-m21-color test-m21-typing test-m21-history-private
+test-m21-targets: $(BLDDIR)/m21_targets
+test-m21-session: $(BLDDIR)/m21_session
+test-m21-color: $(BLDDIR)/m21_color
+test-m21-typing: $(BLDDIR)/m21_typing
 test-m21-targets test-m21-session test-m21-color test-m21-typing:
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/$(subst -,_,$(patsubst test-%,%,$@)).bend -o $(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
-test-m21-history-private: ## Private history modes, owned-file repair, path safety, and disabled controls.
+test-m21-history-private: $(BLDDIR)/m21_history_private ## Private history modes, owned-file repair, path safety, and disabled controls.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/m21_history_private.bend -o $(BLDDIR)/m21_history_private
 	$(NIXRUN) timeout 30 python3 tests/history_private.py ./$(BLDDIR)/m21_history_private
 
 .PHONY: test-m21-history-native test-m21-history-native-ubsan
@@ -1053,46 +1072,39 @@ test-review-pure: test-m21
 test-m21: test-m21-history-native
 test-sanitizers: test-m21-native-clusters-ubsan test-m21-history-native-ubsan
 
-test-columns-width: ## Exhaustive scalar-width parity with the actual TimUI implementation.
+test-columns-width: $(BLDDIR)/columns_width ## Exhaustive scalar-width parity with the actual TimUI implementation.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/columns_width.bend -o $(BLDDIR)/columns_width
 	$(NIXRUN) timeout 60 python3 tests/columns_width.py ./$(BLDDIR)/columns_width
 
-test-scroll: ## Wrapped-row navigation and stable arrival/resize anchors.
+test-scroll: $(BLDDIR)/scroll_demo ## Wrapped-row navigation and stable arrival/resize anchors.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/scroll_demo.bend -o $(BLDDIR)/scroll_demo
 	$(NIXRUN) sh scripts/check-golden.sh scroll_demo=ok ./$(BLDDIR)/scroll_demo
 
-test-actor: ## Outbound batch boundaries, finite budgets, and FIFO queue behavior.
+test-actor: $(BLDDIR)/actor_demo ## Outbound batch boundaries, finite budgets, and FIFO queue behavior.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/actor_demo.bend -o $(BLDDIR)/actor_demo
 	$(NIXRUN) sh scripts/check-golden.sh actor_demo=ok ./$(BLDDIR)/actor_demo
 
-test-actor-queue: ## Local sockets: per-turn caps, close flush, and self-pump safety.
+test-actor-queue: $(BLDDIR)/actor_queue ## Local sockets: per-turn caps, close flush, and self-pump safety.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/actor_queue.bend -o $(BLDDIR)/actor_queue
 	$(NIXRUN) timeout 120 python3 tests/net/actor_queue.py ./$(BLDDIR)/actor_queue
 
-test-links: ## Shared URL lexer: boundaries, punctuation, and code spans.
+test-links: $(BLDDIR)/links_demo ## Shared URL lexer: boundaries, punctuation, and code spans.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/links_demo.bend -o $(BLDDIR)/links_demo
 	$(NIXRUN) sh scripts/check-golden.sh links_demo=ok ./$(BLDDIR)/links_demo
 
-test-commands: ## Local commands offline/connecting and read-only wire target guards.
+test-commands: $(BLDDIR)/command_demo ## Local commands offline/connecting and read-only wire target guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/command_demo.bend -o $(BLDDIR)/command_demo
 	$(NIXRUN) sh scripts/check-golden.sh command_demo=ok ./$(BLDDIR)/command_demo
 
-test-args: ## CLI flag parse (missing values, bad numbers, --connect).
+test-args: $(BLDDIR)/args_demo ## CLI flag parse (missing values, bad numbers, --connect).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/args_demo.bend -o $(BLDDIR)/args_demo
 	$(NIXRUN) sh scripts/check-golden.sh args_demo=ok ./$(BLDDIR)/args_demo
 	@! grep -F 'def seed_bit' src/bend/session.bend
 	@! grep -F 'CopyMany' src/bend/args.bend
 	@! grep -F 'def is_433_line' src/bend/irc.bend
 	@! grep -F 'def submit_part.chan' src/bend/submit.bend
 
-proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures missing).
+proto-parity: $(BLDDIR)/proto_parity ## M3 fixture corpus Bend golden tags (fail closed if fixtures missing).
 	@test -f fixtures/demo.irc || { printf '%s\n' 'BLOCKED: fixtures/demo.irc missing' >&2; exit 2; }
 	@test -f fixtures/welcome.irc || { printf '%s\n' 'BLOCKED: fixtures/welcome.irc missing' >&2; exit 2; }
 	@test -f fixtures/action.irc || { printf '%s\n' 'BLOCKED: fixtures/action.irc missing' >&2; exit 2; }
@@ -1103,7 +1115,6 @@ proto-parity: ## M3 fixture corpus Bend golden tags (fail closed if fixtures mis
 	@grep -F 'PiNg :xyz' fixtures/odd_casing.irc >/dev/null || { printf '%s\n' 'BLOCKED: fixtures/odd_casing.irc drifted' >&2; exit 2; }
 	@$(NIXRUN) python3 -c "p=open('fixtures/action.irc','rb').read(); assert b'\\x01ACTION waves\\x01' in p" || { printf '%s\n' 'BLOCKED: fixtures/action.irc CTCP validation failed' >&2; exit 2; }
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/proto_parity.bend -o $(BLDDIR)/proto_parity
 	$(NIXRUN) sh scripts/check-golden.sh proto_parity=ok ./$(BLDDIR)/proto_parity
 
 test-ui: build-ui ## Headless TimUI smoke (--demo --frames 3).
@@ -1221,24 +1232,20 @@ test-pty-startup-connect: build-ui ## Pty: pending initial connects paint and ke
 test-pty-history-endpoints: build-ui ## Pty: server/port histories and reload checkpoints stay isolated.
 	$(NIXRUN) timeout 120 python3 tests/pty/history_endpoints.py ./$(BLDDIR)/birc
 
-test-scroll-edits: ## Purge, query merge, and link-list edits preserve scroll identity.
+test-scroll-edits: $(BLDDIR)/scroll_edits_demo ## Purge, query merge, and link-list edits preserve scroll identity.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/scroll_edits_demo.bend -o $(BLDDIR)/scroll_edits_demo
 	$(NIXRUN) sh scripts/check-golden.sh scroll_edits_demo=ok ./$(BLDDIR)/scroll_edits_demo
 
-test-history-errors: ## History IO errors are visible; sparse size probes never scan large files.
+test-history-errors: $(BLDDIR)/history_errors ## History IO errors are visible; sparse size probes never scan large files.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/history_errors.bend -o $(BLDDIR)/history_errors
 	$(NIXRUN) timeout 60 python3 tests/history_errors.py ./$(BLDDIR)/history_errors
 
-test-startup-actor: ## Initial actor success/failure can continue to a queued dial.
+test-startup-actor: $(BLDDIR)/startup_actor ## Initial actor success/failure can continue to a queued dial.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/startup_actor.bend -o $(BLDDIR)/startup_actor
 	$(NIXRUN) timeout 15 python3 tests/net/startup_actor.py ./$(BLDDIR)/startup_actor
 
-test-session-links: ## Session opening echoes cannot amplify links or persisted history.
+test-session-links: $(BLDDIR)/session_links_demo ## Session opening echoes cannot amplify links or persisted history.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/session_links_demo.bend -o $(BLDDIR)/session_links_demo
 	$(NIXRUN) sh scripts/check-golden.sh session_links_demo=ok ./$(BLDDIR)/session_links_demo
 
 test-pty-session-links: build-ui ## Pty: runtime open/list uses stable link sources and fake launchers.
@@ -1247,39 +1254,31 @@ test-pty-session-links: build-ui ## Pty: runtime open/list uses stable link sour
 test-pty-split-identity: build-ui ## Pty: a query named server retains its pane and send identity.
 	$(NIXRUN) timeout 45 python3 tests/pty/split_identity.py ./$(BLDDIR)/birc
 
-test-ui-input-queue: ## Synthetic wakes cannot block acknowledgement or a full event queue.
+test-ui-input-queue: $(BLDDIR)/ui_input_queue ## Synthetic wakes cannot block acknowledgement or a full event queue.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ui_input_queue.bend -o $(BLDDIR)/ui_input_queue.c
-	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/ui_input_queue.c -o $(BLDDIR)/ui_input_queue'
 	$(NIXRUN) sh scripts/check-golden.sh ui_input_queue=ok timeout 15 ./$(BLDDIR)/ui_input_queue
 
 test-pty-input-fairness: build-ui ## Pty: mixed input/inbound traffic keeps PONG and quit responsive.
 	$(NIXRUN) timeout 45 python3 tests/pty/input_fairness.py ./$(BLDDIR)/birc
 
-test-demo-identity: ## Demo data preserves the requested nick and current Dial identity.
+test-demo-identity: $(BLDDIR)/demo_identity ## Demo data preserves the requested nick and current Dial identity.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/demo_identity.bend -o $(BLDDIR)/demo_identity.c
-	$(NIXRUN) timeout 180 sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/demo_identity.c -o $(BLDDIR)/demo_identity'
 	$(NIXRUN) sh scripts/check-golden.sh demo_identity=ok ./$(BLDDIR)/demo_identity
 
-test-mute-scope: ## Scoped mutes filter status targets and all supported channel types.
+test-mute-scope: $(BLDDIR)/mute_scope_demo ## Scoped mutes filter status targets and all supported channel types.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/mute_scope_demo.bend -o $(BLDDIR)/mute_scope_demo
 	$(NIXRUN) sh scripts/check-golden.sh mute_scope_demo=ok timeout 15 ./$(BLDDIR)/mute_scope_demo
 
-test-split-rename: ## Query NICK changes preserve pane identity and focus.
+test-split-rename: $(BLDDIR)/split_rename_demo ## Query NICK changes preserve pane identity and focus.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/split_rename_demo.bend -o $(BLDDIR)/split_rename_demo
 	$(NIXRUN) sh scripts/check-golden.sh split_rename_demo=ok timeout 15 ./$(BLDDIR)/split_rename_demo
 
-test-action-budget: ## CTCP ACTION retains its envelope and echoes the transmitted UTF-8 body.
+test-action-budget: $(BLDDIR)/action_budget_demo ## CTCP ACTION retains its envelope and echoes the transmitted UTF-8 body.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/action_budget_demo.bend -o $(BLDDIR)/action_budget_demo
 	$(NIXRUN) sh scripts/check-golden.sh action_budget_demo=ok timeout 15 ./$(BLDDIR)/action_budget_demo
 
-test-richtext-model: ## Literal unmatched markup and code styling survive wrapping.
+test-richtext-model: $(BLDDIR)/richtext_demo ## Literal unmatched markup and code styling survive wrapping.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 90 bend tests/bend/richtext_demo.bend -o $(BLDDIR)/richtext_demo
 	$(NIXRUN) sh scripts/check-golden.sh richtext_demo=ok timeout 15 ./$(BLDDIR)/richtext_demo
 
 test-richtext-painter: build-ui ## Actual native painter emits dim code and literal unmatched text.
@@ -1448,6 +1447,14 @@ $(BLDDIR)/birc-output-limit: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
 test-pty-output-failure: build-ui $(BLDDIR)/birc-output-limit ## Pty: capture refusal closes the connected actor and fails after tty restore.
 	$(NIXRUN) timeout 30 python3 tests/pty/output_failure.py ./$(BLDDIR)/birc ./$(BLDDIR)/birc-output-limit
 
+# Opt-in PTY sharding/caching harness (additive targets only; `test-pty` unchanged).
+# Dash-include: test-nix-preflight drives this Makefile from another cwd where
+# mk/ is absent; shard targets still fail closed (no rule) when unused there.
+-include mk/pty-shard.mk
+-include mk/wf-cards.mk
+-include mk/wf-settings.mk
+-include mk/wf-filter.mk
+
 PNG_TEST_CFLAGS := -std=c99 -O1 -Werror=vla -pedantic -Wall -Wextra -Werror -isystem src/ui
 test-png-bounds: ## Bound local Sixel PNG allocation/inflation and retry transient failures.
 	@mkdir -p $(BLDDIR)
@@ -1503,6 +1510,13 @@ test-perf-media-wrap: ## Measure consumed batches; set MEDIA_PROFILE_MODE/LINKS/
 	$(NIXRUN) timeout 180 bend tests/perf/media_wrap_profile.bend -o $(BLDDIR)/media_wrap_profile
 	$(NIXRUN) timeout 15 ./$(BLDDIR)/media_wrap_profile $(MEDIA_PROFILE_MODE) $(MEDIA_PROFILE_LINKS) $(MEDIA_PROFILE_SAMPLES) $(MEDIA_PROFILE_LINES)
 
+.PHONY: paint-footprint
+PAINT_FOOTPRINT_PASSES ?= 32
+paint-footprint: ## Repaint one SCROLL_CAP rich buffer and sample physical footprint (not in check).
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 600 bend tests/perf/paint_footprint.bend -o $(BLDDIR)/paint_footprint
+	$(NIXRUN) timeout 180 python3 tests/perf/paint_footprint.py ./$(BLDDIR)/paint_footprint $(PAINT_FOOTPRINT_PASSES)
+
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 
 $(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
@@ -1557,124 +1571,100 @@ test-bend-telemetry: ## Offline compiler/Bun telemetry opt-out guards.
 test-review-pure: test-bend-telemetry
 
 .PHONY: test-cap-notify
-test-cap-notify: ## Standalone CAP registry, handshake, notify and typing guards.
+test-cap-notify: $(BLDDIR)/cap_notify_demo.js ## Standalone CAP registry, handshake, notify and typing guards.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/cap_notify_demo.bend -o $(BLDDIR)/cap_notify_demo.js
 	$(NIXRUN) sh scripts/check-golden.sh cap_notify_demo=ok timeout 30 bun $(BLDDIR)/cap_notify_demo.js
 
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
-test-session-drafts: ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
+test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/session_drafts_demo.bend -o $(BLDDIR)/session_drafts_demo
 	$(NIXRUN) sh scripts/check-golden.sh session_drafts_demo=ok ./$(BLDDIR)/session_drafts_demo
 
-test-workspace: ## Multiserver workspace wiring goldens (partitions, routing, generations, scopes).
+test-workspace: $(BLDDIR)/workspace_demo ## Multiserver workspace wiring goldens (partitions, routing, generations, scopes).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/workspace_demo.bend -o $(BLDDIR)/workspace_demo
 	$(NIXRUN) sh scripts/check-golden.sh workspace_demo=ok ./$(BLDDIR)/workspace_demo
 
-test-wsnet-gates: ## wsnet G2/G4/M1-M3 envelope, union gate, and first-frame/load guards (JS backend).
+test-wsnet-gates: $(BLDDIR)/wsnet_gates.js ## wsnet G2/G4/M1-M3 envelope, union gate, and first-frame/load guards (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/wsnet_gates.bend -o $(BLDDIR)/wsnet_gates.js
 	$(NIXRUN) sh scripts/check-golden.sh wsnet_gates=ok timeout 30 bun $(BLDDIR)/wsnet_gates.js
 
-test-ws-first-connect: ## Startup-only pending endpoint override, credentials/drafts/upload, and unchanged live busy guards (JS backend).
+test-ws-first-connect: $(BLDDIR)/ws_first_connect.js ## Startup-only pending endpoint override, credentials/drafts/upload, and unchanged live busy guards (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ws_first_connect.bend -o $(BLDDIR)/ws_first_connect.js
 	$(NIXRUN) sh scripts/check-golden.sh ws_first_connect=ok timeout 30 bun $(BLDDIR)/ws_first_connect.js
 
-test-ws-shutdown-pending: ## WsNet pending Dials skip shutdown wait; ready and default states retain it (JS backend).
+test-ws-shutdown-pending: $(BLDDIR)/ws_shutdown_pending.js ## WsNet pending Dials skip shutdown wait; ready and default states retain it (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/ws_shutdown_pending.bend -o $(BLDDIR)/ws_shutdown_pending.js
 	$(NIXRUN) sh scripts/check-golden.sh ws_shutdown_pending=ok timeout 30 bun $(BLDDIR)/ws_shutdown_pending.js
 
 # Supporting runtime fixtures: standalone until canonical-source qualification.
 .PHONY: test-draft-nick-rename test-outbound-txn test-reader-pongs test-net-live-wait-cell
-test-draft-nick-rename: ## CM NICK-to-draft rename: store semantics plus live-arrival guards (JS backend).
+test-draft-nick-rename: $(BLDDIR)/draft_nick_rename.js ## CM NICK-to-draft rename: store semantics plus live-arrival guards (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/draft_nick_rename.bend -o $(BLDDIR)/draft_nick_rename.js
 	$(NIXRUN) sh scripts/check-golden.sh draft_nick_rename=ok timeout 30 bun $(BLDDIR)/draft_nick_rename.js
 
-test-outbound-txn: ## Trace txn helpers (repeat/split/next) via the JS backend.
+test-outbound-txn: $(BLDDIR)/outbound_txn.js ## Trace txn helpers (repeat/split/next) via the JS backend.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/outbound_txn.bend -o $(BLDDIR)/outbound_txn.js
 	$(NIXRUN) sh scripts/check-golden.sh outbound_txn=ok timeout 30 bun $(BLDDIR)/outbound_txn.js
 
-test-reader-pongs: ## Reader-owned PONG purity: exact replies, split reassembly, overlong silence.
+test-reader-pongs: $(BLDDIR)/reader_pongs ## Reader-owned PONG purity: exact replies, split reassembly, overlong silence.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/reader_pongs.bend -o $(BLDDIR)/reader_pongs
 	$(NIXRUN) sh scripts/check-golden.sh reader_pongs=ok ./$(BLDDIR)/reader_pongs
 
-test-net-live-wait-cell: ## Live-step wait-cell payload characterization (pure shape, no channel).
+test-net-live-wait-cell: $(BLDDIR)/net_live_wait_cell ## Live-step wait-cell payload characterization (pure shape, no channel).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/net_live_wait_cell.bend -o $(BLDDIR)/net_live_wait_cell
 	$(NIXRUN) sh scripts/check-golden.sh net_live_wait_cell=ok timeout 15 ./$(BLDDIR)/net_live_wait_cell
 
 .PHONY: test-notify-binding-gates
-test-notify-binding-gates: ## notify gates 1-4 + attribution over framed bursts with a fake-helper barrier (JS backend).
+test-notify-binding-gates: $(BLDDIR)/notify_binding_gates.js ## notify gates 1-4 + attribution over framed bursts with a fake-helper barrier (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_binding_gates.bend -o $(BLDDIR)/notify_binding_gates.js
 	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nprintf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_binding_gates=ok timeout 60 bun $(BLDDIR)/notify_binding_gates.js'
 
 .PHONY: test-notify-held
-test-notify-held: ## R1 held-helper lease: blocked + reset/off/on/cancel never spawns 2, old exact runs FIFO once (JS backend).
+test-notify-held: $(BLDDIR)/notify_held.js ## R1 held-helper lease: blocked + reset/off/on/cancel never spawns 2, old exact runs FIFO once (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/notify_held.bend -o $(BLDDIR)/notify_held.js
 	$(NIXRUN) sh -c 'set -eu; d=$$(mktemp -d); trap "rm -rf $$d" EXIT INT TERM; printf "#!/bin/sh\nlog=\"\$$0.log\"\nprintf \"start %%s\\\\n\" \"\$$*\" >> \"\$$log\"\nsleep 0.2\nprintf \"done %%s\\\\n\" \"\$$*\" >> \"\$$log\"\n" > "$$d/notify-send"; chmod +x "$$d/notify-send"; BIRC_NOTIFY_HELPER="$$d/notify-send" sh scripts/check-golden.sh notify_held=ok timeout 60 bun $(BLDDIR)/notify_held.js'
 
 .PHONY: test-workspace-005-source
-test-workspace-005-source: ## Live 005 source/recipient and CHANMODES certainty guards (JS backend).
+test-workspace-005-source: $(BLDDIR)/workspace_005_source.js ## Live 005 source/recipient and CHANMODES certainty guards (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/workspace_005_source.bend -o $(BLDDIR)/workspace_005_source.js
 	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh workspace_005_source=ok timeout 30 bun $(BLDDIR)/workspace_005_source.js
 
 .PHONY: test-theme-selector-boundaries
-test-theme-selector-boundaries: ## Fixed/default and themed status boundary colors (JS backend).
+test-theme-selector-boundaries: $(BLDDIR)/theme_selector_boundaries.js ## Fixed/default and themed status boundary colors (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/theme_selector_boundaries.bend -o $(BLDDIR)/theme_selector_boundaries.js
 	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh theme_selector_boundaries=ok timeout 30 bun $(BLDDIR)/theme_selector_boundaries.js
 
 .PHONY: test-theme-ws-render
-test-theme-ws-render: ## Framed end-to-end theme guard (retained wire styles, Ws paint under Dark/Light/Mono).
+test-theme-ws-render: $(BLDDIR)/theme_ws_render.js ## Framed end-to-end theme guard (retained wire styles, Ws paint under Dark/Light/Mono).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/theme_ws_render.bend -o $(BLDDIR)/theme_ws_render.js
 	$(NIXRUN) sh scripts/check-golden.sh theme_ws_render=ok timeout 30 bun $(BLDDIR)/theme_ws_render.js
 
 .PHONY: test-ws-media-stage-native
-test-ws-media-stage-native: ## Actual media None/Some stages and exact physical/event ownership (native).
+test-ws-media-stage-native: $(BLDDIR)/ws_media_stage_native ## Actual media None/Some stages and exact physical/event ownership (native).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/ws_media_stage_native.bend -o $(BLDDIR)/ws_media_stage_native.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_media_stage_native.c -o $(BLDDIR)/ws_media_stage_native'
 	$(NIXRUN) timeout 60 python3 tests/native/ws_media_stage.py ./$(BLDDIR)/ws_media_stage_native
 
 .PHONY: test-mss-stale-held
-test-mss-stale-held: ## Held stale 903 drops by generation fence over real sockets.
+test-mss-stale-held: $(BLDDIR)/mss_stale_socket ## Held stale 903 drops by generation fence over real sockets.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/mss_stale_socket.bend -o $(BLDDIR)/mss_stale_socket.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/mss_stale_socket.c -o $(BLDDIR)/mss_stale_socket'
 	$(NIXRUN) timeout 60 python3 tests/net/mss_stale_socket.py ./$(BLDDIR)/mss_stale_socket
 
 .PHONY: test-sessws-s1s5
-test-sessws-s1s5: ## SessWS S1-S5 repair guards plus G1-G5 completion/history/seam/FIFO/runtime goldens (JS backend).
+test-sessws-s1s5: $(BLDDIR)/sessws_s1s5_demo.js ## SessWS S1-S5 repair guards plus G1-G5 completion/history/seam/FIFO/runtime goldens (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/sessws_s1s5_demo.bend -o $(BLDDIR)/sessws_s1s5_demo.js
 	$(NIXRUN) sh scripts/check-golden.sh sessws_s1s5_demo=ok timeout 30 bun $(BLDDIR)/sessws_s1s5_demo.js
 
 # SOURCE UNRUN: standalone until compile/native/three PTY runs qualify.
 .PHONY: test-ws-carrier-native
-test-ws-carrier-native: ## Actual routed/parked carrier +/- callbacks and owned PTY teardown (standalone).
+test-ws-carrier-native: $(BLDDIR)/ws_carrier_native ## Actual routed/parked carrier +/- callbacks and owned PTY teardown (standalone).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend tests/bend/ws_carrier_native.bend -o $(BLDDIR)/ws_carrier_native.c
-	$(NIXRUN) timeout 300 sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_carrier_native.c -o $(BLDDIR)/ws_carrier_native'
 	$(NIXRUN) sh scripts/check-golden.sh ws_carrier_native=ok timeout 60 python3 tests/pty/ws_carrier_native.py $(BLDDIR)/ws_carrier_native
 
 .PHONY: test-ws-upload-frame
-test-ws-upload-frame: ## True upload frame qual: physical AD keys through ws_first.frame/ws_paint/ws_routed + owned fake helper (native CC PTY; standalone until heavy-lane green; Main registers after green).
+test-ws-upload-frame: $(BLDDIR)/ws_upload_frame ## True upload frame qual: physical AD keys through ws_first.frame/ws_paint/ws_routed + owned fake helper (native CC PTY; standalone until heavy-lane green; Main registers after green).
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh -c 'set -eu -o pipefail; for token in "ws_first.frame" "WsNet.ws_paint" "WsNet.ws_routed" "T.Timui.open" "T.Timui.close" "T.Timui.tty" "T.Tty.ready" "Chan.recv" "App.main()"; do grep -q "$$token" tests/bend/ws_upload_frame.bend || { printf "%s\n" "frame entry missing: $$token" >&2; exit 1; }; done; for token in "UiKeys" "UploadFetched" "ws_first.painted" "ws_frame" "T.Timui.frame" "session_upload_key" "session_upload_take" "session_upload_present(" "step_enter" "live_step_keys" "upload_spawn" "session_upload_complete" "ws_upload.keyed" "ws_upload.presented" "ws_upload.restored" "Up.offer" "Up.confirm" "Up.take_job" "Up.finish" "Up.cancel" "U.offer" "U.confirm" "U.take_job" "U.finish" "U.cancel" "@unsafe"; do ! grep -q "$$token" tests/bend/ws_upload_frame.bend || { printf "%s\n" "injected-state bypass present: $$token" >&2; exit 1; }; done'
-	$(NIXRUN) timeout 300 bend tests/bend/ws_upload_frame.bend -o $(BLDDIR)/ws_upload_frame.c
-	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) $(SHUTDOWN_FFI_ALIASES) -Isrc/ui -Isrc/ffi $(BLDDIR)/ws_upload_frame.c -o $(BLDDIR)/ws_upload_frame'
 	$(NIXRUN) timeout 120 python3 tests/pty/ws_upload_frame.py ./$(BLDDIR)/ws_upload_frame
 
 # Conditional Notify promotion: apply only after exact runtime/static qualification.
@@ -1685,13 +1675,11 @@ test-nix-eval-selftest: ## Synthetic run_phase fixture: orphan timeout verdict a
 	$(NIXRUN) timeout 60 python3 tests/nix_eval_profile.py --self-test
 
 .PHONY: test-workspace-isolation-step
-test-workspace-isolation-step: ## Workspace isolation criteria and one-result step projections (JS backend).
+test-workspace-isolation-step: $(BLDDIR)/workspace_isolation_step.js ## Workspace isolation criteria and one-result step projections (JS backend).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/workspace_isolation_step.bend -o $(BLDDIR)/workspace_isolation_step.js
 	$(NIXRUN) env TEST_TIMEOUT_SECONDS=30 sh scripts/check-golden.sh workspace_isolation_step=ok timeout 30 bun $(BLDDIR)/workspace_isolation_step.js
 
 .PHONY: test-cards-live
-test-cards-live: ## C8 live integration goldens (JS): boundary seam, Session scheduling, worker, endpoint, fullscreen, rows.
+test-cards-live: $(BLDDIR)/cards_live.js ## C8 live integration goldens (JS): boundary seam, Session scheduling, worker, endpoint, fullscreen, rows.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 180 bend tests/bend/cards_live.bend -o $(BLDDIR)/cards_live.js
 	$(NIXRUN) sh scripts/check-golden.sh cards_live=ok timeout 60 bun $(BLDDIR)/cards_live.js
