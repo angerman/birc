@@ -37,7 +37,7 @@ def manual_session() -> Sess.Session:
 def paused_session() -> Sess.Session:
   +st = manual_session()
   +cl = Sess.session_cl(st)
-  Sess.session_set_client(st, Cl.buf_modify_client(cl, Cl.active_of(cl), b => V.scroll_buf_media(b, 2n, 20, False{}, Nil{}, "s", 2n, 0n, active_media())))
+  Sess.session_set_client(st, Cl.buf_modify_client(cl, Cl.active_of(cl), b => V.scroll_buf_media(b, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, active_media())))
 
 def failed_session(+st: Sess.Session) -> Sess.Session:
   Sess.session_error(Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), 1n, 1n, url(), 0)), "image preview unavailable")
@@ -64,7 +64,7 @@ def shape(xs: List<&2, V.DrawOp>) -> String:
     case Con{_, tail}: shape(tail)
 
 def paint(+b: Cl.Buffer, +media: M.State, +width: U32) -> String:
-  shape(V.body_ops(V.Rect{0, 0, U32.add(width, 2), 4}, V.body_of.buf_media(b, 2n, width, False{}, Nil{}, "s", media)))
+  shape(V.body_ops(V.Rect{0, 0, U32.add(width, 2), 4}, V.body_of.buf_media(b, 2n, width, False{}, Nil{}, True{}, True{}, "s", media)))
 
 def session_paint(+st: Sess.Session, width: U32) -> String:
   paint(active_buf(Sess.session_cl(st)), Sess.session_media(st), width)
@@ -98,7 +98,7 @@ def projection_controls() -> IO(Unit):
     IO.pure(Unit, Unit{})
 
 def inline_paused() -> Cl.Buffer:
-  V.scroll_buf_media(Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}, 2n, 20, False{}, Nil{}, "s", 2n, 0n, ready_inline())
+  V.scroll_buf_media(Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready_inline())
 
 def first_line(lines: List<&2, Cl.Line>) -> Cl.Line:
   match lines:
@@ -169,7 +169,7 @@ def source_controls() -> IO(Unit):
     Unit <- E.must_eq("raw failure contains only actual error", raw_text(raw_lines(active_buf(Sess.session_cl(ready)))), "image preview unavailable")
     Unit <- E.must_eq("exact manual source stays topic", topic(active_buf(Sess.session_cl(ready))), url())
     Unit <- E.must_eq("manual diagnostics are not history", H.extract_new_history(Sess.session_cl(pending), Sess.session_cl(ready)), "")
-    Unit <- E.must_eq("live tail shows newest diagnostic", rows_text(V.body_of.buf_media(active_buf(Sess.session_cl(live_error)), 2n, 20, False{}, Nil{}, "s", Sess.session_media(live_error))), "image preview unavailable")
+    Unit <- E.must_eq("live tail shows newest diagnostic", rows_text(V.body_of.buf_media(active_buf(Sess.session_cl(live_error)), 2n, 20, False{}, Nil{}, True{}, True{}, "s", Sess.session_media(live_error))), "image preview unavailable")
     IO.pure(Unit, Unit{})
 
 def split_controls() -> IO(Unit):

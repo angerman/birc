@@ -27,7 +27,7 @@ def row_text(row: V.BodyRow) -> String:
     case V.BodyMedia{_, _, _, _}: ""
 
 def rows(+cl: Cl.Client, +w: U32) -> List<&2, V.BodyRow>:
-  V.body_of.buf(V.active_buf.on(Cl.nth_buf(Cl.client_bufs(cl), 0n)), 3n, w, False{}, Nil{}, "s")
+  V.body_of.buf(V.active_buf.on(Cl.nth_buf(Cl.client_bufs(cl), 0n)), 3n, w, False{}, Nil{}, True{}, True{}, "s")
 
 def first(xs: List<&2, V.BodyRow>) -> String:
   match xs:
@@ -57,20 +57,20 @@ def resize_anchor() -> Bool:
     && String.eq(last(rows(cl, 4)), "klmn")
 
 def narrow_first() -> Bool:
-  +cl = Cl.buf_modify_client(long_client(), 0n, b => V.scroll_buf(b, 3n, 1, False{}, Nil{}, "s", 100n, 0n))
+  +cl = Cl.buf_modify_client(long_client(), 0n, b => V.scroll_buf(b, 3n, 1, False{}, Nil{}, True{}, True{}, "s", 100n, 0n))
   String.eq(first(rows(cl, 1)), "A")
 
 def muted_arrival() -> Bool:
   +cl = moved(long_client(), 3n, 0n)
   +after = Cl.client_log_author_ts(cl, 0n, Cl.Msg{}, "", "HIDDEN LONG WRAPPED ARRIVAL", "muted")
   +b = V.active_buf.on(Cl.nth_buf(Cl.client_bufs(after), 0n))
-  String.eq(row_texts(rows(cl, 8)), row_texts(V.body_of.buf(b, 3n, 8, False{}, "muted" <> Nil{}, "s")))
+  String.eq(row_texts(rows(cl, 8)), row_texts(V.body_of.buf(b, 3n, 8, False{}, "muted" <> Nil{}, True{}, True{}, "s")))
 
 def replacement_anchor() -> Bool:
   +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "abc👩‍💻uvwxyz", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
-  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, "s", 7n, 0n)
-  String.eq(last(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, "s")), "c")
-    && String.eq(last(V.body_of.buf(scrolled, 1n, 4, False{}, Nil{}, "s")), "abc")
+  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 7n, 0n)
+  String.eq(last(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "c")
+    && String.eq(last(V.body_of.buf(scrolled, 1n, 4, False{}, Nil{}, True{}, True{}, "s")), "abc")
 
 def main() -> IO(Unit):
   do IO<Unit>:

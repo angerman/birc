@@ -46,6 +46,8 @@ def kind_dark(k: Cl.LineKind) -> U32:
     case Cl.Highlight{}: 16766720
     case Cl.Reconnect{}: 10526880
     case Cl.LinkResult{}: 10526880
+    case Cl.Presence{}: 10526880
+    case Cl.Nick{}: 10526880
 
 # Dark-on-light variants: readable on a white background.
 def kind_light(k: Cl.LineKind) -> U32:
@@ -59,6 +61,8 @@ def kind_light(k: Cl.LineKind) -> U32:
     case Cl.Highlight{}: 9071872
     case Cl.Reconnect{}: 6710886
     case Cl.LinkResult{}: 6710886
+    case Cl.Presence{}: 6710886
+    case Cl.Nick{}: 6710886
 
 def MONO_FG() -> U32:
   14211288

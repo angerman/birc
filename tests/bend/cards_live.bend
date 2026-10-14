@@ -498,8 +498,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, V.wrap_line_media_cards(line1, 80, False{}, M.empty(), paint_empty()))), Nat.show(List.length(&2, V.BodyRow, V.wrap_line_media(line1, 80, False{}, M.empty()))))
     Unit <- E.must("ready card paints rows", Nat.is_gt(List.length(&2, V.BodyRow, V.wrap_line_media_cards(line1, 80, False{}, M.empty(), paint_ready())), List.length(&2, V.BodyRow, V.wrap_line_media(line1, 80, False{}, M.empty()))))
     Unit <- E.must("ready card paints title", String.contains(rows_text(V.wrap_line_media_cards(line1, 80, False{}, M.empty(), paint_ready())), "Hello"))
-    +anchored_plain : List<&2, V.BodyRow> = V.anchored_bodies(V.anchored_lines_media_cards([line1], "#t", 80, False{}, Nil{}, "s", 1n, M.empty(), paint_empty()))
-    +anchored_cards : List<&2, V.BodyRow> = V.anchored_bodies(V.anchored_lines_media_cards([line1], "#t", 80, False{}, Nil{}, "s", 1n, M.empty(), paint_ready()))
+    +anchored_plain : List<&2, V.BodyRow> = V.anchored_bodies(V.anchored_lines_media_cards([line1], "#t", 80, False{}, Nil{}, True{}, True{}, "s", 1n, M.empty(), paint_empty()))
+    +anchored_cards : List<&2, V.BodyRow> = V.anchored_bodies(V.anchored_lines_media_cards([line1], "#t", 80, False{}, Nil{}, True{}, True{}, "s", 1n, M.empty(), paint_ready()))
     Unit <- E.must("anchors include card rows", Nat.is_gt(List.length(&2, V.BodyRow, anchored_cards), List.length(&2, V.BodyRow, anchored_plain)))
     # Two chat rows plus two card rows under id2; rows=7 gives a 3-row
     # viewport, so id1 stays visible only when card rows are absent. The

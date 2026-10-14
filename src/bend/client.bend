@@ -350,21 +350,17 @@ def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
     case False{}:
       cl
 
-def join_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String, joins: Bool) -> Cl.Buffer:
-  match joins:
-    case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, now, fmt_join(from, Cl.target_name(chan)))
-    case False{}:
-      b
+def join_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String) -> Cl.Buffer:
+  Cl.buf_log_ts(b, Cl.Presence{}, now, fmt_join(from, Cl.target_name(chan)))
 
-def join_upd(+from: String, +chan: String, +now: String, +joins: Bool, b: Cl.Buffer) -> Cl.Buffer:
-  join_upd.log(Cl.nick_add(b, from), from, chan, now, joins)
+def join_upd(+from: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
+  join_upd.log(Cl.nick_add(b, from), from, chan, now)
 
 def feed_join.from_cl(+cl2: Cl.Client, +bi: Nat, +from: String, +chan: String, self: Bool) -> Cl.Client:
   match cl2:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       feed_join.self(
-        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd(from, chan, now, Cl.settings_joins(stg))), active, now, stg, auth, log_seq},
+        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd(from, chan, now)), active, now, stg, auth, log_seq},
         bi,
         self
       )
@@ -389,14 +385,14 @@ def feed_join.with(+cl: Cl.Client, +from: String, +chan: String, +self: Bool) ->
 def feed_join(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_join.with(cl, msg_nick(m), Irc.msg_param(m, 0n), self)
 
-def join_upd_with(+cm: String, +strip: String, +from: String, +chan: String, +now: String, +joins: Bool, b: Cl.Buffer) -> Cl.Buffer:
-  join_upd.log(Cl.nick_add_cm(b, cm, strip, from), from, chan, now, joins)
+def join_upd_with(+cm: String, +strip: String, +from: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
+  join_upd.log(Cl.nick_add_cm(b, cm, strip, from), from, chan, now)
 
 def feed_join_with.from_cl(+cm: String, +strip: String, +cl2: Cl.Client, +bi: Nat, +from: String, +chan: String, self: Bool) -> Cl.Client:
   match cl2:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
       feed_join.self(
-        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd_with(cm, strip, from, chan, now, Cl.settings_joins(stg))), active, now, stg, auth, log_seq},
+        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd_with(cm, strip, from, chan, now)), active, now, stg, auth, log_seq},
         bi,
         self
       )
@@ -421,26 +417,22 @@ def feed_join_with.with(+cl: Cl.Client, +cm: String, +types: String, +status: St
 def feed_join_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_join_with.with(cl, cm, types, status, sigils, strip, msg_nick(m), Irc.msg_param(m, 0n), self)
 
-def part_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String, joins: Bool) -> Cl.Buffer:
-  match joins:
-    case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, now, fmt_part(from, Cl.target_name(chan)))
-    case False{}:
-      b
+def part_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String) -> Cl.Buffer:
+  Cl.buf_log_ts(b, Cl.Presence{}, now, fmt_part(from, Cl.target_name(chan)))
 
-def part_upd.on(+from: String, +chan: String, +now: String, +joins: Bool, +b: Cl.Buffer, has: Bool) -> Cl.Buffer:
+def part_upd.on(+from: String, +chan: String, +now: String, +b: Cl.Buffer, has: Bool) -> Cl.Buffer:
   match has:
     case False{}:
       b
     case True{}:
-      part_upd.log(Cl.nick_del(b, from), from, chan, now, joins)
+      part_upd.log(Cl.nick_del(b, from), from, chan, now)
 
-def part_upd(+from: String, +chan: String, +now: String, +joins: Bool, b: Cl.Buffer) -> Cl.Buffer:
+def part_upd(+from: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
   +bb = b
-  part_upd.on(from, chan, now, joins, bb, Cl.nick_has(bb, from))
+  part_upd.on(from, chan, now, bb, Cl.nick_has(bb, from))
 
 def feed_part.at(+nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, +bi: Nat, +from: String, +chan: String) -> Cl.Client:
-  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd(from, chan, now, Cl.settings_joins(stg))), active, now, stg, auth, log_seq}
+  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd(from, chan, now)), active, now, stg, auth, log_seq}
 
 def feed_part.on(+cl: Cl.Client, +chan: String, +from: String, found: Maybe<&2, Nat>) -> Cl.Client:
   match cl:
@@ -464,19 +456,19 @@ def feed_part.with(+cl: Cl.Client, +chan: String, +from: String, self: Bool) -> 
 def feed_part(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_part.with(cl, Irc.msg_param(m, 0n), msg_nick(m), self)
 
-def part_upd_with.on(+cm: String, +strip: String, +from: String, +chan: String, +now: String, +joins: Bool, +b: Cl.Buffer, has: Bool) -> Cl.Buffer:
+def part_upd_with.on(+cm: String, +strip: String, +from: String, +chan: String, +now: String, +b: Cl.Buffer, has: Bool) -> Cl.Buffer:
   match has:
     case False{}:
       b
     case True{}:
-      part_upd.log(Cl.nick_del_cm(b, cm, strip, from), from, chan, now, joins)
+      part_upd.log(Cl.nick_del_cm(b, cm, strip, from), from, chan, now)
 
-def part_upd_with(+cm: String, +strip: String, +from: String, +chan: String, +now: String, +joins: Bool, b: Cl.Buffer) -> Cl.Buffer:
+def part_upd_with(+cm: String, +strip: String, +from: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
   +bb = b
-  part_upd_with.on(cm, strip, from, chan, now, joins, bb, Cl.nick_has_cm(bb, cm, from))
+  part_upd_with.on(cm, strip, from, chan, now, bb, Cl.nick_has_cm(bb, cm, from))
 
 def feed_part_with.at(+cm: String, +strip: String, +nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, +bi: Nat, +from: String, +chan: String) -> Cl.Client:
-  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd_with(cm, strip, from, chan, now, Cl.settings_joins(stg))), active, now, stg, auth, log_seq}
+  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd_with(cm, strip, from, chan, now)), active, now, stg, auth, log_seq}
 
 def feed_part_with.on(+cl: Cl.Client, +cm: String, +strip: String, +chan: String, +from: String, found: Maybe<&2, Nat>) -> Cl.Client:
   match cl:
@@ -572,27 +564,23 @@ def is_channel_buf(+b: Cl.Buffer) -> Bool:
     case Cl.Buffer{_, +ch, _, _, _, _}:
       ch
 
-def feed_quit.one.log(b: Cl.Buffer, +from: String, +reason: String, +ts: String, joins: Bool) -> Cl.Buffer:
-  match joins:
-    case True{}:
-      Cl.buf_log_ts(b, Cl.System{}, ts, fmt_quit(from, reason))
-    case False{}:
-      b
+def feed_quit.one.log(b: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
+  Cl.buf_log_ts(b, Cl.Presence{}, ts, fmt_quit(from, reason))
 
-def feed_quit.one.on(+b: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool, has: Bool) -> Cl.Buffer:
+def feed_quit.one.on(+b: Cl.Buffer, +from: String, +reason: String, +ts: String, has: Bool) -> Cl.Buffer:
   match has:
     case True{}:
-      feed_quit.one.log(Cl.nick_del(b, from), from, reason, ts, joins)
+      feed_quit.one.log(Cl.nick_del(b, from), from, reason, ts)
     case False{}:
       b
 
-def feed_quit.one(+b: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool) -> Cl.Buffer:
-  feed_quit.one.on(b, from, reason, ts, joins, Cl.nick_has(b, from))
+def feed_quit.one(+b: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
+  feed_quit.one.on(b, from, reason, ts, Cl.nick_has(b, from))
 
 def feed_quit.query.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, hit: Bool) -> Cl.Buffer:
   match hit:
     case True{}:
-      Cl.buf_log_ts(h, Cl.System{}, ts, fmt_quit(from, reason))
+      Cl.buf_log_ts(h, Cl.Presence{}, ts, fmt_quit(from, reason))
     case False{}:
       h
 
@@ -607,45 +595,45 @@ def feed_quit.query(+h: Cl.Buffer, +from: String, +reason: String, +ts: String) 
         Irc.ieq(name, from) && Cl.is_query_name(name)
       )
 
-def feed_quit.apply.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool, ch: Bool) -> Cl.Buffer:
+def feed_quit.apply.on(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, ch: Bool) -> Cl.Buffer:
   match ch:
     case True{}:
-      feed_quit.one(h, from, reason, ts, joins)
+      feed_quit.one(h, from, reason, ts)
     case False{}:
       feed_quit.query(h, from, reason, ts)
 
-def feed_quit.apply(+h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool) -> Cl.Buffer:
-  feed_quit.apply.on(h, from, reason, ts, joins, is_channel_buf(h))
+def feed_quit.apply(+h: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
+  feed_quit.apply.on(h, from, reason, ts, is_channel_buf(h))
 
-def feed_quit.map.go(xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String, +joins: Bool) -> List<&2, Cl.Buffer>:
+def feed_quit.map.go(xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, t}:
-      feed_quit.apply(h, from, reason, ts, joins) <> feed_quit.map.go(t, from, reason, ts, joins)
+      feed_quit.apply(h, from, reason, ts) <> feed_quit.map.go(t, from, reason, ts)
 
-def feed_quit.map(xs: List<&2, Cl.Buffer>, from: String, reason: String, ts: String, joins: Bool) -> List<&2, Cl.Buffer>:
+def feed_quit.map(xs: List<&2, Cl.Buffer>, from: String, reason: String, ts: String) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}: Nil{}
-    case Con{server, t}: server <> feed_quit.map.go(t, from, reason, ts, joins)
+    case Con{server, t}: server <> feed_quit.map.go(t, from, reason, ts)
 
 def feed_quit.with(+cl: Cl.Client, +from: String, +reason: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, feed_quit.map(bufs, from, reason, now, Cl.settings_joins(stg)), active, now, stg, auth, log_seq}
+      Cl.Client{nick, server, feed_quit.map(bufs, from, reason, now), active, now, stg, auth, log_seq}
 
 def feed_quit(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_quit.with(cl, msg_nick(m), Irc.msg_param(m, 0n))
 
-def feed_quit_with.one.on(+cm: String, +strip: String, +b: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool, has: Bool) -> Cl.Buffer:
+def feed_quit_with.one.on(+cm: String, +strip: String, +b: Cl.Buffer, +from: String, +reason: String, +ts: String, has: Bool) -> Cl.Buffer:
   match has:
     case True{}:
-      feed_quit.one.log(Cl.nick_del_cm(b, cm, strip, from), from, reason, ts, joins)
+      feed_quit.one.log(Cl.nick_del_cm(b, cm, strip, from), from, reason, ts)
     case False{}:
       b
 
-def feed_quit_with.one(+cm: String, +strip: String, +b: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool) -> Cl.Buffer:
-  feed_quit_with.one.on(cm, strip, b, from, reason, ts, joins, Cl.nick_has_cm(b, cm, from))
+def feed_quit_with.one(+cm: String, +strip: String, +b: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
+  feed_quit_with.one.on(cm, strip, b, from, reason, ts, Cl.nick_has_cm(b, cm, from))
 
 def feed_quit_with.query(+cm: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
   match h:
@@ -658,32 +646,32 @@ def feed_quit_with.query(+cm: String, +h: Cl.Buffer, +from: String, +reason: Str
         Cl.buf_eq_cm(cm, name, from) && Cl.is_query_name(name)
       )
 
-def feed_quit_with.apply.on(+cm: String, +strip: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool, ch: Bool) -> Cl.Buffer:
+def feed_quit_with.apply.on(+cm: String, +strip: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String, ch: Bool) -> Cl.Buffer:
   match ch:
     case True{}:
-      feed_quit_with.one(cm, strip, h, from, reason, ts, joins)
+      feed_quit_with.one(cm, strip, h, from, reason, ts)
     case False{}:
       feed_quit_with.query(cm, h, from, reason, ts)
 
-def feed_quit_with.apply(+cm: String, +strip: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String, +joins: Bool) -> Cl.Buffer:
-  feed_quit_with.apply.on(cm, strip, h, from, reason, ts, joins, is_channel_buf(h))
+def feed_quit_with.apply(+cm: String, +strip: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
+  feed_quit_with.apply.on(cm, strip, h, from, reason, ts, is_channel_buf(h))
 
-def feed_quit_with.map.go(+cm: String, +strip: String, xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String, +joins: Bool) -> List<&2, Cl.Buffer>:
+def feed_quit_with.map.go(+cm: String, +strip: String, xs: List<&2, Cl.Buffer>, +from: String, +reason: String, +ts: String) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}:
       Nil{}
     case Con{h, t}:
-      feed_quit_with.apply(cm, strip, h, from, reason, ts, joins) <> feed_quit_with.map.go(cm, strip, t, from, reason, ts, joins)
+      feed_quit_with.apply(cm, strip, h, from, reason, ts) <> feed_quit_with.map.go(cm, strip, t, from, reason, ts)
 
-def feed_quit_with.map(+cm: String, +strip: String, xs: List<&2, Cl.Buffer>, from: String, reason: String, ts: String, joins: Bool) -> List<&2, Cl.Buffer>:
+def feed_quit_with.map(+cm: String, +strip: String, xs: List<&2, Cl.Buffer>, from: String, reason: String, ts: String) -> List<&2, Cl.Buffer>:
   match xs:
     case Nil{}: Nil{}
-    case Con{server, t}: server <> feed_quit_with.map.go(cm, strip, t, from, reason, ts, joins)
+    case Con{server, t}: server <> feed_quit_with.map.go(cm, strip, t, from, reason, ts)
 
 def feed_quit_with.with(+cl: Cl.Client, +cm: String, +strip: String, +from: String, +reason: String) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, feed_quit_with.map(cm, strip, bufs, from, reason, now, Cl.settings_joins(stg)), active, now, stg, auth, log_seq}
+      Cl.Client{nick, server, feed_quit_with.map(cm, strip, bufs, from, reason, now), active, now, stg, auth, log_seq}
 
 def feed_quit_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message) -> Cl.Client:
   feed_quit_with.with(cl, cm, strip, msg_nick(m), Irc.msg_param(m, 0n))
@@ -710,7 +698,7 @@ def feed_nick.focused(index: Maybe<&2, Nat>, +cl: Cl.Client, +to: String, self: 
 def feed_nick_with.one.on(+cm: String, +strip: String, +b: Cl.Buffer, +from: String, +to: String, +ts: String, has: Bool) -> Cl.Buffer:
   match has:
     case True{}:
-      Cl.buf_log_ts(Cl.nick_rename_cm(b, cm, strip, from, to), Cl.System{}, ts, fmt_nick_chg(from, to))
+      Cl.buf_log_ts(Cl.nick_rename_cm(b, cm, strip, from, to), Cl.Nick{}, ts, fmt_nick_chg(from, to))
     case False{}:
       b
 
@@ -720,7 +708,7 @@ def feed_nick_with.one(+cm: String, +strip: String, +b: Cl.Buffer, +from: String
 def feed_nick_with.query.on(+cm: String, +strip: String, +h: Cl.Buffer, +from: String, +to: String, +ts: String, hit: Bool) -> Cl.Buffer:
   match hit:
     case True{}:
-      Cl.buf_log_ts(Cl.nick_rename_cm(Cl.set_buf_name(h, to), cm, strip, from, to), Cl.System{}, ts, fmt_nick_chg(from, to))
+      Cl.buf_log_ts(Cl.nick_rename_cm(Cl.set_buf_name(h, to), cm, strip, from, to), Cl.Nick{}, ts, fmt_nick_chg(from, to))
     case False{}:
       h
 

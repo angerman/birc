@@ -558,20 +558,20 @@ def visible_crop(+rows: List<&2, V.AnchoredRow>, +lines: List<&2, Cl.Line>, +hei
   visible_rows(List.take(&2, V.AnchoredRow, List.drop(&2, V.AnchoredRow, rows, Nat.sub(end, height)), height),
     lines, List.length(&2, Cl.Line, lines))
 
-def visible_buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State) -> List<&2, Candidate>:
+def visible_buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, Candidate>:
   match allowed:
     case False{}: Nil{}
     case True{}:
       match b:
         case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_crop(V.anchored_lines_media(lines, name, w, show_ts, mutes, server,
+          visible_crop(V.anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server,
             List.length(&2, Cl.Line, lines), media), lines, height, scroll)
 
-def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State) -> List<&2, Candidate>:
+def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, Candidate>:
   match b:
     case Cl.Buffer{name, _, _, _, _, _}:
       visible_buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, server, media)
+        b, height, w, show_ts, mutes, joins, nicks, server, media)
 
 def visible_split(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, Candidate>:
   match pair:
@@ -580,15 +580,15 @@ def visible_split(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second
         case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
           List.append(&2, Candidate,
             visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media),
+              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media),
             visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media))
+              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media))
 
 def visible_single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, Candidate>:
   match cl:
     case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
       visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
-        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media)
+        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
 
 def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
   match split:
@@ -607,20 +607,20 @@ def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +m
 # offscreen rows stay unscheduled. Default-RFC scheduling would mute rows
 # paint retains (e.g. a[b under CASEMAPPING=ascii with muted a{b) and leak
 # hidden URLs into the queue.
-def visible_buffer_cards.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+def visible_buffer_cards.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   match allowed:
     case False{}: Nil{}
     case True{}:
       match b:
         case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_crop(V.anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, server,
+          visible_crop(V.anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server,
             List.length(&2, Cl.Line, lines), media, cards), lines, height, scroll)
 
-def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   match b:
     case Cl.Buffer{name, _, _, _, _, _}:
       visible_buffer_cards.allowed_cm(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, server, media, cards)
+        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
 
 def visible_split_cards_cm(+cm: String, pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   match pair:
@@ -629,15 +629,15 @@ def visible_split_cards_cm(+cm: String, pair: V.Rect & V.Rect, +cl: Cl.Client, +
         case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
           List.append(&2, Candidate,
             visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards),
+              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
             visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards))
+              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
 
 def visible_single_cards_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   match cl:
     case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
       visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
-        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), server, media, cards)
+        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
 
 def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   match split:
@@ -650,11 +650,11 @@ def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U3
 
 # Fixed-default scheduling delegates to the cm-aware traversal with the
 # long-standing default mapping, so an absent burst changes nothing.
-def visible_buffer_cards.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_buffer_cards.allowed_cm(Cl.dflt_cm(), allowed, b, height, w, show_ts, mutes, server, media, cards)
+def visible_buffer_cards.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_buffer_cards.allowed_cm(Cl.dflt_cm(), allowed, b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
 
-def visible_buffer_cards(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, server, media, cards)
+def visible_buffer_cards(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
 
 def visible_split_cards(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   visible_split_cards_cm(Cl.dflt_cm(), pair, cl, first, second, media, cards)

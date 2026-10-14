@@ -118,6 +118,8 @@ type LineKind is Data:
   Highlight{}
   Reconnect{}
   LinkResult{}
+  Presence{}
+  Nick{}
 
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String, author: String, id: Nat}
@@ -400,6 +402,40 @@ def filter_muted_lines_cm(+cm: String, lines: List<&2, Line>, +mutes: List<&2, S
 
 def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
   filter_muted_lines_cm(dflt_cm(), lines, mutes, chan, server)
+
+# Retroactive presence filtering: joins/parts/quits log Presence rows and
+# nick changes log Nick rows; the view cascade drops them when the matching
+# setting is off. Mutes still apply first; every other kind always shows.
+def is_presence(kind: LineKind) -> Bool:
+  match kind:
+    case Presence{}: True{}
+    case _: False{}
+
+def is_nick(kind: LineKind) -> Bool:
+  match kind:
+    case Nick{}: True{}
+    case _: False{}
+
+def kind_shown(+joins: Bool, +nicks: Bool, kind: LineKind) -> Bool:
+  match kind:
+    case Presence{}: joins
+    case Nick{}: nicks
+    case _: True{}
+
+def line_shown(+joins: Bool, +nicks: Bool, +ln: Line) -> Bool:
+  match ln:
+    case Line{+kind, _, _, _, _}: kind_shown(joins, nicks, kind)
+
+def filter_kinds.rest(tail: List<&2, Line>, +ln: Line, show: Bool) -> List<&2, Line>:
+  match show:
+    case True{}: ln <> tail
+    case False{}: tail
+
+def filter_kinds(lines: List<&2, Line>, +joins: Bool, +nicks: Bool) -> List<&2, Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+ln, t}:
+      filter_kinds.rest(filter_kinds(t, joins, nicks), ln, line_shown(joins, nicks, ln))
 
 def is_nick_char(+c: Char) -> Bool:
   match c:

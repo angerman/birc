@@ -42,15 +42,15 @@ def sent(pair: Cl.Client & List<&2, String>) -> String:
 
 def alias_anchor() -> Bool:
   +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:eyes:b漢👩‍💻z", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
-  +scrolled = V.scroll_buf(b, 1n, 2, False{}, Nil{}, "s", 3n, 0n)
-  String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, "s")), "b")
-    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 3, False{}, Nil{}, "s")), "b漢")
+  +scrolled = V.scroll_buf(b, 1n, 2, False{}, Nil{}, True{}, True{}, "s", 3n, 0n)
+  String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, True{}, True{}, "s")), "b")
+    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 3, False{}, Nil{}, True{}, True{}, "s")), "b漢")
 
 def narrow_alias_anchor() -> Bool:
   +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:eyes:b", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
-  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, "s", 1n, 0n)
-  String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, "s")), "�")
-    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, "s")), "👀")
+  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "�")
+    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, True{}, True{}, "s")), "👀")
 
 def main() -> IO(Unit):
   do IO<Unit>:

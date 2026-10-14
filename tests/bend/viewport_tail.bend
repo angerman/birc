@@ -13,11 +13,11 @@ def legacy(b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2,
   match b:
     case Cl.Buffer{+name, _, +topic, +raw, _, scroll}:
       +lines = V.media_display_lines(name, topic, raw, media)
-      V.visible_anchored(V.anchored_lines_media(lines, name, w, show_ts, mutes, "s", List.length(&2, Cl.Line, lines), media), height, scroll)
+      V.visible_anchored(V.anchored_lines_media(lines, name, w, show_ts, mutes, True{}, True{}, "s", List.length(&2, Cl.Line, lines), media), height, scroll)
 
 def check(+tag: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +media: M.State) -> IO(Unit):
   E.must(tag ++ " width=" ++ U32.show(w) ++ " height=" ++ Nat.show(height),
-    B.rows_eq(V.body_of.buf_media(b, height, w, show_ts, mutes, "s", media), legacy(b, height, w, show_ts, mutes, media)))
+    B.rows_eq(V.body_of.buf_media(b, height, w, show_ts, mutes, True{}, True{}, "s", media), legacy(b, height, w, show_ts, mutes, media)))
 
 def widths(xs: List<&2, U32>, +tag: String, +b: Cl.Buffer, +height: Nat, +show_ts: Bool, +mutes: List<&2, String>, +media: M.State) -> IO(Unit):
   match xs:
@@ -109,7 +109,7 @@ def main() -> IO(Unit):
     Unit <- group("manual ready plus diagnostics", manual(), Nil{}, manual_ready())
     Unit <- group("manual absent plus diagnostics", manual(), Nil{}, M.empty())
     Unit <- check("manual live-bottom cropped image", manual(), 3n, 180, False{}, Nil{}, manual_ready())
-    Unit <- E.must("manual live-bottom image and diagnostic rows", B.rows_eq(V.body_of.buf_media(manual(), 3n, 180, False{}, Nil{}, "s", manual_ready()), V.BodyMedia{9, 40, 6, 5} <> V.body_rows(manual_diagnostics(), "*preview*", 180, False{})))
+    Unit <- E.must("manual live-bottom image and diagnostic rows", B.rows_eq(V.body_of.buf_media(manual(), 3n, 180, False{}, Nil{}, True{}, True{}, "s", manual_ready()), V.BodyMedia{9, 40, 6, 5} <> V.body_rows(manual_diagnostics(), "*preview*", 180, False{})))
     Unit <- check("manual image internal anchor", Cl.set_buf_anchor(manual(), Cl.ScrollAt{2n, 2n}), 1n, 180, False{}, Nil{}, manual_ready())
-    Unit <- E.must("manual partial row metadata", B.rows_eq(V.body_of.buf_media(Cl.set_buf_anchor(manual(), Cl.ScrollAt{2n, 2n}), 1n, 180, False{}, Nil{}, "s", manual_ready()), [V.BodyMedia{9, 40, 6, 3}]))
+    Unit <- E.must("manual partial row metadata", B.rows_eq(V.body_of.buf_media(Cl.set_buf_anchor(manual(), Cl.ScrollAt{2n, 2n}), 1n, 180, False{}, Nil{}, True{}, True{}, "s", manual_ready()), [V.BodyMedia{9, 40, 6, 3}]))
     IO.print("viewport_tail=ok")

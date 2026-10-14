@@ -43,9 +43,9 @@ def line_text(line: Cl.Line) -> String:
 
 def narrow_new_alias() -> Bool:
   +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:gem:b", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
-  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, "s", 1n, 0n)
-  String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, "s")), "�")
-    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, "s")), "💎")
+  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "�")
+    && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, True{}, True{}, "s")), "💎")
 
 def each_resolves(xs: List<&2, Emoji.Entry>) -> Bool:
   match xs:

@@ -85,7 +85,7 @@ def buffer_count(whole: Bool, buffer: Cl.Buffer, media: M.State) -> Nat:
         case Cl.Buffer{name, _, _, lines, _, _}:
           List.length(&2, V.BodyRow, V.body_rows_media(lines, name, 180, True{}, media))
     case False{}:
-      List.length(&2, V.BodyRow, V.body_of.buf_media(buffer, 45n, 180, True{}, Nil{}, "s", media))
+      List.length(&2, V.BodyRow, V.body_of.buf_media(buffer, 45n, 180, True{}, Nil{}, True{}, True{}, "s", media))
 
 def buffer_batch(n: Nat, +whole: Bool, +buffer: Cl.Buffer, +media: M.State, acc: Nat) -> Nat:
   match n:

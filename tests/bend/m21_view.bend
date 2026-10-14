@@ -74,8 +74,8 @@ def colored_cluster(xs: List<&2, V.SpanOp>) -> Bool:
 
 def word_anchor(+width: U32) -> String:
   +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", [line("hello   world again")], Nil{}, Cl.ScrollAt{0n, 0n}}
-  +paused = V.scroll_buf(b, 1n, 8, False{}, Nil{}, "irc", 1n, 0n)
-  String.join(chunks(V.body_of.buf(paused, 1n, width, False{}, Nil{}, "irc")), "|")
+  +paused = V.scroll_buf(b, 1n, 8, False{}, Nil{}, True{}, True{}, "irc", 1n, 0n)
+  String.join(chunks(V.body_of.buf(paused, 1n, width, False{}, Nil{}, True{}, True{}, "irc")), "|")
 
 def main() -> IO(Unit):
   do IO<Unit>:

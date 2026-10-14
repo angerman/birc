@@ -17,8 +17,10 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.Highlight{}: "HL"
     case Cl.Reconnect{}: "REC"
     case Cl.LinkResult{}: "LINK"
+    case Cl.Presence{}: "PRS"
+    case Cl.Nick{}: "NCK"
 
-def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool) -> Cl.LineKind:
+def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool, is_prs: Bool, is_nck: Bool) -> Cl.LineKind:
   match is_msg:
     case True{}: Cl.Msg{}
     case False{}:
@@ -36,7 +38,13 @@ def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_no
                     case False{}:
                       match is_hl:
                         case True{}: Cl.Highlight{}
-                        case False{}: Cl.Error{}
+                        case False{}:
+                          match is_prs:
+                            case True{}: Cl.Presence{}
+                            case False{}:
+                              match is_nck:
+                                case True{}: Cl.Nick{}
+                                case False{}: Cl.Error{}
 
 def parse_kind(+s: String) -> Cl.LineKind:
   parse_kind.on(
@@ -45,7 +53,9 @@ def parse_kind(+s: String) -> Cl.LineKind:
     String.eq(s, "SYS"),
     String.eq(s, "ACT"),
     String.eq(s, "NOT"),
-    String.eq(s, "HL")
+    String.eq(s, "HL"),
+    String.eq(s, "PRS"),
+    String.eq(s, "NCK")
   )
 
 def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> String:
@@ -127,9 +137,13 @@ def parse_line.empty(empty: Bool, +raw: String) -> Maybe<&2, HistEntry>:
 def parse_line(+raw: String) -> Maybe<&2, HistEntry>:
   parse_line.empty(String.is_empty(raw), raw)
 
+# Presence rows persist under PRS/NCK so the joins/nicks toggles filter them
+# retroactively. Pre-changeover SYS join rows keep parsing as System and
+# stay unfilterable: no text heuristic may reclassify them as Presence.
 def valid_kind(+kind: String) -> Bool:
   String.eq(kind, "MSG") || String.eq(kind, "SELF") || String.eq(kind, "SYS")
     || String.eq(kind, "ACT") || String.eq(kind, "NOT") || String.eq(kind, "ERR") || String.eq(kind, "HL")
+    || String.eq(kind, "PRS") || String.eq(kind, "NCK")
 
 def parse_line_for.valid(ok: Bool, +target: String, +kind: String, +ts: String, +author: String, +text: String) -> Maybe<&2, HistEntry>:
   match ok:

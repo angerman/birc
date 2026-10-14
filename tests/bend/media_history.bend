@@ -152,7 +152,7 @@ def admission.page_up(st: S.Session) -> S.Session:
 
 def admission.rows(+st: S.Session, cols: U32) -> List<&2, V.BodyRow>:
   V.body_of.buf_media(Anchor.active_buf(S.session_cl(st)), 25n, V.rect_vis_w(V.lay_body_rect(V.lay(30, cols, 0))),
-    True{}, Nil{}, "s", S.session_media(st))
+    True{}, Nil{}, True{}, True{}, "s", S.session_media(st))
 
 def admission.bottom(rows: List<&2, V.BodyRow>, previous: String) -> String:
   match rows:
@@ -186,20 +186,20 @@ def main() -> IO(Unit):
     Unit <- E.must("muted rows never become candidates", List.is_empty(&2, M.Candidate,
       V.visible_media_candidates(Cl.set_settings(client(), Cl.set_mutes(Cl.get_settings(client()), ["alice"])), 35, 200, Sp.Off{}, M.initial(True{}))))
     Unit <- E.must("synthetic tabs never become candidates", List.is_empty(&2, M.Candidate,
-      V.visible_media.buffer(buffer("*log*", [line(1n)]), 10n, 100, False{}, Nil{}, "s", M.initial(True{}))))
+      V.visible_media.buffer(buffer("*log*", [line(1n)]), 10n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{}))))
     Unit <- E.must("zero-ID rows never become candidates", List.is_empty(&2, M.Candidate,
-      V.visible_media.buffer(buffer("#room", [line(0n)]), 10n, 100, False{}, Nil{}, "s", M.initial(True{}))))
+      V.visible_media.buffer(buffer("#room", [line(0n)]), 10n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{}))))
     Unit <- E.must("empty-height viewport never fetches", List.is_empty(&2, M.Candidate,
-      V.visible_media.buffer(buffer("#room", [line(1n)]), 0n, 100, False{}, Nil{}, "s", M.initial(True{}))))
+      V.visible_media.buffer(buffer("#room", [line(1n)]), 0n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{}))))
     Unit <- E.must("empty-width viewport never fetches", List.is_empty(&2, M.Candidate,
-      V.visible_media.buffer(buffer("#room", [line(1n)]), 10n, 0, False{}, Nil{}, "s", M.initial(True{}))))
+      V.visible_media.buffer(buffer("#room", [line(1n)]), 10n, 0, False{}, Nil{}, True{}, True{}, "s", M.initial(True{}))))
     Unit <- E.must_eq("fitting tiny viewport admits exact visible row", selected_ids(V.visible_media_candidates(
       Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n)])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n},
       6, 80, Sp.Off{}, M.initial(True{}))), "1|")
     Unit <- E.must_eq("paused anchor uses exact painted rows", selected_ids(M.newest_candidates(V.visible_media.buffer(
-      Cl.set_buf_anchor(buffer("#room", lines(10n, 1n)), Cl.ScrollAt{5n, 0n}), 2n, 100, False{}, Nil{}, "s", M.initial(True{})), M.initial(True{}))), "5|4|")
+      Cl.set_buf_anchor(buffer("#room", lines(10n, 1n)), Cl.ScrollAt{5n, 0n}), 2n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{})), M.initial(True{}))), "5|4|")
     Unit <- E.must_eq("media-only visible rows keep source identity", selected_ids(M.newest_candidates(V.visible_media.buffer(
-      buffer("#room", [line(1n)]), 3n, 100, False{}, Nil{}, "s", M.enqueue(M.initial(True{}), M.Inline{1n}, url(1n))), M.initial(True{}))), "1|")
+      buffer("#room", [line(1n)]), 3n, 100, False{}, Nil{}, True{}, True{}, "s", M.enqueue(M.initial(True{}), M.Inline{1n}, url(1n))), M.initial(True{}))), "1|")
     +imported : S.Session = session(restored(), S.Connecting{}, True{})
     Unit <- E.must_eq("archive row receives fresh identity", selected_ids(candidates(imported)), "51|")
     Unit <- E.must_eq("live fresh-ID cutoff does not refetch archive", Nat.show(M.pending_count(S.session_media(S.session_observe_media(S.session_online(imported), 51n)))), "0")
