@@ -11,7 +11,7 @@ import tempfile
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "src/launcher/preferences_birc.py"
-WIRE = ("BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\n"
+WIRE = ("BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\n"
         "mute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n")
 
 

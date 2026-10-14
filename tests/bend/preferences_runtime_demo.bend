@@ -10,10 +10,10 @@ def base() -> P.Preferences:
   P.capture(Cl.init("me", "irc.example"), True{}, "#initial" <> Nil{})
 
 def stored() -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, False{}, 200, False{}, False{}, False{}, "muted" <> Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{False{}, False{}, False{}, False{}, 200, False{}, False{}, False{}, "muted" <> Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}, True{}}
 
 def settings_edited() -> P.Preferences:
-  P.Preferences{False{}, True{}, True{}, True{}, 100, False{}, True{}, True{}, Nil{}, "#initial" <> Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{False{}, True{}, True{}, True{}, 100, False{}, True{}, True{}, Nil{}, "#initial" <> Nil{}, True{}, Theme.Dark{}, True{}}
 
 def loaded_ok(result: R.Completion) -> Bool:
   match result:
@@ -23,13 +23,13 @@ def loaded_ok(result: R.Completion) -> Bool:
 
 def edit_wins(result: R.Completion) -> Bool:
   match result:
-    case R.Completion{_, Some{P.Preferences{joins, ts, _, _, _, _, _, _, _, channels, _, _}}, seed, resume}:
+    case R.Completion{_, Some{P.Preferences{joins, ts, _, _, _, _, _, _, _, channels, _, _, _}}, seed, resume}:
       Bool.not(joins) && Bool.not(ts) && Bool.not(seed) && resume && String.eq(P.records_text(channels, "channel"), "channel\t#initial\n")
     case _: False{}
 
 def ts_on(result: R.Completion) -> Bool:
   match result:
-    case R.Completion{_, Some{P.Preferences{_, ts, _, _, _, _, _, _, _, _, _, _}}, _, _}: ts
+    case R.Completion{_, Some{P.Preferences{_, ts, _, _, _, _, _, _, _, _, _, _, _}}, _, _}: ts
     case _: False{}
 
 def read_ticket(job: Maybe<&2, R.Job>) -> Nat:
@@ -44,7 +44,7 @@ def stale(result: R.Completion) -> Bool:
 
 def deferred_job(pair: R.State & Maybe<&2, R.Job>) -> Bool:
   match pair:
-    case (_, Some{R.Write{_, host, port, P.Preferences{joins, ts, _, _, _, _, _, _, _, channels, _, _}}}):
+    case (_, Some{R.Write{_, host, port, P.Preferences{joins, ts, _, _, _, _, _, _, _, channels, _, _, _}}}):
       String.eq(host, "irc.example") && U32.is_eq(port, 6697) && Bool.not(joins) && Bool.not(ts)
         && String.eq(P.records_text(channels, "channel"), "channel\t#initial\n")
     case _: False{}
@@ -113,7 +113,7 @@ def return_after_write() -> R.State:
   R.observe(R.observe(active_write_switch(), "irc.example", 6697, named("#latest"), 3n), "irc.example", 6697, named("#after-return"), 4n)
 
 def ts_off(name: String) -> P.Preferences:
-  P.Preferences{True{}, False{}, True{}, True{}, 100, False{}, True{}, True{}, Nil{}, name <> Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{True{}, False{}, True{}, True{}, 100, False{}, True{}, True{}, Nil{}, name <> Nil{}, True{}, Theme.Dark{}, True{}}
 
 def global_edit() -> R.State:
   R.observe(R.observe(R.observe(R.observe(start(), "irc.example", 6697, named("#a-edit"), 1n),
@@ -121,7 +121,7 @@ def global_edit() -> R.State:
 
 def first_write_ts(pair: R.State & Maybe<&2, R.Job>) -> Bool:
   match pair:
-    case (_, Some{R.Write{_, _, _, P.Preferences{_, ts, _, _, _, _, _, _, _, _, _, _}}}): ts
+    case (_, Some{R.Write{_, _, _, P.Preferences{_, ts, _, _, _, _, _, _, _, _, _, _, _}}}): ts
     case _: True{}
 
 def scopes(+n: Nat, state: R.State) -> R.State:

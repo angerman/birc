@@ -16,7 +16,7 @@ def session() -> S.Session:
     "NickServ!service@services.example", "confirmed", "synthetic-account", "synthetic-secret"), "#initial", 6697)
 
 def stored(history: Bool) -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, history, 1, False{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{False{}, False{}, False{}, history, 1, False{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}, True{}}
 
 def options(on: Bool, explicit: Bool) -> W.Options:
   W.Options{on, explicit, False{}, False{}}

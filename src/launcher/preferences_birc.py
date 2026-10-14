@@ -19,7 +19,7 @@ MAX_WIRE = 40960
 MAX_MUTES = 64
 MAX_CHANNELS = 14
 MAX_SERVERS = 16
-BOOL_KEYS = ("joins", "ts", "motd", "history", "autoreconn", "bell", "images")
+BOOL_KEYS = ("joins", "ts", "motd", "history", "autoreconn", "bell", "images", "nicks")
 SETTING_KEYS = {*BOOL_KEYS, "hist_cap", "mutes"}
 THEME_NAMES = ("dark", "light", "mono")
 
@@ -105,13 +105,15 @@ def parse_wire(body):
     if len(lines) < 2 or lines[0] != "BIRC_PREFS1":
         raise Refusal(2)
     fields = lines[1].split("\t")
-    if (len(fields) != 9 or fields[0] != "settings"
+    if (len(fields) not in (9, 10) or fields[0] != "settings"
             or any(fields[i] not in {"0", "1"} for i in (1, 2, 3, 4, 6, 7, 8))
+            or (len(fields) == 10 and fields[9] not in {"0", "1"})
             or not re.fullmatch(r"[0-9]{1,10}", fields[5])):
         raise Refusal(2)
     value = dict(zip(("joins", "ts", "motd", "history", "autoreconn", "bell", "images"),
                      (fields[i] == "1" for i in (1, 2, 3, 4, 6, 7, 8))))
-    value.update(hist_cap=int(fields[5]), mutes=[])
+    value.update(hist_cap=int(fields[5]), mutes=[],
+                 nicks=True if len(fields) == 9 else fields[9] == "1")
     channels = []
     theme = None
     for line in lines[2:]:
@@ -136,7 +138,7 @@ def parse_wire(body):
 def wire(value, channels, known=True):
     values = [str(int(value[key])) for key in ("joins", "ts", "motd", "history")]
     values.append(str(value["hist_cap"]))
-    values.extend(str(int(value[key])) for key in ("autoreconn", "bell", "images"))
+    values.extend(str(int(value[key])) for key in ("autoreconn", "bell", "images", "nicks"))
     theme = value.get("theme", "dark")
     return ("BIRC_PREFS1\nsettings\t" + "\t".join(values) + "\n"
             + ("" if theme == "dark" else "theme\t" + theme + "\n")
@@ -148,7 +150,7 @@ def wire(value, channels, known=True):
 def encode(value):
     stg = value["settings"]
     lines = ["version = 1", "", "[settings]"]
-    for key in ("joins", "ts", "motd", "history", "hist_cap", "autoreconn", "bell", "images"):
+    for key in ("joins", "ts", "motd", "history", "hist_cap", "autoreconn", "bell", "images", "nicks"):
         item = stg[key]
         lines.append(f"{key} = {str(item).lower()}")
     if stg.get("theme", "dark") != "dark":
@@ -224,7 +226,12 @@ def snapshot(dirfd, name):
         if identity(current) != identity(info):
             raise Refusal(4)
         try:
-            value = document(tomllib.loads(b"".join(chunks).decode("utf-8")))
+            raw = tomllib.loads(b"".join(chunks).decode("utf-8"))
+            if isinstance(raw.get("settings"), dict):
+                # Files written before nicks existed keep working; the schema
+                # stays strict about every other key and value.
+                raw["settings"].setdefault("nicks", True)
+            value = document(raw)
         except (ValueError, UnicodeError):
             raise Refusal(2) from None
         return value, info

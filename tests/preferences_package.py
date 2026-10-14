@@ -9,7 +9,7 @@ import tempfile
 import tomllib
 
 helper = sys.argv[1] if len(sys.argv) > 1 else "birc-preferences"
-wire = "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\n"
+wire = "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\n"
 with tempfile.TemporaryDirectory(prefix="birc-preferences-package-") as directory:
     path = Path(directory) / "preferences.toml"
     env = {**os.environ, "BIRC_PREFERENCES": str(path)}

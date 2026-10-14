@@ -5,7 +5,7 @@ import ../../src/bend/preferences.bend as P
 import ../../src/bend/preferences_io.bend as F
 
 def fixture() -> String:
-  "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
+  "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
 
 def loaded(pair: Maybe<&2, P.Preferences> & U32) -> IO(Unit):
   match pair:

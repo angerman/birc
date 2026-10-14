@@ -6,12 +6,13 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history.bend as H
 import ../../src/bend/preferences.bend as P
+import ../../src/bend/theme.bend as Theme
 
 def restored() -> Cl.Client:
   H.apply_history(Cl.init("me", "irc.example"), H.parse_history_text("#t\tMSG\t\tone\n#t\tMSG\t\ttwo\n#t\tMSG\t\tthree\n"), "", 100)
 
 def prefs(history: Bool, cap: U32) -> P.Preferences:
-  P.Preferences{True{}, True{}, True{}, history, cap, False{}, True{}, True{}, Nil{}, Nil{}, True{}}
+  P.Preferences{True{}, True{}, True{}, history, cap, False{}, True{}, True{}, Nil{}, Nil{}, True{}, Theme.Dark{}, True{}}
 
 def main() -> IO(Unit):
   do IO<Unit>:

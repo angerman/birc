@@ -671,23 +671,24 @@ def populate_settings(+cl: Cl.Client, +bi: Nat) -> Cl.Client:
   +c1 = Cl.buf_clear_at(cl, bi)
   +c2 = Cl.client_log(c1, bi, Cl.System{}, "=== BIRC SETTINGS ===")
   +c3 = Cl.client_log(c2, bi, Cl.System{}, "  joins     : " ++ bool_str(Cl.settings_joins(stg)) ++ "  (show join/part/quit messages)")
-  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  ts        : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
-  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  motd      : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
-  +c6 = Cl.client_log(c5, bi, Cl.System{}, "  history   : " ++ bool_str(Cl.settings_history(stg)) ++ "  (persist chat scrollback to disk)")
-  +c7 = Cl.client_log(c6, bi, Cl.System{}, "  hist_cap  : " ++ U32.show(Cl.settings_hist_cap(stg)) ++ "  (lines of history per channel/server)")
-  +c8 = Cl.client_log(c7, bi, Cl.System{}, "  autoreconn: " ++ bool_str(Cl.settings_autoreconn(stg)) ++ "  (auto-reconnect on unexpected disconnect)")
-  +c9 = Cl.client_log(c8, bi, Cl.System{}, "  bell      : " ++ bool_str(Cl.settings_bell(stg)) ++ "  (terminal bell on mentions/highlights)")
-  +c10 = Cl.client_log(c9, bi, Cl.System{}, "  mutes     : " ++ Nat.show(List.length(&2, String, Cl.settings_mutes(stg))) ++ " active rule(s)")
-  +c11 = Cl.client_log(c10, bi, Cl.System{}, "")
-  +c12 = Cl.client_log(c11, bi, Cl.System{}, "Commands:")
-  +c13 = Cl.client_log(c12, bi, Cl.System{}, "  /set <setting> <value>    — change a setting")
-  +c14 = Cl.client_log(c13, bi, Cl.System{}, "  /toggle <setting>         — toggle a boolean setting")
-  +c15 = Cl.client_log(c14, bi, Cl.System{}, "  /query <nick> [text]      — open 1-on-1 private chat tab")
-  +c16 = Cl.client_log(c15, bi, Cl.System{}, "  /mute <nick>              — mute nick on active channel/server")
-  +c17 = Cl.client_log(c16, bi, Cl.System{}, "  /unmute <nick>            — remove nick from mute list")
-  +c18 = Cl.client_log(c17, bi, Cl.System{}, "  /mutes                    — show active mute rules")
-  +c19 = Cl.client_log(c18, bi, Cl.System{}, "  /reconnect                — reconnect to current server")
-  Cl.client_log(c19, bi, Cl.System{}, "  /close                    — close settings buffer")
+  +c4 = Cl.client_log(c3, bi, Cl.System{}, "  nicks     : " ++ bool_str(Cl.settings_nicks(stg)) ++ "  (show nick changes)")
+  +c5 = Cl.client_log(c4, bi, Cl.System{}, "  ts        : " ++ bool_str(Cl.settings_ts(stg)) ++ "  (show message timestamps)")
+  +c6 = Cl.client_log(c5, bi, Cl.System{}, "  motd      : " ++ bool_str(Cl.settings_motd(stg)) ++ "  (show server motd on connect)")
+  +c7 = Cl.client_log(c6, bi, Cl.System{}, "  history   : " ++ bool_str(Cl.settings_history(stg)) ++ "  (persist chat scrollback to disk)")
+  +c8 = Cl.client_log(c7, bi, Cl.System{}, "  hist_cap  : " ++ U32.show(Cl.settings_hist_cap(stg)) ++ "  (lines of history per channel/server)")
+  +c9 = Cl.client_log(c8, bi, Cl.System{}, "  autoreconn: " ++ bool_str(Cl.settings_autoreconn(stg)) ++ "  (auto-reconnect on unexpected disconnect)")
+  +c10 = Cl.client_log(c9, bi, Cl.System{}, "  bell      : " ++ bool_str(Cl.settings_bell(stg)) ++ "  (terminal bell on mentions/highlights)")
+  +c11 = Cl.client_log(c10, bi, Cl.System{}, "  mutes     : " ++ Nat.show(List.length(&2, String, Cl.settings_mutes(stg))) ++ " active rule(s)")
+  +c12 = Cl.client_log(c11, bi, Cl.System{}, "")
+  +c13 = Cl.client_log(c12, bi, Cl.System{}, "Commands:")
+  +c14 = Cl.client_log(c13, bi, Cl.System{}, "  /set <setting> <value>    — change a setting")
+  +c15 = Cl.client_log(c14, bi, Cl.System{}, "  /toggle <setting>         — toggle a boolean setting")
+  +c16 = Cl.client_log(c15, bi, Cl.System{}, "  /query <nick> [text]      — open 1-on-1 private chat tab")
+  +c17 = Cl.client_log(c16, bi, Cl.System{}, "  /mute <nick>              — mute nick on active channel/server")
+  +c18 = Cl.client_log(c17, bi, Cl.System{}, "  /unmute <nick>            — remove nick from mute list")
+  +c19 = Cl.client_log(c18, bi, Cl.System{}, "  /mutes                    — show active mute rules")
+  +c20 = Cl.client_log(c19, bi, Cl.System{}, "  /reconnect                — reconnect to current server")
+  Cl.client_log(c20, bi, Cl.System{}, "  /close                    — close settings buffer")
 
 def refresh_settings_if_open.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> Cl.Client:
   match found:
@@ -711,6 +712,7 @@ def submit_settings(+cl: Cl.Client) -> Cl.Client & List<&2, String>:
 
 type SettingKey is Data:
   KeyJoins{}
+  KeyNicks{}
   KeyTs{}
   KeyMotd{}
   KeyHist{}
@@ -761,12 +763,19 @@ def parse_key.ts(+s: String, hit: Bool) -> SettingKey:
     case False{}:
       parse_key.motd(s, Irc.ieq(s, "motd"))
 
+def parse_key.nicks(+s: String, hit: Bool) -> SettingKey:
+  match hit:
+    case True{}:
+      KeyNicks{}
+    case False{}:
+      parse_key.ts(s, Irc.ieq(s, "ts") || Irc.ieq(s, "timestamp") || Irc.ieq(s, "timestamps"))
+
 def parse_key.joins(+s: String, hit: Bool) -> SettingKey:
   match hit:
     case True{}:
       KeyJoins{}
     case False{}:
-      parse_key.ts(s, Irc.ieq(s, "ts") || Irc.ieq(s, "timestamp") || Irc.ieq(s, "timestamps"))
+      parse_key.nicks(s, Irc.ieq(s, "nicks") || Irc.ieq(s, "nick"))
 
 def parse_key(+s: String) -> SettingKey:
   parse_key.joins(s, Irc.ieq(s, "joins") || Irc.ieq(s, "join"))
@@ -802,6 +811,11 @@ def apply_set_key.joins(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String
   +cl2 = Cl.set_settings(cl, Cl.set_joins(stg, b))
   setting_changed(cl2, "joins", bool_str(b))
 
+def apply_set_key.nicks(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
+  +stg = Cl.get_settings(cl)
+  +cl2 = Cl.set_settings(cl, Cl.set_nicks(stg, b))
+  setting_changed(cl2, "nicks", bool_str(b))
+
 def apply_set_key.ts(+cl: Cl.Client, +b: Bool) -> Cl.Client & List<&2, String>:
   +stg = Cl.get_settings(cl)
   +cl2 = Cl.set_settings(cl, Cl.set_ts(stg, b))
@@ -836,6 +850,8 @@ def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&
   match k:
     case KeyJoins{}:
       apply_set_key.joins(cl, b)
+    case KeyNicks{}:
+      apply_set_key.nicks(cl, b)
     case KeyTs{}:
       apply_set_key.ts(cl, b)
     case KeyMotd{}:
@@ -849,12 +865,14 @@ def apply_set_key(k: SettingKey, +cl: Cl.Client, +b: Bool) -> Cl.Client & List<&
     case KeyBell{}:
       apply_set_key.bell(cl, b)
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, nicks, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
 
 def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
     case KeyJoins{}:
       apply_set_key.joins(cl, Bool.not(Cl.settings_joins(Cl.get_settings(cl))))
+    case KeyNicks{}:
+      apply_set_key.nicks(cl, Bool.not(Cl.settings_nicks(Cl.get_settings(cl))))
     case KeyTs{}:
       apply_set_key.ts(cl, Bool.not(Cl.settings_ts(Cl.get_settings(cl))))
     case KeyMotd{}:
@@ -868,12 +886,14 @@ def apply_toggle_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
     case KeyBell{}:
       apply_set_key.bell(cl, Bool.not(Cl.settings_bell(Cl.get_settings(cl))))
     case KeyBad{}:
-      (echo_err(cl, "usage: /toggle <joins|ts|motd|history|autoreconn|bell>"), empty_out())
+      (echo_err(cl, "usage: /toggle <joins|nicks|ts|motd|history|autoreconn|bell>"), empty_out())
 
 def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, String>:
   match k:
     case KeyJoins{}:
       (echo_info(cl, "joins is " ++ bool_str(Cl.settings_joins(Cl.get_settings(cl)))), empty_out())
+    case KeyNicks{}:
+      (echo_info(cl, "nicks is " ++ bool_str(Cl.settings_nicks(Cl.get_settings(cl)))), empty_out())
     case KeyTs{}:
       (echo_info(cl, "ts is " ++ bool_str(Cl.settings_ts(Cl.get_settings(cl)))), empty_out())
     case KeyMotd{}:
@@ -887,7 +907,7 @@ def show_setting_key(k: SettingKey, +cl: Cl.Client) -> Cl.Client & List<&2, Stri
     case KeyBell{}:
       (echo_info(cl, "bell is " ++ bool_str(Cl.settings_bell(Cl.get_settings(cl)))), empty_out())
     case KeyBad{}:
-      (echo_err(cl, "unknown setting (valid: joins, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
+      (echo_err(cl, "unknown setting (valid: joins, nicks, ts, motd, history, hist_cap, autoreconn, bell)"), empty_out())
 
 def submit_set.cap(+cl: Cl.Client, mb: Maybe<&2, U32>) -> Cl.Client & List<&2, String>:
   match mb:
@@ -1331,6 +1351,7 @@ def parse_input(+input: String) -> Input:
 def preference_key(k: SettingKey) -> Maybe<&2, String>:
   match k:
     case KeyJoins{}: Some{"joins"}
+    case KeyNicks{}: Some{"nicks"}
     case KeyTs{}: Some{"ts"}
     case KeyMotd{}: Some{"motd"}
     case KeyHist{}: Some{"history"}

@@ -140,7 +140,7 @@ def load_opts() -> PrefWorker.Options:
   PrefWorker.Options{True{}, False{}, False{}, False{}}
 
 def stored_on() -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, False{}, 1, False{}, False{}, True{}, Nil{}, Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{False{}, False{}, False{}, False{}, 1, False{}, False{}, True{}, Nil{}, Nil{}, True{}, Theme.Dark{}, True{}}
 
 def res_media_on(result: LP.Context & Sess.Session & Bool) -> Bool:
   match result:
@@ -257,7 +257,7 @@ def np_code(+xs: List<&2, W.Part>) -> String:
 # Preferences guards use the actual post-stage retention and rejection seams.
 # No helper is spawned; Runtime's active ticket is an explicit synthetic state.
 def prefs_mask() -> PR.Edits:
-  PR.Edits{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
+  PR.Edits{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
 
 def prefs_snapshot() -> P.Preferences:
   P.capture(Cl.init("me", "prefs.test"), True{}, ["#a"])
@@ -341,7 +341,7 @@ def prefs_first_read(+st: Sess.Session) -> PrefLive.Context:
   prefs_ctx(prefs_first_read.state(PR.take(PR.initial(True{}, "prefs.test", 6697, LP.capture(st, 7), Sess.session_channel_revision(st), False{}, False{}, False{}))))
 
 def prefs_stored_changed() -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, False{}, 1, False{}, False{}, False{}, Nil{}, ["#loaded"], True{}, Theme.Dark{}}
+  P.Preferences{False{}, False{}, False{}, False{}, 1, False{}, False{}, False{}, Nil{}, ["#loaded"], True{}, Theme.Dark{}, True{}}
 
 # Split each affine tail while its exact parameter type is still available.
 type PrefsCompletion is Data:

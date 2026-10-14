@@ -6,7 +6,7 @@ import runpy
 import tempfile
 
 p = runpy.run_path(str(Path(__file__).resolve().parents[1] / "src/launcher/preferences_birc.py"))
-wire = "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\n"
+wire = "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\n"
 with tempfile.TemporaryDirectory(prefix="birc-preferences-global-") as directory:
     path = Path(directory) / "preferences.toml"
     assert p["read"](path, "", 0) == ""

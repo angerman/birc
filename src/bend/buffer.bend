@@ -146,148 +146,158 @@ type Alert is Data:
   Alert{name: String, level: AlertLevel}
 
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, Alert>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, Alert>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32, nicks: Bool}
 
 def settings0() -> Settings:
-  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0}
+  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0, True{}}
 
 def settings_with_cap(cap: U32) -> Settings:
-  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0}
+  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0, True{}}
 
 def settings_joins(+s: Settings) -> Bool:
   match s:
-    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _, _, _}:
       joins
+
+def settings_nicks(+s: Settings) -> Bool:
+  match s:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, _, nicks}:
+      nicks
 
 def settings_ts(+s: Settings) -> Bool:
   match s:
-    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _, _, _}:
       ts
 
 def settings_motd(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _, _, _}:
       motd
 
 def settings_history(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, history, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, history, _, _, _, _, _, _, _, _, _, _}:
       history
 
 def settings_hist_cap(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _, _, _}:
       cap
 
 def settings_autoreconn(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _, _, _}:
       auto
 
 def settings_bell(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _, _, _}:
       bell
 
 def settings_bell_seq(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, seq}:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, seq, _}:
       seq
 
 def settings_mutes(+s: Settings) -> List<&2, String>:
   match s:
-    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _, _, _}:
       mutes
 
 def settings_unreads(+s: Settings) -> List<&2, Alert>:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _, _, _}:
       unreads
 
 def settings_sasl_user(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _, _, _}:
       su
 
 def settings_sasl_pass(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _, _}:
+    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _, _, _}:
       sp
 
 def settings_lag(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag, _}:
+    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag, _, _}:
       lag
 
 def set_joins(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+
+def set_nicks(+s: Settings, val: Bool) -> Settings:
+  match s:
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, _}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, val}
 
 def set_ts(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_motd(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_history(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_hist_cap(+s: Settings, val: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_autoreconn(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_bell(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag, seq, nicks}
 
 def advance_bell(+s: Settings) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, U32.add(seq, 1)}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, U32.add(seq, 1), nicks}
 
 def set_mutes(+s: Settings, +val: List<&2, String>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag, seq, nicks}
 
 def set_unreads(+s: Settings, +val: List<&2, Alert>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag, seq, nicks}
 
 def set_sasl_user(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag, seq, nicks}
 
 def set_sasl_pass(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag, seq, nicks}
 
 def set_lag(+s: Settings, lag: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _, seq}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _, seq, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 def set_bell_seq(+s: Settings, seq: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, _}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq}
+    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, _, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
 
 # Mute matching sole owner (I2-DRY): identity comparisons fold under the
 # given CASEMAPPING; fixed wrappers delegate with the default mapping.

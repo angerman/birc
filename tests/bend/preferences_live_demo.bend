@@ -12,7 +12,7 @@ def session() -> S.Session:
   S.session_demo_at(Cl.init("me", "irc.example"), "#initial", 6697)
 
 def snapshot(known: Bool, channels: List<&2, String>) -> P.Preferences:
-  P.Preferences{False{}, False{}, False{}, True{}, 200, True{}, False{}, False{}, Nil{}, channels, known, Theme.Dark{}}
+  P.Preferences{False{}, False{}, False{}, True{}, 200, True{}, False{}, False{}, Nil{}, channels, known, Theme.Dark{}, True{}}
 
 def started(pair: R.State & Maybe<&2, R.Job>) -> L.Context:
   match pair:

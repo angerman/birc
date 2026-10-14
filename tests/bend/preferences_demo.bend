@@ -5,7 +5,13 @@ import ../../src/bend/preferences.bend as P
 import ../../src/bend/buffer.bend as Cl
 
 def source() -> String:
+  "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
+
+def legacy() -> String:
   "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
+
+def nicks_off() -> String:
+  "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t0\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
 
 def repeat(n: Nat) -> String:
   match n:
@@ -42,6 +48,7 @@ def apply_ok(value: Maybe<&2, P.Preferences>) -> Bool:
       String.eq(Cl.client_sasl_user(applied), "synthetic-user")
         && String.eq(Cl.client_sasl_pass(applied), "synthetic-pass")
         && Bool.not(Cl.settings_joins(stg)) && Cl.settings_ts(stg)
+        && Cl.settings_nicks(stg)
         && Bool.not(Cl.settings_bell(stg)) && U32.is_eq(Cl.settings_hist_cap(stg), 200)
         && Bool.not(P.images(prefs)) && Nat.is_eq(List.length(&2, String, P.channels(prefs)), 2n)
         && String.eq(shown(P.serialize(P.capture(applied, False{}, P.channels(prefs)))), source())
@@ -49,6 +56,9 @@ def apply_ok(value: Maybe<&2, P.Preferences>) -> Bool:
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("preferences exact roundtrip including channel spelling/Unicode", roundtrip(P.parse(source())), source())
+    Unit <- E.must_eq("legacy nine-field settings default nicks on and rewrite ten-field", roundtrip(P.parse(legacy())), source())
+    Unit <- E.must_eq("nicks off round-trips exactly", roundtrip(P.parse(nicks_off())), nicks_off())
+    Unit <- E.must("invalid nicks bit rejected", Bool.not(accepted(P.parse("BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t2\n"))))
     Unit <- E.must("preferences preserve credentials and runtime settings", apply_ok(P.parse(source())))
     Unit <- E.must("missing optional prefs has no snapshot", Bool.not(accepted(P.parse(""))))
     Unit <- E.must("future version rejected", Bool.not(accepted(P.parse("BIRC_PREFS2\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\n"))))

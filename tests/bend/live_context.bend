@@ -51,7 +51,7 @@ def load(stage: Stage, got: Maybe<&2, P.Preferences>, code: U32) -> Stage:
     case Stage{ctx, st}: completed(C.loaded(ctx, st, 1, 1n, got, code))
 
 def stored(history: Bool, cap: U32) -> P.Preferences:
-  P.Preferences{False{}, True{}, False{}, history, cap, True{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}}
+  P.Preferences{False{}, True{}, False{}, history, cap, True{}, False{}, False{}, Nil{}, "#saved" <> Nil{}, True{}, Theme.Dark{}, True{}}
 
 def settled(history: Bool, cap: U32) -> Stage:
   observe(load(reading(initial("")), Some{stored(history, cap)}, 0))

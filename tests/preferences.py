@@ -20,7 +20,7 @@ sys.modules[spec.name] = prefs
 spec.loader.exec_module(prefs)
 
 WIRE = ("BIRC_PREFS1\n"
-        "settings\t0\t1\t0\t1\t200\t1\t0\t0\n"
+        "settings\t0\t1\t0\t1\t200\t1\t0\t0\t1\n"
         "mute\talice*#room@irc.example\n"
         "channel\t+#room\nchannel\t#日本語\n")
 
