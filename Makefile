@@ -13,7 +13,10 @@ CHAN ?= \#birc
 PORT ?=
 TRANSPORT ?= tls
 PREFS_HELPER ?= birc-preferences
-BUILD_TIMEOUT ?= 300
+# Generated-C link bound (birc/deferred_frame/ws_upload_frame): calm-host -O2
+# link 143s, loaded laptop ~280s; 600 restores ~2x margin over worst
+# observed. BUILD_TIMEOUT=900 override stays for extreme load.
+BUILD_TIMEOUT ?= 600
 PROOF_TIMEOUT ?= 180
 PACKAGE_PLAN_TIMEOUT ?= 45
 
@@ -148,6 +151,11 @@ $(BLDDIR)/mode_privacy: tests/bend/mode_privacy.bend $(BEND_SRC_DEPS)
 $(BLDDIR)/reconnect_echoes: tests/bend/reconnect_echoes.bend $(BEND_SRC_DEPS)
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
+# auth_privacy: calm-host Bend build 92s, loaded laptop ~180s at the default
+# 180s bound; 360 restores ~2x margin over worst observed.
+$(BLDDIR)/auth_privacy: tests/bend/auth_privacy.bend $(BEND_SRC_DEPS)
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 360 bend $< -o $@
 $(BLDDIR)/ipv6_transport_native: tests/bend/ipv6_transport_native.bend $(BEND_SRC_DEPS)
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 300 bend $< -o $@

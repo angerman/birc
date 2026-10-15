@@ -32,6 +32,13 @@
   only per-line fragments, so a credential verb fractured across a line
   break (`IDEN\rTIFY`) read benign. It now also judges the joined whole
   and fails closed. `auth_privacy=ok` verified (calm-host batch).
-  Watch item: `build/birc` -O2 link (~280 s) and the `auth_privacy`
-  Bend build (~180 s) sit at their `timeout` edges under host load;
-  consider a timeout bump or calm-host pinning.
+  Watch item RESOLVED via timeout bump (calm-host pinning rejected as
+  larger/riskier: new ssh-dispatch machinery in the build path).
+  Calm-host (aarch64-darwin-1) measurements: `build/birc` -O2 link
+  143 s, `auth_privacy` Bend build 92 s, app codegen 102 s (all well
+  inside old bounds when calm; ~280 s / ~180 s under laptop load).
+  `BUILD_TIMEOUT` 300 -> 600 (~2x worst observed; `=900` override
+  stays for extreme load) and explicit `auth_privacy` 360 s Bend
+  bound (~2x worst observed, literal per test-build-deadlines).
+  `build-ui`, `test-auth-privacy`, `test-submit` green with native
+  timeouts on the calm host.
