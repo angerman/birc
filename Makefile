@@ -52,7 +52,7 @@ check: export BIRC_IMAGE_CACHE := none
         test-pty-bpaste test-pty-mixburst \
         test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat \
         test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup \
-        test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing \
+        test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-split-composer test-pty-typing \
         test-pty-hostile lint-ffi test-utf8-fit test-paste-harness proto-parity proof check \
         test-asan test-ubsan test-sanitizers test-perf-gates check-hardening \
         run run-demo clean \
@@ -1341,10 +1341,13 @@ test-pty-hostile: build-ui ## M7.6: combined hostile wire, resize, cap, and reco
 test-pty-split: build-ui ## Pty: visible split geometry/content, focus keys, selection, and tiny resize.
 	$(NIXRUN) timeout 150 python3 tests/pty/split_pty.py ./$(BLDDIR)/birc
 
+test-pty-split-composer: build-ui ## Pty: one <nick> prefix in the split widget pane, widget seated after it, degenerate-pane survival.
+	$(NIXRUN) timeout 150 python3 tests/pty/split_composer.py ./$(BLDDIR)/birc
+
 test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and muted clear.
 	$(NIXRUN) timeout 150 python3 tests/pty/typing.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-typing test-pty-hostile ## Pty loop tests.
+test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-split-composer test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
 test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure

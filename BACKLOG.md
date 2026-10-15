@@ -12,11 +12,14 @@
   zero COLUMNS task rows in all dumps, channels CID_SCON flat. Watch
   item (not a rejection): idle CID_SCON still creeps inside frozen
   pages — needs a longer soak or instrumented probe to attribute.
-- wf-composer split prefix: FIXED in `src/bend/view.bend`
-  (`split_composer_rect` mirrors the C bottom-most/left-most chooser; both
-  split call sites converted, single-pane untouched). Pending calm host:
-  `make build-ui` + split-mode PTY gate. Known unpinned edge: degenerate
-  1-2 col panes (single-pane has the same divergence; no test pins it).
+- wf-composer split prefix: FIXED in `src/bend/view.bend`, and the new
+  `test-pty-split-composer` gate is GREEN (`split_composer=ok`; pins
+  survival + resize-back recovery + Escape-quit at 24x4 and the
+  /quit-alive boundary at 24x10). Deliberately NOT pinned: exact
+  degenerate prefix bytes (would bake in Bend/C disagreement). OPEN
+  src decision: unify Bend inner-width/prefix emission with the C
+  chooser skip rule (same class as the tinyquit 1-2col single-pane
+  failure).
 - wf-composer: `src/ffi/timui_ffi.c` full compile unverified (needs Bend FFI
   headers from the Nix shell; host saturated). Static check so far:
   `draw_composer` def + sole caller arities match; patched regions are
