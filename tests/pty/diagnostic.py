@@ -76,18 +76,37 @@ class Client:
         self.read(0.15)
         return self.paint(*present, absent=absent)
 
-    def welcome(self, server: socket.socket, marker: str) -> None:
+    def sasl(self, connection: socket.socket) -> None:
+        # Credentials are configured, so channel joins wait behind the
+        # welcome/auth barrier until this connection authenticates. Answer
+        # like a real server: ACK sasl, run PLAIN, then 903 releases joins.
+        connection.sendall(b":irc CAP * ACK :sasl\r\n")
+        assert b"AUTHENTICATE PLAIN" in receive(connection, b"AUTHENTICATE PLAIN", 2), "missing SASL start"
+        connection.sendall(b":irc AUTHENTICATE +\r\n")
+        blob = receive(connection, b"\r\n", 2)
+        assert blob.startswith(b"AUTHENTICATE ") and len(blob) > len(b"AUTHENTICATE \r\n"), "missing SASL blob"
+        connection.sendall(b":irc 903 probe :SASL authentication successful\r\n")
+        assert b"CAP END" in receive(connection, b"CAP END", 2), "missing CAP END"
+
+    def welcome(self, server: socket.socket, marker: str, expect_auth: bool = True) -> None:
         connection, _ = server.accept()
         if self.conn is not None:
             self.conn.close()
         self.conn = connection
         assert b"USER probe" in receive(connection, b"USER probe", 2), "missing registration"
+        if expect_auth:
+            self.sasl(connection)
         connection.sendall(
             f":irc 001 probe :Welcome\r\n:probe!u@h JOIN #t\r\n"
             f":alice!u@h PRIVMSG #t :{marker}\r\n".encode()
         )
         self.paint(marker, "online")
-        assert b"JOIN #t" in receive(connection, b"JOIN #t", 2), "missing channel join"
+        joined = receive(connection, b"JOIN #t", 2)
+        assert b"JOIN #t" in joined, "missing channel join"
+        if not expect_auth:
+            # A new endpoint clears credentials and disables SASL negotiation,
+            # so joins must flow without any authentication attempt.
+            assert b"AUTHENTICATE" not in joined, "cleared endpoint attempted SASL"
         receive(connection, b"fixture-never-sent", 0.1)
 
     def quiet(self) -> None:
@@ -200,7 +219,7 @@ def log_case(binary: str, folder: Path, env: dict[str, str], opener: Path) -> No
             # the new channel, and retained log state, not a fleeting frame.
             os.write(client.master, f"/connect 127.0.0.1 {second.getsockname()[1]}\r".encode())
             client.read(0.15)
-            client.welcome(second, "SECOND-CHANNEL")
+            client.welcome(second, "SECOND-CHANNEL", expect_auth=False)
             client.command("/log", "RECREATED-ONLY", "online", absent=("CHANNEL-KEEP",))
             client.pong("log-new-endpoint")
             client.quit()

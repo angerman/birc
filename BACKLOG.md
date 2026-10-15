@@ -1,5 +1,19 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- pty-diagnostic SASL fixture: FIXED (test-only, no product change) —
+  red since the Oct 3 welcome/auth barrier (df95f2c): the fixture sent
+  a bare 001 with SASL creds configured and the client correctly held
+  JOIN behind the barrier, so `missing channel join` failed. The
+  fixture now completes a real SASL PLAIN exchange (ACK/`+`/903/CAP
+  END) on the initial endpoint, asserting each client step, and the
+  post-`/connect` welcome passes `expect_auth=False` with a negative
+  guard (JOIN flows, no AUTHENTICATE — pins credential clearing).
+  Residual design question (not a defect): against a CAP-silent
+  server with creds configured, 001 lands the auth phase in AuthDone
+  via SaslRegistered and joins hold forever under the misleading
+  "authentication failed" notice. No real server skips CAP LS; if one
+  appears, the fix is an auth-negotiation timeout, not a barrier
+  release (fail closed per contract 2).
 - media_history C-backend arity: FIXED — the 66-statement main holding
   ~10 live Sessions breached the 247-word native continuation limit
   ("an arity over 247"). Main is split into phase defs holding only
