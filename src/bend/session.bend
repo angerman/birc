@@ -2726,7 +2726,8 @@ def session_set_reg(st: Session, +reg: CapNotify.Reg) -> Session:
       Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, [reg], theme, labelsbox}
 
 # Labeled-response outbound counter: mint "birc-<n>" and increment. Pure
-# Client-only send paths stay unlabeled; Session-owned sends thread this.
+# Client-only send paths stay unlabeled; Session-owned sends attach via
+# session_label_cmd, which mints once per PRIVMSG/NOTICE wire.
 def session_labels(+st: Session) -> Nat:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +labelsbox}: unbox_labels(labelsbox)
@@ -2739,6 +2740,90 @@ def session_set_labels(st: Session, +n: Nat) -> Session:
 def session_next_label(+st: Session) -> Session & String:
   +n = session_labels(st)
   (session_set_labels(st, Nat.add(n, 1n)), "birc-" ++ Nat.show(n))
+
+# Labeled-response live sends: Session-owned PRIVMSG/NOTICE wires carry a
+# minted label while negotiated. Each candidate wire mints exactly one label
+# (counter consumed per send, even when the gate downgrades); emission reuses
+# Sub.message_wire_labeled, so the label rides only when negotiated AND
+# well-formed AND inside the wire cap. Downgrades keep the original bytes and
+# non-message wires pass through untouched without minting, so unnegotiated
+# sessions emit byte-identical wires and never a malformed or overlong line.
+def session_labeled_ok.reg(+reg: CapNotify.Reg) -> Bool:
+  match reg:
+    case CapNotify.Reg{+caps, _}: CapNotify.labeled_ok(caps)
+
+def session_labeled_ok(+st: Session) -> Bool:
+  session_labeled_ok.reg(session_reg(st))
+
+def session_label_one.emit(+st: Session, +line: String, +target: String, +body: String, +notice: Bool, +label: String, +labeled: Bool, should_tag: Bool) -> Session & String:
+  match should_tag:
+    case True{}: (st, Sub.message_wire_labeled(target, body, notice, label, labeled))
+    case False{}: (st, line)
+
+def session_label_one.minted(pair: Session & String, +line: String, +target: String, +body: String, +notice: Bool, +labeled: Bool) -> Session & String:
+  match pair:
+    case (+st2, +label):
+      tagged = Bool.pick(String, notice, Irc.format_notice_labeled(target, body, label), Irc.format_privmsg_labeled(target, body, label))
+      session_label_one.emit(st2, line, target, body, notice, label, labeled, labeled && Irc.label_ok(label) && Irc.line_ok(tagged))
+
+def session_label_one.arity(+st: Session, +line: String, +target: String, +body: String, +notice: Bool, +labeled: Bool, arity_ok: Bool) -> Session & String:
+  match arity_ok:
+    case False{}: (st, line)
+    case True{}: session_label_one.minted(session_next_label(st), line, target, body, notice, labeled)
+
+def session_label_one.verb(+st: Session, +line: String, +m: Irc.Message, +labeled: Bool, +notice: Bool, is_msg: Bool) -> Session & String:
+  match is_msg:
+    case False{}: (st, line)
+    case True{}:
+      session_label_one.arity(st, line, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), notice, labeled, Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n))
+
+def session_label_one.parsed(+st: Session, +line: String, parsed: Maybe<&2, Irc.Message>, +labeled: Bool) -> Session & String:
+  match parsed:
+    case None{}: (st, line)
+    case Some{+m}:
+      +verb = Irc.msg_command(m)
+      +notice = Irc.ieq(verb, "NOTICE")
+      session_label_one.verb(st, line, m, labeled, notice, Irc.ieq(verb, "PRIVMSG") || notice)
+
+def session_label_one.tagged(+st: Session, +line: String, tagged: Bool) -> Session & String:
+  match tagged:
+    case True{}: (st, line)
+    case False{}: session_label_one.parsed(st, line, Irc.parse(line), session_labeled_ok(st))
+
+def session_label_one(+st: Session, +line: String) -> Session & String:
+  session_label_one.tagged(st, line, String.starts_with(Irc.drop_spaces(line), "@"))
+
+def session_label_step.one(pair: Session & String, +rev: List<&2, String>) -> Session & List<&2, String>:
+  match pair:
+    case (+st2, +h2): (st2, h2 <> rev)
+
+def session_label_step(pair: Session & List<&2, String>, line: String) -> Session & List<&2, String>:
+  match pair:
+    case (+st, +rev): session_label_step.one(session_label_one(st, line), rev)
+
+def session_label_outs.rev(pair: Session & List<&2, String>) -> Session & List<&2, String>:
+  match pair:
+    case (+st2, +rev): (st2, List.reverse(&2, String, rev))
+
+def session_label_outs(+st: Session, +outs: List<&2, String>) -> Session & List<&2, String>:
+  session_label_outs.rev(List.foldl(~&2, ~String, ~(Session & List<&2, String>), ~session_label_step, outs, (st, Nil{})))
+
+def session_label_cmd.cont(pair: Session & List<&2, String>) -> Session & NetCmd:
+  match pair:
+    case (+st2, +outs2): (st2, Cont{outs2})
+
+def session_label_cmd(+st: Session, +cmd: NetCmd) -> Session & NetCmd:
+  match cmd:
+    case Cont{+outs}: session_label_cmd.cont(session_label_outs(st, outs))
+    case _: (st, cmd)
+
+def session_label_trip.labeled(pair: Session & NetCmd, +halt: Bool) -> Session & NetCmd & Bool:
+  match pair:
+    case (+st2, +cmd2): (st2, cmd2, halt)
+
+def session_label_trip(trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
+  match trip:
+    case (+st, cmd, halt): session_label_trip.labeled(session_label_cmd(st, cmd), halt)
 
 def session_typing_online.net(net: NetState) -> Bool:
   match net:
@@ -3578,7 +3663,7 @@ def step_keys.supplied(+st: Session, +keys: Keys, +hist2: Hist, quad: Cl.Client 
   state = session_upload(st)
   presented = session_upload_presented(st)
   cleared = session_set_upload(st, Up.empty())
-  step_keys.upload_restore(step_keys.supplied_normal(cleared, keys, hist2, quad), state, presented)
+  session_label_trip(step_keys.upload_restore(step_keys.supplied_normal(cleared, keys, hist2, quad), state, presented))
 
 def seam_submitted.got(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
@@ -3690,7 +3775,7 @@ def step_keys.upload_modal(pending: Bool, +st: Session, +keys: Keys) -> Session 
 
 def step_keys(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
   +next = session_upload_maintain(st)
-  step_keys.upload_modal(Up.pending(session_upload(next)), next, keys)
+  session_label_trip(step_keys.upload_modal(Up.pending(session_upload(next)), next, keys))
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))

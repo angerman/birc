@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Slice 3: IRCv3 labeled-response (attach + surface only).
+# Slice 3: IRCv3 labeled-response (live sends attach labels; ACK stays visual).
 import Base
 import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
@@ -75,6 +75,116 @@ def counter_second(p1: Sess.Session & String) -> Bool:
 def counter_ok() -> Bool:
   counter_second(Sess.session_next_label(Sess.session0("me", "s", "#c")))
 
+def chan0() -> Cl.Client:
+  Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #c")
+
+def labeled_reg() -> Cap.Reg:
+  Cap.Reg{Cap.caps_apply_line(Cap.caps0(), "s", "me", ":s CAP me ACK :labeled-response", True{}), Cap.out0()}
+
+def labeled_session() -> Sess.Session:
+  Sess.session_set_reg(Sess.session_demo(chan0(), "#c"), labeled_reg())
+
+def plain_session() -> Sess.Session:
+  Sess.session_demo(chan0(), "#c")
+
+def trip_st(t: Sess.Session & Sess.NetCmd & Bool) -> Sess.Session:
+  match t:
+    case (st, _, _): st
+
+def trip_outs(t: Sess.Session & Sess.NetCmd & Bool) -> List<&2, String>:
+  match t:
+    case (_, cmd, _):
+      match cmd:
+        case Sess.Cont{+xs}: xs
+        case _: Nil{}
+
+def trip_wire(t: Sess.Session & Sess.NetCmd & Bool) -> String:
+  String.join(trip_outs(t), "|")
+
+def live_wire(+st: Sess.Session, +text: String) -> String:
+  trip_wire(Sess.step_enter(st, text))
+
+def live_outs(+st: Sess.Session, +text: String) -> List<&2, String>:
+  trip_outs(Sess.step_enter(st, text))
+
+def live_labels(+st: Sess.Session, +text: String) -> Nat:
+  Sess.session_labels(trip_st(Sess.step_enter(st, text)))
+
+def outs_fit(+xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}: True{}
+    case Con{+h, +t}: Irc.line_ok(h) && outs_fit(t)
+
+def session_gate_ok() -> Bool:
+  Bool.not(Sess.session_labeled_ok(Sess.session0("me", "s", "#c")))
+    && Sess.session_labeled_ok(labeled_session())
+
+# Live send mints birc-0 and tags while negotiated.
+def live_first_ok() -> Bool:
+  String.eq(live_wire(labeled_session(), "hello"), "@label=birc-0 PRIVMSG #c :hello")
+    && outs_fit(live_outs(labeled_session(), "hello"))
+    && Nat.is_eq(live_labels(labeled_session(), "hello"), 1n)
+
+# Counter consumed per send: the next send mints birc-1.
+def live_second_ok() -> Bool:
+  +st1 = trip_st(Sess.step_enter(labeled_session(), "hello"))
+  String.eq(live_wire(st1, "again"), "@label=birc-1 PRIVMSG #c :again")
+    && outs_fit(live_outs(st1, "again"))
+    && Nat.is_eq(live_labels(st1, "again"), 2n)
+
+# NOTICE shares the labeled path.
+def live_notice_ok() -> Bool:
+  String.eq(live_wire(labeled_session(), "/notice #c hi"), "@label=birc-0 NOTICE #c :hi")
+    && outs_fit(live_outs(labeled_session(), "/notice #c hi"))
+    && Nat.is_eq(live_labels(labeled_session(), "/notice #c hi"), 1n)
+
+# Multiline mints once per wire, in order.
+def live_multiline_ok() -> Bool:
+  String.eq(live_wire(labeled_session(), "aa\nbb"), "@label=birc-0 PRIVMSG #c :aa|@label=birc-1 PRIVMSG #c :bb")
+    && outs_fit(live_outs(labeled_session(), "aa\nbb"))
+    && Nat.is_eq(live_labels(labeled_session(), "aa\nbb"), 2n)
+
+# Unnegotiated sessions emit the plain wire (mint still consumed per send).
+def live_untagged_ok() -> Bool:
+  String.eq(live_wire(plain_session(), "hello"), "PRIVMSG #c :hello")
+    && outs_fit(live_outs(plain_session(), "hello"))
+    && Nat.is_eq(live_labels(plain_session(), "hello"), 1n)
+
+# Non-message wires pass through untouched without minting.
+def live_join_untouched_ok() -> Bool:
+  String.eq(live_wire(labeled_session(), "/join #x"), "JOIN #x")
+    && Nat.is_eq(live_labels(labeled_session(), "/join #x"), 0n)
+
+def long_body.go(n: Nat) -> String:
+  match n:
+    case 0n: ""
+    case 1n+p: "x" ++ long_body.go(p)
+
+# Downgrade: negotiated but tagged-overlong emits the plain fitting wire.
+def live_downgrade_ok() -> Bool:
+  +body = long_body.go(490n)
+  String.eq(live_wire(labeled_session(), body), "PRIVMSG #c :" ++ body)
+    && outs_fit(live_outs(labeled_session(), body))
+    && Nat.is_eq(live_labels(labeled_session(), body), 1n)
+
+# ACK correlation stays visual-only: the minted label renders back, and an
+# unknown label renders too (no registry lookup, no wire effect).
+def live_ack_ok() -> Bool:
+  +cl = Sess.session_cl(trip_st(Sess.step_enter(labeled_session(), "hello")))
+  fed = Feed.feed(cl, "@label=birc-0 :s ACK")
+  stray = Feed.feed(cl, "@label=birc-99 :s ACK")
+  String.contains(server_text(fed), "acknowledged birc-0")
+    && String.contains(server_text(stray), "acknowledged birc-99")
+
+# Client-only paths stay unlabeled.
+def client_outs(pair: Cl.Client & List<&2, String>) -> String:
+  match pair:
+    case (_, +xs): String.join(xs, "|")
+
+def client_unlabeled_ok() -> Bool:
+  String.eq(client_outs(Sub.submit(chan0(), "hello")), "PRIVMSG #c :hello")
+    && String.eq(client_outs(Sub.submit(chan0(), "/notice #c hi")), "NOTICE #c :hi")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("cap_line", cap_line_ok())
@@ -86,4 +196,14 @@ def main() -> IO(Unit):
     Unit <- E.must("ack_feed", ack_feed_ok())
     Unit <- E.must("ack_with", ack_with_ok())
     Unit <- E.must("counter", counter_ok())
+    Unit <- E.must("session_gate", session_gate_ok())
+    Unit <- E.must("live_first", live_first_ok())
+    Unit <- E.must("live_second", live_second_ok())
+    Unit <- E.must("live_notice", live_notice_ok())
+    Unit <- E.must("live_multiline", live_multiline_ok())
+    Unit <- E.must("live_untagged", live_untagged_ok())
+    Unit <- E.must("live_join_untouched", live_join_untouched_ok())
+    Unit <- E.must("live_downgrade", live_downgrade_ok())
+    Unit <- E.must("live_ack", live_ack_ok())
+    Unit <- E.must("client_unlabeled", client_unlabeled_ok())
     IO.print("labeled_response=ok")
