@@ -1587,6 +1587,12 @@ test-echo-message: $(BLDDIR)/echo_message.js ## IRCv3 echo-message: gated local 
 	$(NIXRUN) sh scripts/check-golden.sh echo_message=ok timeout 30 bun $(BLDDIR)/echo_message.js
 test-review-pure: test-echo-message
 
+.PHONY: test-extended-join
+test-extended-join: $(BLDDIR)/extended_join.js ## IRCv3 extended-join + account-tag guards.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh extended_join=ok timeout 30 bun $(BLDDIR)/extended_join.js
+test-review-pure: test-extended-join
+
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
 test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).

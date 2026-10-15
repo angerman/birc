@@ -417,6 +417,15 @@ def feed_join_with.with(+cl: Cl.Client, +cm: String, +types: String, +status: St
 def feed_join_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_join_with.with(cl, cm, types, status, sigils, strip, msg_nick(m), Irc.msg_param(m, 0n), self)
 
+# Extended-join (IRCv3): the JOIN path accepts the classic 1-param form and
+# the 3-param form (channel, account, realname); any other arity stays on
+# the unknown-command path. Render is unchanged; no account is stored.
+def join_arity.n(+n: Nat) -> Bool:
+  Nat.is_eq(n, 1n) || Nat.is_eq(n, 3n)
+
+def join_arity_ok(+m: Irc.Message) -> Bool:
+  join_arity.n(List.length(&2, String, Irc.msg_params(m)))
+
 def part_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String) -> Cl.Buffer:
   Cl.buf_log_ts(b, Cl.Presence{}, now, fmt_part(from, Cl.target_name(chan)))
 
@@ -1065,6 +1074,29 @@ def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
     case Irc.Message{_, _, +cmd, _, _}:
       Cl.client_log(cl, 0n, Cl.System{}, fmt_unk(cmd, Irc.msg_param(m, 0n)))
 
+# Arity-gated JOIN entries (defined here: no forward references). The fixed
+# and negotiated dispatch arms call these instead of feed_join/feed_join_with
+# directly, so both stay in parity.
+def feed_join.gated.on(+cl: Cl.Client, +m: Irc.Message, self: Bool, ok: Bool) -> Cl.Client:
+  match ok:
+    case True{}:
+      feed_join(cl, m, self)
+    case False{}:
+      feed_unk(cl, m)
+
+def feed_join.gated(+cl: Cl.Client, +m: Irc.Message, self: Bool) -> Cl.Client:
+  feed_join.gated.on(cl, m, self, join_arity_ok(m))
+
+def feed_join_with.gated.on(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, self: Bool, ok: Bool) -> Cl.Client:
+  match ok:
+    case True{}:
+      feed_join_with(cl, cm, types, status, sigils, strip, m, self)
+    case False{}:
+      feed_unk(cl, m)
+
+def feed_join_with.gated(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, self: Bool) -> Cl.Client:
+  feed_join_with.gated.on(cl, cm, types, status, sigils, strip, m, self, join_arity_ok(m))
+
 def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
   match e:
     case CapNotify.NotifyOther{}: cl
@@ -1085,7 +1117,7 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
     case Irc.Notice{}:
       feed_priv.route(cl, Irc.msg_param(m, 0n), from, True{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Join{}:
-      feed_join(cl, m, self)
+      feed_join.gated(cl, m, self)
     case Irc.Part{}:
       feed_part(cl, m, self)
     case Irc.Kick{}:
@@ -1129,7 +1161,7 @@ def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: Stri
     case Irc.Notice{}:
       feed_priv.route_with(cl, cm, types, status, sigils, Irc.msg_param(m, 0n), from, True{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Join{}:
-      feed_join_with(cl, cm, types, status, sigils, strip, m, self)
+      feed_join_with.gated(cl, cm, types, status, sigils, strip, m, self)
     case Irc.Part{}:
       feed_part_with(cl, cm, types, status, sigils, strip, m, self)
     case Irc.Kick{}:

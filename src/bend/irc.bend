@@ -743,6 +743,39 @@ def typing_tags.go(xs: List<&2, String>, found: Maybe<&2, TypingStatus>) -> Mayb
 def typing_tag(+tags: String) -> Maybe<&2, TypingStatus>:
   typing_tags.go(String.split(tags, Chr{59}), None{})
 
+# ---- IRCv3 account-tag ----------------------------------------------------
+# Pure tag lookup (typing_tag idiom): split on ';', first `account=` hit
+# wins, an empty value means logged-out and yields None.
+
+def account_tag.val.empty(+value: String, empty: Bool) -> Maybe<&2, String>:
+  match empty:
+    case True{}:
+      None{}
+    case False{}:
+      Some{value}
+
+def account_tag.val(+value: String) -> Maybe<&2, String>:
+  account_tag.val.empty(value, String.is_empty(value))
+
+def account_tag.one(+tag: String, hit: Bool) -> Maybe<&2, String>:
+  match hit:
+    case True{}:
+      account_tag.val(String.drop(tag, 8n))
+    case False{}:
+      None{}
+
+def account_tags.go(xs: List<&2, String>, found: Maybe<&2, String>) -> Maybe<&2, String>:
+  match xs found:
+    case _ Some{value}:
+      Some{value}
+    case Nil{} None{}:
+      None{}
+    case Con{+tag, rest} None{}:
+      account_tags.go(rest, account_tag.one(tag, String.starts_with(tag, "account=")))
+
+def account_tag(+tags: String) -> Maybe<&2, String>:
+  account_tags.go(String.split(tags, Chr{59}), None{})
+
 def raw_tags.pair(pair: String & String) -> String:
   match pair:
     case (tags, _):
