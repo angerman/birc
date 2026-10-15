@@ -1478,11 +1478,21 @@ def body_y0.pick(+cand: U32, +min_y: U32, ge: Bool) -> U32:
     case False{}:
       min_y
 
+# w4-feed-body-ys: an empty hist rect (1-row body box) leaves inner_last
+# underflowing, so cand wraps to U32::MAX and passes the ge clamp. Start
+# at the top row instead; history shares the composer row on 1-row terms.
+def body_y0.zero(+min_y: U32, +cand: U32, zero: Bool) -> U32:
+  match zero:
+    case True{}:
+      min_y
+    case False{}:
+      body_y0.pick(cand, min_y, U32.is_ge(cand, min_y))
+
 def body_y0(+y: U32, +h: U32, +n: U32) -> U32:
   +last = inner_last(y, h)
   +min_y = inner_min(y, h)
   +cand = U32.sub(U32.add(last, 1), n)
-  body_y0.pick(cand, min_y, U32.is_ge(cand, min_y))
+  body_y0.zero(min_y, cand, U32.is_zero(h))
 
 def last_body_row.box(r: Rect) -> U32:
   match r:

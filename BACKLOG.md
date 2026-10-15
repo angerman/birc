@@ -42,3 +42,18 @@
   bound (~2x worst observed, literal per test-build-deadlines).
   `build-ui`, `test-auth-privacy`, `test-submit` green with native
   timeouts on the calm host.
+- test-feed body_ys: FIXED — oracle drift, not a view regression.
+  `c19445d` (inline <nick> composer) moved `status_y` rows-2 -> rows-1
+  and appended one `composer_ops` OpLine per frame without updating
+  `VL.body_ys_ok`. Probe proved count = vis_n+1 in all 12 cases and
+  `lay` now (1,2,3)/(1,22,23) vs the stale (1,1,2)/(1,21,22). The law
+  now pins count = vis_n+1, last = composer row, sorted + mutually
+  distinct history, strict whenever the box separates history from
+  the composer (tiny boxes rows 1/2/3/5 share the row: geometry, not
+  a bug). One genuine view wart fixed with it: `body_y0` underflowed
+  to y=U32::MAX on 1-row terminals (empty hist rect); it now starts
+  at the top row (`src/bend/view.bend`, `body_y0.zero` guard —
+  behavior-identical except y=0,h=0; `inner_last` untouched so
+  `cards.bend` fullscreen math is unaffected). `feed_demo=ok`
+  verified on the calm host; `test-proto` + `proto-parity` sanity
+  green.

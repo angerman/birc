@@ -435,6 +435,43 @@ def ys_inc(xs: List<&2, U32>) -> Bool:
     case Con{y, t}:
       ys_inc.go(t, y)
 
+def ys_sorted.go(xs: List<&2, U32>, +prev: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{+y, t}:
+      U32.is_le(prev, y) && ys_sorted.go(t, y)
+
+def ys_sorted(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{y, t}:
+      ys_sorted.go(t, y)
+
+def ys_init(xs: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      match t:
+        case Nil{}:
+          Nil{}
+        case Con{_, _}:
+          h <> ys_init(t)
+
+def hist_sep.box(+y: U32, +h: U32) -> Bool:
+  +hh = V.body_hist_h(h)
+  U32.is_ge(hh, 1) && U32.is_lt(V.inner_last(y, hh), V.inner_last(y, h))
+
+def hist_sep.lay(l: V.Lay) -> Bool:
+  match l:
+    case V.Lay{_, _, V.Rect{_, +y, _, +h}, _, _}:
+      hist_sep.box(y, h)
+
+def hist_sep(+rows: U32) -> Bool:
+  hist_sep.lay(V.lay(rows, 80, 0))
+
 def ys_last.go(xs: List<&2, U32>, +y: U32) -> U32:
   match xs:
     case Nil{}:
@@ -449,13 +486,18 @@ def ys_last(xs: List<&2, U32>) -> U32:
     case Con{h, t}:
       ys_last.go(t, h)
 
-# Body-line y values are strictly increasing, end on the last inner body
-# row, and the count is min(lines, V.vis_h).
+# Body-line y values are history rows plus the inline-composer row
+# (c19445d): the count is min(lines, V.vis_h)+1, rows are non-decreasing
+# ending on the composer (last inner body row), history rows are mutually
+# distinct, and the full list is strictly increasing whenever the box
+# separates history from the composer (tiny boxes share the row).
 def body_ys_case(+rows: U32, +nlines: Nat) -> Bool:
   +ys = body_ys(rows, nlines)
-  Nat.is_eq(List.length(&2, U32, ys), V.vis_n(nlines, V.vis_h(rows)))
+  Nat.is_eq(List.length(&2, U32, ys), Nat.add(V.vis_n(nlines, V.vis_h(rows)), 1n))
     && U32.is_eq(ys_last(ys), V.last_body_row(rows))
-    && ys_inc(ys)
+    && ys_sorted(ys)
+    && ys_inc(ys_init(ys))
+    && Bool.pick(Bool, hist_sep(rows), ys_inc(ys), True{})
 
 def lay_body_ok(l: V.Lay, +want_y: U32, +want_h: U32, +want_sy: U32) -> Bool:
   match l:
@@ -479,8 +521,8 @@ def body_ys_ok() -> Bool:
     && body_ys_case(6, 8n)
     && body_ys_case(7, 8n)
     && body_ys_case(8, 8n)
-    && lay_body_ok(V.lay(4, 80, 0), 1, 1, 2)
-    && lay_body_ok(V.lay(24, 80, 0), 1, 21, 22)
+    && lay_body_ok(V.lay(4, 80, 0), 1, 2, 3)
+    && lay_body_ok(V.lay(24, 80, 0), 1, 22, 23)
 
     && ys_clear_chrome(4)
     && ys_clear_chrome(5)
