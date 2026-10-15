@@ -21,8 +21,8 @@ def server_text(+cl: Cl.Client) -> String:
 def handshake_ok() -> Bool:
   +plain = Sess.handshake_lines("me", False{})
   +sasl = Sess.handshake_lines("me", True{})
-  String.eq(String.join(plain, "|"), "CAP LS 302|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|CAP END|NICK me|USER me 0 * :me")
-    && String.eq(String.join(sasl, "|"), "CAP LS 302|CAP REQ :sasl|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|NICK me|USER me 0 * :me")
+  String.eq(String.join(plain, "|"), "CAP LS 302|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|CAP REQ :echo-message|CAP REQ :extended-join|CAP REQ :account-tag|CAP REQ :labeled-response|CAP REQ :cap-notify|CAP END|NICK me|USER me 0 * :me")
+    && String.eq(String.join(sasl, "|"), "CAP LS 302|CAP REQ :sasl|CAP REQ :server-time|CAP REQ :message-tags|CAP REQ :account-notify|CAP REQ :away-notify|CAP REQ :draft/chathistory|CAP REQ :echo-message|CAP REQ :extended-join|CAP REQ :account-tag|CAP REQ :labeled-response|CAP REQ :cap-notify|NICK me|USER me 0 * :me")
 
 def auth_delegation_ok() -> Bool:
   String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me NAK :sasl" <> Nil{})), "CAP END")
