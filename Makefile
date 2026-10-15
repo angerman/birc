@@ -1528,6 +1528,10 @@ paint-footprint: ## Repaint one SCROLL_CAP rich buffer and sample physical footp
 	$(NIXRUN) timeout 600 bend tests/perf/paint_footprint.bend -o $(BLDDIR)/paint_footprint
 	$(NIXRUN) timeout 180 python3 tests/perf/paint_footprint.py ./$(BLDDIR)/paint_footprint $(PAINT_FOOTPRINT_PASSES)
 
+.PHONY: test-paint-slope
+test-paint-slope: ## Deterministic slope-verdict checks for the footprint probe (no binary, no pty).
+	$(NIXRUN) timeout 30 python3 tests/perf/paint_slope_check.py
+
 SANITIZER_CFLAGS := -std=c11 -O1 -g -fno-omit-frame-pointer -pthread -w
 
 $(BLDDIR)/birc_ubsan: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
