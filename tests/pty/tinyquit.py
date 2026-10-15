@@ -6,6 +6,12 @@
     dropped it from TimUI, so resize-back did not restore typing.
 (+) always create the text area; skip only the prompt when narrow.
 
+Unified composer rule (wf-composer split prefix): C always seats exactly
+one widget and Bend always paints the <nick> prefix in that same pane,
+clipped to C's inner geometry -- possibly zero bytes. The narrow cases
+below pin both halves: /quit keeps working AND no nick-prefix bytes are
+painted (bold "birc" signature absent from all output).
+
 usage: tinyquit.py ./build/birc
 """
 from __future__ import annotations
@@ -35,7 +41,13 @@ def drain(fd, sink):
         sink += d
 
 
-def run(birc, rows, cols, resize_to, payload, label):
+# Bold-nick "birc": the composer prefix paints "<" + bold "birc" + "> ".
+# Chat/nicks/title/status never emit bold "birc", so its absence from all
+# output proves no nick-prefix bytes were painted at narrow sizes.
+PREFIX_SIG = b"\x1b[1mbirc"
+
+
+def run(birc, rows, cols, resize_to, payload, label, expect_no_prefix=False):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     proc = subprocess.Popen(
@@ -79,12 +91,17 @@ def run(birc, rows, cols, resize_to, payload, label):
         code = proc.returncode
     drain(master, out)
     os.close(master)
-    restored = b"[?1049l" in bytes(out)
+    data = bytes(out)
+    restored = b"[?1049l" in data
+    prefix_absent = PREFIX_SIG not in data
     # A crash or SIGKILL is not a successful quit (was: ok = not alive).
     ok = (not alive) and code == 0 and restored
+    if expect_no_prefix:
+        ok = ok and prefix_absent
     print(
         f"{label}: start={rows}x{cols} resize={resize_to} "
-        f"quit_worked={ok} exit={code} restored={restored}"
+        f"quit_worked={ok} exit={code} restored={restored} "
+        f"prefix_absent={prefix_absent}"
     )
     return ok
 
@@ -94,11 +111,11 @@ def main() -> int:
     cases = [
         run(birc, 24, 80, None, b"/quit\r", "control"),
         run(birc, 24, 80, (40, 100), b"/quit\r", "resize-ok"),
-        run(birc, 5, 1, None, b"/quit\r", "1col"),
-        run(birc, 5, 2, None, b"/quit\r", "2col"),
-        run(birc, 5, 3, (1, 1), b"/quit\r", "3col-then-1x1"),
+        run(birc, 5, 1, None, b"/quit\r", "1col", True),
+        run(birc, 5, 2, None, b"/quit\r", "2col", True),
+        run(birc, 5, 3, (1, 1), b"/quit\r", "3col-then-1x1", True),
         run(birc, 1, 1, (24, 80), b"/quit\r", "1x1-then-24x80"),
-        run(birc, 1, 1, None, b"\x1b", "esc-1x1"),
+        run(birc, 1, 1, None, b"\x1b", "esc-1x1", True),
         run(birc, 1, 1, (24, 80), b"\x1b", "esc-1x1-then-24x80"),
     ]
     ok = all(cases)

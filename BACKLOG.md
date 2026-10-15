@@ -12,14 +12,26 @@
   zero COLUMNS task rows in all dumps, channels CID_SCON flat. Watch
   item (not a rejection): idle CID_SCON still creeps inside frozen
   pages — needs a longer soak or instrumented probe to attribute.
-- wf-composer split prefix: FIXED in `src/bend/view.bend`, and the new
-  `test-pty-split-composer` gate is GREEN (`split_composer=ok`; pins
-  survival + resize-back recovery + Escape-quit at 24x4 and the
-  /quit-alive boundary at 24x10). Deliberately NOT pinned: exact
-  degenerate prefix bytes (would bake in Bend/C disagreement). OPEN
-  src decision: unify Bend inner-width/prefix emission with the C
-  chooser skip rule (same class as the tinyquit 1-2col single-pane
-  failure).
+- wf-composer split prefix: UNIFIED under one rule (reverse of the
+  suggested default, justified): C always seats exactly one text
+  widget (`src/ffi/timui_ffi.c` chooser dropped its zero-inner skip and
+  picks bottom-most/left-most over ALL panes, even zero-inner), and
+  Bend always paints the `<nick>` prefix in that same pane
+  (`src/bend/view.bend` composer_inner_w/composer_row mirror C's inner
+  geometry exactly, possibly zero bytes; split_composer_rect orders by
+  C's inner bottoms, fixing 1-high stacked panes where outer bottoms
+  tie). Typing stays live at every size. Why the reverse: the A6
+  tinyquit docstring records "always create the text area" as intent,
+  `test-pty-tinyquit` was RED on 1col/2col/3col-then-1x1 at baseline
+  (needs live typing; Bend-silence would keep it red without weakening
+  the test), and the skip regressed single-pane narrow typing when the
+  split chooser landed (c19445d). Pins: `test-pty-split-composer`
+  asserts zero nick-prefix bytes across bounce repaint windows +
+  steady-cursor seat origins (22;3H stacked-24x6, 22;2H side-24x6/24x4)
+  + live typing, plus stacked-3x80 full-prefix agreement at (3,3)/3;9H;
+  `test-pty-tinyquit` asserts no prefix bytes at 1-2col single-pane
+  while /quit works there again. Gates GREEN: `split_composer=ok`,
+  `tinyquit=ok` (all 8 cases), `split_pty=ok`, `build-ui`.
 - wf-composer: `src/ffi/timui_ffi.c` full compile RESOLVED — `make build-ui`
   links (`build/birc`) and `draw_composer` is defined, called, and
   present in the emitted TU, so the FFI content compiles. (Split-prefix

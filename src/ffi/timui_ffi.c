@@ -1314,15 +1314,16 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     /* Inline composer: the widget sits on the last inner body row after
      * Bend's <nick> prefix. body_inner[0] is the chat body (first OpBox
-     * with x==0); split mode captures both panes. Pick the bottom-most,
-     * left-most valid body so the widget stays near the status line. */
+     * with x==0); split mode captures both panes. Always seat exactly
+     * one widget in the bottom-most, left-most pane over ALL panes
+     * (even zero-inner), mirroring Bend's split_composer_rect, so typing
+     * stays live at every size; Bend clips the prefix to this same inner
+     * geometry (possibly zero bytes). */
     if (bu) {
       int chosen = -1;
       int i;
       for (i = 0; i < bu->body_count; i++) {
         TimuiRect in = bu->body_inner[i];
-        if (in.w <= 0 || in.h <= 0)
-          continue;
         if (chosen < 0) {
           chosen = i;
         } else {

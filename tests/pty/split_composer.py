@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """wf-composer PTY: one <nick> prefix in the split widget pane.
 
-Stacked splits seat the C text widget in the bottom-most pane and
-side-by-side splits in the left-most pane; Bend must paint the <nick>
-composer prefix exactly there (split_composer_rect mirrors the C
-chooser) with the widget seated immediately after it.
+ONE rule (unified): C always seats exactly one text widget (bottom-most
+pane for stacked splits, left-most for side-by-side, even when the pane
+is zero-inner), and Bend always paints the <nick> composer prefix in
+that same pane (split_composer_rect mirrors the C chooser ordering),
+clipped to C's inner geometry -- possibly zero bytes. Typing stays live
+at every size; a zero-inner pane shows no prefix with the widget at its
+inner origin.
 
 Pins (24x80 demo, nick "birc", prefix "<birc> " is 7 cells wide):
 - stacked + side-by-side: every painted composer prefix occupies row 22
@@ -14,18 +17,25 @@ Pins (24x80 demo, nick "birc", prefix "<birc> " is 7 cells wide):
   prefix fails the gate.
 - widget/prefix agreement: typing "zzq" parks the cursor at 22;12H
   (widget origin col 9 = 2 + 7) in both layouts.
-- degenerate 1-2-col side panes (24x6, 24x4): the process survives and
-  resize-back restores the prefix + widget; Escape quits cleanly at
-  24x4; /quit still works at 24x10 (smallest side-split width with a
-  widget-viable pane).
+- degenerate stacked 24x6 (1-col inner): zero nick-prefix bytes
+  across a row-bounce repaint window (the clipped "<" carries no
+  bold-nick signature), the steady cursor parks at 22;3H (widget
+  origin col 3 = 2 + 1, right after the clipped prefix), and typing
+  stays live.
+- degenerate zero-inner side panes (24x6, 24x4): zero nick-prefix
+  bytes across row-bounce repaint windows, the steady cursor parks at
+  22;2H (widget at the inner origin, col 2), and typing stays live.
+- degenerate stacked 3x80 (1-high panes, where outer bottoms tie but
+  inner bottoms do not): every painted prefix sits at row 3 col 3,
+  the steady cursor parks at 3;9H (widget after the full prefix in
+  the bottom pane), and typing stays live.
+- every degenerate case survives and resize-back restores the full
+  prefix + widget; Escape quits cleanly at 24x4; /quit still works
+  at 24x10 (smallest side-split width with a nonzero-inner widget
+  pane).
 
-Known unpinned edge (needs a fix slice, not a gate): at degenerate
-widths Bend paints a clipped prefix ("<birc" at 24x6, "<" at 24x4)
-while C draws no text widget (zero-inner panes are skipped), so typing
-is dead until resize-back or Escape. Single-pane 1-2 cols diverge the
-same way (test-pty-tinyquit 1col/2col). Pinning those bytes would bake
-in the disagreement; unifying the Bend inner-width rule with the C skip
-rule is a src change, out of scope for this gate.
+Single-pane 1-2 cols follow the same rule (test-pty-tinyquit pins no
+prefix bytes there while /quit keeps working).
 """
 from __future__ import annotations
 
@@ -149,11 +159,11 @@ def prefix_sites(out: bytes) -> list[tuple[int, int]]:
         sites.append((row, col))
 
 
-def check_single_prefix(out: bytes, layout: str) -> None:
+def check_single_prefix(out: bytes, layout: str, want=(22, 3)) -> None:
     sites = prefix_sites(out)
     if not sites:
         raise AssertionError(f"{layout}: composer prefix missing from repaint")
-    bad = [s for s in sites if s != (22, 3)]
+    bad = [s for s in sites if s != want]
     if bad:
         raise AssertionError(
             f"{layout}: prefix painted outside the widget pane: {bad}")
@@ -179,6 +189,75 @@ def full_repaint(master: int, proc) -> bytes:
     return back
 
 
+def bounce_window(master: int, proc, rows: int, cols: int,
+                  b_rows: int, b_cols: int) -> bytes:
+    """Settle at (rows, cols), bounce away and back; return the window.
+
+    Every frame in the returned window is a degenerate view (never a
+    stale full-size frame, never silence): transitional frames paint
+    the bounce size, then fresh frames paint the target size, so
+    prefix-byte pins read full repaints. The bounce sizes below keep
+    the degenerate axis (narrow cols stay narrow, tiny rows stay tiny).
+    """
+    resize(master, proc, rows, cols)
+    if proc.poll() is not None:
+        raise AssertionError(f"exit settling {rows}x{cols}")
+    drain(master, 0.5)
+    resize(master, proc, b_rows, b_cols)
+    if proc.poll() is not None:
+        raise AssertionError(f"exit bouncing {b_rows}x{b_cols}")
+    window = resize(master, proc, rows, cols)
+    if proc.poll() is not None:
+        raise AssertionError(f"exit on {rows}x{cols} degenerate panes")
+    return window + drain(master, 0.5)
+
+
+def check_steady_origin(window: bytes, layout: str, rows: int, cols: int,
+                        origin_cup: bytes) -> None:
+    """The steady cursor parks at the widget origin (empty draft)."""
+    cups = list(CUP.finditer(window))
+    if not cups or cups[-1].group(0) != origin_cup:
+        got = cups[-1].group(0) if cups else None
+        raise AssertionError(
+            f"{layout} {rows}x{cols}: widget not seated after the "
+            f"clipped prefix (cursor {got!r}, want {origin_cup!r})")
+
+
+def check_typing_live(master: int, layout: str, rows: int, cols: int) -> None:
+    typed = send(master, b"q", 0.4)
+    if b"q" not in typed:
+        raise AssertionError(
+            f"{layout} {rows}x{cols}: typing dead (no widget echo)")
+    send(master, b"\x7f", 0.3)
+
+
+def check_degenerate_zero(master: int, proc, layout: str, rows: int, cols: int,
+                          b_rows: int, b_cols: int, origin_cup: bytes) -> None:
+    """Pin zero nick-prefix bytes + a live widget at the seat origin."""
+    window = bounce_window(master, proc, rows, cols, b_rows, b_cols)
+    if PREFIX_SIG in window:
+        raise AssertionError(
+            f"{layout} {rows}x{cols}: nick-prefix bytes painted "
+            f"with a zero/clipped inner width")
+    check_steady_origin(window, layout, rows, cols, origin_cup)
+    check_typing_live(master, layout, rows, cols)
+
+
+def check_degenerate_tiny_rows(master: int, proc) -> None:
+    """Stacked 3x80: 1-high panes keep prefix + widget in agreement.
+
+    Outer bottom edges tie (y+h = 2 for both, with h1=1, h2=0),
+    but C orders by inner bottoms and seats the widget in the bottom
+    pane;
+    Bend's split_composer_rect mirrors that ordering, so the full
+    prefix paints at row 3 with the widget right after it.
+    """
+    window = bounce_window(master, proc, 3, 80, 3, 79)
+    check_single_prefix(window, "stacked 3x80", want=(3, 3))
+    check_steady_origin(window, "stacked", 3, 80, b"\x1b[3;9H")
+    check_typing_live(master, "stacked", 3, 80)
+
+
 def main_process(birc: str) -> None:
     master, proc = spawn(birc, 24, 80)
     try:
@@ -194,6 +273,23 @@ def main_process(birc: str) -> None:
         check_single_prefix(full_repaint(master, proc), "stacked")
         check_draft_at_widget(master, "stacked")
 
+        # Stacked degenerate rows, then cols; each recovers at 24x80.
+        check_degenerate_tiny_rows(master, proc)
+        back = resize(master, proc, 24, 80)
+        if proc.poll() is not None:
+            raise AssertionError("exit on stacked resize-back")
+        if b"#birc" not in back:
+            raise AssertionError("stacked view did not recover after resize-back")
+        # Stacked degenerate cols: 1-col inner keeps a clipped "<" (no
+        # nick signature) with a live widget right after it.
+        check_degenerate_zero(master, proc, "stacked", 24, 6, 23, 6,
+                              b"\x1b[22;3H")
+        back = resize(master, proc, 24, 80)
+        if proc.poll() is not None:
+            raise AssertionError("exit on stacked resize-back")
+        if b"#birc" not in back:
+            raise AssertionError("stacked view did not recover after resize-back")
+
         side = send(master, b"/split horizontal server\r", 0.6)
         if b"server" not in side or b"#birc" not in side:
             raise AssertionError("side-by-side split did not land")
@@ -202,15 +298,13 @@ def main_process(birc: str) -> None:
         check_single_prefix(full_repaint(master, proc), "side-by-side")
         check_draft_at_widget(master, "side-by-side")
 
-        # Degenerate 1-2-col panes: survive, then restore on resize-back.
-        # (Exact prefix bytes here are NOT pinned: Bend paints a clipped
-        # prefix with no C widget behind it; see module docstring.)
-        resize(master, proc, 24, 6)
-        if proc.poll() is not None:
-            raise AssertionError("exit on 24x6 degenerate panes")
-        resize(master, proc, 24, 4)
-        if proc.poll() is not None:
-            raise AssertionError("exit on 24x4 degenerate panes")
+        # Degenerate zero-inner side panes: no prefix bytes, but the
+        # widget stays live at the inner origin; then resize-back
+        # restores the full prefix + widget.
+        check_degenerate_zero(master, proc, "side-by-side", 24, 6, 23, 6,
+                              b"\x1b[22;2H")
+        check_degenerate_zero(master, proc, "side-by-side", 24, 4, 23, 4,
+                              b"\x1b[22;2H")
         recovered = resize(master, proc, 24, 80)
         if b"#birc" not in recovered:
             raise AssertionError("split view did not recover after resize-back")
@@ -231,7 +325,7 @@ def main_process(birc: str) -> None:
 
 
 def esc_process(birc: str) -> None:
-    """Escape quits cleanly from a degenerate split (typing is dead)."""
+    """Escape quits cleanly from a degenerate split."""
     master, proc = spawn(birc, 24, 80)
     try:
         drain(master, 1.0)
@@ -256,7 +350,7 @@ def esc_process(birc: str) -> None:
 
 
 def boundary_process(birc: str) -> None:
-    """/quit still works at 24x10: smallest side-split with a live widget."""
+    """/quit still works at 24x10: smallest side-split with a nonzero-inner widget pane."""
     master, proc = spawn(birc, 24, 80)
     try:
         drain(master, 1.0)

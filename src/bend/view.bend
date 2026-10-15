@@ -1468,6 +1468,37 @@ def inner_min.on(+y: U32, ge: Bool) -> U32:
 def inner_min(+y: U32, +h: U32) -> U32:
   inner_min.on(y, U32.is_ge(h, 3))
 
+# Composer/widget agreement (ONE rule): C always seats exactly one text
+# widget (src/ffi/timui_ffi.c chooser: bottom-most, left-most over ALL
+# panes, even zero-inner), and Bend always paints the <nick> prefix in
+# that same pane, clipped to C's inner geometry (possibly zero bytes).
+# Typing stays live at every size; a zero-inner pane shows no prefix
+# with the widget at its inner origin. The helpers below mirror the C
+# formulas exactly: C inner is (x+1, y+1, w>2 ? w-2 : 0, h>2 ? h-2 : 0),
+# the widget row is in.y+in.h-1, and the widget x is in.x+min(cx, in.w).
+# (Global inner_w/inner_last keep history layout; only the composer
+# mirrors the widget seat. Defined here: last_body_row.box below and
+# the oracle use composer_row, and Bend rejects forward references.)
+def composer_inner_w.on(+w: U32, gt: Bool) -> U32:
+  match gt:
+    case True{}:
+      U32.sub(w, 2)
+    case False{}:
+      0
+
+def composer_inner_w(+w: U32) -> U32:
+  composer_inner_w.on(w, U32.is_gt(w, 2))
+
+def composer_row.on(+y: U32, +h: U32, gt: Bool) -> U32:
+  match gt:
+    case True{}:
+      U32.sub(U32.add(y, h), 2)
+    case False{}:
+      y
+
+def composer_row(+y: U32, +h: U32) -> U32:
+  composer_row.on(y, h, U32.is_gt(h, 2))
+
 def box_max_y(+y: U32, +h: U32) -> U32:
   U32.sub(U32.add(y, h), 1)
 
@@ -1494,10 +1525,13 @@ def body_y0(+y: U32, +h: U32, +n: U32) -> U32:
   +cand = U32.sub(U32.add(last, 1), n)
   body_y0.zero(min_y, cand, U32.is_zero(h))
 
+# Oracle helper (body_ys_case): the row composer_ops paints, i.e. the
+# unified C seat. composer_row == inner_last for h >= 3; 2-high boxes
+# seat at the box top (empty inner), where history shares the row.
 def last_body_row.box(r: Rect) -> U32:
   match r:
     case Rect{_, y, _, h}:
-      inner_last(y, h)
+      composer_row(y, h)
 
 def last_body_row.of(lay0: Lay) -> U32:
   match lay0:
@@ -1542,21 +1576,23 @@ def composer_spans(+nick: String) -> List<&2, SpanOp>:
 def composer_ops(r: Rect, +nick: String) -> List<&2, DrawOp>:
   match r:
     case Rect{+x, +y, +w, +h}:
-      OpLine{inner_x(x), inner_last(y, h), inner_w(w), FG_TEXT(), composer_spans(nick)} <> Nil{}
+      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT(), composer_spans(nick)} <> Nil{}
 
 # Split mode: C draws one text widget in the bottom-most/left-most body
 # (src/ffi/timui_ffi.c chooser over the OpSplit panes), so Bend paints the
 # <nick> prefix only in that widget pane. Side-by-side panes share a
 # bottom edge and the left pane wins; stacked panes share a left edge
-# and the bottom pane wins. Mirrors the C ordering on outer rects:
-# inner bottom is y+h-1 and inner x is x+1, so the order agrees.
+# and the bottom pane wins. The ordering mirrors C's (in.y+in.h, in.x)
+# up to constant +1 offsets (composer_row is C's widget row, one above
+# C's inner bottom), so it agrees even for zero-inner panes, including
+# 1-high stacked panes where outer bottoms tie but inner bottoms do not.
 def split_second_wins(+b1: U32, +x1: U32, +b2: U32, +x2: U32) -> Bool:
   U32.is_gt(b2, b1) || (U32.is_eq(b2, b1) && U32.is_lt(x2, x1))
 
 def split_widget_is_r1(r1: Rect, r2: Rect) -> Bool:
   match r1 r2:
     case Rect{+x1, +y1, _, +h1} Rect{+x2, +y2, _, +h2}:
-      Bool.not(split_second_wins(U32.add(y1, h1), x1, U32.add(y2, h2), x2))
+      Bool.not(split_second_wins(composer_row(y1, h1), x1, composer_row(y2, h2), x2))
 
 def split_composer_rect(+r1: Rect, +r2: Rect) -> Rect:
   Bool.pick(Rect, split_widget_is_r1(r1, r2), r1, r2)
@@ -2505,7 +2541,7 @@ def composer_spans_themed(+nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
 def composer_ops_themed(r: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
   match r:
     case Rect{+x, +y, +w, +h}:
-      OpLine{inner_x(x), inner_last(y, h), inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th)} <> Nil{}
+      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th)} <> Nil{}
 
 def split_composer_ops_themed(+r1: Rect, +r2: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
   composer_ops_themed(split_composer_rect(r1, r2), nick, th)

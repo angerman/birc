@@ -460,9 +460,12 @@ def ys_init(xs: List<&2, U32>) -> List<&2, U32>:
         case Con{_, _}:
           h <> ys_init(t)
 
+# Separation compares the last history row against the unified composer
+# seat (composer_row), not the pre-unification inner-last row they share
+# in 2-high boxes.
 def hist_sep.box(+y: U32, +h: U32) -> Bool:
   +hh = V.body_hist_h(h)
-  U32.is_ge(hh, 1) && U32.is_lt(V.inner_last(y, hh), V.inner_last(y, h))
+  U32.is_ge(hh, 1) && U32.is_lt(V.inner_last(y, hh), V.composer_row(y, h))
 
 def hist_sep.lay(l: V.Lay) -> Bool:
   match l:
