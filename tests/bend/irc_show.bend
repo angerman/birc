@@ -36,6 +36,8 @@ def show_cmd(c: Irc.Cmd) -> String:
       "CAP"
     case Irc.Tagmsg{}:
       "TAGMSG"
+    case Irc.Ack{}:
+      "ACK"
     case Irc.Numeric{+code}:
       "NUM" ++ U32.show(code)
 

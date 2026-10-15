@@ -48,6 +48,9 @@ def CAP_EXTJOIN() -> String:
 def CAP_ACCTAG() -> String:
   "account-tag"
 
+def CAP_LABELED() -> String:
+  "labeled-response"
+
 def CAP_NOTIFY() -> String:
   "cap-notify"
 
@@ -55,9 +58,9 @@ def CAP_NOTIFY() -> String:
 def wanted.sasl(want: Bool) -> List<&2, String>:
   match want:
     case True{}:
-      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_EXTJOIN() <> CAP_ACCTAG() <> CAP_NOTIFY() <> Nil{}
+      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_EXTJOIN() <> CAP_ACCTAG() <> CAP_LABELED() <> CAP_NOTIFY() <> Nil{}
     case False{}:
-      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_EXTJOIN() <> CAP_ACCTAG() <> CAP_NOTIFY() <> Nil{}
+      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_EXTJOIN() <> CAP_ACCTAG() <> CAP_LABELED() <> CAP_NOTIFY() <> Nil{}
 
 def wanted(+has_sasl: Bool) -> List<&2, String>:
   wanted.sasl(has_sasl)
@@ -225,22 +228,22 @@ def has_cap(+xs: List<&2, String>, +want: String) -> Bool:
   has_cap.go(xs, want)
 
 type Caps is Data:
-  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool, chathistory: Bool, echo: Bool, extjoin: Bool, acctag: Bool, notify: Bool}
+  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool, chathistory: Bool, echo: Bool, extjoin: Bool, acctag: Bool, labeled: Bool, notify: Bool}
 
 def caps0() -> Caps:
-  Caps{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
+  Caps{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
 
 def caps_enable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +ej, +at, +no}:
-      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL()), ch || cap_match.one(name, CAP_CHATHISTORY()), ec || cap_match.one(name, CAP_ECHO()), ej || cap_match.one(name, CAP_EXTJOIN()), at || cap_match.one(name, CAP_ACCTAG()), no || cap_match.one(name, CAP_NOTIFY())}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +ej, +at, +lb, +no}:
+      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL()), ch || cap_match.one(name, CAP_CHATHISTORY()), ec || cap_match.one(name, CAP_ECHO()), ej || cap_match.one(name, CAP_EXTJOIN()), at || cap_match.one(name, CAP_ACCTAG()), lb || cap_match.one(name, CAP_LABELED()), no || cap_match.one(name, CAP_NOTIFY())}
 
 # G6.2: removal mirrors enable. A DEL line clears every listed cap, and a
 # '-' entry inside an ACK clears that one cap; other caps are untouched.
 def caps_disable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +ej, +at, +no}:
-      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL())), ch && Bool.not(cap_match.one(name, CAP_CHATHISTORY())), ec && Bool.not(cap_match.one(name, CAP_ECHO())), ej && Bool.not(cap_match.one(name, CAP_EXTJOIN())), at && Bool.not(cap_match.one(name, CAP_ACCTAG())), no && Bool.not(cap_match.one(name, CAP_NOTIFY()))}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +ej, +at, +lb, +no}:
+      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL())), ch && Bool.not(cap_match.one(name, CAP_CHATHISTORY())), ec && Bool.not(cap_match.one(name, CAP_ECHO())), ej && Bool.not(cap_match.one(name, CAP_EXTJOIN())), at && Bool.not(cap_match.one(name, CAP_ACCTAG())), lb && Bool.not(cap_match.one(name, CAP_LABELED())), no && Bool.not(cap_match.one(name, CAP_NOTIFY()))}
 
 def cap_negated(+name: String) -> Bool:
   String.starts_with(name, "-")
@@ -292,35 +295,39 @@ def caps_apply_line(+caps: Caps, +server: String, +nick: String, +line: String, 
 
 def tags_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, +mt, _, _, _, _, _, _, _, _}: mt
+    case Caps{_, +mt, _, _, _, _, _, _, _, _, _}: mt
 
 def account_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, +ac, _, _, _, _, _, _, _}: ac
+    case Caps{_, _, +ac, _, _, _, _, _, _, _, _}: ac
 
 def away_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, +aw, _, _, _, _, _, _}: aw
+    case Caps{_, _, _, +aw, _, _, _, _, _, _, _}: aw
 
 def chathistory_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, +ch, _, _, _, _}: ch
+    case Caps{_, _, _, _, _, +ch, _, _, _, _, _}: ch
 
 def echo_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, _, +ec, _, _, _}: ec
+    case Caps{_, _, _, _, _, _, +ec, _, _, _, _}: ec
 
 def extjoin_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, _, _, +ej, _, _}: ej
+    case Caps{_, _, _, _, _, _, _, +ej, _, _, _}: ej
 
 def acctag_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, _, _, _, +at, _}: at
+    case Caps{_, _, _, _, _, _, _, _, +at, _, _}: at
+
+def labeled_ok(+caps: Caps) -> Bool:
+  match caps:
+    case Caps{_, _, _, _, _, _, _, _, _, +lb, _}: lb
 
 def notify_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, _, _, _, _, +no}: no
+    case Caps{_, _, _, _, _, _, _, _, _, _, +no}: no
 
 # ---- account/away notify --------------------------------------------------
 # The server only sends these about visible users, so no roster check is
@@ -653,12 +660,22 @@ def cap_end_single_owner_ok() -> Bool:
     && Bool.not(list_has(req_lines(False{}), "CAP REQ :sasl"))
     && list_has(req_lines(False{}), "CAP REQ :account-notify")
     && list_has(req_lines(False{}), "CAP REQ :away-notify")
+    && list_has(req_lines(True{}), "CAP REQ :echo-message")
+    && list_has(req_lines(True{}), "CAP REQ :extended-join")
+    && list_has(req_lines(True{}), "CAP REQ :account-tag")
+    && list_has(req_lines(True{}), "CAP REQ :labeled-response")
+    && list_has(req_lines(True{}), "CAP REQ :cap-notify")
+    && list_has(req_lines(False{}), "CAP REQ :echo-message")
+    && list_has(req_lines(False{}), "CAP REQ :extended-join")
+    && list_has(req_lines(False{}), "CAP REQ :account-tag")
+    && list_has(req_lines(False{}), "CAP REQ :labeled-response")
+    && list_has(req_lines(False{}), "CAP REQ :cap-notify")
     && String.eq(Irc.format_cap_req(CAP_NOTIFY()), "CAP REQ :cap-notify")
     && String.eq(Irc.format_cap_req(CAP_EXTJOIN()), "CAP REQ :extended-join")
     && String.eq(Irc.format_cap_req(CAP_ACCTAG()), "CAP REQ :account-tag")
 
 def caps_parse_ok() -> Bool:
-  +acked = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify", True{})
+  +acked = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify labeled-response", True{})
   +lsed = caps_apply_line(caps0(), "s", "me", ":s CAP me LS * :away-notify", True{})
   +naked = caps_apply_line(caps0(), "s", "me", ":s CAP me NAK :message-tags", True{})
   +chat = caps_apply_line(caps0(), "s", "me", ":alice!u@h PRIVMSG me :CAP ACK message-tags", True{})
@@ -666,8 +683,8 @@ def caps_parse_ok() -> Bool:
   +new_other = caps_apply_line(caps0(), "s", "me", ":s CAP me LS :cap-notify", True{})
   +echo = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :echo-message", True{})
   +ext = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :extended-join account-tag", True{})
-  tags_ok(acked) && account_ok(acked) && Bool.not(away_ok(acked))
-    && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed))
+  tags_ok(acked) && account_ok(acked) && labeled_ok(acked) && Bool.not(away_ok(acked))
+    && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed) || labeled_ok(lsed))
     && Bool.not(tags_ok(naked))
     && Bool.not(tags_ok(chat))
     && notify_ok(newed) && Bool.not(notify_ok(new_other))
@@ -690,7 +707,7 @@ def cap_trust_ok() -> Bool:
 # G6.2 guards: DEL clears, '-cap' inside ACK clears, enable still works, and
 # untouched caps survive a removal.
 def caps_removal_ok() -> Bool:
-  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify away-notify", True{})
+  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :message-tags account-notify away-notify labeled-response", True{})
   +neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-message-tags", True{})
   +del = caps_apply_line(on, "s", "me", ":s CAP me DEL :account-notify away-notify", True{})
   +reack = caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags", True{})
@@ -704,11 +721,15 @@ def caps_removal_ok() -> Bool:
   +edel = caps_apply_line(eon, "s", "me", ":s CAP me DEL :echo-message", True{})
   +ej_on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :extended-join account-tag", True{})
   +ej_del = caps_apply_line(ej_on, "s", "me", ":s CAP me DEL :extended-join", True{})
-  tags_ok(on) && account_ok(on) && away_ok(on)
-    && Bool.not(tags_ok(neg)) && account_ok(neg) && away_ok(neg)
-    && tags_ok(del) && Bool.not(account_ok(del)) && Bool.not(away_ok(del))
+  +lab_neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-labeled-response", True{})
+  +lab_del = caps_apply_line(on, "s", "me", ":s CAP me DEL :labeled-response", True{})
+  tags_ok(on) && account_ok(on) && away_ok(on) && labeled_ok(on)
+    && Bool.not(tags_ok(neg)) && account_ok(neg) && away_ok(neg) && labeled_ok(neg)
+    && tags_ok(del) && Bool.not(account_ok(del)) && Bool.not(away_ok(del)) && labeled_ok(del)
     && tags_ok(reack)
     && Bool.not(tags_ok(direct)) && Bool.not(tags_ok(direct_neg))
+    && Bool.not(labeled_ok(lab_neg)) && tags_ok(lab_neg)
+    && Bool.not(labeled_ok(lab_del)) && tags_ok(lab_del)
     && notify_ok(new_on) && Bool.not(notify_ok(new_del)) && notify_ok(direct_new)
     && echo_ok(eon) && Bool.not(echo_ok(eneg)) && tags_ok(eneg)
     && Bool.not(echo_ok(edel)) && tags_ok(edel)
@@ -717,7 +738,7 @@ def caps_removal_ok() -> Bool:
 
 def caps_ack_only_ok() -> Bool:
   Bool.not(tags_ok(caps0())) && Bool.not(account_ok(caps0())) && Bool.not(away_ok(caps0())) && Bool.not(notify_ok(caps0())) && Bool.not(echo_ok(caps0()))
-    && Bool.not(extjoin_ok(caps0())) && Bool.not(acctag_ok(caps0()))
+    && Bool.not(extjoin_ok(caps0())) && Bool.not(acctag_ok(caps0())) && Bool.not(labeled_ok(caps0()))
     && tags_ok(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}))
     && account_ok(caps_apply(caps0(), CapEvent{CapAck{}, "account-notify" <> Nil{}}))
     && away_ok(caps_apply(caps0(), CapEvent{CapAck{}, "away-notify" <> Nil{}}))
@@ -726,6 +747,7 @@ def caps_ack_only_ok() -> Bool:
     && echo_ok(caps_apply(caps0(), CapEvent{CapAck{}, "echo-message" <> Nil{}}))
     && extjoin_ok(caps_apply(caps0(), CapEvent{CapAck{}, "extended-join" <> Nil{}}))
     && acctag_ok(caps_apply(caps0(), CapEvent{CapAck{}, "account-tag" <> Nil{}}))
+    && labeled_ok(caps_apply(caps0(), CapEvent{CapAck{}, "labeled-response" <> Nil{}}))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapLs{}, "message-tags" <> Nil{}})))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapNak{}, "message-tags" <> Nil{}})))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapOther{}, "message-tags" <> Nil{}})))
@@ -736,6 +758,7 @@ def caps_ack_only_ok() -> Bool:
     && Bool.not(echo_ok(caps_apply(caps0(), CapEvent{CapOther{}, "echo-message" <> Nil{}})))
     && Bool.not(extjoin_ok(caps_apply(caps0(), CapEvent{CapNak{}, "extended-join" <> Nil{}})))
     && Bool.not(acctag_ok(caps_apply(caps0(), CapEvent{CapLs{}, "account-tag" <> Nil{}})))
+    && Bool.not(labeled_ok(caps_apply(caps0(), CapEvent{CapNak{}, "labeled-response" <> Nil{}})))
     && has_cap(Commands.words("sasl=PLAIN message-tags"), "sasl")
     && Bool.not(has_cap(Commands.words("not-sasl"), "sasl"))
     && caps_parse_ok() && cap_trust_ok() && caps_removal_ok()

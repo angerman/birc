@@ -1097,6 +1097,34 @@ def feed_join_with.gated.on(+cl: Cl.Client, +cm: String, +types: String, +status
 def feed_join_with.gated(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, self: Bool) -> Cl.Client:
   feed_join_with.gated.on(cl, cm, types, status, sigils, strip, m, self, join_arity_ok(m))
 
+# Labeled-response ACK: a bare or labeled server acknowledgement renders one
+# server-log info line so the user can correlate it visually with the labeled
+# request. Overlong ACK arities stay on the unknown-command path. The label
+# arrives from the wire tags (Message carries no tags); both dispatchers
+# thread it from raw_tags at the feed entry.
+def ack_text.labeled(+label: String) -> String:
+  "acknowledged " ++ label
+
+def ack_text(label: Maybe<&2, String>) -> String:
+  match label:
+    case None{}:
+      "acknowledged"
+    case Some{+l}:
+      ack_text.labeled(l)
+
+def ack_ok(+m: Irc.Message) -> Bool:
+  Nat.is_le(List.length(&2, String, Irc.msg_params(m)), 1n)
+
+def feed_ack.render(+cl: Cl.Client, +m: Irc.Message, label: Maybe<&2, String>, ok: Bool) -> Cl.Client:
+  match ok:
+    case True{}:
+      Cl.client_log(cl, 0n, Cl.System{}, ack_text(label))
+    case False{}:
+      feed_unk(cl, m)
+
+def feed_ack(+cl: Cl.Client, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
+  feed_ack.render(cl, m, label, ack_ok(m))
+
 def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
   match e:
     case CapNotify.NotifyOther{}: cl
@@ -1108,7 +1136,7 @@ def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
 def feed_notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
   feed_notify.event(cl, CapNotify.notify_event(Cl.server_of(cl), prefix, m))
 
-def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd) -> Cl.Client:
+def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
@@ -1136,23 +1164,25 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
       cl
     case Irc.Tagmsg{}:
       cl
+    case Irc.Ack{}:
+      feed_ack(cl, m, label)
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
     case _:
       feed_unk(cl, m)
 
-def feed_msg.notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, notify: Bool) -> Cl.Client:
+def feed_msg.notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, notify: Bool, label: Maybe<&2, String>) -> Cl.Client:
   match notify:
     case True{}: feed_notify(cl, prefix, m)
-    case False{}: feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m))
+    case False{}: feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m), label)
 
-def feed_msg.with(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String) -> Cl.Client:
-  feed_msg.notify(cl, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m))
+def feed_msg.with(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, label: Maybe<&2, String>) -> Cl.Client:
+  feed_msg.notify(cl, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m), label)
 
-def feed_msg(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
-  feed_msg.with(cl, prefix, m, msg_nick(m))
+def feed_msg(+cl: Cl.Client, +prefix: String, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
+  feed_msg.with(cl, prefix, m, msg_nick(m), label)
 
-def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd) -> Cl.Client:
+def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
@@ -1180,29 +1210,31 @@ def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: Stri
       cl
     case Irc.Tagmsg{}:
       cl
+    case Irc.Ack{}:
+      feed_ack(cl, m, label)
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
     case _:
       feed_unk(cl, m)
 
-def feed_msg_with.notify(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, notify: Bool) -> Cl.Client:
+def feed_msg_with.notify(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, notify: Bool, label: Maybe<&2, String>) -> Cl.Client:
   match notify:
     case True{}: feed_notify(cl, prefix, m)
-    case False{}: feed_msg_with.cmd(cl, cm, types, status, sigils, strip, m, from, feed_self_cm(cm, cl, from), Irc.classify(m))
+    case False{}: feed_msg_with.cmd(cl, cm, types, status, sigils, strip, m, from, feed_self_cm(cm, cl, from), Irc.classify(m), label)
 
-def feed_msg_with.with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String) -> Cl.Client:
-  feed_msg_with.notify(cl, cm, types, status, sigils, strip, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m))
+def feed_msg_with.with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, label: Maybe<&2, String>) -> Cl.Client:
+  feed_msg_with.notify(cl, cm, types, status, sigils, strip, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m), label)
 
-def feed_msg_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message) -> Cl.Client:
-  feed_msg_with.with(cl, cm, types, status, sigils, strip, prefix, m, msg_nick(m))
+def feed_msg_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
+  feed_msg_with.with(cl, cm, types, status, sigils, strip, prefix, m, msg_nick(m), label)
 
-def feed_with.server_notice.on(server_notice: Bool, +cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message) -> Cl.Client:
+def feed_with.server_notice.on(server_notice: Bool, +cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
   match server_notice:
-    case False{}: feed_msg_with(cl, cm, types, status, sigils, strip, prefix, m)
+    case False{}: feed_msg_with(cl, cm, types, status, sigils, strip, prefix, m, label)
     case True{}:
       feed_priv.write.notice(cl, 0n, msg_nick(m), Irc.msg_param(m, 1n), Irc.msg_time(m))
 
-def feed_with.server_notice(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, m: Maybe<&2, Irc.Message>) -> Cl.Client:
+def feed_with.server_notice(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, m: Maybe<&2, Irc.Message>, label: Maybe<&2, String>) -> Cl.Client:
   match m:
     case None{}: cl
     case Some{+msg}:
@@ -1210,10 +1242,10 @@ def feed_with.server_notice(+cl: Cl.Client, +cm: String, +types: String, +status
       +target = Cl.message_key_with(cl, cm, types, status, sigils, Irc.msg_param(msg, 0n))
       feed_with.server_notice.on(Irc.ieq(Irc.msg_command(msg), "NOTICE")
         && Cl.buf_eq_cm(cm, target, Cl.nick_of(cl)) && Irc.source_is_server(prefix, Cl.server_of(cl))
-        && wire_name(from) && Bool.not(Cl.is_muted_client_cm(cm, cl, from, target)), cl, cm, types, status, sigils, strip, prefix, msg)
+        && wire_name(from) && Bool.not(Cl.is_muted_client_cm(cm, cl, from, target)), cl, cm, types, status, sigils, strip, prefix, msg, label)
 
 def feed_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +line: String) -> Cl.Client:
-  Cl.stamp_logs(feed_with.server_notice(cl, cm, types, status, sigils, strip, Irc.source_prefix(line), Irc.parse(line)))
+  Cl.stamp_logs(feed_with.server_notice(cl, cm, types, status, sigils, strip, Irc.source_prefix(line), Irc.parse(line), Irc.label_tag(Irc.raw_tags(line))))
 
 def feed.on(+cl: Cl.Client, m: Maybe<&2, Irc.Message>) -> Cl.Client:
   match m:
@@ -1222,15 +1254,15 @@ def feed.on(+cl: Cl.Client, m: Maybe<&2, Irc.Message>) -> Cl.Client:
     case Some{msg}:
       # Prefix-less entry: no full-prefix attestation is possible. Live paths
       # (feed/feed_at) always thread the real wire prefix below.
-      feed_msg(cl, "", msg)
+      feed_msg(cl, "", msg, None{})
 
-def feed.server_notice.on(server_notice: Bool, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
+def feed.server_notice.on(server_notice: Bool, +cl: Cl.Client, +prefix: String, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
   match server_notice:
-    case False{}: feed_msg(cl, prefix, m)
+    case False{}: feed_msg(cl, prefix, m, label)
     case True{}:
       feed_priv.write.notice(cl, 0n, msg_nick(m), Irc.msg_param(m, 1n), Irc.msg_time(m))
 
-def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message>) -> Cl.Client:
+def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message>, label: Maybe<&2, String>) -> Cl.Client:
   match m:
     case None{}: cl
     case Some{+msg}:
@@ -1238,10 +1270,10 @@ def feed.server_notice(+cl: Cl.Client, +prefix: String, m: Maybe<&2, Irc.Message
       +target = Cl.message_key(cl, Irc.msg_param(msg, 0n))
       feed.server_notice.on(Irc.ieq(Irc.msg_command(msg), "NOTICE")
         && Irc.ieq(target, Cl.nick_of(cl)) && Irc.source_is_server(prefix, Cl.server_of(cl))
-        && wire_name(from) && Bool.not(Cl.is_muted_client(cl, from, target)), cl, prefix, msg)
+        && wire_name(from) && Bool.not(Cl.is_muted_client(cl, from, target)), cl, prefix, msg, label)
 
 def feed(+cl: Cl.Client, +line: String) -> Cl.Client:
-  Cl.stamp_logs(feed.server_notice(cl, Irc.source_prefix(line), Irc.parse(line)))
+  Cl.stamp_logs(feed.server_notice(cl, Irc.source_prefix(line), Irc.parse(line), Irc.label_tag(Irc.raw_tags(line))))
 
 # Live IO resolves UTC server-time into local time without changing the wire
 # line used by authentication, typing, and connection recovery. None leaves
@@ -1259,7 +1291,7 @@ def feed_at_with.stamped(+cl: Cl.Client, +cm: String, +types: String, +status: S
     case Cl.Client{_, _, _, _, +now, _, _, _}:
       Cl.set_now(Cl.stamp_logs(feed_with.server_notice(
         Cl.set_now(cl, Bool.pick(String, String.is_empty(stamp), now, stamp)),
-        cm, types, status, sigils, strip, Irc.source_prefix(line), feed_at.message(Irc.parse(line), stamp))), now)
+        cm, types, status, sigils, strip, Irc.source_prefix(line), feed_at.message(Irc.parse(line), stamp), Irc.label_tag(Irc.raw_tags(line)))), now)
 
 def feed_at_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +line: String, stamp: Maybe<&2, String>) -> Cl.Client:
   match stamp:
@@ -1274,7 +1306,7 @@ def feed_at.stamped(+cl: Cl.Client, +line: String, +stamp: String) -> Cl.Client:
       # timestamp later untagged events or user commands.
       Cl.set_now(Cl.stamp_logs(feed.server_notice(
         Cl.set_now(cl, Bool.pick(String, String.is_empty(stamp), now, stamp)),
-        Irc.source_prefix(line), feed_at.message(Irc.parse(line), stamp))), now)
+        Irc.source_prefix(line), feed_at.message(Irc.parse(line), stamp), Irc.label_tag(Irc.raw_tags(line)))), now)
 
 def feed_at(+cl: Cl.Client, +line: String, stamp: Maybe<&2, String>) -> Cl.Client:
   match stamp:

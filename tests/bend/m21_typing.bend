@@ -17,10 +17,10 @@ def base() -> S.Session:
 
 def seeded(st: S.Session) -> S.Session:
   match st:
-    case S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, _, port, media, plan, edits, +iso, +hlbox, +cf, +regbox, +theme}:
+    case S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, _, port, media, plan, edits, +iso, +hlbox, +cf, +regbox, +theme, _}:
       S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split,
         T.apply(T.apply(T.empty(), I.TypingSet{"alice", "#room", I.TypingActive{}}, 1000),
-          I.TypingSet{"alice", "+#room", I.TypingActive{}}, 1000), port, media, plan, edits, iso, hlbox, cf, regbox, theme}
+          I.TypingSet{"alice", "+#room", I.TypingActive{}}, 1000), port, media, plan, edits, iso, hlbox, cf, regbox, theme, [0n]}
 
 def actual_set_ok() -> Bool:
   +st = chunk(base(), "@+typing=active :alice!u@h TAGMSG +#room\r\n")

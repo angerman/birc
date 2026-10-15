@@ -186,6 +186,37 @@ def credential_echo(+cl: Cl.Client, +line: String) -> Bool:
 def message_wire(+target: String, +body: String, notice: Bool) -> String:
   Bool.pick(String, notice, "NOTICE " ++ target ++ " :" ++ body, Irc.format_privmsg(target, body))
 
+# Labeled-response send: the label rides only when negotiated AND well-formed
+# AND the tagged line still fits the wire cap; otherwise silently downgrade to
+# the plain form (never a malformed or overlong line).
+def message_wire_labeled.tagged(notice: Bool, +target: String, +body: String, +label: String) -> String:
+  match notice:
+    case True{}: Irc.format_notice_labeled(target, body, label)
+    case False{}: Irc.format_privmsg_labeled(target, body, label)
+
+def message_wire_labeled.fit(+plain: String, +tagged: String, fits: Bool) -> String:
+  match fits:
+    case True{}: tagged
+    case False{}: plain
+
+def message_wire_labeled.gated(+target: String, +body: String, +notice: Bool, +label: String, gated: Bool) -> String:
+  match gated:
+    case True{}:
+      message_wire_labeled.fit(message_wire(target, body, notice), message_wire_labeled.tagged(notice, target, body, label), Irc.line_ok(message_wire_labeled.tagged(notice, target, body, label)))
+    case False{}:
+      message_wire(target, body, notice)
+
+def message_wire_labeled(+target: String, +body: String, notice: Bool, +label: String, labeled_ok: Bool) -> String:
+  message_wire_labeled.gated(target, body, notice, label, labeled_ok && Irc.label_ok(label))
+
+def labeled_wire_ok() -> Bool:
+  String.eq(message_wire_labeled("#c", "hi", False{}, "birc-1", True{}), "@label=birc-1 PRIVMSG #c :hi")
+    && String.eq(message_wire_labeled("#c", "hi", True{}, "birc-1", True{}), "@label=birc-1 NOTICE #c :hi")
+    && String.eq(message_wire_labeled("#c", "hi", False{}, "birc-1", False{}), "PRIVMSG #c :hi")
+    && String.eq(message_wire_labeled("#c", "hi", False{}, "", True{}), "PRIVMSG #c :hi")
+    && String.eq(message_wire_labeled("#c", "hi", False{}, "bad label", True{}), "PRIVMSG #c :hi")
+    && String.eq(message_wire_labeled("#c", "hi", True{}, "bad label", True{}), "NOTICE #c :hi")
+
 def credential_chunks(xs: List<&2, String>, +cl: Cl.Client, +target: String) -> Bool:
   match xs:
     case Nil{}: False{}

@@ -1593,6 +1593,12 @@ test-extended-join: $(BLDDIR)/extended_join.js ## IRCv3 extended-join + account-
 	$(NIXRUN) sh scripts/check-golden.sh extended_join=ok timeout 30 bun $(BLDDIR)/extended_join.js
 test-review-pure: test-extended-join
 
+.PHONY: test-labeled-response
+test-labeled-response: $(BLDDIR)/labeled_response.js ## Labeled-response cap, outbound tags, ACK correlation and label counter.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh labeled_response=ok timeout 30 bun $(BLDDIR)/labeled_response.js
+test-review-pure: test-labeled-response
+
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
 test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).

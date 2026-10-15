@@ -33,6 +33,7 @@ type Cmd is Data:
   Error{}
   Cap{}
   Tagmsg{}
+  Ack{}
   Numeric{code: U32}
 
 type Message is Data:
@@ -798,13 +799,71 @@ def raw_tags.clean(+line: String) -> String:
 def raw_tags(+line: String) -> String:
   raw_tags.clean(strip_cr(line))
 
+# ---- IRCv3 labeled-response tag -------------------------------------------
+# First `label=` tag wins; missing or empty values stay None (same scan idiom
+# as typing_tag above). The Message record carries no tags; callers pair
+# label_tag(raw_tags(line)) with the parsed message.
+
+def label_tag.value(+tag: String, empty: Bool) -> Maybe<&2, String>:
+  match empty:
+    case True{}:
+      None{}
+    case False{}:
+      Some{String.drop(tag, 6n)}
+
+def label_tag.one(+tag: String, hit: Bool) -> Maybe<&2, String>:
+  match hit:
+    case True{}:
+      label_tag.value(tag, Nat.is_le(String.length(tag), 6n))
+    case False{}:
+      None{}
+
+def label_tags.go(xs: List<&2, String>, found: Maybe<&2, String>) -> Maybe<&2, String>:
+  match xs found:
+    case _ Some{val}:
+      Some{val}
+    case Nil{} None{}:
+      None{}
+    case Con{+tag, rest} None{}:
+      label_tags.go(rest, label_tag.one(tag, String.starts_with(tag, "label=")))
+
+def label_tag(+tags: String) -> Maybe<&2, String>:
+  label_tags.go(String.split(tags, Chr{59}), None{})
+
+# Outbound label guard (labeled-response draft): nonempty, at most 64 chars,
+# no spaces, CR, LF, or tag separators. Callers downgrade to the untagged
+# wire form when this fails; never emit a malformed line.
+def label_char_ok(+c: Char) -> Bool:
+  +n = code_of(c)
+  Bool.not(U32.is_eq(n, 32) || U32.is_eq(n, 13) || U32.is_eq(n, 10) || U32.is_eq(n, 59))
+
+def label_chars_ok(+s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{+h, t}:
+      label_char_ok(h) && label_chars_ok(t)
+
+def label_ok(+s: String) -> Bool:
+  Bool.not(String.is_empty(s)) && Nat.is_le(String.length(s), 64n) && label_chars_ok(s)
+
+def label_is_some(m: Maybe<&2, String>, +want: String) -> Bool:
+  match m:
+    case Some{+v}: String.eq(v, want)
+    case None{}: False{}
+
+def label_is_none(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case None{}: True{}
+    case Some{_}: False{}
+
 # ---- classify -----------------------------------------------------------
 
 type ClsRow is Data:
   ClsRow{name: String, cmd: Cmd}
 
 def cls_rows() -> List<&2, ClsRow>:
-  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> Nil{}
+  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> ClsRow{"ACK", Ack{}} <> Nil{}
 
 def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
   match xs:
@@ -962,6 +1021,12 @@ def format_part(+chan: String) -> String:
 def format_privmsg(+target: String, +body: String) -> String:
   "PRIVMSG " ++ target ++ " :" ++ body
 
+def format_privmsg_labeled(+target: String, +body: String, +label: String) -> String:
+  "@label=" ++ label ++ " PRIVMSG " ++ target ++ " :" ++ body
+
+def format_notice_labeled(+target: String, +body: String, +label: String) -> String:
+  "@label=" ++ label ++ " NOTICE " ++ target ++ " :" ++ body
+
 def format_quit.empty(empty: Bool, +reason: String) -> String:
   match empty:
     case True{}:
@@ -1053,6 +1118,42 @@ def clamp_samples_ok() -> Bool:
 
 def strip_ctl_nocr_ok() -> Bool:
   String.eq(strip_ctl("a" ++ SCon{Chr{13}, "b" ++ SCon{Chr{10}, "c"}}), "abc")
+
+def is_ack_cmd(c: Cmd) -> Bool:
+  match c:
+    case Ack{}:
+      True{}
+    case _:
+      False{}
+
+def is_ack_line.on(m: Maybe<&2, Message>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+msg}:
+      is_ack_cmd(classify(msg))
+
+def is_ack_line(line: String) -> Bool:
+  is_ack_line.on(parse(line))
+
+def label_wire_ok() -> Bool:
+  label_is_some(label_tag("label=abc"), "abc")
+    && label_is_some(label_tag("time=x;label=xyz"), "xyz")
+    && label_is_some(label_tag("label=first;label=second"), "first")
+    && label_is_none(label_tag(""))
+    && label_is_none(label_tag("time=x"))
+    && label_is_none(label_tag("label="))
+    && label_ok("birc-1")
+    && label_ok(stars.go(64n))
+    && Bool.not(label_ok(""))
+    && Bool.not(label_ok("has space"))
+    && Bool.not(label_ok("has;semi"))
+    && Bool.not(label_ok(stars.go(65n)))
+    && String.eq(format_privmsg_labeled("#c", "hi", "birc-1"), "@label=birc-1 PRIVMSG #c :hi")
+    && String.eq(format_notice_labeled("#c", "hi", "birc-1"), "@label=birc-1 NOTICE #c :hi")
+    && is_ack_line(":s ACK")
+    && is_ack_line("@label=abc :s ACK")
+    && Bool.not(is_ack_line(":s PRIVMSG #c :hi"))
 
 def is_ping_cmd(c: Cmd) -> Bool:
   match c:
