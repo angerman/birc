@@ -34,6 +34,9 @@ type Cmd is Data:
   Cap{}
   Tagmsg{}
   Ack{}
+  StdFail{}
+  StdWarn{}
+  StdNote{}
   Numeric{code: U32}
 
 type Message is Data:
@@ -863,7 +866,7 @@ type ClsRow is Data:
   ClsRow{name: String, cmd: Cmd}
 
 def cls_rows() -> List<&2, ClsRow>:
-  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> ClsRow{"ACK", Ack{}} <> Nil{}
+  ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> ClsRow{"ACK", Ack{}} <> ClsRow{"FAIL", StdFail{}} <> ClsRow{"WARN", StdWarn{}} <> ClsRow{"NOTE", StdNote{}} <> Nil{}
 
 def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
   match xs:
@@ -993,6 +996,109 @@ def typing_event_parsed(m: Maybe<&2, Message>, status: Maybe<&2, TypingStatus>) 
 def typing_event(+line: String) -> Maybe<&2, TypingEvent>:
   +clean = strip_cr(line)
   typing_event_parsed(parse(clean), typing_tag(raw_tags(clean)))
+
+# Standard-replies use the canonical label_tag above (Slice 3 owner).
+def label_shown(+v: Maybe<&2, String>) -> String:
+  match v:
+    case None{}:
+      ""
+    case Some{+id}:
+      id
+
+def label_tag_ok() -> Bool:
+  String.eq(label_shown(label_tag("label=birc-7")), "birc-7")
+    && String.eq(label_shown(label_tag("time=x;label=zz;foo=1")), "zz")
+    && String.eq(label_shown(label_tag("time=x")), "")
+    && String.eq(label_shown(label_tag("label=")), "")
+    && String.eq(label_shown(label_tag("")), "")
+
+# ---- IRCv3 standard replies (FAIL/WARN/NOTE, no capability) ---------------
+# Params: (<cmd> <code> [<context>] :<description>), i.e. 3 or 4 params.
+def stdreply_len(+m: Message) -> Nat:
+  match m:
+    case Message{_, _, _, _, +ps}:
+      List.length(&2, String, ps)
+
+def stdreply_fields_ok(+cmd: String, +code: String, +desc: String) -> Bool:
+  Bool.not(String.is_empty(sanitize_in(cmd)))
+    && Bool.not(String.is_empty(sanitize_in(code)))
+    && Bool.not(String.is_empty(sanitize_in(desc)))
+
+def stdreply_ok(+m: Message) -> Bool:
+  +n = stdreply_len(m)
+  (Nat.is_eq(n, 3n) || Nat.is_eq(n, 4n))
+    && stdreply_fields_ok(msg_param(m, 0n), msg_param(m, 1n), msg_last(m))
+
+def stdreply_context(+m: Message) -> String:
+  Bool.pick(String, Nat.is_eq(stdreply_len(m), 4n), msg_param(m, 2n), "")
+
+def stdreply_ctx_text.empty(empty: Bool, +context: String) -> String:
+  match empty:
+    case True{}:
+      ""
+    case False{}:
+      " (" ++ context ++ ")"
+
+def stdreply_ctx_text(+context: String) -> String:
+  stdreply_ctx_text.empty(String.is_empty(context), context)
+
+def stdreply_label_text.some(empty: Bool, +id: String) -> String:
+  match empty:
+    case True{}:
+      ""
+    case False{}:
+      " [label=" ++ id ++ "]"
+
+def stdreply_label_text(+label: Maybe<&2, String>) -> String:
+  match label:
+    case None{}:
+      ""
+    case Some{+id}:
+      stdreply_label_text.some(String.is_empty(id), id)
+
+def stdreply_text_verb(+verb: String, +cmd: String, +code: String, +context: String, +description: String, +label: Maybe<&2, String>) -> String:
+  verb ++ " " ++ cmd ++ " [" ++ code ++ "]" ++ stdreply_ctx_text(context) ++ ": " ++ description ++ stdreply_label_text(label)
+
+def stdreply_text(+cmd: String, +code: String, +context: String, +description: String, +label: Maybe<&2, String>) -> String:
+  stdreply_text_verb("FAIL", cmd, code, context, description, label)
+
+def stdreply_kind(c: Cmd) -> String:
+  match c:
+    case StdFail{}:
+      "FAIL"
+    case StdWarn{}:
+      "WARN"
+    case StdNote{}:
+      "NOTE"
+    case _:
+      ""
+
+def stdreply_parse.on(m: Maybe<&2, Message>) -> Message:
+  match m:
+    case None{}:
+      Message{"", "", "", 0, Nil{}}
+    case Some{+msg}:
+      msg
+
+def stdreply_parse(+line: String) -> Message:
+  stdreply_parse.on(parse(line))
+
+def stdreply_laws_ok() -> Bool:
+  String.eq(stdreply_kind(cls_lookup(cls_rows(), "FAIL")), "FAIL")
+    && String.eq(stdreply_kind(cls_lookup(cls_rows(), "warn")), "WARN")
+    && String.eq(stdreply_kind(cls_lookup(cls_rows(), "Note")), "NOTE")
+    && String.eq(stdreply_kind(cls_lookup(cls_rows(), "PRIVMSG")), "")
+    && stdreply_ok(stdreply_parse(":s FAIL PRIVMSG BAD #c :gone"))
+    && stdreply_ok(stdreply_parse(":s WARN PRIVMSG BAD :slow"))
+    && Bool.not(stdreply_ok(stdreply_parse(":s FAIL PRIVMSG :oops")))
+    && Bool.not(stdreply_ok(stdreply_parse(":s FAIL A B C D :oops")))
+    && Bool.not(stdreply_ok(stdreply_parse(":s FAIL PRIVMSG BAD :")))
+    && Bool.not(stdreply_ok(Message{"", "s", "FAIL", 0, "PRIVMSG" <> "" <> "desc" <> Nil{}}))
+    && String.eq(stdreply_text("PRIVMSG", "BAD", "#c", "gone", None{}), "FAIL PRIVMSG [BAD] (#c): gone")
+    && String.eq(stdreply_text("PRIVMSG", "BAD", "", "gone", Some{"birc-7"}), "FAIL PRIVMSG [BAD]: gone [label=birc-7]")
+    && String.eq(stdreply_text_verb("WARN", "P", "C", "", "d", None{}), "WARN P [C]: d")
+    && String.eq(stdreply_text_verb("NOTE", "P", "C", "ctx", "d", Some{""}), "NOTE P [C] (ctx): d")
+    && label_tag_ok()
 
 # ---- format -------------------------------------------------------------
 

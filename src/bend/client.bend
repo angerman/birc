@@ -1125,6 +1125,24 @@ def feed_ack.render(+cl: Cl.Client, +m: Irc.Message, label: Maybe<&2, String>, o
 def feed_ack(+cl: Cl.Client, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
   feed_ack.render(cl, m, label, ack_ok(m))
 
+# IRCv3 standard replies: FAIL/WARN/NOTE render on the server log; anything
+# malformed or peer-forged falls through to the unknown-command path.
+def feed_stdreply.text(+m: Irc.Message, +label: Maybe<&2, String>, +verb: String) -> String:
+  Irc.stdreply_text_verb(verb, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), Irc.stdreply_context(m), Irc.msg_last(m), label)
+
+def feed_stdreply.gated(+cl: Cl.Client, +m: Irc.Message, +label: Maybe<&2, String>, +verb: String, kind: Cl.LineKind, ok: Bool) -> Cl.Client:
+  match ok:
+    case True{}:
+      Cl.client_log(cl, 0n, kind, feed_stdreply.text(m, label, verb))
+    case False{}:
+      feed_unk(cl, m)
+
+def feed_stdreply(+cl: Cl.Client, +prefix: String, +label: Maybe<&2, String>, +verb: String, kind: Cl.LineKind, +m: Irc.Message) -> Cl.Client:
+  feed_stdreply.gated(cl, m, label, verb, kind, CapNotify.server_source(prefix) && Irc.stdreply_ok(m))
+
+def feed_stdreply_with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +label: Maybe<&2, String>, +verb: String, kind: Cl.LineKind, +m: Irc.Message) -> Cl.Client:
+  feed_stdreply(cl, prefix, label, verb, kind, m)
+
 def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
   match e:
     case CapNotify.NotifyOther{}: cl
@@ -1136,7 +1154,7 @@ def feed_notify.event(+cl: Cl.Client, e: CapNotify.NotifyEvent) -> Cl.Client:
 def feed_notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
   feed_notify.event(cl, CapNotify.notify_event(Cl.server_of(cl), prefix, m))
 
-def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
+def feed_msg.cmd(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
@@ -1168,13 +1186,19 @@ def feed_msg.cmd(+cl: Cl.Client, +m: Irc.Message, +from: String, self: Bool, c: 
       feed_ack(cl, m, label)
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
+    case Irc.StdFail{}:
+      feed_stdreply(cl, prefix, label, "FAIL", Cl.Error{}, m)
+    case Irc.StdWarn{}:
+      feed_stdreply(cl, prefix, label, "WARN", Cl.System{}, m)
+    case Irc.StdNote{}:
+      feed_stdreply(cl, prefix, label, "NOTE", Cl.System{}, m)
     case _:
       feed_unk(cl, m)
 
 def feed_msg.notify(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, notify: Bool, label: Maybe<&2, String>) -> Cl.Client:
   match notify:
     case True{}: feed_notify(cl, prefix, m)
-    case False{}: feed_msg.cmd(cl, m, from, feed_self(cl, from), Irc.classify(m), label)
+    case False{}: feed_msg.cmd(cl, prefix, m, from, feed_self(cl, from), Irc.classify(m), label)
 
 def feed_msg.with(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String, label: Maybe<&2, String>) -> Cl.Client:
   feed_msg.notify(cl, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m), label)
@@ -1182,7 +1206,7 @@ def feed_msg.with(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: Strin
 def feed_msg(+cl: Cl.Client, +prefix: String, +m: Irc.Message, label: Maybe<&2, String>) -> Cl.Client:
   feed_msg.with(cl, prefix, m, msg_nick(m), label)
 
-def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
+def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, self: Bool, c: Irc.Cmd, label: Maybe<&2, String>) -> Cl.Client:
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
@@ -1214,13 +1238,19 @@ def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: Stri
       feed_ack(cl, m, label)
     case Irc.Error{}:
       Cl.client_log(cl, 0n, Cl.Error{}, fmt_err(Irc.msg_param(m, 0n)))
+    case Irc.StdFail{}:
+      feed_stdreply_with(cl, cm, types, status, sigils, strip, prefix, label, "FAIL", Cl.Error{}, m)
+    case Irc.StdWarn{}:
+      feed_stdreply_with(cl, cm, types, status, sigils, strip, prefix, label, "WARN", Cl.System{}, m)
+    case Irc.StdNote{}:
+      feed_stdreply_with(cl, cm, types, status, sigils, strip, prefix, label, "NOTE", Cl.System{}, m)
     case _:
       feed_unk(cl, m)
 
 def feed_msg_with.notify(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, notify: Bool, label: Maybe<&2, String>) -> Cl.Client:
   match notify:
     case True{}: feed_notify(cl, prefix, m)
-    case False{}: feed_msg_with.cmd(cl, cm, types, status, sigils, strip, m, from, feed_self_cm(cm, cl, from), Irc.classify(m), label)
+    case False{}: feed_msg_with.cmd(cl, cm, types, status, sigils, strip, prefix, m, from, feed_self_cm(cm, cl, from), Irc.classify(m), label)
 
 def feed_msg_with.with(+cl: Cl.Client, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +prefix: String, +m: Irc.Message, +from: String, label: Maybe<&2, String>) -> Cl.Client:
   feed_msg_with.notify(cl, cm, types, status, sigils, strip, prefix, m, from, CapNotify.is_notify(Cl.server_of(cl), prefix, m), label)

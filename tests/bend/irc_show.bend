@@ -38,6 +38,12 @@ def show_cmd(c: Irc.Cmd) -> String:
       "TAGMSG"
     case Irc.Ack{}:
       "ACK"
+    case Irc.StdFail{}:
+      "FAIL"
+    case Irc.StdWarn{}:
+      "WARN"
+    case Irc.StdNote{}:
+      "NOTE"
     case Irc.Numeric{+code}:
       "NUM" ++ U32.show(code)
 

@@ -1599,6 +1599,12 @@ test-labeled-response: $(BLDDIR)/labeled_response.js ## Labeled-response cap, ou
 	$(NIXRUN) sh scripts/check-golden.sh labeled_response=ok timeout 30 bun $(BLDDIR)/labeled_response.js
 test-review-pure: test-labeled-response
 
+.PHONY: test-stdreply
+test-stdreply: $(BLDDIR)/stdreply_demo.js ## IRCv3 standard replies FAIL/WARN/NOTE server-log routing.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh stdreply_demo=ok timeout 30 bun $(BLDDIR)/stdreply_demo.js
+test-review-pure: test-stdreply
+
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
 test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
