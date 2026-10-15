@@ -89,6 +89,26 @@ def stable(+st: S.Session) -> Bool:
     && Bool.not(Terminal.has_job(M.take_job(S.session_media(next))))
     && M.bounded(S.session_media(next))
 
+type SBox is Data:
+  SBox{cell: List<&2, S.Session>}
+
+# Singleton-list box: a live Session flattens to dozens of words, so one
+# main holding ~10 of them breaches the 247-word native continuation
+# limit ("an arity over 247"). Boxing keeps bind captures narrow
+# (session_drafts_demo idiom); use sites unbox transiently. The Nil arm
+# is unreachable by construction.
+def sbox(+st: S.Session) -> SBox:
+  SBox{st <> Nil{}}
+
+def sunbox.cell(+cell: List<&2, S.Session>) -> S.Session:
+  match cell:
+    case Con{+st, _}: st
+    case Nil{}: session(client(), S.Online{}, True{})
+
+def sunbox(+b: SBox) -> S.Session:
+  match b:
+    case SBox{+cell}: sunbox.cell(cell)
+
 def fill(n: Nat, +id: Nat, state: M.State) -> M.State:
   match n:
     case 0n: state
@@ -161,28 +181,34 @@ def admission.bottom(rows: List<&2, V.BodyRow>, previous: String) -> String:
     case Con{_, tail}: admission.bottom(tail, previous)
 
 def admission.controls() -> IO(Unit):
-  +before : S.Session = admission.page_up(admission.session())
-  +pending : S.Session = S.session_observe_visible_media(before)
-  +resized : S.Session = S.session_set_size(pending, 30, 180)
-  +revealed : S.Session = admission.page_up(pending)
-  +revealed_wide : S.Session = S.session_set_size(revealed, 30, 180)
+  +before = sbox(admission.page_up(admission.session()))
+  +pending = sbox(S.session_observe_visible_media(sunbox(before)))
+  +resized = sbox(S.session_set_size(sunbox(pending), 30, 180))
+  +revealed = sbox(admission.page_up(sunbox(pending)))
+  +revealed_wide = sbox(S.session_set_size(sunbox(revealed), 30, 180))
   do IO<Unit>:
-    Unit <- E.must("first PageUp exposes archive URL before admission", String.contains(Anchor.rows_text(admission.rows(before, 160)), admission.url()))
-    Unit <- E.must_eq("pending admission keeps bottom source anchor", Anchor.anchor(Anchor.active_buf(S.session_cl(pending))), Anchor.anchor(Anchor.active_buf(S.session_cl(before))))
-    Unit <- E.must_eq("first PageUp bottom is archive source row25", admission.bottom(admission.rows(before, 160), ""), "ARCHIVE-25")
-    Unit <- E.must_eq("six pending rows retain the same bottom source", admission.bottom(admission.rows(pending, 160), ""), "ARCHIVE-25")
-    Unit <- E.must("pending row expansion moves URL above viewport, before resize", Bool.not(String.contains(Anchor.rows_text(admission.rows(pending, 160)), admission.url())))
-    Unit <- E.must_eq("resize still retains exact bottom source", admission.bottom(admission.rows(resized, 180), ""), "ARCHIVE-25")
-    Unit <- E.must("second PageUp establishes URL-visible resize precondition", String.contains(Anchor.rows_text(admission.rows(revealed, 160)), admission.url()))
-    Unit <- E.must("resize preserves URL with image rows already present", String.contains(Anchor.rows_text(admission.rows(revealed_wide, 180)), admission.url()))
+    Unit <- E.must("first PageUp exposes archive URL before admission", String.contains(Anchor.rows_text(admission.rows(sunbox(before), 160)), admission.url()))
+    Unit <- E.must_eq("pending admission keeps bottom source anchor", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(pending)))), Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(before)))))
+    Unit <- E.must_eq("first PageUp bottom is archive source row25", admission.bottom(admission.rows(sunbox(before), 160), ""), "ARCHIVE-25")
+    Unit <- E.must_eq("six pending rows retain the same bottom source", admission.bottom(admission.rows(sunbox(pending), 160), ""), "ARCHIVE-25")
+    Unit <- E.must("pending row expansion moves URL above viewport, before resize", Bool.not(String.contains(Anchor.rows_text(admission.rows(sunbox(pending), 160)), admission.url())))
+    Unit <- E.must_eq("resize still retains exact bottom source", admission.bottom(admission.rows(sunbox(resized), 180), ""), "ARCHIVE-25")
+    Unit <- E.must("second PageUp establishes URL-visible resize precondition", String.contains(Anchor.rows_text(admission.rows(sunbox(revealed), 160)), admission.url()))
+    Unit <- E.must("resize preserves URL with image rows already present", String.contains(Anchor.rows_text(admission.rows(sunbox(revealed_wide), 180)), admission.url()))
     IO.pure(Unit, Unit{})
 
-def main() -> IO(Unit):
+# The pinned native backend permits at most 247 flattened capture words
+# per continuation. One 66-statement main holding ~10 live Sessions
+# breaches it ("an arity over 247"); each phase below holds only boxed
+# Sessions plus small M.State/Nat values, and main only sequences
+# phases. Assertions are unchanged, in the same order
+# (session_drafts_demo precedent).
+def ph_panes() -> IO(Unit):
+  +single = sbox(session(client(), S.Online{}, True{}))
+  +split = sbox(with_split(sunbox(single), Sp.On{Sp.SideBySide{}, "#left", "#right", 0}))
   do IO<Unit>:
-    +single : S.Session = session(client(), S.Online{}, True{})
-    Unit <- E.must_eq("only current pane admits newest eight", selected_ids(candidates(single)), "10|9|8|7|6|5|4|3|")
-    +split : S.Session = with_split(single, Sp.On{Sp.SideBySide{}, "#left", "#right", 0})
-    Unit <- E.must_eq("split bounds both panes together", selected_ids(candidates(split)), "20|19|18|17|16|15|14|13|")
+    Unit <- E.must_eq("only current pane admits newest eight", selected_ids(candidates(sunbox(single))), "10|9|8|7|6|5|4|3|")
+    Unit <- E.must_eq("split bounds both panes together", selected_ids(candidates(sunbox(split))), "20|19|18|17|16|15|14|13|")
     Unit <- E.must("muted rows never become candidates", List.is_empty(&2, M.Candidate,
       V.visible_media_candidates(Cl.set_settings(client(), Cl.set_mutes(Cl.get_settings(client()), ["alice"])), 35, 200, Sp.Off{}, M.initial(True{}))))
     Unit <- E.must("synthetic tabs never become candidates", List.is_empty(&2, M.Candidate,
@@ -200,62 +226,108 @@ def main() -> IO(Unit):
       Cl.set_buf_anchor(buffer("#room", lines(10n, 1n)), Cl.ScrollAt{5n, 0n}), 2n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{})), M.initial(True{}))), "5|4|")
     Unit <- E.must_eq("media-only visible rows keep source identity", selected_ids(M.newest_candidates(V.visible_media.buffer(
       buffer("#room", [line(1n)]), 3n, 100, False{}, Nil{}, True{}, True{}, "s", M.enqueue(M.initial(True{}), M.Inline{1n}, url(1n))), M.initial(True{}))), "1|")
-    +imported : S.Session = session(restored(), S.Connecting{}, True{})
-    Unit <- E.must_eq("archive row receives fresh identity", selected_ids(candidates(imported)), "51|")
-    Unit <- E.must_eq("live fresh-ID cutoff does not refetch archive", Nat.show(M.pending_count(S.session_media(S.session_observe_media(S.session_online(imported), 51n)))), "0")
-    Unit <- E.must_eq("visible startup archive queues while Connecting", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(imported)))), "1")
-    Unit <- E.must_eq("visible archive queues while Offline", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(imported, S.Offline{}))))), "1")
-    Unit <- E.must_eq("visible archive queues while Reconnecting", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(imported, S.Reconnecting{}))))), "1")
-    Unit <- E.must_eq("Demo never automatically fetches archive", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(imported, S.Demo{}))))), "0")
-    Unit <- E.must_eq("Stopping never starts archive work", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(imported, S.Stopping{False{}}))))), "0")
-    Unit <- E.must_eq("saved images off suppresses archive work", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_media(imported, M.initial(False{})))))), "0")
-    +unsupported : S.Session = S.session_observe_visible_media(S.session_set_media(imported, M.set_supported(M.initial(True{}), False{})))
-    Unit <- E.must("unsupported visible archive stays quiet", Terminal.quiet(S.session_media(unsupported)))
-    Unit <- E.must_eq("unsupported visible archive explains once", Nat.show(Terminal.notice_count(S.session_observe_visible_media(unsupported))), "1")
-    +observed : S.Session = S.session_observe_visible_media(imported)
-    Unit <- E.must_eq("admission does not steal focus", Cl.active_buf_name(S.session_cl(observed)), "#history")
-    Unit <- E.must_eq("admission preserves sequence", Nat.show(Cl.log_seq_of(S.session_cl(observed))), "51")
-    Unit <- E.must_eq("admission creates no history append", H.extract_new_history(S.session_cl(imported), S.session_cl(observed)), "")
-    +single_done : Drain = drain(64n, single)
-    Unit <- E.must("single pane settles after eight jobs", Nat.is_eq(count(single_done), 8n) && stable(result(single_done)))
-    +split_done : Drain = drain(64n, split)
-    Unit <- E.must("mixed split settles without eviction/refetch loop", Nat.is_lt(count(split_done), 32n) && stable(result(split_done)))
-    +stacked : S.Session = with_split(S.session_set_size(single, 65, 200), Sp.On{Sp.Stacked{}, "#left", "#right", 1})
-    +stacked_done : Drain = drain(64n, stacked)
-    Unit <- E.must("stacked split also settles without repeated work", Nat.is_lt(count(stacked_done), 32n) && stable(result(stacked_done)))
-    +saturated : S.Session = S.session_set_media(single, fill(8n, 100n, M.initial(True{})))
-    +refilled : Drain = drain(64n, saturated)
-    Unit <- E.must("full old live queue drains and refills visible archive", Nat.is_gt(count(refilled), 8n) && Nat.is_lt(count(refilled), 32n) && stable(result(refilled)))
-    +again : S.Session = S.session_observe_visible_media(Terminal.entered(S.step_enter(result(single_done), "/reconnect")))
-    Unit <- E.must("reconnect generation admits visible stored rows again", Nat.is_gt(M.pending_count(S.session_media(again)), 0n) && Nat.is_eq(M.ready_count(S.session_media(again)), 0n))
-    +cache : M.State = M.State{True{}, 1n, 9n, None{}, Nil{}, ready(8n, 1n), M.Supported{}}
-    +wanted : List<&2, M.Candidate> = List.append(&2, M.Candidate, selected(7n, 2n), [M.Candidate{M.Inline{9n}, url(9n)}])
-    +protected : M.State = prospective(M.take_job(M.enqueue_candidates(wanted, cache)), client())
-    +legacy : M.State = prospective(M.take_job(M.enqueue_candidates.go(wanted, cache)), client())
+    return Unit{}
+
+def ph_archive() -> IO(Unit):
+  +imported = sbox(session(restored(), S.Connecting{}, True{}))
+  +unsupported = sbox(S.session_observe_visible_media(S.session_set_media(sunbox(imported), M.set_supported(M.initial(True{}), False{}))))
+  +observed = sbox(S.session_observe_visible_media(sunbox(imported)))
+  do IO<Unit>:
+    Unit <- E.must_eq("archive row receives fresh identity", selected_ids(candidates(sunbox(imported))), "51|")
+    Unit <- E.must_eq("live fresh-ID cutoff does not refetch archive", Nat.show(M.pending_count(S.session_media(S.session_observe_media(S.session_online(sunbox(imported)), 51n)))), "0")
+    Unit <- E.must_eq("visible startup archive queues while Connecting", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(sunbox(imported))))), "1")
+    Unit <- E.must_eq("visible archive queues while Offline", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(sunbox(imported), S.Offline{}))))), "1")
+    Unit <- E.must_eq("visible archive queues while Reconnecting", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(sunbox(imported), S.Reconnecting{}))))), "1")
+    Unit <- E.must_eq("Demo never automatically fetches archive", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(sunbox(imported), S.Demo{}))))), "0")
+    Unit <- E.must_eq("Stopping never starts archive work", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_net(sunbox(imported), S.Stopping{False{}}))))), "0")
+    Unit <- E.must_eq("saved images off suppresses archive work", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(S.session_set_media(sunbox(imported), M.initial(False{})))))), "0")
+    Unit <- E.must("unsupported visible archive stays quiet", Terminal.quiet(S.session_media(sunbox(unsupported))))
+    Unit <- E.must_eq("unsupported visible archive explains once", Nat.show(Terminal.notice_count(S.session_observe_visible_media(sunbox(unsupported)))), "1")
+    Unit <- E.must_eq("admission does not steal focus", Cl.active_buf_name(S.session_cl(sunbox(observed))), "#history")
+    Unit <- E.must_eq("admission preserves sequence", Nat.show(Cl.log_seq_of(S.session_cl(sunbox(observed)))), "51")
+    Unit <- E.must_eq("admission creates no history append", H.extract_new_history(S.session_cl(sunbox(imported)), S.session_cl(sunbox(observed))), "")
+    return Unit{}
+
+def ph_drain() -> IO(Unit):
+  +single = sbox(session(client(), S.Online{}, True{}))
+  +dd1 : Drain = drain(64n, sunbox(single))
+  +single_n : Nat = count(dd1)
+  +single_st = sbox(result(dd1))
+  +split = sbox(with_split(sunbox(single), Sp.On{Sp.SideBySide{}, "#left", "#right", 0}))
+  +dd2 : Drain = drain(64n, sunbox(split))
+  +split_n : Nat = count(dd2)
+  +split_st = sbox(result(dd2))
+  +stacked = sbox(with_split(S.session_set_size(sunbox(single), 65, 200), Sp.On{Sp.Stacked{}, "#left", "#right", 1}))
+  +dd3 : Drain = drain(64n, sunbox(stacked))
+  +stacked_n : Nat = count(dd3)
+  +stacked_st = sbox(result(dd3))
+  +saturated = sbox(S.session_set_media(sunbox(single), fill(8n, 100n, M.initial(True{}))))
+  +dd4 : Drain = drain(64n, sunbox(saturated))
+  +refilled_n : Nat = count(dd4)
+  +refilled_st = sbox(result(dd4))
+  +again = sbox(S.session_observe_visible_media(Terminal.entered(S.step_enter(sunbox(single_st), "/reconnect"))))
+  do IO<Unit>:
+    Unit <- E.must("single pane settles after eight jobs", Nat.is_eq(single_n, 8n) && stable(sunbox(single_st)))
+    Unit <- E.must("mixed split settles without eviction/refetch loop", Nat.is_lt(split_n, 32n) && stable(sunbox(split_st)))
+    Unit <- E.must("stacked split also settles without repeated work", Nat.is_lt(stacked_n, 32n) && stable(sunbox(stacked_st)))
+    Unit <- E.must("full old live queue drains and refills visible archive", Nat.is_gt(refilled_n, 8n) && Nat.is_lt(refilled_n, 32n) && stable(sunbox(refilled_st)))
+    Unit <- E.must("reconnect generation admits visible stored rows again", Nat.is_gt(M.pending_count(S.session_media(sunbox(again))), 0n) && Nat.is_eq(M.ready_count(S.session_media(sunbox(again))), 0n))
+    return Unit{}
+
+def ph_cache_admit() -> IO(Unit):
+  +single = sbox(session(client(), S.Online{}, True{}))
+  +cache : M.State = M.State{True{}, 1n, 9n, None{}, Nil{}, ready(8n, 1n), M.Supported{}}
+  +wanted : List<&2, M.Candidate> = List.append(&2, M.Candidate, selected(7n, 2n), [M.Candidate{M.Inline{9n}, url(9n)}])
+  +protected : M.State = prospective(M.take_job(M.enqueue_candidates(wanted, cache)), client())
+  +legacy : M.State = prospective(M.take_job(M.enqueue_candidates.go(wanted, cache)), client())
+  +duplicate : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n), Cl.Line{Cl.Msg{}, "", url(1n), "alice", 2n}])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 2n}
+  +hidden : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(8n, 1n), M.Supported{}}
+  +full = sbox(S.session_set_size(S.session_set_media(sunbox(single), hidden), 200, 200))
+  +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))
+  do IO<Unit>:
     Unit <- E.must("prospective native set retains selected visible token", token_has(M.retained_tokens(protected), 8) && Bool.not(token_has(M.retained_tokens(protected), 1)))
     Unit <- E.must("control shows unchanged completion FIFO would evict visible token", token_has(M.retained_tokens(legacy), 1) && Bool.not(token_has(M.retained_tokens(legacy), 8)))
-    +duplicate : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n), Cl.Line{Cl.Msg{}, "", url(1n), "alice", 2n}])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 2n}
     Unit <- E.must_eq("same URL on distinct events retains per-target identity", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(session(duplicate, S.Online{}, True{}))))), "2")
-    +hidden : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(8n, 1n), M.Supported{}}
-    +full : S.Session = S.session_set_size(S.session_set_media(single, hidden), 200, 200)
     Unit <- E.must("legacy admission would accept unrelated hidden completion", M.accept(hidden, client(), 1n, 100n, url(100n)))
-    Unit <- E.must("full visible cache rejects unrelated hidden completion", Bool.not(S.session_accept_media_result(full, 1n, 100n, url(100n))))
-    +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))
+    Unit <- E.must("full visible cache rejects unrelated hidden completion", Bool.not(S.session_accept_media_result(sunbox(full), 1n, 100n, url(100n))))
     Unit <- E.must("declined completion releases only its worker and retains visible cache", Bool.not(Terminal.has_active(declined)) && Nat.is_eq(M.ready_count(declined), 8n)
       && token_has(M.retained_tokens(declined), 8) && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
     Unit <- E.must("wrong completion cannot release owned worker", Terminal.has_active(M.reject(hidden, 1n, 99n, url(100n)))
       && Terminal.has_active(M.reject(hidden, 2n, 100n, url(100n))) && Terminal.has_active(M.reject(hidden, 1n, 100n, url(101n))))
-    +room : M.State = M.State{True{}, 1n, 10n, Some{M.Request{M.Inline{9n}, url(9n), 1n, 9n}}, Nil{}, ready(8n, 1n), M.Supported{}}
+    return Unit{}
+
+def ph_cache_replace() -> IO(Unit):
+  +single = sbox(session(client(), S.Online{}, True{}))
+  +wanted : List<&2, M.Candidate> = List.append(&2, M.Candidate, selected(7n, 2n), [M.Candidate{M.Inline{9n}, url(9n)}])
+  +room : M.State = M.State{True{}, 1n, 10n, Some{M.Request{M.Inline{9n}, url(9n), 1n, 9n}}, Nil{}, ready(8n, 1n), M.Supported{}}
+  +manual_state : M.State = M.State{True{}, 1n, 10n, Some{M.Request{M.Manual{}, "/tmp/synthetic.png", 1n, 9n}}, Nil{}, ready(8n, 1n), M.Supported{}}
+  +manual_full = sbox(S.session_set_size(S.session_set_media(session(manual_client(), S.Online{}, True{}), manual_state), 200, 200))
+  +failures : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, failed(8n, 1n), M.Supported{}}
+  +failures_full = sbox(S.session_set_size(S.session_set_media(sunbox(single), failures), 200, 200))
+  do IO<Unit>:
     Unit <- E.must("selected completion can replace nonvisible cache tail", M.visible_result_allowed(room, wanted))
-    +manual_state : M.State = M.State{True{}, 1n, 10n, Some{M.Request{M.Manual{}, "/tmp/synthetic.png", 1n, 9n}}, Nil{}, ready(8n, 1n), M.Supported{}}
     Unit <- E.must("explicit manual completion may replace full visible cache", M.visible_result_allowed(manual_state, selected(8n, 1n))
-      && S.session_accept_media_result(S.session_set_size(S.session_set_media(session(manual_client(), S.Online{}, True{}), manual_state), 200, 200), 1n, 9n, "/tmp/synthetic.png"))
-    +failures : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, failed(8n, 1n), M.Supported{}}
-    Unit <- E.must("failed visible identities also suppress eviction/refetch loops", Bool.not(S.session_accept_media_result(S.session_set_size(S.session_set_media(single, failures), 200, 200), 1n, 100n, url(100n))))
-    +queued : S.Session = S.session_set_media(single, M.enqueue(M.initial(True{}), M.Inline{100n}, url(100n)))
-    +stopping : S.Session = S.session_set_net(queued, S.Stopping{True{}})
-    Unit <- E.must("Stopping does not start queued next helper", Bool.not(Terminal.has_job(M.take_job_allowed(S.session_media_job_allowed(stopping), S.session_media(stopping))))
-      && Nat.is_eq(M.pending_count(Terminal.state_of(M.take_job_allowed(S.session_media_job_allowed(stopping), S.session_media(stopping)))), 1n))
-    Unit <- E.must("normal state starts the same queued helper", Terminal.has_job(M.take_job_allowed(S.session_media_job_allowed(queued), S.session_media(queued))))
+      && S.session_accept_media_result(sunbox(manual_full), 1n, 9n, "/tmp/synthetic.png"))
+    Unit <- E.must("failed visible identities also suppress eviction/refetch loops", Bool.not(S.session_accept_media_result(sunbox(failures_full), 1n, 100n, url(100n))))
+    return Unit{}
+
+def ph_stopping() -> IO(Unit):
+  +single = sbox(session(client(), S.Online{}, True{}))
+  +queued = sbox(S.session_set_media(sunbox(single), M.enqueue(M.initial(True{}), M.Inline{100n}, url(100n))))
+  +stopping = sbox(S.session_set_net(sunbox(queued), S.Stopping{True{}}))
+  do IO<Unit>:
+    Unit <- E.must("Stopping does not start queued next helper", Bool.not(Terminal.has_job(M.take_job_allowed(S.session_media_job_allowed(sunbox(stopping)), S.session_media(sunbox(stopping)))))
+      && Nat.is_eq(M.pending_count(Terminal.state_of(M.take_job_allowed(S.session_media_job_allowed(sunbox(stopping)), S.session_media(sunbox(stopping))))), 1n))
+    Unit <- E.must("normal state starts the same queued helper", Terminal.has_job(M.take_job_allowed(S.session_media_job_allowed(sunbox(queued)), S.session_media(sunbox(queued)))))
+    return Unit{}
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- ph_panes()
+    Unit <- ph_archive()
+    Unit <- ph_drain()
+    Unit <- ph_cache_admit()
+    Unit <- ph_cache_replace()
+    Unit <- ph_stopping()
     Unit <- admission.controls()
     IO.print("media_history=ok")

@@ -1,5 +1,11 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- media_history C-backend arity: FIXED — the 66-statement main holding
+  ~10 live Sessions breached the 247-word native continuation limit
+  ("an arity over 247"). Main is split into phase defs holding only
+  boxed Sessions (SBox singleton-list cells, session_drafts_demo
+  idiom); assertions unchanged, in the same order. Native C build
+  plus `media_history=ok` verified, JS gate stays green.
 - Column-walker retention: phase-machine rewrite in `src/bend/columns.bend`
   (UNCOMMITTED; the committed 0066b43 does not compile — mutual recursion).
   Harnesses pass on darwin-4: `columns_width=ok`, `ui_review_columns=ok`,
