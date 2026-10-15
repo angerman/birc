@@ -6,12 +6,12 @@
   boxed Sessions (SBox singleton-list cells, session_drafts_demo
   idiom); assertions unchanged, in the same order. Native C build
   plus `media_history=ok` verified, JS gate stays green.
-- Column-walker retention: phase-machine rewrite in `src/bend/columns.bend`
-  (UNCOMMITTED; the committed 0066b43 does not compile — mutual recursion).
-  Harnesses pass on darwin-4: `columns_width=ok`, `ui_review_columns=ok`,
-  parity ok. Pending: commit, then the idle + 15-channel census per
-  `docs/column-walker-retention.md` (frozen bump, frozen CID_SCON, lambda
-  task rows gone). Census scripts alive in /tmp; app codegen + inject next.
+- Column-walker retention: phase machines LANDED (a1aa3e6) and the
+  post-fix census is DONE (see "Post-fix census — 2026-10-15" in
+  `docs/column-walker-retention.md`): bump frozen both runs (1033/9193),
+  zero COLUMNS task rows in all dumps, channels CID_SCON flat. Watch
+  item (not a rejection): idle CID_SCON still creeps inside frozen
+  pages — needs a longer soak or instrumented probe to attribute.
 - wf-composer split prefix: FIXED in `src/bend/view.bend`
   (`split_composer_rect` mirrors the C bottom-most/left-most chooser; both
   split call sites converted, single-pane untouched). Pending calm host:

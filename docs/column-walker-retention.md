@@ -372,3 +372,75 @@ The historical multi-gigabyte client is explained only as far as this
 mechanism. Confirm it by the idle bump stopping after the rewrite. Until that
 census exists, the named retainer is the column-walker tasks and the string
 cells they capture, and the fix is the direct-call rewrite above.
+
+## Post-fix census — 2026-10-15
+
+Binary: `a1aa3e6` (phase-machine `columns.bend`) plus the uncommitted
+`Session.hist_live` boxing slice, codegenned and census-injected on
+`aarch64-darwin-4` (load ~1.1; scripts md5-identical to `/tmp` on the
+driver host). Driver `/tmp/birc_exp.py`, `--gpu off`, same env as the
+original runs. Behavior harnesses re-verified on this exact tree first:
+`columns_width=ok`, `ui_review_columns=ok`, `ui_review_columns_parity=ok`.
+
+Idle, 360 s, 2 lines sent (pid 76214, dumps 0..5):
+
+| Dump | `bump_pages` | `heap_words` | `CID_SCON` | `CID_BUFFER_LINE` |
+|---|---:|---:|---:|---:|
+| 0 (pre-session) | 33 | 4224 | 0 | 0 |
+| 1 (~60 s) | 649 | 83072 | 1053 | 13 |
+| 2 (~120 s) | 905 | 115840 | 1670 | 25 |
+| 3 (~180 s) | 1033 | 132224 | 2156 | 37 |
+| 4 (~240 s) | 1033 | 132224 | 2258 | 49 |
+| 5 (~300 s) | 1033 | 132224 | 2619 | 61 |
+
+Footprint 2353 → 3410 by t=92, then 3410 (two 3250 dips) from t=121
+through t=343 (~220 s flat), one step to 3554 at t=353. Driver verdict
+`unclear` (span 1169, tail_span 144). Pre-fix census idle for comparison:
+bump 1065 → 1705 still moving, footprint 2688 → 4625.
+
+15 channels, 60 s sustain + 150 s quiet, 2637 lines sent (pid 77756,
+dumps 0..3):
+
+| Dump | `bump_pages` | `heap_words` | `CID_SCON` | `CID_BUFFER_LINE` |
+|---|---:|---:|---:|---:|
+| 0 (pre-session) | 33 | 4224 | 0 | 0 |
+| 1 (~60 s) | 9193 | 1176704 | 351410 | 2667 |
+| 2 (~120 s) | 9193 | 1176704 | 351474 | 2685 |
+| 3 (~180 s) | 9193 | 1176704 | 351438 | 2697 |
+
+Footprint flat at 12288 across the whole quiet period (t=63..212,
+tail_span 0). Pre-fix for comparison: flat at 13312 while the bump-frozen
+window still gained 723 `CID_SCON`, 192 `TAKE_GO_K6033`, 216
+`TAKE_GO_K6037`.
+
+Against the three fixed criteria:
+
+- `bump_pages` frozen: yes, both runs (idle 1033 x3 dumps, channels
+  9193 x3 dumps).
+- `CID_SCON` frozen: yes on channels (+64 then -36, net +28 over the
+  frozen window vs +723 pre-fix). Idle still rises +102/+361 inside the
+  frozen bump with no accompanying task stem; see below.
+- No rising `FID_COLUMNS_TAKE_GO_K*` / `FID_COLUMNS_TEXT_WIDTH_GO_K*`:
+  yes. Zero `COLUMNS` rows of any kind in all 10 dumps (the K-suffixed
+  FIDs still exist in the binary's table as compiler-generated
+  continuations for nested calls, but no live `TAG_TSK` ever points at
+  them). No other walk stem rises either: the only idle creepers are
+  `UTF8_DECODE_GO`/`IO_BIND` at +4..5 per interval, tracking the line
+  trickle, two orders of magnitude below the pre-fix walker slope.
+
+The `+12 CID_BUFFER_LINE` per 60 s idle interval is byte-identical
+pre/post fix (13 → 61 at dump 5 both times): a pre-existing line
+trickle (or paint-churn residue — the scanner cannot distinguish inside
+frozen pages), not the walkers. Per this note's rule ("a new rising task
+stem from the same walk means this pin is retaining the call itself"),
+no such stem exists, so the named retainer is fixed. The idle
+`CID_SCON` slope inside frozen pages is a watch item for a longer soak,
+not a rejection.
+
+`tests/perf/paint_footprint.*` (untracked at census time): `make
+paint-footprint` builds and exits 0; checksum 2491 stable across all
+32+32+64 paints; deltas +784/+800 at 32 passes and +1617 at 64 (staircase
+with multi-second flats, verdict `unclear` all three runs). That is a
+footprint-only signal with no corpus attribution — this probe is not the
+leak oracle — and does not overturn the instrumented census above.
+Commit-ready as a non-gate measurement probe, no code changes needed.
