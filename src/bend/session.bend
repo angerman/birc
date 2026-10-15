@@ -1396,7 +1396,10 @@ type Session is Data:
     # Boxed one-element cell (same idiom as media/cf/reg): the ISUPPORT
     # record no longer flattens into every live Session across IO waits.
     iso: List<&2, Isupport.State>,
-    hist_live: Hs.HistLive,
+    # Boxed one-element cell (same idiom as media/cf/reg): HistLive is ~27
+    # flattened words; a live Part plus Session across one media bind
+    # overflow the pinned 247-word backend cap without it.
+    hist_live: List<&2, Hs.HistLive>,
     # One boxed one-element cell (live_context idiom): the pinned Bend backend
     # caps flattened continuation words (247), and four live Sessions across an
     # eight-assertion chain already overflow it. One field holding the retained
@@ -1445,7 +1448,7 @@ def SIZE0() -> Size:
 def session_with_client_at(+cl: Cl.Client, +chan: String, +port: U32) -> Session:
   +plan = JoinPlan.reset(JoinPlan.initial(chan), cl)
   +hl = Hs.hist_live_sync(Hs.hist_live0(), 0n, Cl.server_of(cl) ++ ":" ++ U32.show(port))
-  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], hl, [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default()}
+  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [hl], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default()}
 
 def session_with_client(+cl: Cl.Client, +chan: String) -> Session:
   session_with_client_at(cl, chan, Transport.TLS_PORT())
@@ -1455,7 +1458,7 @@ def session0(+nick: String, +host: String, +chan: String) -> Session:
 
 def session_demo_at(+cl: Cl.Client, +chan: String, port: U32) -> Session:
   +plan = JoinPlan.demo(chan)
-  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], Hs.hist_live0(), [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default()}
+  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [Hs.hist_live0()], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default()}
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
   session_demo_at(cl, chan, Transport.TLS_PORT())
@@ -1481,8 +1484,8 @@ def session_cm(+st: Session) -> String:
 
 def session_set_iso(st: Session, +iso: Isupport.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, _, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, [iso], hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, _, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, [iso], hlbox, cf, regbox, theme}
 
 def session_admit(+s: Session, +name: String, +key: String) -> Bool:
   match s:
@@ -1592,8 +1595,8 @@ def session_outs_admitted(+st: Session, +outs: List<&2, String>) -> Bool:
 
 def session_online(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_cl(+st: Session) -> Cl.Client:
   match st:
@@ -1611,8 +1614,8 @@ def session_preference_record.on(known: Bool, st: Session, name: String) -> Sess
     case True{}: st
     case False{}:
       match st:
-        case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, +iso, +hl, cf, +regbox, +theme}:
-          Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, List.append(&2, String, edits, name <> Nil{}), iso, hl, cf, regbox, theme}
+        case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, +iso, +hlbox, cf, +regbox, +theme}:
+          Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, List.append(&2, String, edits, name <> Nil{}), iso, hlbox, cf, regbox, theme}
 
 def session_preference_record(parsed: Maybe<&2, String>, +st: Session) -> Session:
   match parsed:
@@ -1626,8 +1629,8 @@ def session_net(+st: Session) -> NetState:
 
 def session_set_net(st: Session, net: NetState) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, _, hist, size, seed, comp, split, typing, port, media, plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, _, hist, size, seed, comp, split, typing, port, media, plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_stopping.net(net: NetState) -> Maybe<&2, Bool>:
   match net:
@@ -1643,8 +1646,8 @@ def session_plan(st: Session) -> JoinPlan.State:
 
 def session_set_plan(st: Session, +plan: JoinPlan.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, _, chan, net, hist, size, seed, comp, split, typing, port, media, _, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, _, chan, net, hist, size, seed, comp, split, typing, port, media, _, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_channel_revision(st: Session) -> Nat:
   JoinPlan.revision(session_plan(st))
@@ -1669,8 +1672,8 @@ def session_hold_joins(+st: Session) -> Session:
 # Install an IO-loaded client without changing connection or UI state.
 def session_set_client(st: Session, +cl: Cl.Client) -> Session:
   match st:
-    case Session{_, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{_, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 # ---- live history owner ---------------------------------------------------
 # Session carries one Hs.HistLive: the chathistory batch collector, the
@@ -1680,9 +1683,14 @@ def session_set_client(st: Session, +cl: Cl.Client) -> Session:
 # scan/fetch with history_search_complete, and imports through the gated
 # entries below. Stale tickets, wrong generations, and endpoint mismatches
 # stay quiet; any live sync move resets the batch and negotiated caps.
+def unbox_hist_live(+xs: List<&2, Hs.HistLive>) -> Hs.HistLive:
+  match xs:
+    case Con{+hl, _}: hl
+    case _: Hs.hist_live0()
+
 def session_hist_live(st: Session) -> Hs.HistLive:
   match st:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +hl, _, _, _}: hl
+    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +hlbox, _, _, _}: unbox_hist_live(hlbox)
 
 def session_hist_batch(+st: Session) -> Hs.ChatBatch:
   Hs.hist_live_batch(session_hist_live(st))
@@ -1693,7 +1701,7 @@ def session_negotiated(+st: Session) -> Bool:
 def session_set_hist_live(st: Session, +hl: Hs.HistLive) -> Session:
   match st:
     case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, edits, +iso, _, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, [hl], cf, regbox, theme}
 
 def history_note_endpoint(+st: Session, +gen: Nat, +endpoint: String) -> Session:
   session_set_hist_live(st, Hs.hist_live_sync(session_hist_live(st), gen, endpoint))
@@ -1955,10 +1963,10 @@ def session_needs_reconnect_marker(+st: Session) -> Bool:
 
 def session_reset_auth(st: Session) -> Session:
   match st:
-    case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
+    case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
       +fresh = Cl.reset_auth(cl)
       +next = JoinPlan.reset(plan, fresh)
-      Session{fresh, drop, rem, draft, JoinPlan.sent(next), chan, net, hist, size, seed, comp, split, typing, port, media, next, edits, iso, hl, cf, regbox, theme}
+      Session{fresh, drop, rem, draft, JoinPlan.sent(next), chan, net, hist, size, seed, comp, split, typing, port, media, next, edits, iso, hlbox, cf, regbox, theme}
 
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
@@ -1966,8 +1974,8 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
       session_online(st)
     case True{}:
       match st:
-        case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-          Session{Cl.reconnect_markers(cl, now), drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+        case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+          Session{Cl.reconnect_markers(cl, now), drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_reconnected(+st: Session, +now: String) -> Session:
   +reset = session_reset_auth(st)
@@ -1977,8 +1985,8 @@ def session_reconnected(+st: Session, +now: String) -> Session:
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
-    case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hl, +cf, _, +theme}:
-      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hl, cf, [CapNotify.reg0()], theme}
+    case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hlbox, +cf, _, +theme}:
+      Session{Sub.echo_err_server(cl, msg), False{}, Nil{}, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hlbox, cf, [CapNotify.reg0()], theme}
 
 def session_fail(+st: Session, +msg: String) -> Session:
   session_fail.got(msg, st)
@@ -1986,8 +1994,8 @@ def session_fail(+st: Session, +msg: String) -> Session:
 # A failed local helper does not change the connection or framer state.
 def session_error(+st: Session, +msg: String) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{Sub.echo_err(cl, msg), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{Sub.echo_err(cl, msg), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_autoreconnect.st(
   +cl: Cl.Client,
@@ -2014,7 +2022,7 @@ def session_autoreconnect.st(
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), server ++ ":" ++ U32.show(port))
   # Same-endpoint reconnect: Media resets, but text cards and their worker
   # generation survive; the overlay revalidates against the reset Media.
-  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Reconnecting{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], hl2, [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme}
+  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Reconnecting{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme}
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -2022,8 +2030,8 @@ def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Sessi
       (st, Drop{})
     case True{}:
       match st:
-        case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hl, +cf, _, +theme}:
-          (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server, port, unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), theme), Dial{server, port, 0, Cl.nick_of(cl)})
+        case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hlbox, +cf, _, +theme}:
+          (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server, port, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), theme), Dial{server, port, 0, Cl.nick_of(cl)})
 
 def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match auto:
@@ -2042,18 +2050,18 @@ def session_autoreconnect_on(+st: Session) -> Bool:
 
 def session_cancel_reconnect(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{Cl.set_now(cl, ts), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{Cl.set_now(cl, ts), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_set_size(+st: Session, +rows: U32, +cols: U32) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, Size{rows, cols}, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, _, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, Size{rows, cols}, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_theme(st: Session) -> Theme.Id:
   match st:
@@ -2061,8 +2069,8 @@ def session_theme(st: Session) -> Theme.Id:
 
 def session_set_theme(st: Session, +th: Theme.Id) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, _}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, th}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, _}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, th}
 
 def session_size(+st: Session) -> Size:
   match st:
@@ -2177,7 +2185,7 @@ def session_after.dial(
   +next = JoinPlan.endpoint(same, plan, chan, cl2)
   +iso2 = Isupport.endpoint(same, iso)
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), host ++ ":" ++ U32.show(port))
-  Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, next_net, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], hl2, [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme}
+  Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, next_net, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme}
 
 def session_after(
   +cl: Cl.Client,
@@ -2209,24 +2217,24 @@ def session_after(
     case Dial{+host, dial_port, _, _}:
       session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, dial_port, port, net, media, plan, edits, iso, hl, cards, full, theme)
     case Drop{}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case Pump{_}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case Pong{_, _, _}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case Cont{_}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case OpenUrl{_}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case Begin{_}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
     case Search{_, _, _, _, _, _, _, _, _}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}
 
 def session_on_cmd(+st: Session, +cmd: NetCmd) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      session_after(cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, cmd, unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme)
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      session_after(cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, cmd, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme)
 
 def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
   match c:
@@ -2323,8 +2331,8 @@ def comp_set_upload(+state: Up.State, +comp: Comp) -> Comp:
 
 def session_set_upload(st: Session, state: Up.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_set_upload(state, comp), split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_set_upload(state, comp), split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def comp_upload_mark(comp: Comp, presented: Bool) -> Comp:
   match comp:
@@ -2334,8 +2342,8 @@ def comp_upload_mark(comp: Comp, presented: Bool) -> Comp:
 
 def session_upload_mark(st: Session, presented: Bool) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_upload_mark(comp, presented), split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_upload_mark(comp, presented), split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def upload_presentation_reset_ok() -> Bool:
   +request: Up.Request = Up.Request{Up.Scope{"s", 6667, "#c"}, "/tmp/a"}
@@ -2348,13 +2356,13 @@ def upload_presentation_reset_ok() -> Bool:
 
 def session_upload_draft(st: Session, draft: String, seed: U32) -> Session:
   match st:
-    case Session{cl, drop, rem, _, joined, chan, net, hist, size, _, comp, split, typing, port, media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, _, joined, chan, net, hist, size, _, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_reset_completion(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_reset(comp), split, typing, port, media, plan, edits, iso, hl, cf, regbox, theme}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_reset(comp), split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme}
 
 def upload_basename(parts: List<&2, String>, previous: String) -> String:
   match parts:
@@ -2577,12 +2585,12 @@ def session_expire_typing.got(
 ) -> Session & Bool:
   match pair:
     case (typing, changed):
-      (Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], regbox, theme}, changed)
+      (Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], regbox, theme}, changed)
 
 def session_expire_typing(+st: Session, +now_ms: U32) -> Session & Bool:
   match st:
-    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, +size, +seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      session_expire_typing.got(cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, port, Ty.expire_changed(typing, now_ms), unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme)
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, +size, +seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      session_expire_typing.got(cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, port, Ty.expire_changed(typing, now_ms), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme)
 
 # G6 live binding: outbound typing ticks. TypingTick calls this beside
 # session_expire_typing, and composer frames call it after applying keys. The
@@ -2597,8 +2605,8 @@ def session_reg(+st: Session) -> CapNotify.Reg:
 
 def session_set_reg(st: Session, +reg: CapNotify.Reg) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, _, +theme}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, cf, [reg], theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, _, +theme}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, [reg], theme}
 
 def session_typing_online.net(net: NetState) -> Bool:
   match net:
@@ -2901,16 +2909,16 @@ def session_submit_needs_dynamic(+st: Session, +typed: String) -> Bool:
 
 def step_keys.base.submit(+st: Session, +keys: Keys, +hist2: Hist, dyn: Bool) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
+    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
           match dyn:
-            case True{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split_with(unbox_iso(iso), cl, split, net, port, typed, enter, Hs.hist_live_negotiated(hl)), unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme)
-            case False{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split(cl, split, net, port, typed, enter, Hs.hist_live_negotiated(hl)), unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme)
+            case True{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split_with(unbox_iso(iso), cl, split, net, port, typed, enter, Hs.hist_live_negotiated(unbox_hist_live(hlbox))), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme)
+            case False{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split(cl, split, net, port, typed, enter, Hs.hist_live_negotiated(unbox_hist_live(hlbox))), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme)
 
 def step_keys.base(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, _, _, _}:
+    case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, _, _, _}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
           +hist2 = hist_after_enter(hist, typed, enter && Bool.not(Sub.input_sensitive_iso(unbox_iso(iso), cl, typed)))
@@ -2927,8 +2935,8 @@ def media_diagnostic(report: Bool, cl: Cl.Client) -> Cl.Client:
 
 def session_set_media(st: Session, +media: M.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, before, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{media_diagnostic(Bool.not(M.reported(unbox_media(before))) && M.reported(media), cl), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, iso, hl, cf, regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, before, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{media_diagnostic(Bool.not(M.reported(unbox_media(before))) && M.reported(media), cl), drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, [media], plan, edits, iso, hlbox, cf, regbox, theme}
 
 def session_full(st: Session) -> C.Fullscreen:
   match st:
@@ -2936,8 +2944,8 @@ def session_full(st: Session) -> C.Fullscreen:
 
 def session_set_full(st: Session, +full: C.Fullscreen) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, [C.Retained{unbox_cards(cf), full}], regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, [C.Retained{unbox_cards(cf), full}], regbox, theme}
 
 def visible_media_net(net: NetState) -> Bool:
   match net:
@@ -3007,8 +3015,8 @@ def session_cards(st: Session) -> C.State:
 
 def session_set_cards(st: Session, +cards: C.State) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hl, [C.Retained{cards, unbox_full(cf)}], regbox, theme}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, [C.Retained{cards, unbox_full(cf)}], regbox, theme}
 
 def session_observe_visible_cards.gated(+cm: String, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
   match open:
@@ -3295,8 +3303,8 @@ def multiline_quad(+cl: Cl.Client, split: Sp.State, +typed: String, +net: NetSta
 # retain the real frame keys without reparsing a rejected command block.
 def step_keys.supplied_finish(+st: Session, +keys: Keys, +hist2: Hist, quad: Cl.Client & String & NetCmd & Sp.State) -> Session & NetCmd & Bool:
   match st:
-    case Session{+cl, drop, +rem, _, joined, +chan, net, _, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, quad, unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme)
+    case Session{+cl, drop, +rem, _, joined, +chan, net, _, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, quad, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme)
 
 def step_keys.supplied_hooks(+st: Session, +keys: Keys, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
   step_keys.preferences(keys, step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), step_keys.plan(st, keys, trip)))
@@ -3826,7 +3834,7 @@ def step_chunk_got(
   match got:
     case LiveAcc{FoldAcc{+cl2, reversed, _}, typing, +plan, +iso, +hl, +reg, +renames}:
       +typing2 = Ty.retain_client(typing, cl2)
-      (Session{cl2, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing2, port, [media], plan, edits, [iso], hl, [C.Retained{cards, full}], [reg], theme}, List.reverse(&2, String, reversed), List.reverse(&2, Drafts.NickRename, renames))
+      (Session{cl2, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing2, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], [reg], theme}, List.reverse(&2, String, reversed), List.reverse(&2, Drafts.NickRename, renames))
 
 def step_chunk_got.folded(
   +draft: String,
@@ -3926,13 +3934,13 @@ def step_on_framed_ms.base.dropped(trip: Session & List<&2, String> & List<&2, D
 
 def step_on_framed_ms.base(+st: Session, framed: List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32) -> Session & List<&2, String>:
   match st:
-    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      step_on_framed_ms.base.dropped(step_on_chunk_pair(cl, draft, chan, net, hist, size, seed, comp, split, typing, port, now_ms, framed, stamps, unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme))
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      step_on_framed_ms.base.dropped(step_on_chunk_pair(cl, draft, chan, net, hist, size, seed, comp, split, typing, port, now_ms, framed, stamps, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme))
 
 def step_on_framed_ms_ceiling.base(+st: Session, framed: List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match st:
-    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hl, +cf, +regbox, +theme}:
-      step_on_chunk_pair_ceiling(cl, draft, chan, net, hist, size, seed, comp, split, typing, port, now_ms, framed, stamps, unbox_media(media), plan, edits, unbox_iso(iso), hl, unbox_cards(cf), unbox_full(cf), regbox, theme, ceiling)
+    case Session{+cl, drop, rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme}:
+      step_on_chunk_pair_ceiling(cl, draft, chan, net, hist, size, seed, comp, split, typing, port, now_ms, framed, stamps, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme, ceiling)
 
 def step_on_chunk_ms.observed(after: Nat, trip: Session & List<&2, String>) -> Session & List<&2, String>:
   match trip:

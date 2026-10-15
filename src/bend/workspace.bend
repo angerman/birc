@@ -460,9 +460,9 @@ def replace_reset(+st2: Sess.Session, same: Bool) -> Sess.Session:
 
 def replace_server.st(+parts: List<&2, Part>, +cur: Key.ServerId, +ds: Drafts.Drafts, +rt: List<&2, SlotEpoch>, +id: Key.ServerId, +gen: U32, +st: Sess.Session, +host: String, +port: U32, v6: Bool) -> Workspace & Bool:
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, +chan, +net, +hist, +size, +seed, +comp, +split, _, +old_port, +media, +plan, +edits, +isobox, +hl, +cf, _, +theme}:
+    case Sess.Session{+cl, _, _, +draft, _, +chan, +net, +hist, +size, +seed, +comp, +split, _, +old_port, +media, +plan, +edits, +isobox, +hlbox, +cf, _, +theme}:
       +same = Sess.endpoint_same(cl, host, old_port, port)
-      +st2 = Sess.session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, port, old_port, net, Sess.unbox_media(media), plan, edits, Sess.unbox_iso(isobox), hl, Sess.unbox_cards(cf), Sess.unbox_full(cf), theme)
+      +st2 = Sess.session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, port, old_port, net, Sess.unbox_media(media), plan, edits, Sess.unbox_iso(isobox), Sess.unbox_hist_live(hlbox), Sess.unbox_cards(cf), Sess.unbox_full(cf), theme)
       +st3 = replace_reset(st2, same)
       (Workspace{replace_part.go(parts, id, Part{id, Sid.bump(gen), Sid.Scope{host, port, v6}, st3}), cur, Drafts.replace_endpoint(ds, id, same), rt}, True{})
 
