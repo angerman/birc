@@ -1575,6 +1575,12 @@ test-cap-notify: $(BLDDIR)/cap_notify_demo.js ## Standalone CAP registry, handsh
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh cap_notify_demo=ok timeout 30 bun $(BLDDIR)/cap_notify_demo.js
 
+.PHONY: test-capnotify
+test-capnotify: $(BLDDIR)/capnotify_demo.js ## CAP NEW/DEL lifetime updates through the CAP trust gate.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh capnotify_demo=ok timeout 30 bun $(BLDDIR)/capnotify_demo.js
+test-review-pure: test-capnotify
+
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
 test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
