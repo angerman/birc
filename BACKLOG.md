@@ -20,10 +20,10 @@
   src decision: unify Bend inner-width/prefix emission with the C
   chooser skip rule (same class as the tinyquit 1-2col single-pane
   failure).
-- wf-composer: `src/ffi/timui_ffi.c` full compile unverified (needs Bend FFI
-  headers from the Nix shell; host saturated). Static check so far:
-  `draw_composer` def + sole caller arities match; patched regions are
-  body-local. Run `make build-ui` when calm.
+- wf-composer: `src/ffi/timui_ffi.c` full compile RESOLVED — `make build-ui`
+  links (`build/birc`) and `draw_composer` is defined, called, and
+  present in the emitted TU, so the FFI content compiles. (Split-prefix
+  entry still owns the split-mode PTY gate.)
 - wf-cards URL dedup: all-empty cards now yield zero rows; title-empty but
   desc-bearing cards still echo the URL as the card title line. Confirm the
   partial-metadata echo is the wanted look (item 3 screenshot was the
