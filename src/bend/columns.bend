@@ -59,30 +59,40 @@ def cluster_cut(head: String, tail: String) -> Cut:
   +text = String.reverse(head)
   Cut{text, tail, cluster_width_go(text, 0, False{}, False{}, False{})}
 
-def cluster_join(s: String, head: String, fuel: Nat, ri: Bool) -> Cut:
-  match s:
-    case SNil{}: cluster_cut(head, "")
-    case SCon{h, t}: cluster_go(fuel, t, ri, SCon{h, head})
-
-def cluster_char(attached: Bool, zwj: Bool, +s: String, +h: Char, +t: String, +ri: Bool, head: String, fuel: Nat) -> Cut:
-  match attached:
-    case True{}: cluster_go(fuel, t, ri && Bool.not(regional(Char.to_u32(h))), SCon{h, head})
-    case False{}:
-      match zwj:
-        case True{}: cluster_join(t, SCon{h, head}, fuel, ri)
-        case False{}: cluster_cut(head, s)
-
 # Match timui_grapheme_next exactly within its documented common classes:
 # extensions, a second regional indicator, and ZWJ plus its following scalar.
-def cluster_go(fuel: Nat, s: String, +ri: Bool, head: String) -> Cut:
+# One self-recursive walk in two phases: helpers cannot call back (no mutual
+# recursion) and matches cannot scrutinize computed values, so Decide selects
+# a phase value and each act arm matches parameters only. Decide spends fuel;
+# act arms keep fuel and shrink the string.
+type ClusterPhase is Data:
+  Decide{}
+  DoAttached{}
+  DoZwj{}
+  DoZwjAbsorb{}
+  DoCut{}
+
+def cluster_go(fuel: Nat, s: String, +ri: Bool, head: String, phase: ClusterPhase) -> Cut:
   match fuel:
     case 0n: cluster_cut(head, s)
     case 1n+p:
       match s:
         case SNil{}: cluster_cut(head, "")
         case SCon{+h, +t}:
-          +c = Char.to_u32(h)
-          cluster_char(extend(c) || (ri && regional(c)), U32.is_eq(c, 8205), SCon{h, t}, h, t, ri, head, p)
+          match phase:
+            case Decide{}:
+              +c = Char.to_u32(h)
+              +at = extend(c) || (ri && regional(c))
+              +zw = U32.is_eq(c, 8205)
+              cluster_go(p, SCon{h, t}, ri, head, Bool.pick(ClusterPhase, at, DoAttached{}, Bool.pick(ClusterPhase, zw, DoZwj{}, DoCut{})))
+            case DoAttached{}:
+              cluster_go(fuel, t, ri && Bool.not(regional(Char.to_u32(h))), SCon{h, head}, Decide{})
+            case DoZwj{}:
+              cluster_go(fuel, t, ri, SCon{h, head}, DoZwjAbsorb{})
+            case DoZwjAbsorb{}:
+              cluster_go(fuel, t, ri, SCon{h, head}, Decide{})
+            case DoCut{}:
+              cluster_cut(head, SCon{h, t})
 
 def cluster_crlf_cut(nl: Bool, +h: Char, +next: Char, +rest: String) -> Cut:
   match nl:
@@ -103,7 +113,7 @@ def cluster_start(cr: Bool, lf: Bool, +h: Char, t: String) -> Cut:
         case True{}: Cut{SCon{h, ""}, t, 0}
         case False{}:
           +rest = t
-          cluster_go(Nat.add(1n, String.length(rest)), rest, regional(Char.to_u32(h)), SCon{h, ""})
+          cluster_go(Nat.add(1n, String.length(rest)), rest, regional(Char.to_u32(h)), SCon{h, ""}, Decide{})
 
 def cluster(s: String) -> Cut:
   match s:
@@ -111,9 +121,17 @@ def cluster(s: String) -> Cut:
     case SCon{+h, +t}:
       cluster_start(U32.is_eq(Char.to_u32(h), 13), U32.is_eq(Char.to_u32(h), 10), h, t)
 
-def text_width_piece(piece: Cut, fuel: Nat) -> U32:
+def cut_text(piece: Cut) -> String:
   match piece:
-    case Cut{_, tail, w}: U32.add(w, text_width_go(fuel, tail))
+    case Cut{text, _, _}: text
+
+def cut_tail(piece: Cut) -> String:
+  match piece:
+    case Cut{_, tail, _}: tail
+
+def cut_width(piece: Cut) -> U32:
+  match piece:
+    case Cut{_, _, w}: w
 
 def text_width_go(fuel: Nat, s: String) -> U32:
   match fuel:
@@ -121,33 +139,41 @@ def text_width_go(fuel: Nat, s: String) -> U32:
     case 1n+p:
       match s:
         case SNil{}: 0
-        case SCon{h, t}: text_width_piece(cluster(SCon{h, t}), p)
+        case SCon{+h, +t}:
+          +w = cut_width(cluster(SCon{h, t}))
+          +tail = cut_tail(cluster(SCon{h, t}))
+          U32.add(w, text_width_go(p, tail))
 
 def text_width(+s: String) -> U32:
   text_width_go(Nat.add(1n, String.length(s)), s)
 
-def take_cluster(fits: Bool, +s: String, piece: Cut, +used: U32, head: String, +cap: U32, fuel: Nat) -> Cut:
-  match fits:
-    case False{}: Cut{String.reverse(head), s, used}
-    case True{}:
-      match piece:
-        case Cut{+text, tail, width}: take_go(fuel, tail, cap, U32.add(used, width), String.reverse(text) ++ head)
-
-def take_piece(piece: Cut, +s: String, +cap: U32, +used: U32, head: String, fuel: Nat) -> Cut:
-  match piece:
-    case Cut{+text, +tail, +width}:
-      take_cluster(U32.is_le(U32.add(used, width), cap), s, Cut{text, tail, width}, used, head, cap, fuel)
-
 # Fit complete common grapheme clusters. The returned width is in columns,
-# not code points or UTF-8 bytes.
-def take_go(fuel: Nat, s: String, +cap: U32, +used: U32, head: String) -> Cut:
+# not code points or UTF-8 bytes. The fit fields ride in the phase value;
+# both hops shrink fuel, so the entry fuel covers two spends per cluster.
+type TakePhase is Data:
+  TakeDecide{}
+  TakeFit{tail: String, text: String, uw: U32}
+  TakeNoFit{}
+
+def take_go(fuel: Nat, s: String, +cap: U32, +used: U32, head: String, phase: TakePhase) -> Cut:
   match fuel:
     case 0n: Cut{String.reverse(head), s, used}
     case 1n+p:
       match s:
         case SNil{}: Cut{String.reverse(head), "", used}
         case SCon{+h, +t}:
-          take_piece(cluster(SCon{h, t}), SCon{h, t}, cap, used, head, p)
+          match phase:
+            case TakeDecide{}:
+              +text = cut_text(cluster(SCon{h, t}))
+              +tail = cut_tail(cluster(SCon{h, t}))
+              +uw = U32.add(used, cut_width(cluster(SCon{h, t})))
+              +fits = U32.is_le(uw, cap)
+              take_go(p, SCon{h, t}, cap, used, head, Bool.pick(TakePhase, fits, TakeFit{tail, text, uw}, TakeNoFit{}))
+            case TakeFit{tail, text, uw}:
+              take_go(p, tail, cap, uw, String.reverse(text) ++ head, TakeDecide{})
+            case TakeNoFit{}:
+              Cut{String.reverse(head), SCon{h, t}, used}
 
 def take(+s: String, cap: U32) -> Cut:
-  take_go(Nat.add(1n, String.length(s)), s, cap, 0, "")
+  +n = String.length(s)
+  take_go(Nat.add(2n, Nat.add(n, n)), s, cap, 0, "", TakeDecide{})

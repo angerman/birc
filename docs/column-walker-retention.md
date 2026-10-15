@@ -302,6 +302,29 @@ are arguments of a plain call. When the call returns, the only live string
 should be the returned `Cut`. A layout cache would cut the spindump CPU later.
 It does not remove the task allocation, and it is not this fix.
 
+## Applied fix — 2026-10-15
+
+The helper-direct-call shape above does NOT compile on this pin: replacing
+the continuations with direct calls makes `cluster_go`, `cluster_char`, and
+`cluster_join` mutually recursive, and the checker rejects the cycle
+("expected: a filled definition ... observed: cluster_go"). Checker rules
+established by probe (`bend <file> --check-only`): matches cannot scrutinize
+local binders (confirmed for Bool, ADT, and Nat); matches must follow
+parameter order; self-calls terminate lexicographically (args unchanged until
+one shrinks); bare constructors need an expected type (no unannotated
+`SCon{...}` lets).
+
+What landed in `src/bend/columns.bend` instead: single self-recursive walks
+with a Decide/act phase parameter. Decide computes the branch values and
+selects a phase VALUE with `Bool.pick`; act arms match parameters only.
+`cluster_go` act arms pass fuel unchanged and shrink the string.
+`text_width_go` and `take_go` decompose the computed `Cut` through
+non-recursive `cut_text`/`cut_tail`/`cut_width` projections; `take_go` carries
+the fit fields in its phase and doubles its entry fuel (two spends per
+cluster). No lambdas, no mutual recursion, no match on a computed value.
+Verified on `aarch64-darwin-4`: `columns_width=ok`,
+`ui_review_columns=ok`, `ui_review_columns_parity=ok`.
+
 ## How to know it worked
 
 Behavior, before any census rebuild:

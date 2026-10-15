@@ -1,11 +1,11 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
-- Column-walker retention: direct-call rewrite APPLIED to
-  `src/bend/columns.bend` (helpers kept, continuations replaced by fuel,
-  `cluster_crlf_cut` match; zero lambdas remain). Pending calm host:
-  `make test-columns-width`, `make test-ui-review-columns`, then the idle +
-  15-channel census per `docs/column-walker-retention.md` (frozen bump,
-  frozen CID_SCON, lambda task rows gone).
+- Column-walker retention: phase-machine rewrite in `src/bend/columns.bend`
+  (UNCOMMITTED; the committed 0066b43 does not compile — mutual recursion).
+  Harnesses pass on darwin-4: `columns_width=ok`, `ui_review_columns=ok`,
+  parity ok. Pending: commit, then the idle + 15-channel census per
+  `docs/column-walker-retention.md` (frozen bump, frozen CID_SCON, lambda
+  task rows gone). Census scripts alive in /tmp; app codegen + inject next.
 - wf-composer split prefix: FIXED in `src/bend/view.bend`
   (`split_composer_rect` mirrors the C bottom-most/left-most chooser; both
   split call sites converted, single-pane untouched). Pending calm host:
