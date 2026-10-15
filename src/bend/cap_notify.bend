@@ -34,6 +34,12 @@ def CAP_AWAY() -> String:
 def CAP_CHATHISTORY() -> String:
   "draft/chathistory"
 
+# Single owner of the echo-message capability name and negotiated bit. When
+# negotiated, the server echoes our own PRIVMSG/NOTICE back; the send path
+# suppresses its local echo and the wire echo renders exactly once.
+def CAP_ECHO() -> String:
+  "echo-message"
+
 def CAP_NOTIFY() -> String:
   "cap-notify"
 
@@ -41,9 +47,9 @@ def CAP_NOTIFY() -> String:
 def wanted.sasl(want: Bool) -> List<&2, String>:
   match want:
     case True{}:
-      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_NOTIFY() <> Nil{}
+      CAP_SASL() <> CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_NOTIFY() <> Nil{}
     case False{}:
-      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_NOTIFY() <> Nil{}
+      CAP_SERVER_TIME() <> CAP_MESSAGE_TAGS() <> CAP_ACCOUNT() <> CAP_AWAY() <> CAP_CHATHISTORY() <> CAP_ECHO() <> CAP_NOTIFY() <> Nil{}
 
 def wanted(+has_sasl: Bool) -> List<&2, String>:
   wanted.sasl(has_sasl)
@@ -211,22 +217,22 @@ def has_cap(+xs: List<&2, String>, +want: String) -> Bool:
   has_cap.go(xs, want)
 
 type Caps is Data:
-  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool, chathistory: Bool, notify: Bool}
+  Caps{server_time: Bool, message_tags: Bool, account: Bool, away: Bool, sasl: Bool, chathistory: Bool, echo: Bool, notify: Bool}
 
 def caps0() -> Caps:
-  Caps{False{}, False{}, False{}, False{}, False{}, False{}, False{}}
+  Caps{False{}, False{}, False{}, False{}, False{}, False{}, False{}, False{}}
 
 def caps_enable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +no}:
-      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL()), ch || cap_match.one(name, CAP_CHATHISTORY()), no || cap_match.one(name, CAP_NOTIFY())}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +no}:
+      Caps{st || cap_match.one(name, CAP_SERVER_TIME()), mt || cap_match.one(name, CAP_MESSAGE_TAGS()), ac || cap_match.one(name, CAP_ACCOUNT()), aw || cap_match.one(name, CAP_AWAY()), sa || cap_match.one(name, CAP_SASL()), ch || cap_match.one(name, CAP_CHATHISTORY()), ec || cap_match.one(name, CAP_ECHO()), no || cap_match.one(name, CAP_NOTIFY())}
 
 # G6.2: removal mirrors enable. A DEL line clears every listed cap, and a
 # '-' entry inside an ACK clears that one cap; other caps are untouched.
 def caps_disable(+caps: Caps, +name: String) -> Caps:
   match caps:
-    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +no}:
-      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL())), ch && Bool.not(cap_match.one(name, CAP_CHATHISTORY())), no && Bool.not(cap_match.one(name, CAP_NOTIFY()))}
+    case Caps{+st, +mt, +ac, +aw, +sa, +ch, +ec, +no}:
+      Caps{st && Bool.not(cap_match.one(name, CAP_SERVER_TIME())), mt && Bool.not(cap_match.one(name, CAP_MESSAGE_TAGS())), ac && Bool.not(cap_match.one(name, CAP_ACCOUNT())), aw && Bool.not(cap_match.one(name, CAP_AWAY())), sa && Bool.not(cap_match.one(name, CAP_SASL())), ch && Bool.not(cap_match.one(name, CAP_CHATHISTORY())), ec && Bool.not(cap_match.one(name, CAP_ECHO())), no && Bool.not(cap_match.one(name, CAP_NOTIFY()))}
 
 def cap_negated(+name: String) -> Bool:
   String.starts_with(name, "-")
@@ -278,23 +284,27 @@ def caps_apply_line(+caps: Caps, +server: String, +nick: String, +line: String, 
 
 def tags_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, +mt, _, _, _, _, _}: mt
+    case Caps{_, +mt, _, _, _, _, _, _}: mt
 
 def account_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, +ac, _, _, _, _}: ac
+    case Caps{_, _, +ac, _, _, _, _, _}: ac
 
 def away_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, +aw, _, _, _}: aw
+    case Caps{_, _, _, +aw, _, _, _, _}: aw
 
 def chathistory_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, +ch, _}: ch
+    case Caps{_, _, _, _, _, +ch, _, _}: ch
+
+def echo_ok(+caps: Caps) -> Bool:
+  match caps:
+    case Caps{_, _, _, _, _, _, +ec, _}: ec
 
 def notify_ok(+caps: Caps) -> Bool:
   match caps:
-    case Caps{_, _, _, _, _, _, +no}: no
+    case Caps{_, _, _, _, _, _, _, +no}: no
 
 # ---- account/away notify --------------------------------------------------
 # The server only sends these about visible users, so no roster check is
@@ -573,6 +583,12 @@ def reg_target(+reg: Reg) -> String:
   match reg:
     case Reg{_, +out}: out_target(out)
 
+# Session send-path gate: when True, local echoes are suppressed and the
+# server's echo-message copy is the single rendered confirmation.
+def reg_echo_ok(+reg: Reg) -> Bool:
+  match reg:
+    case Reg{+caps, _}: echo_ok(caps)
+
 # Live tick bundle for the Session/Net binding: composing is a nonempty
 # composer on a valid target. The binding stores the returned Reg and sends
 # at most one wire through the bounded actor path.
@@ -630,11 +646,13 @@ def caps_parse_ok() -> Bool:
   +chat = caps_apply_line(caps0(), "s", "me", ":alice!u@h PRIVMSG me :CAP ACK message-tags", True{})
   +newed = caps_apply_line(caps0(), "s", "me", ":s CAP me NEW :cap-notify", True{})
   +new_other = caps_apply_line(caps0(), "s", "me", ":s CAP me LS :cap-notify", True{})
+  +echo = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :echo-message", True{})
   tags_ok(acked) && account_ok(acked) && Bool.not(away_ok(acked))
     && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed))
     && Bool.not(tags_ok(naked))
     && Bool.not(tags_ok(chat))
     && notify_ok(newed) && Bool.not(notify_ok(new_other))
+    && echo_ok(echo)
 
 # G6.1 guards: user prefixes and foreign recipients never enable; our server
 # addressing us (or the '*' registration recipient while unregistered) does.
@@ -661,28 +679,57 @@ def caps_removal_ok() -> Bool:
   +new_on = caps_apply_line(caps0(), "s", "me", ":s CAP me NEW :cap-notify", True{})
   +new_del = caps_apply_line(new_on, "s", "me", ":s CAP me DEL :cap-notify", True{})
   +direct_new = caps_apply(caps0(), CapEvent{CapNew{}, "cap-notify" <> Nil{}})
+  +eon = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :echo-message message-tags", True{})
+  +eneg = caps_apply_line(eon, "s", "me", ":s CAP me ACK :-echo-message", True{})
+  +edel = caps_apply_line(eon, "s", "me", ":s CAP me DEL :echo-message", True{})
   tags_ok(on) && account_ok(on) && away_ok(on)
     && Bool.not(tags_ok(neg)) && account_ok(neg) && away_ok(neg)
     && tags_ok(del) && Bool.not(account_ok(del)) && Bool.not(away_ok(del))
     && tags_ok(reack)
     && Bool.not(tags_ok(direct)) && Bool.not(tags_ok(direct_neg))
     && notify_ok(new_on) && Bool.not(notify_ok(new_del)) && notify_ok(direct_new)
+    && echo_ok(eon) && Bool.not(echo_ok(eneg)) && tags_ok(eneg)
+    && Bool.not(echo_ok(edel)) && tags_ok(edel)
 
 def caps_ack_only_ok() -> Bool:
-  Bool.not(tags_ok(caps0())) && Bool.not(account_ok(caps0())) && Bool.not(away_ok(caps0())) && Bool.not(notify_ok(caps0()))
+  Bool.not(tags_ok(caps0())) && Bool.not(account_ok(caps0())) && Bool.not(away_ok(caps0())) && Bool.not(notify_ok(caps0())) && Bool.not(echo_ok(caps0()))
     && tags_ok(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}))
     && account_ok(caps_apply(caps0(), CapEvent{CapAck{}, "account-notify" <> Nil{}}))
     && away_ok(caps_apply(caps0(), CapEvent{CapAck{}, "away-notify" <> Nil{}}))
     && notify_ok(caps_apply(caps0(), CapEvent{CapAck{}, "cap-notify" <> Nil{}}))
     && notify_ok(caps_apply(caps0(), CapEvent{CapNew{}, "cap-notify" <> Nil{}}))
+    && echo_ok(caps_apply(caps0(), CapEvent{CapAck{}, "echo-message" <> Nil{}}))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapLs{}, "message-tags" <> Nil{}})))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapNak{}, "message-tags" <> Nil{}})))
     && Bool.not(tags_ok(caps_apply(caps0(), CapEvent{CapOther{}, "message-tags" <> Nil{}})))
     && Bool.not(notify_ok(caps_apply(caps0(), CapEvent{CapNak{}, "cap-notify" <> Nil{}})))
     && Bool.not(notify_ok(caps_apply(caps0(), CapEvent{CapOther{}, "cap-notify" <> Nil{}})))
+    && Bool.not(echo_ok(caps_apply(caps0(), CapEvent{CapLs{}, "echo-message" <> Nil{}})))
+    && Bool.not(echo_ok(caps_apply(caps0(), CapEvent{CapNak{}, "echo-message" <> Nil{}})))
+    && Bool.not(echo_ok(caps_apply(caps0(), CapEvent{CapOther{}, "echo-message" <> Nil{}})))
     && has_cap(Commands.words("sasl=PLAIN message-tags"), "sasl")
     && Bool.not(has_cap(Commands.words("not-sasl"), "sasl"))
     && caps_parse_ok() && cap_trust_ok() && caps_removal_ok()
+
+# echo-message guards: plain 302 name on the wire, ACK-only enable through
+# the shared trust gate (hostile post-register lines never arm it), DEL and
+# '-' removal mirror enable, and the Reg-level send gate follows the bit.
+def caps_echo_ok() -> Bool:
+  +on = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :echo-message", True{})
+  +valued = caps_apply(caps0(), CapEvent{CapAck{}, "echo-message=1" <> Nil{}})
+  +upper = caps_apply(caps0(), CapEvent{CapAck{}, "ECHO-MESSAGE" <> Nil{}})
+  +star_reg = caps_apply_line(caps0(), "s", "me", ":s CAP * ACK :echo-message", True{})
+  +spoof = caps_apply_line(caps0(), "s", "me", ":alice!u@h CAP me ACK :echo-message", True{})
+  +del = caps_apply_line(on, "s", "me", ":s CAP me DEL :echo-message", True{})
+  +neg = caps_apply_line(on, "s", "me", ":s CAP me ACK :-echo-message", True{})
+  String.eq(CAP_ECHO(), "echo-message")
+    && String.eq(Irc.format_cap_req(CAP_ECHO()), "CAP REQ :echo-message")
+    && Bool.not(echo_ok(caps0()))
+    && echo_ok(on) && echo_ok(valued) && echo_ok(upper)
+    && Bool.not(echo_ok(star_reg)) && Bool.not(echo_ok(spoof))
+    && Bool.not(echo_ok(del)) && Bool.not(echo_ok(neg))
+    && Bool.not(reg_echo_ok(reg0()))
+    && reg_echo_ok(Reg{on, out0()})
 
 def is_account_on(e: NotifyEvent, +nick: String, +account: String) -> Bool:
   match e:

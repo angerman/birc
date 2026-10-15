@@ -1120,7 +1120,7 @@ def on_upload.url(fits: Bool, ui: T.Ui, +st: Sess.Session, url: String, +evt: Ch
     case True{}:
       # Submit the validated URL through the ordinary echo/wire path. Keep
       # the real draft and composer history; the helper is not a keystroke.
-      on_upload.sent(Sess.apply_keys(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}, Sess.session_negotiated(st)), ui, st, evt, cmd, ack, gen, k)
+      on_upload.sent(Sess.apply_keys_echo(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}, Sess.session_negotiated(st), Sess.session_echo_ok(st)), ui, st, evt, cmd, ack, gen, k)
 
 def on_upload.completed(pair: Sess.Session & Maybe<&2, String>, ui: T.Ui, request: Up.Request, allowed: Bool, +error: U32, http_status: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:

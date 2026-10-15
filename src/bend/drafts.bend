@@ -708,6 +708,21 @@ def submit_each.go(fuel: Nat, +cl: Cl.Client, +bi: Nat, xs: List<&2, String>, +t
 def submit_each(+cl: Cl.Client, +bi: Nat, +xs: List<&2, String>, +target: String, +notice: Bool) -> Cl.Client & List<&2, String>:
   submit_each.go(Nat.add(1n, List.length(&2, String, xs)), cl, bi, xs, target, notice)
 
+def submit_each_echo.go(fuel: Nat, +cl: Cl.Client, +bi: Nat, xs: List<&2, String>, +target: String, +notice: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match fuel:
+    case 0n:
+      (cl, Nil{})
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          (cl, Nil{})
+        case Con{+line, +t}:
+          submit_each.step(Sub.send_text_gated(cl, bi, target, line, notice, echo_ok),
+            cl2 => outs => submit_each.join(submit_each_echo.go(p, cl2, bi, t, target, notice, echo_ok), outs))
+
+def submit_each_echo(+cl: Cl.Client, +bi: Nat, +xs: List<&2, String>, +target: String, +notice: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  submit_each_echo.go(Nat.add(1n, List.length(&2, String, xs)), cl, bi, xs, target, notice, echo_ok)
+
 def wires_ready(+wires: Maybe<&2, List<&2, String>>) -> Bool:
   match wires:
     case None{}:
@@ -809,6 +824,39 @@ def submit_lines(+cl: Cl.Client, +bi: Nat, +target: String, +text: String, +noti
   +lines = nonempty(split_lines(text))
   submit_lines.resolved(cl, bi, target, lines, notice,
     Bool.not(Nat.is_eq(bi, 0n)) && Bool.not(Cl.target_is_synthetic(Sp.name_at(cl, bi))))
+
+def submit_lines_echo.gated(+cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool, ready: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match ready:
+    case True{}:
+      submit_each_echo(cl, bi, lines, target, notice, echo_ok)
+    case False{}:
+      (Sub.echo_err(cl, reject_reason_lines(cl, target, lines, notice)), Nil{})
+
+def submit_lines_echo.empty(+cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool, none: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match none:
+    case True{}:
+      (cl, Nil{})
+    case False{}:
+      submit_lines_echo.gated(cl, bi, target, lines, notice, submit_ready(cl, target, lines, notice), echo_ok)
+
+def submit_lines_echo.synthetic(synth: Bool, +cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match synth:
+    case True{}:
+      (Sub.echo_err(cl, "read-only buffer"), Nil{})
+    case False{}:
+      submit_lines_echo.empty(cl, bi, target, lines, notice, List.is_empty(&2, String, lines), echo_ok)
+
+def submit_lines_echo.resolved(+cl: Cl.Client, +bi: Nat, +target: String, +lines: List<&2, String>, +notice: Bool, pane_ok: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match pane_ok:
+    case True{}:
+      submit_lines_echo.synthetic(Cl.target_is_synthetic(Cl.target_name(target)), cl, bi, target, lines, notice, echo_ok)
+    case False{}:
+      (Sub.echo_err(cl, "read-only buffer"), Nil{})
+
+def submit_lines_echo(+cl: Cl.Client, +bi: Nat, +target: String, +text: String, +notice: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  +lines = nonempty(split_lines(text))
+  submit_lines_echo.resolved(cl, bi, target, lines, notice,
+    Bool.not(Nat.is_eq(bi, 0n)) && Bool.not(Cl.target_is_synthetic(Sp.name_at(cl, bi))), echo_ok)
 
 # ---- modal ------------------------------------------------------------
 # A pending modal (upload consent) blocks Enter in session; the typed text

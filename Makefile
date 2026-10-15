@@ -1581,6 +1581,12 @@ test-capnotify: $(BLDDIR)/capnotify_demo.js ## CAP NEW/DEL lifetime updates thro
 	$(NIXRUN) sh scripts/check-golden.sh capnotify_demo=ok timeout 30 bun $(BLDDIR)/capnotify_demo.js
 test-review-pure: test-capnotify
 
+.PHONY: test-echo-message
+test-echo-message: $(BLDDIR)/echo_message.js ## IRCv3 echo-message: gated local echo, single wire render, hostile CAP rejection.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh echo_message=ok timeout 30 bun $(BLDDIR)/echo_message.js
+test-review-pure: test-echo-message
+
 # Admitted runtime core fixtures: standalone until canonical-source qualification.
 .PHONY: test-session-drafts test-workspace test-wsnet-gates test-ws-first-connect test-ws-shutdown-pending
 test-session-drafts: $(BLDDIR)/session_drafts_demo ## Session/drafts wiring goldens (focus gates, endpoint replace, submit clearing, multiline, modal stash).
