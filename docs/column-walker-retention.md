@@ -444,3 +444,18 @@ with multi-second flats, verdict `unclear` all three runs). That is a
 footprint-only signal with no corpus attribution — this probe is not the
 leak oracle — and does not overturn the instrumented census above.
 Commit-ready as a non-gate measurement probe, no code changes needed.
+
+## Follow-up: idle SCON attribution (2026-10-15)
+
+A 16-minute idle soak plus a live instrumented probe closed the watch
+item above. Zero `COLUMNS` task rows in 30 dumps: the column fix is
+exonerated. The live +336 SCON per interval is PONG keepalive trickle
+logged through `feed_unk` (every server PONG logged an
+unknown-command server row; PING was already skipped, PONG was
+missed), with the raw-dump excess as freelist residue. Fix landed
+with this note: `feed_pong` no-ops in both feed dispatchers while the
+fold lag arm keeps measuring RTT off the raw line. Residual: the
+>90-minute `SCROLL_CAP` bind (trickle must flatten once buffer 0 hits
+1024 lines) was not observed; the negotiated-fold PONG-out arm still
+emits and is a probable live-dupe vestige awaiting a live-server
+probe (see BACKLOG).

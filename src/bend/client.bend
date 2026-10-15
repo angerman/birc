@@ -136,6 +136,12 @@ def feed_none(+cl: Cl.Client) -> Cl.Client:
 def feed_ping(+cl: Cl.Client) -> Cl.Client:
   cl
 
+# Keepalive PONGs stay quiet like PINGs: every server PONG would
+# otherwise log an unknown-command server row per keepalive. RTT is
+# still measured by the fold lag arm off the raw line before feed.
+def feed_pong(+cl: Cl.Client) -> Cl.Client:
+  cl
+
 def feed_priv.write.msg.kind(is_hl: Bool) -> Cl.LineKind:
   match is_hl:
     case True{}: Cl.Highlight{}
@@ -1158,6 +1164,8 @@ def feed_msg.cmd(+cl: Cl.Client, +prefix: String, +m: Irc.Message, +from: String
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
+    case Irc.Pong{}:
+      feed_pong(cl)
     case Irc.Privmsg{}:
       feed_priv.route(cl, Irc.msg_param(m, 0n), from, False{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Notice{}:
@@ -1210,6 +1218,8 @@ def feed_msg_with.cmd(+cl: Cl.Client, +cm: String, +types: String, +status: Stri
   match c:
     case Irc.Ping{}:
       feed_ping(cl)
+    case Irc.Pong{}:
+      feed_pong(cl)
     case Irc.Privmsg{}:
       feed_priv.route_with(cl, cm, types, status, sigils, Irc.msg_param(m, 0n), from, False{}, Irc.msg_param(m, 1n), Irc.msg_time(m))
     case Irc.Notice{}:

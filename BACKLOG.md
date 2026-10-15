@@ -6,12 +6,21 @@
   boxed Sessions (SBox singleton-list cells, session_drafts_demo
   idiom); assertions unchanged, in the same order. Native C build
   plus `media_history=ok` verified, JS gate stays green.
-- Column-walker retention: phase machines LANDED (a1aa3e6) and the
-  post-fix census is DONE (see "Post-fix census — 2026-10-15" in
-  `docs/column-walker-retention.md`): bump frozen both runs (1033/9193),
-  zero COLUMNS task rows in all dumps, channels CID_SCON flat. Watch
-  item (not a rejection): idle CID_SCON still creeps inside frozen
-  pages — needs a longer soak or instrumented probe to attribute.
+- Column-walker retention: phase machines LANDED (a1aa3e6), post-fix
+  census DONE, and the idle-creep watch item is ATTRIBUTED (see
+  "Follow-up: idle SCON attribution" in
+  `docs/column-walker-retention.md`): a 16-min soak plus a live probe
+  show zero COLUMNS rows in 30 dumps (column fix exonerated) and the
+  live +336 SCON/interval is PONG keepalive trickle logged via
+  `feed_unk`, with the raw excess as freelist residue. FIXED with it:
+  PONG is now quiet in feed like PING (`feed_pong` no-op, both
+  dispatchers; lag arm still measures RTT pre-feed), pinned by
+  `pong_quiet`/`pong_lag`/`pong_quiet_with` in net_demo. Residual
+  watch items: the >90-min SCROLL_CAP bind was not observed (trickle
+  must flatten once buffer 0 hits 1024 lines); the negotiated-fold
+  PONG-out arm (`fold_step.ping_at_with`) still emits and is a
+  probable live-dupe vestige — needs a live-server probe before any
+  change (removal without one risks keepalive).
 - wf-composer split prefix: UNIFIED under one rule (reverse of the
   suggested default, justified): C always seats exactly one text
   widget (`src/ffi/timui_ffi.c` chooser dropped its zero-inner skip and

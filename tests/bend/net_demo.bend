@@ -12,19 +12,39 @@ import ../../src/bend/net.bend as IoNet
 import ../../src/bend/actor.bend as Act
 import ../../src/bend/transport.bend as Tr
 
-def send_go(m: Socket & Result<&1, &1, (U32 & String), Unit>) -> IO(Socket):
+# Raw prelude socket shapes (Bend 2.0.37; net_demo is the sole raw user):
+# send's error tuple gained a trailing context String, recv's success
+# payload is Maybe<String>, accept/listen/connect are unchanged. The
+# test only needs success/failure, so match Done/Fail directly instead
+# of IO.pass (whose error type is fixed to the old tuple).
+def send_go(m: Socket & Result<&1, &1, ((U32 & String) & String), Unit>) -> IO(Socket):
   match m:
     case (s, r):
-      do IO<Socket>:
-        Unit <- IO.pass(Unit, r)
-        return s
+      match r:
+        case Done{_}:
+          IO.pure(Socket, s)
+        case Fail{_}:
+          IO.die(Socket, 1, "tcp send failed")
 
-def recv_go(m: Socket & Result<&1, &1, (U32 & String), String>) -> IO(Socket & String):
+def recv_go(m: Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>>) -> IO(Socket & String):
   match m:
     case (s, r):
-      do IO<Socket & String>:
-        text : String <- IO.pass(String, r)
-        return (s, text)
+      match r:
+        case Done{+mtext}:
+          match mtext:
+            case Some{+text}:
+              IO.pure(Socket & String, (s, text))
+            case None{}:
+              IO.die(Socket & String, 1, "tcp recv empty")
+        case Fail{_}:
+          IO.die(Socket & String, 1, "tcp recv failed")
+
+def accept_go(r: Result<&1, &1, (U32 & String), Socket>) -> IO(Socket):
+  match r:
+    case Done{server}:
+      IO.pure(Socket, server)
+    case Fail{_}:
+      IO.die(Socket, 1, "tcp accept failed")
 
 def tcp_retry(port: U32, r: Result<&1, &1, (U32 & String), Listener>, rest: IO(Listener & U32)) -> IO(Listener & U32):
   match r:
@@ -57,22 +77,54 @@ def show_reg_pair(xs: List<&2, String>) -> String:
     case _:
       "reg=bad"
 
-def fold_ok.on(got: Cl.Client & List<&2, String>) -> Bool:
-  match got:
-    case (+cl, +pongs):
-      String.eq(first_line(pongs), "PONG :abc")
-        && Nat.is_eq(CL.nbuf(cl), 1n)
-        && Nat.is_eq(CL.buf_nlines(cl, 0n), 1n)
-
-def fold_ok() -> Bool:
-  fold_ok.on(Sess.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))
-
+# Fixed fold emits no PONG outs of its own (the actor reader owns the
+# single live wire reply); PING input is skipped quietly and 001 logs
+# one welcome row. PONG reply construction stays pinned by `pong` and
+# chunk_join_pong.
 def show_outs(+xs: List<&2, String>) -> String:
   match xs:
     case Nil{}:
       ""
     case Con{+h, t}:
       h ++ "|" ++ show_outs(t)
+
+def fold_ok.on(got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      String.eq(show_outs(outs), "")
+        && Nat.is_eq(CL.nbuf(cl), 1n)
+        && Nat.is_eq(CL.buf_nlines(cl, 0n), 1n)
+
+def fold_ok() -> Bool:
+  fold_ok.on(Sess.fold_lines(Cl.init("me", "s"), "PING :abc" <> ":irc.example.net 001 me :Welcome" <> Nil{}))
+
+# Keepalive PONGs stay quiet in feed (like PING): no server-log rows,
+# no outs. Two lines to catch partial fixes.
+def pong_quiet.on(got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      String.eq(show_outs(outs), "")
+        && Nat.is_eq(CL.nbuf(cl), 1n)
+        && Nat.is_eq(CL.buf_nlines(cl, 0n), 0n)
+
+def pong_quiet() -> Bool:
+  pong_quiet.on(Sess.fold_lines(Cl.init("me", "s"), ":s PONG s :xyz" <> ":s PONG s :xyz" <> Nil{}))
+
+# The lag arm still measures RTT off the raw line while feed stays quiet.
+def pong_lag.on(got: Cl.Client & List<&2, String>) -> Bool:
+  match got:
+    case (+cl, +outs):
+      U32.is_eq(Cl.client_lag(cl), 250)
+        && Nat.is_eq(CL.buf_nlines(cl, 0n), 0n)
+        && String.eq(show_outs(outs), "")
+
+def pong_lag() -> Bool:
+  pong_lag.on(Sess.fold_lines_ms(Cl.init("me", "s"), ":s PONG me :birc_1000" <> Nil{}, 1250))
+
+# Negotiated dispatcher agrees: PONG adds no rows there either.
+def pong_quiet_with() -> Bool:
+  +cl2 = Feed.feed_with(Cl.init("me", "s"), Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), ":s PONG s :xyz")
+  Nat.is_eq(CL.buf_nlines(cl2, 0n), 0n)
 
 def nick433_fold_reject.on(got: Cl.Client & List<&2, String>) -> Bool:
   match got:
@@ -145,10 +197,12 @@ def nick433_fold_same() -> Bool:
 def welcome_octets() -> List<&2, U32>:
   Fr.string_to_octets(":irc.example.net 001 probe :Welcome\r\nPING :xyz\r\n")
 
+# Fixed chunk path emits no PONG out (actor owns the live reply; see
+# fold_ok): 001 flushes JOIN, PING answers nothing here.
 def chunk_join_pong.on(got: Sess.Session & List<&2, String>) -> Bool:
   match got:
     case (_, outs):
-      String.eq(show_outs(outs), "PONG :xyz|JOIN #t|")
+      String.eq(show_outs(outs), "JOIN #t|")
 
 def chunk_join_pong() -> Bool:
   chunk_join_pong.on(
@@ -164,6 +218,9 @@ def finish_report(+lines: List<&2, String>, client2: Tr.Conn, server2: Socket) -
     Unit <- E.must_eq("line", first_line(lines), "PING :loopback")
     Unit <- E.must("rt", Fr.str_eq(first_line(lines), "PING :loopback"))
     Unit <- E.must("fold", fold_ok())
+    Unit <- E.must("pong_quiet", pong_quiet())
+    Unit <- E.must("pong_lag", pong_lag())
+    Unit <- E.must("pong_quiet_with", pong_quiet_with())
     Unit <- E.must("chunk_join_pong", chunk_join_pong())
     Unit <- E.must("nick433_reject", nick433_fold_reject())
     Unit <- E.must("nick433_star", nick433_fold_star())
@@ -209,11 +266,11 @@ def after_accept(
   client: Socket
 ) -> IO(Unit):
   do IO<Unit>:
-    server : Socket <- IO.pass(Socket, ar)
+    server : Socket <- accept_go(ar)
     Unit <- Listener.close(listener2)
-    sm : Socket & Result<&1, &1, (U32 & String), Unit> <- TCP.send(client, "PING :loopback\r\n")
+    sm : Socket & Result<&1, &1, ((U32 & String) & String), Unit> <- TCP.send(client, "PING :loopback\r\n")
     client2 : Socket <- send_go(sm)
-    rm : Socket & Result<&1, &1, (U32 & String), String> <- TCP.recv(server, 1024)
+    rm : Socket & Result<&1, &1, (U32 & String), Maybe<&1, String>> <- TCP.recv(server, 1024)
     sl : Socket & String <- recv_go(rm)
     finish_recv(sl, client2)
 
