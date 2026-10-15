@@ -3382,7 +3382,10 @@ def step_keys.preferences(keys: Keys, trip: Session & NetCmd & Bool) -> Session 
 # Each line is judged by the negotiated single-line rule (per-line planned
 # targets for /msg, /query, /notice, join/mode keys, /raw) plus the
 # current-target message rule, so a rejected command paste carrying a
-# secret never leaves its raw block in HistPrev recall.
+# secret never leaves its raw block in HistPrev recall. The joined whole
+# is judged too: the single-line rule strips CR/LF before parsing, so a
+# credential verb fractured across a line break (IDEN\rTIFY) reads
+# sensitive whole but benign per fragment (fail closed).
 def multiline_sensitive.line(+iso: Isupport.State, +cl: Cl.Client, +target: String, +line: String) -> Bool:
   Sub.input_sensitive_iso(iso, cl, line) || Sub.message_sensitive(cl, target, line, False{})
 
@@ -3397,7 +3400,7 @@ def multiline_sensitive.go(+iso: Isupport.State, +lines: List<&2, String>, +cl: 
     case Con{+h, +t}: multiline_sensitive.any(multiline_sensitive.go(iso, t, cl, target), multiline_sensitive.line(iso, cl, target, h))
 
 def hist_after_typed(+hist: Hist, +cl: Cl.Client, +target: String, +typed: String, +iso: Isupport.State) -> Hist:
-  hist_after_enter(hist, typed, Bool.not(multiline_sensitive.go(iso, Drafts.nonempty(Drafts.split_lines(typed)), cl, target)))
+  hist_after_enter(hist, typed, Bool.not(multiline_sensitive.go(iso, Drafts.nonempty(Drafts.split_lines(typed)), cl, target) || Sub.input_sensitive_iso(iso, cl, typed)))
 
 def multiline_held.triple.r1(rest: String & NetCmd, +cl_err: Cl.Client, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
   match rest:

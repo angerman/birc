@@ -19,3 +19,10 @@
   desc-bearing cards still echo the URL as the card title line. Confirm the
   partial-metadata echo is the wanted look (item 3 screenshot was the
   no-metadata case, now fixed).
+- test-auth-privacy: FIXED — root cause was `hist_after_typed` judging
+  only per-line fragments, so a credential verb fractured across a line
+  break (`IDEN\rTIFY`) read benign. It now also judges the joined whole
+  and fails closed. `auth_privacy=ok` verified (calm-host batch).
+  Watch item: `build/birc` -O2 link (~280 s) and the `auth_privacy`
+  Bend build (~180 s) sit at their `timeout` edges under host load;
+  consider a timeout bump or calm-host pinning.
