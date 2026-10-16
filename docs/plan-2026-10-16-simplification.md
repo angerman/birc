@@ -274,6 +274,30 @@ Error 124 is `timeout` expiring. This is pre-existing, not a regression — it i
 run has no verdict."* **`make check` includes `proof`, so `make check` is red on
 master today.**
 
+**Measured ceiling: it does not finish in 40 minutes either.** On
+`aarch64-darwin-1.lan` (8 cores, otherwise idle) with the override raised 13×:
+
+```
+proof_rc=2
+make: *** [proof] Error 124
+make proof PROOF_TIMEOUT=2400  2667.90s user 4194.05s system 284% cpu 40:13.21 total
+```
+
+The CPU split is the diagnostic: **4,194 s system versus 2,668 s user**, at only
+284% CPU. More kernel time than user time means allocation, GC and page-fault
+pressure in the Bun runtime — not raw compute. So the cost is in how the checker
+handles 535 `{==}` definitional-equality obligations across a 37,389-line closure,
+not in the mathematical content of the laws. `PROOF_TIMEOUT=180` is not merely
+tight, it is wrong by more than an order of magnitude, and any claim that a change
+"passes `make proof`" is unverifiable on this hardware within the configured bound.
+
+**This is the answer to `TODO.md:53`.** The remaining full-book cost is
+runtime/GC-bound in the checker, and the levers are: shrink what `LAWS.bend`
+imports (49 modules today), reduce the number of concrete-example laws (506 of 535
+are concrete examples the golden fixtures already check in milliseconds), or fix
+the checker's allocation behaviour. None of those is a Makefile change.
+
+
 **Sharding is impossible.** A probe discharged 25 of the 535 `def Laws.*` blocks
 into a standalone file with `PROOF.bend`'s own 19-line import header, and Bend
 rejected it:
