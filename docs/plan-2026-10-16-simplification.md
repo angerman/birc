@@ -61,6 +61,52 @@ make <focused targets>          # must pass
 git add -A && git commit -m "<type>(<scope>): <summary>"
 ```
 
+### Remote build lanes
+
+The local 10-core host is often busy with unrelated work, and its wall-clock
+numbers are worse than the calibrated bounds in `Makefile:18-20`. Four 8-core
+`aarch64-darwin` hosts are available as build lanes:
+
+| Host | Cores | Free disk | Typical load | Status |
+|---|---|---|---|---|
+| `aarch64-darwin-1.lan` | 8 | 198 GiB | ~1.0 | **provisioned, verified** |
+| `aarch64-darwin-5.lan` | 8 | 112 GiB | ~1.5 | provisioning (store-lock retry) |
+| `aarch64-darwin-3.lan` | 8 | 32 GiB | ~4.0 | busy — avoid |
+| `aarch64-darwin-4.lan` | 8 | 29 GiB | ~1.0 | disk too tight for `build/` |
+
+Each lane holds a copy of the tree at `/Users/angerman/birc-lane`. Provisioning is:
+
+```sh
+rsync -a --delete --exclude 'build/' --exclude '.muse/' --exclude 'handover-recovery/' \
+      --exclude 'scratch/' --exclude 'result*' --exclude '.direnv/' \
+      ./ aarch64-darwin-1.lan:/Users/angerman/birc-lane/
+ssh aarch64-darwin-1.lan 'cd /Users/angerman/birc-lane && mkdir -p build \
+  && nix --extra-experimental-features "nix-command flakes" develop \
+       --no-update-lock-file . --command bend version'
+```
+
+Verified working: `make test-utc-time test-base64` from a cold `build/` returns
+both `=ok` in 3.4 s at 192% CPU.
+
+Two gotchas found the hard way:
+- `build/` must exist. Raw `bend X -o build/X` does not create it (`ld: can't open
+  output file … errno=2`); the Makefile's `@mkdir -p $(BLDDIR)` does. Always
+  `mkdir -p build` after an rsync that excludes it.
+- Do not pipe the ssh command through `tail` when you care about success —
+  `ssh … | tail -4` returns tail's status, so a failed warm-up prints as if it
+  succeeded. Check `${PIPESTATUS[0]}`, or capture and grep for `bend 2.`.
+
+**Division of labour.** Agents run locally and do their own focused verification
+(a handful of compiles each). The lanes are for the *expensive* work that the
+reviewing agent drives between waves: the integration gate (`make -j10 check`,
+154 Bend compiles), `make proof`, sanitizer builds, and perf sweeps. Nix remote
+builders are *not* the mechanism — `builders =` is empty and would not help,
+because the Makefile runs `nix develop --command bend`, which executes locally;
+only `nix build` offloads to a remote builder.
+
+Note that lane copies are rsynced snapshots. Re-sync before trusting a lane
+result, and never treat a lane's `build/` as authoritative for the local tree.
+
 ### Report format (write to `/tmp/birc-cursor-reports/<task-id>.md`)
 
 ```
