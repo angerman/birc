@@ -49,7 +49,7 @@ check: export BIRC_IMAGE_CACHE := none
 .PHONY: help bootstrap shell update doctor build build-proto build-ui \
         test test-proto test-ui test-feed test-feed-bench test-submit test-search test-preview test-split test-typing test-frame test-net test-dns \
         test-args test-cli test-live test-pty test-pty-flood test-pty-rows \
-        test-pty-restore test-pty-composer test-pty-eof test-pty-connect \
+        test-pty-restore test-pty-composer test-pty-composer-scroll test-pty-eof test-pty-connect \
         test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus \
         test-pty-tall test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 \
         test-pty-bpaste test-pty-mixburst \
@@ -1154,6 +1154,9 @@ test-pty-restore: build-ui ## Pty: cooked mode after exit (C2 atexit/close).
 
 test-pty-composer: build-ui ## Pty: composer length, history clear, and Ctrl-A/Ctrl-K.
 	$(NIXRUN) timeout 150 python3 tests/pty/composer_pty.py ./$(BLDDIR)/birc
+
+test-pty-composer-scroll: build-ui ## Pty: overlong drafts scroll horizontally, cursor stays visible, Home/End rescroll.
+	$(NIXRUN) timeout 150 python3 tests/pty/composer_scroll.py ./$(BLDDIR)/birc
 
 test-pty-eof: build-ui ## Pty: server close keeps the UI alive (H3).
 	$(NIXRUN) timeout 150 python3 tests/pty/eof_pty.py ./$(BLDDIR)/birc

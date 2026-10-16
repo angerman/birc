@@ -2214,6 +2214,7 @@ typedef struct {
   size_t cap;
   size_t cursor;
   int scroll_y;
+  int scroll_x;
 } TimuiTextAreaState;
 typedef enum {
   TIMUI_TEXT_AREA_DEFAULT = 0,
@@ -31917,6 +31918,79 @@ static void text_area_process_edit_ops_(Timui *ui, TimuiTextAreaState *st,
     }
   }
 }
+/* Byte range [start, end) of a logical row (split on \n / \r / \r\n). */
+static void text_area_row_range_(const char *text, size_t cap, int row,
+                                 size_t *start, size_t *end) {
+  size_t i = 0, ls = 0;
+  int r = 0;
+  while (i < cap && text[i] && r < row) {
+    if (text[i] == '\n' || text[i] == '\r') {
+      if (text[i] == '\r' && i + 1 < cap && text[i + 1] == '\n')
+        i++;
+      i++;
+      r++;
+      ls = i;
+    } else {
+      i++;
+    }
+  }
+  *start = ls;
+  while (i < cap && text[i] && text[i] != '\n' && text[i] != '\r')
+    i++;
+  *end = i;
+}
+/* Largest grapheme-start column at or before col on one row. */
+static int text_area_floor_col_(const char *text, size_t start, size_t end,
+                                int col) {
+  size_t p = start;
+  int c = 0, best = 0;
+  if (col <= 0)
+    return 0;
+  while (p < end && c <= col) {
+    size_t n = timui_grapheme_next(text, end, p);
+    int w;
+    best = c;
+    if (n <= p)
+      n = p + 1;
+    if (n > end)
+      n = end;
+    w = timui_grapheme_width(text + p, n - p);
+    if (w < 0)
+      w = 0;
+    c += w;
+    p = n;
+  }
+  return best;
+}
+/* Skip col display columns on one row. Returns the first byte offset at or
+ * past col; *xoff is 0, or 1 when a wide grapheme straddles the edge (draw
+ * one space first, then the rest). */
+static size_t text_area_col_skip_(const char *text, size_t start, size_t end,
+                                  int col, int *xoff) {
+  size_t p = start;
+  int c = 0;
+  *xoff = 0;
+  if (col <= 0)
+    return start;
+  while (p < end && c < col) {
+    size_t n = timui_grapheme_next(text, end, p);
+    int w;
+    if (n <= p)
+      n = p + 1;
+    if (n > end)
+      n = end;
+    w = timui_grapheme_width(text + p, n - p);
+    if (w < 0)
+      w = 0;
+    if (c + w > col) {
+      *xoff = c + w - col;
+      return n;
+    }
+    c += w;
+    p = n;
+  }
+  return p;
+}
 static int text_area_cursor_row_(const TimuiTextAreaState *st) {
   int cursor_row = 0;
   size_t ci;
@@ -31972,7 +32046,9 @@ TIMUI_API TimuiTextAreaResult timui_text_area_ex(TimuiFrame *f, TimuiId id,
         ir.focused ? TIMUI_STYLE_STATE_FOCUSED : 0);
     {
       int cursor_row = text_area_cursor_row_(&st);
+      int crow, ccol;
       int64_t bottom;
+      int vw = r.w > 0 ? r.w : 1;
       if (st.scroll_y < 0)
         st.scroll_y = 0;
       if (cursor_row < st.scroll_y)
@@ -31983,19 +32059,59 @@ TIMUI_API TimuiTextAreaResult timui_text_area_ex(TimuiFrame *f, TimuiId id,
             timui_clamp_i64_to_int_((int64_t)cursor_row - (int64_t)r.h + 1);
       if (st.scroll_y < 0)
         st.scroll_y = 0;
+      /* Horizontal follow: keep the cursor column visible, floored to a
+       * grapheme boundary on the cursor row so it stays exact. */
+      text_pos_(st.text, st.cursor, &crow, &ccol);
+      if (st.scroll_x < 0)
+        st.scroll_x = 0;
+      if (ccol < st.scroll_x)
+        st.scroll_x = ccol;
+      else if (ccol - st.scroll_x >= vw)
+        st.scroll_x = ccol - vw + 1;
+      {
+        size_t rs, re;
+        int width, cap;
+        text_area_row_range_(st.text, st.cap, crow, &rs, &re);
+        st.scroll_x = text_area_floor_col_(st.text, rs, re, st.scroll_x);
+        /* The floor can overshoot below the follow window; restore the
+         * follow offset then (the edge split draws as one space). */
+        if (ccol - st.scroll_x >= vw)
+          st.scroll_x = ccol - vw + 1;
+        /* Keep one content column visible: in a 1-cell widget the cursor
+         * follow alone would scroll the only char out (typing echo). */
+        width = display_col_(st.text + rs, re - rs);
+        if (width > 0) {
+          cap = text_area_floor_col_(st.text, rs, re, width - 1);
+          if (st.scroll_x > cap)
+            st.scroll_x = cap;
+        }
+      }
+      if (st.scroll_x < 0)
+        st.scroll_x = 0;
     }
     content = timui_scroll_begin(f, r, st.scroll_y);
     i = 0;
     while (i < st.cap && st.text[i]) {
       size_t ls = i;
+      int xoff = 0;
+      size_t ds;
+      int dx;
       while (i < st.cap && st.text[i] && st.text[i] != '\n') {
         if (st.text[i] == '\r')
           break; /* \r or \r\n line break */
         i++;
       }
-      timui_draw_text(&ui->curr, content.x,
+      ds = text_area_col_skip_(st.text, ls, i, st.scroll_x, &xoff);
+      dx = content.x;
+      if (xoff > 0) {
+        timui_draw_text(&ui->curr, dx,
+                        timui_clamp_i64_to_int_((int64_t)content.y + y),
+                        (TimuiStr){" ", 1}, sst);
+        dx += xoff;
+      }
+      timui_draw_text(&ui->curr, dx,
                       timui_clamp_i64_to_int_((int64_t)content.y + y),
-                      (TimuiStr){st.text + ls, i - ls}, sst);
+                      (TimuiStr){st.text + ds, i - ds}, sst);
       if (i < st.cap && (st.text[i] == '\r' || st.text[i] == '\n')) {
         if (st.text[i] == '\r' && i + 1 < st.cap && st.text[i + 1] == '\n')
           i++;
@@ -32006,11 +32122,12 @@ TIMUI_API TimuiTextAreaResult timui_text_area_ex(TimuiFrame *f, TimuiId id,
     timui_scroll_end(f);
     if (ir.focused) { /* F1.4: request the hardware cursor */
       int crow, ccol;
+      int sx;
       text_pos_(st.text, st.cursor, &crow, &ccol);
+      sx = ccol - st.scroll_x;
       int64_t bottom = (int64_t)st.scroll_y + (int64_t)r.h;
-      if (crow >= st.scroll_y && (int64_t)crow < bottom && ccol < r.w) {
-        /* content.x == r.x: this view scrolls vertically only. */
-        ui->cursor_x = timui_clamp_i64_to_int_((int64_t)r.x + (int64_t)ccol);
+      if (crow >= st.scroll_y && (int64_t)crow < bottom && sx >= 0 && sx < r.w) {
+        ui->cursor_x = timui_clamp_i64_to_int_((int64_t)r.x + (int64_t)sx);
         ui->cursor_y = timui_clamp_i64_to_int_(
             (int64_t)r.y + ((int64_t)crow - (int64_t)st.scroll_y));
         ui->cursor_visible = 1;
