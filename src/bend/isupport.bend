@@ -150,6 +150,10 @@ def dflt_sigils() -> String:
 def dflt_extra() -> String:
   "~&%"
 
+# Roster strip buffer.bend spells as one literal. Same bytes as sigils then extra.
+def dflt_strip() -> String:
+  dflt_sigils() ++ dflt_extra()
+
 def default_priv() -> Priv:
   Priv{dflt_modes(), dflt_sigils(), dflt_extra()}
 
@@ -175,6 +179,10 @@ def dflt_network() -> String:
 
 def dflt_casemap() -> String:
   "rfc1459"
+
+# Name buffer.bend already uses for the same default casemap.
+def dflt_cm() -> String:
+  dflt_casemap()
 
 def defaults() -> State:
   State{default_chans(), default_priv(), default_limits(), dflt_network(), dflt_casemap(), False{}}
