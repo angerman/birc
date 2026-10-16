@@ -1027,12 +1027,19 @@ def media_clear(changed: Bool, ui: T.Ui) -> IO(T.Ui):
     case True{}: T.Timui.media_clear(ui)
     case False{}: IO.pure(T.Ui, ui)
 
+# Clear a changed media generation, then spawn the admitted job (None is a no-op).
+# Both the single-server stage and the workspace lease stage use this.
+def media_stage.effects(clear: Bool, job: Maybe<&2, M.Request>, ui: T.Ui, +evt: Chan(Sess.UiMsg)) -> IO(T.Ui):
+  do IO<T.Ui>:
+    ui2 : T.Ui <- media_clear(clear, ui)
+    Unit <- media_spawn(job, evt)
+    return ui2
+
 def media_stage.job(pair: M.State & Maybe<&2, M.Request>, ui: T.Ui, +st: Sess.Session, gen: U32, more: Bool, old_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
     case (+media, job):
       do IO<Unit>:
-        ui2 : T.Ui <- media_clear(Bool.not(Nat.is_eq(old_gen, M.generation(media))), ui)
-        Unit <- media_spawn(job, evt)
+        ui2 : T.Ui <- media_stage.effects(Bool.not(Nat.is_eq(old_gen, M.generation(media))), job, ui, evt)
         k((ui2, Sess.session_set_media(st, media), gen, more))
 
 def media_stage(acc: T.Ui & Sess.Session & U32 & Bool, old_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):

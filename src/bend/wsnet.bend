@@ -1086,25 +1086,19 @@ def ws_history_save(+ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Wor
 # part, and only the current part paints, so observing the current part
 # after each step is complete. The media stage additionally honors the
 # one global physical image lease (G2).
-def ws_media.job(job: Maybe<&2, M.Request>, +media: M.State, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
+def ws_media.applied(job: Maybe<&2, M.Request>, clear: Bool, repaint: Bool, +ws2: W.Workspace, ui: T.Ui, +id: Key.ServerId, +gen: U32, +evt: Chan(Sess.UiMsg), +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
   match job:
     case None{}:
-      +clear = Bool.not(Nat.is_eq(old_generation, M.generation(media)))
-      +repaint = Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after)
-      +ws2 = ws_replace(ws, id, Sess.session_set_media(observed, media))
       do IO<T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>>:
-        ui2 : T.Ui <- Net.media_clear(clear, ui)
+        ui2 : T.Ui <- Net.media_stage.effects(clear, None{}, ui, evt)
         return (ui2, ws2, repaint, lease)
     case Some{+req}:
-      +clear = Bool.not(Nat.is_eq(old_generation, M.generation(media)))
-      +repaint = Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after)
-      +ws2 = ws_replace(ws, id, Sess.session_set_media(observed, media))
-      +evt = ws_evt.id(evts, id)
-      lease2: Maybe<&2, WsMedia> = Some{WsMedia{id, gen, req}}
       do IO<T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>>:
-        ui2 : T.Ui <- Net.media_clear(clear, ui)
-        Unit <- Net.media_spawn(Some{req}, evt)
-        return (ui2, ws2, repaint, lease2)
+        ui2 : T.Ui <- Net.media_stage.effects(clear, Some{req}, ui, evt)
+        return (ui2, ws2, repaint, Some{WsMedia{id, gen, req}})
+
+def ws_media.job(job: Maybe<&2, M.Request>, +media: M.State, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
+  ws_media.applied(job, Bool.not(Nat.is_eq(old_generation, M.generation(media))), Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after), ws_replace(ws, id, Sess.session_set_media(observed, media)), ui, id, gen, ws_evt.id(evts, id), lease)
 
 def ws_media.jobs(pair: M.State & Maybe<&2, M.Request>, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
   match pair:
