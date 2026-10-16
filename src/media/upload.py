@@ -11,6 +11,7 @@ The service is public storage, not encryption or access-controlled storage.
 from __future__ import annotations
 
 import http.client
+import importlib.util
 import os
 import re
 import secrets
@@ -20,6 +21,7 @@ import ssl
 import stat
 import sys
 import time
+from pathlib import Path
 
 HOST = "0x0.st"
 MAX_FILE = 32 * 1024 * 1024
@@ -27,6 +29,21 @@ MAX_RESPONSE = 1024
 CHUNK_SIZE = 65536
 TIMEOUT = 30
 USER_AGENT = "birc/0.1 (IRC client; confirmed local file upload)"
+
+
+def _load_cache():
+    """Sibling src/media/_cache.py, or BIRC_CACHE_PY when the helper is stored alone."""
+    override = os.environ.get("BIRC_CACHE_PY", "")
+    path = Path(override) if override else Path(__file__).with_name("_cache.py")
+    spec = importlib.util.spec_from_file_location("birc_cache", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+cache = _load_cache()
 
 
 class UploadError(Exception):
@@ -55,12 +72,12 @@ def remaining(deadline, sock=None):
 
 
 def open_source(path):
+    """Stream from one descriptor. O_NOFOLLOW applies to the final component."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
+        fd, metadata = cache.open_regular(path, nofollow=True)
     except (OSError, ValueError):
         raise UploadError(2) from None
     try:
-        metadata = os.fstat(fd)
         if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= MAX_FILE:
             raise UploadError(2)
         return fd, metadata
@@ -179,8 +196,7 @@ def upload(path, *, connection=http.client.HTTPSConnection, deadline=None):
 def main(args):
     # Kernel termination also bounds DNS or foreign calls that cannot dispatch
     # a Python exception. The parent observes the signal and reaps this helper.
-    signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    signal.alarm(TIMEOUT)
+    cache.arm_deadline(TIMEOUT)
     if len(args) != 2 or args[0] != "--local":
         raise UploadError(1)
     print(upload(args[1]))
