@@ -9,6 +9,13 @@ The milestones below include historical behavior. Current contracts are in
 
 ## Pickup checkpoint — 2026-10-08
 
+> **Retired.** The 535-law corpus is merged. `git show 03cb8c2:LAWS.bend`
+> and the current `LAWS.bend` each contain 535 `law` declarations.
+> `checkpoint/birc-final-candidate-2026-10-08` does not resolve; the
+> archived refs live under `refs/archive/`. The paragraphs below are the
+> 2026-10-08 pickup record, not the current merge status. The handover
+> they name is archived at `docs/handover-2026-10-08.md`. See `AGENTS.md`.
+
 Read `HANDOVER.md` first. The current Root source is prebuilt at
 `/nix/store/vznfyvnf6xkr74zhjmc9f4pi7hn306bd-birc-0.1.0`.
 Its stock 425-law proof and six focused regression/package targets passed.

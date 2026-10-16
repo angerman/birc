@@ -16,7 +16,7 @@ whole client correct.
 - **Bend DNS**: A-record lookup, bounded CNAME handling, and UDP-to-TCP truncation fallback, without libc `getaddrinfo`.
 - **Verified IRC TLS**: OpenSSL checks certificate trust and the server name.
   TLS is the default; only `--plain` selects plaintext. Ports do not select mode.
-- **Terminal UI**: C99 single-header rendering through [`timui.h`](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
+- **Terminal UI**: C99 single-header rendering through [timui.h](https://timui.dev). Multi-channel tabs, activity/mention alerts, terminal bells, soft wrapping, mouse navigation, exact clickable links, typing indicators, bracketed paste, nested formatting (`*bold*` or `**bold**`, `_italic_`, `` `code` ``), and view-only emoji aliases. This is not a general Markdown renderer.
 - **Image previews**: Live and visible saved-history image links expand inline.
   A private bounded disk cache reuses downloaded assets. Explicit `/preview`
   accepts local files and HTTP(S) URLs. Common formats use a bounded,
@@ -62,10 +62,13 @@ whole client correct.
               v
 +------------------------------------------------------------------------+
 |                       C11 Native FFI (src/ffi/)                        |
-|  - timui_ffi.c : Walks DrawOps, paints to terminal, returns keys       |
-|  - dns_ffi.c   : POSIX socket dup, shutdown, octet send/recv           |
-|  - tls_ffi.c   : Verified OpenSSL handshake and encrypted IO          |
-|  - clock_ffi.c : Local clock seconds-of-day                            |
+|  - timui_ffi.c          : Walks DrawOps, paints, returns keys          |
+|  - dns_ffi.c            : POSIX socket dup, shutdown, octet send/recv  |
+|  - tls_ffi.c            : Verified OpenSSL handshake and encrypted IO  |
+|  - clock_ffi.c          : Local clock seconds-of-day                   |
+|  - auth_bridge_ffi.c    : Launch-pipe setup and auth notify            |
+|  - history_ffi.c        : Private history append                       |
+|  - history_search_ffi.c : Checked history open and scan                |
 +------------------------------------------------------------------------+
 ```
 
@@ -80,8 +83,8 @@ whole client correct.
 | [`src/bend/client_laws.bend`](src/bend/client_laws.bend) | Bend 2 | Feed inspectors, invariants, and client law predicates |
 | [`src/bend/replay.bend`](src/bend/replay.bend) | Bend 2 | Bounded file-snapshot replay through the live byte framer |
 | [`src/bend/submit.bend`](src/bend/submit.bend) | Bend 2 | User slash-command parsing and outbound line formatting |
-| [`src/bend/irc_commands.bend`](src/bend/irc_commands.bend) / [`message_chunks.bend`](src/bend/message_chunks.bend) | Bend 2 | Shared command validation and lossless cluster-safe wire splitting |
-| [`src/bend/join_plan.bend`](src/bend/join_plan.bend) / [`channel_policy.bend`](src/bend/channel_policy.bend) | Bend 2 | Desired channels, transient keys, and authentication-gated recovery |
+| [`src/bend/irc_commands.bend`](src/bend/irc_commands.bend) / [`src/bend/message_chunks.bend`](src/bend/message_chunks.bend) | Bend 2 | Shared command validation and lossless cluster-safe wire splitting |
+| [`src/bend/join_plan.bend`](src/bend/join_plan.bend) / [`src/bend/channel_policy.bend`](src/bend/channel_policy.bend) | Bend 2 | Desired channels, transient keys, and authentication-gated recovery |
 | [`src/bend/frame.bend`](src/bend/frame.bend) | Bend 2 | Structural CRLF octet framer and UTF-8 decoder with Latin-1 fallback |
 | [`src/bend/dns.bend`](src/bend/dns.bend) | Bend 2 | High-level UDP DNS resolution driver with fuel timeout |
 | [`src/bend/dns_wire.bend`](src/bend/dns_wire.bend) | Bend 2 | RFC 1035 DNS packet encoder, parser, and cursor combinators |
@@ -92,9 +95,9 @@ whole client correct.
 | [`src/bend/diagnostic.bend`](src/bend/diagnostic.bend) | Bend 2 | Bounded private diagnostic text and safe helper results |
 | [`src/bend/columns.bend`](src/bend/columns.bend) | Bend 2 | Terminal column widths and common cluster boundaries for wrapping |
 | [`src/bend/history_io.bend`](src/bend/history_io.bend) | Bend 2 | Private history append effects, separate from proof-facing history rules |
-| [`src/bend/history_startup.bend`](src/bend/history_startup.bend) / [`history_startup_io.bend`](src/bend/history_startup_io.bend) | Bend 2 | Auth-free snapshots, nontrimming import, and fresh-ID startup dividers |
-| [`src/bend/preferences_runtime.bend`](src/bend/preferences_runtime.bend) / [`preferences_live.bend`](src/bend/preferences_live.bend) | Bend 2 | Bounded settings queue, edit-wins loading, and quit drain |
-| [`src/bend/live_context.bend`](src/bend/live_context.bend) / [`startup_headless.bend`](src/bend/startup_headless.bend) | Bend 2 | Settings-before-history ordering and generation-scoped connection release |
+| [`src/bend/history_startup.bend`](src/bend/history_startup.bend) / [`src/bend/history_startup_io.bend`](src/bend/history_startup_io.bend) | Bend 2 | Auth-free snapshots, nontrimming import, and fresh-ID startup dividers |
+| [`src/bend/preferences_runtime.bend`](src/bend/preferences_runtime.bend) / [`src/bend/preferences_live.bend`](src/bend/preferences_live.bend) | Bend 2 | Bounded settings queue, edit-wins loading, and quit drain |
+| [`src/bend/live_context.bend`](src/bend/live_context.bend) / [`src/bend/startup_headless.bend`](src/bend/startup_headless.bend) | Bend 2 | Settings-before-history ordering and generation-scoped connection release |
 | [`src/bend/auth.bend`](src/bend/auth.bend) | Bend 2 | Parsed SASL phase transitions and credential replies |
 | [`src/bend/session.bend`](src/bend/session.bend) | Bend 2 | UI session state, history ring buffer, and key mapping |
 | [`src/bend/typing.bend`](src/bend/typing.bend) | Bend 2 | Bounded IRCv3 typing state and wrap-safe expiry |
@@ -104,7 +107,7 @@ whole client correct.
 | [`src/bend/net.bend`](src/bend/net.bend) | Bend 2 | UI channel event loop, descriptor watchers, and shutdown |
 | [`src/bend/args.bend`](src/bend/args.bend) | Bend 2 | Pure command-line argument parser |
 | [`src/bend/timui.bend`](src/bend/timui.bend) | Bend 2 | Bend handles and effect declarations for TimUI FFI |
-| [`src/bend/clock.bend`](src/bend/clock.bend) / [`utc_time.bend`](src/bend/utc_time.bend) | Bend 2 | Receipt timestamps and complete UTC event-date validation |
+| [`src/bend/clock.bend`](src/bend/clock.bend) / [`src/bend/utc_time.bend`](src/bend/utc_time.bend) | Bend 2 | Receipt timestamps and complete UTC event-date validation |
 | [`src/ffi/timui_ffi.c`](src/ffi/timui_ffi.c) | C99 | Thin TimUI rendering bridge, tty watcher, and winch pipe |
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/bend/tls.bend`](src/bend/tls.bend) / [`src/ffi/tls_ffi.c`](src/ffi/tls_ffi.c) | Bend 2 / C11 | Bounded, verified OpenSSL TLS transport |
@@ -187,7 +190,8 @@ nix run github:angerman/birc -- --connect irc.libera.chat --tls --channel '#bend
 
 ```sh
 make bootstrap   # Once: create flake.lock
-make check       # Run formal proofs, unit tests, live mock, and FFI lints
+make shell       # Enter the locked Nix shell and stay there
+make -j check    # Proofs, unit tests, live mock, and FFI lints
 ```
 
 Nix can evaluate or build before the client starts. To prebuild the installed
