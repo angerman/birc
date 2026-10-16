@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # mk/pty-shard.mk: PTY suite sharding/caching harness (include fragment).
 #
-# Shards `test-pty` (73 targets) across N sequential shards; each shard runs
+# Shards `test-pty` (PTY_SUITE_TARGETS) across N sequential shards; each shard runs
 # its targets via `$(MAKE)` so every recipe keeps its own `timeout` bound
 # (25-150 s) and owned loopback peers. Success stamps under $(PTY_SHARD_DIR)
 # skip shards whose inputs (binary, selector, tests/pty/*.py) are unchanged.
