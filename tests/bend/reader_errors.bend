@@ -2,7 +2,9 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/actor.bend as A
+import ../../src/bend/outbound.bend as Out
 import ../../src/bend/session.bend as S
+import ../../src/bend/transport.bend as Tr
 
 def checked(message: Maybe<&1, S.UiMsg>, failed: Bool) -> IO(Unit):
   match message:
@@ -15,26 +17,39 @@ def checked(message: Maybe<&1, S.UiMsg>, failed: Bool) -> IO(Unit):
     case _:
       IO.die(Unit, 1, "missing or wrong reader event")
 
-def event(sock: Socket, +evt: Chan(S.UiMsg), failed: Bool) -> IO(Unit):
+def entered(dup: Tr.Conn, fr: A.ReadFr, +msg: String) -> IO(Unit):
+  match fr:
+    case A.ReadFr{_, _, _}:
+      do IO<Unit>:
+        Unit <- Tr.close(dup)
+        IO.die(Unit, 1, msg)
+
+def close_conn(dup: Tr.Conn, fr: A.ReadFr) -> IO(Unit):
+  match fr:
+    case A.ReadFr{_, _, _}:
+      Tr.close(dup)
+
+def frame() -> A.ReadFr:
+  A.ReadFr{False{}, Nil{}, Out.pong_first(7)}
+
+def event(sock: Tr.Conn, +evt: Chan(S.UiMsg), +cmd: Chan(S.NetCmd), failed: Bool) -> IO(Unit):
   match failed:
     case True{}:
-      A.reader_r(sock, evt, 7, Fail{(5, "private https://unused.invalid/secret")},
-        socket => do IO<Unit>:
-          Unit <- Socket.close(socket)
-          IO.die(Unit, 1, "failed read entered continuation"))
+      A.reader_r(sock, evt, 7, Fail{(5, "private https://unused.invalid/secret")}, cmd, frame(),
+        dup => fr => entered(dup, fr, "failed read entered continuation"))
     case False{}:
-      A.reader_xs(sock, evt, 7, Nil{},
-        socket => do IO<Unit>:
-          Unit <- Socket.close(socket)
-          IO.die(Unit, 1, "EOF entered continuation"))
+      A.reader_xs(sock, evt, 7, Nil{}, cmd, frame(),
+        dup => fr => entered(dup, fr, "EOF entered continuation"))
 
 def run(+failed: Bool) -> IO(Unit):
   do IO<Unit>:
     socket : Socket <- IO.try(Socket, UDP.bind("127.0.0.1", 0))
     +evt : Chan(S.UiMsg) <- Chan.new(S.UiMsg, 1)
-    Unit <- event(socket, evt, failed)
+    +cmd : Chan(S.NetCmd) <- Chan.new(S.NetCmd, 1)
+    Unit <- event(Tr.Plain{socket}, evt, cmd, failed)
     message : Maybe<&1, S.UiMsg> <- Chan.recv(S.UiMsg, evt)
     Unit <- Chan.close(S.UiMsg, evt)
+    Unit <- Chan.close(S.NetCmd, cmd)
     checked(message, failed)
 
 def checked_empty(message: Maybe<&1, S.UiMsg>) -> IO(Unit):
@@ -46,8 +61,10 @@ def no_data() -> IO(Unit):
   do IO<Unit>:
     socket : Socket <- IO.try(Socket, UDP.bind("127.0.0.1", 0))
     +evt : Chan(S.UiMsg) <- Chan.new(S.UiMsg, 1)
-    Unit <- A.reader_r(socket, evt, 7, Done{None{}}, Socket.close)
+    +cmd : Chan(S.NetCmd) <- Chan.new(S.NetCmd, 1)
+    Unit <- A.reader_r(Tr.Plain{socket}, evt, 7, Done{None{}}, cmd, frame(), dup => fr => close_conn(dup, fr))
     Unit <- Chan.close(S.UiMsg, evt)
+    Unit <- Chan.close(S.NetCmd, cmd)
     message : Maybe<&1, S.UiMsg> <- Chan.recv(S.UiMsg, evt)
     checked_empty(message)
 
