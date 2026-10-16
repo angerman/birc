@@ -10,7 +10,51 @@ import ./server_id.bend as Sid
 import ./workspace.bend as WS
 import ./workspace_isolation_selectors.bend as Sel
 import ./workspace_isolation_route.bend as Rt
-import ./workspace_isolation_arithmetic.bend as Arith
+
+# Nat lemmas for the open id ceilings. Kept beside the isolation proof;
+# route.guarded / route.normal / route_transport stay in the route module
+# because LAWS.bend names that module in workspace_parts_isolate_state.
+law prefix_lt:
+  for prefix: Nat
+  for -a: Nat
+  for -b: Nat
+  {Nat.is_lt(Nat.add(prefix, a), Nat.add(prefix, b)) == Nat.is_lt(a, b) : Bool}
+
+def prefix_lt(prefix, a, b):
+  match prefix:
+    case 0n:
+      {==}
+    case 1n+p:
+      prefix_lt(p, a, b)
+
+def add_zero(prefix: Nat) -> {Nat.add(prefix, 0n) == prefix : Nat}:
+  match prefix:
+    case 0n:
+      {==}
+    case 1n+p:
+      %add_zero(p) : {1n+Nat.add(p, 0n) == 1n+_ : Nat}
+      {==}
+
+def below_positive(+prefix: Nat, -tail: Nat) -> {Nat.is_lt(prefix, Nat.add(prefix, 1n+tail)) == True{} : Bool}:
+  %add_zero(prefix) : {Nat.is_lt(_, Nat.add(prefix, 1n+tail)) == True{} : Bool}
+  %Equal.sym(Bool, Nat.is_lt(Nat.add(prefix, 0n), Nat.add(prefix, 1n+tail)), Nat.is_lt(0n, 1n+tail), prefix_lt(prefix, 0n, 1n+tail)) : {_ == True{} : Bool}
+  {==}
+
+def below_overflow(+prefix: Nat, -tail: Nat) -> {Bool.not(Nat.is_lt(prefix, Nat.add(prefix, 1n+tail))) == False{} : Bool}:
+  %Equal.sym(Bool, Nat.is_lt(prefix, Nat.add(prefix, 1n+tail)), True{}, below_positive(prefix, tail)) : {Bool.not(_) == False{} : Bool}
+  {==}
+
+law small_below:
+  {Bool.not(Nat.is_lt(2n, 4n)) == False{} : Bool}
+
+def small_below():
+  below_overflow(2n, 1n)
+
+law small_boundary:
+  {Bool.not(Nat.is_lt(4n, 4n)) == True{} : Bool}
+
+def small_boundary():
+  {==}
 
 # Both B steps use this exact branch-preserving dispatch with an OPEN cap.
 # In the actual law each selected B id is s1, and cap is its ORIGINAL ceiling.
@@ -113,8 +157,8 @@ def range_positive() -> {Nat.is_lt(0n, WS.id_range()) == True{} : Bool}:
   {==}
 
 def prefix_positive(+prefix: Nat, +range: Nat, positive: {Nat.is_lt(0n, range) == True{} : Bool}) -> {Nat.is_lt(prefix, Nat.add(prefix, range)) == True{} : Bool}:
-  %Arith.add_zero(prefix) : {Nat.is_lt(_, Nat.add(prefix, range)) == True{} : Bool}
-  %Equal.sym(Bool, Nat.is_lt(Nat.add(prefix, 0n), Nat.add(prefix, range)), Nat.is_lt(0n, range), Arith.prefix_lt(prefix, 0n, range)) : {_ == True{} : Bool}
+  %add_zero(prefix) : {Nat.is_lt(_, Nat.add(prefix, range)) == True{} : Bool}
+  %Equal.sym(Bool, Nat.is_lt(Nat.add(prefix, 0n), Nat.add(prefix, range)), Nat.is_lt(0n, range), prefix_lt(prefix, 0n, range)) : {_ == True{} : Bool}
   positive
 
 def original_a_bound() -> {Bool.not(Nat.is_lt(0n, Nat.add(WS.id_base(WS.s0()), WS.id_range()))) == False{} : Bool}:
