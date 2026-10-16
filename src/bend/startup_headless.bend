@@ -11,21 +11,12 @@ import ./preferences_worker.bend as W
 import ./preferences_io.bend as F
 import ./history_startup.bend as H
 import ./history_startup_io.bend as Archive
-
-def explicit_history(st: S.Session) -> Bool:
-  List.contains(~String, ~String.eq, S.session_preference_edits(st), "history")
-
-def endpoint(+st: S.Session) -> String:
-  Cl.server_of(S.session_cl(st)) ++ ":" ++ U32.show(S.session_port(st))
-
-def now(cl: Cl.Client) -> String:
-  match cl:
-    case Cl.Client{_, _, _, _, now, _, _, _}: now
+import ./live_context.bend as LC
 
 def resolve.finished(result: LP.Context & S.Session & List<&2, String> & Bool, +code: U32) -> LP.Context & S.Session & Bool:
   match result:
     # This module requires a preconnect Session. There is no welcome to flush.
-    case (ctx, +st, _, _): (ctx, st, U32.is_zero(code) || explicit_history(st))
+    case (ctx, +st, _, _): (ctx, st, U32.is_zero(code) || LC.explicit_history(st))
 
 def resolve.read(got: Maybe<&2, P.Preferences> & U32, ctx: LP.Context, st: S.Session, gen: U32, ticket: Nat) -> LP.Context & S.Session & Bool:
   match got:
@@ -51,7 +42,7 @@ def archive.pick(read: Bool, ctx: LP.Context, +st: S.Session, +path: String, all
     case True{}:
       +cl = S.session_cl(st)
       do IO<LP.Context & S.Session & Bool>:
-        snapshot : Cl.Client <- Archive.load(path, endpoint(st), Cl.settings_hist_cap(Cl.get_settings(cl)), Cl.nick_of(cl), Cl.server_of(cl), now(cl))
+        snapshot : Cl.Client <- Archive.load(path, LC.endpoint(st), Cl.settings_hist_cap(Cl.get_settings(cl)), Cl.nick_of(cl), Cl.server_of(cl), LC.now(cl))
         return archive.install(snapshot, ctx, st, allowed)
 
 def archive.current(ctx: LP.Context, +st: S.Session, +allowed: Bool, +path: String) -> IO(LP.Context & S.Session & Bool):

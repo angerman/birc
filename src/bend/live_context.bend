@@ -37,8 +37,14 @@ def now(cl: Cl.Client) -> String:
   match cl:
     case Cl.Client{_, _, _, _, value, _, _, _}: value
 
+# Host spelling and a terminal DNS root dot are part of credential and history
+# scope. Do not strip a root dot here; SNI normalization is a different step.
+# MUST MATCH endpoint.bend:endpoint/2
+def endpoint_key(+host: String, +port: U32) -> String:
+  host ++ ":" ++ U32.show(port)
+
 def endpoint(+st: S.Session) -> String:
-  Cl.server_of(S.session_cl(st)) ++ ":" ++ U32.show(S.session_port(st))
+  endpoint_key(Cl.server_of(S.session_cl(st)), S.session_port(st))
 
 def initial(options: W.Options, +st: S.Session, +gen: U32, path: String) -> Context:
   match options:

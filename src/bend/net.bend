@@ -60,10 +60,10 @@ def net_notify_seed_accepted(accepted: Bool, +nl: Sess.NotifyLive, +installed: L
   Sess.notify_live_seed_accepted(accepted, nl, installed)
 
 def endpoint(+host: String, +port: U32) -> String:
-  host ++ ":" ++ U32.show(port)
+  PrefLive.endpoint_key(host, port)
 
 def session_endpoint(+st: Sess.Session) -> String:
-  endpoint(Cl.server_of(Sess.session_cl(st)), Sess.session_port(st))
+  PrefLive.endpoint(st)
 
 def shutdown_exit(success: Bool) -> IO(Unit):
   match success:
