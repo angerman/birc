@@ -152,6 +152,26 @@
   proof at detached HEAD d286f90 also timed out, so the stall is
   environmental, not a slice regression; rerun `make proof` on a calm
   host before qualifying the optimistic-send batch.
+- test-state: FAILING on the pre-review baseline `208f7c9`, so not a
+  regression from the simplification waves. `query_collision` fails —
+  `state_demo.bend:68 query_collision_ok` feeds PRIVMSGs from `a` and
+  `b`, then `:a!u@h NICK :B` collides case-insensitively with the
+  existing `b`. It asserts six things at once (buffer count 2, active
+  `server`, exact rendered text, one alert, unread level 2 for `"B"`,
+  and the history extract `B\tSYS\t\ta is now known as B\n`).
+  **This is a behavioural oracle, not a stale constant** — unlike the
+  body-height fixtures it cannot be fixed by updating an expected
+  number. Diagnose which of the six assertions fails first. Sits in the
+  feed/target-normalization path, so re-check after any `_with`/`_cm`
+  or casemapping refactor lands.
+- test-state-review-identity: FAILING on the same baseline.
+  `state_review_identity.bend:54` expects `CL.buf_texts(mode, 1n)` to
+  contain `MODE #ab +o bob` — i.e. MODE must render the **canonical**
+  channel name, not the wire alias the test feeds. Same caveat: a
+  behavioural oracle in the target-normalization path, and there are
+  four separate implementations of target normalization
+  (`irc.bend:214-262`, `buffer.bend:57-82`, `isupport.bend:715-783`,
+  `buffer.bend:1047-1073`). Consolidating those may fix or move this.
 - test-media-view: FAILING on committed HEAD d286f90 (pre-existing).
   `new live message schedules got=[0] want=[1]`: a folded live
   PRIVMSG schedules no media job. Reproduced identically in the
