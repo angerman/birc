@@ -130,12 +130,22 @@ def fold_code.tilde(+n: U32, tilde: Bool, hit: Bool) -> U32:
     case False{}:
       n
 
+def fold_code.rb.keep(+n: U32, tilde: Bool) -> U32:
+  match tilde:
+    case True{}: 125
+    case False{}: 125
+
+def fold_code.rb.rest(+n: U32, tilde: Bool) -> U32:
+  match tilde:
+    case True{}: fold_code.tilde(n, True{}, U32.is_eq(n, 126))
+    case False{}: fold_code.tilde(n, False{}, False{})
+
 def fold_code.rb(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
-      125
+      fold_code.rb.keep(n, tilde)
     case False{}:
-      fold_code.tilde(n, tilde, tilde && U32.is_eq(n, 126))
+      fold_code.rb.rest(n, tilde)
 
 def fold_code.bs(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
@@ -454,14 +464,37 @@ def skip_mirc_d1(+s: String) -> String:
 def skip_mirc(+s: String) -> String:
   skip_mirc_d1(s)
 
+# Style bytes kept by sanitize_keep_style. Defined here so the shared walk
+# can name it; a function argument cannot be both applied and passed on,
+# because the checker treats it as affine.
+def is_style_keep(+c: Char) -> Bool:
+  +n = code_of(c)
+  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
+    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
+
 type SanPh is Data:
   SanStr{}
   SanHit{h: Char, color: Bool, drop: Bool}
 
+def sanitize_phase.color(+hd: Char, color: Bool) -> SanPh:
+  match color:
+    case True{}: SanHit{hd, True{}, True{}}
+    case False{}: SanHit{hd, False{}, True{}}
+
+def sanitize_phase.drop(+hd: Char, gone: Bool) -> SanPh:
+  match gone:
+    case True{}: sanitize_phase.color(hd, code_is(hd, 3))
+    case False{}: SanHit{hd, False{}, False{}}
+
+def sanitize_phase(+hd: Char, keep_style: Bool) -> SanPh:
+  match keep_style:
+    case False{}: sanitize_phase.drop(hd, is_c0_drop(hd))
+    case True{}: sanitize_phase.drop(hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd)))
+
 # checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
-# dropc decides which C0/DEL bytes go. A dropped 0x03 also eats its mIRC
+# keep_style selects the drop predicate. A dropped 0x03 also eats its mIRC
 # color parameters; a kept 0x03 leaves those bytes for the view decoder.
-def sanitize_go(fuel: Nat, ph: SanPh, +s: String, dropc: Char -> Bool) -> String:
+def sanitize_go(fuel: Nat, ph: SanPh, +s: String, keep_style: Bool) -> String:
   match fuel:
     case 0n:
       SNil{}
@@ -472,20 +505,22 @@ def sanitize_go(fuel: Nat, ph: SanPh, +s: String, dropc: Char -> Bool) -> String
             case SNil{}:
               SNil{}
             case SCon{+hd, t}:
-              sanitize_go(p, SanHit{hd, code_is(hd, 3) && dropc(hd), dropc(hd)}, t, dropc)
+              match keep_style:
+                case False{}: sanitize_go(p, sanitize_phase(hd, False{}), t, False{})
+                case True{}: sanitize_go(p, sanitize_phase(hd, True{}), t, True{})
         case SanHit{h, color, drop}:
           match color:
             case True{}:
-              sanitize_go(p, SanStr{}, skip_mirc(s), dropc)
+              sanitize_go(p, SanStr{}, skip_mirc(s), keep_style)
             case False{}:
               match drop:
                 case True{}:
-                  sanitize_go(p, SanStr{}, s, dropc)
+                  sanitize_go(p, SanStr{}, s, keep_style)
                 case False{}:
-                  SCon{h, sanitize_go(p, SanStr{}, s, dropc)}
+                  SCon{h, sanitize_go(p, SanStr{}, s, keep_style)}
 
 def sanitize_in(+s: String) -> String:
-  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, c => is_c0_drop(c))
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, False{})
 
 def proto_soh.keep(+h: Char, r: String, soh: Bool) -> String:
   match soh:
@@ -659,13 +694,8 @@ def strip_ctl(s: String) -> String:
 # keeps its parameter bytes so the view decoder consumes exactly what
 # skip_mirc would. Every other C0/DEL byte is dropped, including TAB/CR/LF,
 # so BIRC2 fields and stored lines stay intact while chat styles survive.
-def is_style_keep(+c: Char) -> Bool:
-  +n = code_of(c)
-  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
-    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
-
 def sanitize_keep_style(+s: String) -> String:
-  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, c => is_c0_drop(c) && Bool.not(is_style_keep(c)))
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, True{})
 
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
