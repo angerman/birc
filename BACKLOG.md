@@ -152,19 +152,33 @@
   proof at detached HEAD d286f90 also timed out, so the stall is
   environmental, not a slice regression; rerun `make proof` on a calm
   host before qualifying the optimistic-send batch.
-- test-media-anchor and the native `build/session_cards_demo`: FAILING
-  with `Error: an arity over 247`, the C-backend flattened-capture-word
+- test-media-anchor and the native `build/session_cards_demo`: both were
+  FAILING with `Error: an arity over 247`, the C-backend flattened-capture-word
   cap. Verified identical on the pre-review baseline `208f7c9` and on
   current master, so pre-existing; both compile fine for the **JS**
   backend (`-o build/X.js` rc=0), which is why `make test-session-cards`
   passes while the native build does not. `test-media-anchor` is a
   `test-review-pure` prerequisite, and `test-goldens-view` dies at the
   first arity error without printing its `bins=` line, so this blocks
-  part of `make check`. Same class as the `runtime_reconnect` entry above
-  and fixed the same way: split `main` into phase defs holding only
-  singleton-list cells (commit `d286f90`, `session_drafts_demo` idiom),
-  assertions unchanged and in the same order. Test-only; no product
-  change needed.
+  part of `make check`. Same class as the `runtime_reconnect` entry above.
+  **Status after the `SBox`/`ADBox` boxing pass:** `media_anchor` now
+  compiles natively (rc=0) but its run exposes a *second*, previously
+  masked failure — see the next entry. `session_cards_demo` native still
+  reports `an arity over 247`; the remaining suspects are `ph_rows`
+  holding one `C.State` and any single unboxed `Session` temporary the C
+  flattener keeps across a `ph_*` bind.
+- media_anchor `stacked distinct clips` FAILS, and did so identically at
+  the pre-review baseline `208f7c9` and at current master (both compiled
+  for the JS backend, which has no 247 cap, so the assertion actually
+  runs):
+  `got=[1,2,40,6,2,3,11;1,8,40,6,2,2,22;] want=[1,2,40,6,2,3,11;1,7,40,6,1,3,22;]`
+  Only the **second** stacked clip differs: `y` 8 vs 7, `clip_y` 2 vs 1,
+  `clip_h` 2 vs 3. **Not a regression** — byte-identical at both revisions.
+  It was invisible before because the native build never compiled, and the
+  JS build of this program was not wired into a gate. Needs a decision on
+  whether stacked-clip geometry or the fixture is right; do not just copy
+  `got` into `want` without establishing which one is correct, because
+  clip rects govern what part of an image is painted.
 - test-state: FAILING on the pre-review baseline `208f7c9`, so not a
   regression from the simplification waves. `query_collision` fails —
   `state_demo.bend:68 query_collision_ok` feeds PRIVMSGs from `a` and
