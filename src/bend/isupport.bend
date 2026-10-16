@@ -73,6 +73,7 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
+import ./endpoint.bend as Ep
 import ./irc_commands.bend as Commands
 import ./channel_policy.bend as Channels
 
@@ -214,11 +215,6 @@ def all_graphic(+s: String) -> Bool:
     case SNil{}: True{}
     case SCon{+h, +t}: is_graphic(h) && all_graphic(t)
 
-def decimal(+s: String) -> Bool:
-  match s:
-    case SNil{}: True{}
-    case SCon{Chr{+c}, t}: U32.is_ge(c, 48) && U32.is_le(c, 57) && decimal(t)
-
 def has_char(+s: String, +c: Char) -> Bool:
   match s:
     case SNil{}: False{}
@@ -246,7 +242,7 @@ def read_bounded.checked(+val: String, ok: Bool, +lo: U32, +hi: U32) -> Maybe<&2
     case True{}: read_bounded.num(U32.read(val), lo, hi)
 
 def read_bounded(+val: String, +has_eq: Bool, +lo: U32, +hi: U32) -> Maybe<&2, U32>:
-  read_bounded.checked(val, has_eq && Bool.not(String.is_empty(val)) && decimal(val), lo, hi)
+  read_bounded.checked(val, has_eq && Bool.not(String.is_empty(val)) && Ep.decimal(val), lo, hi)
 
 def num_ok(+m: Maybe<&2, U32>) -> Bool:
   match m:
