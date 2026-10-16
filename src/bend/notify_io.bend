@@ -19,16 +19,17 @@ import Base
 import ./notify.bend as Notify
 import ./diagnostic.bend as Diagnostic
 import ./session.bend as Sess
+import ./helper_io.bend as H
+
+# Empty default: a missing or blank BIRC_NOTIFY_HELPER stays unconfigured.
+def spec() -> H.Spec:
+  H.Spec{"BIRC_NOTIFY_HELPER", "", 512, 2000}
 
 def program.env(got: Result<&1, &1, U32 & String, String>) -> Maybe<&2, String>:
-  match got:
-    case Fail{_}: None{}
-    case Done{+value}: Bool.pick(Maybe<&2, String>, String.is_empty(value), None{}, Some{value})
+  H.name_opt_got(got, "")
 
 def program() -> IO(Maybe<&2, String>):
-  do IO<Maybe<&2, String>>:
-    got : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_NOTIFY_HELPER")
-    return program.env(got)
+  H.name_opt(spec())
 
 # Basename of a helper path: the segment after the last slash. Suffix
 # matching is forbidden: x-notify-send must not select notify-send.
@@ -92,7 +93,7 @@ def send.run(+program: String, args: List<&1, String>) -> IO(Maybe<&2, String>):
     case Nil{}: IO.pure(Maybe<&2, String>, Some{"notify failed (unknown helper)"})
     case Con{h, t}:
       do IO<Maybe<&2, String>>:
-        got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, h <> t, "", 512, 2000)
+        got : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run_named(program, spec(), h <> t, "")
         return send_result(got)
 
 def send.with(+program: Maybe<&2, String>, +req: Notify.Req) -> IO(Maybe<&2, String>):

@@ -31,6 +31,7 @@ import ./startup_headless.bend as Headless
 import ./preferences_live.bend as LoadedPrefs
 import ./notify.bend as N
 import ./notify_io.bend as NIO
+import ./helper_io.bend as Help
 
 def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
   Sess.notify_live_init_ep(N.on(), Cl.log_seq_of(Sess.session_cl(st)), Sess.notify_scope_of(st))
@@ -1003,12 +1004,15 @@ def media_args.pick(remote: Bool, source: String) -> List<&1, String>:
 def media_args(+source: String) -> List<&1, String>:
   media_args.pick(Links.is_url_prefix(source), source)
 
+# Same contract as Sys.media_program: BIRC_MEDIA_HELPER, else birc-image.
+def media_spec() -> Help.Spec:
+  Help.Spec{"BIRC_MEDIA_HELPER", "birc-image", 2800000, 11000}
+
 def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match req:
     case M.Request{_, +url, +generation, +ticket}:
       do IO<Unit>:
-        program : String <- T.Sys.media_program()
-        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, media_args(url), "", 2800000, 11000)
+        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Help.run(media_spec(), media_args(url), "")
         _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
         return Unit{}
 

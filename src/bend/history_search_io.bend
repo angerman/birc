@@ -10,18 +10,7 @@ import Base
 import ./history_search.bend as Hs
 import ./history.bend as Hist
 import ./session.bend as Sess
-
-# Packaged default helper; BIRC_SEARCH_HELPER=native selects the linked
-# native scan instead of a helper process.
-def program.default(got: Result<&1, &1, U32 & String, String>) -> String:
-  match got:
-    case Fail{_}: "birc-history-search"
-    case Done{+program}: Bool.pick(String, String.is_empty(program), "birc-history-search", program)
-
-def program() -> IO(String):
-  do IO<String>:
-    got : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_SEARCH_HELPER")
-    return program.default(got)
+import ./helper_io.bend as H
 
 # The scan output head ("SEbbbbb\n") is fixed width; the rest is content.
 def SCAN_EVIDENCE_LEN() -> Nat:
@@ -32,6 +21,18 @@ def SCAN_OUTPUT_CAP() -> U32:
 
 def SCAN_NATIVE_CAP() -> U32:
   8388608
+
+# Packaged default helper; BIRC_SEARCH_HELPER=native selects the linked
+# native scan instead of a helper process. Output cap stays the helper cap;
+# the native scan keeps SCAN_NATIVE_CAP.
+def search_spec() -> H.Spec:
+  H.Spec{"BIRC_SEARCH_HELPER", "birc-history-search", SCAN_OUTPUT_CAP(), 30000}
+
+def program.default(got: Result<&1, &1, U32 & String, String>) -> String:
+  H.name_got(got, "birc-history-search")
+
+def program() -> IO(String):
+  H.name(search_spec())
 
 def disk_search_bytes.admitted(admitted: Bool, +content: String, +endpoint: String, +query: Hs.DiskQuery, +cursor: Nat) -> Hs.DiskResult:
   match admitted:
@@ -116,8 +117,7 @@ def disk_search_checked.gated(disabled: Bool, +path: String, +endpoint: String, 
     case True{}: IO.pure(Hs.DiskResult, Hs.DiskFound{Hs.empty_page()})
     case False{}:
       do IO<Hs.DiskResult>:
-        helper : String <- program()
-        got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(helper, ["scan", path], "", SCAN_OUTPUT_CAP(), 30000)
+        got : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run(search_spec(), ["scan", path], "")
         return disk_search_result(got, endpoint, query, cursor)
 
 def disk_search_checked(+path: String, +endpoint: String, +query: Hs.DiskQuery, +cursor: Nat, +history_on: Bool) -> IO(Hs.DiskResult):
