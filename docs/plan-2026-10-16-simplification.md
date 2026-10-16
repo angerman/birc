@@ -156,6 +156,56 @@ The last row is not a regression: the extra lines are per-test closure generatio
 and the cache conditional. **Raw `make -n` line count is no longer a useful
 baseline** — use the `bend` invocation count and the 777 deadline count instead.
 
+### The headline iteration-speed win: rebuild fan-in
+
+The structural metrics barely move (77 → 78 `src/bend` modules, 44,774 → 44,999
+lines) because Wave 0 and Wave 1 bought *correctness* and *per-frame cost*, not
+graph size. The line-count reductions are targeted at Waves 3–4. What Wave 0
+actually changed is **how much gets rebuilt when you edit one file** — and that does
+not show up in any size metric.
+
+Measured with `scripts/bend-deps.sh`'s real closures. BEFORE = every test binary
+(`Makefile:120` globbed all of `src/bend`); AFTER = only tests whose import closure
+actually contains the file:
+
+| edited file | rebuilds before | rebuilds after |
+|---|---|---|
+| `src/bend/app.bend` | 196 | **6** |
+| `src/bend/replay.bend` | 196 | **8** |
+| `src/bend/view_laws.bend` | 196 | **11** |
+| `src/bend/wsnet.bend` | 196 | **15** |
+| `src/bend/net.bend` | 196 | **19** |
+| `src/bend/workspace.bend` | 196 | **19** |
+| `src/bend/auth_bridge.bend` | 196 | **19** |
+| `src/ui/timui.h` | 196 | **20** |
+| `src/bend/server_id.bend` | 196 | **20** |
+| `src/ffi/timui_ffi.c` | 196 (and **stale**) | **20** (and correct) |
+| `src/bend/actor.bend` | 196 | **28** |
+| `src/ffi/tls_ffi.c` | 196 (and **stale**) | **29** (and correct) |
+| `src/bend/session.bend` | 196 | **96** |
+| `src/bend/history_search.bend` | 196 | **97** |
+| `src/bend/cards.bend` / `drafts.bend` / `upload.bend` | 196 | **97–99** |
+| `src/bend/view.bend` | 196 | **122** |
+| `src/bend/media.bend` | 196 | **125** |
+| `src/bend/buffer.bend` | 196 | **169** |
+| `src/bend/irc.bend` | 196 | **183** |
+
+**≈68% of rebuild work eliminated** across those 21 files. `irc.bend` at 183/196 is
+correct, not a failure — it is the universal hub, imported by 183 of 196 tests.
+
+Two notes on method, because both produced a wrong number the first time:
+- A quick fan-in script that follows only `import` reports `timui.h` as needing
+  **0** rebuilds. That is an artifact: `timui.h` is reached via `#include` from
+  `timui_ffi.c`, not via `import`. `scripts/bend-deps.sh` follows quoted
+  `#include`s into `src/ffi` and `src/ui`, and the real answer is **20**. Verified
+  on `deferred_frame`, `ui_input_queue`, `mss_stale_socket`. The same scan confirms
+  T1.3's new `src/ffi/birc_utf8_valid.h` is tracked.
+- The wildcard is now only a **cold-start fallback**: `Makefile:255-258`
+  `bend_dep_fallback` applies `BEND_SRC_DEPS` only when `build/<stem>.bend.d` is
+  absent. So the review's "2.69× over-invalidation" figure describes a path that no
+  longer runs on a warm tree; the live figure is 1.0×.
+
+
 **Corrections — the plan was wrong about these. Later waves must use the corrected
 facts:**
 
