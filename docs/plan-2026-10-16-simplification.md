@@ -137,6 +137,68 @@ Waves 3 and 4 change public APIs and must not overlap.
 
 ---
 
+## Wave 0 outcome, and corrections to this plan
+
+Wave 0 is merged (`571356b`, `e12fefc`). Both tasks were reviewed against their
+commits, not their reports. Measured results:
+
+| Metric | Before | After |
+|---|---|---|
+| FFI paths in `BEND_SRC_DEPS` | **0** | **11** |
+| Deadline-checked compiler recipes | 154 | **777** |
+| `lint-ffi` C file coverage | 5 of 7 | **7 of 7** |
+| `test-*` targets defined | 347 | **361** (none lost) |
+| Committed dead proof shards | 2,227 lines | **0** |
+| `docs/FFI.md` effect coverage | ~13 of 44 | **44 of 44** |
+| `make -n -B check` recipe lines | 841 | **1066** |
+
+The last row is not a regression: the extra lines are per-test closure generation
+and the cache conditional. **Raw `make -n` line count is no longer a useful
+baseline** — use the `bend` invocation count and the 777 deadline count instead.
+
+**Corrections — the plan was wrong about these. Later waves must use the corrected
+facts:**
+
+1. **33** unreachable Bend programs, not 32. `tests/bend/isupport.bend` is a
+   *program* that sits beside `src/bend/isupport.bend`; the original count
+   conflated them. After promoting the three that pass, `test-orphans` has **30**
+   prerequisites.
+2. **`test-mss-stale-socket` is not a target.** The real name is
+   **`test-mss-stale-held`**. T2.4/T2.5 must use the corrected name.
+3. **GNU make 3.81 has no `--eval`.** `tests/build_deadlines.py` reads `make -n`
+   expansion instead. Any later task that wanted `$(MAKE) --eval` must not assume
+   it exists.
+4. **A command-line-only `make -j2` is still overwritten by `-j10`** on make 3.81,
+   because `-j` is absent from `$(MAKEFLAGS)` during parsing and the environment
+   copy is empty. An **exported** `MAKEFLAGS=-j2` *is* honoured. All wave
+   launchers therefore export `MAKEFLAGS` rather than passing `-j` on the command
+   line.
+5. `make -n` will really rebuild a missing `build/<stem>.bend.d`, and the rebuilt
+   `.d` then makes the binary look stale. **`make -q` against a stable closure
+   file** is the check that distinguishes a real dependency from an artefact of
+   dry-run regeneration. Use `make -q`, not `make -n`, when proving staleness.
+6. The three orphans that pass and are now on `test-review-pure`:
+   `test-outbound-txn`, `test-draft-nick-rename`, `test-ws-shutdown-pending`.
+   `test-dns-live` was deliberately **not** executed (it needs a live resolver)
+   and stays on `test-orphans`.
+7. `tests/lint-ffi/ffi_stub.h` does **not** declare the park queue
+   (`IoWork.next/item/time`, `io_park`, `io_runs`) that `tls_ffi.c` walks, which
+   is why `lint_tls.c` carries its own prelude. Do not "fix" this by pointing
+   `lint_tls.c` at `ffi_stub.h`.
+8. The `dns` greps inside the `lint-ffi` recipe were stale — they matched a
+   3-argument `io_eff` and a `4096u` clamp that no longer exist in
+   `src/ffi/dns_ffi.c`. They now match the real 2-argument registrations and
+   `if (max > 65536u)`. This is the same drift `docs/FFI.md` had; assume other
+   grep-based assertions in the Makefile may be stale too, and check them against
+   source rather than trusting them.
+
+**Still open from Wave 0** (declared SKIPPED, being closed on the remote lane):
+`make test-nix-preflight`, and an end-to-end exercise of the `BIRC_UI_CACHE`
+restore-hit and store paths — only `build-ui-cache.sh key` was verified.
+
+
+---
+
 # WAVE 0 — Foundation
 
 ## T0.1 Build correctness and speed
