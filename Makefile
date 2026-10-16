@@ -29,6 +29,9 @@ NIXRUN := $(NIX) $(NIX_FEATURES) develop --no-update-lock-file . --command
 endif
 
 BLDDIR := build
+# Directory of this Makefile, so `make -f` from another cwd (test-nix-preflight)
+# still finds fragments. `wildcard` is cwd-relative and would miss them.
+BIRC_MAKE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 # Resolve prerequisites from the Makefile's own directory when driven via
 # `make -f` from elsewhere (test-nix-preflight runs proto-parity in a temp
 # dir). In-tree builds resolve locally first; VPATH is only a fallback.
@@ -1471,12 +1474,29 @@ test-pty-output-failure: build-ui $(BLDDIR)/birc-output-limit ## Pty: capture re
 	$(NIXRUN) timeout 30 python3 tests/pty/output_failure.py ./$(BLDDIR)/birc ./$(BLDDIR)/birc-output-limit
 
 # Opt-in PTY sharding/caching harness (additive targets only; `test-pty` unchanged).
-# Dash-include: test-nix-preflight drives this Makefile from another cwd where
-# mk/ is absent; shard targets still fail closed (no rule) when unused there.
--include mk/pty-shard.mk
--include mk/wf-cards.mk
--include mk/wf-settings.mk
--include mk/wf-filter.mk
+# Fail closed if a fragment is missing: `-include` used to drop its targets from
+# test-review-pure → test → check while `make check` still exited 0.
+# BIRC_ALLOW_MISSING_MK=1 skips the fragments only for the test-nix-preflight
+# temp-dir invocation. In-tree builds include the files next to this Makefile.
+ifeq ($(BIRC_ALLOW_MISSING_MK),1)
+else
+ifeq ($(wildcard $(BIRC_MAKE_DIR)/mk/pty-shard.mk),)
+$(error missing mk/pty-shard.mk; set BIRC_ALLOW_MISSING_MK=1 only for the test-nix-preflight temp-dir invocation)
+endif
+ifeq ($(wildcard $(BIRC_MAKE_DIR)/mk/wf-cards.mk),)
+$(error missing mk/wf-cards.mk; set BIRC_ALLOW_MISSING_MK=1 only for the test-nix-preflight temp-dir invocation)
+endif
+ifeq ($(wildcard $(BIRC_MAKE_DIR)/mk/wf-settings.mk),)
+$(error missing mk/wf-settings.mk; set BIRC_ALLOW_MISSING_MK=1 only for the test-nix-preflight temp-dir invocation)
+endif
+ifeq ($(wildcard $(BIRC_MAKE_DIR)/mk/wf-filter.mk),)
+$(error missing mk/wf-filter.mk; set BIRC_ALLOW_MISSING_MK=1 only for the test-nix-preflight temp-dir invocation)
+endif
+include $(BIRC_MAKE_DIR)/mk/pty-shard.mk
+include $(BIRC_MAKE_DIR)/mk/wf-cards.mk
+include $(BIRC_MAKE_DIR)/mk/wf-settings.mk
+include $(BIRC_MAKE_DIR)/mk/wf-filter.mk
+endif
 
 PNG_TEST_CFLAGS := -std=c99 -O1 -Werror=vla -pedantic -Wall -Wextra -Werror -isystem src/ui
 test-png-bounds: ## Bound local Sixel PNG allocation/inflation and retry transient failures.
