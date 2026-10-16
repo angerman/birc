@@ -98,12 +98,19 @@ this table; regenerate it from those commands.
 | `CID_WINCH_OPEN` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:135` (`law Winch.open`) |
 | `CID_WINCH_READY` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:141` (`law Winch.ready`) |
 | `CID_WINCH_CLOSE` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:147` (`law Winch.close`) |
-| `CID_SYS_OPEN_PROGRAM` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:153` (`law Sys.open_program`) |
-| `CID_SYS_MEDIA_PROGRAM` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:165` (`law Sys.media_program`) |
-| `CID_SYS_NOTIFY_DEFAULT` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:171` (`law Sys.notify_default`) |
-| `CID_SYS_CLIPBOARD_PROGRAM` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:159` (`law Sys.clipboard_program`) |
-| `CID_SYS_EXIT_DONE` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:177` (`law Sys.exit_done`) |
-| `CID_SYS_EXIT_FAIL` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:183` (`law Sys.exit_fail`) |
+| `CID_SYS_PLATFORM` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:156` (`law Sys.platform`) |
+| `CID_SYS_MEDIA_PROGRAM` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:187` (`law Sys.media_program`) |
+| `CID_SYS_EXIT_DONE` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:198` (`law Sys.exit_done`) |
+| `CID_SYS_EXIT_FAIL` | `src/ffi/timui_ffi.c` | `src/bend/timui.bend:204` (`law Sys.exit_fail`) |
+
+`Sys.platform` returns `1` on Apple and `0` otherwise. The helper program *names*
+are policy, so they live in Bend, not in C: `Sys.open_program`,
+`Sys.clipboard_program` and `Sys.notify_default` are pure matches over that flag
+(`open`/`xdg-open`, `pbcopy`/`""`, `osascript`/`notify-send`) and are no longer
+effects. `Sys.media_program` remains native because it is a `getenv` lookup.
+This table had 44 rows before that change; it has 42 now. Regenerate it with
+`grep -h 'io_eff(CID_' src/ffi/*.c` rather than editing it by hand.
+
 
 ### `src/ffi/tls_ffi.c`
 
@@ -243,8 +250,9 @@ type DrawOp is Data:
 - C does not tokenize. `TextSpan` is the tokenize law type; live paint uses
   `SpanOp`.
 - Wrapping: each IRC line is one paint line. C clips a span that would run
-  past `maxx` (no continuation row). A URL longer than 255 bytes is drawn as
-  a plain span.
+  past `maxx` (no continuation row). An OSC 8 target is kept exact through
+  1024 bytes; at 1025 or more the link is declined and the URL is drawn as a
+  plain span (`BIRC_URL_CAP`, from `src/ui/timui.h:843`).
 - Composer stays a C textarea widget (`timui_text_area_mut`).
 
 ## Decisions
