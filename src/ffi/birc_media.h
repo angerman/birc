@@ -1,5 +1,13 @@
 /* UI-owned helper payloads. Validation does not decode images or write output.
- * A painted image owns copies, so eviction cannot alter an in-flight frame. */
+ * A painted image owns copies, so eviction cannot alter an in-flight frame.
+ *
+ * Caps duplicated with media.bend (no single source of truth):
+ *   BIRC_MEDIA_CAP 8 == media.bend CAP() for pending and for ready.
+ *   BIRC_MEDIA_FRAME_CAP 24, BIRC_MEDIA_LIMIT (2 MiB), width/height <= 320,
+ *   and pixels*count <= 1536000 have no Bend twin. Envelope framing and
+ *   base64 stay here until a measured Bend decoder replaces them;
+ *   image_png_header_ stays native either way.
+ */
 #ifndef BIRC_MEDIA_H
 #define BIRC_MEDIA_H
 #include <stdint.h>

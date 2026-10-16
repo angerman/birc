@@ -173,3 +173,22 @@ def status_of.on(+ok: U32, +err: U32, +warn: U32, +dim: U32, +online: Bool, +off
 def status_of(+id: Id, +net: String) -> U32:
   status_of.on(status_ok(id), status_err(id), status_warn(id), status_dim(id),
     String.starts_with(net, "online"), String.eq(net, "offline"), String.eq(net, "connecting"))
+
+# Mention/private tab chip. Dark is the historic C pair: background
+# 0x1E1E2E (1973806) and foreground 0xFFD700 (16766720), same gold as
+# kind_dark Highlight. Light uses that theme's highlight gold on a warm
+# paper chip (0xFFF6D5). Mono keeps one foreground on the dark chip.
+# Activity alerts are reverse video and have no colour here.
+# C still paints the dark pair. OpTabs (view.bend) has no fields for these
+# words, so the constructor change is outside this module.
+def tab_mention_bg(+id: Id) -> U32:
+  match id:
+    case Dark{}: 1973806
+    case Light{}: 16774869
+    case Mono{}: 1973806
+
+def tab_mention_fg(+id: Id) -> U32:
+  match id:
+    case Dark{}: 16766720
+    case Light{}: 9071872
+    case Mono{}: MONO_FG()

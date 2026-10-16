@@ -150,17 +150,39 @@ law Winch.close:
 def Winch.close(w):
   import "../ffi/timui_ffi.c"
 
-law Sys.open_program:
-  IO(String)
+# 1 on Apple, 0 on every other host. Open, clipboard, and notify program
+# names are policy and live in the matchers below. media_program stays a
+# native getenv.
+law Sys.platform:
+  IO(U32)
 
-def Sys.open_program():
+def Sys.platform():
   import "../ffi/timui_ffi.c"
 
-law Sys.clipboard_program:
-  IO(String)
+def Sys.open_name(apple: Bool) -> String:
+  match apple:
+    case True{}: "open"
+    case False{}: "xdg-open"
 
-def Sys.clipboard_program():
-  import "../ffi/timui_ffi.c"
+def Sys.clipboard_name(apple: Bool) -> String:
+  match apple:
+    case True{}: "pbcopy"
+    case False{}: ""
+
+def Sys.notify_name(apple: Bool) -> String:
+  match apple:
+    case True{}: "osascript"
+    case False{}: "notify-send"
+
+def Sys.open_program() -> IO(String):
+  do IO<String>:
+    +p : U32 <- Sys.platform()
+    return Sys.open_name(U32.is_eq(p, 1))
+
+def Sys.clipboard_program() -> IO(String):
+  do IO<String>:
+    +p : U32 <- Sys.platform()
+    return Sys.clipboard_name(U32.is_eq(p, 1))
 
 law Sys.media_program:
   IO(String)
@@ -168,11 +190,10 @@ law Sys.media_program:
 def Sys.media_program():
   import "../ffi/timui_ffi.c"
 
-law Sys.notify_default:
-  IO(String)
-
-def Sys.notify_default():
-  import "../ffi/timui_ffi.c"
+def Sys.notify_default() -> IO(String):
+  do IO<String>:
+    +p : U32 <- Sys.platform()
+    return Sys.notify_name(U32.is_eq(p, 1))
 
 law Sys.exit_done:
   IO(Unit)
