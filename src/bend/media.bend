@@ -536,6 +536,9 @@ def live_kind(kind: Cl.LineKind) -> Bool:
     case Cl.Self{}: True{}
     case Cl.Highlight{}: True{}
     case Cl.Action{}: True{}
+    # Pending rows confirm before they can carry previews; explicit False
+    # locks that decision against future wildcard changes.
+    case Cl.Pending{_}: False{}
     case _: False{}
 
 def observe_line.pick(hit: Bool, +state: State, id: Nat, text: String) -> State:

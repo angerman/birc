@@ -78,7 +78,7 @@ def ad_hist_joined.hist(+hist: Sess.Hist) -> String:
 
 def ad_hist_joined.st(+st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: ad_hist_joined.hist(hist)
+    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: ad_hist_joined.hist(hist)
 
 def ad_hist_joined(+ad: AD.AD) -> String:
   ad_hist_joined.st(AD.ad_session(ad))
@@ -88,7 +88,7 @@ def ad_hist_len.hist(+hist: Sess.Hist) -> Nat:
 
 def ad_hist_len.st(+st: Sess.Session) -> Nat:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: ad_hist_len.hist(hist)
+    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: ad_hist_len.hist(hist)
 
 def ad_hist_len(+ad: AD.AD) -> Nat:
   ad_hist_len.st(AD.ad_session(ad))
@@ -156,7 +156,7 @@ def ws_comp.show(+c: Sess.Comp) -> String:
 
 def ws_comp.st(+st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, _, _, _, +comp, _, _, _, _, _, _, _, _, _, _, _, _}: ws_comp.show(comp)
+    case Sess.Session{_, _, _, _, _, _, _, _, _, _, +comp, _, _, _, _, _, _, _, _, _, _, _, _, _}: ws_comp.show(comp)
 
 def ws_comp(+ws: W.Workspace, +id: Key.ServerId) -> String:
   ws_comp.st(ws_part_st(ws, id))

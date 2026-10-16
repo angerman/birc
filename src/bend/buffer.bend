@@ -120,6 +120,22 @@ type LineKind is Data:
   LinkResult{}
   Presence{}
   Nick{}
+  Pending{inner: LineKind}
+
+# Optimistic-send ledger entry. Lives in the Session (view overlay only);
+# fabrication wraps kind in Pending{}. Never enters buffers or history, so
+# inner is always a base send kind (Self/Action/Notice) by construction.
+# buf/target route the overlay and FIFO fallback; label matches exact
+# labeled echoes; wire matches echo bytes; body restores the draft on
+# revert; disp renders verbatim; age counts TypingTicks.
+type PendSend is Data:
+  PendSend{buf: String, target: String, label: String, wire: String, body: String, disp: String, ts: String, kind: LineKind, age: Nat}
+
+def PEND_MAX() -> Nat:
+  32n
+
+def PEND_TICKS() -> Nat:
+  30n
 
 type Line is Data:
   Line{kind: LineKind, ts: String, text: String, author: String, id: Nat}
@@ -359,16 +375,20 @@ def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
 # Render filtering sole owner (I2-DRY): view mute checks fold the pattern,
 # author, and channel under the given CASEMAPPING; fixed wrappers delegate
 # with the default mapping.
+def line_from_nick_kind_cm(+cm: String, kind: LineKind, +author: String, +nick: String) -> Bool:
+  match kind:
+    case Msg{}: buf_eq_cm(cm, author, nick)
+    case Self{}: buf_eq_cm(cm, author, nick)
+    case Action{}: buf_eq_cm(cm, author, nick)
+    case Notice{}: buf_eq_cm(cm, author, nick)
+    case Highlight{}: buf_eq_cm(cm, author, nick)
+    case Pending{+inner}: line_from_nick_kind_cm(cm, inner, author, nick)
+    case _: False{}
+
 def line_from_nick_cm(+cm: String, +ln: Line, +nick: String) -> Bool:
   match ln:
     case Line{kind, _, _, +author, _}:
-      match kind:
-        case Msg{}: buf_eq_cm(cm, author, nick)
-        case Self{}: buf_eq_cm(cm, author, nick)
-        case Action{}: buf_eq_cm(cm, author, nick)
-        case Notice{}: buf_eq_cm(cm, author, nick)
-        case Highlight{}: buf_eq_cm(cm, author, nick)
-        case _: False{}
+      line_from_nick_kind_cm(cm, kind, author, nick)
 
 def is_line_muted_pat_cm(+cm: String, +m: String, +ln: Line, +chan: String, +server: String) -> Bool:
   +nick = mute_pat_nick(m)
@@ -409,17 +429,20 @@ def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: S
 def is_presence(kind: LineKind) -> Bool:
   match kind:
     case Presence{}: True{}
+    case Pending{+inner}: is_presence(inner)
     case _: False{}
 
 def is_nick(kind: LineKind) -> Bool:
   match kind:
     case Nick{}: True{}
+    case Pending{+inner}: is_nick(inner)
     case _: False{}
 
 def kind_shown(+joins: Bool, +nicks: Bool, kind: LineKind) -> Bool:
   match kind:
     case Presence{}: joins
     case Nick{}: nicks
+    case Pending{+inner}: kind_shown(joins, nicks, inner)
     case _: True{}
 
 def line_shown(+joins: Bool, +nicks: Bool, +ln: Line) -> Bool:
@@ -1167,6 +1190,7 @@ def diagnostic_notice(+cl: Client, kind: LineKind, msg: String) -> Client:
 def diagnostic_error(kind: LineKind) -> Bool:
   match kind:
     case Error{}: True{}
+    case Pending{+inner}: diagnostic_error(inner)
     case _: False{}
 
 def diagnostic_mirror.on(mirror: Bool, cl: Client, line: Line) -> Client:
@@ -1224,11 +1248,18 @@ def buf_reconnect(+b: Buffer, +now: String) -> Buffer:
 def is_reconnect(kind: LineKind) -> Bool:
   match kind:
     case Reconnect{}: True{}
+    case Pending{+inner}: is_reconnect(inner)
     case _: False{}
 
 def is_link_result(kind: LineKind) -> Bool:
   match kind:
     case LinkResult{}: True{}
+    case Pending{+inner}: is_link_result(inner)
+    case _: False{}
+
+def kind_pending(kind: LineKind) -> Bool:
+  match kind:
+    case Pending{_}: True{}
     case _: False{}
 
 # A zero ID is an unassigned buffer-local log. Feed maps may append to several

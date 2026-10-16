@@ -188,22 +188,23 @@ def paint_go.hint(
   +full: C.Fullscreen,
   +cm: String,
   hint: String,
-  +th: Theme.Id
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, +cols}:
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl))))
+        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), typers, split, media, C.paint_entries(cards), th, pends), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl))))
 
 def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +cm: String, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
-  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th)
+  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th, Nil{})
 
 def paint_session.hint(ui: T.Ui, +st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, _, _}:
       +cm = Sess.session_cm(st)
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), cm, hint, theme)
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), cm, hint, theme, Sess.session_pends(st))
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   paint_session.hint(ui, st, Sess.session_upload_hint(st))
@@ -214,9 +215,9 @@ def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
 # of the Session cf cell.
 def paint_session_cards.hint(ui: T.Ui, +st: Sess.Session, +cards: C.State, +full: C.Fullscreen, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _, _}:
       +cm = Sess.session_cm(st)
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, cm, hint, theme)
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, cm, hint, theme, Sess.session_pends(st))
 
 def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys):
   match found:

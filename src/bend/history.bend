@@ -19,6 +19,7 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.LinkResult{}: "LINK"
     case Cl.Presence{}: "PRS"
     case Cl.Nick{}: "NCK"
+    case Cl.Pending{+inner}: serialize_kind(inner)
 
 def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool, is_prs: Bool, is_nck: Bool) -> Cl.LineKind:
   match is_msg:

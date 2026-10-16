@@ -34,7 +34,12 @@ def parse.go(+dark: Bool, +light: Bool, +mono: Bool) -> Maybe<&2, Id>:
 def parse(+name: String) -> Maybe<&2, Id>:
   parse.go(Irc.ieq(name, "dark"), Irc.ieq(name, "light"), Irc.ieq(name, "mono"))
 
+# Halve each 0xRRGGBB channel (mask 0x7F7F7F keeps channels separate).
+def dim_fg(+c: U32) -> U32:
+  U32.and(U32.shrn(c, 1n), 8355711)
+
 # Historic dark values, one per LineKind, shared by the fixed View adapter.
+# Pending renders its inner kind dimmed; Mono dims at kind_fg below.
 def kind_dark(k: Cl.LineKind) -> U32:
   match k:
     case Cl.Msg{}: 13158600
@@ -48,6 +53,7 @@ def kind_dark(k: Cl.LineKind) -> U32:
     case Cl.LinkResult{}: 10526880
     case Cl.Presence{}: 10526880
     case Cl.Nick{}: 10526880
+    case Cl.Pending{+inner}: dim_fg(kind_dark(inner))
 
 # Dark-on-light variants: readable on a white background.
 def kind_light(k: Cl.LineKind) -> U32:
@@ -63,15 +69,21 @@ def kind_light(k: Cl.LineKind) -> U32:
     case Cl.LinkResult{}: 6710886
     case Cl.Presence{}: 6710886
     case Cl.Nick{}: 6710886
+    case Cl.Pending{+inner}: dim_fg(kind_light(inner))
 
 def MONO_FG() -> U32:
   14211288
 
-def kind_fg(+id: Id, k: Cl.LineKind) -> U32:
+def kind_fg.dim(+fg: U32, pending: Bool) -> U32:
+  match pending:
+    case True{}: dim_fg(fg)
+    case False{}: fg
+
+def kind_fg(+id: Id, +k: Cl.LineKind) -> U32:
   match id:
     case Dark{}: kind_dark(k)
     case Light{}: kind_light(k)
-    case Mono{}: MONO_FG()
+    case Mono{}: kind_fg.dim(MONO_FG(), Cl.kind_pending(k))
 
 # Historic dark nick hash palette (16 slots plus the default arm).
 def nick_dark(+idx: U32) -> U32:

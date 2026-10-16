@@ -806,6 +806,10 @@ test-submit: $(BLDDIR)/submit_demo ## M2 submit goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
 
+test-pend: $(BLDDIR)/pend_demo ## Optimistic-send record/overlay/confirm/timeout/fail goldens.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) sh scripts/check-golden.sh pend_demo=ok ./$(BLDDIR)/pend_demo
+
 test-server-id: $(BLDDIR)/server_id_demo ## Multiserver routing, isolation, and generation goldens.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh server_id_demo=ok ./$(BLDDIR)/server_id_demo

@@ -103,3 +103,22 @@
   `cards.bend` fullscreen math is unaffected). `feed_demo=ok`
   verified on the calm host; `test-proto` + `proto-parity` sanity
   green.
+- test-theme-ws-render: FAILING on base (pre-existing, not a pend
+  regression). `ws2 framed rendered bytes exact` mismatches on
+  trailing composer whitespace in both the working tree and a
+  stashed pristine run: got=[...<me> ] want=[...<me>]. The pend
+  slice passes `Nil{}` pends on that path, which is behavior-identical
+  by construction (append xs Nil = xs; zero-count label = base label).
+  Needs a calm-host rerun + golden review by the typing/composer
+  slice owner.
+- proof: TIMEOUT under host load (loadavg 25+ on 10 cores), both at
+  the default 180 s and at PROOF_TIMEOUT=1200/2400. A niced baseline
+  proof at detached HEAD d286f90 also timed out, so the stall is
+  environmental, not a slice regression; rerun `make proof` on a calm
+  host before qualifying the optimistic-send batch.
+- test-media-view: FAILING on committed HEAD d286f90 (pre-existing).
+  `new live message schedules got=[0] want=[1]`: a folded live
+  PRIVMSG schedules no media job. Reproduced identically in the
+  working tree and in a pristine /tmp/birc-proof-base checkout, so
+  it is unrelated to the optimistic-send slice. Media-slice owner
+  to triage.

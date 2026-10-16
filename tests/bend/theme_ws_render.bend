@@ -71,7 +71,7 @@ def paint_ops(+st: Sess.Session) -> List<&2, V.DrawOp>:
   ops_of(Sess.session_paint_vm(st))
 
 def direct_framed() -> List<&2, V.DrawOp>:
-  ops_of(V.view_draft.state_typing_media_themed(framed_client(), 24, 80, "", "online", Nil{}, Sp.Off{}, M.empty(), Theme.Dark{}))
+  ops_of(V.view_draft.state_typing_media_themed(framed_client(), 24, 80, "", "online", Nil{}, Sp.Off{}, M.empty(), Theme.Dark{}, Nil{}))
 
 def dark_wire() -> String:
   P.show(L.capture(base(), 1))

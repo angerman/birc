@@ -152,6 +152,7 @@ def keys_enter(+keys: Sess.Keys) -> Bool:
 def kind_is_error(kind: Cl.LineKind) -> Bool:
   match kind:
     case Cl.Error{}: True{}
+    case Cl.Pending{+inner}: kind_is_error(inner)
     case _: False{}
 
 def line_sig(+line: Cl.Line) -> Nat & Bool:
@@ -569,7 +570,7 @@ def s5_hist.hist(+hist: Sess.Hist) -> String:
 
 def s5_hist.st(+st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: s5_hist.hist(hist)
+    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: s5_hist.hist(hist)
 
 def s5_hist(+ad: AD) -> String:
   s5_hist.st(ad_session(ad))
@@ -579,7 +580,7 @@ def s5_hist_len.hist(+hist: Sess.Hist) -> Nat:
 
 def s5_hist_len.st(+st: Sess.Session) -> Nat:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: s5_hist_len.hist(hist)
+    case Sess.Session{_, _, _, _, _, _, _, hist, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _}: s5_hist_len.hist(hist)
 
 def s5_hist_len(+ad: AD) -> Nat:
   s5_hist_len.st(ad_session(ad))

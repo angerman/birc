@@ -460,7 +460,7 @@ def replace_reset(+st2: Sess.Session, same: Bool) -> Sess.Session:
 
 def replace_server.st(+parts: List<&2, Part>, +cur: Key.ServerId, +ds: Drafts.Drafts, +rt: List<&2, SlotEpoch>, +id: Key.ServerId, +gen: U32, +st: Sess.Session, +host: String, +port: U32, v6: Bool) -> Workspace & Bool:
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, +chan, +net, +hist, +size, +seed, +comp, +split, _, +old_port, +media, +plan, +edits, +isobox, +hlbox, +cf, _, +theme, +labelsbox}:
+    case Sess.Session{+cl, _, _, +draft, _, +chan, +net, +hist, +size, +seed, +comp, +split, _, +old_port, +media, +plan, +edits, +isobox, +hlbox, +cf, _, +theme, +labelsbox, _}:
       +same = Sess.endpoint_same(cl, host, old_port, port)
       +st2 = Sess.session_after.dial(cl, draft, chan, hist, size, seed, comp, split, host, port, old_port, net, Sess.unbox_media(media), plan, edits, Sess.unbox_iso(isobox), Sess.unbox_hist_live(hlbox), Sess.unbox_cards(cf), Sess.unbox_full(cf), theme, labelsbox)
       +st3 = replace_reset(st2, same)
@@ -1767,7 +1767,7 @@ def s3_comp.show(+c: Sess.Comp) -> String:
 
 def s3_comp.st(+st: Sess.Session) -> String:
   match st:
-    case Sess.Session{_, _, _, _, _, _, _, _, _, _, +comp, _, _, _, _, _, _, _, _, _, _, _, _}: s3_comp.show(comp)
+    case Sess.Session{_, _, _, _, _, _, _, _, _, _, +comp, _, _, _, _, _, _, _, _, _, _, _, _, _}: s3_comp.show(comp)
 
 def s3_comp.got(+got: Maybe<&2, Part>) -> String:
   match got:
