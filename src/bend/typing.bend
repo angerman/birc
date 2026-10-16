@@ -252,15 +252,27 @@ def event_for.cmd(+cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, status: Maybe<&2
 def event_for_with.cmd(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   retarget_maybe(Irc.typing_event_cmd(m, tstatus, c), event_target_with(cm, types, status, sigils, cl, m, c))
 
+# echo-message returns our own +typing TAGMSG to us; never track ourselves
+# as a typer. Self quit/nick renames need no clearing: self is never held.
+def event_for.chk(keep: Bool, +cl: Cl.Client, +msg: Irc.Message, status: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+  match keep:
+    case False{}: None{}
+    case True{}: event_for.cmd(cl, msg, Irc.classify(msg), status)
+
 def event_for.parsed(+cl: Cl.Client, m: Maybe<&2, Irc.Message>, status: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   match m:
     case None{}: None{}
-    case Some{+msg}: event_for.cmd(cl, msg, Irc.classify(msg), status)
+    case Some{+msg}: event_for.chk(Bool.not(Cl.nick_eq(Irc.msg_nick(msg), Cl.nick_of(cl))), cl, msg, status)
+
+def event_for_with.chk(keep: Bool, +cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +msg: Irc.Message, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+  match keep:
+    case False{}: None{}
+    case True{}: event_for_with.cmd(cm, types, status, sigils, cl, msg, Irc.classify(msg), tstatus)
 
 def event_for_with.parsed(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, m: Maybe<&2, Irc.Message>, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   match m:
     case None{}: None{}
-    case Some{+msg}: event_for_with.cmd(cm, types, status, sigils, cl, msg, Irc.classify(msg), tstatus)
+    case Some{+msg}: event_for_with.chk(Bool.not(Cl.nick_eq_cm(cm, Irc.msg_nick(msg), Cl.nick_of(cl))), cm, types, status, sigils, cl, msg, tstatus)
 
 def apply_line_for(+state: State, +cl: Cl.Client, +line: String, +now_ms: U32) -> State:
   +clean = Irc.strip_cr(line)

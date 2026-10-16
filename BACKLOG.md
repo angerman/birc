@@ -1,5 +1,15 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- Input latency scales with scrollback: `visible_lines` walks the whole
+  buffer twice per frame per pane (`List.length` + `List.drop`) before
+  wrapping only the visible rows. Measured `view_us` 1.5ms (tiny demo)
+  vs 10ms (2000 rows) under load 26; calm-host numbers needed to split
+  algorithmic cost from scheduling stalls (`begin` is O(1) input drain,
+  so its 100ms average there is descheduling, not work). Repro:
+  `BIRC_FRAME_PROFILE=1` on a pty with `--replay` of a large transcript.
+  Fix direction: cached lengths or anchor-relative slicing; keep scroll
+  and navigation semantics pinned while touching this path.
+
 - runtime_reconnect C-backend arity: FIXED (test-only) — main holding
   4 live Sessions breached the 247-word native continuation limit
   ("an arity over 247") as Session grew. Split into phase defs holding

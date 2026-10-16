@@ -137,6 +137,17 @@ def session_part_prunes_typing_ok() -> Bool:
   Ty.has(Sess.session_typing(s2), "#birc", "alice")
     && Nat.is_eq(Ty.count(Sess.session_typing(s3)), 0n)
 
+def self_echo_ok() -> Bool:
+  +s0 = Sess.session_online(Sess.session0("me", "irc.example", "#birc"))
+  +s1 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s0, Fr.string_to_octets(":me!m@h JOIN #birc\r\n"), 900))
+  +s2 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s1, Fr.string_to_octets("@+typing=active :me!m@h TAGMSG #birc\r\n"), 1000))
+  +s3 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s2, Fr.string_to_octets("@+typing=active :alice!a@h TAGMSG #birc\r\n"), 1050))
+  +s4 = Sess.st_of_chunk(Sess.step_on_chunk_ms(s3, Fr.string_to_octets("@+typing=active :ME!m@h TAGMSG #birc\r\n"), 1100))
+  Bool.not(Ty.has(Sess.session_typing(s2), "#birc", "me"))
+    && Bool.not(list_has(Sess.session_typers(s2), "me"))
+    && Ty.has(Sess.session_typing(s3), "#birc", "alice")
+    && Nat.is_eq(Ty.count(Sess.session_typing(s4)), 1n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("protocol", protocol_ok())
@@ -151,4 +162,5 @@ def main() -> IO(Unit):
     Unit <- E.must("view", view_ok())
     Unit <- E.must("session_path", session_path_ok())
     Unit <- E.must("session_part_prunes_typing", session_part_prunes_typing_ok())
+    Unit <- E.must("self_echo", self_echo_ok())
     IO.print("typing_demo=ok")
