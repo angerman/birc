@@ -121,37 +121,44 @@ def take_until_space(s: String) -> String & String:
     case SCon{+h, +t}:
       take_until_space.fin(h, t, take_until_space(t), is_space(h))
 
-# RFC 1459 casemap: ASCII upper, then []\~ ↔ {}|^.
-def rfc1459_code.tilde(+n: U32, hit: Bool) -> U32:
+# RFC 1459 casemap: ASCII upper, then []\ ↔ {}|. tilde also folds ^ ↔ ~;
+# rfc1459-strict passes False and leaves that pair alone.
+def fold_code.tilde(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       94
     case False{}:
       n
 
-def rfc1459_code.rb(+n: U32, hit: Bool) -> U32:
+def fold_code.rb(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       125
     case False{}:
-      rfc1459_code.tilde(n, U32.is_eq(n, 126))
+      fold_code.tilde(n, tilde, tilde && U32.is_eq(n, 126))
 
-def rfc1459_code.bs(+n: U32, hit: Bool) -> U32:
+def fold_code.bs(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       124
     case False{}:
-      rfc1459_code.rb(n, U32.is_eq(n, 93))
+      fold_code.rb(n, tilde, U32.is_eq(n, 93))
 
-def rfc1459_code.lb(+n: U32, hit: Bool) -> U32:
+def fold_code.lb(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       123
     case False{}:
-      rfc1459_code.bs(n, U32.is_eq(n, 92))
+      fold_code.bs(n, tilde, U32.is_eq(n, 92))
+
+def fold_code(+n: U32, tilde: Bool) -> U32:
+  fold_code.lb(n, tilde, U32.is_eq(n, 91))
 
 def rfc1459_code(+n: U32) -> U32:
-  rfc1459_code.lb(n, U32.is_eq(n, 91))
+  fold_code(n, True{})
+
+def strict_code(+n: U32) -> U32:
+  fold_code(n, False{})
 
 def rfc1459_char(+c: Char) -> Char:
   match c:
@@ -175,24 +182,6 @@ def ieq(+a: String, +b: String) -> Bool:
 # ascii folds A-Z only; rfc1459-strict adds []\ <-> {|} but not ^~;
 # rfc1459 (the default) also folds ^ <-> ~. Unknown names fail closed
 # to the default rfc1459 mapping.
-def strict_code.rb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 125
-    case False{}: n
-
-def strict_code.bs(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 124
-    case False{}: strict_code.rb(n, U32.is_eq(n, 93))
-
-def strict_code.lb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 123
-    case False{}: strict_code.bs(n, U32.is_eq(n, 92))
-
-def strict_code(+n: U32) -> U32:
-  strict_code.lb(n, U32.is_eq(n, 91))
-
 def strict_char(+c: Char) -> Char:
   match c:
     case Chr{n}: Chr{strict_code(n)}
