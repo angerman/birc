@@ -158,6 +158,10 @@ $(BLDDIR)/%.bend.d: tests/bend/%.bend $(BIRC_MAKE_DIR)/scripts/bend-deps.sh
 	@mkdir -p $(dir $@)
 	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $< > $@.tmp
 	mv $@.tmp $@
+$(BLDDIR)/golden-layers.mk: $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $(wildcard tests/bend/*.bend)
+	@mkdir -p $(dir $@)
+	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh --layers > $@.tmp
+	mv $@.tmp $@
 # Keep closure files. A pattern-only prerequisite is otherwise intermediate
 # and Make deletes it, which drops the next build back to the full fallback.
 .SECONDARY: $(patsubst tests/bend/%.bend,$(BLDDIR)/%.bend.d,$(wildcard tests/bend/*.bend)) $(BLDDIR)/birc-proto.bend.d
@@ -1539,7 +1543,13 @@ endif
 # cwd (test-nix-preflight) has no tests/bend and must not scan the world.
 ifneq ($(wildcard tests/bend/expect.bend),)
 -include $(wildcard $(BLDDIR)/*.bend.d)
+-include $(BLDDIR)/golden-layers.mk
 endif
+
+.PHONY: focus
+focus: ## Run one target: make focus T=test-utc-time
+	@test -n "$(T)" || { printf '%s\n' 'focus: set T=<target>' >&2; exit 2; }
+	$(MAKE) $(T)
 
 PNG_TEST_CFLAGS := -std=c99 -O1 -Werror=vla -pedantic -Wall -Wextra -Werror -isystem src/ui
 test-png-bounds: ## Bound local Sixel PNG allocation/inflation and retry transient failures.
