@@ -368,6 +368,20 @@ def ws_emit(+rc: Sid.RoutedCmd, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
   match rc:
     case Sid.RoutedCmd{+s, +cmd}: ws_emit.id(cmd, cmds, evts, s)
 
+# /quit only. The focused RoutedCmd is emitted by the caller; this sends
+# the same QUIT lines to every other live part before shutdown closes
+# command channels. Ordinary keys stay single-part.
+def ws_emit_list(+rcs: List<&2, Sid.RoutedCmd>, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
+  match rcs:
+    case Nil{}: IO.pure(Unit, Unit{})
+    case Con{+h, +t}:
+      do IO<Unit>:
+        Unit <- ws_emit(h, cmds, evts)
+        ws_emit_list(t, cmds, evts)
+
+def ws_emit_quit(+ws: W.Workspace, +rc: Sid.RoutedCmd, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
+  ws_emit_list(W.quit_broadcast(ws, rc), cmds, evts)
+
 def ws_emit_maybe(+mrc: Maybe<&2, Sid.RoutedCmd>, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
   match mrc:
     case None{}: IO.pure(Unit, Unit{})
@@ -1402,6 +1416,7 @@ def ws_done(ui: T.Ui, trip: W.Workspace & Sid.RoutedCmd & Bool, +old: W.Workspac
     case (+ws2, +rc, halt):
       do IO<Unit>:
         Unit <- ws_emit(rc, cmds, evts)
+        Unit <- ws_emit_quit(ws2, rc, cmds, evts)
         Unit <- Net.ack_key(is_key, ack)
         got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_done.sized(ws2, old, rows, cols), W.ws_current(ws2), evts, pevts, ctx, media, owner, ups, cards, False{})
         ws_done.posted(got, quit, more, tab, click, up, dn, hist, enter, comp, focus, halt, main, scheduled, consumed, bell, notify, begun, k)
