@@ -77,10 +77,6 @@ def ad_drafts(+ad: AD) -> Drafts.Drafts:
   match ad:
     case AD{_, +ds, _}: ds
 
-def ad_server(+ad: AD) -> Key.ServerId:
-  match ad:
-    case AD{_, _, +server}: server
-
 # Canonical key of the active buffer: buffer 0 is the control buffer
 # ("*server*", exactly like Split.name_at), every other buffer keeps its
 # target name, so a peer query named "server" never collides with control.

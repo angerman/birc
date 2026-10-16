@@ -71,14 +71,6 @@ def ad_client(+ad: AD) -> Cl.Client:
   match ad:
     case AD{st, _, _}: Sess.session_cl(st)
 
-def ad_media(+ad: AD) -> M.State:
-  match ad:
-    case AD{st, _, _}: Sess.session_media(st)
-
-def ad_enabled(+ad: AD) -> Bool:
-  match ad:
-    case AD{_, cards, _}: C.enabled(cards)
-
 def ad_pending(+ad: AD) -> Nat:
   match ad:
     case AD{_, cards, _}: C.pending_count(cards)
@@ -209,9 +201,6 @@ def close_full(+ad: AD) -> AD:
     case AD{st, cards, full}: AD{st, cards, C.close(full)}
 
 # ---- Session dispatch wrappers (wire output passes through untouched) ----
-
-def lift(+st: Sess.Session, +cmd: Sess.NetCmd, +halt: Bool, +cards: C.State, +full: C.Fullscreen) -> AD & Sess.NetCmd & Bool:
-  (AD{st, cards, full}, cmd, halt)
 
 def lift_closed(+st: Sess.Session, +cmd: Sess.NetCmd, +halt: Bool, +cards: C.State, +full: C.Fullscreen) -> AD & Sess.NetCmd & Bool:
   (settle(AD{st, cards, full}), cmd, halt)

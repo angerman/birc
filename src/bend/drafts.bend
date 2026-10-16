@@ -180,9 +180,6 @@ def find_entry_cm(+ds: Drafts, +server: Key.ServerId, +key: String, +cm: String)
     case Drafts{+entries}:
       find_entry_cm.go(entries, server, key, cm)
 
-def find_entry(+ds: Drafts, +server: Key.ServerId, +key: String) -> Maybe<&2, String>:
-  find_entry_cm(ds, server, key, Cl.dflt_cm())
-
 def get.on(found: Maybe<&2, String>) -> String:
   match found:
     case None{}:
@@ -413,18 +410,6 @@ def apply_renames.go(+xs: List<&2, NickRename>, +ds: Drafts, +server: Key.Server
 def apply_renames(+ds: Drafts, +server: Key.ServerId, +xs: List<&2, NickRename>) -> Drafts:
   apply_renames.go(xs, ds, server)
 
-def rename.occupied(+ds: Drafts, +server: Key.ServerId, +to: String, +text: String, occupied: Bool) -> Drafts:
-  rename_cm.occupied(ds, server, to, text, occupied, Cl.dflt_cm())
-
-def rename.place(+ds: Drafts, +server: Key.ServerId, +to: String, +text: String) -> Drafts:
-  rename_cm.place(ds, server, to, text, Cl.dflt_cm())
-
-def rename.carry(+ds: Drafts, +server: Key.ServerId, +from: String, +to: String, carried: Maybe<&2, String>) -> Drafts:
-  rename_cm.carry(ds, server, from, to, carried, Cl.dflt_cm())
-
-def rename.move(+ds: Drafts, +server: Key.ServerId, +from: String, +to: String, allowed: Bool) -> Drafts:
-  rename_cm.move(ds, server, from, to, allowed, Cl.dflt_cm())
-
 def rename(+ds: Drafts, +server: Key.ServerId, +from_key: String, +to_key: String) -> Drafts:
   rename_cm(ds, server, from_key, to_key, Cl.dflt_cm())
 
@@ -451,22 +436,6 @@ def rename_nick.parsed_cm(+ds: Drafts, +server: Key.ServerId, m: Maybe<&2, Irc.M
 
 def rename_nick.line_cm(+ds: Drafts, +server: Key.ServerId, +line: String, +cm: String) -> Drafts:
   rename_nick.parsed_cm(ds, server, Irc.parse(line), cm)
-
-def rename_nick.line(+ds: Drafts, +server: Key.ServerId, +line: String) -> Drafts:
-  rename_nick.line_cm(ds, server, line, Cl.dflt_cm())
-
-def rename_nicks_cm.go(lines: List<&2, String>, +ds: Drafts, +server: Key.ServerId, +cm: String) -> Drafts:
-  match lines:
-    case Nil{}:
-      ds
-    case Con{+h, +t}:
-      rename_nicks_cm.go(t, rename_nick.line_cm(ds, server, h, cm), server, cm)
-
-def rename_nicks_cm(+ds: Drafts, +server: Key.ServerId, +lines: List<&2, String>, +cm: String) -> Drafts:
-  rename_nicks_cm.go(lines, ds, server, cm)
-
-def rename_nicks(+ds: Drafts, +server: Key.ServerId, +lines: List<&2, String>) -> Drafts:
-  rename_nicks_cm(ds, server, lines, Cl.dflt_cm())
 
 def resident.go(+cl: Cl.Client, bufs: List<&2, Cl.Buffer>, +i: Nat, +key: String) -> Bool:
   match bufs:

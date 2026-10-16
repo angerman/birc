@@ -1,22 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Cards worker glue (IO). Thin native-adjacent spawner over the pure
-# session_cards.bend policy: helper resolution, one bounded worker, and
-# completion admission. Never imported by LAWS.bend (foreign IO), exactly
-# like net.bend.
+# Cards worker glue (IO). Thin native-adjacent spawner over Session-retained
+# cards state: helper resolution, one bounded worker, and completion
+# admission. Never imported by LAWS.bend (foreign IO), exactly like net.bend.
 #
-# ADAPTER BOUNDARY (branch c8/session-adapter): Net-side half of the
-# cards adapter. Parent owns merges; this file is new and disjoint by
-# construction. FROZEN at parent HEAD (public signatures never edited
-# here): cards.bend, cards.py.
-#
-# Live wiring (C8 live, Session-field merge done): net.bend calls the
-# Session variants below, which run the same schedule/admit policy over the
-# one Session-retained cards/full state:
+# Live wiring: net.bend calls the Session variants below over the one
+# Session-retained cards/full state:
 # - after every event: cards_stage_session(st, evt) to schedule plus spawn;
 # - on Sess.CardFetched: on_card_session(Sess.session_accept_card_result...),
 #   then paint when it reports repaint;
 # - at paint: append CardsView.overlay_ops to the ops (see cards_view).
-# The SC.AD variants stay as the law/test adapter surface.
+# overlay_ops re-validates the stored token against live Media and Client
+# on every paint. Cards have no terminal-support gate; only fullscreen does.
 #
 # Worker budgets mirror the media worker exactly (same worker class):
 # the helper owns HTML bounds, the 8s self-alarm, verified HTTPS,
@@ -25,7 +19,6 @@
 import Base
 import ./session.bend as Sess
 import ./cards.bend as C
-import ./session_cards.bend as SC
 import ./links.bend as Links
 
 def cards_program.fallback(got: Result<&1, &1, U32 & String, String>) -> String:
@@ -63,7 +56,7 @@ def cards_payload(r: Result<&1, &1, U32 & String, U32 & (String & String)>) -> S
     case Done{(code, (out, _))}: Bool.pick(String, U32.is_zero(code), out, "")
 
 # One bounded external worker; only its exact completion can release
-# ownership (see SC.accept_result / SC.complete).
+# ownership (see C.accept / C.complete).
 def cards_run(req: C.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match req:
     case C.Request{_, +url, +generation, +ticket}:
@@ -77,33 +70,6 @@ def cards_spawn(job: Maybe<&2, C.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match job:
     case None{}: IO.pure(Unit, Unit{})
     case Some{req}: IO.spawn(Unit, cards_run(req, evt))
-
-def cards_stage.go(pair: SC.AD & Maybe<&2, C.Request>, +evt: Chan(Sess.UiMsg)) -> IO(SC.AD & Maybe<&2, C.Request>):
-  match pair:
-    case (ad, +job):
-      do IO<SC.AD & Maybe<&2, C.Request>>:
-        Unit <- cards_spawn(job, evt)
-        return (ad, job)
-
-# Schedule bounded visible work, then spawn at most one worker. Scheduling
-# alone changes nothing painted (the queue is invisible), so unlike the
-# media stage there is no repaint signal here; completions report it.
-def cards_stage(+ad: SC.AD, +evt: Chan(Sess.UiMsg)) -> IO(SC.AD & Maybe<&2, C.Request>):
-  cards_stage.go(SC.take_job(SC.observe_visible(ad)), evt)
-
-# Completion admission. The caller supplies SC.accept_result as accepted
-# (mirroring on_msg_go for media); stale results release without storing
-# and report no repaint, accepted ones land plus repaint.
-def on_card.repaint(+ad: SC.AD, +generation: Nat, +ticket: Nat, +url: String, +payload: String) -> SC.AD & Bool:
-  (SC.complete(ad, generation, ticket, url, payload), True{})
-
-def on_card.stale(+ad: SC.AD, +generation: Nat, +ticket: Nat, +url: String) -> SC.AD & Bool:
-  (SC.reject(ad, generation, ticket, url), False{})
-
-def on_card(accepted: Bool, +ad: SC.AD, +generation: Nat, +ticket: Nat, +url: String, +payload: String) -> SC.AD & Bool:
-  match accepted:
-    case False{}: on_card.stale(ad, generation, ticket, url)
-    case True{}: on_card.repaint(ad, generation, ticket, url, payload)
 
 # Session production variants over the one retained cards/full state. The
 # caller computes admission at completion time against the live client; stale
