@@ -121,37 +121,54 @@ def take_until_space(s: String) -> String & String:
     case SCon{+h, +t}:
       take_until_space.fin(h, t, take_until_space(t), is_space(h))
 
-# RFC 1459 casemap: ASCII upper, then []\~ ↔ {}|^.
-def rfc1459_code.tilde(+n: U32, hit: Bool) -> U32:
+# RFC 1459 casemap: ASCII upper, then []\ ↔ {}|. tilde also folds ^ ↔ ~;
+# rfc1459-strict passes False and leaves that pair alone.
+def fold_code.tilde(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       94
     case False{}:
       n
 
-def rfc1459_code.rb(+n: U32, hit: Bool) -> U32:
+def fold_code.rb.keep(+n: U32, tilde: Bool) -> U32:
+  match tilde:
+    case True{}: 125
+    case False{}: 125
+
+def fold_code.rb.rest(+n: U32, tilde: Bool) -> U32:
+  match tilde:
+    case True{}: fold_code.tilde(n, True{}, U32.is_eq(n, 126))
+    case False{}: fold_code.tilde(n, False{}, False{})
+
+def fold_code.rb(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
-      125
+      fold_code.rb.keep(n, tilde)
     case False{}:
-      rfc1459_code.tilde(n, U32.is_eq(n, 126))
+      fold_code.rb.rest(n, tilde)
 
-def rfc1459_code.bs(+n: U32, hit: Bool) -> U32:
+def fold_code.bs(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       124
     case False{}:
-      rfc1459_code.rb(n, U32.is_eq(n, 93))
+      fold_code.rb(n, tilde, U32.is_eq(n, 93))
 
-def rfc1459_code.lb(+n: U32, hit: Bool) -> U32:
+def fold_code.lb(+n: U32, tilde: Bool, hit: Bool) -> U32:
   match hit:
     case True{}:
       123
     case False{}:
-      rfc1459_code.bs(n, U32.is_eq(n, 92))
+      fold_code.bs(n, tilde, U32.is_eq(n, 92))
+
+def fold_code(+n: U32, tilde: Bool) -> U32:
+  fold_code.lb(n, tilde, U32.is_eq(n, 91))
 
 def rfc1459_code(+n: U32) -> U32:
-  rfc1459_code.lb(n, U32.is_eq(n, 91))
+  fold_code(n, True{})
+
+def strict_code(+n: U32) -> U32:
+  fold_code(n, False{})
 
 def rfc1459_char(+c: Char) -> Char:
   match c:
@@ -175,24 +192,6 @@ def ieq(+a: String, +b: String) -> Bool:
 # ascii folds A-Z only; rfc1459-strict adds []\ <-> {|} but not ^~;
 # rfc1459 (the default) also folds ^ <-> ~. Unknown names fail closed
 # to the default rfc1459 mapping.
-def strict_code.rb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 125
-    case False{}: n
-
-def strict_code.bs(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 124
-    case False{}: strict_code.rb(n, U32.is_eq(n, 93))
-
-def strict_code.lb(+n: U32, hit: Bool) -> U32:
-  match hit:
-    case True{}: 123
-    case False{}: strict_code.bs(n, U32.is_eq(n, 92))
-
-def strict_code(+n: U32) -> U32:
-  strict_code.lb(n, U32.is_eq(n, 91))
-
 def strict_char(+c: Char) -> Char:
   match c:
     case Chr{n}: Chr{strict_code(n)}
@@ -465,12 +464,37 @@ def skip_mirc_d1(+s: String) -> String:
 def skip_mirc(+s: String) -> String:
   skip_mirc_d1(s)
 
+# Style bytes kept by sanitize_keep_style. Defined here so the shared walk
+# can name it; a function argument cannot be both applied and passed on,
+# because the checker treats it as affine.
+def is_style_keep(+c: Char) -> Bool:
+  +n = code_of(c)
+  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
+    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
+
 type SanPh is Data:
   SanStr{}
   SanHit{h: Char, color: Bool, drop: Bool}
 
+def sanitize_phase.color(+hd: Char, color: Bool) -> SanPh:
+  match color:
+    case True{}: SanHit{hd, True{}, True{}}
+    case False{}: SanHit{hd, False{}, True{}}
+
+def sanitize_phase.drop(+hd: Char, gone: Bool) -> SanPh:
+  match gone:
+    case True{}: sanitize_phase.color(hd, code_is(hd, 3))
+    case False{}: SanHit{hd, False{}, False{}}
+
+def sanitize_phase(+hd: Char, keep_style: Bool) -> SanPh:
+  match keep_style:
+    case False{}: sanitize_phase.drop(hd, is_c0_drop(hd))
+    case True{}: sanitize_phase.drop(hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd)))
+
 # checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
-def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
+# keep_style selects the drop predicate. A dropped 0x03 also eats its mIRC
+# color parameters; a kept 0x03 leaves those bytes for the view decoder.
+def sanitize_go(fuel: Nat, ph: SanPh, +s: String, keep_style: Bool) -> String:
   match fuel:
     case 0n:
       SNil{}
@@ -481,20 +505,22 @@ def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
             case SNil{}:
               SNil{}
             case SCon{+hd, t}:
-              sanitize_in_go(p, SanHit{hd, code_is(hd, 3), is_c0_drop(hd)}, t)
+              match keep_style:
+                case False{}: sanitize_go(p, sanitize_phase(hd, False{}), t, False{})
+                case True{}: sanitize_go(p, sanitize_phase(hd, True{}), t, True{})
         case SanHit{h, color, drop}:
           match color:
             case True{}:
-              sanitize_in_go(p, SanStr{}, skip_mirc(s))
+              sanitize_go(p, SanStr{}, skip_mirc(s), keep_style)
             case False{}:
               match drop:
                 case True{}:
-                  sanitize_in_go(p, SanStr{}, s)
+                  sanitize_go(p, SanStr{}, s, keep_style)
                 case False{}:
-                  SCon{h, sanitize_in_go(p, SanStr{}, s)}
+                  SCon{h, sanitize_go(p, SanStr{}, s, keep_style)}
 
 def sanitize_in(+s: String) -> String:
-  sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, False{})
 
 def proto_soh.keep(+h: Char, r: String, soh: Bool) -> String:
   match soh:
@@ -668,36 +694,8 @@ def strip_ctl(s: String) -> String:
 # keeps its parameter bytes so the view decoder consumes exactly what
 # skip_mirc would. Every other C0/DEL byte is dropped, including TAB/CR/LF,
 # so BIRC2 fields and stored lines stay intact while chat styles survive.
-def is_style_keep(+c: Char) -> Bool:
-  +n = code_of(c)
-  U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
-    || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
-
-type KeepPh is Data:
-  KeepStr{}
-  KeepHit{h: Char, drop: Bool}
-
-def sanitize_keep_style_go(fuel: Nat, ph: KeepPh, +s: String) -> String:
-  match fuel:
-    case 0n:
-      SNil{}
-    case 1n+p:
-      match ph:
-        case KeepStr{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              sanitize_keep_style_go(p, KeepHit{hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd))}, t)
-        case KeepHit{h, drop}:
-          match drop:
-            case True{}:
-              sanitize_keep_style_go(p, KeepStr{}, s)
-            case False{}:
-              SCon{h, sanitize_keep_style_go(p, KeepStr{}, s)}
-
 def sanitize_keep_style(+s: String) -> String:
-  sanitize_keep_style_go(Nat.add(1n, Nat.mul(4n, String.length(s))), KeepStr{}, s)
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, True{})
 
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))

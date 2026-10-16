@@ -46,7 +46,8 @@
 # MODE/324 display (session_redact_wire); `chan_target_cl` routes STATUSMSG
 # audiences with exact-resident precedence (session_chan_target); `cm_eq`
 # compares 001 nicks under the negotiated CASEMAPPING (session_cm_eq).
-# `apply_line` is parse-only and trusts its caller; use `feed` for wire input.
+# `apply_line` is parse-only and trusts its caller. `feed_state` applies one
+# wire line to policy only; the session has already logged that line.
 # The fold itself lives in `Irc.fold_casemap` (one shared owner) so the
 # fixed compare and every negotiated compare stay identical by
 # construction. Full `cm_eq` adoption inside Client/Buffer lookup, roster
@@ -72,7 +73,7 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
-import ./client.bend as Feed
+import ./endpoint.bend as Ep
 import ./irc_commands.bend as Commands
 import ./channel_policy.bend as Channels
 
@@ -149,6 +150,10 @@ def dflt_sigils() -> String:
 def dflt_extra() -> String:
   "~&%"
 
+# Roster strip buffer.bend spells as one literal. Same bytes as sigils then extra.
+def dflt_strip() -> String:
+  dflt_sigils() ++ dflt_extra()
+
 def default_priv() -> Priv:
   Priv{dflt_modes(), dflt_sigils(), dflt_extra()}
 
@@ -174,6 +179,10 @@ def dflt_network() -> String:
 
 def dflt_casemap() -> String:
   "rfc1459"
+
+# Name buffer.bend already uses for the same default casemap.
+def dflt_cm() -> String:
+  dflt_casemap()
 
 def defaults() -> State:
   State{default_chans(), default_priv(), default_limits(), dflt_network(), dflt_casemap(), False{}}
@@ -214,11 +223,6 @@ def all_graphic(+s: String) -> Bool:
     case SNil{}: True{}
     case SCon{+h, +t}: is_graphic(h) && all_graphic(t)
 
-def decimal(+s: String) -> Bool:
-  match s:
-    case SNil{}: True{}
-    case SCon{Chr{+c}, t}: U32.is_ge(c, 48) && U32.is_le(c, 57) && decimal(t)
-
 def has_char(+s: String, +c: Char) -> Bool:
   match s:
     case SNil{}: False{}
@@ -246,7 +250,7 @@ def read_bounded.checked(+val: String, ok: Bool, +lo: U32, +hi: U32) -> Maybe<&2
     case True{}: read_bounded.num(U32.read(val), lo, hi)
 
 def read_bounded(+val: String, +has_eq: Bool, +lo: U32, +hi: U32) -> Maybe<&2, U32>:
-  read_bounded.checked(val, has_eq && Bool.not(String.is_empty(val)) && decimal(val), lo, hi)
+  read_bounded.checked(val, has_eq && Bool.not(String.is_empty(val)) && Ep.decimal(val), lo, hi)
 
 def num_ok(+m: Maybe<&2, U32>) -> Bool:
   match m:
@@ -682,28 +686,24 @@ def recipient_ok.msg(+st: State, +me: String, +m: Irc.Message, is005: Bool) -> B
 def recipient_ok(+st: State, +me: String, +m: Irc.Message) -> Bool:
   recipient_ok.msg(st, me, m, is_005(m))
 
-def feed.gated(+st: State, +cl: Cl.Client, +line: String, +m: Irc.Message, ok: Bool) -> State & Cl.Client:
+def feed.gated(+st: State, +m: Irc.Message, ok: Bool) -> State:
   match ok:
-    case True{}: (apply_msg(st, m), Feed.feed(cl, line))
-    case False{}: (st, Feed.feed(cl, line))
+    case True{}: apply_msg(st, m)
+    case False{}: st
 
-def feed_parsed(+st: State, +cl: Cl.Client, +line: String, +parsed: Maybe<&2, Irc.Message>, source_ok: Bool) -> State & Cl.Client:
+def feed_parsed(+st: State, +me: String, +parsed: Maybe<&2, Irc.Message>, source_ok: Bool) -> State:
   match parsed:
-    case None{}: (st, Feed.feed(cl, line))
-    case Some{+m}: feed.gated(st, cl, line, m, source_ok && recipient_ok(st, Cl.nick_of(cl), m))
+    case None{}: st
+    case Some{+m}: feed.gated(st, m, source_ok && recipient_ok(st, me, m))
 
 # Only the configured connection server may set metadata, and only through
-# a burst addressed to our own nick. Anything else still logs to the server
-# buffer exactly as today, but changes no state (not even `updated`).
-def feed(+st: State, +cl: Cl.Client, +line: String) -> State & Cl.Client:
-  feed_parsed(st, cl, line, Irc.parse(line), Irc.source_is_server(Irc.source_prefix(line), Cl.server_of(cl)))
-
-def feed_state.pair(pair: State & Cl.Client) -> State:
-  match pair:
-    case (+st, _): st
+# a burst addressed to our own nick. Anything else changes no state (not
+# even `updated`). Logging stays with the caller.
+def feed(+st: State, +me: String, +server: String, +line: String) -> State:
+  feed_parsed(st, me, Irc.parse(line), Irc.source_is_server(Irc.source_prefix(line), server))
 
 def feed_state(+st: State, +cl: Cl.Client, +line: String) -> State:
-  feed_state.pair(feed(st, cl, line))
+  feed(st, Cl.nick_of(cl), Cl.server_of(cl), line)
 
 def endpoint(+same: Bool, +st: State) -> State:
   match same:
@@ -1200,14 +1200,6 @@ def limits.kick(+lim: Limits) -> U32:
 def kicklen(+st: State) -> U32:
   match st:
     case State{_, _, +lim, _, _, _}: limits.kick(lim)
-
-def chans.per_line(+ch: Chans) -> U32:
-  match ch:
-    case Chans{_, _, _, _, _, _, +mpl, _, _}: mpl
-
-def modes_per_line(+st: State) -> U32:
-  match st:
-    case State{+ch, _, _, _, _, _}: chans.per_line(ch)
 
 def chans.maxlist(+ch: Chans) -> String:
   match ch:

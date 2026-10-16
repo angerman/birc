@@ -33,6 +33,7 @@ def host_ok(+host: String) -> Bool:
   Nat.is_ge(String.length(clean), 1n) && Nat.is_le(String.length(clean), 253n)
     && labels(String.split(clean, Chr{46}))
 
+# ASCII digits only. Shared by endpoint ports and ISUPPORT numeric tokens.
 def decimal(s: String) -> Bool:
   match s:
     case SNil{}: True{}
