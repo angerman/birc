@@ -297,6 +297,42 @@ imports (49 modules today), reduce the number of concrete-example laws (506 of 5
 are concrete examples the golden fixtures already check in milliseconds), or fix
 the checker's allocation behaviour. None of those is a Makefile change.
 
+#### DEFINITIVE: the book does not complete in three hours
+`make proof PROOF_TIMEOUT=10800` on `aarch64-darwin-4.lan`, run to the bound:
+
+```
+Fri 16 Oct 2026 04:25:54 PDT   (start)
+Fri 16 Oct 2026 07:26:00 PDT   (killed)
+proof_rc=2
+make: *** [proof] Error 124
+make proof PROOF_TIMEOUT=10800  9374.16s user 21901.30s system 289% cpu 3:00:05.55 total
+```
+
+~31,275 CPU-seconds, no verdict. **System time is 2.3× user time**, which is the
+diagnostic: this is allocation, GC and page-fault pressure in the Bun runtime while
+discharging 535 `{==}` definitional-equality obligations over a 37,389-line
+closure — not expensive mathematics.
+
+Consequences, stated plainly because they change what "verified" can mean here:
+
+1. **`PROOF_TIMEOUT=180` is wrong by more than 60×**, and no timeout value makes
+   `make proof` pass on this hardware. Do not raise it in the hope of green.
+2. **`make check` cannot pass**, and has not been able to since the 535-law corpus
+   merged on 2026-10-08 (`03cb8c2`), because `check: proof test lint-ffi
+   test-paste-harness`. Any claim that a change "passes `make check`" is false
+   today and was false before this work began.
+3. **No wave of this effort can be gated on `proof`.** The available proxies are the
+   law *count* (`grep -c '^law ' LAWS.bend` = 535, `grep -c '^def Laws\.' PROOF.bend`
+   = 535, zero orphans either direction) and `bend --check-only` on individual
+   programs, which reports `ALL PROOFS CHECK` for that program's own laws in
+   seconds. Both were used throughout; neither is a discharge of the full book.
+4. The three real levers, in order of leverage: **shrink `LAWS.bend`'s 49-module
+   import closure**; **cut the 506 concrete-example laws** that the 196 golden
+   fixtures already check in milliseconds, keeping the 29 universally quantified
+   ones that buy something tests cannot; or **fix the checker's allocation
+   behaviour** upstream. The first two are project decisions, not build changes.
+
+
 
 **Sharding is impossible.** A probe discharged 25 of the 535 `def Laws.*` blocks
 into a standalone file with `PROOF.bend`'s own 19-line import header, and Bend
