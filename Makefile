@@ -1414,6 +1414,8 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history.c'
 	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_auth_bridge.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_tls.c'
+	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history_search.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_uikeys/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_uikeys/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
 	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Tr.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend
@@ -1425,9 +1427,9 @@ lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays
 	@! grep -F 'poll(p, 1, 0)' src/ffi/timui_ffi.c
 	@! grep -F 'while (n < sizeof buf && term_aux(xs)' src/ffi/dns_ffi.c
 	@awk '/timui_open\(&cfg/{p=1} p&&/free\(st\)/{c=1} p&&/return io_fail/{p=0} END{if(!c){print "timui_open fail must free st"; exit 1}}' src/ffi/timui_ffi.c
-	@grep -q 'io_eff(CID_RECV_OCTETS, recv_octets_run, IO_READ)' src/ffi/dns_ffi.c
-	@grep -q 'io_eff(CID_RECV_NB, recv_nb_run, 0)' src/ffi/dns_ffi.c
-	@grep -q 'if (max > 4096u)' src/ffi/dns_ffi.c
+	@grep -q 'io_eff(CID_RECV_OCTETS, recv_octets_run)' src/ffi/dns_ffi.c
+	@grep -q 'io_eff(CID_RECV_NB, recv_nb_run)' src/ffi/dns_ffi.c
+	@grep -q 'if (max > 65536u)' src/ffi/dns_ffi.c
 	@grep -q 'code == (u32)EINTR' src/ffi/dns_ffi.c
 	@awk '/^def wait_ans/{p=1} p&&/recv_nb\(sock/{n=1} p&&/recv_octets\(sock/{b=1} p&&/^def / && !/^def wait_ans/{p=0} END{if(!n||b){print "wait_ans must call recv_nb, not recv_octets"; exit 1}}' src/bend/dns.bend
 
