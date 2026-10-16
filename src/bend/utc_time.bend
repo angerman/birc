@@ -5,6 +5,7 @@
 # not repeat these bounds.
 import Base
 import ./clock_fmt.bend as Fmt
+import ./endpoint.bend as Ep
 import ./irc.bend as Irc
 
 type Utc is Data:
@@ -38,24 +39,18 @@ def valid(+utc: Utc) -> Bool:
         && (U32.is_lt(second, 60) || (U32.is_eq(hour, 23) && U32.is_eq(minute, 59)
           && U32.is_eq(day, month_days(year, month))))
 
-def decimal(s: String) -> Bool:
-  match s:
-    case SNil{}: True{}
-    case SCon{Chr{+c}, rest}:
-      U32.is_ge(c, 48) && U32.is_le(c, 57) && decimal(rest)
-
 def number(+s: String, offset: Nat, width: Nat) -> U32:
   Maybe.default(&2, U32, U32.read(String.take(String.drop(s, offset), width)), 0)
 
 def digits(+s: String, offset: Nat, width: Nat) -> Bool:
-  decimal(String.take(String.drop(s, offset), width))
+  Ep.decimal(String.take(String.drop(s, offset), width))
 
 def fraction(tail: String) -> Bool:
   match tail:
     case SCon{Chr{46}, +rest}:
       Nat.is_ge(String.length(rest), 2n) && Nat.is_le(String.length(rest), 10n)
         && String.ends_with(rest, "Z")
-        && decimal(String.take(rest, Nat.sub(String.length(rest), 1n)))
+        && Ep.decimal(String.take(rest, Nat.sub(String.length(rest), 1n)))
     case _: False{}
 
 def syntax(+s: String) -> Bool:
