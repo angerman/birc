@@ -1,5 +1,21 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- **Multiserver `/quit` only quits the focused server.**
+  `tests/pty/server_multiserver.py` — the first test ever to execute the
+  `--server` path — reproduces it stably across two runs. With two loopback
+  peers, `/quit` puts `QUIT :birc` on the focused part's socket only; the
+  other part's wire ends at `JOIN #t` / `PONG` and never receives `QUIT`, yet
+  the process exits 0 and prints `birc=ok`. Cause: `/quit` enqueues on the
+  focused part, so the other writer's pending FIFO is empty and
+  `ws_shutdown.drop` (`src/bend/wsnet.bend:2078`) acknowledges its `WriterDone`
+  without a line ever being sent; `ws_shutdown.close` (`:2200`) then closes
+  every command channel. Peers see a socket close, not a clean quit. The fix
+  fans `QUIT` onto every part and touches session quit generation
+  (`W.live_step_keys` via `ws_keys_done`, `wsnet.bend:1431`), so it is a
+  behaviour change rather than a one-liner. The target is deliberately **not**
+  in `PTY_SUITE_TARGETS`, so the gate stays green while the defect is open;
+  run it directly. The assertion was not weakened to hide this.
+
 - Input latency scales with scrollback: `visible_lines` walks the whole
   buffer twice per frame per pane (`List.length` + `List.drop`) before
   wrapping only the visible rows. Measured `view_us` 1.5ms (tiny demo)
@@ -9,6 +25,16 @@
   `BIRC_FRAME_PROFILE=1` on a pty with `--replay` of a large transcript.
   Fix direction: cached lengths or anchor-relative slicing; keep scroll
   and navigation semantics pinned while touching this path.
+  **PARTIALLY FIXED, now measured.** `columns.bend` no longer derives
+  cluster-walk fuel from `String.length(rest)`, `pending_display_lines`
+  short-circuits when nothing is pending, and the live-bottom path builds a
+  bounded newest-first suffix instead of reversing the whole scrollback.
+  `tests/perf/long_lines.py` on a quiet lane: 64 → 510 octets per line is
+  ×7.97 in length and ×7.96 in `view_us`, i.e. linear where the per-cluster
+  length scan was quadratic. Keystroke-to-glyph p95 went 1.46 → 1.18 ms and is
+  gated by `tests/perf/key_latency.py`. Still open: scrolled-away frames call
+  `List.length` over the whole line list (`view.bend:1236` and siblings), and
+  `rev_tail` recursion depth still follows scrollback.
 
 - runtime_reconnect C-backend arity: FIXED (test-only) — main holding
   4 live Sessions breached the 247-word native continuation limit
