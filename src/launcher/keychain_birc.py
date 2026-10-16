@@ -39,6 +39,10 @@ class Refusal(Exception):
     """A fixed safe stage description, never child output or credential data."""
 
 
+class MissingProfile(Refusal):
+    """The config file is valid but holds no such profile; seeding may create it."""
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         # Unknown arguments can themselves contain a password. Do not echo them.
@@ -108,9 +112,13 @@ def channel_csv(value) -> str:
     return original
 
 
-def read_profile(path: Path, name: str, *, tls=None) -> Profile:
+def check_profile_name(name: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name):
         raise Refusal("invalid profile name")
+    return name
+
+
+def load_document(path: Path) -> dict:
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as file:
@@ -122,23 +130,40 @@ def read_profile(path: Path, name: str, *, tls=None) -> Profile:
         if len(raw) > MAX_CONFIG:
             raise Refusal("profile file exceeds bound")
         document = tomllib.loads(raw.decode("utf-8"))
+    except FileNotFoundError:
+        raise MissingProfile("no profile file; use --create HOST --nick NICK") from None
     except (OSError, UnicodeError, tomllib.TOMLDecodeError):
         raise Refusal("cannot read profile file") from None
     if set(document) != {"profiles"} or not isinstance(document["profiles"], dict):
         raise Refusal("invalid profile file")
-    entry = document["profiles"].get(name)
+    return document
+
+
+def check_profile_rows(document: dict) -> None:
     allowed = {"host", "port", "account", "nick", "auth", "nickserv_prefix",
                "nickserv_success", "trusted_relay", "tls", "channels"}
-    if (not isinstance(entry, dict)
-            or any(not isinstance(row, dict) or set(row) - allowed
-                   for row in document["profiles"].values())):
+    if any(not isinstance(row, dict) or set(row) - allowed
+           for row in document["profiles"].values()):
         raise Refusal("invalid profile metadata")
+
+
+def read_profile(path: Path, name: str, *, tls=None, port=None) -> Profile:
+    check_profile_name(name)
+    document = load_document(path)
+    check_profile_rows(document)
+    entry = document["profiles"].get(name)
+    if not isinstance(entry, dict):
+        raise MissingProfile(f"unknown profile {name!r}")
     account = public_text(entry.get("account"), 128)
     profile_tls = entry.get("tls", True)
     if type(profile_tls) is not bool or (tls is not None and type(tls) is not bool):
         raise Refusal("invalid profile metadata")
     use_tls = profile_tls if tls is None else tls
-    host, port = profile_endpoint(entry.get("host"), entry.get("port"), use_tls)
+    if port is not None and (type(port) is not int or not 1 <= port <= 65535):
+        raise Refusal("invalid port override")
+    host, port = profile_endpoint(entry.get("host"),
+                                  port if port is not None else entry.get("port"),
+                                  use_tls)
     relay = entry.get("trusted_relay", False)
     if type(relay) is not bool:
         raise Refusal("invalid profile metadata")
@@ -160,6 +185,85 @@ def read_profile(path: Path, name: str, *, tls=None) -> Profile:
     service = "birc.auth.v1:" + json.dumps([name, host, port], separators=(",", ":"))
     channels = profile_channels(entry["channels"]) if "channels" in entry else None
     return Profile(host, port, account, nick, auth, prefix, confirmation, relay, service, use_tls, channels)
+
+
+def bare_host(host: str) -> str:
+    return host[:-1] if host.endswith(".") else host
+
+
+def check_create_host(host: str) -> None:
+    if ":" in host:
+        raise Refusal("--create takes a bare host; use --port")
+
+
+def ensure_profile_dir(path: Path) -> None:
+    parent = path.parent
+    if not parent.exists():
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(parent, 0o700)
+    info = parent.stat()
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise Refusal("unsafe profile directory")
+
+
+def create_profile(path: Path, name: str, host: str, port, nick: str,
+                   channels, tls) -> Profile:
+    """Seed a missing profile from explicit CLI values, then re-read it.
+
+    Every value passes through the same validators as file metadata, so a
+    written entry always reads back; the re-read pins the serialization.
+    Never touches an invalid or unsafe file, and never follows symlinks.
+    """
+    check_profile_name(name)
+    if type(tls) is not bool and tls is not None:
+        raise Refusal("invalid profile metadata")
+    use_tls = True if tls is None else tls
+    check_create_host(host)
+    if port is not None and (type(port) is not int or not 1 <= port <= 65535):
+        raise Refusal("invalid port override")
+    host, resolved = profile_endpoint(host, port, use_tls)
+    nick = public_text(nick, 64)
+    names = None
+    if channels:
+        names = profile_channels(channel_csv(channels).split(","))
+    lines = ["[profiles." + json.dumps(name) + "]",
+             "host = " + json.dumps(host)]
+    if port is not None:
+        lines.append(f"port = {resolved}")
+    lines.append("account = " + json.dumps(nick))
+    lines.append("nick = " + json.dumps(nick))
+    if not use_tls:
+        lines.append("tls = false")
+    if names is not None:
+        lines.append("channels = " + json.dumps(list(names)))
+    body = "\n".join(lines) + "\n"
+    ensure_profile_dir(path)
+    if not path.exists():
+        data = body.encode("utf-8")
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except OSError:
+            raise Refusal("profile file changed during creation") from None
+        with os.fdopen(fd, "wb") as file:
+            file.write(data)
+    else:
+        document = load_document(path)
+        check_profile_rows(document)
+        if isinstance(document["profiles"].get(name), dict):
+            raise Refusal("profile file changed during creation")
+        data = ("\n" + body).encode("utf-8")
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+            with os.fdopen(fd, "wb") as file:
+                info = os.fstat(file.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_mode & 0o022
+                        or info.st_size + len(data) > MAX_CONFIG):
+                    raise Refusal("unsafe profile file")
+                file.write(data)
+        except OSError:
+            raise Refusal("cannot read profile file") from None
+    return read_profile(path, name, tls=tls)
 
 
 def secret_bytes(value: str) -> bytes:
@@ -359,6 +463,12 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
                       help="use plaintext IRC; keep an explicit profile port")
     parser.add_argument("--frames", type=int, help="forward birc frame cap")
     parser.add_argument("--channel", help="forward initial IRC channel")
+    parser.add_argument("--port", type=int,
+                        help="override profile port (endpoint-bound credential scope)")
+    parser.add_argument("--create", metavar="HOST",
+                        help="create the profile with this host if missing (requires --nick)")
+    parser.add_argument("--nick",
+                        help="seed the nick for --create (refused when the profile exists)")
     options = parser.parse_args(argv)
     try:
         if platform != "darwin":
@@ -370,7 +480,31 @@ def main(argv=None, *, security=SECURITY, birc=None, prompt=getpass.getpass,
             except RuntimeError:
                 raise Refusal("cannot locate profile config") from None
             path = config_home / "birc/config.toml"
-        profile = read_profile(path, options.profile, tls=options.tls)
+        try:
+            profile = read_profile(path, options.profile, tls=options.tls,
+                                   port=options.port)
+        except MissingProfile:
+            if options.create is None:
+                raise Refusal(f"unknown profile {options.profile!r} "
+                              "(use --create HOST --nick NICK to create it)") from None
+            if options.nick is None:
+                raise Refusal("--create requires --nick to seed the profile") from None
+            profile = create_profile(path, options.profile, options.create,
+                                     options.port, options.nick, options.channel,
+                                     options.tls)
+            print(f"keychain-birc: created profile {options.profile!r} in {path}",
+                  file=sys.stderr)
+        else:
+            if options.nick is not None:
+                raise Refusal("identity overrides are refused; "
+                              "the profile owns the nick") from None
+            if options.create is not None:
+                check_create_host(options.create)
+                want = profile_endpoint(options.create, None,
+                                        profile.tls)[0]
+                if bare_host(want) != bare_host(profile.host):
+                    raise Refusal(f"profile {options.profile!r} "
+                                  "points at a different host") from None
         try:
             address = ipaddress.ip_address(profile.host)
             loopback = isinstance(address, ipaddress.IPv4Address) and address.is_loopback

@@ -12,6 +12,8 @@ NICK ?= birc
 CHAN ?= \#birc
 PORT ?=
 TRANSPORT ?= tls
+PROFILE ?=
+CONFIG ?=
 PREFS_HELPER ?= birc-preferences
 # Generated-C link bound (birc/deferred_frame/ws_upload_frame): calm-host -O2
 # link 143s, loaded laptop ~280s; 600 restores ~2x margin over worst
@@ -1575,6 +1577,13 @@ run: ## Verified TLS IRC (HOST=host[:port]; TRANSPORT=plain explicitly selects p
 	@case "$(TRANSPORT)" in tls|plain) ;; *) printf '%s\n' 'TRANSPORT must be tls or plain' >&2; exit 2 ;; esac
 	@$(MAKE) build-ui
 	$(NIXRUN) ./$(BLDDIR)/birc --$(TRANSPORT) --connect "$(HOST)" $(if $(strip $(PORT)),--port "$(PORT)") --nick "$(NICK)" --channel "$(CHAN)"
+
+run-auth: ## Keychain-backed IRC (HOST=host; PROFILE defaults to HOST; missing profiles are created from HOST/NICK; CHAN/PORT override when given).
+	@test -n "$(HOST)" || { printf '%s\n' 'usage: make run-auth HOST=irc.example.net [PROFILE=name] [NICK=nick] [CHAN=#chan] [PORT=6697] [TRANSPORT=tls|plain] [CONFIG=path]' >&2; exit 2; }
+	@case "$(HOST)" in *:*) printf '%s\n' 'run-auth: HOST must not include a port; set PORT=... or use the profile port' >&2; exit 2 ;; esac
+	@case "$(TRANSPORT)" in tls|plain) ;; *) printf '%s\n' 'TRANSPORT must be tls or plain' >&2; exit 2 ;; esac
+	@$(MAKE) build-ui
+	$(NIXRUN) env BIRC_PROGRAM=./$(BLDDIR)/birc python3 src/launcher/keychain_birc.py --profile "$(if $(strip $(PROFILE)),$(strip $(PROFILE)),$(strip $(HOST)))" --create "$(strip $(HOST))" $(if $(strip $(CONFIG)),--config "$(CONFIG)") --$(TRANSPORT) $(if $(strip $(PORT)),--port "$(strip $(PORT))") $(if $(filter command line environment override,$(origin NICK)),--nick "$(NICK)") $(if $(filter command line environment override,$(origin CHAN)),--channel "$(CHAN)")
 
 clean: ## Remove build artefacts (not sources or flake.lock).
 	rm -rf $(BLDDIR)

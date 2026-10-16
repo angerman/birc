@@ -48,14 +48,14 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
         child.chmod(0o700)
         recorded = root / "argv.json"
 
-        def run(*args, expected=0):
+        def run(*args, expected=0, cfg_path=None, profile="test"):
             recorded.unlink(missing_ok=True)
             output = io.StringIO()
             with patch.object(launcher, "load_secret", return_value=b"synthetic-tls-secret") as lookup, \
                     patch.object(launcher, "save_secret", side_effect=AssertionError("must not save without success")), \
                     redirect_stdout(output), redirect_stderr(output):
                 try:
-                    result = launcher.main(["--profile", "test", "--config", str(cfg), *args],
+                    result = launcher.main(["--profile", profile, "--config", str(cfg_path or cfg), *args],
                                            security="unused fake", birc=str(child),
                                            prompt=lambda _: (_ for _ in ()).throw(AssertionError("must not prompt")),
                                            platform="darwin")
@@ -71,7 +71,7 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
             queried = lookup.call_args.args[1]
             assert queried.host == argv[argv.index("--connect") + 1]
             assert queried.port == int(argv[argv.index("--port") + 1])
-            assert json.loads(queried.service.split(":", 1)[1]) == ["test", queried.host, queried.port]
+            assert json.loads(queried.service.split(":", 1)[1]) == [profile, queried.host, queried.port]
             assert ("--tls" in argv, "--plain" in argv) == (queried.tls, not queried.tls)
             return output.getvalue(), argv
 
@@ -204,6 +204,111 @@ os.close(int(os.environ["BIRC_AUTH_EVENT_FD"]))
             config(cfg, "tls=" + value + "\n")
             run(expected=1)
             run("--tls", expected=1)
+
+        # (+/-) A CLI port override wins over profile metadata and re-scopes
+        # endpoint-bound credential lookup before access. Nick stays
+        # profile-owned: identity overrides are refused (see the wrapper
+        # gate's forbidden-flags pin).
+        config(cfg, 'port=7000\nnick="alice"\n')
+        assert launcher.read_profile(cfg, "test").port == 7000
+        overridden = launcher.read_profile(cfg, "test", port=7001)
+        assert overridden.port == 7001 and overridden.nick == "alice"
+        assert overridden.service != launcher.read_profile(cfg, "test").service
+        _, args = run("--port", "7001")
+        assert args[args.index("--port") + 1] == "7001"
+        assert args[args.index("--nick") + 1] == "alice"
+        for bad in ("0", "65536", "-1"):
+            run("--port", bad, expected=1)
+        run("--port", "banana", expected=2)
+        config(cfg, 'port=7000\nnick="alice"\n', host="irc.invalid:7000")
+        _, args = run("--port", "7000")
+        assert args[args.index("--port") + 1] == "7000"
+        run("--port", "7001", expected=1)
+
+        # (+) A missing profile bootstraps from --create/--nick: the seed
+        # file and directory are private, dotted names stay quoted, and
+        # the seeded endpoint scopes credential lookup.
+        fresh = root / "sub" / "fresh.toml"
+        text, args = run("--create", "irc.invalid", "--nick", "bob",
+                         "--port", "7000", "--channel", "#new",
+                         cfg_path=fresh, profile="irc.invalid")
+        assert "created profile 'irc.invalid'" in text
+        assert fresh.stat().st_mode & 0o777 == 0o600
+        assert fresh.parent.stat().st_mode & 0o777 == 0o700
+        assert b'[profiles."irc.invalid"]' in fresh.read_bytes()
+        seeded = launcher.read_profile(fresh, "irc.invalid")
+        assert (seeded.host, seeded.port, seeded.nick, seeded.account) == \
+            ("irc.invalid", 7000, "bob", "bob")
+        assert seeded.channels == ("#new",) and seeded.tls
+        assert args[args.index("--connect") + 1] == "irc.invalid"
+        assert args[args.index("--nick") + 1] == "bob"
+
+        # (+) Appending a second profile preserves existing bytes exactly.
+        before = fresh.read_bytes()
+        text, args = run("--create", "irc.example", "--nick", "zed",
+                         cfg_path=fresh, profile="second")
+        assert "created profile 'second'" in text
+        assert fresh.read_bytes().startswith(before)
+        assert launcher.read_profile(fresh, "second").host == "irc.example"
+        assert launcher.read_profile(fresh, "irc.invalid").port == 7000
+
+        # (-) Without --create a missing entry or file refuses, untouched.
+        cfg.write_text('[profiles.other]\nhost="irc.invalid"\naccount="x"\n')
+        cfg.chmod(0o600)
+        frozen = cfg.read_bytes()
+        text, _ = run(expected=1)
+        assert "unknown profile 'test'" in text and cfg.read_bytes() == frozen
+        ghost = root / "ghost.toml"
+        text, _ = run(cfg_path=ghost, expected=1)
+        assert "--create" in text and not ghost.exists()
+
+        # (-) Seeds validate before anything reaches the disk.
+        for extra in (("--create", "irc.invalid"),
+                      ("--create", "bad host!", "--nick", "bob"),
+                      ("--create", "irc.invalid:7000", "--nick", "bob"),
+                      ("--create", "irc.invalid", "--nick", "b b"),
+                      ("--create", "irc.invalid", "--nick", ""),
+                      ("--create", "irc.invalid", "--nick", "bob",
+                       "--port", "0"),
+                      ("--create", "irc.invalid", "--nick", "bob",
+                       "--channel", "nope")):
+            run(*extra, cfg_path=ghost, expected=1)
+            assert not ghost.exists()
+
+        # (+/-) An existing profile owns its nick and host: --nick refuses
+        # before credential access, a matching --create proceeds, and a
+        # mismatched host or inline port refuses.
+        config(cfg)
+        text, _ = run("--nick", "mallory", expected=1)
+        assert "identity overrides are refused" in text
+        run("--create", "irc.invalid")
+        run("--create", "irc.invalid.")
+        text, _ = run("--create", "irc.example", expected=1)
+        assert "different host" in text
+        text, _ = run("--create", "irc.invalid:7000", expected=1)
+        assert "bare host" in text
+
+        # (-) Creation never repairs or follows unsafe files and dirs.
+        cfg.chmod(0o666)
+        exposed = cfg.read_bytes()
+        text, _ = run("--create", "irc.invalid", "--nick", "bob", expected=1)
+        assert cfg.read_bytes() == exposed and "unsafe profile file" in text
+        cfg.chmod(0o600)
+        loose = root / "loose"
+        loose.mkdir()
+        loose.chmod(0o755)
+        text, _ = run("--create", "irc.invalid", "--nick", "bob",
+                      cfg_path=loose / "seed.toml", expected=1)
+        assert "unsafe profile directory" in text
+        assert not (loose / "seed.toml").exists()
+
+        # (+) A plain-mode seed records tls=false and keeps consent gating.
+        clear = root / "clear.toml"
+        text, args = run("--create", "127.0.0.1", "--nick", "bob",
+                         "--plain", "--allow-insecure-auth",
+                         cfg_path=clear, profile="relay")
+        assert "WARNING" in text and "--plain" in args
+        assert b"tls = false" in clear.read_bytes()
         print("keychain_tls=ok")
 
 
