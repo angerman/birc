@@ -456,6 +456,27 @@ itself without the Makefile's `-Isrc/ui -Isrc/ffi`. That is why those targets us
 the two-stage `.c`-then-link path. Measuring them with `-o build/X` is therefore
 invalid; use `-o build/X.c`.
 
+#### RESOLVED — both halves were needed
+`-j` sizing alone took the failures from four to two, not to zero. The two
+survivors were `build/live_context` and `build/net_demo`, which use
+`bend -o <binary>` and so also run clang over a 10–13 MB generated TU. Measured
+alone at `-j1` on an idle lane: `live_context` 58 s (C 10.1 MB), `net_demo` 84 s
+(C 13.0 MB). Their `.c`-only emission is far cheaper (13.8 s and 24.7 s), which is
+what made the native path easy to misattribute.
+
+So the bound genuinely lacked margin too: 84 s against a 180 s limit is 2.1×, and
+five concurrent compiles at ~165% CPU each exceed that. Fixed by adding both to
+`bend_slow_compile` at **360 s**, following the `auth_privacy` precedent already in
+the file (92 s calm → 360 s, ~4×) rather than inventing a number.
+`build_deadlines` still reports 777 compiler recipes — the count is unchanged
+because those recipes already existed; only their bounds moved.
+
+**Result: `make test-goldens-io` rc=0, `bins=15`.** That closes red item 7.
+The lesson generalises: when a target dies with `Error 124`, establish the
+*serial* cost before deciding whether the bound or the parallelism is at fault.
+Here it was both, and fixing only one looked like a failed fix.
+
+
 
 
 ### Integration fixes applied by the reviewing agent
