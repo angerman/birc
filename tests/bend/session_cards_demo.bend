@@ -167,11 +167,15 @@ def card_title(m: Maybe<&2, C.CardReady>) -> String:
     case None{}: "missing"
     case Some{+r}: C.ready_title(r)
 
-def on_card_ad(pair: SC.AD & Bool) -> SC.AD:
-  match pair:
-    case (ad, _): ad
+def session_of(+ad: SC.AD) -> Sess.Session:
+  match ad:
+    case SC.AD{+st, +cards, +full}: Sess.session_set_full(Sess.session_set_cards(st, cards), full)
 
-def on_card_repaint(pair: SC.AD & Bool) -> String:
+def on_card_st(pair: Sess.Session & Bool) -> Sess.Session:
+  match pair:
+    case (st, _): st
+
+def on_card_repaint(pair: Sess.Session & Bool) -> String:
   match pair:
     case (_, repaint): Bool.pick(String, repaint, "repaint", "quiet")
 
@@ -248,7 +252,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("overlay carries token", U32.show(C.token_of(SC.ad_full(opened_ad()))), "7")
     +unsupported : SC.AD = SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.set_supported(ready_media(), False{})), SC.ad_cards(media_ad()), SC.ad_full(media_ad()))
     Unit <- E.must("open without support stays closed", Bool.not(SC.ad_open(SC.open_full(unsupported, M.Inline{1n}, image()))))
-    Unit <- E.must_eq("overlay covers body", overlay_of(opened_ad(), 24, 80), "box:0,1,62,21;media:1,2,60,19,0,19,7;")
+    Unit <- E.must_eq("overlay covers body", overlay_of(opened_ad(), 24, 80), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
     Unit <- E.must_eq("closed paints nothing", overlay_of(media_ad(), 24, 80), "")
     Unit <- E.must_eq("stale token paints nothing", overlay_of(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), retokened_media()), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad())), 24, 80), "")
     Unit <- E.must_eq("unsupported paints nothing", overlay_of(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.set_supported(ready_media(), False{})), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad())), 24, 80), "")
@@ -286,12 +290,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("failed worker yields empty", CN.cards_payload(Fail{(7, "boom")}), "")
     Unit <- E.must_eq("nonzero worker yields empty", CN.cards_payload(Done{(1, ("T\nD\n", ""))}), "")
     Unit <- E.must_eq("zero worker yields payload", CN.cards_payload(Done{(0, ("T\nD\n", ""))}), "T\nD\n")
-    Unit <- E.must_eq("accepted completion repaints", on_card_repaint(CN.on_card(True{}, started(), 1n, 1n, page(), "T\nD\n")), "repaint")
-    Unit <- E.must_eq("accepted on_card stores", Nat.show(SC.ad_ready(on_card_ad(CN.on_card(True{}, started(), 1n, 1n, page(), "T\nD\n")))), "1")
-    Unit <- E.must_eq("stale completion stays quiet", on_card_repaint(CN.on_card(False{}, started(), 1n, 1n, page(), "T\nD\n")), "quiet")
-    Unit <- E.must_eq("stale on_card stores nothing", Nat.show(SC.ad_ready(on_card_ad(CN.on_card(False{}, started(), 1n, 1n, page(), "T\nD\n")))), "0")
-    # ---- card text rows ----
+    Unit <- E.must_eq("accepted completion repaints", on_card_repaint(CN.on_card_session(True{}, session_of(started()), 1n, 1n, page(), "T\nD\n")), "repaint")
+    Unit <- E.must_eq("accepted on_card stores", Nat.show(C.ready_count(Sess.session_cards(on_card_st(CN.on_card_session(True{}, session_of(started()), 1n, 1n, page(), "T\nD\n"))))), "1")
+    Unit <- E.must_eq("stale completion stays quiet", on_card_repaint(CN.on_card_session(False{}, session_of(started()), 1n, 1n, page(), "T\nD\n")), "quiet")
+    Unit <- E.must_eq("stale on_card stores nothing", Nat.show(C.ready_count(Sess.session_cards(on_card_st(CN.on_card_session(False{}, session_of(started()), 1n, 1n, page(), "T\nD\n"))))), "0")
+    # ---- card text rows (production View painter) ----
     +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
-    Unit <- E.must_eq("known target paints rows", Nat.show(List.length(&2, V.BodyRow, CV.card_rows(known, C.CardInline{1n}, page(), 80))), "2")
-    Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, CV.card_rows(known, C.CardInline{2n}, page(), 80))), "0")
+    Unit <- E.must_eq("known target paints rows", Nat.show(List.length(&2, V.BodyRow, V.card_rows_for(C.paint_entries(known), 1n, 80))), "2")
+    Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, V.card_rows_for(C.paint_entries(known), 2n, 80))), "0")
     IO.print("session_cards_demo=ok")

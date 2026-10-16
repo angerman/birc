@@ -181,10 +181,6 @@ def ready_title(r: CardReady) -> String:
   match r:
     case CardReady{_, _, +title, _, _}: title
 
-def ready_url(r: CardReady) -> String:
-  match r:
-    case CardReady{_, +url, _, _, _}: url
-
 def ready_matches(e: CardReady, +target: Target, +url: String) -> Bool:
   match e:
     case CardReady{t, u, _, _, _}: target_eq(t, target) && String.eq(u, url)
@@ -651,26 +647,6 @@ def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, 
 
 def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   newest(visible_panes_cards_cm(cm, cl, rows, cols, split, media, cards))
-
-# Fixed-default scheduling delegates to the cm-aware traversal with the
-# long-standing default mapping, so an absent burst changes nothing.
-def visible_buffer_cards.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_buffer_cards.allowed_cm(Cl.dflt_cm(), allowed, b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def visible_buffer_cards(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def visible_split_cards(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_split_cards_cm(Cl.dflt_cm(), pair, cl, first, second, media, cards)
-
-def visible_single_cards(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_single_cards_cm(Cl.dflt_cm(), cl, rows, cols, media, cards)
-
-def visible_panes_cards(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_panes_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, cards)
-
-def visible_candidates_cards(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_candidates_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, cards)
 
 # ---- Fullscreen images (one overlay; Bend owns open/close, C only paints) ----
 

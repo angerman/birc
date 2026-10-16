@@ -478,7 +478,7 @@ def main() -> IO(Unit):
     Unit <- E.must("F9 without token opens nothing", Bool.not(fs_open(Sess.session_fullscreen_key(online(), Sess.KEY_F9(), 0))))
     Unit <- E.must("accepted token opens on F9", fs_open(Sess.session_fullscreen_key(media_online(), Sess.KEY_F9(), 0)))
     +fs_opened : Sess.Session = fs_st(Sess.session_fullscreen_key(media_online(), Sess.KEY_F9(), 0))
-    Unit <- E.must_eq("overlay covers body", overlay_of(fs_opened, 24, 80), "box:0,1,62,21;media:1,2,60,19,0,19,7;")
+    Unit <- E.must_eq("overlay covers body", overlay_of(fs_opened, 24, 80), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
     Unit <- E.must("F9 toggles closed", Bool.not(fs_open(Sess.session_fullscreen_key(fs_opened, Sess.KEY_F9(), 0))))
     Unit <- E.must_eq("Escape closes overlay", fs_handled(Sess.session_fullscreen_key(fs_opened, Sess.KEY_ESCAPE(), 0)), "handled")
     Unit <- E.must("Escape leaves no overlay", Bool.not(fs_open(Sess.session_fullscreen_key(fs_opened, Sess.KEY_ESCAPE(), 0))))
@@ -504,15 +504,15 @@ def main() -> IO(Unit):
     # Two chat rows plus two card rows under id2; rows=7 gives a 3-row
     # viewport, so id1 stays visible only when card rows are absent. The
     # candidate layer still lists the ready id2 (enqueue skips known URLs).
-    Unit <- E.must_eq("painted rows push edge line out", cand_ids(C.visible_candidates_cards(lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_id2())), "2")
-    Unit <- E.must_eq("bare rows keep edge line", cand_ids(C.visible_candidates_cards(lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_empty())), "2|1")
-    Unit <- E.must_eq("painted rows schedule nothing new", Nat.show(C.pending_count(C.enqueue_candidates(C.visible_candidates_cards(lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_id2()), cards_ready_id2()))), "0")
-    Unit <- E.must_eq("bare rows schedule edge line", Nat.show(C.pending_count(C.enqueue_candidates(C.visible_candidates_cards(lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_empty()), cards_ready_id2()))), "1")
+    Unit <- E.must_eq("painted rows push edge line out", cand_ids(C.visible_candidates_cards_cm(Cl.dflt_cm(), lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_id2())), "2")
+    Unit <- E.must_eq("bare rows keep edge line", cand_ids(C.visible_candidates_cards_cm(Cl.dflt_cm(), lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_empty())), "2|1")
+    Unit <- E.must_eq("painted rows schedule nothing new", Nat.show(C.pending_count(C.enqueue_candidates(C.visible_candidates_cards_cm(Cl.dflt_cm(), lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_id2()), cards_ready_id2()))), "0")
+    Unit <- E.must_eq("bare rows schedule edge line", Nat.show(C.pending_count(C.enqueue_candidates(C.visible_candidates_cards_cm(Cl.dflt_cm(), lines2_client(), 7, 80, Sp.Off{}, M.empty(), paint_empty()), cards_ready_id2()))), "1")
     # ---- union cm: cards schedule the negotiated paint rows, not default RFC ----
     # Narrow: paint retains newest a[b, hiding the older bob URL, so nothing
     # enqueues. Default RFC mutes the newest and leaks the offscreen URL.
     Unit <- E.must_eq("cm narrow paints newest only", cand_ids(C.visible_candidates_cards_cm("ascii", cm_muted_client(), 6, 80, Sp.Off{}, M.empty(), paint_empty())), "")
-    Unit <- E.must_eq("default-RFC narrow leaks offscreen url", cand_ids(C.visible_candidates_cards(cm_muted_client(), 6, 80, Sp.Off{}, M.empty(), paint_empty())), "1")
+    Unit <- E.must_eq("default-RFC narrow leaks offscreen url", cand_ids(C.visible_candidates_cards_cm(Cl.dflt_cm(), cm_muted_client(), 6, 80, Sp.Off{}, M.empty(), paint_empty())), "1")
     Unit <- E.must_eq("cm narrow schedules nothing", Nat.show(cards_pending(Sess.session_observe_visible_cards(cm_narrow()))), "0")
     # Wide: both rows painted, so the older URL enqueues exactly.
     Unit <- E.must_eq("cm wide admits painted url", cand_ids(C.visible_candidates_cards_cm("ascii", cm_muted_client(), 24, 80, Sp.Off{}, M.empty(), paint_empty())), "1")

@@ -22,9 +22,3 @@ import ./cards.bend as C
 # unsupported terminal keeps exact URL text with no overlay.
 def overlay_ops(+full: C.Fullscreen, +media: M.State, +client: Cl.Client, +rows: U32, +cols: U32) -> List<&2, V.DrawOp>:
   C.fullscreen_ops(rows, cols, C.maintain_full(full, media, client))
-
-# One ready card paints at most C.ROWS_MAX dim text rows. The integrator
-# splices these rows under the anchor chat line; Client and history stay
-# raw (synthetic rows only, never stored).
-def card_rows(+cards: C.State, +target: C.Target, +url: String, +w: U32) -> List<&2, V.BodyRow>:
-  C.rows_for_target(cards, target, url, w)
