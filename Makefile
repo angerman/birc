@@ -53,6 +53,86 @@ APP := src/bend/app.bend
 PROTO := tests/bend/proto_demo.bend
 PTY_APP ?= ./$(BLDDIR)/birc
 PTY_BUILD = $(if $(filter ./$(BLDDIR)/birc,$(PTY_APP)),build-ui)
+# Single source for `make test-pty` and scripts/shard-pty.sh. Standalone
+# targets (auth, deadlines, recovery-settings, upload-preferences-private,
+# composer-scroll) are intentionally not in this suite.
+PTY_SUITE_TARGETS := \
+	test-pty-alerts \
+	test-pty-autoreconnect \
+	test-pty-bpaste \
+	test-pty-closequit \
+	test-pty-composer \
+	test-pty-connect \
+	test-pty-deferred-redraw \
+	test-pty-demo-nick \
+	test-pty-diagnostic \
+	test-pty-disconnect-cleanup \
+	test-pty-eof \
+	test-pty-esc-resize-wake \
+	test-pty-escup \
+	test-pty-flood \
+	test-pty-frame-links \
+	test-pty-geneof \
+	test-pty-history \
+	test-pty-history-endpoints \
+	test-pty-history-images \
+	test-pty-hostile \
+	test-pty-image-marker \
+	test-pty-input-fairness \
+	test-pty-joinlat \
+	test-pty-launchers \
+	test-pty-linger \
+	test-pty-linkclick \
+	test-pty-local-time \
+	test-pty-m20-media-cache \
+	test-pty-manyeof \
+	test-pty-media \
+	test-pty-minus \
+	test-pty-mixburst \
+	test-pty-mouseselect \
+	test-pty-output-failure \
+	test-pty-output-progress \
+	test-pty-output-recovery \
+	test-pty-output-stall \
+	test-pty-paintwake \
+	test-pty-paste50 \
+	test-pty-preferences \
+	test-pty-preferences-history \
+	test-pty-preview \
+	test-pty-preview-retry \
+	test-pty-quitcap \
+	test-pty-reconnect-nick \
+	test-pty-reconnect-recovery \
+	test-pty-redial \
+	test-pty-resize \
+	test-pty-restore \
+	test-pty-rows \
+	test-pty-rst \
+	test-pty-scroll-wrap \
+	test-pty-send-stall \
+	test-pty-session-links \
+	test-pty-settings \
+	test-pty-softwrap \
+	test-pty-split \
+	test-pty-split-composer \
+	test-pty-split-identity \
+	test-pty-stall \
+	test-pty-startup-connect \
+	test-pty-tabcut \
+	test-pty-tabswitch \
+	test-pty-tall \
+	test-pty-tickrate \
+	test-pty-tinyquit \
+	test-pty-tls \
+	test-pty-typing \
+	test-pty-ui-review-media \
+	test-pty-ui-review-selection \
+	test-pty-upload \
+	test-pty-upload-diagnostics \
+	test-pty-utf8 \
+	test-pty-wrapped-spans
+export PTY_SUITE_TARGETS
+test-pty: $(PTY_SUITE_TARGETS) ## Pty loop tests.
 
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
@@ -312,7 +392,6 @@ test-sanitizers: test-clock-local-native-ubsan
 .PHONY: test-pty-local-time
 test-pty-local-time: $(PTY_BUILD) ## Loopback event-local timestamps; PTY_APP can select an installed build.
 	$(NIXRUN) timeout 30 python3 tests/pty/local_time.py $(PTY_APP)
-test-pty: test-pty-local-time
 
 .PHONY: test-reconnect-preferences test-preferences-runtime test-preferences-global
 .PHONY: test-reconnect-registration
@@ -328,7 +407,6 @@ test-join-plan: $(BLDDIR)/join_plan_demo ## Bounded desired channels, exact runt
 
 test-pty-reconnect-recovery: $(PTY_BUILD) ## Manual/automatic SASL and NickServ recovery; settings and keyed channel guards.
 	$(NIXRUN) timeout 60 python3 tests/pty/reconnect_recovery.py $(PTY_APP)
-test-pty: test-pty-reconnect-recovery
 test-review-pure: test-join-plan
 
 test-reconnect-preferences: $(BLDDIR)/reconnect_preferences ## Async channel loading, runtime key revisions, offline removal, and auth barrier.
@@ -452,17 +530,14 @@ test-review-pure: test-media-cards test-cards-policy test-cards-view test-sessio
 .PHONY: test-pty-upload-diagnostics
 test-pty-upload-diagnostics: $(PTY_BUILD) ## Actual log shows only canonical HTTP status and accepts synthetic HTML success.
 	$(NIXRUN) timeout 40 python3 tests/pty/upload_diagnostics.py $(PTY_APP)
-test-pty: test-pty-upload-diagnostics
 
 .PHONY: test-pty-preferences
 test-pty-preferences: $(PTY_BUILD) ## Delayed preference read, same-value edits, channel scope, and latest-save quit.
 	$(NIXRUN) timeout 90 python3 tests/pty/preferences.py $(PTY_APP)
-test-pty: test-pty-preferences
 
 .PHONY: test-pty-preferences-history
 test-pty-preferences-history: $(PTY_BUILD) ## Saved history policy and caps apply before restore, without duplicate appends.
 	$(NIXRUN) timeout 100 python3 tests/pty/preferences_history.py $(PTY_APP)
-test-pty: test-pty-preferences-history
 
 .PHONY: test-pty-recovery-settings
 test-pty-recovery-settings: test-pty-local-time test-pty-reconnect-recovery test-pty-upload-diagnostics test-pty-preferences test-pty-preferences-history test-pty-deferred-redraw ## Recovery/settings terminal qualification; optional PTY_APP selects the app.
@@ -470,12 +545,10 @@ test-pty-recovery-settings: test-pty-local-time test-pty-reconnect-recovery test
 .PHONY: test-pty-deferred-redraw
 test-pty-deferred-redraw: $(PTY_BUILD) ## Last burst command paints, with bounded idle frames and restored shutdown.
 	$(NIXRUN) timeout 45 python3 tests/pty/deferred_redraw.py $(PTY_APP)
-test-pty: test-pty-deferred-redraw
 
 .PHONY: test-pty-image-marker
 test-pty-image-marker: $(PTY_BUILD) ## Ghostty images, no-graphics/multiplexer fallback, and rejected helper diagnostics.
 	$(NIXRUN) timeout 60 python3 tests/pty/image_marker.py $(PTY_APP)
-test-pty: test-pty-image-marker
 
 .PHONY: FORCE test-golden-runner test-build-config test-pty-deadlines test-dns-tcp test-socket-deadline test-state test-history test-links test-auth test-commands test-server-time test-pty-output-stall
 .PHONY: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-pty-tls test-tls test-tls-native test-tls-native-ubsan lint-tls
@@ -514,7 +587,6 @@ lint-tls: ## Strict syntax-only lint of the actual TLS bridge and effect ABI fix
 
 test-tls: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native test-pty-tls ## TLS policy, tooling, and loopback qualification; no public IRC or credentials.
 test-review-pure: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native
-test-pty: test-pty-tls
 test-sanitizers: test-tls-native-ubsan
 lint-ffi: lint-tls
 .PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-wire-style test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
@@ -590,7 +662,6 @@ test-pty-upload-preferences-private: $(PTY_BUILD) ## Owned settings-enabled uplo
 
 test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-dispatch test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
 test-review-pure: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
-test-pty: test-pty-upload
 test-sanitizers: test-upload-native-ubsan
 
 test-server-time: $(BLDDIR)/server_time_demo ## IRCv3 time tags reach parsed message timestamps.
@@ -644,7 +715,6 @@ test-pty-history-images: $(PTY_BUILD) ## Pty: async visible history images, shar
 	$(NIXRUN) timeout 75 python3 tests/pty/history_images.py $(PTY_APP)
 
 test-review-pure: test-media-history
-test-pty: test-pty-history-images
 
 .PHONY: test-media-regressions-js
 # Existing pure assertions use a second backend without repeated native
@@ -1434,14 +1504,8 @@ test-pty-split-composer: build-ui ## Pty: one <nick> prefix in the split widget 
 test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and muted clear.
 	$(NIXRUN) timeout 150 python3 tests/pty/typing.py ./$(BLDDIR)/birc
 
-test-pty: test-pty-flood test-pty-restore test-pty-rows test-pty-tall test-pty-composer test-pty-eof test-pty-connect test-pty-demo-nick test-pty-linger test-pty-utf8 test-pty-minus test-pty-redial test-pty-rst test-pty-tinyquit test-pty-tabcut test-pty-paste50 test-pty-bpaste test-pty-mixburst test-pty-quitcap test-pty-tickrate test-pty-paintwake test-pty-joinlat test-pty-manyeof test-pty-geneof test-pty-closequit test-pty-stall test-pty-escup test-pty-tabswitch test-pty-alerts test-pty-linkclick test-pty-softwrap test-pty-mouseselect test-pty-preview test-pty-resize test-pty-settings test-pty-history test-pty-autoreconnect test-pty-disconnect-cleanup test-pty-split test-pty-split-composer test-pty-typing test-pty-hostile ## Pty loop tests.
 
 .PHONY: test-review-pure
-test-pty: test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick test-pty-scroll-wrap test-pty-frame-links test-pty-launchers test-pty-startup-connect test-pty-session-links test-pty-history-endpoints test-pty-split-identity test-pty-input-fairness test-pty-output-recovery test-pty-output-progress test-pty-output-failure
-test-pty: test-pty-media test-pty-diagnostic test-pty-esc-resize-wake
-test-pty: test-pty-ui-review-selection test-pty-ui-review-media
-test-pty: test-pty-m20-media-cache
-test-pty: test-pty-preview-retry
 
 .PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap

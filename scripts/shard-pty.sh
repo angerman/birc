@@ -55,84 +55,6 @@ is_uint() {
   return 0
 }
 
-# Exact `test-pty` closure (sorted): `make test-pty` prerequisites from the
-# root Makefile. Standalone PTY targets NOT in the suite stay out of scope:
-# test-pty-auth, test-pty-upload-preferences-private, test-pty-recovery-settings
-# (meta), test-pty-deadlines (static check) keep their own recipes.
-TARGETS='test-pty-alerts
-test-pty-autoreconnect
-test-pty-bpaste
-test-pty-closequit
-test-pty-composer
-test-pty-connect
-test-pty-deferred-redraw
-test-pty-demo-nick
-test-pty-diagnostic
-test-pty-disconnect-cleanup
-test-pty-eof
-test-pty-esc-resize-wake
-test-pty-escup
-test-pty-flood
-test-pty-frame-links
-test-pty-geneof
-test-pty-history
-test-pty-history-endpoints
-test-pty-history-images
-test-pty-hostile
-test-pty-image-marker
-test-pty-input-fairness
-test-pty-joinlat
-test-pty-launchers
-test-pty-linger
-test-pty-linkclick
-test-pty-local-time
-test-pty-m20-media-cache
-test-pty-manyeof
-test-pty-media
-test-pty-minus
-test-pty-mixburst
-test-pty-mouseselect
-test-pty-output-failure
-test-pty-output-progress
-test-pty-output-recovery
-test-pty-output-stall
-test-pty-paintwake
-test-pty-paste50
-test-pty-preferences
-test-pty-preferences-history
-test-pty-preview
-test-pty-preview-retry
-test-pty-quitcap
-test-pty-reconnect-nick
-test-pty-reconnect-recovery
-test-pty-redial
-test-pty-resize
-test-pty-restore
-test-pty-rows
-test-pty-rst
-test-pty-scroll-wrap
-test-pty-send-stall
-test-pty-session-links
-test-pty-settings
-test-pty-softwrap
-test-pty-split
-test-pty-split-identity
-test-pty-stall
-test-pty-startup-connect
-test-pty-tabcut
-test-pty-tabswitch
-test-pty-tall
-test-pty-tickrate
-test-pty-tinyquit
-test-pty-tls
-test-pty-typing
-test-pty-ui-review-media
-test-pty-ui-review-selection
-test-pty-upload
-test-pty-upload-diagnostics
-test-pty-utf8
-test-pty-wrapped-spans'
-
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help | -h)
@@ -166,6 +88,15 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 [ "$#" -eq 0 ] || die "unexpected argument: $1"
+
+# Exact `test-pty` closure, exported by the root Makefile as PTY_SUITE_TARGETS.
+# Standalone targets stay out of that variable. An unset list fails closed
+# rather than falling back to a second hardcoded copy.
+if [ -z "${PTY_SUITE_TARGETS:-}" ]; then
+  die "PTY_SUITE_TARGETS is unset; run via make so the suite cannot drift"
+fi
+# shellcheck disable=SC2086
+TARGETS=$(printf '%s\n' $PTY_SUITE_TARGETS | LC_ALL=C sort)
 
 if [ "$MODE" = list ]; then
   printf '%s\n' "$TARGETS"
