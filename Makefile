@@ -1909,3 +1909,42 @@ test-workspace-isolation-step: $(BLDDIR)/workspace_isolation_step.js ## Workspac
 test-cards-live: $(BLDDIR)/cards_live.js ## C8 live integration goldens (JS): boundary seam, Session scheduling, worker, endpoint, fullscreen, rows.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh cards_live=ok timeout 60 bun $(BLDDIR)/cards_live.js
+
+# Bend programs not reachable from `check`. Kept out of test-review-pure until
+# one has actually passed. test-dns-live contacts a public resolver; it is
+# listed here and is not part of check.
+.PHONY: test-orphans
+test-orphans: \
+	test-cap-notify \
+	test-cards-live \
+	test-dns-live \
+	test-mss-stale-held \
+	test-net-live-wait-cell \
+	test-notify-binding-gates \
+	test-notify-full-witness \
+	test-notify-held \
+	test-notify-held-blocked \
+	test-notify-order \
+	test-notify-runtime \
+	test-pend \
+	test-reader-pongs \
+	test-session-drafts \
+	test-sessws-s1s5 \
+	test-theme-selector-boundaries \
+	test-theme-ws-render \
+	test-workspace \
+	test-workspace-005-source \
+	test-workspace-isolation-step \
+	test-ws-carrier-native \
+	test-ws-first-connect \
+	test-ws-media-stage-native \
+	test-ws-upload-frame \
+	test-wsnet-gates \
+	$(BLDDIR)/cards_handoff_native \
+	$(BLDDIR)/isupport \
+	$(BLDDIR)/isupport_adapters \
+	$(BLDDIR)/preferences_history_characterization \
+	$(BLDDIR)/preferences_runtime_typecheck
+
+# Passed a focused run; the rest of test-orphans has not been executed.
+test-review-pure: test-outbound-txn test-draft-nick-rename test-ws-shutdown-pending
