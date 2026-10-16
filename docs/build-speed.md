@@ -6,7 +6,7 @@ These wins keep BUILD-mode iteration fast.
 ## Quick wins
 
 1. **Enter `make shell` once, stay there.** Outside the locked shell,
-   `NIXRUN` (Makefile:20-24) prefixes every command with a fresh
+   `NIXRUN` (Makefile:25-28) prefixes every command with a fresh
    `nix develop` startup. Inside, `BIRC_NIX_SHELL=1` and commands run
    directly. Run `scripts/check-shell.sh` to verify; add it as a guard
    to slow targets so a missing shell fails fast with the exact next
@@ -17,9 +17,10 @@ These wins keep BUILD-mode iteration fast.
 3. **Keep the Bun cache warm.** Do not clear Bun caches between runs;
    proof and Bend builds reuse them across invocations in the same
    shell.
-4. **Gate the proof, don't rerun it.** Run affected law checks while
-   iterating; run the full `proof` target only with the integrated
-   batch gate (`make check`).
+4. **Gate the proof, don't rerun it.** No selective law-check target
+   exists. Run the full `proof` target with the integrated batch gate
+   (`make check`). Do not commit proof shards; generate any future
+   split into `build/` from `PROOF.bend`.
 
 ## Batch discipline
 
