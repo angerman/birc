@@ -858,126 +858,406 @@ def wrapped_media.known(urls: List<&2, String>, +k: Cl.LineKind, +ts: String, +t
 def wrapped_media(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State) -> List<&2, BodyRow>:
   wrapped_media.known(M.known_urls(media, M.Inline{id}), k, ts, text, w, show_ts, id, media)
 
-def wrap_line_media(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+def FG_DIM_themed(+th: Theme.Id) -> U32:
+  Theme.status_dim(th)
+
+def FG_TEXT_themed(+th: Theme.Id) -> U32:
+  Theme.kind_fg(th, Cl.Msg{})
+
+
+def parse_nick_msg.body_themed(+rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match rest:
+    case SNil{}:
+      render_spans("<" ++ nick ++ ">")
+    case SCon{_, body}:
+      Spn{0, "<"}
+        <> (Col{1, nick_color_themed(th, nick), nick}
+        <> (Spn{0, "> "}
+        <> render_spans(body)))
+
+def parse_nick_msg.ok_themed(ok: Bool, +rest: String, +nick: String, original: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match ok:
+    case True{}:
+      parse_nick_msg.body_themed(rest, nick, th)
+    case False{}:
+      render_spans(original)
+
+def parse_nick_msg.parsed_themed(pair: String & String, original: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match pair:
+    case (+nick, +rest):
+      parse_nick_msg.ok_themed(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick, original, th)
+
+def parse_nick_msg.head_themed(is_lt: Bool, +t: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match is_lt:
+    case True{}:
+      parse_nick_msg.parsed_themed(take_until_gt(t), s, th)
+    case False{}:
+      render_spans(s)
+
+def parse_nick_msg.con_themed(+c: Char, +t: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  parse_nick_msg.head_themed(Char.is_eq(c, '<'), t, s, th)
+
+def parse_nick_msg_themed(s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{+c, +t}:
+      parse_nick_msg.con_themed(c, t, s, th)
+
+def parse_nick_act.body_themed(+rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match rest:
+    case SNil{}:
+      render_spans("* " ++ nick)
+    case SCon{_, body}:
+      Spn{0, "* "}
+        <> (Col{1, nick_color_themed(th, nick), nick}
+        <> (Spn{0, " "}
+        <> render_spans(body)))
+
+def parse_nick_act.ok_themed(ok: Bool, +rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match ok:
+    case True{}:
+      parse_nick_act.body_themed(rest, nick, th)
+    case False{}:
+      render_spans("* " ++ nick ++ rest)
+
+def parse_nick_act.parsed_themed(pair: String & String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match pair:
+    case (+nick, +rest):
+      parse_nick_act.ok_themed(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick, th)
+
+def parse_nick_act.rest_themed(+t2: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  parse_nick_act.parsed_themed(Irc.take_until_space(t2), th)
+
+def parse_nick_act.sp_themed(is_sp: Bool, +t2: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match is_sp:
+    case True{}:
+      parse_nick_act.rest_themed(t2, th)
+    case False{}:
+      render_spans(s)
+
+def parse_nick_act.t1_themed(+t1: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match t1:
+    case SNil{}:
+      render_spans(s)
+    case SCon{+c2, +t2}:
+      parse_nick_act.sp_themed(Char.is_eq(c2, ' '), t2, s, th)
+
+def parse_nick_act.star_themed(is_star: Bool, +t1: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match is_star:
+    case True{}:
+      parse_nick_act.t1_themed(t1, s, th)
+    case False{}:
+      render_spans(s)
+
+def parse_nick_act_themed(s: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match s:
+    case SNil{}:
+      Nil{}
+    case SCon{+c1, +t1}:
+      parse_nick_act.star_themed(Char.is_eq(c1, '*'), t1, s, th)
+
+def line_spans_raw_themed(k: Cl.LineKind, +text: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  match k:
+    case Cl.Msg{}:
+      parse_nick_msg_themed(text, th)
+    case Cl.Self{}:
+      parse_nick_msg_themed(text, th)
+    case Cl.Highlight{}:
+      parse_nick_msg_themed(text, th)
+    case Cl.Action{}:
+      parse_nick_act_themed(text, th)
+    case Cl.Pending{+inner}:
+      spans_dim(line_spans_raw_themed(inner, text, th))
+    case _:
+      render_spans(text)
+
+def line_spans_for_themed(k: Cl.LineKind, text: String, +th: Theme.Id) -> List<&2, SpanOp>:
+  cluster_spans(line_spans_raw_themed(k, text, th))
+
+
+# One paint configuration for the media × cards × casemapping × theme × legacy
+# axes. The record is always carried in a one-element list so a continuation
+# captures one word. `inline` selects the media row expander; plain `wrap_line`
+# keeps reconnect-inside-Pending as a divider, while every buffer painter uses
+# the inline expander (empty media adds no image rows). `pends` is empty on
+# every path that does not overlay optimistic sends, and the empty check in
+# `pending_display_lines` returns history unchanged.
+type PaintOpts is Data:
+  PaintOpts{
+    theme: Maybe<&2, Theme.Id>,
+    cm: Maybe<&2, String>,
+    media: M.State,
+    cards: Maybe<&2, List<&2, CardEntry>>,
+    legacy: Bool,
+    pends: List<&2, Cl.PendSend>,
+    inline: Bool
+  }
+
+def paint_box(theme: Maybe<&2, Theme.Id>, cm: Maybe<&2, String>, +media: M.State, cards: Maybe<&2, List<&2, CardEntry>>, legacy: Bool, +pends: List<&2, Cl.PendSend>, inline: Bool) -> List<&2, PaintOpts>:
+  PaintOpts{theme, cm, media, cards, legacy, pends, inline} <> Nil{}
+
+def paint_text() -> List<&2, PaintOpts>:
+  paint_box(None{}, None{}, M.empty(), None{}, False{}, Nil{}, False{})
+
+def paint_media_only(+media: M.State) -> List<&2, PaintOpts>:
+  paint_box(None{}, None{}, media, None{}, False{}, Nil{}, True{})
+
+def paint_media_cards(+media: M.State, +cards: List<&2, CardEntry>) -> List<&2, PaintOpts>:
+  paint_box(None{}, None{}, media, Some{cards}, False{}, Nil{}, True{})
+
+def paint_media_cards_cm(+cm: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, PaintOpts>:
+  paint_box(None{}, Some{cm}, media, Some{cards}, False{}, Nil{}, True{})
+
+def paint_media_theme(+media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
+  paint_box(Some{th}, None{}, media, None{}, False{}, pends, True{})
+
+def paint_media_cards_cm_theme(+cm: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
+  paint_box(Some{th}, Some{cm}, media, Some{cards}, False{}, pends, True{})
+
+def paint_legacy_empty() -> List<&2, PaintOpts>:
+  paint_box(None{}, None{}, M.empty(), None{}, True{}, Nil{}, True{})
+
+def opt_theme(boxed: List<&2, PaintOpts>) -> Maybe<&2, Theme.Id>:
+  match boxed:
+    case Nil{}: None{}
+    case Con{PaintOpts{theme, _, _, _, _, _, _}, _}: theme
+
+def opt_cm(boxed: List<&2, PaintOpts>) -> Maybe<&2, String>:
+  match boxed:
+    case Nil{}: None{}
+    case Con{PaintOpts{_, cm, _, _, _, _, _}, _}: cm
+
+def opt_media(boxed: List<&2, PaintOpts>) -> M.State:
+  match boxed:
+    case Nil{}: M.empty()
+    case Con{PaintOpts{_, _, media, _, _, _, _}, _}: media
+
+def opt_cards(boxed: List<&2, PaintOpts>) -> Maybe<&2, List<&2, CardEntry>>:
+  match boxed:
+    case Nil{}: None{}
+    case Con{PaintOpts{_, _, _, cards, _, _, _}, _}: cards
+
+def opt_legacy(boxed: List<&2, PaintOpts>) -> Bool:
+  match boxed:
+    case Nil{}: False{}
+    case Con{PaintOpts{_, _, _, _, legacy, _, _}, _}: legacy
+
+def opt_pends(boxed: List<&2, PaintOpts>) -> List<&2, Cl.PendSend>:
+  match boxed:
+    case Nil{}: Nil{}
+    case Con{PaintOpts{_, _, _, _, _, pends, _}, _}: pends
+
+def opt_inline(boxed: List<&2, PaintOpts>) -> Bool:
+  match boxed:
+    case Nil{}: False{}
+    case Con{PaintOpts{_, _, _, _, _, _, inline}, _}: inline
+
+def paint_style_theme(theme: Maybe<&2, Theme.Id>, k: Cl.LineKind) -> U32:
+  match theme:
+    case None{}: style_of(k)
+    case Some{id}: style_of_themed(id, k)
+
+def paint_style(+boxed: List<&2, PaintOpts>, k: Cl.LineKind) -> U32:
+  paint_style_theme(opt_theme(boxed), k)
+
+def paint_dim_theme(theme: Maybe<&2, Theme.Id>) -> U32:
+  match theme:
+    case None{}: FG_DIM()
+    case Some{id}: FG_DIM_themed(id)
+
+def paint_dim(+boxed: List<&2, PaintOpts>) -> U32:
+  paint_dim_theme(opt_theme(boxed))
+
+def paint_fg_theme(theme: Maybe<&2, Theme.Id>) -> U32:
+  match theme:
+    case None{}: FG_TEXT()
+    case Some{id}: FG_TEXT_themed(id)
+
+def paint_fg(+boxed: List<&2, PaintOpts>) -> U32:
+  paint_fg_theme(opt_theme(boxed))
+
+def paint_nick_theme(theme: Maybe<&2, Theme.Id>, +nick: String) -> U32:
+  match theme:
+    case None{}: nick_color(nick)
+    case Some{id}: nick_color_themed(id, nick)
+
+def paint_nick(+boxed: List<&2, PaintOpts>, +nick: String) -> U32:
+  paint_nick_theme(opt_theme(boxed), nick)
+
+def paint_status_theme(theme: Maybe<&2, Theme.Id>, +net: String) -> U32:
+  match theme:
+    case None{}: status_color(net)
+    case Some{id}: status_color_themed(id, net)
+
+def paint_status(+boxed: List<&2, PaintOpts>, +net: String) -> U32:
+  paint_status_theme(opt_theme(boxed), net)
+
+def paint_spans_theme(theme: Maybe<&2, Theme.Id>, k: Cl.LineKind, text: String) -> List<&2, SpanOp>:
+  match theme:
+    case None{}: line_spans_for(k, text)
+    case Some{id}: line_spans_for_themed(k, text, id)
+
+def paint_spans(+boxed: List<&2, PaintOpts>, k: Cl.LineKind, text: String) -> List<&2, SpanOp>:
+  paint_spans_theme(opt_theme(boxed), k, text)
+
+def paint_shown(show_ts: Bool, +ts: String) -> String:
+  match show_ts:
+    case True{}: ts
+    case False{}: ""
+
+def paint_off.on(empty: Bool, +w: U32) -> U32:
+  match empty:
+    case True{}: 0
+    case False{}: line_shift(w)
+
+def paint_off(+shown: String, +w: U32) -> U32:
+  paint_off.on(String.is_empty(shown), w)
+
+def paint_wrapped_metrics(metrics: WrapMetrics, +k: Cl.LineKind, text: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match metrics:
+    case WrapMetrics{shown, stamp_w, first_off, +first_w, cont_off, +cont_w}:
+      wrapped_rows.chunks(wrap_spans(paint_spans(boxed, k, text), first_w, cont_w), shown, stamp_w, first_off, first_w, cont_off, cont_w, paint_style(boxed, k))
+
+def paint_wrapped(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_wrapped_metrics(wrap_metrics(k, ts, text, w, show_ts), k, text, boxed)
+
+def paint_wrapped_media_metrics(metrics: WrapMetrics, urls: List<&2, String>, +k: Cl.LineKind, text: String, +w: U32, id: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match metrics:
+    case WrapMetrics{shown, stamp_w, first_off, first_w, cont_off, cont_w}:
+      wrapped_media.parts(media_parts(paint_spans(boxed, k, text), Nil{}, urls), opt_media(boxed), M.Inline{id}, shown, stamp_w, first_off, first_w, cont_off, cont_w, paint_style(boxed, k), w)
+
+def paint_wrapped_media_known(urls: List<&2, String>, +k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match urls:
+    case Nil{}: paint_wrapped(k, ts, text, w, show_ts, boxed)
+    case Con{+h, +tail}:
+      paint_wrapped_media_metrics(wrap_metrics(k, ts, text, w, show_ts), h <> tail, k, text, w, id, boxed)
+
+def paint_wrapped_media(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_wrapped_media_known(M.known_urls(opt_media(boxed), M.Inline{id}), k, ts, text, w, show_ts, id, boxed)
+
+def paint_card_texts(xs: List<&2, String>, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: List.append(&2, BodyRow, paint_wrapped(Cl.System{}, "", h, w, False{}, boxed), paint_card_texts(t, w, boxed))
+
+def paint_card_entry(+texts: List<&2, String>, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  List.take(&2, BodyRow, paint_card_texts(texts, w, boxed), card_rows_cap())
+
+def paint_card_hit(hit: Bool, +texts: List<&2, String>, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match hit:
+    case True{}: paint_card_entry(texts, w, boxed)
+    case False{}: Nil{}
+
+def paint_card_go(xs: List<&2, CardEntry>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{CardEntry{other, +texts}, t}:
+      List.append(&2, BodyRow, paint_card_hit(Nat.is_eq(other, id), texts, w, boxed), paint_card_go(t, id, w, boxed))
+
+def paint_cards_for(+xs: List<&2, CardEntry>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_card_go(xs, id, w, boxed)
+
+def paint_with_cards(cards: Maybe<&2, List<&2, CardEntry>>, rows: List<&2, BodyRow>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match cards:
+    case None{}: rows
+    case Some{xs}: List.append(&2, BodyRow, rows, paint_cards_for(xs, id, w, boxed))
+
+def paint_append_cards(+boxed: List<&2, PaintOpts>, rows: List<&2, BodyRow>, +id: Nat, +w: U32) -> List<&2, BodyRow>:
+  paint_with_cards(opt_cards(boxed), rows, id, w, boxed)
+
+def paint_manual(manual: Bool, +ts: String, +text: String, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match manual:
+    case True{}: media_rows(M.token(opt_media(boxed), M.Manual{}, text), w)
+    case False{}: paint_wrapped_media(Cl.System{}, ts, text, w, show_ts, 0n, boxed)
+
+def paint_wrap_plain_on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match recon:
+    case True{}: BodyRecon{text, w} <> Nil{}
+    case False{}: paint_wrapped(k, ts, text, w, show_ts, boxed)
+
+def paint_wrap_plain(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match ln:
+    case Cl.Line{+k, +ts, +text, _, _}:
+      paint_wrap_plain_on(k, ts, text, w, show_ts, Cl.is_reconnect(k), boxed)
+
+def paint_wrap_inline(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match ln:
     case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
     case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
-      Bool.pick(List<&2, BodyRow>, contains_url(M.known_urls(media, M.Manual{}), text),
-        media_rows(M.token(media, M.Manual{}, text), w), wrapped_media(Cl.System{}, ts, text, w, show_ts, 0n, media))
-    case Cl.Line{+k, +ts, +text, _, +id}: wrapped_media(k, ts, text, w, show_ts, id, media)
+      paint_manual(contains_url(M.known_urls(opt_media(boxed), M.Manual{}), text), ts, text, w, show_ts, boxed)
+    case Cl.Line{+k, +ts, +text, _, +id}:
+      paint_append_cards(boxed, paint_wrapped_media(k, ts, text, w, show_ts, id, boxed), id, w)
 
-def wrap_lines_media(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+def paint_wrap_pick(inline: Bool, +ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match inline:
+    case False{}: paint_wrap_plain(ln, w, show_ts, boxed)
+    case True{}: paint_wrap_inline(ln, w, show_ts, boxed)
+
+def paint_wrap_line(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_wrap_pick(opt_inline(boxed), ln, w, show_ts, boxed)
+
+def paint_wrap_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match lines:
     case Nil{}: Nil{}
-    case Con{h, tail}: List.append(&2, BodyRow, wrap_line_media(h, w, show_ts, media), wrap_lines_media(tail, w, show_ts, media))
+    case Con{h, tail}: List.append(&2, BodyRow, paint_wrap_line(h, w, show_ts, boxed), paint_wrap_lines(tail, w, show_ts, boxed))
+
+def paint_unwrapped_on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool, +boxed: List<&2, PaintOpts>) -> BodyRow:
+  match recon:
+    case True{}: BodyRecon{text, w}
+    case False{}:
+      +shown = paint_shown(show_ts, ts)
+      +off = paint_off(shown, w)
+      +spans = paint_spans(boxed, k, text)
+      BodyRow{shown, ts_w(w), off, U32.sub(w, off), paint_style(boxed, k), spans, spans_chars(spans)}
+
+def paint_unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> BodyRow:
+  match ln:
+    case Cl.Line{+k, +ts, +text, _, _}:
+      paint_unwrapped_on(k, ts, text, w, show_ts, Cl.is_reconnect(k), boxed)
+
+def paint_unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+h, t}: paint_unwrapped_line(h, w, show_ts, boxed) <> paint_unwrapped_lines(t, w, show_ts, boxed)
+
+def paint_body_rows_on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +boxed: List<&2, PaintOpts>, synthetic: Bool) -> List<&2, BodyRow>:
+  match synthetic:
+    case True{}: paint_unwrapped_lines(lines, w, show_ts, boxed)
+    case False{}: paint_wrap_lines(lines, w, show_ts, boxed)
+
+def paint_body_rows(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_body_rows_on(lines, w, show_ts, boxed, String.eq(name, "*settings*"))
+
+
+def wrap_line_media(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+  paint_wrap_line(ln, w, show_ts, paint_media_only(media))
+
+def wrap_lines_media(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State) -> List<&2, BodyRow>:
+  paint_wrap_lines(lines, w, show_ts, paint_media_only(media))
 
 # Card rows splice under the anchor chat line with the same wrap mechanics as
 # Cards.rows_for (System styling, no timestamp, per-card row cap). Client and
 # history stay raw; only paint, navigation bounds, and visible scheduling read
 # these synthetic rows, all through this one cascade.
-def card_rows_for_texts(xs: List<&2, String>, +w: U32) -> List<&2, BodyRow>:
-  match xs:
-    case Nil{}: Nil{}
-    case Con{+h, t}: List.append(&2, BodyRow, wrapped_rows(Cl.System{}, "", h, w, False{}), card_rows_for_texts(t, w))
-
-def card_rows_for_entry(+texts: List<&2, String>, +w: U32) -> List<&2, BodyRow>:
-  List.take(&2, BodyRow, card_rows_for_texts(texts, w), card_rows_cap())
-
-def card_rows_for_hit(hit: Bool, +texts: List<&2, String>, +w: U32) -> List<&2, BodyRow>:
-  match hit:
-    case True{}: card_rows_for_entry(texts, w)
-    case False{}: Nil{}
-
-def card_rows_for.go(xs: List<&2, CardEntry>, +id: Nat, +w: U32) -> List<&2, BodyRow>:
-  match xs:
-    case Nil{}: Nil{}
-    case Con{CardEntry{other, +texts}, t}:
-      List.append(&2, BodyRow, card_rows_for_hit(Nat.is_eq(other, id), texts, w), card_rows_for.go(t, id, w))
-
 def card_rows_for(+xs: List<&2, CardEntry>, +id: Nat, +w: U32) -> List<&2, BodyRow>:
-  card_rows_for.go(xs, id, w)
+  paint_cards_for(xs, id, w, paint_text())
 
 def wrap_line_media_cards(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match ln:
-    case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
-    case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
-      Bool.pick(List<&2, BodyRow>, contains_url(M.known_urls(media, M.Manual{}), text),
-        media_rows(M.token(media, M.Manual{}, text), w), wrapped_media(Cl.System{}, ts, text, w, show_ts, 0n, media))
-    case Cl.Line{+k, +ts, +text, _, +id}:
-      List.append(&2, BodyRow, wrapped_media(k, ts, text, w, show_ts, id, media), card_rows_for(cards, id, w))
-
-def wrap_lines_media_cards(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{h, tail}: List.append(&2, BodyRow, wrap_line_media_cards(h, w, show_ts, media, cards), wrap_lines_media_cards(tail, w, show_ts, media, cards))
-
-def wrap_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> List<&2, BodyRow>:
-  match recon:
-    case True{}:
-      BodyRecon{text, w} <> Nil{}
-    case False{}:
-      wrapped_rows(k, ts, text, w, show_ts)
+  paint_wrap_line(ln, w, show_ts, paint_media_cards(media, cards))
 
 def wrap_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> List<&2, BodyRow>:
-  match ln:
-    case Cl.Line{+k, +ts, +text, +author, +id}:
-      wrap_line.on(k, ts, text, w, show_ts, Cl.is_reconnect(k))
+  paint_wrap_line(ln, w, show_ts, paint_text())
 
 def wrap_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      List.append(&2, BodyRow, wrap_line(h, w, show_ts), wrap_lines(t, w, show_ts))
-
-def unwrapped_line.on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool) -> BodyRow:
-  match recon:
-    case True{}:
-      BodyRecon{text, w}
-    case False{}:
-      +shown = Bool.pick(String, show_ts, ts, "")
-      +off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
-      +spans = line_spans_for(k, text)
-      BodyRow{shown, ts_w(w), off, U32.sub(w, off), style_of(k), spans, spans_chars(spans)}
-
-def unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool) -> BodyRow:
-  match ln:
-    case Cl.Line{+k, +ts, +text, +author, +id}:
-      unwrapped_line.on(k, ts, text, w, show_ts, Cl.is_reconnect(k))
-
-def unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      unwrapped_line(h, w, show_ts) <> unwrapped_lines(t, w, show_ts)
-
-def body_rows.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, synthetic: Bool) -> List<&2, BodyRow>:
-  match synthetic:
-    case True{}: unwrapped_lines(lines, w, show_ts)
-    case False{}: wrap_lines(lines, w, show_ts)
+  paint_wrap_lines(lines, w, show_ts, paint_text())
 
 def body_rows(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool) -> List<&2, BodyRow>:
-  body_rows.on(lines, w, show_ts, String.eq(name, "*settings*"))
-
-def body_rows_media.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, media: M.State, synthetic: Bool) -> List<&2, BodyRow>:
-  match synthetic:
-    case True{}: unwrapped_lines(lines, w, show_ts)
-    case False{}: wrap_lines_media(lines, w, show_ts, media)
+  paint_body_rows(lines, name, w, show_ts, paint_text())
 
 def body_rows_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State) -> List<&2, BodyRow>:
-  body_rows_media.on(lines, w, show_ts, media, String.eq(name, "*settings*"))
+  paint_body_rows(lines, name, w, show_ts, paint_media_only(media))
 
-def body_rows_media_cards.on(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, media: M.State, +cards: List<&2, CardEntry>, synthetic: Bool) -> List<&2, BodyRow>:
-  match synthetic:
-    case True{}: unwrapped_lines(lines, w, show_ts)
-    case False{}: wrap_lines_media_cards(lines, w, show_ts, media, cards)
-
-def body_rows_media_cards(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  body_rows_media_cards.on(lines, w, show_ts, media, cards, String.eq(name, "*settings*"))
-
-# This synthetic row exists only in the view; raw Client/history lines stay intact.
-# Manual diagnostics append after it, matching the ordinary paused-anchor rule.
 def media_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, media: M.State) -> List<&2, Cl.Line>:
   Bool.pick(List<&2, Cl.Line>, String.eq(name, "*preview*") && contains_url(M.known_urls(media, M.Manual{}), topic),
     Cl.Line{Cl.System{}, "", topic, "", 0n} <> lines, lines)
@@ -1032,12 +1312,6 @@ def body_of.lines_cm(+cm: String, lines: List<&2, Cl.Line>, mutes: List<&2, Stri
     case Nil{}: Cl.filter_kinds(lines, joins, nicks)
     case Con{_, _}: Cl.filter_kinds(Cl.filter_muted_lines_cm(cm, lines, mutes, chan, server), joins, nicks)
 
-def visible_body_rows(+rows: List<&2, BodyRow>, +height: Nat, +scroll: Nat) -> List<&2, BodyRow>:
-  +start = visible_start(List.length(&2, BodyRow, rows), height, scroll)
-  List.take(&2, BodyRow, List.drop(&2, BodyRow, rows, start), height)
-
-# The same wrapped rows drive navigation and painting. An anchor stores a
-# character position, not the current width-dependent row offset.
 type AnchoredRow is Data:
   AnchoredRow{body: BodyRow, anchor: Cl.Scroll}
 
@@ -1062,40 +1336,33 @@ def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat) -> List<&2,
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_chars(rows))
 
+def paint_filter_cm(cm: Maybe<&2, String>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
+  match cm:
+    case None{}: body_of.lines(lines, mutes, joins, nicks, chan, server)
+    case Some{name}: body_of.lines_cm(name, lines, mutes, joins, nicks, chan, server)
+
+def paint_filter(+boxed: List<&2, PaintOpts>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
+  paint_filter_cm(opt_cm(boxed), lines, mutes, joins, nicks, chan, server)
+
+def paint_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, +boxed: List<&2, PaintOpts>) -> List<&2, Cl.Line>:
+  pending_display_lines(name, opt_pends(boxed), media_display_lines(name, topic, lines, opt_media(boxed)))
+
+def paint_anchored(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      +after = Nat.sub(left, 1n)
+      +head = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
+      List.append(&2, AnchoredRow, anchored_line(head, after), paint_anchored(t, name, w, show_ts, mutes, joins, nicks, server, after, boxed))
+
 def anchored_lines_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media(body_of.lines(h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media(t, name, w, show_ts, mutes, joins, nicks, server, after, media))
-
-def anchored_lines_media_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media(body_of.lines_cm(cm, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media_cm(cm, t, name, w, show_ts, mutes, joins, nicks, server, after, media))
-
-def anchored_lines(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat) -> List<&2, AnchoredRow>:
-  anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, left, M.empty())
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_only(media))
 
 def anchored_lines_media_cards(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media_cards(body_of.lines(h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media, cards)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media_cards(t, name, w, show_ts, mutes, joins, nicks, server, after, media, cards))
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards(media, cards))
 
 def anchored_lines_media_cards_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media_cards(body_of.lines_cm(cm, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media, cards)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media_cards_cm(cm, t, name, w, show_ts, mutes, joins, nicks, server, after, media, cards))
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards_cm(cm, media, cards))
 
 def anchor_reached(row: Cl.Scroll, want: Cl.Scroll) -> Bool:
   match row:
@@ -1185,164 +1452,50 @@ def bottom_short(truncated: Bool, +rows: List<&2, BodyRow>, +height: Nat) -> Boo
 
 # At the live bottom, stop after enough expanded rows, not logical messages:
 # muted/empty media lines can add no rows, while wrapped lines and images add many.
-def recent_lines.more(state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
+def paint_recent_more(state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
   match state:
     case (0n, acc): acc
     case (1n+p, +acc):
       +left : Nat = 1n+p
-      +rows = body_rows_media(body_of.lines([line], mutes, joins, nicks, name, server), name, w, show_ts, media)
+      +rows = paint_body_rows(paint_filter(boxed, [line], mutes, joins, nicks, name, server), name, w, show_ts, boxed)
       +count = List.length(&2, BodyRow, rows)
       +keep = Nat.min(left, count)
       k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
 
-def recent_lines.more_cm(+cm: String, state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match state:
-    case (0n, acc): acc
-    case (1n+p, +acc):
-      +left : Nat = 1n+p
-      +rows = body_rows_media(body_of.lines_cm(cm, [line], mutes, joins, nicks, name, server), name, w, show_ts, media)
-      +count = List.length(&2, BodyRow, rows)
-      +keep = Nat.min(left, count)
-      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
-
-def recent_lines.go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
+def paint_recent_go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
   match lines:
     case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
     case Con{+h, t}:
-      recent_lines.more(state, h, name, w, show_ts, mutes, joins, nicks, server, media,
-        next => recent_lines.go(t, name, w, show_ts, mutes, joins, nicks, server, media, next))
+      paint_recent_more(state, h, name, w, show_ts, mutes, joins, nicks, server, boxed,
+        next => paint_recent_go(t, name, w, show_ts, mutes, joins, nicks, server, boxed, next))
 
-def recent_lines.go_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
-    case Con{+h, t}:
-      recent_lines.more_cm(cm, state, h, name, w, show_ts, mutes, joins, nicks, server, media,
-        next => recent_lines.go_cm(cm, t, name, w, show_ts, mutes, joins, nicks, server, media, next))
-
-def body_of.buf_media.bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
+def paint_bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match need:
     case False{}: rows
-    case True{}: recent_lines.go(List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, (height, Nil{}))
+    case True{}: paint_recent_go(List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, boxed, (height, Nil{}))
 
-def body_of.buf_media.bottom_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
+def paint_bottom_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match got:
     case Newest{+rev, +truncated}:
-      +rows = recent_lines.go(rev, name, w, show_ts, mutes, joins, nicks, server, media, (height, Nil{}))
-      body_of.buf_media.bottom_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media)
+      +rows = paint_recent_go(rev, name, w, show_ts, mutes, joins, nicks, server, boxed, (height, Nil{}))
+      paint_bottom_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
-def body_of.buf_media.bottom(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+def paint_bottom(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match bottom:
-    case True{}: body_of.buf_media.bottom_use(newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media)
-    case False{}: visible_anchored(anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media), height, scroll)
+    case True{}: paint_bottom_use(newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: visible_anchored(paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), boxed), height, scroll)
 
-def body_of.buf_media.bottom_cm_rest(+cm: String, need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
-  match need:
-    case False{}: rows
-    case True{}: recent_lines.go_cm(cm, List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, (height, Nil{}))
-
-def body_of.buf_media.bottom_cm_use(+cm: String, got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
-  match got:
-    case Newest{+rev, +truncated}:
-      +rows = recent_lines.go_cm(cm, rev, name, w, show_ts, mutes, joins, nicks, server, media, (height, Nil{}))
-      body_of.buf_media.bottom_cm_rest(cm, bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media)
-
-def body_of.buf_media.bottom_cm(+cm: String, bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, scroll: Cl.Scroll) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: body_of.buf_media.bottom_cm_use(cm, newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media)
-    case False{}: visible_anchored(anchored_lines_media_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media), height, scroll)
+def paint_body_of(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match b:
+    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
+      +lines = paint_display_lines(name, topic, raw_lines, boxed)
+      paint_bottom(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed, Cl.ScrollAt{after, tail})
 
 def body_of.buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      body_of.buf_media.bottom(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, Cl.ScrollAt{after, tail})
-
-def body_of.buf_media_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      body_of.buf_media.bottom_cm(cm, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, Cl.ScrollAt{after, tail})
+  paint_body_of(b, height, w, show_ts, mutes, joins, nicks, server, paint_media_only(media))
 
 def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String) -> List<&2, BodyRow>:
   body_of.buf_media(b, height, w, show_ts, mutes, joins, nicks, server, M.empty())
-
-def recent_lines_cards.more(state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match state:
-    case (0n, acc): acc
-    case (1n+p, +acc):
-      +left : Nat = 1n+p
-      +rows = body_rows_media_cards(body_of.lines([line], mutes, joins, nicks, name, server), name, w, show_ts, media, cards)
-      +count = List.length(&2, BodyRow, rows)
-      +keep = Nat.min(left, count)
-      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
-
-def recent_lines_cards.go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
-    case Con{+h, t}:
-      recent_lines_cards.more(state, h, name, w, show_ts, mutes, joins, nicks, server, media, cards,
-        next => recent_lines_cards.go(t, name, w, show_ts, mutes, joins, nicks, server, media, cards, next))
-
-def recent_lines_cards.more_cm(+cm: String, state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match state:
-    case (0n, acc): acc
-    case (1n+p, +acc):
-      +left : Nat = 1n+p
-      +rows = body_rows_media_cards(body_of.lines_cm(cm, [line], mutes, joins, nicks, name, server), name, w, show_ts, media, cards)
-      +count = List.length(&2, BodyRow, rows)
-      +keep = Nat.min(left, count)
-      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
-
-def recent_lines_cards.go_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
-    case Con{+h, t}:
-      recent_lines_cards.more_cm(cm, state, h, name, w, show_ts, mutes, joins, nicks, server, media, cards,
-        next => recent_lines_cards.go_cm(cm, t, name, w, show_ts, mutes, joins, nicks, server, media, cards, next))
-
-def body_of.buf_media_cards.bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match need:
-    case False{}: rows
-    case True{}: recent_lines_cards.go(List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, cards, (height, Nil{}))
-
-def body_of.buf_media_cards.bottom_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match got:
-    case Newest{+rev, +truncated}:
-      +rows = recent_lines_cards.go(rev, name, w, show_ts, mutes, joins, nicks, server, media, cards, (height, Nil{}))
-      body_of.buf_media_cards.bottom_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def body_of.buf_media_cards.bottom(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: body_of.buf_media_cards.bottom_use(newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-    case False{}: visible_anchored(anchored_lines_media_cards(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards), height, scroll)
-
-def body_of.buf_media_cards(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      body_of.buf_media_cards.bottom(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards, Cl.ScrollAt{after, tail})
-
-def body_of.buf_media_cards.bottom_cm_rest(+cm: String, need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match need:
-    case False{}: rows
-    case True{}: recent_lines_cards.go_cm(cm, List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, cards, (height, Nil{}))
-
-def body_of.buf_media_cards.bottom_cm_use(+cm: String, got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match got:
-    case Newest{+rev, +truncated}:
-      +rows = recent_lines_cards.go_cm(cm, rev, name, w, show_ts, mutes, joins, nicks, server, media, cards, (height, Nil{}))
-      body_of.buf_media_cards.bottom_cm_rest(cm, bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def body_of.buf_media_cards.bottom_cm(+cm: String, bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: body_of.buf_media_cards.bottom_cm_use(cm, newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-    case False{}: visible_anchored(anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards), height, scroll)
-
-def body_of.buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      body_of.buf_media_cards.bottom_cm(cm, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards, Cl.ScrollAt{after, tail})
 
 def row_anchor_at(rows: List<&2, AnchoredRow>, i: Nat) -> Cl.Scroll:
   match rows:
@@ -1366,22 +1519,8 @@ def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mute
       +rows = anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
       Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
 
-def scroll_buf_media_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      +rows = anchored_lines_media_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
-      Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
-
 def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
   scroll_buf_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
-
-def scroll_buf_media_cards(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> Cl.Buffer:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      +rows = anchored_lines_media_cards(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards)
-      Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
 
 def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
   match b:
@@ -1785,10 +1924,6 @@ def split_widget_is_r1(r1: Rect, r2: Rect) -> Bool:
 def split_composer_rect(+r1: Rect, +r2: Rect) -> Rect:
   Bool.pick(Rect, split_widget_is_r1(r1, r2), r1, r2)
 
-def split_composer_ops(+r1: Rect, +r2: Rect, +nick: String, show_ts: Bool) -> List<&2, DrawOp>:
-  composer_ops(split_composer_rect(r1, r2), nick, show_ts)
-
-
 def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
   match ge:
     case True{}:
@@ -1798,23 +1933,6 @@ def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
 
 def vis_n(+have: Nat, +cap: Nat) -> Nat:
   vis_n.on(have, cap, Nat.is_ge(have, cap))
-
-def op_box(r: Rect) -> DrawOp:
-  match r:
-    case Rect{x, y, w, h}:
-      OpBox{x, y, w, h}
-
-def body_box.on(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool) -> List<&2, DrawOp>:
-  match empty:
-    case True{}:
-      OpBox{x, y, w, h} <> Nil{}
-    case False{}:
-      OpBox{x, y, w, h} <> OpText{inner_x(x), y, inner_w(w), FG_DIM(), 0, title} <> Nil{}
-
-def body_box(r: Rect, +title: String) -> List<&2, DrawOp>:
-  match r:
-    case Rect{x, y, w, h}:
-      body_box.on(x, y, w, h, title, String.is_empty(title))
 
 def op_text(r: Rect, +fg: U32, +text: String) -> DrawOp:
   match r:
@@ -1865,6 +1983,22 @@ def image_ops.on(+x: U32, +y: U32, +w: U32, +h: U32, +path: String, empty: Bool)
     case True{}: Nil{}
     case False{}: OpImage{inner_x(x), U32.add(y, 1), inner_w(w), inner_w(h), path} <> Nil{}
 
+def paint_tab_names_cm(cm: Maybe<&2, String>, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, String>:
+  match cm:
+    case None{}: tab_names(bufs, unreads)
+    case Some{name}: tab_names_cm(name, bufs, unreads)
+
+def paint_tab_names(+boxed: List<&2, PaintOpts>, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, String>:
+  paint_tab_names_cm(opt_cm(boxed), bufs, unreads)
+
+def paint_tab_alerts_cm(cm: Maybe<&2, String>, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, U32>:
+  match cm:
+    case None{}: tab_alerts(bufs, unreads)
+    case Some{name}: tab_alerts_cm(name, bufs, unreads)
+
+def paint_tab_alerts(+boxed: List<&2, PaintOpts>, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, U32>:
+  paint_tab_alerts_cm(opt_cm(boxed), bufs, unreads)
+
 def image_ops(r: Rect, +path: String) -> List<&2, DrawOp>:
   match r:
     case Rect{x, y, w, h}: image_ops.on(x, y, w, h, path, String.is_empty(path))
@@ -1899,37 +2033,6 @@ def nick_ops(r: Rect, +title: String, +names: List<&2, String>) -> List<&2, Draw
   match r:
     case Rect{x, y, +w, h}:
       nick_ops.wide(x, y, w, h, title, names, U32.is_gt(w, 2))
-
-def view_ops.rest(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, body_ops(body_hist_rect(br), bod),
-    List.append(&2, DrawOp, nick_ops(nr, title, nicks),
-      op_text(sr, FG_DIM(), st) <> Nil{})))
-
-def view_ops(
-  lay0: Lay,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +names: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +bod: List<&2, BodyRow>,
-  +preview: String,
-  +btitle: String,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +st: String,
-  show_ts: Bool
-) -> List<&2, DrawOp>:
-  match lay0:
-    case Lay{tr, ur, +br, nr, sr}:
-      List.append(&2, DrawOp,
-        op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
-          <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        List.append(&2, DrawOp, view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st), composer_ops(br, nick, show_ts)))
 
 def preview_path_of.on(+topic: String, preview: Bool) -> String:
   match preview:
@@ -2035,25 +2138,10 @@ def visible_media.buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: 
           visible_media.crop(anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server,
             List.length(&2, Cl.Line, lines), media), lines, height, scroll)
 
-def visible_media.buffer.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, M.Candidate>:
-  match allowed:
-    case False{}: Nil{}
-    case True{}:
-      match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_media.crop(anchored_lines_media_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media), lines, height, scroll)
-
 def visible_media.buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, M.Candidate>:
   match b:
     case Cl.Buffer{name, _, _, _, _, _}:
       visible_media.buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, joins, nicks, server, media)
-
-def visible_media.buffer_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, M.Candidate>:
-  match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
-      visible_media.buffer.allowed_cm(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
         b, height, w, show_ts, mutes, joins, nicks, server, media)
 
 def visible_media.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, M.Candidate>:
@@ -2067,27 +2155,10 @@ def visible_media.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +seco
             visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
               rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media))
 
-def visible_media.split_cm(+cm: String, pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, M.Candidate>:
-  match pair:
-    case (+r1, +r2):
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
-          List.append(&2, M.Candidate,
-            visible_media.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media),
-            visible_media.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media))
-
 def visible_media.single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, M.Candidate>:
   match cl:
     case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
       visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
-        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
-
-def visible_media.single_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, M.Candidate>:
-  match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
-      visible_media.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
         rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
 
 def visible_media.panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
@@ -2096,62 +2167,12 @@ def visible_media.panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State,
     case Sp.On{axis, first, second, _}:
       visible_media.split(split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media)
 
-def visible_media.panes_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
-  match split:
-    case Sp.Off{}: visible_media.single_cm(cm, cl, rows, cols, media)
-    case Sp.On{axis, first, second, _}:
-      visible_media.split_cm(cm, split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media)
-
-# Admission shares the painted panes, wrapped rows, mute filters and anchors.
-# A partly visible image row retains its source event even if its URL is above
-# the viewport. Stable nonzero IDs also admit rows imported from history.
 def visible_media_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media.panes(cl, rows, cols, split, media), media)
 
 # Cards-aware admission: the same panes, rows, mutes, and anchors the cards
 # paint path shows, so card rows that push a chat line out of the viewport
 # also keep it out of the scheduled set.
-def visible_media_cards.buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match allowed:
-    case False{}: Nil{}
-    case True{}:
-      match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_media.crop(anchored_lines_media_cards(lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media, cards), lines, height, scroll)
-
-def visible_media_cards.buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
-      visible_media_cards.buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def visible_media_cards.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match pair:
-    case (+r1, +r2):
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
-          List.append(&2, M.Candidate,
-            visible_media_cards.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
-            visible_media_cards.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
-
-def visible_media_cards.single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
-      visible_media_cards.buffer(active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
-        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
-
-def visible_media_cards.panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match split:
-    case Sp.Off{}: visible_media_cards.single(cl, rows, cols, media, cards)
-    case Sp.On{axis, first, second, _}:
-      visible_media_cards.split(split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media, cards)
-
-def visible_media_candidates_cards(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  M.newest_candidates(visible_media_cards.panes(cl, rows, cols, split, media, cards), media)
-
 def visible_media_cards.buffer.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
   match allowed:
     case False{}: Nil{}
@@ -2192,9 +2213,6 @@ def visible_media_cards.panes_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols:
 
 def visible_media_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media_cards.panes_cm(cm, cl, rows, cols, split, media, cards), media)
-def visible_media_candidates_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
-  M.newest_candidates(visible_media.panes_cm(cm, cl, rows, cols, split, media), media)
-
 def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   match move:
     case False{}: cl
@@ -2204,38 +2222,8 @@ def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +
           +rect = focused_rect(rows, cols, split)
           Cl.buf_modify_client(cl, active, b => scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media))
 
-def scroll_active_media_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
-  match move:
-    case False{}: cl
-    case True{}:
-      match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
-          +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf_media_cm(cm, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media))
-
-def scroll_active.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
-  scroll_active_media.on(move, cl, rows, cols, split, up, dn, M.empty())
-
 def scroll_active_media(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   scroll_active_media.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media)
-
-def scroll_active_media_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
-  scroll_active_media_cm.on(cm, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media)
-
-def scroll_active(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat) -> Cl.Client:
-  scroll_active_media(cl, rows, cols, split, up, dn, M.empty())
-
-def scroll_active_media_cards.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> Cl.Client:
-  match move:
-    case False{}: cl
-    case True{}:
-      match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
-          +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards))
-
-def scroll_active_media_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> Cl.Client:
-  scroll_active_media_cards.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards)
 
 def scroll_active_media_cards_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
   match move:
@@ -2269,7 +2257,145 @@ def split_title(+b: Cl.Buffer, +focused: U32, +pane: U32) -> String:
       +base = split_title.base(name, topic)
       Bool.pick(String, U32.is_eq(focused, pane), base ++ " [active]", base)
 
-def view_ops_split(
+def paint_header_split(r: Rect, +base: String, +net: String, empty: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, +w, _}:
+      match empty:
+        case True{}:
+          OpText{x, y, w, paint_dim(boxed), 0, base} <> Nil{}
+        case False{}:
+          +pfx = base ++ " · "
+          +pw = bounded_width(Cols.text_width(pfx), w)
+          +nw = bounded_width(Cols.text_width(net), U32.sub(w, pw))
+          OpText{x, y, pw, paint_dim(boxed), 0, pfx}
+            <> (OpText{U32.add(x, pw), y, nw, paint_status(boxed, net), 1, net} <> Nil{})
+
+def paint_header_visible(hidden: Bool, r: Rect, +base: String, +net: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match hidden:
+    case True{}: Nil{}
+    case False{}: paint_header_split(r, base, net, String.is_empty(net), boxed)
+
+def paint_header(r: Rect, +nick: String, +server: String, +net: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      paint_header_visible(U32.is_zero(w) || U32.is_zero(h), Rect{x, y, w, h}, nick ++ "@" ++ server, net, boxed)
+
+def paint_composer_spans(+nick: String, +boxed: List<&2, PaintOpts>, show_ts: Bool) -> List<&2, SpanOp>:
+  +shown = composer_nick(nick)
+  List.append(&2, SpanOp, composer_indent(show_ts), Spn{0, "<"} <> (Col{1, paint_nick(boxed, shown), shown} <> (Spn{0, "> "} <> Nil{})))
+
+def paint_composer(r: Rect, +nick: String, +boxed: List<&2, PaintOpts>, show_ts: Bool) -> List<&2, DrawOp>:
+  match r:
+    case Rect{+x, +y, +w, +h}:
+      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), paint_fg(boxed), paint_composer_spans(nick, boxed, show_ts)} <> Nil{}
+
+def paint_split_composer(+r1: Rect, +r2: Rect, +nick: String, +boxed: List<&2, PaintOpts>, show_ts: Bool) -> List<&2, DrawOp>:
+  paint_composer(split_composer_rect(r1, r2), nick, boxed, show_ts)
+
+def paint_body_box_on(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match empty:
+    case True{}: OpBox{x, y, w, h} <> Nil{}
+    case False{}: OpBox{x, y, w, h} <> OpText{inner_x(x), y, inner_w(w), paint_dim(boxed), 0, title} <> Nil{}
+
+def paint_body_box(r: Rect, +title: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, w, h}: paint_body_box_on(x, y, w, h, title, String.is_empty(title), boxed)
+
+def paint_row_normal(+x: U32, +y: U32, +ts: String, +stamp_w: U32, +off: U32, +w: U32, +fg: U32, +spans: List<&2, SpanOp>, empty: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match empty:
+    case True{}: OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{}
+    case False{}:
+      OpText{x, y, stamp_w, paint_dim(boxed), 0, ts}
+        <> (OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{})
+
+def paint_row_ops(+x: U32, +y: U32, row: BodyRow, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match row:
+    case BodyRow{+ts, stamp_w, off, w, fg, +spans, _}:
+      paint_row_normal(x, y, ts, stamp_w, off, w, fg, spans, String.is_empty(ts), boxed)
+    case BodyRecon{+text, +w}:
+      OpText{x, y, w, paint_dim(boxed), 0, recon_divider(text, w)} <> Nil{}
+    case BodyMedia{_, _, _, _}: Nil{}
+
+def paint_body_ops_go(fuel: Nat, xs: List<&2, BodyRow>, +x: U32, +y: U32, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match xs:
+        case Nil{}: Nil{}
+        case Con{BodyMedia{token, w, +h, +row}, +tail}:
+          +visible = U32.min(U32.sub(h, row), U32.from_nat(Nat.add(1n, List.length(&2, BodyRow, tail))))
+          OpMedia{x, y, w, h, row, visible, token} <> paint_body_ops_go(p, List.drop(&2, BodyRow, tail, Nat.sub(U32.to_nat(visible), 1n)), x, U32.add(y, visible), boxed)
+        case Con{head, tail}:
+          List.append(&2, DrawOp, paint_row_ops(x, y, head, boxed), paint_body_ops_go(p, tail, x, U32.add(y, 1), boxed))
+
+def paint_body_ops(r: Rect, +xs: List<&2, BodyRow>, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, w, h}:
+      +n = U32.from_nat(List.length(&2, BodyRow, xs))
+      paint_body_ops_go(List.length(&2, BodyRow, xs), xs, inner_x(x), body_y0(y, h, n), boxed)
+
+def paint_nick_go(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      match ok:
+        case False{}: Nil{}
+        case True{}:
+          OpText{x, y, w, paint_nick(boxed, Cl.nick_strip(h)), 0, h}
+            <> paint_nick_go(t, U32.is_lt(U32.add(y, 1), max_y), x, U32.add(y, 1), w, fg, max_y, boxed)
+
+def paint_nick_wide(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: List<&2, String>, wide: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match wide:
+    case False{}: Nil{}
+    case True{}:
+      +ix = inner_x(x)
+      +iw = inner_w(w)
+      +fg = paint_dim(boxed)
+      +y1 = U32.add(y, 1)
+      +max_y = box_max_y(y, h)
+      OpBox{x, y, w, h}
+        <> OpText{ix, y, iw, fg, 0, title}
+        <> paint_nick_go(names, U32.is_lt(y1, max_y), ix, y1, iw, fg, max_y, boxed)
+
+def paint_nicks(r: Rect, +title: String, +names: List<&2, String>, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  match r:
+    case Rect{x, y, +w, h}:
+      paint_nick_wide(x, y, w, h, title, names, U32.is_gt(w, 2), boxed)
+
+def paint_view_rest(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  List.append(&2, DrawOp, image_ops(br, preview),
+    List.append(&2, DrawOp, paint_body_ops(body_hist_rect(br), bod, boxed),
+    List.append(&2, DrawOp, paint_nicks(nr, title, nicks, boxed),
+      op_text(sr, paint_dim(boxed), st) <> Nil{})))
+
+def paint_view_ops(
+  +boxed: List<&2, PaintOpts>,
+  lay0: Lay,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +names: List<&2, String>,
+  +alerts: List<&2, U32>,
+  +bell: U32,
+  +bell_seq: U32,
+  +bod: List<&2, BodyRow>,
+  +preview: String,
+  +btitle: String,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +st: String,
+  show_ts: Bool
+) -> List<&2, DrawOp>:
+  match lay0:
+    case Lay{tr, ur, +br, nr, sr}:
+      List.append(&2, DrawOp,
+        op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
+          <> List.append(&2, DrawOp, paint_header(ur, nick, server, net, boxed), paint_body_box(br, btitle, boxed)),
+        List.append(&2, DrawOp, paint_view_rest(br, bod, preview, nr, ntitle, nicks, sr, st, boxed), paint_composer(br, nick, boxed, show_ts)))
+
+def paint_view_ops_split(
+  +boxed: List<&2, PaintOpts>,
   lay0: Lay,
   +axis: Sp.Axis,
   +nick: String,
@@ -2297,80 +2423,31 @@ def view_ops_split(
     case Lay{tabs, user, body, nicks_rect, status_rect}:
       List.append(&2, DrawOp,
         op_tabs(tabs, U32.from_nat(active), names, alerts, bell, bell_seq)
-          <> List.append(&2, DrawOp, user_header_ops(user, nick, server, net),
+          <> List.append(&2, DrawOp, paint_header(user, nick, server, net, boxed),
                op_split(body, axis)
-                 <> List.append(&2, DrawOp, body_box(r1, title1),
+                 <> List.append(&2, DrawOp, paint_body_box(r1, title1, boxed),
                       List.append(&2, DrawOp, image_ops(r1, preview1),
-                        List.append(&2, DrawOp, body_ops(body_hist_rect(r1), body1),
-                          List.append(&2, DrawOp, body_box(r2, title2),
-                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(body_hist_rect(r2), body2))))))),
-        List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
-          List.append(&2, DrawOp, op_text(status_rect, FG_DIM(), status) <> Nil{}, split_composer_ops(r1, r2, nick, show_ts))))
+                        List.append(&2, DrawOp, paint_body_ops(body_hist_rect(r1), body1, boxed),
+                          List.append(&2, DrawOp, paint_body_box(r2, title2, boxed),
+                            List.append(&2, DrawOp, image_ops(r2, preview2), paint_body_ops(body_hist_rect(r2), body2, boxed))))))),
+        List.append(&2, DrawOp, paint_nicks(nicks_rect, ntitle, nicks, boxed),
+          List.append(&2, DrawOp, op_text(status_rect, paint_dim(boxed), status) <> Nil{}, paint_split_composer(r1, r2, nick, boxed, show_ts))))
 
-def view_split_source.rects(
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +legacy: Bool
-) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf_media(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media) body_of.buf_media(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
+def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
+  match cl:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _}:
+      +b = active_buf.on(Cl.nth_buf(bufs, active))
+      +uh = user_host_label(nick, server, net)
+      +lay0 = lay(rows, cols, user_w(uh))
+      +br = lay_body_rect(lay0)
+      +unreads = Cl.settings_unreads(stg)
+      bod = paint_body_of(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, boxed)
+      bt nt = body_title_of(b) nicks_title_of(b)
+      +ns = nicks_list_of(b)
+      ViewModel{paint_view_ops(boxed, lay0, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(opt_legacy(boxed), b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
-def view_split_source.rects_cm(
-  +cm: String,
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +legacy: Bool
-) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf_media_cm(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media) body_of.buf_media_cm(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
-
-def view_split.rects(
+def paint_view_split_rects(
+  +boxed: List<&2, PaintOpts>,
   pair: Rect & Rect,
   lay0: Lay,
   axis: Sp.Axis,
@@ -2394,212 +2471,13 @@ def view_split.rects(
   +typers: List<&2, String>,
   +show_ts: Bool
 ) -> List<&2, DrawOp>:
-  view_split_source.rects(pair, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, b1, b2, focused, mutes, show_joins, show_nicks, ntitle, nicks, status, typers, show_ts, M.empty(), True{})
-
-def view_split_source(
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +legacy: Bool
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names(bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts(bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, legacy), view_input(draft)}
-
-# Production media-aware entry points never emit OpImage. Pending, failed and
-# accepted local previews all use Media's worker/token path, like remote media.
-def view_split_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State) -> ViewModel:
-  view_split_source(cl, rows, cols, draft, net, axis, first, second, focused, typers, media, False{})
-
-def view_split_source_cards.rects(
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool
-) -> List<&2, DrawOp>:
   match pair:
     case (+r1, +r2):
-      body1 body2 = body_of.buf_media_cards(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards) body_of.buf_media_cards(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
+      body1 body2 = paint_body_of(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, boxed) paint_body_of(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, boxed)
+      paint_view_ops_split(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(opt_legacy(boxed), b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(opt_legacy(boxed), b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
-def view_split_source_cards(
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names(bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts(bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source_cards.rects(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, cards, legacy), view_input(draft)}
-
-def view_split_media_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  view_split_source_cards(cl, rows, cols, draft, net, axis, first, second, focused, typers, media, cards, False{})
-
-def view_split_source_cards_cm.rects(
-  +cm: String,
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool
-) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf_media_cards_cm(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards) body_of.buf_media_cards_cm(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
-
-def view_split_source_cards_cm(
-  +cm: String,
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names_cm(cm, bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source_cards_cm.rects(cm, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, cards, legacy), view_input(draft)}
-
-def view_split_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  view_split_source_cards_cm(cm, cl, rows, cols, draft, net, axis, first, second, focused, typers, media, cards, False{})
-
-def view_split_source_cm(
-  +cm: String,
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +legacy: Bool
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names_cm(cm, bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source.rects_cm(cm, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, legacy), view_input(draft)}
-
-def view_split_media_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State) -> ViewModel:
-  view_split_source_cm(cm, cl, rows, cols, draft, net, axis, first, second, focused, typers, media, False{})
-
-def view_split(
+def paint_view_split(
+  +boxed: List<&2, PaintOpts>,
   +cl: Cl.Client,
   +rows: U32,
   +cols: U32,
@@ -2611,108 +2489,31 @@ def view_split(
   +focused: U32,
   +typers: List<&2, String>
 ) -> ViewModel:
-  view_split_source(cl, rows, cols, draft, net, axis, first, second, focused, typers, M.empty(), True{})
-
-def view_draft.single_source(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +legacy: Bool) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _}:
+      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
+      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
       +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
+      +body_rect = lay_body_rect(lay0)
+      +unreads = Cl.settings_unreads(stg)
+      +mutes = Cl.settings_mutes(stg)
+      +joins = Cl.settings_joins(stg)
+      +nicks = Cl.settings_nicks(stg)
+      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
+      +ns = nicks_list_of(focused_buf)
+      ViewModel{paint_view_split_rects(boxed, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg)), view_input(draft)}
 
-def view_draft.single_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State) -> ViewModel:
-  view_draft.single_source(cl, rows, cols, draft, net, typers, media, False{})
-
-def view_draft.single_source_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +legacy: Bool) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media_cm(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
-
-def view_draft.single_media_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State) -> ViewModel:
-  view_draft.single_source_cm(cm, cl, rows, cols, draft, net, typers, media, False{})
-
-# Legacy pure characterization/law adapters retain OpImage spelling. Live IO
-# calls state_typing_media, never these empty-media compatibility wrappers.
-def view_draft.single(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
-  view_draft.single_source(cl, rows, cols, draft, net, typers, M.empty(), True{})
-
+def paint_view_state(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
+  match split:
+    case Sp.Off{}: paint_view_single(boxed, cl, rows, cols, draft, net, typers)
+    case Sp.On{axis, +first, +second, focus}:
+      paint_view_split(boxed, cl, rows, cols, draft, net, axis, first, second, focus, typers)
 def view_draft.state_typing_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media(cl, rows, cols, draft, net, axis, first, second, focus, typers, media)
-    case Sp.Off{}:
-      view_draft.single_media(cl, rows, cols, draft, net, typers, media)
-
-# Live cards-aware paint: ready-card texts splice under their anchor chat
-# line; navigation bounds and visible scheduling read the same wrapped rows.
-def view_draft.single_source_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +legacy: Bool) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media_cards(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
-
-def view_draft.single_media_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  view_draft.single_source_cards(cl, rows, cols, draft, net, typers, media, cards, False{})
-
-def view_draft.state_typing_media_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media_cards(cl, rows, cols, draft, net, axis, first, second, focus, typers, media, cards)
-    case Sp.Off{}:
-      view_draft.single_media_cards(cl, rows, cols, draft, net, typers, media, cards)
-
-def view_draft.single_source_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +legacy: Bool) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media_cards_cm(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
-
-def view_draft.single_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  view_draft.single_source_cards_cm(cm, cl, rows, cols, draft, net, typers, media, cards, False{})
-
-def view_draft.state_typing_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media_cards_cm(cm, cl, rows, cols, draft, net, axis, first, second, focus, typers, media, cards)
-    case Sp.Off{}:
-      view_draft.single_media_cards_cm(cm, cl, rows, cols, draft, net, typers, media, cards)
-def view_draft.state_typing_media_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media_cm(cm, cl, rows, cols, draft, net, axis, first, second, focus, typers, media)
-    case Sp.Off{}:
-      view_draft.single_media_cm(cm, cl, rows, cols, draft, net, typers, media)
+  paint_view_state(paint_media_only(media), cl, rows, cols, draft, net, typers, split)
 
 def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split(cl, rows, cols, draft, net, axis, first, second, focus, typers)
-    case Sp.Off{}:
-      view_draft.single(cl, rows, cols, draft, net, typers)
+  paint_view_state(paint_legacy_empty(), cl, rows, cols, draft, net, typers, split)
 
 def view_draft_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   view_draft.state_typing(cl, rows, cols, draft, net, typers, Sp.Off{})
@@ -2725,728 +2526,9 @@ def view_draft_split(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +ne
 
 # Themed production painters. Session owns a Theme.Id and paints through
 # these entries; the unthemed painters above keep the historic dark values.
-def FG_DIM_themed(+th: Theme.Id) -> U32:
-  Theme.status_dim(th)
-
-def FG_TEXT_themed(+th: Theme.Id) -> U32:
-  Theme.kind_fg(th, Cl.Msg{})
-
-def composer_spans_themed(+nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, SpanOp>:
-  +shown = composer_nick(nick)
-  List.append(&2, SpanOp, composer_indent(show_ts), Spn{0, "<"} <> (Col{1, nick_color_themed(th, shown), shown} <> (Spn{0, "> "} <> Nil{})))
-
-def composer_ops_themed(r: Rect, +nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, DrawOp>:
-  match r:
-    case Rect{+x, +y, +w, +h}:
-      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th, show_ts)} <> Nil{}
-
-def split_composer_ops_themed(+r1: Rect, +r2: Rect, +nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, DrawOp>:
-  composer_ops_themed(split_composer_rect(r1, r2), nick, th, show_ts)
-
-def user_header_ops.split_themed(r: Rect, +base: String, +net: String, empty: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match r:
-    case Rect{+x, +y, +w, _}:
-      match empty:
-        case True{}:
-          OpText{x, y, w, FG_DIM_themed(th), 0, base} <> Nil{}
-        case False{}:
-          +pfx = base ++ " · "
-          +pw = bounded_width(Cols.text_width(pfx), w)
-          +nw = bounded_width(Cols.text_width(net), U32.sub(w, pw))
-          OpText{x, y, pw, FG_DIM_themed(th), 0, pfx}
-            <> (OpText{U32.add(x, pw), y, nw, status_color_themed(th, net), 1, net} <> Nil{})
-
-def user_header_ops.visible_themed(hidden: Bool, r: Rect, +base: String, +net: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  match hidden:
-    case True{}: Nil{}
-    case False{}: user_header_ops.split_themed(r, base, net, String.is_empty(net), th)
-
-def user_header_ops_themed(r: Rect, +nick: String, +server: String, +net: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  match r:
-    case Rect{+x, +y, +w, +h}:
-      user_header_ops.visible_themed(U32.is_zero(w) || U32.is_zero(h), Rect{x, y, w, h}, nick ++ "@" ++ server, net, th)
-
-def parse_nick_msg.body_themed(+rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match rest:
-    case SNil{}:
-      render_spans("<" ++ nick ++ ">")
-    case SCon{_, body}:
-      Spn{0, "<"}
-        <> (Col{1, nick_color_themed(th, nick), nick}
-        <> (Spn{0, "> "}
-        <> render_spans(body)))
-
-def parse_nick_msg.ok_themed(ok: Bool, +rest: String, +nick: String, original: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match ok:
-    case True{}:
-      parse_nick_msg.body_themed(rest, nick, th)
-    case False{}:
-      render_spans(original)
-
-def parse_nick_msg.parsed_themed(pair: String & String, original: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match pair:
-    case (+nick, +rest):
-      parse_nick_msg.ok_themed(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick, original, th)
-
-def parse_nick_msg.head_themed(is_lt: Bool, +t: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match is_lt:
-    case True{}:
-      parse_nick_msg.parsed_themed(take_until_gt(t), s, th)
-    case False{}:
-      render_spans(s)
-
-def parse_nick_msg.con_themed(+c: Char, +t: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  parse_nick_msg.head_themed(Char.is_eq(c, '<'), t, s, th)
-
-def parse_nick_msg_themed(s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match s:
-    case SNil{}:
-      Nil{}
-    case SCon{+c, +t}:
-      parse_nick_msg.con_themed(c, t, s, th)
-
-def parse_nick_act.body_themed(+rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match rest:
-    case SNil{}:
-      render_spans("* " ++ nick)
-    case SCon{_, body}:
-      Spn{0, "* "}
-        <> (Col{1, nick_color_themed(th, nick), nick}
-        <> (Spn{0, " "}
-        <> render_spans(body)))
-
-def parse_nick_act.ok_themed(ok: Bool, +rest: String, +nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match ok:
-    case True{}:
-      parse_nick_act.body_themed(rest, nick, th)
-    case False{}:
-      render_spans("* " ++ nick ++ rest)
-
-def parse_nick_act.parsed_themed(pair: String & String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match pair:
-    case (+nick, +rest):
-      parse_nick_act.ok_themed(String.starts_with(rest, " ") && Bool.not(String.is_empty(nick)), rest, nick, th)
-
-def parse_nick_act.rest_themed(+t2: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  parse_nick_act.parsed_themed(Irc.take_until_space(t2), th)
-
-def parse_nick_act.sp_themed(is_sp: Bool, +t2: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match is_sp:
-    case True{}:
-      parse_nick_act.rest_themed(t2, th)
-    case False{}:
-      render_spans(s)
-
-def parse_nick_act.t1_themed(+t1: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match t1:
-    case SNil{}:
-      render_spans(s)
-    case SCon{+c2, +t2}:
-      parse_nick_act.sp_themed(Char.is_eq(c2, ' '), t2, s, th)
-
-def parse_nick_act.star_themed(is_star: Bool, +t1: String, +s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match is_star:
-    case True{}:
-      parse_nick_act.t1_themed(t1, s, th)
-    case False{}:
-      render_spans(s)
-
-def parse_nick_act_themed(s: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match s:
-    case SNil{}:
-      Nil{}
-    case SCon{+c1, +t1}:
-      parse_nick_act.star_themed(Char.is_eq(c1, '*'), t1, s, th)
-
-def line_spans_raw_themed(k: Cl.LineKind, +text: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  match k:
-    case Cl.Msg{}:
-      parse_nick_msg_themed(text, th)
-    case Cl.Self{}:
-      parse_nick_msg_themed(text, th)
-    case Cl.Highlight{}:
-      parse_nick_msg_themed(text, th)
-    case Cl.Action{}:
-      parse_nick_act_themed(text, th)
-    case Cl.Pending{+inner}:
-      spans_dim(line_spans_raw_themed(inner, text, th))
-    case _:
-      render_spans(text)
-
-def line_spans_for_themed(k: Cl.LineKind, text: String, +th: Theme.Id) -> List<&2, SpanOp>:
-  cluster_spans(line_spans_raw_themed(k, text, th))
-
-def line_ops_go_themed(
-  +x: U32,
-  +y: U32,
-  +w: U32,
-  +fg: U32,
-  +ts: String,
-  +spans: List<&2, SpanOp>,
-  empty: Bool,
-  +th: Theme.Id
-) -> List<&2, DrawOp>:
-  match empty:
-    case True{}:
-      OpLine{x, y, w, fg, spans} <> Nil{}
-    case False{}:
-      OpText{x, y, ts_w(w), FG_DIM_themed(th), 0, ts}
-        <> (OpLine{U32.add(x, line_shift(w)), y, line_rest(w), fg, spans} <> Nil{})
-
-def line_ops_at_ts.recon_themed(+x: U32, +y: U32, +w: U32, +text: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  OpText{x, y, w, FG_DIM_themed(th), 0, recon_divider(text, w)} <> Nil{}
-
-def line_ops_at_ts.chk_themed(is_rec: Bool, +x: U32, +y: U32, +w: U32, +k: Cl.LineKind, +ts: String, +text: String, show_ts: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match is_rec:
-    case True{}:
-      line_ops_at_ts.recon_themed(x, y, w, text, th)
-    case False{}:
-      line_ops_go_themed(x, y, w, style_of_themed(th, k), ts, line_spans_for_themed(k, text, th), Bool.not(show_ts) || String.is_empty(ts), th)
-
-def line_ops_at_ts_themed(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match ln:
-    case Cl.Line{+k, +ts, +text, +author, +id}:
-      line_ops_at_ts.chk_themed(Cl.is_reconnect(k), x, y, w, k, ts, text, show_ts, th)
-
-def line_ops_at_themed(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, +th: Theme.Id) -> List<&2, DrawOp>:
-  line_ops_at_ts_themed(x, y, w, ln, True{}, th)
-
-def line_ops_themed(+ln: Cl.Line, +th: Theme.Id) -> List<&2, DrawOp>:
-  line_ops_at_themed(0, 0, 40, ln, th)
-
-def wrapped_rows.metrics_themed(metrics: WrapMetrics, +k: Cl.LineKind, text: String, +th: Theme.Id) -> List<&2, BodyRow>:
-  match metrics:
-    case WrapMetrics{shown, stamp_w, first_off, +first_w, cont_off, +cont_w}:
-      wrapped_rows.chunks(wrap_spans(line_spans_for_themed(k, text, th), first_w, cont_w), shown, stamp_w, first_off, first_w, cont_off, cont_w, style_of_themed(th, k))
-
-def wrapped_rows_themed(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, +th: Theme.Id) -> List<&2, BodyRow>:
-  wrapped_rows.metrics_themed(wrap_metrics(k, ts, text, w, show_ts), k, text, th)
-
-def wrapped_media.metrics_themed(metrics: WrapMetrics, urls: List<&2, String>, +k: Cl.LineKind, text: String, +w: U32, id: Nat, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match metrics:
-    case WrapMetrics{shown, stamp_w, first_off, first_w, cont_off, cont_w}:
-      wrapped_media.parts(media_parts(line_spans_for_themed(k, text, th), Nil{}, urls), media, M.Inline{id}, shown, stamp_w, first_off, first_w, cont_off, cont_w, style_of_themed(th, k), w)
-
-def wrapped_media.known_themed(urls: List<&2, String>, +k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match urls:
-    case Nil{}: wrapped_rows_themed(k, ts, text, w, show_ts, th)
-    case Con{+h, +tail}:
-      wrapped_media.metrics_themed(wrap_metrics(k, ts, text, w, show_ts), h <> tail, k, text, w, id, media, th)
-
-def wrapped_media_themed(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, +show_ts: Bool, +id: Nat, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  wrapped_media.known_themed(M.known_urls(media, M.Inline{id}), k, ts, text, w, show_ts, id, media, th)
-
-def wrap_line_media_themed(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match ln:
-    case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
-    case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
-      Bool.pick(List<&2, BodyRow>, contains_url(M.known_urls(media, M.Manual{}), text),
-        media_rows(M.token(media, M.Manual{}, text), w), wrapped_media_themed(Cl.System{}, ts, text, w, show_ts, 0n, media, th))
-    case Cl.Line{+k, +ts, +text, _, +id}: wrapped_media_themed(k, ts, text, w, show_ts, id, media, th)
-
-def wrap_lines_media_themed(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{h, tail}: List.append(&2, BodyRow, wrap_line_media_themed(h, w, show_ts, media, th), wrap_lines_media_themed(tail, w, show_ts, media, th))
-
-def unwrapped_line.on_themed(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, show_ts: Bool, recon: Bool, +th: Theme.Id) -> BodyRow:
-  match recon:
-    case True{}:
-      BodyRecon{text, w}
-    case False{}:
-      +shown = Bool.pick(String, show_ts, ts, "")
-      +off = Bool.pick(U32, String.is_empty(shown), 0, line_shift(w))
-      +spans = line_spans_for_themed(k, text, th)
-      BodyRow{shown, ts_w(w), off, U32.sub(w, off), style_of_themed(th, k), spans, spans_chars(spans)}
-
-def unwrapped_line_themed(+ln: Cl.Line, +w: U32, show_ts: Bool, +th: Theme.Id) -> BodyRow:
-  match ln:
-    case Cl.Line{+k, +ts, +text, +author, +id}:
-      unwrapped_line.on_themed(k, ts, text, w, show_ts, Cl.is_reconnect(k), th)
-
-def unwrapped_lines_themed(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +th: Theme.Id) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      unwrapped_line_themed(h, w, show_ts, th) <> unwrapped_lines_themed(t, w, show_ts, th)
-
-def body_rows_media.on_themed(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, media: M.State, synthetic: Bool, +th: Theme.Id) -> List<&2, BodyRow>:
-  match synthetic:
-    case True{}: unwrapped_lines_themed(lines, w, show_ts, th)
-    case False{}: wrap_lines_media_themed(lines, w, show_ts, media, th)
-
-def body_rows_media_themed(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  body_rows_media.on_themed(lines, w, show_ts, media, String.eq(name, "*settings*"), th)
-
-def recent_lines.more_themed(state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +th: Theme.Id, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match state:
-    case (0n, acc): acc
-    case (1n+p, +acc):
-      +left : Nat = 1n+p
-      +rows = body_rows_media_themed(body_of.lines([line], mutes, joins, nicks, name, server), name, w, show_ts, media, th)
-      +count = List.length(&2, BodyRow, rows)
-      +keep = Nat.min(left, count)
-      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
-
-def recent_lines.go_themed(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +th: Theme.Id, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
-    case Con{+h, t}:
-      recent_lines.more_themed(state, h, name, w, show_ts, mutes, joins, nicks, server, media, th,
-        next => recent_lines.go_themed(t, name, w, show_ts, mutes, joins, nicks, server, media, th, next))
-
-def anchored_lines_media_themed(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +th: Theme.Id) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media_themed(body_of.lines(h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media, th)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media_themed(t, name, w, show_ts, mutes, joins, nicks, server, after, media, th))
-
-def body_of.buf_media.bottom_themed_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match need:
-    case False{}: rows
-    case True{}: recent_lines.go_themed(List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, th, (height, Nil{}))
-
-def body_of.buf_media.bottom_themed_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +th: Theme.Id) -> List<&2, BodyRow>:
-  match got:
-    case Newest{+rev, +truncated}:
-      +rows = recent_lines.go_themed(rev, name, w, show_ts, mutes, joins, nicks, server, media, th, (height, Nil{}))
-      body_of.buf_media.bottom_themed_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media, th)
-
-def body_of.buf_media.bottom_themed(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, scroll: Cl.Scroll, +th: Theme.Id) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: body_of.buf_media.bottom_themed_use(newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, th)
-    case False{}: visible_anchored(anchored_lines_media_themed(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, th), height, scroll)
-
-def body_of.buf_media_themed(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw_lines, media))
-      body_of.buf_media.bottom_themed(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, Cl.ScrollAt{after, tail}, th)
-
-def body_box.on_themed(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match empty:
-    case True{}:
-      OpBox{x, y, w, h} <> Nil{}
-    case False{}:
-      OpBox{x, y, w, h} <> OpText{inner_x(x), y, inner_w(w), FG_DIM_themed(th), 0, title} <> Nil{}
-
-def body_box_themed(r: Rect, +title: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  match r:
-    case Rect{x, y, w, h}:
-      body_box.on_themed(x, y, w, h, title, String.is_empty(title), th)
-
-def body_row_ops.normal_themed(+x: U32, +y: U32, +ts: String, +stamp_w: U32, +off: U32, +w: U32, +fg: U32, +spans: List<&2, SpanOp>, empty: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match empty:
-    case True{}:
-      OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{}
-    case False{}:
-      OpText{x, y, stamp_w, FG_DIM_themed(th), 0, ts}
-        <> (OpLine{U32.add(x, off), y, w, fg, spans} <> Nil{})
-
-def body_row_ops_themed(+x: U32, +y: U32, row: BodyRow, +th: Theme.Id) -> List<&2, DrawOp>:
-  match row:
-    case BodyRow{+ts, stamp_w, off, w, fg, +spans, _}:
-      body_row_ops.normal_themed(x, y, ts, stamp_w, off, w, fg, spans, String.is_empty(ts), th)
-    case BodyRecon{+text, +w}:
-      OpText{x, y, w, FG_DIM_themed(th), 0, recon_divider(text, w)} <> Nil{}
-    case BodyMedia{_, _, _, _}: Nil{}
-
-def body_ops.go_themed(fuel: Nat, xs: List<&2, BodyRow>, +x: U32, +y: U32, +th: Theme.Id) -> List<&2, DrawOp>:
-  match fuel:
-    case 0n: Nil{}
-    case 1n+p:
-      match xs:
-        case Nil{}: Nil{}
-        case Con{BodyMedia{token, w, +h, +row}, +tail}:
-          +visible = U32.min(U32.sub(h, row), U32.from_nat(Nat.add(1n, List.length(&2, BodyRow, tail))))
-          OpMedia{x, y, w, h, row, visible, token} <> body_ops.go_themed(p, List.drop(&2, BodyRow, tail, Nat.sub(U32.to_nat(visible), 1n)), x, U32.add(y, visible), th)
-        case Con{head, tail}:
-          List.append(&2, DrawOp, body_row_ops_themed(x, y, head, th), body_ops.go_themed(p, tail, x, U32.add(y, 1), th))
-
-def body_ops_themed(r: Rect, +xs: List<&2, BodyRow>, +th: Theme.Id) -> List<&2, DrawOp>:
-  match r:
-    case Rect{x, y, w, h}:
-      +n = U32.from_nat(List.length(&2, BodyRow, xs))
-      body_ops.go_themed(List.length(&2, BodyRow, xs), xs, inner_x(x), body_y0(y, h, n), th)
-
-def nick_ops.go_themed(xs: List<&2, String>, ok: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +max_y: U32, +th: Theme.Id) -> List<&2, DrawOp>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, t}:
-      match ok:
-        case False{}:
-          Nil{}
-        case True{}:
-          OpText{x, y, w, nick_color_themed(th, Cl.nick_strip(h)), 0, h}
-            <> nick_ops.go_themed(t, U32.is_lt(U32.add(y, 1), max_y), x, U32.add(y, 1), w, fg, max_y, th)
-
-def nick_ops.wide_themed(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: List<&2, String>, wide: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
-  match wide:
-    case False{}:
-      Nil{}
-    case True{}:
-      +ix = inner_x(x)
-      +iw = inner_w(w)
-      +fg = FG_DIM_themed(th)
-      +y1 = U32.add(y, 1)
-      +max_y = box_max_y(y, h)
-      OpBox{x, y, w, h}
-        <> OpText{ix, y, iw, fg, 0, title}
-        <> nick_ops.go_themed(names, U32.is_lt(y1, max_y), ix, y1, iw, fg, max_y, th)
-
-def nick_ops_themed(r: Rect, +title: String, +names: List<&2, String>, +th: Theme.Id) -> List<&2, DrawOp>:
-  match r:
-    case Rect{x, y, +w, h}:
-      nick_ops.wide_themed(x, y, w, h, title, names, U32.is_gt(w, 2), th)
-
-def view_ops.rest_themed(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, body_ops_themed(body_hist_rect(br), bod, th),
-    List.append(&2, DrawOp, nick_ops_themed(nr, title, nicks, th),
-      op_text(sr, FG_DIM_themed(th), st) <> Nil{})))
-
-def view_ops_themed(
-  lay0: Lay,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +names: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +bod: List<&2, BodyRow>,
-  +preview: String,
-  +btitle: String,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +st: String,
-  +th: Theme.Id,
-  show_ts: Bool
-) -> List<&2, DrawOp>:
-  match lay0:
-    case Lay{tr, ur, +br, nr, sr}:
-      List.append(&2, DrawOp,
-        op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
-          <> List.append(&2, DrawOp, user_header_ops_themed(ur, nick, server, net, th), body_box_themed(br, btitle, th)),
-        List.append(&2, DrawOp, view_ops.rest_themed(br, bod, preview, nr, ntitle, nicks, sr, st, th), composer_ops_themed(br, nick, th, show_ts)))
-
-def view_ops_split_themed(
-  lay0: Lay,
-  +axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +names: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +r1: Rect,
-  +title1: String,
-  +body1: List<&2, BodyRow>,
-  +preview1: String,
-  +r2: Rect,
-  +title2: String,
-  +body2: List<&2, BodyRow>,
-  +preview2: String,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +th: Theme.Id,
-  show_ts: Bool
-) -> List<&2, DrawOp>:
-  match lay0:
-    case Lay{tabs, user, body, nicks_rect, status_rect}:
-      List.append(&2, DrawOp,
-        op_tabs(tabs, U32.from_nat(active), names, alerts, bell, bell_seq)
-          <> List.append(&2, DrawOp, user_header_ops_themed(user, nick, server, net, th),
-               op_split(body, axis)
-                 <> List.append(&2, DrawOp, body_box_themed(r1, title1, th),
-                      List.append(&2, DrawOp, image_ops(r1, preview1),
-                        List.append(&2, DrawOp, body_ops_themed(body_hist_rect(r1), body1, th),
-                          List.append(&2, DrawOp, body_box_themed(r2, title2, th),
-                            List.append(&2, DrawOp, image_ops(r2, preview2), body_ops_themed(body_hist_rect(r2), body2, th))))))),
-        List.append(&2, DrawOp, nick_ops_themed(nicks_rect, ntitle, nicks, th),
-          List.append(&2, DrawOp, op_text(status_rect, FG_DIM_themed(th), status) <> Nil{}, split_composer_ops_themed(r1, r2, nick, th, show_ts))))
-
-def view_split_source.rects_themed(
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +legacy: Bool,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
-) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf_media_themed(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, th, pends) body_of.buf_media_themed(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, th, pends)
-      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), th, show_ts)
-
-def view_split_source_themed(
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +legacy: Bool,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names(bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts(bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source.rects_themed(split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, legacy, th, pends), view_input(draft)}
-
-def view_split_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  view_split_source_themed(cl, rows, cols, draft, net, axis, first, second, focused, typers, media, False{}, th, pends)
-
-def view_draft.single_source_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +legacy: Bool, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media_themed(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, th, pends)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th, Cl.settings_ts(stg)), view_input(draft)}
-
-def view_draft.single_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  view_draft.single_source_themed(cl, rows, cols, draft, net, typers, media, False{}, th, pends)
-
 def view_draft.state_typing_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media_themed(cl, rows, cols, draft, net, axis, first, second, focus, typers, media, th, pends)
-    case Sp.Off{}:
-      view_draft.single_media_themed(cl, rows, cols, draft, net, typers, media, th, pends)
-
-# Themed cards/casemapping live painters. Mirror the cards_cm chain above;
-# card/mute/cm helpers stay shared, colors route through the themed leaves.
-def card_rows_for_texts_themed(xs: List<&2, String>, +w: U32, +th: Theme.Id) -> List<&2, BodyRow>:
-  match xs:
-    case Nil{}: Nil{}
-    case Con{+h, t}: List.append(&2, BodyRow, wrapped_rows_themed(Cl.System{}, "", h, w, False{}, th), card_rows_for_texts_themed(t, w, th))
-
-def card_rows_for_entry_themed(+texts: List<&2, String>, +w: U32, +th: Theme.Id) -> List<&2, BodyRow>:
-  List.take(&2, BodyRow, card_rows_for_texts_themed(texts, w, th), card_rows_cap())
-
-def card_rows_for_hit_themed(hit: Bool, +texts: List<&2, String>, +w: U32, +th: Theme.Id) -> List<&2, BodyRow>:
-  match hit:
-    case True{}: card_rows_for_entry_themed(texts, w, th)
-    case False{}: Nil{}
-
-def card_rows_for.go_themed(xs: List<&2, CardEntry>, +id: Nat, +w: U32, +th: Theme.Id) -> List<&2, BodyRow>:
-  match xs:
-    case Nil{}: Nil{}
-    case Con{CardEntry{other, +texts}, t}:
-      List.append(&2, BodyRow, card_rows_for_hit_themed(Nat.is_eq(other, id), texts, w, th), card_rows_for.go_themed(t, id, w, th))
-
-def card_rows_for_themed(+xs: List<&2, CardEntry>, +id: Nat, +w: U32, +th: Theme.Id) -> List<&2, BodyRow>:
-  card_rows_for.go_themed(xs, id, w, th)
-
-def wrap_line_media_cards_themed(+ln: Cl.Line, +w: U32, show_ts: Bool, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, BodyRow>:
-  match ln:
-    case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
-    case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
-      Bool.pick(List<&2, BodyRow>, contains_url(M.known_urls(media, M.Manual{}), text),
-        media_rows(M.token(media, M.Manual{}, text), w), wrapped_media_themed(Cl.System{}, ts, text, w, show_ts, 0n, media, th))
-    case Cl.Line{+k, +ts, +text, _, +id}:
-      List.append(&2, BodyRow, wrapped_media_themed(k, ts, text, w, show_ts, id, media, th), card_rows_for_themed(cards, id, w, th))
-
-def wrap_lines_media_cards_themed(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{h, tail}: List.append(&2, BodyRow, wrap_line_media_cards_themed(h, w, show_ts, media, cards, th), wrap_lines_media_cards_themed(tail, w, show_ts, media, cards, th))
-
-def body_rows_media_cards.on_themed(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, media: M.State, +cards: List<&2, CardEntry>, synthetic: Bool, +th: Theme.Id) -> List<&2, BodyRow>:
-  match synthetic:
-    case True{}: unwrapped_lines_themed(lines, w, show_ts, th)
-    case False{}: wrap_lines_media_cards_themed(lines, w, show_ts, media, cards, th)
-
-def body_rows_media_cards_themed(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, BodyRow>:
-  body_rows_media_cards.on_themed(lines, w, show_ts, media, cards, String.eq(name, "*settings*"), th)
-
-def recent_lines_cards.more_cm_themed(+cm: String, state: Nat & List<&2, BodyRow>, +line: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, k: (Nat & List<&2, BodyRow>) -> List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match state:
-    case (0n, acc): acc
-    case (1n+p, +acc):
-      +left : Nat = 1n+p
-      +rows = body_rows_media_cards_themed(body_of.lines_cm(cm, [line], mutes, joins, nicks, name, server), name, w, show_ts, media, cards, th)
-      +count = List.length(&2, BodyRow, rows)
-      +keep = Nat.min(left, count)
-      k((Nat.sub(left, keep), List.append(&2, BodyRow, List.drop(&2, BodyRow, rows, Nat.sub(count, keep)), acc)))
-
-def recent_lines_cards.go_cm_themed(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, state: Nat & List<&2, BodyRow>) -> List<&2, BodyRow>:
-  match lines:
-    case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
-    case Con{+h, t}:
-      recent_lines_cards.more_cm_themed(cm, state, h, name, w, show_ts, mutes, joins, nicks, server, media, cards, th,
-        next => recent_lines_cards.go_cm_themed(cm, t, name, w, show_ts, mutes, joins, nicks, server, media, cards, th, next))
-
-def anchored_lines_media_cards_cm_themed(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = body_rows_media_cards_themed(body_of.lines_cm(cm, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, media, cards, th)
-      List.append(&2, AnchoredRow, anchored_line(head, after), anchored_lines_media_cards_cm_themed(cm, t, name, w, show_ts, mutes, joins, nicks, server, after, media, cards, th))
-
-def body_of.buf_media_cards.bottom_cm_themed_rest(+cm: String, need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, BodyRow>:
-  match need:
-    case False{}: rows
-    case True{}: recent_lines_cards.go_cm_themed(cm, List.reverse(&2, Cl.Line, lines), name, w, show_ts, mutes, joins, nicks, server, media, cards, th, (height, Nil{}))
-
-def body_of.buf_media_cards.bottom_cm_themed_use(+cm: String, got: Newest, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> List<&2, BodyRow>:
-  match got:
-    case Newest{+rev, +truncated}:
-      +rows = recent_lines_cards.go_cm_themed(cm, rev, name, w, show_ts, mutes, joins, nicks, server, media, cards, th, (height, Nil{}))
-      body_of.buf_media_cards.bottom_cm_themed_rest(cm, bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards, th)
-
-def body_of.buf_media_cards.bottom_cm_themed(+cm: String, bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, scroll: Cl.Scroll, +th: Theme.Id) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: body_of.buf_media_cards.bottom_cm_themed_use(cm, newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards, th)
-    case False{}: visible_anchored(anchored_lines_media_cards_cm_themed(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards, th), height, scroll)
-
-def body_of.buf_media_cards_cm_themed(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, BodyRow>:
-  match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw_lines, media))
-      body_of.buf_media_cards.bottom_cm_themed(cm, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, media, cards, Cl.ScrollAt{after, tail}, th)
-
-def view_split_source_cards_cm.rects_themed(
-  +cm: String,
-  pair: Rect & Rect,
-  lay0: Lay,
-  axis: Sp.Axis,
-  +nick: String,
-  +server: String,
-  +net: String,
-  +active: Nat,
-  +tabs: List<&2, String>,
-  +alerts: List<&2, U32>,
-  +bell: U32,
-  +bell_seq: U32,
-  +b1: Cl.Buffer,
-  +b2: Cl.Buffer,
-  +focused: U32,
-  +mutes: List<&2, String>,
-  +show_joins: Bool,
-  +show_nicks: Bool,
-  +ntitle: String,
-  +nicks: List<&2, String>,
-  +status: String,
-  +typers: List<&2, String>,
-  +show_ts: Bool,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
-) -> List<&2, DrawOp>:
-  match pair:
-    case (+r1, +r2):
-      body1 body2 = body_of.buf_media_cards_cm_themed(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards, th, pends) body_of.buf_media_cards_cm_themed(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards, th, pends)
-      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(legacy, b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(legacy, b2), ntitle, nicks, status_or_typing(status, typers), th, show_ts)
-
-def view_split_source_cards_cm_themed(
-  +cm: String,
-  +cl: Cl.Client,
-  +rows: U32,
-  +cols: U32,
-  +draft: String,
-  +net: String,
-  +axis: Sp.Axis,
-  +first: String,
-  +second: String,
-  +focused: U32,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +cards: List<&2, CardEntry>,
-  +legacy: Bool,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
-) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
-      +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +body_rect = lay_body_rect(lay0)
-      +tabs = tab_names_cm(cm, bufs, Cl.settings_unreads(stg))
-      +alerts = tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg))
-      +mutes = Cl.settings_mutes(stg)
-      +joins = Cl.settings_joins(stg)
-      +nicks = Cl.settings_nicks(stg)
-      nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
-      +ns = nicks_list_of(focused_buf)
-      ViewModel{view_split_source_cards_cm.rects_themed(cm, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, tabs, alerts, bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), media, cards, legacy, th, pends), view_input(draft)}
-
-def view_split_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +axis: Sp.Axis, +first: String, +second: String, +focused: U32, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  view_split_source_cards_cm_themed(cm, cl, rows, cols, draft, net, axis, first, second, focused, typers, media, cards, False{}, th, pends)
-
-def view_draft.single_source_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +legacy: Bool, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      +b = active_buf.on(Cl.nth_buf(bufs, active))
-      +uh = user_host_label(nick, server, net)
-      +lay0 = lay(rows, cols, user_w(uh))
-      +br = lay_body_rect(lay0)
-      bod = body_of.buf_media_cards_cm_themed(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards, th, pends)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(legacy, b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th, Cl.settings_ts(stg)), view_input(draft)}
-
-def view_draft.single_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  view_draft.single_source_cards_cm_themed(cm, cl, rows, cols, draft, net, typers, media, cards, False{}, th, pends)
+  paint_view_state(paint_media_theme(media, th, pends), cl, rows, cols, draft, net, typers, split)
 
 def view_draft.state_typing_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  match split:
-    case Sp.On{axis, +first, +second, focus}:
-      view_split_media_cards_cm_themed(cm, cl, rows, cols, draft, net, axis, first, second, focus, typers, media, cards, th, pends)
-    case Sp.Off{}:
-      view_draft.single_media_cards_cm_themed(cm, cl, rows, cols, draft, net, typers, media, cards, th, pends)
+  paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)
+
