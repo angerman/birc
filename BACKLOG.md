@@ -132,3 +132,13 @@
   working tree and in a pristine /tmp/birc-proof-base checkout, so
   it is unrelated to the optimistic-send slice. Media-slice owner
   to triage.
+
+## Resolved
+
+Recorded here so the open items above stay the work list. These cleanups
+were not performed.
+
+- Do not delete `handover-recovery/`. It is tracked (220 files), so a
+  gitignore line would not hide it. Deletion is the author's call.
+- Do not prune `.muse/` worktrees. That is the author's call. `.muse/`
+  is now ignored for untracked files.
