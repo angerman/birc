@@ -134,6 +134,10 @@ PTY_SUITE_TARGETS := \
 export PTY_SUITE_TARGETS
 test-pty: $(PTY_SUITE_TARGETS) ## Pty loop tests.
 
+.PHONY: test-pty-server-multiserver
+test-pty-server-multiserver: $(PTY_BUILD) ## Two loopback servers: part routing, F7 drafts, dual-generation quit.
+	$(NIXRUN) timeout 90 python3 tests/pty/server_multiserver.py $(PTY_APP)
+
 test%: export BIRC_HISTORY ?= none
 check: export BIRC_HISTORY ?= none
 test%: export BIRC_IMAGES ?= off
