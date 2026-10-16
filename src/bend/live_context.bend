@@ -11,6 +11,7 @@ import ./preferences_runtime.bend as R
 import ./history_startup.bend as H
 import ./history_startup_io.bend as F
 import ./history_io.bend as Save
+import ./endpoint.bend as Ep
 
 type Gate is Data:
   Open{}
@@ -38,10 +39,9 @@ def now(cl: Cl.Client) -> String:
     case Cl.Client{_, _, _, _, value, _, _, _}: value
 
 # Host spelling and a terminal DNS root dot are part of credential and history
-# scope. Do not strip a root dot here; SNI normalization is a different step.
-# MUST MATCH endpoint.bend:endpoint/2
+# scope. endpoint.bend owns the bytes; this is not a second formatter.
 def endpoint_key(+host: String, +port: U32) -> String:
-  host ++ ":" ++ U32.show(port)
+  Ep.endpoint(host, port)
 
 def endpoint(+st: S.Session) -> String:
   endpoint_key(Cl.server_of(S.session_cl(st)), S.session_port(st))

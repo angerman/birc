@@ -2,6 +2,7 @@
 # Pure durable preferences. No credentials, log state, or channel keys belong here.
 import Base
 import ./buffer.bend as Cl
+import ./endpoint.bend as Ep
 import ./irc.bend as Irc
 import ./theme.bend as Theme
 
@@ -125,19 +126,13 @@ def parse_bit(s: String) -> Maybe<&2, Bool>:
     case "1": Some{True{}}
     case _: None{}
 
-def decimal(s: String) -> Bool:
-  match s:
-    case SNil{}: True{}
-    case SCon{Chr{+c}, t}:
-      U32.is_ge(c, 48) && U32.is_le(c, 57) && decimal(t)
-
 def parse_cap.valid(ok: Bool, s: String) -> Maybe<&2, U32>:
   match ok:
     case True{}: U32.read(s)
     case False{}: None{}
 
 def parse_cap(+s: String) -> Maybe<&2, U32>:
-  parse_cap.valid(Bool.not(String.is_empty(s)) && Nat.is_le(String.length(s), 10n) && decimal(s), s)
+  parse_cap.valid(Bool.not(String.is_empty(s)) && Nat.is_le(String.length(s), 10n) && Ep.decimal(s), s)
 
 def parse_settings.bits(+j: String, +t: String, +m: String, +h: String, +cap: String, +a: String, +b: String, +i: String, nicks: Bool) -> Maybe<&2, Preferences>:
   do Maybe<&2, Preferences>:

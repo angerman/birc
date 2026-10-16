@@ -32,6 +32,7 @@ import ./preferences_live.bend as LoadedPrefs
 import ./notify.bend as N
 import ./notify_io.bend as NIO
 import ./helper_io.bend as Help
+import ./endpoint.bend as Ep
 
 def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
   Sess.notify_live_init_ep(N.on(), Cl.log_seq_of(Sess.session_cl(st)), Sess.notify_scope_of(st))
@@ -46,7 +47,7 @@ def net_notify_seed_postrestore(+nl: Sess.NotifyLive, +st: Sess.Session) -> Sess
   Sess.notify_live_seed_postrestore(nl, st)
 
 def endpoint(+host: String, +port: U32) -> String:
-  PrefLive.endpoint_key(host, port)
+  Ep.endpoint(host, port)
 
 def session_endpoint(+st: Sess.Session) -> String:
   PrefLive.endpoint(st)
