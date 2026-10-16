@@ -6,3 +6,8 @@ result-*
 __pycache__/
 *.py[cod]
 .DS_Store
+.muse/
+/.muse/worktrees/
+scratch/
+*.orig
+*.rej
