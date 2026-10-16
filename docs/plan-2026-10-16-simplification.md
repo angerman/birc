@@ -420,6 +420,43 @@ Fix: add them to `bend_slow_compile` with **measured** values. Never guess a
 timeout — the existing ones encode calm-host measurements, and a guessed number
 either flakes or hides a real hang.
 
+#### Correction: the timeouts are not the root cause — `-j` is
+Calm-lane measurements (serial, `MAKEFLAGS=-j1`, 8 cores, load ~1):
+
+| target | elaboration + C emission | configured timeout |
+|---|---|---|
+| `live_context` | 58.3 s | 180 |
+| `net_demo` | 84.3 s | 180 |
+| `deferred_frame.c` | 40.8 s → **31.4 MB** | 300 |
+| `mss_stale_socket.c` | 42.2 s → **31.7 MB** | 300 |
+
+Every one fits its timeout with 2–4× margin **when run alone**. They only died with
+`Error 124` under `MAKEFLAGS=-j6`. The reason is visible in the same measurements:
+each Bend compile runs at **117–165% CPU**, because Bun is internally
+multi-threaded. Six of them want ~9 cores on an 8-core host, so each slows 2–4×
+and blows a bound that was adequate in isolation.
+
+So the defect is **oversubscription, not undersized timeouts**. Wave 0's new
+`MAKEFLAGS += -j$(nproc)` default makes this worse on every host, because it
+assumes one core per job while a Bend compile wants more than one.
+
+Preferred fix, in order:
+1. **Default `-j` to roughly `nproc * 2 / 3`** (10 cores → `-j6`, 8 cores → `-j5`),
+   with the reasoning and the 117–165% measurement in a comment. This removes the
+   cause and keeps hang detection sharp.
+2. Only then, if a target still misses its bound *serially*, raise that target's
+   timeout in `bend_slow_compile` with the measured number.
+
+Do **not** blanket-raise timeouts to paper over parallel slowdown: a 900 s bound on
+a target that needs 60 s serially hides a real hang for 15 minutes.
+
+Note also that `bend X.bend -o X` (direct native) **fails** for `deferred_frame`
+and `mss_stale_socket` with `clang failed to build`, because Bend invokes `$CC`
+itself without the Makefile's `-Isrc/ui -Isrc/ffi`. That is why those targets use
+the two-stage `.c`-then-link path. Measuring them with `-o build/X` is therefore
+invalid; use `-o build/X.c`.
+
+
 
 ### Integration fixes applied by the reviewing agent
 T1.4 correctly stopped at two packaging breaks in files outside its set rather than
