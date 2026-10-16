@@ -98,7 +98,7 @@ Per-file rows are only the modules whose contract is easy to misread.
 | `src/ffi/*.c` | Thin native effects. C does not parse IRC or decide authentication. `TIMUI_IMPLEMENTATION` lives only in `src/ffi/timui_ffi.c`. |
 | `src/launcher/*.py` / `src/media/*.py` | Private nonsecret helpers. Remote HTTPS uses the standard-library certificate check. Confirmed uploads use the `0x0.st` helper. |
 | `src/ui/timui.h` | Vendored single-header TUI. |
-| `docs/FFI.md` / `docs/build-speed.md` / `docs/column-walker-retention.md` | Reference notes. This file wins when they disagree. |
+| `docs/FFI.md` / `docs/build-speed.md` / `docs/column-walker-retention.md` / `docs/handover-2026-10-08.md` | Reference notes. The handover is superseded by this file. This file wins when they disagree. |
 
 | Path | Invariant |
 |---|---|
