@@ -459,7 +459,9 @@ type SanPh is Data:
   SanHit{h: Char, color: Bool, drop: Bool}
 
 # checker: expected a decreasing self-call (arguments are read left to right: each passed unchanged until one shrinks) / observed sanitize_in
-def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
+# dropc decides which C0/DEL bytes go. A dropped 0x03 also eats its mIRC
+# color parameters; a kept 0x03 leaves those bytes for the view decoder.
+def sanitize_go(fuel: Nat, ph: SanPh, +s: String, dropc: Char -> Bool) -> String:
   match fuel:
     case 0n:
       SNil{}
@@ -470,20 +472,20 @@ def sanitize_in_go(fuel: Nat, ph: SanPh, +s: String) -> String:
             case SNil{}:
               SNil{}
             case SCon{+hd, t}:
-              sanitize_in_go(p, SanHit{hd, code_is(hd, 3), is_c0_drop(hd)}, t)
+              sanitize_go(p, SanHit{hd, code_is(hd, 3) && dropc(hd), dropc(hd)}, t, dropc)
         case SanHit{h, color, drop}:
           match color:
             case True{}:
-              sanitize_in_go(p, SanStr{}, skip_mirc(s))
+              sanitize_go(p, SanStr{}, skip_mirc(s), dropc)
             case False{}:
               match drop:
                 case True{}:
-                  sanitize_in_go(p, SanStr{}, s)
+                  sanitize_go(p, SanStr{}, s, dropc)
                 case False{}:
-                  SCon{h, sanitize_in_go(p, SanStr{}, s)}
+                  SCon{h, sanitize_go(p, SanStr{}, s, dropc)}
 
 def sanitize_in(+s: String) -> String:
-  sanitize_in_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s)
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, c => is_c0_drop(c))
 
 def proto_soh.keep(+h: Char, r: String, soh: Bool) -> String:
   match soh:
@@ -662,31 +664,8 @@ def is_style_keep(+c: Char) -> Bool:
   U32.is_eq(n, 1) || U32.is_eq(n, 2) || U32.is_eq(n, 3) || U32.is_eq(n, 15)
     || U32.is_eq(n, 17) || U32.is_eq(n, 22) || U32.is_eq(n, 29) || U32.is_eq(n, 30) || U32.is_eq(n, 31)
 
-type KeepPh is Data:
-  KeepStr{}
-  KeepHit{h: Char, drop: Bool}
-
-def sanitize_keep_style_go(fuel: Nat, ph: KeepPh, +s: String) -> String:
-  match fuel:
-    case 0n:
-      SNil{}
-    case 1n+p:
-      match ph:
-        case KeepStr{}:
-          match s:
-            case SNil{}:
-              SNil{}
-            case SCon{+hd, t}:
-              sanitize_keep_style_go(p, KeepHit{hd, is_c0_drop(hd) && Bool.not(is_style_keep(hd))}, t)
-        case KeepHit{h, drop}:
-          match drop:
-            case True{}:
-              sanitize_keep_style_go(p, KeepStr{}, s)
-            case False{}:
-              SCon{h, sanitize_keep_style_go(p, KeepStr{}, s)}
-
 def sanitize_keep_style(+s: String) -> String:
-  sanitize_keep_style_go(Nat.add(1n, Nat.mul(4n, String.length(s))), KeepStr{}, s)
+  sanitize_go(Nat.add(1n, Nat.mul(4n, String.length(s))), SanStr{}, s, c => is_c0_drop(c) && Bool.not(is_style_keep(c)))
 
 def parse(line: String) -> Maybe<&2, Message>:
   parse_body(strip_cr(line))
