@@ -4,13 +4,21 @@ SHELL := /bin/sh
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
-# Default to one job per core unless the caller already chose a -j.
-# GNU make 3.81 leaves command-line -j out of $(MAKEFLAGS) while the makefile
-# is parsed; an exported MAKEFLAGS is visible to the shell. `make update`
-# stays serial: a pin move must not race itself.
+# Default to two jobs per three cores unless the caller already chose a -j.
+# Not one job per core: a single `bend` compile runs at 117-165% CPU because Bun
+# is internally multi-threaded, so -j$(nproc) oversubscribes and targets that fit
+# their deadline serially die with Error 124 in parallel. Measured on an idle
+# 8-core host at -j1: live_context 58s, net_demo 84s, deferred_frame.c 41s,
+# mss_stale_socket.c 42s — all inside their 180/300s bounds alone, all killed
+# under -j6. Raising those bounds would hide real hangs; sizing -j does not.
+# GNU make 3.81 leaves command-line -j out of $(MAKEFLAGS) while the makefile is
+# parsed; an exported MAKEFLAGS is visible to the shell. `make update` stays
+# serial: a pin move must not race itself.
 BIRC_JOB_FLAGS := $(MAKEFLAGS) $(shell printf '%s' "$$MAKEFLAGS")
+BIRC_NCPU := $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 1)
+BIRC_JOBS := $(shell echo "$(BIRC_NCPU)" | awk '{n=int($$1*2/3); if (n<1) n=1; print n}')
 ifeq (,$(findstring j,$(BIRC_JOB_FLAGS)))
-MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
+MAKEFLAGS += -j$(BIRC_JOBS)
 endif
 update: MAKEFLAGS := $(filter-out -j%,$(MAKEFLAGS))
 
