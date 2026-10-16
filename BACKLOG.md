@@ -1,5 +1,10 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- test-dns-live red: FIXED — the "wrong answer" was a correct AAAA
+  response: dual-stack `Dns.resolve` now parses A and AAAA, and the
+  live test accepts a well-formed AAAA record for one.one.one.one.
+  `dns_live=ok`; `dns_demo` pins the parse shape.
+
 - pty-diagnostic SASL fixture: FIXED (test-only, no product change) —
   red since the Oct 3 welcome/auth barrier (df95f2c): the fixture sent
   a bare 001 with SASL creds configured and the client correctly held
