@@ -106,6 +106,7 @@ def main():
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
     env = {**os.environ, 'TERM': 'xterm-256color', 'TERM_PROGRAM': '',
            'BIRC_IMAGES': 'off', 'BIRC_HISTORY': 'none',
+           'BIRC_PREFERENCES': 'none',
            'BIRC_MEDIA_HELPER': '/nonexistent-audit-helper',
            'PATH': '/nonexistent-audit-path'}
     for key in ('BIRC_DIE_AFTER_OPEN', 'BIRC_FRAME_PROFILE', 'BIRC_FORCE_IMAGE_PROTOCOL', 'TIMUI_TRACE'):

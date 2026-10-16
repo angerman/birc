@@ -8,6 +8,7 @@ usage: linger.py ./build/birc
 """
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -27,6 +28,8 @@ def main() -> int:
         [birc, "--plain", "--connect", "127.0.0.1", "--port", str(port),
          "--nick", "probe", "--channel", "#t", "--frames", "2"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        env={**os.environ, "TERM": "xterm-256color",
+             "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"},
     )
     try:
         conn, _ = srv.accept()

@@ -76,6 +76,8 @@ def run_one(birc: str, rows: int, cols: int) -> tuple[float, bool]:
         os.close(master)
         os.close(slave)
         os.environ["TERM"] = "xterm-256color"
+        os.environ["BIRC_PREFERENCES"] = "none"
+        os.environ["BIRC_HISTORY"] = "none"
         os.execv(birc, [birc, "--plain", "--demo", "--frames", "0"])
     os.close(slave)
     t_end = time.time() + WARM_S

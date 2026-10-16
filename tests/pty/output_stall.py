@@ -69,7 +69,7 @@ def startup_case(binary: str, mode: str) -> None:
         [binary, "--plain", "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave, stdout=output, stderr=output,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"},
     )
     if output != slave:
         os.close(output)
@@ -107,7 +107,7 @@ def case(binary: str, mode: str, directory: str) -> None:
     listener.settimeout(8)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 200, 0, 0))
-    env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
+    env = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none",
            "PATH": directory,
            "BIRC_CLIPBOARD_LOG": os.path.join(directory, "copied")}
     # A reopened output has independent fd flags. Nonblocking input alone

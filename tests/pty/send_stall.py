@@ -32,7 +32,7 @@ def case(binary: str, stalled: bool) -> None:
         [binary, "--plain", "--connect", "127.0.0.1", "--port", str(listener.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "0"],
         stdin=slave, stdout=slave, stderr=slave,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"},
     )
     os.close(slave)
     conn = None

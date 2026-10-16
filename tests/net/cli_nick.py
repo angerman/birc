@@ -10,7 +10,7 @@ def capture(label, options, expected, env_user=""):
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
         listener.settimeout(3)
-        env = dict(os.environ, BIRC_HISTORY="none", BIRC_IMAGES="off",
+        env = dict(os.environ, BIRC_HISTORY="none", BIRC_IMAGES="off", BIRC_PREFERENCES="none",
                    BIRC_SASL_USER=env_user, BIRC_SASL_PASS="synthetic")
         proc = subprocess.Popen(
             [sys.argv[1], "--plain", "--connect", "127.0.0.1", "--port",

@@ -70,6 +70,7 @@ def main() -> int:
                 **os.environ,
                 "TERM": "xterm-256color",
                 "BIRC_HISTORY": "none",
+                "BIRC_PREFERENCES": "none",
                 "BIRC_LINK_LOG": log,
                 "PATH": tmp,
             },

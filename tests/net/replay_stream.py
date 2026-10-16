@@ -48,7 +48,7 @@ def fail_closed(label, fixture):
 
 
 env = dict(os.environ, TERM="xterm-256color", TERM_PROGRAM="",
-           BIRC_HISTORY="none", BIRC_IMAGES="off", BIRC_SASL_USER="", BIRC_SASL_PASS="")
+           BIRC_HISTORY="none", BIRC_IMAGES="off", BIRC_SASL_USER="", BIRC_SASL_PASS="", BIRC_PREFERENCES="none")
 for name in ("BIRC_DIE_AFTER_OPEN", "BIRC_FRAME_PROFILE", "BIRC_FORCE_IMAGE_PROTOCOL", "TIMUI_TRACE"):
     env.pop(name, None)
 

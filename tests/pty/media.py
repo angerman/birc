@@ -148,7 +148,8 @@ class Live:
             env.pop(name, None)
         env.update(TERM="xterm-kitty" if protocol == "kitty" else "xterm-256color",
                    TERM_PROGRAM="kitty" if protocol == "kitty" else "iTerm.app",
-                   BIRC_IMAGES="on", BIRC_HISTORY="none", BIRC_MEDIA_HELPER=str(fake_helper(directory)))
+                   BIRC_IMAGES="on", BIRC_HISTORY="none", BIRC_PREFERENCES="none",
+                   BIRC_MEDIA_HELPER=str(fake_helper(directory)))
         if protocol == "kitty":
             env["BIRC_FORCE_IMAGE_PROTOCOL"] = "kitty"
         self.proc = subprocess.Popen(

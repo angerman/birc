@@ -49,7 +49,7 @@ def case(binary: str, mode: str, directory: str) -> None:
             "--nick", "probe", "--channel", "#t"] if mode in ("slow", "slowquit") else ["--demo"]
     proc = subprocess.Popen(
         [binary, "--plain", *args, "--frames", "0"], stdin=slave, stdout=slave, stderr=slave,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none",
              "BIRC_LINK_LOG": str(log), "BIRC_LAUNCH_PID": str(helper_pid), "PATH": directory},
     )
     os.close(slave)

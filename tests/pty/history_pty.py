@@ -82,7 +82,7 @@ def main() -> int:
 
         master1, slave1 = pty.openpty()
         fcntl.ioctl(slave1, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        env1 = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": hist_file}
+        env1 = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": hist_file}
         proc1 = subprocess.Popen(
             [
                 birc,
@@ -174,7 +174,7 @@ def main() -> int:
 
         master2, slave2 = pty.openpty()
         fcntl.ioctl(slave2, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        env2 = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": hist_file}
+        env2 = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": hist_file}
         proc2 = subprocess.Popen(
             [
                 birc,
@@ -274,7 +274,7 @@ def main() -> int:
         none_file = os.path.join(tmpdir, "none.log")
         master3, slave3 = pty.openpty()
         fcntl.ioctl(slave3, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        env3 = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"}
+        env3 = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"}
         proc3 = subprocess.Popen(
             [
                 birc,

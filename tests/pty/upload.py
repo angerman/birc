@@ -89,7 +89,7 @@ class Client:
         self.master, slave = pty.openpty()
         self.saved = termios.tcgetattr(slave)
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-        env = {**os.environ, "TERM": "xterm-256color", "BIRC_IMAGES": "off", "BIRC_CARDS": "off",
+        env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none", "BIRC_IMAGES": "off", "BIRC_CARDS": "off",
                "BIRC_HISTORY": str(self.history), "BIRC_UPLOAD_HELPER": str(self.helper),
                "BIRC_UPLOAD_TEST_DIR": str(folder), "PATH": str(folder)}
         for name in ("BIRC_SASL_USER", "BIRC_SASL_PASS", "BIRC_AUTH_SECRET_FD", "BIRC_AUTH_EVENT_FD"):

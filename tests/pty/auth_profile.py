@@ -45,7 +45,7 @@ class Client:
                 "--sasl-user", "account", "--auth", mode]
         if mode != "sasl":
             args += ["--nickserv-prefix", PREFIX.decode(), "--nickserv-success", "Account confirmed"]
-        env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
+        env = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
                "BIRC_AUTH_SECRET_FD": str(secret_r), "BIRC_AUTH_EVENT_FD": str(event_w)}
         env.pop("BIRC_SASL_USER", None)
         env.pop("BIRC_SASL_PASS", None)

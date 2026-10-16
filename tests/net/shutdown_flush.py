@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-environment = dict(os.environ, TERM="xterm-256color", BIRC_IMAGES="off", BIRC_HISTORY="none")
+environment = dict(os.environ, TERM="xterm-256color", BIRC_IMAGES="off", BIRC_HISTORY="none", BIRC_PREFERENCES="none")
 for name in ("BIRC_DIE_AFTER_OPEN", "BIRC_FRAME_PROFILE", "TIMUI_TRACE"):
     environment.pop(name, None)
 

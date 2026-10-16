@@ -268,7 +268,7 @@ def main(binary: str) -> None:
                 f'exit {code}\n'
             )
             helper.chmod(0o755)
-        env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "PATH": str(helpers),
+        env = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none", "PATH": str(helpers),
                "BIRC_DIAGNOSTIC_HELPERS": str(folder / "helpers"), "BIRC_MEDIA_HELPER": str(helpers / "absent-media")}
         log_case(binary, folder, env, opener)
         history_case(binary, folder, env)

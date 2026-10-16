@@ -45,7 +45,7 @@ def spawn(birc, args):
     proc = subprocess.Popen(
         [birc, "--plain", *args],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color"},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none"},
     )
     os.close(slave)
     return master, proc

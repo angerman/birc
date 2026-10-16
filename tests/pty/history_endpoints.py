@@ -34,7 +34,7 @@ def client(birc: str, server: socket.socket, path: str):
         [birc, "--plain", "--connect", "127.0.0.1", "--port", str(server.getsockname()[1]),
          "--nick", "probe", "--channel", "#t", "--frames", "20000"],
         stdin=slave, stdout=slave, stderr=slave,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": path},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": path},
     )
     os.close(slave)
     connection = None

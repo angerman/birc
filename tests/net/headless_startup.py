@@ -20,7 +20,7 @@ def launch(binary: str, port: int) -> subprocess.Popen:
         [binary, "--plain", "--connect", "127.0.0.1", "--port", str(port),
          "--nick", "probe", "--channel", "#t", "--frames", "2"],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        env={**os.environ, "BIRC_HISTORY": "none"},
+        env={**os.environ, "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none"},
     )
 
 

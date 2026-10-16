@@ -85,7 +85,7 @@ def case(binary: str, mode: str, directory: str) -> None:
             "--nick", "probe", "--channel", "#t"] if live else ["--demo"]
     proc = subprocess.Popen(
         [binary, "--plain", *args, "--frames", "0"], stdin=slave, stdout=slave, stderr=slave,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none",
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none",
              "BIRC_LINK_LOG": str(log), "PATH": directory},
     )
     os.close(slave)

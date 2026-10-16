@@ -42,7 +42,7 @@ def main() -> int:
     proc = subprocess.Popen(
         [birc, "--plain", "--demo", "--nick", "bob", "--channel", "#t", "--frames", "20000"],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color"},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none"},
     )
     os.close(slave)
     # Idle wait is 1000 ms (P1); two seconds is only ~2 frames and races the first poll.

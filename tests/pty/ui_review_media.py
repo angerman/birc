@@ -80,6 +80,7 @@ def main():
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
         env = {**os.environ, 'TERM': 'xterm-kitty', 'TERM_PROGRAM': '',
                'BIRC_FORCE_IMAGE_PROTOCOL': 'kitty', 'BIRC_HISTORY': 'none',
+               'BIRC_PREFERENCES': 'none',
                'BIRC_IMAGES': 'off', 'BIRC_MEDIA_HELPER': helper, 'PATH': '/nonexistent-test-path'}
         for key in ('BIRC_DIE_AFTER_OPEN', 'BIRC_FRAME_PROFILE', 'TIMUI_TRACE'):
             env.pop(key, None)

@@ -204,7 +204,7 @@ class Peer:
 
 
 def environment(certs, trust="ca.pem"):
-    env = {**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
+    env = {**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
            "SSL_CERT_FILE": str(certs.folder / trust), "SSL_CERT_DIR": str(certs.folder / "empty-trust-dir")}
     for name in ("BIRC_SASL_USER", "BIRC_SASL_PASS", "BIRC_AUTH_SECRET_FD", "BIRC_AUTH_EVENT_FD",
                  "BIRC_FRAME_PROFILE", "TIMUI_TRACE"):

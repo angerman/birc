@@ -48,7 +48,7 @@ def main() -> int:
         stdout=slave,
         stderr=slave,
         close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color",
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none",
              "PATH": str(Path(__file__).resolve().parent / "fake-bin")},
     )
     os.close(slave)

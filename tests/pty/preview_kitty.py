@@ -56,6 +56,8 @@ def main() -> int:
             **os.environ,
             "TERM": "xterm-kitty",
             "BIRC_FORCE_IMAGE_PROTOCOL": "kitty",
+            "BIRC_PREFERENCES": "none",
+            "BIRC_HISTORY": "none",
         },
     )
     os.close(slave)

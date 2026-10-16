@@ -72,7 +72,7 @@ def run(birc, label, resize, payload, artifacts, sandbox_home, whole_deadline):
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *initial_size, 0, 0))
     raw_path = artifacts / (label + ".raw")
     trace_path = artifacts / (label + ".trace")
-    env = {**os.environ, "HOME": sandbox_home, "TERM": "xterm-256color",
+    env = {**os.environ, "HOME": sandbox_home, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none",
            "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
            "TIMUI_TRACE": str(trace_path)}
     env.pop("BIRC_FRAME_PROFILE", None)

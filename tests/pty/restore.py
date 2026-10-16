@@ -45,7 +45,7 @@ def run_one(
         stdout=slave,
         stderr=slave,
         close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color", **extra_env},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_PREFERENCES": "none", **extra_env},
     )
     os.close(slave)
     # frames=N on a tty parks until a message. Wait until the first

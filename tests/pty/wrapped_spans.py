@@ -69,7 +69,7 @@ def main():
             [sys.argv[1], "--plain", "--connect", "127.0.0.1", "--port", str(port),
              "--nick", "probe", "--channel", "#t", "--frames", "0"],
             stdin=slave, stdout=slave, stderr=slave, close_fds=True,
-            env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
+            env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"},
         )
         os.close(slave)
         conn = None

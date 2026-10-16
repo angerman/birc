@@ -84,7 +84,7 @@ def main() -> int:
         stdout=slave,
         stderr=slave,
         close_fds=True,
-        env={**os.environ, "TERM": "xterm-256color", "BIRC_HISTORY": "none"},
+        env={**os.environ, "TERM": "xterm-256color", "BIRC_PREFERENCES": "none", "BIRC_HISTORY": "none"},
     )
     os.close(slave)
     conn: socket.socket | None = None
