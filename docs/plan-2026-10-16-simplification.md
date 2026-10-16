@@ -1292,16 +1292,33 @@ Tests use owned loopback peers only.
 
 ## T2.5 Orphan-test triage and quarantine
 
-**Owns:** `Makefile` *(only the `test-orphans` block T0.1 created)*,
-`BACKLOG.md` *(append only)*, `/tmp/birc-cursor-reports/orphan-triage.md` *(new)*
+**REASSIGNED — no longer a cursor-agent task.** Two reasons: the work is execution
+and classification rather than code editing, and T2.4 already runs the 16
+ws-family orphans, so the scopes overlapped. Dropping it also removes the only
+Makefile ownership conflict in Wave 2 (T2.4 needs the Makefile to register its new
+PTY target).
 
-T0.1 wired the 32 orphan test programs into a `test-orphans` target and recorded
-which failed. This task triages them.
+The reviewing agent runs it on the remote lane instead, after Wave 2 merges:
+
+```sh
+rsync -a --delete --exclude 'build/' --exclude '.muse/' --exclude 'handover-recovery/' \
+      --exclude 'scratch/' --exclude 'result*' --exclude '.direnv/' \
+      ./ aarch64-darwin-1.lan:/Users/angerman/birc-lane/
+ssh aarch64-darwin-1.lan 'cd /Users/angerman/birc-lane && mkdir -p build \
+  && MAKEFLAGS=-j6 make test-orphans > /tmp/orphans.log 2>&1; echo rc=$?'
+```
+
+**Ownership for this task:** `BACKLOG.md` (append only) and the triage report. The
+Makefile stays with T2.4 during Wave 2; promotions to `test-review-pure` are
+applied at integration.
+
+T0.1 already wired the orphans into a `test-orphans` target (30 prerequisites) and
+promoted the three that passed a smoke run. This task triages the remainder.
 
 1. Run `make test-orphans` and classify every failure:
    **(a)** test rotted against a migrated API (e.g. `session.bend`'s native
-   cards/drafts migration) — report the exact assertion and the API it expects;
-   **(b)** genuine product defect — **report, do not fix**;
+   cards/drafts migration) — record the exact assertion and the API it expects;
+   **(b)** genuine product defect — **record, do not fix**;
    **(c)** needs a native/PTY lane that was never granted
    (`Makefile:1719` *"SOURCE UNRUN: standalone until compile/native/three PTY
    runs qualify"*).
@@ -1313,6 +1330,7 @@ which failed. This task triages them.
 
 **Verification:** `make test-orphans` output pasted in full into the report;
 `make -n check | grep -c test-orphans` shows the wired subset.
+
 
 ---
 
