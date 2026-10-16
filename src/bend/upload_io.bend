@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # One bounded helper call. Consent, scope and URL validation stay in Upload.
 import Base
+import ./helper_io.bend as H
+
+def spec() -> H.Spec:
+  H.Spec{"BIRC_UPLOAD_HELPER", "birc-upload", 2048, 35000}
 
 def program.env(result: Result<&1, &1, U32 & String, String>) -> String:
-  match result:
-    case Fail{_}: "birc-upload"
-    case Done{+value}: Bool.pick(String, String.is_empty(value), "birc-upload", value)
+  H.name_got(result, "birc-upload")
 
 def program() -> IO(String):
-  do IO<String>:
-    result : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_UPLOAD_HELPER")
-    return program.env(result)
+  H.name(spec())
 
 def result.exit(code: U32, output: String) -> String & U32:
   match code:
@@ -42,7 +42,7 @@ def result_detail.exit(+code: U32, output: String, stderr: String) -> String & U
 
 def result_detail(got: Result<&1, &1, U32 & String, U32 & (String & String)>) -> String & U32 & U32:
   match got:
-    case Fail{(+code, _)}: ("", Bool.pick(U32, U32.is_zero(code), 1, code), 0)
+    case Fail{(+code, _)}: ("", H.spawn_code(code), 0)
     case Done{(code, (out, stderr))}: result_detail.exit(code, out, stderr)
 
 def result.compat(got: String & U32 & U32) -> String & U32:
@@ -65,8 +65,7 @@ def error_text(+code: U32, +status: U32) -> String:
 
 def run_detail(path: String) -> IO(String & U32 & U32):
   do IO<String & U32 & U32>:
-    helper : String <- program()
-    got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(helper, ["--local", path], "", 2048, 35000)
+    got : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run(spec(), ["--local", path], "")
     return result_detail(got)
 
 def run(path: String) -> IO(String & U32):

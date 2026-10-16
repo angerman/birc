@@ -31,6 +31,7 @@ import ./startup_headless.bend as Headless
 import ./preferences_live.bend as LoadedPrefs
 import ./notify.bend as N
 import ./notify_io.bend as NIO
+import ./helper_io.bend as Help
 
 def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
   Sess.notify_live_init_ep(N.on(), Cl.log_seq_of(Sess.session_cl(st)), Sess.notify_scope_of(st))
@@ -41,29 +42,14 @@ def net_notify_observe(+nl: Sess.NotifyLive, +st: Sess.Session, deliver: Bool, +
 def net_notify_complete(+nl: Sess.NotifyLive, +ticket: Nat, +endpoint: String) -> Sess.NotifyLive & List<&2, N.Req> & Bool:
   Sess.notify_live_complete(nl, ticket, endpoint)
 
-def net_notify_cancel(+nl: Sess.NotifyLive, +endpoint: String) -> Sess.NotifyLive & Bool:
-  Sess.notify_live_cancel(nl, endpoint)
-
-def net_notify_reset_endpoint(+nl: Sess.NotifyLive, +new_endpoint: String, +new_floor: Nat) -> Sess.NotifyLive:
-  Sess.notify_live_reset_endpoint(nl, new_endpoint, new_floor)
-
-def net_notify_off(+nl: Sess.NotifyLive) -> Sess.NotifyLive:
-  Sess.notify_live_off(nl)
-
 def net_notify_seed_postrestore(+nl: Sess.NotifyLive, +st: Sess.Session) -> Sess.NotifyLive:
   Sess.notify_live_seed_postrestore(nl, st)
 
-def net_notify_merge_claims(+nl: Sess.NotifyLive, +fresh: List<&2, Nat>) -> Sess.NotifyLive:
-  Sess.notify_live_merge_claims(nl, fresh)
-
-def net_notify_seed_accepted(accepted: Bool, +nl: Sess.NotifyLive, +installed: List<&2, Nat>) -> Sess.NotifyLive:
-  Sess.notify_live_seed_accepted(accepted, nl, installed)
-
 def endpoint(+host: String, +port: U32) -> String:
-  host ++ ":" ++ U32.show(port)
+  PrefLive.endpoint_key(host, port)
 
 def session_endpoint(+st: Sess.Session) -> String:
-  endpoint(Cl.server_of(Sess.session_cl(st)), Sess.session_port(st))
+  PrefLive.endpoint(st)
 
 def shutdown_exit(success: Bool) -> IO(Unit):
   match success:
@@ -1018,12 +1004,15 @@ def media_args.pick(remote: Bool, source: String) -> List<&1, String>:
 def media_args(+source: String) -> List<&1, String>:
   media_args.pick(Links.is_url_prefix(source), source)
 
+# Same contract as Sys.media_program: BIRC_MEDIA_HELPER, else birc-image.
+def media_spec() -> Help.Spec:
+  Help.Spec{"BIRC_MEDIA_HELPER", "birc-image", 2800000, 11000}
+
 def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match req:
     case M.Request{_, +url, +generation, +ticket}:
       do IO<Unit>:
-        program : String <- T.Sys.media_program()
-        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, media_args(url), "", 2800000, 11000)
+        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Help.run(media_spec(), media_args(url), "")
         _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
         return Unit{}
 
