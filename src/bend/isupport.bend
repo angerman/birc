@@ -46,7 +46,8 @@
 # MODE/324 display (session_redact_wire); `chan_target_cl` routes STATUSMSG
 # audiences with exact-resident precedence (session_chan_target); `cm_eq`
 # compares 001 nicks under the negotiated CASEMAPPING (session_cm_eq).
-# `apply_line` is parse-only and trusts its caller; use `feed` for wire input.
+# `apply_line` is parse-only and trusts its caller. `feed_state` applies one
+# wire line to policy only; the session has already logged that line.
 # The fold itself lives in `Irc.fold_casemap` (one shared owner) so the
 # fixed compare and every negotiated compare stay identical by
 # construction. Full `cm_eq` adoption inside Client/Buffer lookup, roster
@@ -72,7 +73,6 @@
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
-import ./client.bend as Feed
 import ./irc_commands.bend as Commands
 import ./channel_policy.bend as Channels
 
@@ -682,28 +682,24 @@ def recipient_ok.msg(+st: State, +me: String, +m: Irc.Message, is005: Bool) -> B
 def recipient_ok(+st: State, +me: String, +m: Irc.Message) -> Bool:
   recipient_ok.msg(st, me, m, is_005(m))
 
-def feed.gated(+st: State, +cl: Cl.Client, +line: String, +m: Irc.Message, ok: Bool) -> State & Cl.Client:
+def feed.gated(+st: State, +m: Irc.Message, ok: Bool) -> State:
   match ok:
-    case True{}: (apply_msg(st, m), Feed.feed(cl, line))
-    case False{}: (st, Feed.feed(cl, line))
+    case True{}: apply_msg(st, m)
+    case False{}: st
 
-def feed_parsed(+st: State, +cl: Cl.Client, +line: String, +parsed: Maybe<&2, Irc.Message>, source_ok: Bool) -> State & Cl.Client:
+def feed_parsed(+st: State, +me: String, +parsed: Maybe<&2, Irc.Message>, source_ok: Bool) -> State:
   match parsed:
-    case None{}: (st, Feed.feed(cl, line))
-    case Some{+m}: feed.gated(st, cl, line, m, source_ok && recipient_ok(st, Cl.nick_of(cl), m))
+    case None{}: st
+    case Some{+m}: feed.gated(st, m, source_ok && recipient_ok(st, me, m))
 
 # Only the configured connection server may set metadata, and only through
-# a burst addressed to our own nick. Anything else still logs to the server
-# buffer exactly as today, but changes no state (not even `updated`).
-def feed(+st: State, +cl: Cl.Client, +line: String) -> State & Cl.Client:
-  feed_parsed(st, cl, line, Irc.parse(line), Irc.source_is_server(Irc.source_prefix(line), Cl.server_of(cl)))
-
-def feed_state.pair(pair: State & Cl.Client) -> State:
-  match pair:
-    case (+st, _): st
+# a burst addressed to our own nick. Anything else changes no state (not
+# even `updated`). Logging stays with the caller.
+def feed(+st: State, +me: String, +server: String, +line: String) -> State:
+  feed_parsed(st, me, Irc.parse(line), Irc.source_is_server(Irc.source_prefix(line), server))
 
 def feed_state(+st: State, +cl: Cl.Client, +line: String) -> State:
-  feed_state.pair(feed(st, cl, line))
+  feed(st, Cl.nick_of(cl), Cl.server_of(cl), line)
 
 def endpoint(+same: Bool, +st: State) -> State:
   match same:
