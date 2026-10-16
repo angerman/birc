@@ -26,6 +26,36 @@ def dflt_strip() -> String:
 def dflt_cm() -> String:
   "rfc1459"
 
+# Negotiated identity carried as one value: casemapping, chantypes,
+# STATUSMSG, PREFIX sigils, and the roster strip set. Callers used to
+# thread those five strings positionally; they are always taken from the
+# same ISUPPORT state.
+type Iso is Data:
+  Iso{cm: String, types: String, status: String, sigils: String, strip: String}
+
+def Iso.defaults() -> Iso:
+  Iso{dflt_cm(), dflt_types(), dflt_status(), dflt_sigils(), dflt_strip()}
+
+def iso_cm(+isc: Iso) -> String:
+  match isc:
+    case Iso{+cm, _, _, _, _}: cm
+
+def iso_types(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, +types, _, _, _}: types
+
+def iso_status(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, +status, _, _}: status
+
+def iso_sigils(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, _, +sigils, _}: sigils
+
+def iso_strip(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, _, _, +strip}: strip
+
 def buf_eq_cm(+cm: String, +a: String, +b: String) -> Bool:
   String.eq(Irc.fold_casemap(cm, a), Irc.fold_casemap(cm, b))
 
@@ -1052,25 +1082,25 @@ def message_key_with.resident(+types: String, +status: String, +sigils: String, 
     case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key_with(types, status, sigils, name))
     case None{}: target_key_with(types, status, sigils, name)
 
-def message_key_with.found(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, found: Maybe<&2, Nat>) -> String:
+def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
   match cl:
     case Client{_, _, bufs, _, _, _, _, _}:
       match found:
-        case None{}: target_key_with(types, status, sigils, name)
-        case Some{i}: message_key_with.resident(types, status, sigils, name, nth_buf(bufs, i))
+        case None{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+        case Some{i}: message_key_with.resident(iso_types(isc), iso_status(isc), iso_sigils(isc), name, nth_buf(bufs, i))
 
-def message_key_with.head(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, actual_channel: Bool) -> String:
+def message_key_with.head(+cl: Client, +isc: Iso, +name: String, actual_channel: Bool) -> String:
   match actual_channel:
-    case False{}: target_key_with(types, status, sigils, name)
-    case True{}: message_key_with.found(cl, cm, types, status, sigils, name, buf_find_cm(cl, cm, name))
+    case False{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+    case True{}: message_key_with.found(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
 
-def message_key_with.name(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String) -> String:
+def message_key_with.name(+cl: Client, +isc: Iso, +name: String) -> String:
   match name:
     case SNil{}: ""
-    case SCon{+h, +t}: message_key_with.head(cl, cm, types, status, sigils, SCon{h, t}, has_ch(types, h))
+    case SCon{+h, +t}: message_key_with.head(cl, isc, SCon{h, t}, has_ch(iso_types(isc), h))
 
-def message_key_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +raw: String) -> String:
-  message_key_with.name(cl, cm, types, status, sigils, target_name(raw))
+def message_key_with(+cl: Client, +isc: Iso, +raw: String) -> String:
+  message_key_with.name(cl, isc, target_name(raw))
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:
@@ -1442,9 +1472,9 @@ def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Clien
   +canonical = target_name(name)
   buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
-def buf_get_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
+def buf_get_with(+cl: Client, +isc: Iso, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
   +canonical = target_name(name)
-  buf_get.fin(cl, canonical, is_channel || target_channel_with(types, status, sigils, canonical), create, buf_find_cm(cl, cm, canonical))
+  buf_get.fin(cl, canonical, is_channel || target_channel_with(iso_types(isc), iso_status(isc), iso_sigils(isc), canonical), create, buf_find_cm(cl, iso_cm(isc), canonical))
 
 # ---- scrollback ---------------------------------------------------------
 

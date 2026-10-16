@@ -1247,6 +1247,10 @@ def prefix_sigils(+st: State) -> String:
       match pv:
         case Priv{_, +sig, _}: sig
 
+# One record for the five strings Session used to unpack together.
+def as_iso(+st: State) -> Cl.Iso:
+  Cl.Iso{casemapping(st), chantypes(st), statusmsg(st), prefix_sigils(st), strip_set(st)}
+
 # ---- canonical rendering (goldens) ----------------------------------------
 
 def show_bool(+b: Bool) -> String:

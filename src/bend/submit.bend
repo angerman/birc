@@ -1837,11 +1837,7 @@ def submit_msg_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +wh
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_msg.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body)
+      submit_msg.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body)
 
 def submit_msg_with.bad(+iso: Is.State, +cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match bad:
@@ -1865,11 +1861,7 @@ def submit_msg_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_msg_echo.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body, echo_ok)
+      submit_msg_echo.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, echo_ok)
 
 def submit_msg_with_echo.bad(+iso: Is.State, +cl: Cl.Client, bad: Bool, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match bad:
@@ -1893,11 +1885,7 @@ def submit_query_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_query.text(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body, Bool.not(String.is_empty(body)))
+      submit_query.text(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, Bool.not(String.is_empty(body)))
 
 def submit_query_with.empty(+iso: Is.State, +cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
   match empty:
@@ -1921,11 +1909,7 @@ def submit_query_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Clie
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_query_echo.text(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), who, body, Bool.not(String.is_empty(body)), echo_ok)
+      submit_query_echo.text(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, Bool.not(String.is_empty(body)), echo_ok)
 
 def submit_query_with_echo.empty(+iso: Is.State, +cl: Cl.Client, empty: Bool, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match empty:
@@ -1949,11 +1933,7 @@ def submit_notice_with.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +targe
     case True{}:
       +key = Is.chan_target_cl(iso, cl, target)
       +chan = Is.is_channel(iso, target)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_notice.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), target, body)
+      submit_notice.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), target, body)
 
 def submit_notice_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -1970,11 +1950,7 @@ def submit_notice_with_echo.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +
     case True{}:
       +key = Is.chan_target_cl(iso, cl, target)
       +chan = Is.is_channel(iso, target)
-      +cm = Is.casemapping(iso)
-      +types = Is.chantypes(iso)
-      +status = Is.statusmsg(iso)
-      +sigils = Is.prefix_sigils(iso)
-      submit_notice_echo.got(Cl.buf_get_with(cl, cm, types, status, sigils, key, chan, True{}), target, body, echo_ok)
+      submit_notice_echo.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), target, body, echo_ok)
 
 def submit_notice_with_echo.words(+iso: Is.State, +cl: Cl.Client, pair: String & String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:

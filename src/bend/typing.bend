@@ -201,9 +201,9 @@ def message_target(+cl: Cl.Client, +nick: String, +raw: String, channel: Bool) -
 # Negotiated routing (I2-dynamic2 F4): channel detection and audience
 # resolution use the Session CHANTYPES/STATUSMSG/PREFIX sets, so $room and
 # ^#room reach their channel buffer instead of retargeting to the sender.
-def message_target_with(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +nick: String, +raw: String, channel: Bool) -> String:
+def message_target_with(+isc: Cl.Iso, +cl: Cl.Client, +nick: String, +raw: String, channel: Bool) -> String:
   match channel:
-    case True{}: Cl.message_key_with(cl, cm, types, status, sigils, raw)
+    case True{}: Cl.message_key_with(cl, isc, raw)
     case False{}: Irc.proto_atom(nick)
 
 # Classification runs on the normalized protocol identity so a
@@ -219,21 +219,21 @@ def event_target.raw(+cl: Cl.Client, +nick: String, +raw: String, c: Irc.Cmd) ->
     case Irc.Kick{}: Cl.target_name(raw)
     case _: event_target.rest(cl, nick, raw)
 
-def event_target_with.rest(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +nick: String, +raw: String) -> String:
+def event_target_with.rest(+isc: Cl.Iso, +cl: Cl.Client, +nick: String, +raw: String) -> String:
   +t = Irc.proto_atom(raw)
-  message_target_with(cm, types, status, sigils, cl, nick, t, Cl.target_channel_with(types, status, sigils, t))
+  message_target_with(isc, cl, nick, t, Cl.target_channel_with(Cl.iso_types(isc), Cl.iso_status(isc), Cl.iso_sigils(isc), t))
 
-def event_target_with.raw(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +nick: String, +raw: String, c: Irc.Cmd) -> String:
+def event_target_with.raw(+isc: Cl.Iso, +cl: Cl.Client, +nick: String, +raw: String, c: Irc.Cmd) -> String:
   match c:
     case Irc.Part{}: Cl.target_name(raw)
     case Irc.Kick{}: Cl.target_name(raw)
-    case _: event_target_with.rest(cm, types, status, sigils, cl, nick, raw)
+    case _: event_target_with.rest(isc, cl, nick, raw)
 
 def event_target(+cl: Cl.Client, +m: Irc.Message, c: Irc.Cmd) -> String:
   event_target.raw(cl, Irc.msg_nick(m), Irc.msg_param(m, 0n), c)
 
-def event_target_with(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +m: Irc.Message, c: Irc.Cmd) -> String:
-  event_target_with.raw(cm, types, status, sigils, cl, Irc.msg_nick(m), Irc.msg_param(m, 0n), c)
+def event_target_with(+isc: Cl.Iso, +cl: Cl.Client, +m: Irc.Message, c: Irc.Cmd) -> String:
+  event_target_with.raw(isc, cl, Irc.msg_nick(m), Irc.msg_param(m, 0n), c)
 
 def retarget_event(e: Irc.TypingEvent, +target: String) -> Irc.TypingEvent:
   match e:
@@ -249,8 +249,8 @@ def retarget_maybe(e: Maybe<&2, Irc.TypingEvent>, +target: String) -> Maybe<&2, 
 def event_for.cmd(+cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, status: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   retarget_maybe(Irc.typing_event_cmd(m, status, c), event_target(cl, m, c))
 
-def event_for_with.cmd(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
-  retarget_maybe(Irc.typing_event_cmd(m, tstatus, c), event_target_with(cm, types, status, sigils, cl, m, c))
+def event_for_with.cmd(+isc: Cl.Iso, +cl: Cl.Client, +m: Irc.Message, +c: Irc.Cmd, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+  retarget_maybe(Irc.typing_event_cmd(m, tstatus, c), event_target_with(isc, cl, m, c))
 
 # echo-message returns our own +typing TAGMSG to us; never track ourselves
 # as a typer. Self quit/nick renames need no clearing: self is never held.
@@ -264,23 +264,23 @@ def event_for.parsed(+cl: Cl.Client, m: Maybe<&2, Irc.Message>, status: Maybe<&2
     case None{}: None{}
     case Some{+msg}: event_for.chk(Bool.not(Cl.nick_eq(Irc.msg_nick(msg), Cl.nick_of(cl))), cl, msg, status)
 
-def event_for_with.chk(keep: Bool, +cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, +msg: Irc.Message, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+def event_for_with.chk(keep: Bool, +isc: Cl.Iso, +cl: Cl.Client, +msg: Irc.Message, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   match keep:
     case False{}: None{}
-    case True{}: event_for_with.cmd(cm, types, status, sigils, cl, msg, Irc.classify(msg), tstatus)
+    case True{}: event_for_with.cmd(isc, cl, msg, Irc.classify(msg), tstatus)
 
-def event_for_with.parsed(+cm: String, +types: String, +status: String, +sigils: String, +cl: Cl.Client, m: Maybe<&2, Irc.Message>, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
+def event_for_with.parsed(+isc: Cl.Iso, +cl: Cl.Client, m: Maybe<&2, Irc.Message>, tstatus: Maybe<&2, Irc.TypingStatus>) -> Maybe<&2, Irc.TypingEvent>:
   match m:
     case None{}: None{}
-    case Some{+msg}: event_for_with.chk(Bool.not(Cl.nick_eq_cm(cm, Irc.msg_nick(msg), Cl.nick_of(cl))), cm, types, status, sigils, cl, msg, tstatus)
+    case Some{+msg}: event_for_with.chk(Bool.not(Cl.nick_eq_cm(Cl.iso_cm(isc), Irc.msg_nick(msg), Cl.nick_of(cl))), isc, cl, msg, tstatus)
 
 def apply_line_for(+state: State, +cl: Cl.Client, +line: String, +now_ms: U32) -> State:
   +clean = Irc.strip_cr(line)
   apply_maybe(state, event_for.parsed(cl, Irc.parse(clean), Irc.typing_tag(Irc.raw_tags(clean))), now_ms)
 
-def apply_line_for_with(+cm: String, +types: String, +status: String, +sigils: String, +state: State, +cl: Cl.Client, +line: String, +now_ms: U32) -> State:
+def apply_line_for_with(+isc: Cl.Iso, +state: State, +cl: Cl.Client, +line: String, +now_ms: U32) -> State:
   +clean = Irc.strip_cr(line)
-  apply_maybe_cm(cm, state, event_for_with.parsed(cm, types, status, sigils, cl, Irc.parse(clean), Irc.typing_tag(Irc.raw_tags(clean))), now_ms)
+  apply_maybe_cm(Cl.iso_cm(isc), state, event_for_with.parsed(isc, cl, Irc.parse(clean), Irc.typing_tag(Irc.raw_tags(clean))), now_ms)
 
 def apply_lines.step(acc: State & U32, line: String) -> State & U32:
   match acc:

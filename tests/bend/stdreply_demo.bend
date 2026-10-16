@@ -33,7 +33,7 @@ def feed_labeled_ok() -> Bool:
     && String.eq(server_text(other), "NOTE P [C]: d [label=zz]|")
 
 def feed_negotiated_ok() -> Bool:
-  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), "@label=birc-7 :s WARN P C #c :slow")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), "@label=birc-7 :s WARN P C #c :slow")
   String.eq(server_text(cl), "WARN P [C] (#c): slow [label=birc-7]|")
 
 def feed_malformed_ok() -> Bool:
