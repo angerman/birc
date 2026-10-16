@@ -1566,17 +1566,31 @@ def composer_nick(+nick: String) -> String:
 def composer_prefix(+nick: String) -> String:
   "<" ++ composer_nick(nick) ++ "> "
 
-def composer_x(+nick: String) -> U32:
-  Cols.text_width(composer_prefix(nick))
+# The composer prompt indents by the timestamp column (ts_w + one space)
+# so <nick> aligns with message text. Spaces, not a live clock: the clock
+# applies at log IO, not every paint. A future timestamp-side switch
+# (off/RHS) keys off this same flag.
+def composer_shift(show_ts: Bool) -> U32:
+  match show_ts:
+    case True{}: 9
+    case False{}: 0
 
-def composer_spans(+nick: String) -> List<&2, SpanOp>:
+def composer_indent(show_ts: Bool) -> List<&2, SpanOp>:
+  match show_ts:
+    case True{}: Spn{0, "         "} <> Nil{}
+    case False{}: Nil{}
+
+def composer_x(+nick: String, show_ts: Bool) -> U32:
+  U32.add(Cols.text_width(composer_prefix(nick)), composer_shift(show_ts))
+
+def composer_spans(+nick: String, show_ts: Bool) -> List<&2, SpanOp>:
   +shown = composer_nick(nick)
-  Spn{0, "<"} <> (Col{1, nick_color(shown), shown} <> (Spn{0, "> "} <> Nil{}))
+  List.append(&2, SpanOp, composer_indent(show_ts), Spn{0, "<"} <> (Col{1, nick_color(shown), shown} <> (Spn{0, "> "} <> Nil{})))
 
-def composer_ops(r: Rect, +nick: String) -> List<&2, DrawOp>:
+def composer_ops(r: Rect, +nick: String, show_ts: Bool) -> List<&2, DrawOp>:
   match r:
     case Rect{+x, +y, +w, +h}:
-      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT(), composer_spans(nick)} <> Nil{}
+      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT(), composer_spans(nick, show_ts)} <> Nil{}
 
 # Split mode: C draws one text widget in the bottom-most/left-most body
 # (src/ffi/timui_ffi.c chooser over the OpSplit panes), so Bend paints the
@@ -1597,8 +1611,8 @@ def split_widget_is_r1(r1: Rect, r2: Rect) -> Bool:
 def split_composer_rect(+r1: Rect, +r2: Rect) -> Rect:
   Bool.pick(Rect, split_widget_is_r1(r1, r2), r1, r2)
 
-def split_composer_ops(+r1: Rect, +r2: Rect, +nick: String) -> List<&2, DrawOp>:
-  composer_ops(split_composer_rect(r1, r2), nick)
+def split_composer_ops(+r1: Rect, +r2: Rect, +nick: String, show_ts: Bool) -> List<&2, DrawOp>:
+  composer_ops(split_composer_rect(r1, r2), nick, show_ts)
 
 
 def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
@@ -1733,14 +1747,15 @@ def view_ops(
   +btitle: String,
   +ntitle: String,
   +nicks: List<&2, String>,
-  +st: String
+  +st: String,
+  show_ts: Bool
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tr, ur, +br, nr, sr}:
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, user_header_ops(ur, nick, server, net), body_box(br, btitle)),
-        List.append(&2, DrawOp, view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st), composer_ops(br, nick)))
+        List.append(&2, DrawOp, view_ops.rest(br, bod, preview, nr, ntitle, nicks, sr, st), composer_ops(br, nick, show_ts)))
 
 def preview_path_of.on(+topic: String, preview: Bool) -> String:
   match preview:
@@ -2094,7 +2109,8 @@ def view_ops_split(
   +preview2: String,
   +ntitle: String,
   +nicks: List<&2, String>,
-  +status: String
+  +status: String,
+  show_ts: Bool
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tabs, user, body, nicks_rect, status_rect}:
@@ -2108,7 +2124,7 @@ def view_ops_split(
                           List.append(&2, DrawOp, body_box(r2, title2),
                             List.append(&2, DrawOp, image_ops(r2, preview2), body_ops(body_hist_rect(r2), body2))))))),
         List.append(&2, DrawOp, nick_ops(nicks_rect, ntitle, nicks),
-          List.append(&2, DrawOp, op_text(status_rect, FG_DIM(), status) <> Nil{}, split_composer_ops(r1, r2, nick))))
+          List.append(&2, DrawOp, op_text(status_rect, FG_DIM(), status) <> Nil{}, split_composer_ops(r1, r2, nick, show_ts))))
 
 def view_split_source.rects(
   pair: Rect & Rect,
@@ -2139,7 +2155,7 @@ def view_split_source.rects(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media) body_of.buf_media(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers))
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def view_split_source.rects_cm(
   +cm: String,
@@ -2171,7 +2187,7 @@ def view_split_source.rects_cm(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media_cm(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media) body_of.buf_media_cm(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers))
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def view_split.rects(
   pair: Rect & Rect,
@@ -2264,7 +2280,7 @@ def view_split_source_cards.rects(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media_cards(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards) body_of.buf_media_cards(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers))
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def view_split_source_cards(
   +cl: Cl.Client,
@@ -2331,7 +2347,7 @@ def view_split_source_cards_cm.rects(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media_cards_cm(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards) body_of.buf_media_cards_cm(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards)
-      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers))
+      view_ops_split(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def view_split_source_cards_cm(
   +cm: String,
@@ -2426,7 +2442,7 @@ def view_draft.single_source(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: Str
       bod = body_of.buf_media(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State) -> ViewModel:
   view_draft.single_source(cl, rows, cols, draft, net, typers, media, False{})
@@ -2441,7 +2457,7 @@ def view_draft.single_source_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: 
       bod = body_of.buf_media_cm(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State) -> ViewModel:
   view_draft.single_source_cm(cm, cl, rows, cols, draft, net, typers, media, False{})
@@ -2470,7 +2486,7 @@ def view_draft.single_source_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draf
       bod = body_of.buf_media_cards(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media_cards(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
   view_draft.single_source_cards(cl, rows, cols, draft, net, typers, media, cards, False{})
@@ -2492,7 +2508,7 @@ def view_draft.single_source_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +
       bod = body_of.buf_media_cards_cm(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers)), view_input(draft)}
+      ViewModel{view_ops(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>) -> ViewModel:
   view_draft.single_source_cards_cm(cm, cl, rows, cols, draft, net, typers, media, cards, False{})
@@ -2534,17 +2550,17 @@ def FG_DIM_themed(+th: Theme.Id) -> U32:
 def FG_TEXT_themed(+th: Theme.Id) -> U32:
   Theme.kind_fg(th, Cl.Msg{})
 
-def composer_spans_themed(+nick: String, +th: Theme.Id) -> List<&2, SpanOp>:
+def composer_spans_themed(+nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, SpanOp>:
   +shown = composer_nick(nick)
-  Spn{0, "<"} <> (Col{1, nick_color_themed(th, shown), shown} <> (Spn{0, "> "} <> Nil{}))
+  List.append(&2, SpanOp, composer_indent(show_ts), Spn{0, "<"} <> (Col{1, nick_color_themed(th, shown), shown} <> (Spn{0, "> "} <> Nil{})))
 
-def composer_ops_themed(r: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
+def composer_ops_themed(r: Rect, +nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, DrawOp>:
   match r:
     case Rect{+x, +y, +w, +h}:
-      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th)} <> Nil{}
+      OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT_themed(th), composer_spans_themed(nick, th, show_ts)} <> Nil{}
 
-def split_composer_ops_themed(+r1: Rect, +r2: Rect, +nick: String, +th: Theme.Id) -> List<&2, DrawOp>:
-  composer_ops_themed(split_composer_rect(r1, r2), nick, th)
+def split_composer_ops_themed(+r1: Rect, +r2: Rect, +nick: String, +th: Theme.Id, show_ts: Bool) -> List<&2, DrawOp>:
+  composer_ops_themed(split_composer_rect(r1, r2), nick, th, show_ts)
 
 def user_header_ops.split_themed(r: Rect, +base: String, +net: String, empty: Bool, +th: Theme.Id) -> List<&2, DrawOp>:
   match r:
@@ -2915,14 +2931,15 @@ def view_ops_themed(
   +ntitle: String,
   +nicks: List<&2, String>,
   +st: String,
-  +th: Theme.Id
+  +th: Theme.Id,
+  show_ts: Bool
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tr, ur, +br, nr, sr}:
       List.append(&2, DrawOp,
         op_tabs(tr, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, user_header_ops_themed(ur, nick, server, net, th), body_box_themed(br, btitle, th)),
-        List.append(&2, DrawOp, view_ops.rest_themed(br, bod, preview, nr, ntitle, nicks, sr, st, th), composer_ops_themed(br, nick, th)))
+        List.append(&2, DrawOp, view_ops.rest_themed(br, bod, preview, nr, ntitle, nicks, sr, st, th), composer_ops_themed(br, nick, th, show_ts)))
 
 def view_ops_split_themed(
   lay0: Lay,
@@ -2946,7 +2963,8 @@ def view_ops_split_themed(
   +ntitle: String,
   +nicks: List<&2, String>,
   +status: String,
-  +th: Theme.Id
+  +th: Theme.Id,
+  show_ts: Bool
 ) -> List<&2, DrawOp>:
   match lay0:
     case Lay{tabs, user, body, nicks_rect, status_rect}:
@@ -2960,7 +2978,7 @@ def view_ops_split_themed(
                           List.append(&2, DrawOp, body_box_themed(r2, title2, th),
                             List.append(&2, DrawOp, image_ops(r2, preview2), body_ops_themed(body_hist_rect(r2), body2, th))))))),
         List.append(&2, DrawOp, nick_ops_themed(nicks_rect, ntitle, nicks, th),
-          List.append(&2, DrawOp, op_text(status_rect, FG_DIM_themed(th), status) <> Nil{}, split_composer_ops_themed(r1, r2, nick, th))))
+          List.append(&2, DrawOp, op_text(status_rect, FG_DIM_themed(th), status) <> Nil{}, split_composer_ops_themed(r1, r2, nick, th, show_ts))))
 
 def view_split_source.rects_themed(
   pair: Rect & Rect,
@@ -2992,7 +3010,7 @@ def view_split_source.rects_themed(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media_themed(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, th) body_of.buf_media_themed(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, th)
-      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), th)
+      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), th, show_ts)
 
 def view_split_source_themed(
   +cl: Cl.Client,
@@ -3038,7 +3056,7 @@ def view_draft.single_source_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +dra
       bod = body_of.buf_media_themed(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, th)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th), view_input(draft)}
+      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names(bufs, Cl.settings_unreads(stg)), tab_alerts(bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th, Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +th: Theme.Id) -> ViewModel:
   view_draft.single_source_themed(cl, rows, cols, draft, net, typers, media, False{}, th)
@@ -3164,7 +3182,7 @@ def view_split_source_cards_cm.rects_themed(
   match pair:
     case (+r1, +r2):
       body1 body2 = body_of.buf_media_cards_cm_themed(cm, b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, media, cards, th) body_of.buf_media_cards_cm_themed(cm, b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, media, cards, th)
-      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), th)
+      view_ops_split_themed(lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, Bool.pick(String, legacy, preview_path_of(b1), ""), r2, split_title(b2, focused, 1), body2, Bool.pick(String, legacy, preview_path_of(b2), ""), ntitle, nicks, status_or_typing(status, typers), th, show_ts)
 
 def view_split_source_cards_cm_themed(
   +cm: String,
@@ -3212,7 +3230,7 @@ def view_draft.single_source_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows:
       bod = body_of.buf_media_cards_cm_themed(cm, b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards, th)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
-      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th), view_input(draft)}
+      ViewModel{view_ops_themed(lay0, nick, server, net, active, tab_names_cm(cm, bufs, Cl.settings_unreads(stg)), tab_alerts_cm(cm, bufs, Cl.settings_unreads(stg)), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, Bool.pick(String, legacy, preview_path_of(b), ""), bt, nt, ns, status_or_typing(status_of.buf(b), typers), th, Cl.settings_ts(stg)), view_input(draft)}
 
 def view_draft.single_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id) -> ViewModel:
   view_draft.single_source_cards_cm_themed(cm, cl, rows, cols, draft, net, typers, media, cards, False{}, th)

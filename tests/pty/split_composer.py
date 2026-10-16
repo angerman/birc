@@ -9,14 +9,15 @@ clipped to C's inner geometry -- possibly zero bytes. Typing stays live
 at every size; a zero-inner pane shows no prefix with the widget at its
 inner origin.
 
-Pins (24x80 demo, nick "birc", prefix "<birc> " is 7 cells wide):
+Pins (24x80 demo, nick "birc", prefix "<birc> " is 7 cells wide,
+timestamp indent is 9 cells):
 - stacked + side-by-side: every painted composer prefix occupies row 22
-  cols 2-8 (bottom pane last row / left pane inner edge; the nick
-  starts at col 3). The other pane never carries one (top pane's last
-  row is 11, right pane starts col 32), so any second or misplaced
-  prefix fails the gate.
-- widget/prefix agreement: typing "zzq" parks the cursor at 22;12H
-  (widget origin col 9 = 2 + 7) in both layouts.
+  cols 11-17 (bottom pane last row / left pane inner edge, after the
+  9-cell timestamp indent; the nick starts at col 12). The other pane
+  never carries one (top pane's last row is 11, right pane starts
+  col 32), so any second or misplaced prefix fails the gate.
+- widget/prefix agreement: typing "zzq" parks the cursor at 22;21H
+  (widget origin col 18 = 2 + 9 + 7) in both layouts.
 - degenerate stacked 24x6 (1-col inner): zero nick-prefix bytes
   across a row-bounce repaint window (the clipped "<" carries no
   bold-nick signature), the steady cursor parks at 22;3H (widget
@@ -26,8 +27,8 @@ Pins (24x80 demo, nick "birc", prefix "<birc> " is 7 cells wide):
   bytes across row-bounce repaint windows, the steady cursor parks at
   22;2H (widget at the inner origin, col 2), and typing stays live.
 - degenerate stacked 3x80 (1-high panes, where outer bottoms tie but
-  inner bottoms do not): every painted prefix sits at row 3 col 3,
-  the steady cursor parks at 3;9H (widget after the full prefix in
+  inner bottoms do not): every painted prefix sits at row 3 col 12,
+  the steady cursor parks at 3;18H (widget after the full prefix in
   the bottom pane), and typing stays live.
 - every degenerate case survives and resize-back restores the full
   prefix + widget; Escape quits cleanly at 24x4; /quit still works
@@ -141,8 +142,9 @@ def prefix_sites(out: bytes) -> list[tuple[int, int]]:
     """(row, col) screen cell of the nick in each painted composer prefix.
 
     Follows the last CUP before the signature and advances over the
-    paint run, so full repaints (CUP 22;1H + border + "<") and diff
-    repaints (CUP 22;3H + styles only) resolve to the same cell.
+    paint run, so full repaints (CUP 22;1H + border + indent + "<")
+    and diff repaints (CUP 22;12H + styles only) resolve to the
+    same cell.
     """
     sites = []
     idx = -1
@@ -159,7 +161,7 @@ def prefix_sites(out: bytes) -> list[tuple[int, int]]:
         sites.append((row, col))
 
 
-def check_single_prefix(out: bytes, layout: str, want=(22, 3)) -> None:
+def check_single_prefix(out: bytes, layout: str, want=(22, 12)) -> None:
     sites = prefix_sites(out)
     if not sites:
         raise AssertionError(f"{layout}: composer prefix missing from repaint")
@@ -173,9 +175,9 @@ def check_draft_at_widget(master: int, layout: str) -> None:
     typed = send(master, b"zzq", 0.4)
     if b"zzq" not in typed:
         raise AssertionError(f"{layout}: draft not visible in widget pane")
-    if b"\x1b[22;12H" not in typed:
+    if b"\x1b[22;21H" not in typed:
         raise AssertionError(
-            f"{layout}: widget not seated after the prefix (want 22;12H)")
+            f"{layout}: widget not seated after the prefix (want 22;21H)")
     send(master, b"\x7f\x7f\x7f", 0.3)
 
 
@@ -253,8 +255,8 @@ def check_degenerate_tiny_rows(master: int, proc) -> None:
     prefix paints at row 3 with the widget right after it.
     """
     window = bounce_window(master, proc, 3, 80, 3, 79)
-    check_single_prefix(window, "stacked 3x80", want=(3, 3))
-    check_steady_origin(window, "stacked", 3, 80, b"\x1b[3;9H")
+    check_single_prefix(window, "stacked 3x80", want=(3, 12))
+    check_steady_origin(window, "stacked", 3, 80, b"\x1b[3;18H")
     check_typing_live(master, "stacked", 3, 80)
 
 
@@ -309,7 +311,7 @@ def main_process(birc: str) -> None:
         if b"#birc" not in recovered:
             raise AssertionError("split view did not recover after resize-back")
         check_single_prefix(recovered, "recovered")
-        if b"\x1b[22;9H" not in recovered:
+        if b"\x1b[22;18H" not in recovered:
             raise AssertionError("widget not restored after the prefix")
 
         send(master, b"/unsplit\r", 0.4)

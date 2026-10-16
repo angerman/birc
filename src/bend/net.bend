@@ -194,7 +194,7 @@ def paint_go.hint(
     case Sess.Size{+rows, +cols}:
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl)))
+        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag(net, Cl.client_lag(cl)), typers, split, media, C.paint_entries(cards), th), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl))))
 
 def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +cm: String, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
   paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th)
