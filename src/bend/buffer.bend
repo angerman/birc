@@ -26,13 +26,38 @@ def dflt_strip() -> String:
 def dflt_cm() -> String:
   "rfc1459"
 
+# Negotiated identity carried as one value: casemapping, chantypes,
+# STATUSMSG, PREFIX sigils, and the roster strip set. Callers used to
+# thread those five strings positionally; they are always taken from the
+# same ISUPPORT state.
+type Iso is Data:
+  Iso{cm: String, types: String, status: String, sigils: String, strip: String}
+
+def Iso.defaults() -> Iso:
+  Iso{dflt_cm(), dflt_types(), dflt_status(), dflt_sigils(), dflt_strip()}
+
+def iso_cm(+isc: Iso) -> String:
+  match isc:
+    case Iso{+cm, _, _, _, _}: cm
+
+def iso_types(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, +types, _, _, _}: types
+
+def iso_status(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, +status, _, _}: status
+
+def iso_sigils(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, _, +sigils, _}: sigils
+
+def iso_strip(+isc: Iso) -> String:
+  match isc:
+    case Iso{_, _, _, _, +strip}: strip
+
 def buf_eq_cm(+cm: String, +a: String, +b: String) -> Bool:
   String.eq(Irc.fold_casemap(cm, a), Irc.fold_casemap(cm, b))
-
-def head_in_types(+types: String, +t: String) -> Bool:
-  match t:
-    case SNil{}: False{}
-    case SCon{+h, _}: has_ch(types, h)
 
 # Creation and wire/history routing normalize identity before policy checks
 # and lookup. Generic local lookup compares the names actually stored.
@@ -50,27 +75,13 @@ def target_name(+raw: String) -> String:
   target_name.known(clean, Irc.rfc1459(clean))
 
 def target_channel_with.name(+types: String, +status: String, +sigils: String, +name: String) -> Bool:
-  match name:
-    case SNil{}: False{}
-    case SCon{+h, +t}: has_ch(types, h) || (has_ch(status, h) && has_ch(sigils, h) && head_in_types(types, t))
+  Irc.negotiated_channel(types, status, sigils, name)
 
 def target_channel_with(+types: String, +status: String, +sigils: String, +raw: String) -> Bool:
   target_channel_with.name(types, status, sigils, target_name(raw))
 
-def target_key_with.tail(+s: String) -> String:
-  match s:
-    case SNil{}: SNil{}
-    case SCon{_, +t}: t
-
-def target_key_with.strip(+s: String, strip: Bool) -> String:
-  match strip:
-    case True{}: target_key_with.tail(s)
-    case False{}: s
-
 def target_key_with.name(+types: String, +status: String, +sigils: String, +name: String) -> String:
-  match name:
-    case SNil{}: SNil{}
-    case SCon{+h, +t}: target_key_with.strip(SCon{h, t}, has_ch(status, h) && has_ch(sigils, h) && head_in_types(types, t))
+  Irc.negotiated_key(types, status, sigils, name)
 
 def target_key_with(+types: String, +status: String, +sigils: String, +raw: String) -> String:
   target_key_with.name(types, status, sigils, target_name(raw))
@@ -163,159 +174,168 @@ type AlertLevel is Data:
 type Alert is Data:
   Alert{name: String, level: AlertLevel}
 
+# Credentials stay bound to the initial host and port by the auth profile.
+# They are a separate record so a display or alert update does not rebuild
+# the password, and a password update does not rebuild the alert list.
+type Credentials is Data:
+  Credentials{user: String, pass: String}
+
+type Alerts is Data:
+  Alerts{unreads: List<&2, Alert>, bell: Bool, bell_seq: U32}
+
 type Settings is Data:
-  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, bell: Bool, mutes: List<&2, String>, unreads: List<&2, Alert>, sasl_user: String, sasl_pass: String, lag: U32, bell_seq: U32, nicks: Bool}
+  Settings{joins: Bool, ts: Bool, motd: Bool, history: Bool, hist_cap: U32, autoreconn: Bool, mutes: List<&2, String>, creds: Credentials, alerts: Alerts, lag: U32, nicks: Bool}
 
 def settings0() -> Settings:
-  Settings{True{}, True{}, True{}, True{}, 500, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0, True{}}
+  Settings{True{}, True{}, True{}, True{}, 500, False{}, Nil{}, Credentials{"", ""}, Alerts{Nil{}, True{}, 0}, 0, True{}}
 
 def settings_with_cap(cap: U32) -> Settings:
-  Settings{True{}, True{}, True{}, True{}, cap, False{}, True{}, Nil{}, Nil{}, "", "", 0, 0, True{}}
+  Settings{True{}, True{}, True{}, True{}, cap, False{}, Nil{}, Credentials{"", ""}, Alerts{Nil{}, True{}, 0}, 0, True{}}
 
 def settings_joins(+s: Settings) -> Bool:
   match s:
-    case Settings{joins, _, _, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{joins, _, _, _, _, _, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       joins
 
 def settings_nicks(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, _, nicks}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, _}, Alerts{_, _, _}, _, nicks}:
       nicks
 
 def settings_ts(+s: Settings) -> Bool:
   match s:
-    case Settings{_, ts, _, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, ts, _, _, _, _, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       ts
 
 def settings_motd(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, motd, _, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, motd, _, _, _, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       motd
 
 def settings_history(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, history, _, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, history, _, _, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       history
 
 def settings_hist_cap(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, cap, _, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, cap, _, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       cap
 
 def settings_autoreconn(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, auto, _, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, auto, _, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       auto
 
 def settings_bell(+s: Settings) -> Bool:
   match s:
-    case Settings{_, _, _, _, _, _, bell, _, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, _}, Alerts{_, bell, _}, _, _}:
       bell
 
 def settings_bell_seq(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, _, seq, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, _}, Alerts{_, _, seq}, _, _}:
       seq
 
 def settings_mutes(+s: Settings) -> List<&2, String>:
   match s:
-    case Settings{_, _, _, _, _, _, _, +mutes, _, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, +mutes, Credentials{_, _}, Alerts{_, _, _}, _, _}:
       mutes
 
 def settings_unreads(+s: Settings) -> List<&2, Alert>:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, +unreads, _, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, _}, Alerts{+unreads, _, _}, _, _}:
       unreads
 
 def settings_sasl_user(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, +su, _, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{+su, _}, Alerts{_, _, _}, _, _}:
       su
 
 def settings_sasl_pass(+s: Settings) -> String:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, +sp, _, _, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, +sp}, Alerts{_, _, _}, _, _}:
       sp
 
 def settings_lag(+s: Settings) -> U32:
   match s:
-    case Settings{_, _, _, _, _, _, _, _, _, _, _, lag, _, _}:
+    case Settings{_, _, _, _, _, _, _, Credentials{_, _}, Alerts{_, _, _}, lag, _}:
       lag
 
 def set_joins(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{_, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{val, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{_, ts, motd, history, cap, auto, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{val, ts, motd, history, cap, auto, mutes, creds, alerts, lag, nicks}
 
 def set_nicks(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, _}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, val}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, +alerts, lag, _}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, alerts, lag, val}
 
 def set_ts(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, _, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, val, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, _, motd, history, cap, auto, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{joins, val, motd, history, cap, auto, mutes, creds, alerts, lag, nicks}
 
 def set_motd(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, _, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, val, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, _, history, cap, auto, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{joins, ts, val, history, cap, auto, mutes, creds, alerts, lag, nicks}
 
 def set_history(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, _, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, val, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, _, cap, auto, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, val, cap, auto, mutes, creds, alerts, lag, nicks}
 
 def set_hist_cap(+s: Settings, val: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, _, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, val, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, _, auto, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, history, val, auto, mutes, creds, alerts, lag, nicks}
 
 def set_autoreconn(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, _, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, val, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, _, +mutes, +creds, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, val, mutes, creds, alerts, lag, nicks}
 
 def set_bell(+s: Settings, val: Bool) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, _, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, val, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, Alerts{+unreads, _, seq}, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, Alerts{unreads, val, seq}, lag, nicks}
 
 def advance_bell(+s: Settings) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, U32.add(seq, 1), nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, Alerts{+unreads, bell, seq}, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, Alerts{unreads, bell, U32.add(seq, 1)}, lag, nicks}
 
 def set_mutes(+s: Settings, +val: List<&2, String>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, _, +unreads, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, val, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, _, +creds, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, val, creds, alerts, lag, nicks}
 
 def set_unreads(+s: Settings, +val: List<&2, Alert>) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, _, +su, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, val, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, Alerts{_, bell, seq}, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, Alerts{val, bell, seq}, lag, nicks}
 
 def set_sasl_user(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, _, +sp, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, val, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, Credentials{_, +sp}, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, Credentials{val, sp}, alerts, lag, nicks}
 
 def set_sasl_pass(+s: Settings, +val: String) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, _, lag, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, val, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, Credentials{+su, _}, +alerts, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, Credentials{su, val}, alerts, lag, nicks}
 
 def set_lag(+s: Settings, lag: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, _, seq, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, +alerts, _, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, alerts, lag, nicks}
 
 def set_bell_seq(+s: Settings, seq: U32) -> Settings:
   match s:
-    case Settings{joins, ts, motd, history, cap, auto, bell, +mutes, +unreads, +su, +sp, lag, _, +nicks}:
-      Settings{joins, ts, motd, history, cap, auto, bell, mutes, unreads, su, sp, lag, seq, nicks}
+    case Settings{joins, ts, motd, history, cap, auto, +mutes, +creds, Alerts{+unreads, bell, _}, lag, +nicks}:
+      Settings{joins, ts, motd, history, cap, auto, mutes, creds, Alerts{unreads, bell, seq}, lag, nicks}
 
 # Mute matching sole owner (I2-DRY): identity comparisons fold under the
 # given CASEMAPPING; fixed wrappers delegate with the default mapping.
@@ -796,11 +816,6 @@ def advance_client_bell(+cl: Client) -> Client:
 def client_set_lag(+cl: Client, lag: U32) -> Client:
   set_settings(cl, set_lag(get_settings(cl), lag))
 
-def auth_for_credentials(has: Bool) -> AuthPhase:
-  match has:
-    case True{}: AuthCap{}
-    case False{}: AuthIdle{}
-
 def auth_mode_sasl(mode: AuthMode) -> Bool:
   match mode:
     case NickServOnly{}: False{}
@@ -950,20 +965,8 @@ def mark_unread_idx_cm(+cm: String, +cl: Client, +i: Nat, is_hl: Bool) -> Client
 def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
   mark_unread.check_cm(dflt_cm(), is_server, is_hl, name, stg)
 
-def mark_unread.buf(got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
-  mark_unread.buf_cm(dflt_cm(), got, is_hl, stg)
-
-def mark_unread_idx.on(is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
-  mark_unread_idx.on_cm(dflt_cm(), is_active, got, is_hl, stg)
-
 def mark_unread_idx(+cl: Client, +i: Nat, is_hl: Bool) -> Client:
   mark_unread_idx_cm(dflt_cm(), cl, i, is_hl)
-
-def clear_unread(+cl: Client, +name: String) -> Client:
-  match cl:
-    case Client{+nick, +server, +bufs, +act, +now, +stg, +auth, +log_seq}:
-      +stg2 = set_unreads(stg, del_unread_items(settings_unreads(stg), name))
-      Client{nick, server, bufs, act, now, stg2, auth, log_seq}
 
 # ---- buffer find/get ----------------------------------------------------
 
@@ -1052,25 +1055,25 @@ def message_key_with.resident(+types: String, +status: String, +sigils: String, 
     case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key_with(types, status, sigils, name))
     case None{}: target_key_with(types, status, sigils, name)
 
-def message_key_with.found(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, found: Maybe<&2, Nat>) -> String:
+def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
   match cl:
     case Client{_, _, bufs, _, _, _, _, _}:
       match found:
-        case None{}: target_key_with(types, status, sigils, name)
-        case Some{i}: message_key_with.resident(types, status, sigils, name, nth_buf(bufs, i))
+        case None{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+        case Some{i}: message_key_with.resident(iso_types(isc), iso_status(isc), iso_sigils(isc), name, nth_buf(bufs, i))
 
-def message_key_with.head(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, actual_channel: Bool) -> String:
+def message_key_with.head(+cl: Client, +isc: Iso, +name: String, actual_channel: Bool) -> String:
   match actual_channel:
-    case False{}: target_key_with(types, status, sigils, name)
-    case True{}: message_key_with.found(cl, cm, types, status, sigils, name, buf_find_cm(cl, cm, name))
+    case False{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+    case True{}: message_key_with.found(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
 
-def message_key_with.name(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String) -> String:
+def message_key_with.name(+cl: Client, +isc: Iso, +name: String) -> String:
   match name:
     case SNil{}: ""
-    case SCon{+h, +t}: message_key_with.head(cl, cm, types, status, sigils, SCon{h, t}, has_ch(types, h))
+    case SCon{+h, +t}: message_key_with.head(cl, isc, SCon{h, t}, has_ch(iso_types(isc), h))
 
-def message_key_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +raw: String) -> String:
-  message_key_with.name(cl, cm, types, status, sigils, target_name(raw))
+def message_key_with(+cl: Client, +isc: Iso, +raw: String) -> String:
+  message_key_with.name(cl, isc, target_name(raw))
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:
@@ -1442,9 +1445,9 @@ def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Clien
   +canonical = target_name(name)
   buf_get.fin(cl, canonical, is_channel || target_channel(canonical), create, buf_find(cl, canonical))
 
-def buf_get_with(+cl: Client, +cm: String, +types: String, +status: String, +sigils: String, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
+def buf_get_with(+cl: Client, +isc: Iso, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
   +canonical = target_name(name)
-  buf_get.fin(cl, canonical, is_channel || target_channel_with(types, status, sigils, canonical), create, buf_find_cm(cl, cm, canonical))
+  buf_get.fin(cl, canonical, is_channel || target_channel_with(iso_types(isc), iso_status(isc), iso_sigils(isc), canonical), create, buf_find_cm(cl, iso_cm(isc), canonical))
 
 # ---- scrollback ---------------------------------------------------------
 
@@ -1452,9 +1455,6 @@ def buf_get_with(+cl: Client, +cm: String, +types: String, +status: String, +sig
 # edge before feed/submit so buf_log_ts stores HH:MM:SS at log time.
 def buf_log(+b: Buffer, kind: LineKind, +text: String) -> Buffer:
   buf_log_ts(b, kind, "", text)
-
-def buf_log_at(kind: LineKind, +ts: String, +text: String, b: Buffer) -> Buffer:
-  buf_log_ts(b, kind, ts, text)
 
 def client_log_ts.pick(empty: Bool, +ts: String, +now: String) -> String:
   match empty:
@@ -1545,9 +1545,6 @@ def nick_strip_set(+sigils: String, +s: String) -> String:
       SNil{}
     case SCon{+h, +t}:
       Bool.pick(String, is_sigil_set(sigils, h), nick_strip_set(sigils, t), SCon{h, t})
-
-def is_sigil(+c: Char) -> Bool:
-  is_sigil_set(dflt_strip(), c)
 
 def nick_strip(+s: String) -> String:
   nick_strip_set(dflt_strip(), s)
@@ -1676,14 +1673,6 @@ def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buf
 def nick_add_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
   +n = nick_strip_set(sigils, raw)
   nick_add_cm.body(cm, b, n, String.is_empty(n))
-
-def nick_add_who_cm(+cm: String, +sigils: String, +who: String, b: Buffer) -> Buffer:
-  nick_add_cm(b, cm, sigils, who)
-
-def nick_add_idx_cm(+cl: Client, +cm: String, +sigils: String, +i: Nat, +who: String) -> Client:
-  match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, nick_add_who_cm(cm, sigils, who)), active, now, stg, auth, log_seq}
 
 def nick_add_all_cm.go(xs: List<&2, String>, +cm: String, +sigils: String, +b: Buffer) -> Buffer:
   match xs:

@@ -123,7 +123,7 @@ def pong_lag() -> Bool:
 
 # Negotiated dispatcher agrees: PONG adds no rows there either.
 def pong_quiet_with() -> Bool:
-  +cl2 = Feed.feed_with(Cl.init("me", "s"), Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), ":s PONG s :xyz")
+  +cl2 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":s PONG s :xyz")
   Nat.is_eq(CL.buf_nlines(cl2, 0n), 0n)
 
 def nick433_fold_reject.on(got: Cl.Client & List<&2, String>) -> Bool:

@@ -258,6 +258,43 @@ def chan_target(+s: String) -> String:
     case SCon{+h, t}:
       chan_target.head(h, t, s)
 
+# Negotiated chantype / STATUSMSG / PREFIX test. The fixed predicates above
+# stay the hardcoded `#&+!` / `@+` leaf. Buffer and ISUPPORT both call this
+# so the strip-one-leading-sigil rule lives in one place. Buffer cannot
+# import ISUPPORT (that module already imports the client container).
+def member_char(+s: String, +c: Char) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{+h, +t}: Char.is_eq(h, c) || member_char(t, c)
+
+def chantype_tail(+types: String, +t: String) -> Bool:
+  match t:
+    case SNil{}: False{}
+    case SCon{+h, _}: member_char(types, h)
+
+def negotiated_channel.first(+types: String, +status: String, +sigils: String, +h: Char, +t: String) -> Bool:
+  member_char(types, h) || (member_char(status, h) && member_char(sigils, h) && chantype_tail(types, t))
+
+def negotiated_channel(+types: String, +status: String, +sigils: String, +name: String) -> Bool:
+  match name:
+    case SNil{}: False{}
+    case SCon{+h, +t}: negotiated_channel.first(types, status, sigils, h, t)
+
+def negotiated_key.tail(+s: String) -> String:
+  match s:
+    case SNil{}: SNil{}
+    case SCon{_, +t}: t
+
+def negotiated_key.strip(+s: String, strip: Bool) -> String:
+  match strip:
+    case True{}: negotiated_key.tail(s)
+    case False{}: s
+
+def negotiated_key(+types: String, +status: String, +sigils: String, +name: String) -> String:
+  match name:
+    case SNil{}: SNil{}
+    case SCon{+h, +t}: negotiated_key.strip(SCon{h, t}, member_char(status, h) && member_char(sigils, h) && chantype_tail(types, t))
+
 def is_numeric3(+s: String) -> Bool:
   match s:
     case SCon{+a, SCon{+b, SCon{+c, SNil{}}}}:
@@ -866,21 +903,34 @@ type ClsRow is Data:
 def cls_rows() -> List<&2, ClsRow>:
   ClsRow{"PING", Ping{}} <> ClsRow{"PONG", Pong{}} <> ClsRow{"JOIN", Join{}} <> ClsRow{"PART", Part{}} <> ClsRow{"KICK", Kick{}} <> ClsRow{"QUIT", Quit{}} <> ClsRow{"PRIVMSG", Privmsg{}} <> ClsRow{"NOTICE", Notice{}} <> ClsRow{"NICK", Nick{}} <> ClsRow{"TOPIC", Topic{}} <> ClsRow{"MODE", Mode{}} <> ClsRow{"NAMES", Names{}} <> ClsRow{"ERROR", Error{}} <> ClsRow{"CAP", Cap{}} <> ClsRow{"TAGMSG", Tagmsg{}} <> ClsRow{"ACK", Ack{}} <> ClsRow{"FAIL", StdFail{}} <> ClsRow{"WARN", StdWarn{}} <> ClsRow{"NOTE", StdNote{}} <> Nil{}
 
-def cls_lookup(xs: List<&2, ClsRow>, +cmd: String) -> Cmd:
-  match xs:
-    case Nil{}:
-      Unknown{}
-    case Con{row, t}:
-      match row:
-        case ClsRow{+name, +c}:
-          Bool.pick(Cmd, ieq(name, cmd), c, cls_lookup(t, cmd))
+# Row names are rfc1459-folded constants. Fold the command once and compare;
+# folding both strings on every row repeated the command fold for each of
+# the 18 rows, and Bool.pick would have forced that walk even after a hit.
+def cls_lookup.row(fuel: Nat, eq: Bool, +c: Cmd, t: List<&2, ClsRow>, +folded: String) -> Cmd:
+  match fuel:
+    case 0n: Unknown{}
+    case 1n+p:
+      match eq:
+        case True{}: c
+        case False{}:
+          match t:
+            case Nil{}: Unknown{}
+            case Con{row, rest}:
+              match row:
+                case ClsRow{+name, +next}:
+                  cls_lookup.row(p, String.eq(name, folded), next, rest, folded)
+
+def cls_lookup(xs: List<&2, ClsRow>, +folded: String) -> Cmd:
+  # 18 rows today; the extra steps keep a last-row hit visible and leave
+  # room for a few new verbs. Past the fuel the lookup fails closed.
+  cls_lookup.row(32n, False{}, Unknown{}, xs, folded)
 
 def cls_verb(num: Bool, +cmd: String, +code: U32) -> Cmd:
   match num:
     case True{}:
       Numeric{code}
     case False{}:
-      cls_lookup(cls_rows(), cmd)
+      cls_lookup(cls_rows(), rfc1459(cmd))
 
 def classify(+m: Message) -> Cmd:
   match m:

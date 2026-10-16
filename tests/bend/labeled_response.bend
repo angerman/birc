@@ -47,8 +47,8 @@ def ack_feed_ok() -> Bool:
 
 def ack_with_ok() -> Bool:
   +fixed = Feed.feed(Cl.init("me", "s"), "@label=abc :s ACK")
-  +neg = Feed.feed_with(Cl.init("me", "s"), Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), "@label=abc :s ACK")
-  +neg_bad = Feed.feed_with(Cl.init("me", "s"), Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), ":s ACK a b c")
+  +neg = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), "@label=abc :s ACK")
+  +neg_bad = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":s ACK a b c")
   String.eq(server_text(fixed), server_text(neg))
     && String.contains(server_text(neg_bad), "ACK")
     && Bool.not(String.contains(server_text(neg_bad), "acknowledged"))

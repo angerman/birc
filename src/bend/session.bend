@@ -146,54 +146,54 @@ def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: Str
 # Negotiated fold chain (I2 dynamic): identical ping/SASL/auth/credential/lag
 # handling, but the feed leaves fold under the Session ISUPPORT parameters
 # (CASEMAPPING/CHANTYPES/STATUSMSG/PREFIX/strip) instead of fixed defaults.
-def fold_step.normal_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  +cl2 = Feed.feed_at_with(cl, cm, types, status, sigils, strip, h, stamp)
+def fold_step.normal_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+  +cl2 = Feed.feed_at_with(cl, isc, h, stamp)
   FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs), now_ms}
 
-def fold_step.lag_rtt.on_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, ok: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.lag_rtt.on_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, ok: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
   match ok:
     case True{}:
       +rtt = U32.sub(now_ms, sent)
       +cl2 = Cl.client_set_lag(cl, rtt)
-      FoldAcc{Feed.feed_at_with(cl2, cm, types, status, sigils, strip, h, stamp), pongs, now_ms}
+      FoldAcc{Feed.feed_at_with(cl2, isc, h, stamp), pongs, now_ms}
     case False{}:
-      FoldAcc{Feed.feed_at_with(cl, cm, types, status, sigils, strip, h, stamp), pongs, now_ms}
+      FoldAcc{Feed.feed_at_with(cl, isc, h, stamp), pongs, now_ms}
 
-def fold_step.lag_rtt_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.lag_rtt.on_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, sent, U32.is_ge(now_ms, sent) && Bool.not(U32.is_zero(now_ms)), stamp)
+def fold_step.lag_rtt_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, +stamp: Maybe<&2, String>) -> FoldAcc:
+  fold_step.lag_rtt.on_at_with(isc, cl, pongs, now_ms, h, sent, U32.is_ge(now_ms, sent) && Bool.not(U32.is_zero(now_ms)), stamp)
 
-def fold_step.lag_on_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, m: Maybe<&2, U32>, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.lag_on_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, m: Maybe<&2, U32>, +stamp: Maybe<&2, String>) -> FoldAcc:
   match m:
     case None{}:
-      fold_step.normal_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, stamp)
+      fold_step.normal_at_with(isc, cl, pongs, now_ms, h, stamp)
     case Some{sent}:
-      fold_step.lag_rtt_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, sent, stamp)
+      fold_step.lag_rtt_at_with(isc, cl, pongs, now_ms, h, sent, stamp)
 
-def fold_step.lag_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.lag_on_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, Irc.extract_pong_lag_line(h), stamp)
+def fold_step.lag_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+  fold_step.lag_on_at_with(isc, cl, pongs, now_ms, h, Irc.extract_pong_lag_line(h), stamp)
 
-def fold_step.auth.feed_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, consumed: Bool, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.auth.feed_at_with(+isc: Cl.Iso, consumed: Bool, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
   match consumed:
     case True{}: FoldAcc{cl, pongs, now_ms}
-    case False{}: fold_step.lag_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, stamp)
+    case False{}: fold_step.lag_at_with(isc, cl, pongs, now_ms, h, stamp)
 
-def fold_step.auth_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.auth_at_with(+isc: Cl.Iso, reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
   match reply:
     case Auth.Reply{phase, outs, notice}:
-      fold_step.auth.fed(fold_step.auth.feed_at_with(cm, types, status, sigils, strip, live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
+      fold_step.auth.fed(fold_step.auth.feed_at_with(isc, live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
 
-def fold_step.sasl_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.auth_at_with(cm, types, status, sigils, strip, Auth.step_for(cl, h), cl, pongs, now_ms, h, stamp)
+def fold_step.sasl_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+  fold_step.auth_at_with(isc, Auth.step_for(cl, h), cl, pongs, now_ms, h, stamp)
 
-def fold_step.ping_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.ping_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
   match ping:
     case True{}:
       FoldAcc{cl, Irc.pong_for(h) <> pongs, now_ms}
     case False{}:
-      fold_step.sasl_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, stamp)
+      fold_step.sasl_at_with(isc, cl, pongs, now_ms, h, stamp)
 
-def fold_step.got_at_with(+cm: String, +types: String, +status: String, +sigils: String, +strip: String, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.ping_at_with(cm, types, status, sigils, strip, cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp)
+def fold_step.got_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
+  fold_step.ping_at_with(isc, cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp)
 
 def fold_step(st: FoldAcc, h: String) -> FoldAcc:
   match st:
@@ -4051,14 +4051,14 @@ def live_is_dynamic.parsed(parsed: Maybe<&2, Irc.Message>) -> Bool:
 def live_is_dynamic(+line: String) -> Bool:
   live_is_dynamic.parsed(Irc.parse(line))
 
-def live_step.registered_with(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, welcomed: Bool) -> LiveAcc:
+def live_step.registered_with(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, +isc: Cl.Iso, welcomed: Bool) -> LiveAcc:
   match registered:
     case None{}: acc
     case Some{+cl}:
       match acc:
         case LiveAcc{FoldAcc{_, reversed, +now_ms}, typing, plan, +iso, +hl, +reg, +renames}:
-          live_step.fed_with(cm, fold_step.got_at_with(cm, types, status, sigils, strip, cl, reversed, now_ms, line, stamp),
-            Ty.apply_line_for_with(cm, types, status, sigils, typing, cl, line, now_ms), JoinPlan.received_with(cm, plan, cl, line), iso, hl,
+          live_step.fed_with(Cl.iso_cm(isc), fold_step.got_at_with(isc, cl, reversed, now_ms, line, stamp),
+            Ty.apply_line_for_with(isc, typing, cl, line, now_ms), JoinPlan.received_with(Cl.iso_cm(isc), plan, cl, line), iso, hl,
             CapNotify.reg_on_line(reg, Cl.server_of(cl), Cl.nick_of(cl), line, welcomed), renames)
 
 # Admitted per-line split rename (I2-dynamic4 G1C): the raw chunk prepass
@@ -4136,26 +4136,21 @@ def live_prepare.reg(prepped: Isupport.State & String, +cl: Cl.Client, welcomed:
 def live_prepare(+iso: Isupport.State, +cl: Cl.Client, welcomed: Bool, +line: String) -> LiveAdmitted:
   live_prepare.reg(live_step.prep(iso, cl, line), cl, welcomed)
 
-def live_split_step.ready_branch(+reg: Maybe<&2, Cl.Client>, +cm: String, +types: String, +status: String, +sigils: String, +strip: String, +line2: String, acc: LiveAcc, split: Sp.State, stamp: Maybe<&2, String>, dynamic: Bool, welcomed: Bool) -> LiveAcc & Sp.State:
+def live_split_step.ready_branch(+reg: Maybe<&2, Cl.Client>, +isc: Cl.Iso, +line2: String, acc: LiveAcc, split: Sp.State, stamp: Maybe<&2, String>, dynamic: Bool, welcomed: Bool) -> LiveAcc & Sp.State:
   match dynamic:
     case True{}:
-      +live2 = live_step.registered_with(reg, acc, line2, stamp, cm, types, status, sigils, strip, welcomed)
-      +split2 = live_split_admitted(reg, cm, split, line2)
-      (live_drafts_note(live2, reg, cm, line2), split2)
+      +live2 = live_step.registered_with(reg, acc, line2, stamp, isc, welcomed)
+      +split2 = live_split_admitted(reg, Cl.iso_cm(isc), split, line2)
+      (live_drafts_note(live2, reg, Cl.iso_cm(isc), line2), split2)
     case False{}:
       +live2 = live_step.registered(reg, acc, line2, stamp, welcomed)
-      +split2 = live_split_admitted(reg, cm, split, line2)
-      (live_drafts_note(live2, reg, cm, line2), split2)
+      +split2 = live_split_admitted(reg, Cl.iso_cm(isc), split, line2)
+      (live_drafts_note(live2, reg, Cl.iso_cm(isc), line2), split2)
 
 def live_split_step.ready(ready: LiveAdmitted, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, stamp: Maybe<&2, String>, +hl: Hs.HistLive, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>) -> LiveAcc & Sp.State:
   match ready:
     case LiveAdmitted{+iso2, +line2, +reg}:
-      +cm = Isupport.casemapping(iso2)
-      +types = Isupport.chantypes(iso2)
-      +status = Isupport.statusmsg(iso2)
-      +sigils = Isupport.prefix_sigils(iso2)
-      +strip = Isupport.strip_set(iso2)
-      live_split_step.ready_branch(reg, cm, types, status, sigils, strip, line2, LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan, iso2, hl, lreg, renames}, split, stamp, live_is_dynamic(line2), JoinPlan.welcomed(plan))
+      live_split_step.ready_branch(reg, Isupport.as_iso(iso2), line2, LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan, iso2, hl, lreg, renames}, split, stamp, live_is_dynamic(line2), JoinPlan.welcomed(plan))
 
 # Combined live interceptor (H5+I2): every framed wire line first steps the
 # real H5 history owner. Claimed (batch-tagged archive) lines reach the batch

@@ -120,7 +120,7 @@ def buf_nicks(+cl: Cl.Client, +name: String) -> String:
 # ---- law helpers (pure predicates) --------------------------------------
 
 def feed_id(+cl: Cl.Client, +line: String) -> Bool:
-  String.eq(show_client(cl), show_client(Feed.feed(cl, line)))
+  String.eq(show_client(cl), show_client(Feed.feed_with(cl, Cl.Iso.defaults(), line)))
 
 # M7.2 — flood JOIN past MAX_BUFFERS; buffer count stays capped.
 def flood_join_line(+i: Nat) -> String:
@@ -138,7 +138,7 @@ def flood_joins(+n: Nat) -> List<&2, String>:
 
 # Extra self-JOINs past the cap log "buffer limit reached" on the server buffer.
 def flood_server_clean() -> Bool:
-  +one = Feed.feed(Cl.init("me", "s"), flood_join_line(0n))
+  +one = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), flood_join_line(0n))
   +many = Feed.feed_all(Cl.init("me", "s"), flood_joins(24n))
   Nat.is_gt(buf_nlines(many, 0n), buf_nlines(one, 0n))
 
@@ -147,11 +147,11 @@ def flood_buffers_capped() -> Bool:
   Nat.is_le(nbuf(many), Cl.MAX_BUFFERS()) && flood_server_clean()
 
 def notice_star_server() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net NOTICE * :*** Looking up")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":irc.example.net NOTICE * :*** Looking up")
   Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
 
 def privmsg_query_opens() -> Bool:
-  Nat.is_eq(nbuf(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")), 2n)
+  Nat.is_eq(nbuf(Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":alice!a@h PRIVMSG me :hi")), 2n)
 
 def lines_pipe.chunks(+xs: List<&2, Cl.Line>) -> List<&2, String>:
   match xs:
@@ -179,49 +179,49 @@ def buf_texts(+cl: Cl.Client, +i: Nat) -> String:
 
 # Self JOIN focuses #birc (index 1); next wraps to server (0), next again to 1.
 def scroll_page_ok() -> Bool:
-  +cl0 = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc"), 1n)
+  +cl0 = Cl.set_active(Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!me@localhost JOIN #birc"), 1n)
   +cl1 = Cl.apply_active_scroll(cl0, 3n, 0n)
   Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), 1n)
 
 def nick_query_renames() -> Bool:
-  +cl0 = Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
-  +cl = Feed.feed(cl0, ":alice!a@h NICK bob")
+  +cl0 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":alice!a@h PRIVMSG me :hi")
+  +cl = Feed.feed_with(cl0, Cl.Iso.defaults(), ":alice!a@h NICK bob")
   has_buf(cl, "bob")
     && Bool.not(has_buf(cl, "alice"))
     && Nat.is_eq(nbuf(cl), 2n)
 
 def quit_query_logs() -> Bool:
-  +cl0 = Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi")
-  +cl = Feed.feed(cl0, ":alice!a@h QUIT :bye")
+  +cl0 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":alice!a@h PRIVMSG me :hi")
+  +cl = Feed.feed_with(cl0, Cl.Iso.defaults(), ":alice!a@h QUIT :bye")
   Nat.is_eq(buf_nlines(cl, 1n), 2n)
 
 def mode_channel_logs() -> Bool:
-  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
-  +cl = Feed.feed(cl0, ":op!u@h MODE #birc +o alice")
+  +cl0 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!me@localhost JOIN #birc")
+  +cl = Feed.feed_with(cl0, Cl.Iso.defaults(), ":op!u@h MODE #birc +o alice")
   Nat.is_eq(buf_nlines(cl, 1n), 2n) && Nat.is_eq(buf_nlines(cl, 0n), 0n)
 
 def part_nonmember_silent() -> Bool:
-  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
-  +cl1 = Feed.feed(cl0, ":alice!a@h JOIN #birc")
-  +cl = Feed.feed(cl1, ":bob!b@h PART #birc")
+  +cl0 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!me@localhost JOIN #birc")
+  +cl1 = Feed.feed_with(cl0, Cl.Iso.defaults(), ":alice!a@h JOIN #birc")
+  +cl = Feed.feed_with(cl1, Cl.Iso.defaults(), ":bob!b@h PART #birc")
   Nat.is_eq(buf_nlines(cl, 1n), 2n)
 
 def server_nick_query() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":server!s@h PRIVMSG me :hi")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":server!s@h PRIVMSG me :hi")
   Nat.is_eq(nbuf(cl), 2n) && has_buf(cl, "server") && Nat.is_eq(buf_nlines(cl, 0n), 0n)
 
 def self_priv_query() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":me!me@h PRIVMSG alice :hi")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!me@h PRIVMSG alice :hi")
   has_buf(cl, "alice") && Bool.not(has_buf(cl, "me"))
 
 def snap_ok() -> Bool:
-  +clq = Cl.set_active(Feed.feed(Cl.init("me", "s"), ":alice!a@h PRIVMSG me :hi"), 1n)
+  +clq = Cl.set_active(Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":alice!a@h PRIVMSG me :hi"), 1n)
   +cl1 = Cl.apply_active_scroll(clq, 2n, 0n)
   +cl2 = Cl.snap_active(cl1)
   Nat.is_eq(Cl.buf_scroll_of(cl1, 1n), 1n) && Nat.is_eq(Cl.buf_scroll_of(cl2, 1n), 0n)
 
 def cycle_ok() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":me!me@localhost JOIN #birc")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!me@localhost JOIN #birc")
   +c1 = Cl.cycle_tab(cl, Cl.TabNext{})
   +c2 = Cl.cycle_tab(c1, Cl.TabNext{})
   Nat.is_eq(Cl.active_of(cl), 1n) && Nat.is_eq(Cl.active_of(c1), 0n) && Nat.is_eq(Cl.active_of(c2), 1n)
@@ -230,14 +230,14 @@ def cycle_ok() -> Bool:
 def log_chrono_ok() -> Bool:
   String.eq(
     buf_texts(
-      Feed.feed(Feed.feed(Cl.init("me", "s"), ":a!a@h PRIVMSG me :one"), ":a!a@h PRIVMSG me :two"),
+      Feed.feed_with(Feed.feed(Cl.init("me", "s"), ":a!a@h PRIVMSG me :one"), Cl.Iso.defaults(), ":a!a@h PRIVMSG me :two"),
       1n
     ),
     "<a> one|<a> two|"
   )
 
 def welcome_server_line() -> Bool:
-  +cl = Feed.feed(Cl.init("me", "s"), ":irc.example.net 001 me :Welcome")
+  +cl = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":irc.example.net 001 me :Welcome")
   Nat.is_eq(nbuf(cl), 1n) && Nat.is_eq(buf_nlines(cl, 0n), 1n)
 
 def names_1459_ok() -> Bool:
@@ -297,18 +297,18 @@ def log_ts_ok.feed.on(+cl: Cl.Client) -> Bool:
       log_ts_ok.feed.got(Cl.nth_buf(bufs, 0n))
 
 def log_ts_ok.feed() -> Bool:
-  log_ts_ok.feed.on(Feed.feed(Cl.set_now(Cl.init("me", "s"), "12:00:00"), ":irc.example.net NOTICE * :hi"))
+  log_ts_ok.feed.on(Feed.feed_with(Cl.set_now(Cl.init("me", "s"), "12:00:00"), Cl.Iso.defaults(), ":irc.example.net NOTICE * :hi"))
 
 def log_ts_ok() -> Bool:
   +b1 = Cl.buf_log_ts(Cl.server_buf(), Cl.Msg{}, "01:02:03", "old")
   log_ts_ok.buf(Cl.buf_log_ts(b1, Cl.Msg{}, "12:00:00", "new")) && log_ts_ok.feed()
 
 def bell_mentions_advance_ok() -> Bool:
-  +cl0 = Feed.feed(Cl.init("me", "s"), ":me!m@h JOIN #birc")
-  +cl1 = Feed.feed(cl0, ":alice!a@h PRIVMSG #birc :ordinary")
-  +cl2 = Feed.feed(cl1, ":alice!a@h PRIVMSG #birc :hello me")
-  +cl3 = Feed.feed(cl2, ":alice!a@h PRIVMSG #birc :me again")
-  +cl4 = Feed.feed(cl3, ":bob!b@h PRIVMSG me :hello")
+  +cl0 = Feed.feed_with(Cl.init("me", "s"), Cl.Iso.defaults(), ":me!m@h JOIN #birc")
+  +cl1 = Feed.feed_with(cl0, Cl.Iso.defaults(), ":alice!a@h PRIVMSG #birc :ordinary")
+  +cl2 = Feed.feed_with(cl1, Cl.Iso.defaults(), ":alice!a@h PRIVMSG #birc :hello me")
+  +cl3 = Feed.feed_with(cl2, Cl.Iso.defaults(), ":alice!a@h PRIVMSG #birc :me again")
+  +cl4 = Feed.feed_with(cl3, Cl.Iso.defaults(), ":bob!b@h PRIVMSG me :hello")
   U32.is_eq(Cl.client_bell_seq(cl1), 0)
     && U32.is_eq(Cl.client_bell_seq(cl2), 1)
     && U32.is_eq(Cl.client_bell_seq(cl3), 2)
@@ -322,7 +322,7 @@ def active_clears_unread.status(+cl: Cl.Client) -> U32:
 def active_clears_unread_ok() -> Bool:
   +cl0 = Feed.feed_all(Cl.init("me", "s"), ":me!m@h JOIN #a" <> ":me!m@h JOIN #b" <> Nil{})
   +cl1 = Cl.set_active_clamp(cl0, 1n)
-  +cl2 = Feed.feed(cl1, ":alice!a@h PRIVMSG #b :hello me")
+  +cl2 = Feed.feed_with(cl1, Cl.Iso.defaults(), ":alice!a@h PRIVMSG #b :hello me")
   +cl3 = Cl.set_active_clamp(cl2, 2n)
   U32.is_eq(active_clears_unread.status(cl2), 2)
     && U32.is_eq(active_clears_unread.status(cl3), 0)

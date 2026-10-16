@@ -71,7 +71,7 @@ def join_arity04_ok() -> Bool:
 
 # Negotiated (_with) path stays in parity with the fixed path.
 def join_with.fed(+cl: Cl.Client, +line: String) -> Cl.Client:
-  Feed.feed_with(cl, Cl.dflt_cm(), Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip(), line)
+  Feed.feed_with(cl, Cl.Iso.defaults(), line)
 
 def join_with.chan() -> Cl.Client:
   join_with.fed(Cl.init("me", "s"), ":me!u@h JOIN #chan")

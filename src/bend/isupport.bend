@@ -712,23 +712,8 @@ def endpoint(+same: Bool, +st: State) -> State:
 
 # ---- channel predicates ---------------------------------------------------
 
-def head_in_types(+types: String, +t: String) -> Bool:
-  match t:
-    case SNil{}: False{}
-    case SCon{+h2, _}: has_char(types, h2)
-
-def is_channel.status(+types: String, +status: String, +t: String, pre: Bool) -> Bool:
-  match pre:
-    case False{}: False{}
-    case True{}: head_in_types(types, t)
-
-def is_channel.first(+types: String, +status: String, +sigils: String, +h: Char, +t: String) -> Bool:
-  has_char(types, h) || is_channel.status(types, status, t, has_char(status, h) && has_char(sigils, h))
-
 def is_channel.head(+types: String, +status: String, +sigils: String, +name: String) -> Bool:
-  match name:
-    case SNil{}: False{}
-    case SCon{+h, +t}: is_channel.first(types, status, sigils, h, t)
+  Irc.negotiated_channel(types, status, sigils, name)
 
 def is_channel.pv(+types: String, +status: String, +pv: Priv, +name: String) -> Bool:
   match pv:
@@ -742,20 +727,8 @@ def is_channel(+st: State, +name: String) -> Bool:
   match st:
     case State{+ch, +pv, _, _, _, _}: is_channel.ch(ch, pv, name)
 
-def chan_target.tail(+s: String) -> String:
-  match s:
-    case SNil{}: ""
-    case SCon{_, +t}: t
-
-def chan_target.strip(+s: String, strip: Bool) -> String:
-  match strip:
-    case True{}: chan_target.tail(s)
-    case False{}: s
-
 def chan_target.head(+types: String, +status: String, +sigils: String, +s: String) -> String:
-  match s:
-    case SNil{}: ""
-    case SCon{+h, +t}: chan_target.strip(SCon{h, t}, has_char(status, h) && has_char(sigils, h) && head_in_types(types, t))
+  Irc.negotiated_key(types, status, sigils, s)
 
 def chan_target.pv(+types: String, +status: String, +pv: Priv, +s: String) -> String:
   match pv:
@@ -1246,6 +1219,10 @@ def prefix_sigils(+st: State) -> String:
     case State{_, +pv, _, _, _, _}:
       match pv:
         case Priv{_, +sig, _}: sig
+
+# One record for the five strings Session used to unpack together.
+def as_iso(+st: State) -> Cl.Iso:
+  Cl.Iso{casemapping(st), chantypes(st), statusmsg(st), prefix_sigils(st), strip_set(st)}
 
 # ---- canonical rendering (goldens) ----------------------------------------
 
