@@ -152,6 +152,19 @@
   proof at detached HEAD d286f90 also timed out, so the stall is
   environmental, not a slice regression; rerun `make proof` on a calm
   host before qualifying the optimistic-send batch.
+- test-media-anchor and the native `build/session_cards_demo`: FAILING
+  with `Error: an arity over 247`, the C-backend flattened-capture-word
+  cap. Verified identical on the pre-review baseline `208f7c9` and on
+  current master, so pre-existing; both compile fine for the **JS**
+  backend (`-o build/X.js` rc=0), which is why `make test-session-cards`
+  passes while the native build does not. `test-media-anchor` is a
+  `test-review-pure` prerequisite, and `test-goldens-view` dies at the
+  first arity error without printing its `bins=` line, so this blocks
+  part of `make check`. Same class as the `runtime_reconnect` entry above
+  and fixed the same way: split `main` into phase defs holding only
+  singleton-list cells (commit `d286f90`, `session_drafts_demo` idiom),
+  assertions unchanged and in the same order. Test-only; no product
+  change needed.
 - test-state: FAILING on the pre-review baseline `208f7c9`, so not a
   regression from the simplification waves. `query_collision` fails —
   `state_demo.bend:68 query_collision_ok` feeds PRIVMSGs from `a` and
