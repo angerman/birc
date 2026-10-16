@@ -485,3 +485,73 @@ def claim_union(+stored: List<&2, Nat>, +fresh: List<&2, Nat>) -> List<&2, Nat>:
 
 def claim_union_floor(+stored: List<&2, Nat>, +fresh: List<&2, Nat>, +floor: Nat) -> List<&2, Nat>:
   claim_union(claim_prune(stored, floor), fresh)
+
+# Session-free mention/DM classification. Moved from session.bend;
+# session keeps Sess.notify_* wrappers.
+def notify_is_highlight(k: Cl.LineKind) -> Bool:
+  match k:
+    case Cl.Highlight{}: True{}
+    case Cl.Pending{+inner}: notify_is_highlight(inner)
+    case _: False{}
+
+def notify_is_action(k: Cl.LineKind) -> Bool:
+  match k:
+    case Cl.Action{}: True{}
+    case Cl.Pending{+inner}: notify_is_action(inner)
+    case _: False{}
+
+# Peer-authored chat kinds that can page a query owner. Notices stay silent to
+# match the bell/Mention-unread signal (feed never highlights a NOTICE).
+def notify_is_dm_kind(k: Cl.LineKind) -> Bool:
+  match k:
+    case Cl.Msg{}: True{}
+    case Cl.Action{}: True{}
+    case Cl.Highlight{}: True{}
+    case Cl.Pending{+inner}: notify_is_dm_kind(inner)
+    case _: False{}
+
+# A peer Highlight, or a peer channel /me naming our nick (feed keeps Action
+# kind there but still raises Mention unread + bell).
+def notify_is_mention(+author: String, +text: String, +nick: String, +k: Cl.LineKind) -> Bool:
+  Bool.not(Irc.ieq(author, nick)) && (notify_is_highlight(k) || (notify_is_action(k) && Cl.is_mention(text, nick)))
+
+# Peer query buffer: never the server buffer (index 0), never synthetic, never
+# a channel. The stored name "server" would otherwise pass is_query_name.
+def notify_is_query(+name: String, is_channel: Bool, index: Nat) -> Bool:
+  Bool.not(Nat.is_eq(index, 0n)) && Bool.not(is_channel) && Cl.is_query_name(name)
+
+def notify_line_dm(query: Bool, +author: String, +nick: String, k: Cl.LineKind) -> Bool:
+  query && notify_is_dm_kind(k) && Bool.not(Irc.ieq(author, nick))
+
+def notify_line_hits(query: Bool, +author: String, +text: String, +nick: String, +k: Cl.LineKind) -> Bool:
+  notify_line_dm(query, author, nick, k) || notify_is_mention(author, text, nick, k)
+
+def notify_collect_line.keep(keep: Bool, +scope: String, +author: String, +target: String, +text: String, +id: Nat, +dm: Bool, +mention: Bool, tail: List<&2, NotifyEvent>) -> List<&2, NotifyEvent>:
+  match keep:
+    case True{}: NotifyEvent{id, scope, author, target, text, dm, mention} <> tail
+    case False{}: tail
+
+def notify_collect_lines(lines: List<&2, Cl.Line>, +scope: String, +target: String, +nick: String, +cutoff: Nat, +query: Bool) -> List<&2, NotifyEvent>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{Cl.Line{+k, _, +text, +author, +id}, t}:
+      +dm = notify_line_dm(query, author, nick, k)
+      +men = notify_is_mention(author, text, nick, k)
+      +tail = notify_collect_lines(t, scope, target, nick, cutoff, query)
+      notify_collect_line.keep(Nat.is_gt(id, cutoff) && (men || dm), scope, author, target, text, id, dm, men, tail)
+
+def notify_collect_bufs(bufs: List<&2, Cl.Buffer>, +scope: String, +nick: String, +cutoff: Nat, +index: Nat) -> List<&2, NotifyEvent>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{Cl.Buffer{+name, is_channel, _, lines, _, _}, t}:
+      +head = notify_collect_lines(lines, scope, name, nick, cutoff, notify_is_query(name, is_channel, index))
+      +tail = notify_collect_bufs(t, scope, nick, cutoff, Nat.add(index, 1n))
+      List.append(&2, NotifyEvent, head, tail)
+
+def notify_collect(+cl: Cl.Client, +scope: String, +cutoff: Nat) -> List<&2, NotifyEvent>:
+  match cl:
+    case Cl.Client{+nick, _, +bufs, _, _, _, _, _}:
+      notify_collect_bufs(bufs, scope, nick, cutoff, 0n)
+
+# Fold accumulator threads the redaction credentials: a fold step cannot close
+# over runtime values, so user/pass ride along and are returned untouched.

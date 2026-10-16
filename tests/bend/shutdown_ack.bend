@@ -2,7 +2,7 @@
 # Only current-generation writer completion can release UI shutdown.
 import Base
 import ./expect.bend as E
-import ../../src/bend/session.bend as Sess
+import ../../src/bend/net_msg.bend as Sess
 
 def main() -> IO(Unit):
   do IO<Unit>:
