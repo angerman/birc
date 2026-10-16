@@ -36,6 +36,9 @@ ifeq ($(BIRC_NIX_SHELL),1)
 NIXRUN :=
 else
 NIXRUN := $(NIX) $(NIX_FEATURES) develop --no-update-lock-file . --command
+ifeq ($(shell command -v bend >/dev/null 2>&1 && printf '%s' yes),)
+$(warning birc: bend is not on PATH and BIRC_NIX_SHELL is unset; each recipe re-enters nix develop (~1.2-1.6s). Run make shell first.)
+endif
 endif
 
 BLDDIR := build
