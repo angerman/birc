@@ -226,9 +226,6 @@ def fold_typing_step(st: FoldAcc & Ty.State, line: String) -> FoldAcc & Ty.State
     case (FoldAcc{+cl, pongs, +now_ms}, typing):
       fold_typing_step.line(cl, pongs, now_ms, typing, line)
 
-def fold_lines_typing(+cl: Cl.Client, xs: List<&2, String>, +now_ms: U32, typing: Ty.State) -> FoldAcc & Ty.State:
-  List.foldl(~&2, ~String, ~(FoldAcc & Ty.State), ~fold_typing_step, xs, (FoldAcc{cl, Nil{}, now_ms}, typing))
-
 def is_001_msg(+m: Irc.Message) -> Bool:
   match m:
     case Irc.Message{_, _, _, +num, _}:
@@ -309,10 +306,6 @@ def push_pure_join(
     case (cl2, pongs):
       push_pure_join2(cl2, rem2, drop2, join_outs(joined, chan, xs, pongs))
 
-def push_pure_typing_join(folded: FoldAcc & Ty.State, rem: List<&2, U32>, drop: Bool, joined: Bool, chan: String, +lines: List<&2, String>) -> (Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool) & Ty.State:
-  match folded:
-    case (acc, typing): (push_pure_join(fold_fin(acc), rem, drop, joined, chan, lines), typing)
-
 def push_pure_pair_ms.r1(rest: List<&2, U32> & Bool, +cl: Cl.Client, +joined: Bool, +chan: String, +now_ms: U32, +lines: List<&2, String>) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   match rest:
     case (+rem2, +drop2): push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
@@ -327,14 +320,6 @@ def push_pure_pair_ms(
   match got:
     case (+lines, rest): push_pure_pair_ms.r1(rest, cl, joined, chan, now_ms, lines)
 
-def push_pure_pair(
-  +cl: Cl.Client,
-  got: List<&2, String> & List<&2, U32> & Bool,
-  +joined: Bool,
-  +chan: String
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure_pair_ms(cl, got, joined, chan, 0)
-
 def push_pure_ms(
   +cl: Cl.Client,
   drop: Bool,
@@ -345,16 +330,6 @@ def push_pure_ms(
   +now_ms: U32
 ) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
   push_pure_pair_ms(cl, Fr.push_ex(drop, rem, chunk), joined, chan, now_ms)
-
-def push_pure(
-  +cl: Cl.Client,
-  drop: Bool,
-  rem: List<&2, U32>,
-  chunk: List<&2, U32>,
-  +joined: Bool,
-  +chan: String
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure_ms(cl, drop, rem, chunk, joined, chan, 0)
 
 def step_chunk_ms(
   +cl: Cl.Client,
@@ -655,25 +630,9 @@ def submit_send_with_echo(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Inpu
 def submit_send_with(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Input, online: Bool) -> Cl.Client & String & NetCmd:
   submit_send_with_echo(iso, cl, input, online, False{})
 
-def submit_command_echo(cmd: Sub.Slash, +cl: Cl.Client, +net: NetState, +verb: String, +rest: String, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match cmd:
-    case Sub.OpenCmd{}: open_apply.got(cl, Sub.open_resolve_target(cl, rest))
-    case _: submit_send_echo(cl, Sub.CommandInput{cmd, verb, rest}, can_send(net), echo_ok)
-
-def submit_command(cmd: Sub.Slash, +cl: Cl.Client, +net: NetState, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
-  submit_command_echo(cmd, cl, net, verb, rest, False{})
-
-def submit_command_echo.connect(conn: Bool, +cl: Cl.Client, +net: NetState, +port: U32, cmd: Sub.Slash, +verb: String, +rest: String, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match conn:
-    case True{}: connect_apply(cl, net, port, Sub.connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest))
-    case False{}: submit_command_echo(cmd, cl, net, verb, rest, echo_ok)
-
-def submit_command.connect(conn: Bool, +cl: Cl.Client, +net: NetState, +port: U32, cmd: Sub.Slash, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
-  submit_command_echo.connect(conn, cl, net, port, cmd, verb, rest, False{})
-
 # ---- /history interception ----------------------------------------------
-# /history is a Session-owned catalog alias (like connect), intercepted on
-# the LIVE submit path: fetch subcommands need a connection and the
+# /history is a Session-owned catalog constructor (like connect), intercepted
+# on the LIVE submit path: fetch subcommands need a connection and the
 # negotiated chathistory flag, while search/page report live_only until the
 # live loop runs search_file and history_import_search. The negotiated flag
 # comes from the session's live history owner (shared CAP registry); the
@@ -686,102 +645,61 @@ def history_apply.offline(offline: Bool, +cl: Cl.Client, +rest: String, +negotia
 def history_apply(+cl: Cl.Client, +net: NetState, +rest: String, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   history_apply.offline(Hs.history_needs_connection(rest) && Bool.not(can_send(net)), cl, rest, negotiated)
 
-def submit_input_echo.hist(hist: Bool, +cmd: Sub.Slash, +verb: String, +rest: String, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match hist:
-    case True{}: history_apply(cl, net, rest, negotiated)
-    case False{}: submit_command_echo.connect(Irc.ieq(verb, "connect") || Irc.ieq(verb, "reconnect"), cl, net, port, cmd, verb, rest, echo_ok)
+def submit_send_ctx.iso(iso: Maybe<&2, Isupport.State>, +cl: Cl.Client, +input: Sub.Input, online: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
+  match iso:
+    case None{}: submit_send_echo(cl, input, online, echo_ok)
+    case Some{+s}: submit_send_with_echo(s, cl, input, online, echo_ok)
 
-def submit_input.hist(hist: Bool, +cmd: Sub.Slash, +verb: String, +rest: String, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_input_echo.hist(hist, cmd, verb, rest, cl, net, port, negotiated, False{})
+def submit_send_ctx(ctx: Sub.SubmitCtx, +cl: Cl.Client, +input: Sub.Input, online: Bool) -> Cl.Client & String & NetCmd:
+  match ctx:
+    case Sub.SubmitCtx{iso, +echo_ok}: submit_send_ctx.iso(iso, cl, input, online, echo_ok)
 
-def submit_input_echo(input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
+# Session verbs are catalog constructors. Connect and history never reach the
+# wire submitter; open stays local even when the negotiated path is on.
+def submit_input_ctx.cmd(ctx: Sub.SubmitCtx, cmd: Sub.Slash, +verb: String, +rest: String, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
+  match cmd:
+    case Sub.History{}: history_apply(cl, net, rest, negotiated)
+    case Sub.Connect{}: connect_apply(cl, net, port, Sub.connect_from_input.verb(False{}, rest))
+    case Sub.Reconnect{}: connect_apply(cl, net, port, Sub.connect_from_input.verb(True{}, rest))
+    case Sub.OpenCmd{}: open_apply.got(cl, Sub.open_resolve_target(cl, rest))
+    case _: submit_send_ctx(ctx, cl, Sub.CommandInput{cmd, verb, rest}, can_send(net))
+
+def submit_input_ctx(ctx: Sub.SubmitCtx, input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   match input:
     case Sub.CommandInput{+cmd, +verb, +rest}:
-      submit_input_echo.hist(Irc.ieq(verb, "history"), cmd, verb, rest, cl, net, port, negotiated, echo_ok)
+      submit_input_ctx.cmd(ctx, cmd, verb, rest, cl, net, port, negotiated)
     case _:
-      submit_send_echo(cl, input, can_send(net), echo_ok)
+      submit_send_ctx(ctx, cl, input, can_send(net))
+
+def submit_input_echo(input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
+  submit_input_ctx(Sub.submit_ctx_plain(echo_ok), input, cl, net, port, negotiated)
 
 def submit_input(input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   submit_input_echo(input, cl, net, port, negotiated, False{})
 
-def submit_command_with_echo(cmd: Sub.Slash, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +verb: String, +rest: String, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match cmd:
-    case Sub.OpenCmd{}: open_apply.got(cl, Sub.open_resolve_target(cl, rest))
-    case _: submit_send_with_echo(iso, cl, Sub.CommandInput{cmd, verb, rest}, can_send(net), echo_ok)
-
-def submit_command_with(cmd: Sub.Slash, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
-  submit_command_with_echo(cmd, iso, cl, net, verb, rest, False{})
-
-def submit_command_with_echo.connect(conn: Bool, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, cmd: Sub.Slash, +verb: String, +rest: String, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match conn:
-    case True{}: connect_apply(cl, net, port, Sub.connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest))
-    case False{}: submit_command_with_echo(cmd, iso, cl, net, verb, rest, echo_ok)
-
-def submit_command_with.connect(conn: Bool, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, cmd: Sub.Slash, +verb: String, +rest: String) -> Cl.Client & String & NetCmd:
-  submit_command_with_echo.connect(conn, iso, cl, net, port, cmd, verb, rest, False{})
-
-# Negotiated submit (I2+H5): the iso path also intercepts /history through
-# the shared history owner, so the dynamic key path and the plain key path
-# share one history policy. History verbs never reach submit_send_with.
-def submit_input_with_echo.hist(hist: Bool, +cmd: Sub.Slash, +verb: String, +rest: String, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match hist:
-    case True{}: history_apply(cl, net, rest, negotiated)
-    case False{}: submit_command_with_echo.connect(Irc.ieq(verb, "connect") || Irc.ieq(verb, "reconnect"), iso, cl, net, port, cmd, verb, rest, echo_ok)
-
-def submit_input_with.hist(hist: Bool, +cmd: Sub.Slash, +verb: String, +rest: String, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_input_with_echo.hist(hist, cmd, verb, rest, iso, cl, net, port, negotiated, False{})
-
 def submit_input_with_echo(input: Sub.Input, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match input:
-    case Sub.CommandInput{cmd, +verb, +rest}:
-      submit_input_with_echo.hist(Irc.ieq(verb, "history"), cmd, verb, rest, iso, cl, net, port, negotiated, echo_ok)
-    case _:
-      submit_send_with_echo(iso, cl, input, can_send(net), echo_ok)
+  submit_input_ctx(Sub.submit_ctx_iso(iso, echo_ok), input, cl, net, port, negotiated)
 
-def submit_input_with(input: Sub.Input, +iso: Isupport.State, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_input_with_echo(input, iso, cl, net, port, negotiated, False{})
-
-def submit_pair_echo(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
+def apply_keys_ctx.enter(enter: Bool, ctx: Sub.SubmitCtx, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   match enter:
-    case False{}:
-      (cl, draft, Cont{Nil{}})
-    case True{}:
-      submit_input_echo(Sub.parse_input(draft), cl, net, port, negotiated, echo_ok)
+    case False{}: (cl, draft, Cont{Nil{}})
+    case True{}: submit_input_ctx(ctx, Sub.parse_input(draft), cl, net, port, negotiated)
 
-def submit_pair(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_pair_echo(cl, net, port, draft, enter, negotiated, False{})
-
-def submit_pair_with_echo(+iso: Isupport.State, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  match enter:
-    case False{}:
-      (cl, draft, Cont{Nil{}})
-    case True{}:
-      submit_input_with_echo(Sub.parse_input(draft), iso, cl, net, port, negotiated, echo_ok)
-
-def submit_pair_with(+iso: Isupport.State, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_pair_with_echo(iso, cl, net, port, draft, enter, negotiated, False{})
+def apply_keys_ctx(ctx: Sub.SubmitCtx, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
+  apply_keys_ctx.enter(enter, ctx, cl, net, port, draft, negotiated)
 
 def apply_keys_echo(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  submit_pair_echo(cl, net, port, draft, enter, negotiated, echo_ok)
+  apply_keys_ctx(Sub.submit_ctx_plain(echo_ok), cl, net, port, draft, enter, negotiated)
 
 def apply_keys(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   apply_keys_echo(cl, net, port, draft, enter, negotiated, False{})
 
-# Compat aliases over the live path (same entries the key loop calls).
+def apply_keys_with_echo(+iso: Isupport.State, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
+  apply_keys_ctx(Sub.submit_ctx_iso(iso, echo_ok), cl, net, port, draft, enter, negotiated)
+
+# Compat alias over the live path (same entry the key loop calls).
 def submit_input_hist(input: Sub.Input, +cl: Cl.Client, +net: NetState, +port: U32, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   submit_input(input, cl, net, port, negotiated)
-
-def submit_pair_hist(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  submit_pair(cl, net, port, draft, enter, negotiated)
-
-def apply_keys_hist(+cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  apply_keys(cl, net, port, draft, enter, negotiated)
-
-def apply_keys_with_echo(+iso: Isupport.State, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
-  submit_pair_with_echo(iso, cl, net, port, draft, enter, negotiated, echo_ok)
-
-def apply_keys_with(+iso: Isupport.State, +cl: Cl.Client, net: NetState, +port: U32, +draft: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd:
-  apply_keys_with_echo(iso, cl, net, port, draft, enter, negotiated, False{})
 
 def cmd_connect.got(triple: Cl.Client & String & NetCmd) -> NetCmd:
   match triple:
@@ -1141,12 +1059,6 @@ def click_hot(c: Maybe<&2, Nat>) -> Bool:
 
 def nat_hot(+n: Nat) -> Bool:
   Bool.not(Nat.is_eq(n, 0n))
-
-def keys_hot(+k: Keys) -> Bool:
-  match k:
-    case Keys{+typed, enter, tab, click, +up, +dn, hist, comp, focus}:
-      Bool.or(Bool.not(String.is_empty(typed)), Bool.or(enter, Bool.or(tab_hot(tab), Bool.or(click_hot(click), Bool.or(nat_hot(up), Bool.or(nat_hot(dn), Bool.or(hist_hot(hist), Bool.or(comp, Bool.not(U32.is_zero(focus))))))))))
-
 
 def hist_after_enter(+h: Hist, +line: String, enter: Bool) -> Hist:
   match enter:
@@ -1551,18 +1463,6 @@ def session_redact(+s: Session, +target: String, +flags: String, +args: List<&2,
   match s:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: Isupport.redact_params(unbox_iso(isobox), target, flags, args)
 
-def session_mode_class(+s: Session, +mode: Char) -> Isupport.ModeClass:
-  match s:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: Isupport.mode_class(unbox_iso(isobox), mode)
-
-def session_takes_arg(+s: Session, +mode: Char, +adding: Bool) -> Bool:
-  match s:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: Isupport.takes_arg(unbox_iso(isobox), mode, adding)
-
-def session_redact_line(+s: Session, +line: String) -> List<&2, String>:
-  match s:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: Isupport.redact_line(unbox_iso(isobox), line)
-
 def session_chan_target(+s: Session, +t: String) -> String:
   match s:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: Isupport.chan_target_cl(unbox_iso(isobox), cl, t)
@@ -1758,9 +1658,6 @@ def unbox_hist_live(+xs: List<&2, Hs.HistLive>) -> Hs.HistLive:
 def session_hist_live(st: Session) -> Hs.HistLive:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +hlbox, _, _, _, labelsbox, +pends}: unbox_hist_live(hlbox)
-
-def session_hist_batch(+st: Session) -> Hs.ChatBatch:
-  Hs.hist_live_batch(session_hist_live(st))
 
 def session_negotiated(+st: Session) -> Bool:
   Hs.hist_live_negotiated(session_hist_live(st))
@@ -2421,11 +2318,6 @@ def size_eq(a: Size, b: Size) -> Bool:
         case Size{br, bc}:
           U32.is_eq(ar, br) && U32.is_eq(ac, bc)
 
-def session_nick(+st: Session) -> String:
-  match st:
-    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
-      Cl.nick_of(cl)
-
 def session_port(+st: Session) -> U32:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, port, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: port
@@ -2825,129 +2717,67 @@ def submit_follow.got(
     case (+cl2, draft2, cmd):
       (cl2, draft2, cmd, Sp.follow_active(cl2, split))
 
-def submit_or_split_echo.cmd(
+# Pane verbs are catalog constructors. Argument policy stays in Sp.parse_split_arg
+# (protocol-style remainder); the verb itself is not scanned again.
+def split_command(cmd: Sub.Slash, +rest: String) -> Sp.Command:
+  match cmd:
+    case Sub.Split{}: Sp.parse_split_arg(Irc.take_until_space(Irc.drop_spaces(rest)))
+    case Sub.VSplit{}: Sp.SplitOpen{Sp.SideBySide{}, Irc.drop_spaces(rest)}
+    case Sub.SplitOff{}: Sp.SplitClose{}
+    case Sub.Unsplit{}: Sp.SplitClose{}
+    case Sub.Focus{}: Sp.SplitFocus{}
+    case _: Sp.NotSplit{}
+
+def split_of_input(input: Sub.Input) -> Sp.Command:
+  match input:
+    case Sub.CommandInput{cmd, _, +rest}: split_command(cmd, rest)
+    case _: Sp.NotSplit{}
+
+def submit_or_split.cmd(
+  ctx: Sub.SubmitCtx,
   cmd: Sp.Command,
   +cl: Cl.Client,
   split: Sp.State,
   net: NetState,
   +port: U32,
-  +typed: String,
-  +negotiated: Bool,
-  +echo_ok: Bool
+  input: Sub.Input,
+  +negotiated: Bool
 ) -> Cl.Client & String & NetCmd & Sp.State:
   match cmd:
     case Sp.NotSplit{}:
-      submit_follow.got(apply_keys_echo(cl, net, port, typed, True{}, negotiated, echo_ok), split)
+      submit_follow.got(submit_input_ctx(ctx, input, cl, net, port, negotiated), split)
     case _:
       split_apply(cl, split, cmd)
-
-def submit_or_split.cmd(
-  cmd: Sp.Command,
-  +cl: Cl.Client,
-  split: Sp.State,
-  net: NetState,
-  +port: U32,
-  +typed: String,
-  +negotiated: Bool
-) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_echo.cmd(cmd, cl, split, net, port, typed, negotiated, False{})
-
-def submit_or_split_echo.enter(
-  enter: Bool,
-  +cl: Cl.Client,
-  split: Sp.State,
-  net: NetState,
-  +port: U32,
-  +typed: String,
-  +negotiated: Bool,
-  +echo_ok: Bool
-) -> Cl.Client & String & NetCmd & Sp.State:
-  match enter:
-    case False{}:
-      (cl, typed, Cont{Nil{}}, split)
-    case True{}:
-      submit_or_split_echo.cmd(Sp.parse(typed), cl, split, net, port, typed, negotiated, echo_ok)
 
 def submit_or_split.enter(
   enter: Bool,
-  +cl: Cl.Client,
-  split: Sp.State,
-  net: NetState,
-  +port: U32,
-  +typed: String,
-  +negotiated: Bool
-) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_echo.enter(enter, cl, split, net, port, typed, negotiated, False{})
-
-def submit_or_split_echo(+cl: Cl.Client, split: Sp.State, net: NetState, +port: U32, +typed: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_echo.enter(enter, cl, split, net, port, typed, negotiated, echo_ok)
-
-def submit_or_split(+cl: Cl.Client, split: Sp.State, net: NetState, +port: U32, +typed: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_echo(cl, split, net, port, typed, enter, negotiated, False{})
-
-def submit_or_split_with_echo.cmd(
-  cmd: Sp.Command,
-  +iso: Isupport.State,
+  ctx: Sub.SubmitCtx,
   +cl: Cl.Client,
   split: Sp.State,
   net: NetState,
   +port: U32,
   +typed: String,
   +negotiated: Bool,
-  +echo_ok: Bool
-) -> Cl.Client & String & NetCmd & Sp.State:
-  match cmd:
-    case Sp.NotSplit{}:
-      submit_follow.got(apply_keys_with_echo(iso, cl, net, port, typed, True{}, negotiated, echo_ok), split)
-    case _:
-      split_apply(cl, split, cmd)
-
-def submit_or_split_with.cmd(
-  cmd: Sp.Command,
-  +iso: Isupport.State,
-  +cl: Cl.Client,
-  split: Sp.State,
-  net: NetState,
-  +port: U32,
-  +typed: String,
-  +negotiated: Bool
-) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_with_echo.cmd(cmd, iso, cl, split, net, port, typed, negotiated, False{})
-
-def submit_or_split_with_echo.enter(
-  enter: Bool,
-  +iso: Isupport.State,
-  +cl: Cl.Client,
-  split: Sp.State,
-  net: NetState,
-  +port: U32,
-  +typed: String,
-  +negotiated: Bool,
-  +echo_ok: Bool
+  +input: Sub.Input
 ) -> Cl.Client & String & NetCmd & Sp.State:
   match enter:
     case False{}:
       (cl, typed, Cont{Nil{}}, split)
     case True{}:
-      submit_or_split_with_echo.cmd(Sp.parse(typed), iso, cl, split, net, port, typed, negotiated, echo_ok)
+      submit_or_split.cmd(ctx, split_of_input(input), cl, split, net, port, input, negotiated)
 
-def submit_or_split_with.enter(
-  enter: Bool,
-  +iso: Isupport.State,
+def submit_or_split(
+  ctx: Sub.SubmitCtx,
   +cl: Cl.Client,
   split: Sp.State,
   net: NetState,
   +port: U32,
   +typed: String,
-  +negotiated: Bool
+  enter: Bool,
+  +negotiated: Bool,
+  input: Sub.Input
 ) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_with_echo.enter(enter, iso, cl, split, net, port, typed, negotiated, False{})
-
-def submit_or_split_with_echo(+iso: Isupport.State, +cl: Cl.Client, split: Sp.State, net: NetState, +port: U32, +typed: String, enter: Bool, +negotiated: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_with_echo.enter(enter, iso, cl, split, net, port, typed, negotiated, echo_ok)
-
-def submit_or_split_with(+iso: Isupport.State, +cl: Cl.Client, split: Sp.State, net: NetState, +port: U32, +typed: String, enter: Bool, +negotiated: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split_with_echo(iso, cl, split, net, port, typed, enter, negotiated, False{})
+  submit_or_split.enter(enter, ctx, cl, split, net, port, typed, negotiated, input)
 
 def session_typing(+st: Session) -> Ty.State:
   match st:
@@ -3466,22 +3296,42 @@ def session_submit_needs_dynamic.some(+st: Session, got: Maybe<&2, String>) -> B
 def session_submit_needs_dynamic(+st: Session, +typed: String) -> Bool:
   session_submit_needs_dynamic.some(st, session_submit_target(typed))
 
-def step_keys.base.submit(+st: Session, +keys: Keys, +hist2: Hist, dyn: Bool) -> Session & NetCmd & Bool:
+def step_keys.parsed(enter: Bool, +typed: String) -> Sub.Input:
+  match enter:
+    case False{}: Sub.EmptyInput{}
+    case True{}: Sub.parse_input(typed)
+
+def step_keys.base.ctx(dyn: Bool, +iso: Isupport.State, +echo_ok: Bool) -> Sub.SubmitCtx:
+  match dyn:
+    case True{}: Sub.submit_ctx_iso(iso, echo_ok)
+    case False{}: Sub.submit_ctx_plain(echo_ok)
+
+def step_keys.base.keep(enter: Bool, +iso: Isupport.State, +cl: Cl.Client, input: Sub.Input) -> Bool:
+  match enter:
+    case False{}: False{}
+    case True{}: Bool.not(Sub.input_sensitive_iso.parsed(iso, cl, input))
+
+def step_keys.base.dyn(enter: Bool, +st: Session, input: Sub.Input) -> Bool:
+  match enter:
+    case False{}: False{}
+    case True{}: session_submit_needs_dynamic.some(st, session_submit_target.parsed(input))
+
+def step_keys.base.submit(+st: Session, +keys: Keys, +hist2: Hist, dyn: Bool, input: Sub.Input) -> Session & NetCmd & Bool:
   match st:
     case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
-          match dyn:
-            case True{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split_with_echo(unbox_iso(iso), cl, split, net, port, typed, enter, Hs.hist_live_negotiated(unbox_hist_live(hlbox)), CapNotify.reg_echo_ok(unbox_reg(regbox))), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme, labelsbox, pends)
-            case False{}: finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split_echo(cl, split, net, port, typed, enter, Hs.hist_live_negotiated(unbox_hist_live(hlbox)), CapNotify.reg_echo_ok(unbox_reg(regbox))), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme, labelsbox, pends)
+          +negotiated = Hs.hist_live_negotiated(unbox_hist_live(hlbox))
+          +echo_ok = CapNotify.reg_echo_ok(unbox_reg(regbox))
+          finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, submit_or_split(step_keys.base.ctx(dyn, unbox_iso(iso), echo_ok), cl, split, net, port, typed, enter, negotiated, input), unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme, labelsbox, pends)
 
-def step_keys.base(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
+def step_keys.base(+st: Session, +keys: Keys, +input: Sub.Input) -> Session & NetCmd & Bool:
   match st:
     case Session{+cl, drop, +rem, _, joined, +chan, net, +hist, size, _, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, _, _, _, labelsbox, +pends}:
       match keys:
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
-          +hist2 = hist_after_enter(hist, typed, enter && Bool.not(Sub.input_sensitive_iso(unbox_iso(iso), cl, typed)))
-          step_keys.base.submit(st, keys, hist2, enter && session_submit_needs_dynamic(st, typed))
+          +hist2 = hist_after_enter(hist, typed, step_keys.base.keep(enter, unbox_iso(iso), cl, input))
+          step_keys.base.submit(st, keys, hist2, step_keys.base.dyn(enter, st, input), input)
 
 def session_media(st: Session) -> M.State:
   match st:
@@ -3552,11 +3402,6 @@ def session_media_job_allowed.open(open: Bool, net: NetState) -> Bool:
 def session_media_job_allowed(+st: Session) -> Bool:
   session_media_job_allowed.open(C.is_open(C.maintain_full(session_full(st), session_media(st), session_cl(st))), session_net(st))
 
-def online_media(net: NetState) -> Bool:
-  match net:
-    case Online{}: True{}
-    case _: False{}
-
 def session_observe_media.after(+after: Nat, +st: Session) -> Session:
   session_set_media(st, M.maintain(session_media(st), session_cl(st)))
 
@@ -3612,9 +3457,7 @@ def session_accept_card_result(+st: Session, +generation: Nat, +ticket: Nat, +ur
       C.accept(unbox_cards(cf), cl, generation, ticket, url)
 
 def cards_job_net(net: NetState) -> Bool:
-  match net:
-    case Stopping{_}: False{}
-    case _: True{}
+  media_job_net(net)
 
 def session_cards_job_allowed.open(open: Bool, net: NetState) -> Bool:
   match open:
@@ -3683,10 +3526,10 @@ def media_intent.parsed(+st: Session, input: Sub.Input) -> Session:
       preview_intent.accepted(Bool.not(String.is_empty(source)) && M.alive(session_cl(st), M.Manual{}, source), st, source)
     case _: st
 
-def media_intent(enter: Bool, +st: Session, typed: String) -> Session:
+def media_intent(enter: Bool, +st: Session, input: Sub.Input) -> Session:
   match enter:
     case False{}: st
-    case True{}: media_intent.parsed(st, Sub.parse_input(typed))
+    case True{}: media_intent.parsed(st, input)
 
 def theme_intent.parsed(+st: Session, got: Maybe<&2, Theme.Id>) -> Session:
   match got:
@@ -3701,21 +3544,21 @@ def theme_session.parsed(+st: Session, input: Sub.Input) -> Session:
     case Sub.CommandInput{Sub.ThemeCmd{}, _, rest}: theme_intent(st, Irc.drop_spaces(rest))
     case _: st
 
-def theme_session(enter: Bool, +st: Session, typed: String) -> Session:
+def theme_session(enter: Bool, +st: Session, input: Sub.Input) -> Session:
   match enter:
     case False{}: st
-    case True{}: theme_session.parsed(st, Sub.parse_input(typed))
+    case True{}: theme_session.parsed(st, input)
 
 def session_paint_vm(+st: Session) -> View.ViewModel:
   match st:
     case Session{+cl, _, _, +draft, _, _, +net, _, Size{+rows, +cols}, _, _, split, +typing, _, +media, _, _, _, _, _, _, +theme, labelsbox, +pends}:
       View.view_draft.state_typing_media_themed(cl, rows, cols, draft, net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), Ty.names(typing, Cl.active_buf_name(cl)), split, unbox_media(media), theme, pends)
 
-def step_keys.intent(keys: Keys, +after: Nat, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
+def step_keys.intent(keys: Keys, +after: Nat, +input: Sub.Input, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
   match keys:
-    case Keys{+typed, +enter, _, _, _, _, _, _, _}:
+    case Keys{_, +enter, _, _, _, _, _, _, _}:
       match trip:
-        case (st, cmd, halt): (theme_session(enter, session_observe_cards(session_observe_media(media_intent(enter, st, typed), after)), typed), cmd, halt)
+        case (st, cmd, halt): (theme_session(enter, session_observe_cards(session_observe_media(media_intent(enter, st, input), after)), input), cmd, halt)
 
 def step_keys.plan.got(pair: JoinPlan.State & List<&2, String>, st: Session, halt: Bool) -> Session & NetCmd & Bool:
   match pair:
@@ -3739,15 +3582,15 @@ def local_plan.input(input: Sub.Input, cl: Cl.Client, st: Session) -> Session:
 
 # Local submission drops wire output. Reuse its validator against the prior
 # client to recover only accepted PART/close intent, never a guessed target.
-def local_plan.enter(local: Bool, +before: Session, st: Session, raw: String) -> Session:
+def local_plan.enter(local: Bool, +before: Session, st: Session, input: Sub.Input) -> Session:
   match local:
     case False{}: st
-    case True{}: local_plan.input(Sub.parse_input(raw), session_cl(before), st)
+    case True{}: local_plan.input(input, session_cl(before), st)
 
-def local_plan.keys(keys: Keys, +before: Session, st: Session) -> Session:
+def local_plan.keys(keys: Keys, +before: Session, st: Session, input: Sub.Input) -> Session:
   match keys:
-    case Keys{raw, enter, _, _, _, _, _, _, _}:
-      local_plan.enter(enter && Bool.not(can_send(session_net(before))), before, st, raw)
+    case Keys{_, enter, _, _, _, _, _, _, _}:
+      local_plan.enter(enter && Bool.not(can_send(session_net(before))), before, st, input)
 
 def step_keys.plan.admit(allowed: Bool, +before: Session, +st: Session, outs: List<&2, String>, halt: Bool) -> Session & NetCmd & Bool:
   match allowed:
@@ -3772,25 +3615,25 @@ def step_keys.plan.gated(cap_ok: Bool, +before: Session, +st: Session, +outs: Li
     case False{}: step_keys.plan.admit(False{}, before, st, outs, halt)
     case True{}: step_keys.plan.admit_iso(session_outs_admitted(st, outs), before, st, outs, halt)
 
-def step_keys.plan(+before: Session, keys: Keys, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
+def step_keys.plan(+before: Session, keys: Keys, trip: Session & NetCmd & Bool, input: Sub.Input) -> Session & NetCmd & Bool:
   match trip:
     case (+st, cmd, halt):
       match cmd:
         case Cont{+outs}:
-          +next = local_plan.keys(keys, before, st)
+          +next = local_plan.keys(keys, before, st, input)
           step_keys.plan.gated(JoinPlan.capacity_ok(outs, session_plan(next)), before, next, outs, halt)
         case _: (st, cmd, halt)
 
-def preference_enter(enter: Bool, st: Session, typed: String) -> Session:
+def preference_enter(enter: Bool, st: Session, input: Sub.Input) -> Session:
   match enter:
     case False{}: st
-    case True{}: session_preference_record(Sub.preference_intent(Sub.parse_input(typed)), st)
+    case True{}: session_preference_record(Sub.preference_intent(input), st)
 
-def step_keys.preferences(keys: Keys, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
+def step_keys.preferences(keys: Keys, input: Sub.Input, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
   match keys:
-    case Keys{typed, enter, _, _, _, _, _, _, _}:
+    case Keys{_, enter, _, _, _, _, _, _, _}:
       match trip:
-        case (st, cmd, halt): (preference_enter(enter, st, typed), cmd, halt)
+        case (st, cmd, halt): (preference_enter(enter, st, input), cmd, halt)
 
 # Session-owned multiline submit/history policy. The production key path
 # uses multiline_quad + hist_after_typed for RouteMulti; the supplied seam
@@ -3875,7 +3718,10 @@ def step_keys.supplied_finish(+st: Session, +keys: Keys, +hist2: Hist, quad: Cl.
       finish_keys(drop, rem, joined, chan, net, keys, hist2, size, comp, typing, port, quad, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), regbox, theme, labelsbox, pends)
 
 def step_keys.supplied_hooks(+st: Session, +keys: Keys, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
-  step_keys.preferences(keys, step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), step_keys.plan(st, keys, trip)))
+  match keys:
+    case Keys{+typed, enter, _, _, _, _, _, _, _}:
+      +input = step_keys.parsed(enter, typed)
+      step_keys.preferences(keys, input, step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), input, step_keys.plan(st, keys, trip, input)))
 
 def step_keys.supplied_normal(+st: Session, +keys: Keys, +hist2: Hist, quad: Cl.Client & String & NetCmd & Sp.State) -> Session & NetCmd & Bool:
   step_keys.supplied_hooks(st, keys, step_keys.supplied_finish(st, keys, hist2, quad))
@@ -3926,29 +3772,24 @@ def step_keys.history_req(req: Hs.HistoryRequest, +st: Session, +cmd: NetCmd, +h
     case Hs.ReqAround{+target, _, _}: step_keys.history_fetch(cmd, st, halt, target)
     case Hs.ReqBetween{+target, _, _, _}: step_keys.history_fetch(cmd, st, halt, target)
 
-def step_keys.history_verb(hist: Bool, +st: Session, +cmd: NetCmd, +halt: Bool, +rest: String) -> Session & NetCmd & Bool:
-  match hist:
-    case True{}: step_keys.history_req(Hs.parse_request(rest), st, cmd, halt)
-    case False{}: (st, cmd, halt)
-
 def step_keys.history_typed(+st: Session, +cmd: NetCmd, +halt: Bool, input: Sub.Input) -> Session & NetCmd & Bool:
   match input:
-    case Sub.CommandInput{_, +verb, +rest}: step_keys.history_verb(Irc.ieq(verb, "history"), st, cmd, halt, rest)
+    case Sub.CommandInput{Sub.History{}, _, +rest}: step_keys.history_req(Hs.parse_request(rest), st, cmd, halt)
     case _: (st, cmd, halt)
 
-def step_keys.history_enter(enter: Bool, +typed: String, +st: Session, +cmd: NetCmd, +halt: Bool) -> Session & NetCmd & Bool:
+def step_keys.history_enter(enter: Bool, +st: Session, +cmd: NetCmd, +halt: Bool, input: Sub.Input) -> Session & NetCmd & Bool:
   match enter:
-    case True{}: step_keys.history_typed(st, cmd, halt, Sub.parse_input(typed))
+    case True{}: step_keys.history_typed(st, cmd, halt, input)
     case False{}: (st, cmd, halt)
 
-def step_keys.history(keys: Keys, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
+def step_keys.history(keys: Keys, input: Sub.Input, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
   match keys:
-    case Keys{+typed, +enter, _, _, _, _, _, _, _}:
+    case Keys{_, +enter, _, _, _, _, _, _, _}:
       match trip:
-        case (st, cmd, halt): step_keys.history_enter(enter, typed, st, cmd, halt)
+        case (st, cmd, halt): step_keys.history_enter(enter, st, cmd, halt, input)
 
-def step_keys.normal(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
-  step_keys.preferences(keys, step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), step_keys.history(keys, step_keys.plan(st, keys, step_keys.base(st, keys)))))
+def step_keys.normal(+st: Session, +keys: Keys, +input: Sub.Input) -> Session & NetCmd & Bool:
+  step_keys.preferences(keys, input, step_keys.intent(keys, Cl.log_seq_of(session_cl(st)), input, step_keys.history(keys, input, step_keys.plan(st, keys, step_keys.base(st, keys, input), input))))
 
 def step_keys.upload_restore(trip: Session & NetCmd & Bool, state: Up.State, presented: Bool) -> Session & NetCmd & Bool:
   match trip:
@@ -3969,7 +3810,7 @@ def keys_without_enter(keys: Keys) -> Keys:
 # Finish with the original keys so navigation/completion see the real frame.
 # Command hooks must not reinterpret a rejected multiline block as a single
 # slash command. Accepted chat wires still update the plan through outbound.
-def step_keys.ordinary_route(route: Drafts.Route, +st: Session, +keys: Keys, +typed: String) -> Session & NetCmd & Bool:
+def step_keys.ordinary_route(route: Drafts.Route, +st: Session, +keys: Keys, +typed: String, input: Sub.Input) -> Session & NetCmd & Bool:
   match route:
     case Drafts.RouteMulti{_}:
       +cl = session_cl(st)
@@ -3977,20 +3818,20 @@ def step_keys.ordinary_route(route: Drafts.Route, +st: Session, +keys: Keys, +ty
       +hist2 = hist_after_typed(session_hist(st), cl, Sp.name_at(cl, bi), typed, session_iso(st))
       trip = step_keys.supplied_finish(st, keys, hist2, multiline_quad_echo(cl, session_split(st), typed, session_net(st), session_echo_ok(st)))
       step_keys.supplied_hooks(st, keys_without_enter(keys), step_keys.multiline_done(trip))
-    case _: step_keys.normal(st, keys)
+    case _: step_keys.normal(st, keys, input)
 
-def step_keys.ordinary_enter(enter: Bool, +st: Session, +keys: Keys, +typed: String) -> Session & NetCmd & Bool:
+def step_keys.ordinary_enter(enter: Bool, +st: Session, +keys: Keys, +typed: String, input: Sub.Input) -> Session & NetCmd & Bool:
   match enter:
-    case False{}: step_keys.normal(st, keys)
-    case True{}: step_keys.ordinary_route(Drafts.route(typed), st, keys, typed)
+    case False{}: step_keys.normal(st, keys, Sub.EmptyInput{})
+    case True{}: step_keys.ordinary_route(Drafts.route(typed), st, keys, typed, input)
 
-def step_keys.ordinary_keys(+st: Session, +keys: Keys) -> Session & NetCmd & Bool:
+def step_keys.ordinary_keys(+st: Session, +keys: Keys, input: Sub.Input) -> Session & NetCmd & Bool:
   match keys:
     case Keys{+typed, enter, _, _, _, _, _, _, _}:
-      step_keys.ordinary_enter(enter, st, keys, typed)
+      step_keys.ordinary_enter(enter, st, keys, typed, input)
 
-def step_keys.ordinary(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
-  step_keys.upload_restore(step_keys.ordinary_keys(session_set_upload(st, Up.empty()), keys), session_upload(st), session_upload_presented(st))
+def step_keys.ordinary(+st: Session, keys: Keys, input: Sub.Input) -> Session & NetCmd & Bool:
+  step_keys.upload_restore(step_keys.ordinary_keys(session_set_upload(st, Up.empty()), keys, input), session_upload(st), session_upload_presented(st))
 
 # Supplied-submit seam: complete an explicit history + submit quad while
 # clearing/restoring upload ownership across the step. Production key callers
@@ -4077,16 +3918,15 @@ def upload_input.unknown(command: Bool, +raw: String) -> UploadInput:
 def upload_input.parsed(input: Sub.Input, +raw: String) -> UploadInput:
   match input:
     case Sub.CommandInput{Sub.UploadCmd{}, _, rest}: upload_input.paths(Up.parse_paths(rest, False{}), True{}, raw)
-    case Sub.CommandInput{Sub.Unknown{}, +verb, _}: upload_input.unknown(Sub.slash_known(verb) || Bool.not(upload_input.path_verb(verb)), raw)
+    # Unknown is only a verb absent from the catalog, so it is not a command alias.
+    case Sub.CommandInput{Sub.Unknown{}, +verb, _}: upload_input.unknown(Bool.not(upload_input.path_verb(verb)), raw)
     case Sub.PlainInput{_}: upload_input.paths(Up.parse_paths(raw, True{}), False{}, raw)
     case _: NotUpload{}
 
-def upload_input(keys: Keys) -> UploadInput:
-  match keys:
-    case Keys{+typed, enter, _, _, _, _, _, _, _}:
-      match enter:
-        case False{}: NotUpload{}
-        case True{}: upload_input.parsed(Sub.parse_input(typed), typed)
+def upload_input.enter(enter: Bool, input: Sub.Input, +raw: String) -> UploadInput:
+  match enter:
+    case False{}: NotUpload{}
+    case True{}: upload_input.parsed(input, raw)
 
 def step_keys.upload_offer.busy(busy: Bool, +st: Session, paths: List<&2, String>) -> Session & NetCmd & Bool:
   match busy:
@@ -4096,19 +3936,29 @@ def step_keys.upload_offer.busy(busy: Bool, +st: Session, paths: List<&2, String
       +next = session_upload_draft(session_set_upload(st, state), "", 1)
       (Bool.pick(Session, Up.pending(state), next, session_error(next, "upload requires an online chat target")), Cont{Nil{}}, False{})
 
-def step_keys.upload_input(input: UploadInput, +st: Session, keys: Keys) -> Session & NetCmd & Bool:
+def step_keys.upload_input(input: UploadInput, +st: Session, keys: Keys, parsed: Sub.Input) -> Session & NetCmd & Bool:
   match input:
-    case NotUpload{}: step_keys.ordinary(st, keys)
+    case NotUpload{}: step_keys.ordinary(st, keys, parsed)
     case UploadBad{}: (session_error(session_upload_draft(st, "", 1), "usage: /upload <local-path>"), Cont{Nil{}}, False{})
     case UploadPaths{paths}: step_keys.upload_offer.busy(Up.active(session_upload(st)), st, paths)
+
+def step_keys.upload_modal.go(enter: Bool, +st: Session, +keys: Keys, +typed: String) -> Session & NetCmd & Bool:
+  match enter:
+    case False{}: step_keys.ordinary(st, keys, Sub.EmptyInput{})
+    case True{}:
+      +parsed = Sub.parse_input(typed)
+      step_keys.upload_input(upload_input.enter(True{}, parsed, typed), st, keys, parsed)
 
 def step_keys.upload_modal(pending: Bool, +st: Session, +keys: Keys) -> Session & NetCmd & Bool:
   match pending:
     case True{}:
       match keys:
         case Keys{_, enter, _, _, _, _, _, _, _}:
-          step_keys.upload_blocked(step_keys.ordinary(st, upload_modal_keys(keys)), enter)
-    case False{}: step_keys.upload_input(upload_input(keys), st, keys)
+          step_keys.upload_blocked(step_keys.ordinary(st, upload_modal_keys(keys), Sub.EmptyInput{}), enter)
+    case False{}:
+      match keys:
+        case Keys{+typed, enter, _, _, _, _, _, _, _}:
+          step_keys.upload_modal.go(enter, st, keys, typed)
 
 def step_keys(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
   +next = session_upload_maintain(st)
@@ -4731,9 +4581,6 @@ def notify_observe(+st: Notify.State, +cl: Cl.Client, +scope: String, +cutoff: N
   notify_dispatch(st, notify_collect(cl, scope, cutoff), user, pass)
 
 # History cutoff without notifying: mark restored rows as seen before live dispatch.
-def notify_seed(+st: Notify.State, +scope: String, +hi: Nat) -> Notify.State:
-  Notify.seed(st, scope, hi)
-
 # Post-restore seed: MUST take the final imported client. Import assigns fresh
 # ids after all current local events (plus dividers), so only the final
 # log_seq covers every restored row. Seeding with the pre-import or snapshot
@@ -4825,9 +4672,6 @@ def notify_observe_session_staged(+st: Notify.State, +sess: Session, +floor: Nat
   match sess:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, labelsbox, +pends}:
       Notify.stage(st, notify_collect(cl, notify_scope_of(sess), floor), Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl), q, floor)
-
-def notify_collect_claimed(+cl: Cl.Client, +scope: String, +cutoff: Nat, +claimed: List<&2, Nat>) -> List<&2, Notify.NotifyEvent>:
-  Notify.claimed_filter(notify_collect(cl, scope, cutoff), claimed)
 
 # Real archive-claim producer (gate a, lossless owner): after an install, every
 # NOTIFY-WORTHY row (mention or DM, same predicates as notify_collect) above
