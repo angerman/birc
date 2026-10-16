@@ -700,6 +700,12 @@ def dial_dual.v6dialed(
     case Fail{_}:
       dial_dual.v4wanted(host, port, timeout)
 
+# First-family attempt budget (RFC 8305 connection-attempt delay): a v6 TCP
+# dial that cannot complete in 250ms falls back to v4 instead of burning the
+# full timeout on a blackholed v6 path. v4 keeps the caller's timeout.
+def v6_attempt_ms() -> U32:
+  250
+
 def dial_dual.v6known(
   r6: Result<&1, &1, U32 & String, String>,
   +host: String,
@@ -709,7 +715,7 @@ def dial_dual.v6known(
   match r6:
     case Done{+ip6}:
       do IO<Result<&1, &1, U32 & String, Socket & String>>:
-        cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ip6, port, timeout)
+        cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ip6, port, v6_attempt_ms())
         dial_dual.v6dialed(cr, host, port, timeout, ip6)
     case Fail{_}:
       dial_dual.v4wanted(host, port, timeout)
@@ -754,7 +760,7 @@ def dial_dual_at.v6known(
   match r6:
     case Done{+ip6}:
       do IO<Result<&1, &1, U32 & String, Socket & String>>:
-        cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ip6, port, timeout)
+        cr : Result<&1, &1, U32 & String, Socket> <- TCP.connect_for(ip6, port, v6_attempt_ms())
         dial_dual_at.v6dialed(cr, host, ns, dport, port, timeout, ip6)
     case Fail{_}:
       dial_dual_at.v4wanted(host, ns, dport, port, timeout)

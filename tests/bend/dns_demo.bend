@@ -325,6 +325,7 @@ def check_enc_edns_r(r: Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Unit)
 
 def main() -> IO(Unit):
   do IO<Unit>:
+    Unit <- E.must_eq("v6_attempt_ms", U32.show(Dns.v6_attempt_ms()), "250")
     Unit <- E.must("ipv4 127", Wire.is_ipv4("127.0.0.1"))
     Unit <- E.must("ipv4 1.1", Wire.is_ipv4("1.1.1.1"))
     Unit <- E.must("ipv4 zero", Wire.is_ipv4("0.0.0.0"))
