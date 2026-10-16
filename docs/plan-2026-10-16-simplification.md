@@ -196,6 +196,68 @@ facts:**
 `make test-nix-preflight`, and an end-to-end exercise of the `BIRC_UI_CACHE`
 restore-hit and store paths — only `build-ui-cache.sh key` was verified.
 
+*Both subsequently closed.* `test-nix-preflight` **failed** on merged master: the
+new `build/%.bend.d` recipes called `sh scripts/bend-deps.sh` directly, which execs
+`python3`, and `tests/nix_preflight.py:22` shadows `python3` with a shim that
+`exit 77`s so no recipe can reach for an ambient interpreter. Fixed in `badce91` by
+routing the three closure recipes through `$(NIXRUN)` like every other recipe in
+the file; `nix_preflight=ok`. The UI cache measured **3:22.68 cold → 1.919 s warm**
+on the lane, identical 11,499,208-byte `birc` — a 105× win on the project's
+slowest artifact.
+
+---
+
+## Proof cannot be sharded — measured, not assumed
+
+`make proof` **fails at its default `PROOF_TIMEOUT=180` even on a quiet host.**
+Measured on `aarch64-darwin-1.lan` at load 0.98, master `c33a3d2`:
+
+```
+proof_rc=2
+make: *** [proof] Error 124
+MAKEFLAGS=-j1 make proof  208.99s user 138.04s system 181% cpu 3:11.61 total
+```
+
+Error 124 is `timeout` expiring. This is pre-existing, not a regression — it is why
+`74d344a` is titled *"docs: record proof-600 timeout, C8/G6 unqualified"* and why
+`TODO.md:53` still reads *"Locate the remaining full-book cost; the bounded 535-law
+run has no verdict."* **`make check` includes `proof`, so `make check` is red on
+master today.**
+
+**Sharding is impossible.** A probe discharged 25 of the 535 `def Laws.*` blocks
+into a standalone file with `PROOF.bend`'s own 19-line import header, and Bend
+rejected it:
+
+```
+shard_rc=1
+SOME PROOFS FAIL
+Error: 510 TODOs found.
+The code is incomplete, and not a valid proof yet.
+```
+
+535 − 25 = 510: **every undischarged law in the imported `LAWS.bend` counts as a
+TODO**, so the checker requires the whole book in one compilation unit. This
+answers the question `724de4d` left open (*"Wiring into make proof pending
+calm-host runs"*) — wiring was never possible, which is presumably why it never
+happened. Wave 0's deletion of the eight shards was correct, and there is no
+`scripts/split-proof.sh` worth writing.
+
+**Consequences for every remaining wave:**
+
+1. `make proof` is a **monolithic ~37,389-line closure compile** (`LAWS.bend`
+   imports 49 modules). It cannot be scoped to a diff.
+2. A task reporting a proof **timeout** has not necessarily broken anything.
+   Re-run serially on the quiet lane before believing either outcome.
+3. Use the documented override `make proof PROOF_TIMEOUT=<n>`; **never edit the
+   Makefile default** without a measured calm-host number to justify it.
+4. Gate waves on the **golden suites** (`test-goldens-proto` / `-view` / `-io`,
+   which do scope to the diff) and treat `proof` as a separate, serial,
+   lane-only check run once per wave rather than once per task.
+5. The only durable ways to make proof cheaper are to shrink what `LAWS.bend`
+   imports or to make the checker faster — neither is in scope here. Record this
+   as the answer to `TODO.md:53`.
+
+
 
 ---
 
