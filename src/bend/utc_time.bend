@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Strict UTC server-time input. Calendar conversion belongs to libc, not the
 # IRC parser; this module only validates and retains the complete event date.
+# valid is the sole calendar gate. clock_ffi converts a Valid date and does
+# not repeat these bounds.
 import Base
 import ./clock_fmt.bend as Fmt
 import ./irc.bend as Irc

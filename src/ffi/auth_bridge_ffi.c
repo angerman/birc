@@ -15,6 +15,64 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+/* Makefile links pass -I src/ffi, and a direct include of this file
+ * searches src/ffi for the sibling header. Bend's `bend -o` paste
+ * compiles a temporary translation unit with no -I, so that include
+ * is invisible there; the #else text is birc_utf8_valid.h unchanged. */
+#if __has_include("birc_utf8_valid.h")
+#include "birc_utf8_valid.h"
+#else
+/* Strict UTF-8 (RFC 3629). Rejects overlong encodings, UTF-16 surrogates
+ * (U+D800..U+DFFF), truncated sequences, and lead bytes outside
+ * 0x00..0x7F / 0xC2..0xF4. U+0000, CR, and LF are valid UTF-8; callers
+ * that forbid them apply that policy themselves. Empty input is valid.
+ * A null pointer is not. */
+#ifndef BIRC_UTF8_VALID_H
+#define BIRC_UTF8_VALID_H
+
+#include <stddef.h>
+
+static int birc_utf8_valid(const unsigned char *bytes, size_t size) {
+  size_t at = 0;
+  if (!bytes)
+    return 0;
+  while (at < size) {
+    unsigned int lead = bytes[at++];
+    unsigned int count;
+    unsigned int low = 0x80u;
+    unsigned int high = 0xbfu;
+    if (lead < 0x80u)
+      continue;
+    if (lead >= 0xc2u && lead <= 0xdfu)
+      count = 1u;
+    else if (lead >= 0xe0u && lead <= 0xefu) {
+      count = 2u;
+      if (lead == 0xe0u)
+        low = 0xa0u;
+      if (lead == 0xedu)
+        high = 0x9fu;
+    } else if (lead >= 0xf0u && lead <= 0xf4u) {
+      count = 3u;
+      if (lead == 0xf0u)
+        low = 0x90u;
+      if (lead == 0xf4u)
+        high = 0x8fu;
+    } else
+      return 0;
+    if (size - at < count || bytes[at] < low || bytes[at] > high)
+      return 0;
+    ++at;
+    while (--count > 0u) {
+      if (bytes[at] < 0x80u || bytes[at] > 0xbfu)
+        return 0;
+      ++at;
+    }
+  }
+  return 1;
+}
+
+#endif /* BIRC_UTF8_VALID_H */
+#endif
 
 #define BIRC_SECRET_FD "BIRC_AUTH_SECRET_FD"
 #define BIRC_EVENT_FD "BIRC_AUTH_EVENT_FD"
@@ -39,33 +97,16 @@ static int birc_auth_pipe(int fd, int mode) {
       && (flags & O_ACCMODE) == mode;
 }
 
+/* Encoding is birc_utf8_valid. NUL, CR, LF, and an empty secret are
+ * credential policy on top of that. */
 static int birc_auth_utf8(const unsigned char *bytes, size_t size) {
-  size_t at = 0;
-  if (!bytes) return 0;
-  while (at < size) {
-    unsigned int lead = bytes[at++], count, low = 0x80u, high = 0xbfu;
-    if (lead < 0x80u) {
-      if (lead == 0u || lead == 10u || lead == 13u) return 0;
-      continue;
-    }
-    if (lead >= 0xc2u && lead <= 0xdfu) count = 1u;
-    else if (lead >= 0xe0u && lead <= 0xefu) {
-      count = 2u;
-      if (lead == 0xe0u) low = 0xa0u;
-      if (lead == 0xedu) high = 0x9fu;
-    } else if (lead >= 0xf0u && lead <= 0xf4u) {
-      count = 3u;
-      if (lead == 0xf0u) low = 0x90u;
-      if (lead == 0xf4u) high = 0x8fu;
-    } else return 0;
-    if (size - at < count || bytes[at] < low || bytes[at] > high) return 0;
-    ++at;
-    while (--count > 0u) {
-      if (bytes[at] < 0x80u || bytes[at] > 0xbfu) return 0;
-      ++at;
-    }
+  size_t at;
+  if (!birc_utf8_valid(bytes, size) || size == 0u) return 0;
+  for (at = 0; at < size; ++at) {
+    unsigned int lead = bytes[at];
+    if (lead == 0u || lead == 10u || lead == 13u) return 0;
   }
-  return size > 0u;
+  return 1;
 }
 
 static int64_t birc_auth_ms(void) {
