@@ -19,9 +19,7 @@ import html
 import importlib.util
 import os
 import re
-import signal
 import socket
-import stat
 import sys
 import time
 from pathlib import Path
@@ -68,66 +66,40 @@ def url_parts(url):
 def destination(url, resolver=socket.getaddrinfo):
     """HTTPS-only destination with the shared public-address checks."""
     scheme, host, port, path = url_parts(url)
-    addresses = resolver(host, port, type=socket.SOCK_STREAM)
-    if not addresses or any(not image.public_address(item[4][0]) for item in addresses):
-        raise CardError("card host must resolve only to public addresses")
-    return scheme, host, port, path, addresses
+    return image.cache.resolve_public(
+        scheme, host, port, path, resolver, image.public_address,
+        CardError("card host must resolve only to public addresses"))
+
+
+def _https_downgrade(scheme, target):
+    # Scheme prefix, not urlsplit: card redirects keep this check.
+    return scheme == "https" and target.split(":", 1)[0] != "https"
+
+
+def _html_type(content_type):
+    if content_type and not content_type.split(";", 1)[0].strip().lower() == "text/html":
+        return False
+    return True
 
 
 def fetch(url, deadline, resolver=socket.getaddrinfo, connection=None):
     """Mirror the image fetch policy with HTML bounds and content checks."""
     if connection is None:
         connection = image.PinnedHTTP
-    for redirect in range(REDIRECTS + 1):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise CardError("card fetch timed out")
-        scheme, host, port, path, addresses = destination(url, resolver)
-        client = connection(scheme, host, port, addresses, remaining)
-        try:
-            client.request("GET", path, headers={
-                "User-Agent": "birc-cards/1", "Accept": "text/html",
-                "Accept-Encoding": "identity", "Connection": "close",
-            })
-            response = client.getresponse()
-            if response.status in (301, 302, 303, 307, 308):
-                location = response.getheader("Location")
-                if not location or redirect == REDIRECTS:
-                    raise CardError("too many card redirects")
-                target = urljoin(url, location)
-                if scheme == "https" and target.split(":", 1)[0] != "https":
-                    raise CardError("card redirect cannot downgrade HTTPS")
-                url = target
-                continue
-            if response.status != 200:
-                raise CardError("card server returned an error")
-            if response.getheader("Content-Encoding", "identity").lower() != "identity":
-                raise CardError("compressed HTTP responses are not accepted")
-            content_type = response.getheader("Content-Type", "")
-            if content_type and not content_type.split(";", 1)[0].strip().lower() == "text/html":
-                raise CardError("card response is not HTML")
-            length = response.getheader("Content-Length")
-            if length is not None and (not length.isdecimal() or int(length) > MAX_HTML):
-                raise CardError("card page is too large")
-            data = bytearray()
-            while len(data) <= MAX_HTML:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise CardError("card fetch timed out")
-                if client.sock is not None:
-                    client.sock.settimeout(remaining)
-                chunk = response.read(min(65536, MAX_HTML + 1 - len(data)))
-                if not chunk:
-                    break
-                data.extend(chunk)
-            if len(data) > MAX_HTML:
-                raise CardError("card page is too large")
-            if length is not None and len(data) != int(length):
-                raise CardError("incomplete card download")
-            return bytes(data), url
-        finally:
-            client.close()
-    raise CardError("too many card redirects")
+    return image.cache.bounded_fetch(
+        url, deadline, resolve=lambda current: destination(current, resolver),
+        connection=connection, max_bytes=MAX_HTML, redirects=REDIRECTS,
+        headers={"User-Agent": "birc-cards/1", "Accept": "text/html",
+                 "Accept-Encoding": "identity", "Connection": "close"},
+        fail=CardError, timeout_msg="card fetch timed out",
+        redirect_msg="too many card redirects", downgrade=_https_downgrade,
+        downgrade_msg="card redirect cannot downgrade HTTPS",
+        status_msg="card server returned an error",
+        encoding_msg="compressed HTTP responses are not accepted",
+        large_msg="card page is too large",
+        incomplete_msg="incomplete card download",
+        content_ok=_html_type, type_msg="card response is not HTML",
+        return_final=True)
 
 
 def _open_cards(parent, create):
@@ -141,8 +113,8 @@ def _open_cards(parent, create):
     fd = os.open("cards", flags, dir_fd=parent)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o077):
+        # Cards subdirectory is 0700. Same mask as the image cache directory.
+        if not image.cache.trusted(info, kind="dir", mask=0o077, nlink=False):
             raise OSError("unsafe card cache directory")
     except (OSError, ValueError):
         try:
@@ -170,8 +142,7 @@ def cache_directory(create=False):
 
 
 def cache_name(url):
-    import hashlib
-    return hashlib.sha256(url.encode("utf-8")).hexdigest() + ".card"
+    return image.cache.payload_name(url, ".card")
 
 
 def cache_split(data):
@@ -193,40 +164,23 @@ def cache_split(data):
 
 def cache_read(url):
     directory = cache_directory()
-    fd = None
     if directory is None:
         return None
     try:
-        name = cache_name(url)
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                     dir_fd=directory)
-        info = os.fstat(fd)
-        image.cache_owned(info)
-        if not 0 < info.st_size <= MAX_HTML + MAX_BASE_BYTES + 1:
+        data = image.cache.read_cached(
+            directory, cache_name(url), MAX_HTML + MAX_BASE_BYTES + 1,
+            owned=image.cache_owned, identity_of=image.cache_identity)
+        if data is None:
             return None
-        os.fchmod(fd, 0o600)
-        info = os.fstat(fd)
-        data = bytearray()
-        while len(data) < info.st_size:
-            chunk = os.read(fd, min(65536, info.st_size - len(data)))
-            if not chunk:
-                return None
-            data.extend(chunk)
-        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        if (image.cache_identity(os.fstat(fd)) != image.cache_identity(info)
-                or image.cache_identity(current) != image.cache_identity(info)):
-            return None
-        html, base = cache_split(bytes(data))
+        html, base = cache_split(data)
         return html, base or url
     except (OSError, ValueError):
         return None
     finally:
-        for opened in (fd, directory):
-            if opened is not None:
-                try:
-                    os.close(opened)
-                except OSError:
-                    pass
+        try:
+            os.close(directory)
+        except OSError:
+            pass
 
 
 def image_usage(parent):
@@ -235,30 +189,8 @@ def image_usage(parent):
     Orphaned staging files count exactly like image.py's own scan: no live
     writer owns one while the shared lock is held.
     """
-    count = total = 0
-    try:
-        with os.scandir(parent) as scan:
-            for index, entry in enumerate(scan):
-                if index >= image.MAX_CACHE_SCAN:
-                    return None
-                name = entry.name
-                payload = (len(name) == 68 and name.endswith(".img")
-                           and all(c in "0123456789abcdef" for c in name[:64]))
-                staging = (len(name) == 35 and name.startswith(".write-")
-                           and name.endswith(".tmp")
-                           and all(c in "0123456789abcdef" for c in name[7:-4]))
-                if not payload and not staging:
-                    continue
-                try:
-                    info = entry.stat(follow_symlinks=False)
-                    image.cache_owned(info)
-                except OSError:
-                    return None
-                count += 1
-                total += info.st_size
-    except OSError:
-        return None
-    return count, total
+    return image.cache.usage_scan(parent, ".img", scan_limit=image.MAX_CACHE_SCAN,
+                                  owned=image.cache_owned)
 
 
 def cache_write(url, data, final=None):
@@ -273,8 +205,6 @@ def cache_write(url, data, final=None):
     subdirectory, the lock, and the usage scan to the same directory inode,
     so a path swap between opens cannot split accounting from the write.
     """
-    import fcntl
-    import secrets
     if final is None:
         final = url
     try:
@@ -285,8 +215,7 @@ def cache_write(url, data, final=None):
     if (not 0 < len(data) <= MAX_HTML or len(stored) > image.MAX_CACHE_BYTES
             or image.MAX_CACHE_ENTRIES < 1):
         return
-    parent = directory = lock = temporary_fd = None
-    temporary = None
+    parent = directory = lock = None
     try:
         # One shared lock on one retained parent fd: the cards directory,
         # the lock, and the usage scan all derive from this fd, so concurrent
@@ -295,11 +224,7 @@ def cache_write(url, data, final=None):
         if parent is None:
             return
         directory = _open_cards(parent, True)
-        lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
-                       | os.O_CLOEXEC, 0o600, dir_fd=parent)
-        image.cache_owned(os.fstat(lock))
-        os.fchmod(lock, 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock = image.cache.acquire_lock(parent, ".lock", owned=image.cache_owned)
         usage = image_usage(parent)
         if usage is None:
             return
@@ -307,69 +232,20 @@ def cache_write(url, data, final=None):
         if (img_count + 1 > image.MAX_CACHE_ENTRIES
                 or img_bytes + len(stored) > image.MAX_CACHE_BYTES):
             return
-        target = cache_name(url)
-        try:
-            previous = os.stat(target, dir_fd=directory, follow_symlinks=False)
-            image.cache_owned(previous)
-        except FileNotFoundError:
-            previous = None
-        entries = []
-        with os.scandir(directory) as scan:
-            for index, entry in enumerate(scan):
-                if index >= MAX_CACHE_SCAN:
-                    raise OSError("card cache scan limit")
-                name = entry.name
-                page = (len(name) == 69 and name.endswith(".card")
-                        and all(c in "0123456789abcdef" for c in name[:64]))
-                staging = (len(name) == 35 and name.startswith(".write-")
-                           and name.endswith(".tmp")
-                           and all(c in "0123456789abcdef" for c in name[7:-4]))
-                if not page and not staging:
-                    continue
-                info = entry.stat(follow_symlinks=False)
-                image.cache_owned(info)
-                if name == target:
-                    if previous is None or image.cache_identity(info) != image.cache_identity(previous):
-                        raise OSError("card cache changed")
-                    continue
-                entries.append((info.st_mtime_ns, name, info))
-        entries.sort(key=lambda item: (item[0], item[1]))
-        total = sum(item[2].st_size for item in entries)
-        while entries and (img_count + len(entries) + 1 > image.MAX_CACHE_ENTRIES
-                           or img_bytes + total + len(stored) > image.MAX_CACHE_BYTES):
-            _, name, info = entries.pop(0)
-            if image.cache_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) != image.cache_identity(info):
-                raise OSError("card cache changed")
-            os.unlink(name, dir_fd=directory)
-            total -= info.st_size
-        temporary = ".write-" + secrets.token_hex(12) + ".tmp"
-        temporary_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                               | os.O_CLOEXEC, 0o600, dir_fd=directory)
-        os.fchmod(temporary_fd, 0o600)
-        view = memoryview(stored)
-        while view:
-            count = os.write(temporary_fd, view)
-            if count <= 0:
-                raise OSError("short card cache write")
-            view = view[count:]
-        try:
-            current = os.stat(target, dir_fd=directory, follow_symlinks=False)
-        except FileNotFoundError:
-            current = None
-        if ((previous is None) != (current is None)
-                or (current is not None and image.cache_identity(current) != image.cache_identity(previous))):
-            raise OSError("card cache changed")
-        os.replace(temporary, target, src_dir_fd=directory, dst_dir_fd=directory)
-        temporary = None
+        image.cache.replace_fifo(
+            directory, cache_name(url), stored, suffix=".card",
+            scan_limit=MAX_CACHE_SCAN, max_entries=image.MAX_CACHE_ENTRIES,
+            max_bytes=image.MAX_CACHE_BYTES, other_count=img_count,
+            other_bytes=img_bytes, owned=image.cache_owned,
+            identity_of=image.cache_identity,
+            scan_error=lambda: OSError("card cache scan limit"),
+            changed=lambda: OSError("card cache changed"),
+            short_write=lambda: OSError("short card cache write"),
+            token=image.secrets.token_hex)
     except (OSError, ValueError):
         pass
     finally:
-        if temporary is not None and temporary_fd is not None and directory is not None:
-            try:
-                os.unlink(temporary, dir_fd=directory)
-            except OSError:
-                pass
-        for fd in (temporary_fd, lock, parent, directory):
+        for fd in (lock, parent, directory):
             if fd is not None:
                 try:
                     os.close(fd)
@@ -451,30 +327,21 @@ def encode_remote(url, deadline, resolver=socket.getaddrinfo, connection=None):
 
 
 def read_local(path):
-    """Only an explicit --local argument can enter this path."""
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-    try:
-        metadata = os.fstat(fd)
-        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= MAX_HTML:
-            raise CardError("local card page must be a bounded regular file")
-        data = bytearray()
-        while len(data) <= metadata.st_size:
-            chunk = os.read(fd, min(65536, metadata.st_size + 1 - len(data)))
-            if not chunk:
-                break
-            data.extend(chunk)
-        if len(data) != metadata.st_size:
-            raise CardError("local card page changed while reading")
-        return bytes(data)
-    finally:
-        os.close(fd)
+    """Only an explicit --local argument can enter this path.
+
+    nofollow=False: an explicit local path follows the caller's symlink.
+    Cache names do not.
+    """
+    return image.cache.read_regular(
+        path, MAX_HTML, nofollow=False,
+        reject_bound=lambda: CardError("local card page must be a bounded regular file"),
+        reject_short=lambda: CardError("local card page changed while reading"))
 
 
 def main(args):
     # Terminate in the kernel even if a decoder/DNS call cannot dispatch a
     # Python exception. Process.run observes failure and reaps this helper.
-    signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    signal.alarm(TIMEOUT)
+    image.cache.arm_deadline(TIMEOUT)
     if len(args) == 1:
         title, desc, thumbnail = encode_remote(args[0], time.monotonic() + TIMEOUT)
     elif len(args) == 2 and args[0] == "--local":

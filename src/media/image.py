@@ -8,9 +8,8 @@ Only validated public addresses are contacted, including after redirects.
 """
 
 import base64
-import fcntl
-import hashlib
 import http.client
+import importlib.util
 import io
 import ipaddress
 import os
@@ -18,14 +17,28 @@ import secrets
 import signal
 import socket
 import ssl
-import stat
 import struct
 import sys
 import time
 import warnings
-from urllib.parse import quote, urljoin, urlsplit
+from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 from PIL import Image, ImageOps, PngImagePlugin
+
+def _cache_path():
+    # A Nix helper that stores this file alone sets BIRC_CACHE_PY. The source
+    # tree and a directory bundle use the sibling.
+    override = os.environ.get("BIRC_CACHE_PY", "")
+    if override:
+        return Path(override)
+    return Path(__file__).with_name("_cache.py")
+
+
+# cards.py loads image.py by path and reuses this module object.
+_spec = importlib.util.spec_from_file_location("birc_cache", _cache_path())
+cache = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cache)
 
 MAX_DOWNLOAD = 8 * 1024 * 1024
 MAX_CACHE_ENTRIES = 64
@@ -86,10 +99,9 @@ def url_parts(url):
 
 def destination(url, resolver=socket.getaddrinfo):
     scheme, host, port, path = url_parts(url)
-    addresses = resolver(host, port, type=socket.SOCK_STREAM)
-    if not addresses or any(not public_address(item[4][0]) for item in addresses):
-        raise ImageError("image host must resolve only to public addresses")
-    return scheme, host, port, path, addresses
+    return cache.resolve_public(
+        scheme, host, port, path, resolver, public_address,
+        ImageError("image host must resolve only to public addresses"))
 
 
 def cache_directory(create=False):
@@ -119,8 +131,9 @@ def cache_directory(create=False):
             fd = os.open(component, flags, dir_fd=previous_fd)
             os.close(previous_fd)
         info = os.fstat(fd)
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o077):
+        # Image cache directory is 0700. mask 0o077: no group or other bits.
+        # Preferences directories use 0o022 instead; do not share a default.
+        if not cache.trusted(info, kind="dir", mask=0o077, nlink=False):
             raise OSError("unsafe image cache directory")
         return fd
     except (OSError, ValueError):
@@ -133,18 +146,19 @@ def cache_directory(create=False):
 
 
 def cache_owned(info):
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+    # mask=0: payload mode is repaired with fchmod 0600, not rejected here.
+    if not cache.trusted(info, kind="file", mask=0, nlink=True):
         raise OSError("unsafe image cache file")
 
 
 def cache_identity(info):
-    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    return cache.identity(info)
 
 
 def cache_name(url):
     # Names/side metadata never store the requested URL or chat metadata.
     # The validated image's original source bytes remain intact.
-    return hashlib.sha256(url.encode("utf-8")).hexdigest() + ".img"
+    return cache.payload_name(url, ".img")
 
 
 def cards_usage(directory):
@@ -162,30 +176,11 @@ def cards_usage(directory):
         except FileNotFoundError:
             return 0, 0
         info = os.fstat(subdir)
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o077):
+        # Cards subdirectory is 0700, same mask as the image cache directory.
+        if not cache.trusted(info, kind="dir", mask=0o077, nlink=False):
             return None
-        count = total = 0
-        with os.scandir(subdir) as scan:
-            for index, entry in enumerate(scan):
-                if index >= MAX_CACHE_SCAN:
-                    return None
-                name = entry.name
-                page = (len(name) == 69 and name.endswith(".card")
-                        and all(c in "0123456789abcdef" for c in name[:64]))
-                staging = (len(name) == 35 and name.startswith(".write-")
-                           and name.endswith(".tmp")
-                           and all(c in "0123456789abcdef" for c in name[7:-4]))
-                if not page and not staging:
-                    continue
-                try:
-                    entry_info = entry.stat(follow_symlinks=False)
-                    cache_owned(entry_info)
-                except OSError:
-                    return None
-                count += 1
-                total += entry_info.st_size
-        return count, total
+        return cache.usage_scan(subdir, ".card", scan_limit=MAX_CACHE_SCAN,
+                                owned=cache_owned)
     except OSError:
         return None
     finally:
@@ -198,38 +193,18 @@ def cards_usage(directory):
 
 def cache_read(url):
     directory = cache_directory()
-    fd = None
     if directory is None:
         return None
     try:
-        name = cache_name(url)
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                     dir_fd=directory)
-        info = os.fstat(fd)
-        cache_owned(info)
-        if not 0 < info.st_size <= MAX_DOWNLOAD:
-            return None
-        os.fchmod(fd, 0o600)
-        info = os.fstat(fd)
-        data = bytearray()
-        while len(data) < info.st_size:
-            chunk = os.read(fd, min(65536, info.st_size - len(data)))
-            if not chunk:
-                return None
-            data.extend(chunk)
-        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        if cache_identity(os.fstat(fd)) != cache_identity(info) or cache_identity(current) != cache_identity(info):
-            return None
-        return bytes(data)
+        return cache.read_cached(directory, cache_name(url), MAX_DOWNLOAD,
+                                 owned=cache_owned, identity_of=cache_identity)
     except (OSError, ValueError):
         return None
     finally:
-        for opened in (fd, directory):
-            if opened is not None:
-                try:
-                    os.close(opened)
-                except OSError:
-                    pass
+        try:
+            os.close(directory)
+        except OSError:
+            pass
 
 
 def cache_write(url, data):
@@ -245,16 +220,11 @@ def cache_write(url, data):
     if not 0 < len(data) <= min(MAX_DOWNLOAD, MAX_CACHE_BYTES) or MAX_CACHE_ENTRIES < 1:
         return
     directory = cache_directory(create=True)
-    lock = temporary_fd = None
-    temporary = None
+    lock = None
     if directory is None:
         return
     try:
-        lock = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
-                       | os.O_CLOEXEC, 0o600, dir_fd=directory)
-        cache_owned(os.fstat(lock))
-        os.fchmod(lock, 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock = cache.acquire_lock(directory, ".lock", owned=cache_owned)
         other = cards_usage(directory)
         if other is None:
             raise OSError("shared media budget unreadable")
@@ -262,68 +232,21 @@ def cache_write(url, data):
         if (other_count + 1 > MAX_CACHE_ENTRIES
                 or other_bytes + len(data) > MAX_CACHE_BYTES):
             return  # Cards alone fill the shared budget: skip without evicting.
-        target = cache_name(url)
-        try:
-            previous = os.stat(target, dir_fd=directory, follow_symlinks=False)
-            cache_owned(previous)
-        except FileNotFoundError:
-            previous = None
-        entries = []
-        with os.scandir(directory) as scan:
-            for index, entry in enumerate(scan):
-                if index >= MAX_CACHE_SCAN:
-                    raise OSError("image cache scan limit")
-                name = entry.name
-                image = len(name) == 68 and name.endswith(".img") and all(c in "0123456789abcdef" for c in name[:64])
-                staging = len(name) == 35 and name.startswith(".write-") and name.endswith(".tmp") and all(c in "0123456789abcdef" for c in name[7:-4])
-                if not image and not staging:
-                    continue
-                info = entry.stat(follow_symlinks=False)
-                cache_owned(info)
-                if name == target:
-                    if previous is None or cache_identity(info) != cache_identity(previous):
-                        raise OSError("image cache changed")
-                    continue  # Replacement reuses this entry's slot and bytes.
-                entries.append((info.st_mtime_ns, name, info))
-        # A crashed writer can leave a staging file; no live writer owns one
-        # while this lock is held. Include it in accounting/eviction too.
-        entries.sort(key=lambda item: (item[0], item[1]))
-        total = sum(item[2].st_size for item in entries)
-        while entries and (other_count + len(entries) + 1 > MAX_CACHE_ENTRIES
-                           or other_bytes + total + len(data) > MAX_CACHE_BYTES):
-            _, name, info = entries.pop(0)
-            if cache_identity(os.stat(name, dir_fd=directory, follow_symlinks=False)) != cache_identity(info):
-                raise OSError("image cache changed")
-            os.unlink(name, dir_fd=directory)
-            total -= info.st_size
-        temporary = ".write-" + secrets.token_hex(12) + ".tmp"
-        temporary_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                               | os.O_CLOEXEC, 0o600, dir_fd=directory)
-        os.fchmod(temporary_fd, 0o600)
-        view = memoryview(data)
-        while view:
-            count = os.write(temporary_fd, view)
-            if count <= 0:
-                raise OSError("short image cache write")
-            view = view[count:]
-        try:
-            current = os.stat(target, dir_fd=directory, follow_symlinks=False)
-        except FileNotFoundError:
-            current = None
-        if ((previous is None) != (current is None)
-                or (current is not None and cache_identity(current) != cache_identity(previous))):
-            raise OSError("image cache changed")
-        os.replace(temporary, target, src_dir_fd=directory, dst_dir_fd=directory)
-        temporary = None
+        # secrets.token_hex is patched on this module by the cache tests.
+        cache.replace_fifo(
+            directory, cache_name(url), data, suffix=".img",
+            scan_limit=MAX_CACHE_SCAN, max_entries=MAX_CACHE_ENTRIES,
+            max_bytes=MAX_CACHE_BYTES, other_count=other_count,
+            other_bytes=other_bytes, owned=cache_owned,
+            identity_of=cache_identity,
+            scan_error=lambda: OSError("image cache scan limit"),
+            changed=lambda: OSError("image cache changed"),
+            short_write=lambda: OSError("short image cache write"),
+            token=secrets.token_hex)
     except (OSError, ValueError):
         pass
     finally:
-        if temporary is not None and temporary_fd is not None:
-            try:
-                os.unlink(temporary, dir_fd=directory)
-            except OSError:
-                pass
-        for fd in (temporary_fd, lock, directory):
+        for fd in (lock, directory):
             if fd is not None:
                 try:
                     os.close(fd)
@@ -374,54 +297,23 @@ class PinnedHTTP(http.client.HTTPConnection):
         raise ImageError("cannot connect to image host") from last_error
 
 
+def _https_downgrade(scheme, target):
+    return scheme == "https" and urlsplit(target).scheme != "https"
+
+
 def fetch(url, deadline, resolver=socket.getaddrinfo, connection=PinnedHTTP):
-    for redirect in range(4):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ImageError("image fetch timed out")
-        scheme, host, port, path, addresses = destination(url, resolver)
-        client = connection(scheme, host, port, addresses, remaining)
-        try:
-            client.request("GET", path, headers={
-                "User-Agent": "birc-image/1", "Accept": "image/*",
-                "Accept-Encoding": "identity", "Connection": "close",
-            })
-            response = client.getresponse()
-            if response.status in (301, 302, 303, 307, 308):
-                location = response.getheader("Location")
-                if not location or redirect == 3:
-                    raise ImageError("too many image redirects")
-                target = urljoin(url, location)
-                if scheme == "https" and urlsplit(target).scheme != "https":
-                    raise ImageError("image redirect cannot downgrade HTTPS")
-                url = target
-                continue
-            if response.status != 200:
-                raise ImageError("image server returned an error")
-            if response.getheader("Content-Encoding", "identity").lower() != "identity":
-                raise ImageError("compressed HTTP responses are not accepted")
-            length = response.getheader("Content-Length")
-            if length is not None and (not length.isdecimal() or int(length) > MAX_DOWNLOAD):
-                raise ImageError("image download is too large")
-            data = bytearray()
-            while len(data) <= MAX_DOWNLOAD:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise ImageError("image fetch timed out")
-                if client.sock is not None:
-                    client.sock.settimeout(remaining)
-                chunk = response.read(min(65536, MAX_DOWNLOAD + 1 - len(data)))
-                if not chunk:
-                    break
-                data.extend(chunk)
-            if len(data) > MAX_DOWNLOAD:
-                raise ImageError("image download is too large")
-            if length is not None and len(data) != int(length):
-                raise ImageError("incomplete image download")
-            return bytes(data)
-        finally:
-            client.close()
-    raise ImageError("too many image redirects")
+    return cache.bounded_fetch(
+        url, deadline, resolve=lambda current: destination(current, resolver),
+        connection=connection, max_bytes=MAX_DOWNLOAD, redirects=3,
+        headers={"User-Agent": "birc-image/1", "Accept": "image/*",
+                 "Accept-Encoding": "identity", "Connection": "close"},
+        fail=ImageError, timeout_msg="image fetch timed out",
+        redirect_msg="too many image redirects", downgrade=_https_downgrade,
+        downgrade_msg="image redirect cannot downgrade HTTPS",
+        status_msg="image server returned an error",
+        encoding_msg="compressed HTTP responses are not accepted",
+        large_msg="image download is too large",
+        incomplete_msg="incomplete image download")
 
 
 def checked_source_pixels(size):
@@ -504,30 +396,21 @@ def encode(data):
 
 
 def read_local(path):
-    """Only an explicit --local argument can enter this path."""
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-    try:
-        metadata = os.fstat(fd)
-        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= MAX_LOCAL_BYTES:
-            raise ImageError("local image must be a bounded regular file")
-        data = bytearray()
-        while len(data) <= metadata.st_size:
-            chunk = os.read(fd, min(65536, metadata.st_size + 1 - len(data)))
-            if not chunk:
-                break
-            data.extend(chunk)
-        if len(data) != metadata.st_size:
-            raise ImageError("local image changed while reading")
-        return bytes(data)
-    finally:
-        os.close(fd)
+    """Only an explicit --local argument can enter this path.
+
+    nofollow=False: the caller's final symlink is followed. Cache opens do
+    not. search_probe and upload use O_NOFOLLOW on the final component.
+    """
+    return cache.read_regular(
+        path, MAX_LOCAL_BYTES, nofollow=False,
+        reject_bound=lambda: ImageError("local image must be a bounded regular file"),
+        reject_short=lambda: ImageError("local image changed while reading"))
 
 
 def main(args):
     # Terminate in the kernel even if a decoder/DNS call cannot dispatch a
     # Python exception. Process.run observes failure and reaps this helper.
-    signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    signal.alarm(TIMEOUT)
+    cache.arm_deadline(TIMEOUT)
     if len(args) == 1:
         result = encode_remote(args[0], time.monotonic() + TIMEOUT)
     elif len(args) == 2 and args[0] == "--local":

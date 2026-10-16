@@ -34,6 +34,12 @@ def evidence_bits(info) -> tuple:
 def checked_open(path: str):
     """O_NOFOLLOW open a non-symlink path.
 
+    This probe reports bits; it does not refuse a non-regular file. Image
+    and card --local reads follow the caller's final symlink (nofollow=False
+    in the shared reader). This open, preferences, and profiles pass
+    O_NOFOLLOW through to the final component. upload.py does too and is
+    outside this helper.
+
     Returns (fd, None) with a caller-owned descriptor, or (None, bits) for
     refused/missing paths, or (None, None) on unexpected errors.
     """
