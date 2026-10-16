@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
+import importlib.util
 import ipaddress
 import json
 import os
@@ -25,6 +26,48 @@ import time
 import tomllib
 from typing import NamedTuple
 import warnings
+
+
+def _load_cache():
+    """Installed keychain-birc is a lone file until nix/birc.nix copies _cache.py."""
+    here = Path(__file__).resolve()
+    override = os.environ.get("BIRC_CACHE_PY", "")
+    candidates = [Path(override)] if override else []
+    candidates.append(here.with_name("_cache.py"))
+    if len(here.parents) > 1:
+        candidates.append(here.parents[1] / "media" / "_cache.py")
+    for path in candidates:
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("birc_cache", path)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    return None
+
+
+_CACHE = _load_cache()
+
+
+def _trusted(info, *, kind, mask, nlink):
+    if _CACHE is not None:
+        return _CACHE.trusted(info, kind=kind, mask=mask, nlink=nlink)
+    # Same predicate as _cache.trusted. Kept so the lone installed launcher
+    # still refuses unsafe profiles before nix/birc.nix ships the sibling.
+    if kind == "dir":
+        ok_kind = stat.S_ISDIR(info.st_mode)
+    elif kind == "file":
+        ok_kind = stat.S_ISREG(info.st_mode)
+    elif kind == "any":
+        ok_kind = True
+    else:
+        ok_kind = False
+    if not ok_kind or info.st_uid != os.getuid() or info.st_mode & mask:
+        return False
+    if nlink and info.st_nlink != 1:
+        return False
+    return True
 
 
 SECURITY = "/usr/bin/security"
@@ -120,11 +163,14 @@ def check_profile_name(name: str) -> str:
 
 def load_document(path: Path) -> dict:
     try:
+        # Profile TOML is nonsecret: mask 0o022 forbids group/other write and
+        # permits read. O_CLOEXEC stays off, matching the previous open.
+        # nlink is not checked. Final-component symlinks are refused.
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as file:
             info = os.fstat(file.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                    or info.st_mode & 0o022 or info.st_size > MAX_CONFIG):
+            if (not _trusted(info, kind="file", mask=0o022, nlink=False)
+                    or info.st_size > MAX_CONFIG):
                 raise Refusal("unsafe profile file")
             raw = file.read(MAX_CONFIG + 1)
         if len(raw) > MAX_CONFIG:
@@ -202,7 +248,9 @@ def ensure_profile_dir(path: Path) -> None:
         parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(parent, 0o700)
     info = parent.stat()
-    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+    # Profile directory is 0700 (mask 0o077). kind="any" does not require
+    # S_ISDIR, matching the previous stat() test.
+    if not _trusted(info, kind="any", mask=0o077, nlink=False):
         raise Refusal("unsafe profile directory")
 
 
@@ -256,8 +304,7 @@ def create_profile(path: Path, name: str, host: str, port, nick: str,
             fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
             with os.fdopen(fd, "wb") as file:
                 info = os.fstat(file.fileno())
-                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                        or info.st_mode & 0o022
+                if (not _trusted(info, kind="file", mask=0o022, nlink=False)
                         or info.st_size + len(data) > MAX_CONFIG):
                     raise Refusal("unsafe profile file")
                 file.write(data)

@@ -3,15 +3,34 @@
 """Bounded private preferences IO. Bend owns settings and channel intent."""
 from __future__ import annotations
 
-import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import secrets
-import stat
 import sys
 import tomllib
+
+
+def _load_cache():
+    """Source tree: src/media/_cache.py. Nix sets BIRC_CACHE_PY when this file is stored alone."""
+    here = Path(__file__).resolve()
+    override = os.environ.get("BIRC_CACHE_PY", "")
+    candidates = [Path(override)] if override else []
+    candidates.extend((here.with_name("_cache.py"), here.parents[1] / "media" / "_cache.py"))
+    for path in candidates:
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("birc_cache", path)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise ImportError("birc cache helper is missing")
+
+
+cache = _load_cache()
 
 
 MAX_CONFIG = 65536
@@ -171,15 +190,18 @@ def encode(value):
 
 
 def owned(info, *, directory=False):
-    kind = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
-    forbidden = 0o022 if directory else 0o077
-    if (not kind or info.st_uid != os.getuid() or info.st_mode & forbidden
-            or (not directory and info.st_nlink != 1)):
+    # Preferences directory mask is 0o022: group and other may read and
+    # traverse; only their write bits are refused. Preference files use
+    # 0o077 (no group/other bits). Image-cache directories use 0o077 and
+    # must not inherit this directory mask.
+    mask = 0o022 if directory else 0o077
+    kind = "dir" if directory else "file"
+    if not cache.trusted(info, kind=kind, mask=mask, nlink=not directory):
         raise Refusal(3)
 
 
 def identity(info):
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    return cache.identity(info)
 
 
 def parent(path, *, create=False):
@@ -204,29 +226,23 @@ def verify_parent(dirfd, path):
 
 def snapshot(dirfd, name):
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dirfd)
+        fd, info = cache.open_regular(name, nofollow=True, dir_fd=dirfd)
     except FileNotFoundError:
         return None, None
     try:
-        info = os.fstat(fd)
         owned(info)
         if info.st_size > MAX_CONFIG:
             raise Refusal(2)
-        chunks = []
-        remaining = info.st_size
-        while remaining:
-            chunk = os.read(fd, min(remaining, 4096))
-            if not chunk:
-                raise Refusal(4)
-            chunks.append(chunk)
-            remaining -= len(chunk)
+        raw_bytes = cache.read_exact(fd, info.st_size, chunk=4096)
+        if len(raw_bytes) != info.st_size:
+            raise Refusal(4)
         if identity(os.fstat(fd)) != identity(info):
             raise Refusal(4)
         current = os.stat(name, dir_fd=dirfd, follow_symlinks=False)
         if identity(current) != identity(info):
             raise Refusal(4)
         try:
-            raw = tomllib.loads(b"".join(chunks).decode("utf-8"))
+            raw = tomllib.loads(raw_bytes.decode("utf-8"))
             if isinstance(raw.get("settings"), dict):
                 # Files written before nicks existed keep working; the schema
                 # stays strict about every other key and value.
@@ -265,16 +281,11 @@ def write(path, host, port, body):
     stg, channels = parse_wire(body)
     if not server_scope and channels:
         raise Refusal(2)
-    dirfd = lockfd = tempfd = -1
-    temporary = None
+    dirfd = lockfd = -1
     try:
         dirfd = parent(path, create=True)
-        lockfd = os.open(path.name + ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
-                         | os.O_NONBLOCK | os.O_CLOEXEC, 0o600, dir_fd=dirfd)
-        owned(os.fstat(lockfd))
-        os.fchmod(lockfd, 0o600)
         # Another process cannot leave this helper parked beyond its IO deadline.
-        fcntl.flock(lockfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lockfd = cache.acquire_lock(dirfd, path.name + ".lock", owned=owned)
         value, previous = snapshot(dirfd, path.name)
         rows = [] if value is None else value["servers"]
         if server_scope:
@@ -286,39 +297,15 @@ def write(path, host, port, body):
             else:
                 target["channels"] = channels
         data = encode(document({"version": 1, "settings": stg, "servers": rows}))
-        temporary = ".preferences-" + secrets.token_hex(12) + ".tmp"
-        tempfd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                         | os.O_CLOEXEC, 0o600, dir_fd=dirfd)
-        os.fchmod(tempfd, 0o600)
-        view = memoryview(data)
-        while view:
-            written = os.write(tempfd, view)
-            if written <= 0:
-                raise Refusal(4)
-            view = view[written:]
-        os.fsync(tempfd)
-        # Recheck both the parent path and final name against the descriptor snapshot.
-        verify_parent(dirfd, path)
-        try:
-            current = os.stat(path.name, dir_fd=dirfd, follow_symlinks=False)
-        except FileNotFoundError:
-            current = None
-        if ((previous is None) != (current is None)
-                or (current is not None and identity(current) != identity(previous))):
-            raise Refusal(4)
-        os.replace(temporary, path.name, src_dir_fd=dirfd, dst_dir_fd=dirfd)
-        temporary = None
-        os.fsync(dirfd)
+        cache.commit_staged(
+            dirfd, path.name, data, previous, identity, token=secrets.token_hex,
+            prefix=".preferences-", changed=lambda: Refusal(4),
+            short_write=lambda: Refusal(4),
+            before_replace=lambda: verify_parent(dirfd, path),
+            fsync_file=True, fsync_dir=True, strict_unlink=True)
     except OSError:
         raise Refusal(3) from None
     finally:
-        if tempfd >= 0:
-            os.close(tempfd)
-        if temporary is not None and dirfd >= 0:
-            try:
-                os.unlink(temporary, dir_fd=dirfd)
-            except FileNotFoundError:
-                pass
         if lockfd >= 0:
             os.close(lockfd)
         if dirfd >= 0:
