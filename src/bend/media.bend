@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Bounded view-only media policy. Bend owns request identity and scheduling.
+# Native twin, not a shared constant: src/ffi/birc_media.h
+#   BIRC_MEDIA_CAP 8 — this CAP(), both pending and ready
+#   BIRC_MEDIA_FRAME_CAP 24, BIRC_MEDIA_LIMIT 2 MiB, width/height <= 320,
+#   pixels*count <= 1536000, and the BIRCIMG1 envelope (base64 included)
+#   live only in C. image_png_header_ is the part that must stay native.
 import Base
 import ./links.bend as Links
 import ./wire_style.bend as Ws
