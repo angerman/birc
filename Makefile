@@ -719,12 +719,34 @@ FORCE:
 $(BLDDIR)/build-config: FORCE scripts/build-config.sh
 	$(NIXRUN) sh scripts/build-config.sh $@ '$(BEND_CORE_CFLAGS)' '$(SANITIZER_CFLAGS)'
 
+# Cache lookups need `bend` on PATH. Outside the dev shell that means one
+# nix develop when BIRC_UI_CACHE=1; left off, restore is a local miss.
+ifeq ($(BIRC_UI_CACHE),1)
+BIRC_UI_CACHE_RUN := $(NIXRUN)
+else
+BIRC_UI_CACHE_RUN :=
+endif
 $(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) $(BUILD_INPUTS) $(BLDDIR)/build-config
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c
+	@rc=0; $(BIRC_UI_CACHE_RUN) sh $(BIRC_MAKE_DIR)/scripts/build-ui-cache.sh restore $(BLDDIR) || rc=$$?; \
+	if [ $$rc -eq 0 ]; then \
+	  touch $(BLDDIR)/birc $(BLDDIR)/birc_bend.c; \
+	elif [ $$rc -eq 1 ]; then \
+	  $(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c; \
+	else \
+	  exit $$rc; \
+	fi
 
 $(BLDDIR)/birc: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
-	$(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'
+	@rc=0; $(BIRC_UI_CACHE_RUN) sh $(BIRC_MAKE_DIR)/scripts/build-ui-cache.sh restore $(BLDDIR) || rc=$$?; \
+	if [ $$rc -eq 0 ]; then \
+	  touch $(BLDDIR)/birc; \
+	elif [ $$rc -eq 1 ]; then \
+	  $(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'; \
+	  $(BIRC_UI_CACHE_RUN) sh $(BIRC_MAKE_DIR)/scripts/build-ui-cache.sh store $(BLDDIR); \
+	else \
+	  exit $$rc; \
+	fi
 
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
