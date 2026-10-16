@@ -4,6 +4,16 @@ SHELL := /bin/sh
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
+# Default to one job per core unless the caller already chose a -j.
+# GNU make 3.81 leaves command-line -j out of $(MAKEFLAGS) while the makefile
+# is parsed; an exported MAKEFLAGS is visible to the shell. `make update`
+# stays serial: a pin move must not race itself.
+BIRC_JOB_FLAGS := $(MAKEFLAGS) $(shell printf '%s' "$$MAKEFLAGS")
+ifeq (,$(findstring j,$(BIRC_JOB_FLAGS)))
+MAKEFLAGS += -j$(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
+endif
+update: MAKEFLAGS := $(filter-out -j%,$(MAKEFLAGS))
+
 NIX ?= nix
 CONFIRM ?= no
 NIX_FEATURES := --extra-experimental-features 'nix-command flakes'
@@ -115,7 +125,8 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 # on its own tests/bend/<stem>.bend plus all src/bend/*.bend. Phony test targets
 # depend on those files and only run the golden/driver, so fresh outputs skip
 # recompile. Missing sources fail closed (no rule / nonzero exit).
-# Parallelism: `make -jN check` and `make -jN test` are safe. Each binary writes
+# Parallelism: the default above is one job per core. `make -jN check` overrides
+# it. Each binary writes
 # a distinct file, mkdir -p is parallel-safe, and check-golden logs use
 # mktemp. `proof` has no file outputs and is safe to run concurrently with
 # builds. Local iteration: `make -j$(nproc) check`. CI/bounded hosts:
