@@ -98,10 +98,13 @@ def main() -> None:
 
 
 def redial(binary: str) -> None:
+    # Exact registration sequence. Order is cap_notify.bend wanted.sasl(False).
     handshake = [
         "CAP LS 302", "CAP REQ :server-time", "CAP REQ :message-tags",
         "CAP REQ :account-notify", "CAP REQ :away-notify",
-        "CAP REQ :draft/chathistory",
+        "CAP REQ :draft/chathistory", "CAP REQ :echo-message",
+        "CAP REQ :extended-join", "CAP REQ :account-tag",
+        "CAP REQ :labeled-response", "CAP REQ :cap-notify",
         "CAP END", "NICK probe", "USER probe 0 * :probe",
     ]
     first_expected = [f"NOTICE #t :{i}" for i in range(17, 9, -1)]
