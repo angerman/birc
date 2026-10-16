@@ -64,7 +64,8 @@ def vm_len(vm: V.ViewModel) -> Nat:
     case V.ViewModel{ops, input}: Nat.add(ops_len(ops), String.length(input))
 
 def paint_vm(+cl: Cl.Client) -> V.ViewModel:
-  V.view_draft.state_typing_media_cards_cm_themed("", cl, U32.from_nat(45n), U32.from_nat(100n), "", "offline", Nil{}, Sp.state0(), M.empty(), Nil{}, Theme.Dark{})
+  # Empty pends: the probe paints the capped buffer, not optimistic-send rows.
+  V.view_draft.state_typing_media_cards_cm_themed("", cl, U32.from_nat(45n), U32.from_nat(100n), "", "offline", Nil{}, Sp.state0(), M.empty(), Nil{}, Theme.Dark{}, Nil{})
 
 def report(left: Nat, +seen: Nat, +cl: Cl.Client) -> IO(Unit):
   match left:
