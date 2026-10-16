@@ -16,7 +16,6 @@ import ../../src/bend/notify.bend as Notify
 import ../../src/bend/notify_io.bend as NotifyIO
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/history_startup.bend as Startup
-import ../../src/bend/net.bend as Net
 import ../../src/bend/live_context.bend as LC
 import ../../src/bend/preferences_live.bend as PL
 import ../../src/bend/preferences_runtime.bend as PR
@@ -504,13 +503,13 @@ def fed1_st() -> Sess.Session:
   fed1_st.go(fed1())
 
 def nl_net_init() -> Sess.NotifyLive:
-  Net.net_notify_init(st0())
+  Sess.notify_live_init_ep(Notify.on(), Cl.log_seq_of(Sess.session_cl(st0())), Sess.notify_scope_of(st0()))
 
 def obs_net() -> Sess.NotifyLive & List<&2, Notify.Req>:
-  Net.net_notify_observe(nl_net_init(), fed1_st(), True{}, Nil{})
+  Sess.notify_live_observe(nl_net_init(), fed1_st(), True{}, Nil{})
 
 def obs_net_claimed() -> Sess.NotifyLive & List<&2, Notify.Req>:
-  Net.net_notify_observe(nl_net_init(), fed1_st(), True{}, 2n <> Nil{})
+  Sess.notify_live_observe(nl_net_init(), fed1_st(), True{}, 2n <> Nil{})
 
 def obs_nl(r: Sess.NotifyLive & List<&2, Notify.Req>) -> Sess.NotifyLive:
   match r:
@@ -522,13 +521,13 @@ def obs_jobs(r: Sess.NotifyLive & List<&2, Notify.Req>) -> String:
 
 # R2b Net fixtures (placed after the G2 accessors they use).
 def obs_r2_n() -> Sess.NotifyLive & List<&2, Notify.Req>:
-  Net.net_notify_observe(Net.net_notify_init(st0()), sessA(), True{}, prodA())
+  Sess.notify_live_observe(nl_net_init(), sessA(), True{}, prodA())
 
 def sessAL() -> Sess.Session:
   Sess.session_with_client(Feed.feed(impA(), ":dave!u@h PRIVMSG #room :hey me"), "#room")
 
 def obs_r2_n2() -> Sess.NotifyLive & List<&2, Notify.Req>:
-  Net.net_notify_observe(obs_nl(obs_r2_n()), sessAL(), True{}, Nil{})
+  Sess.notify_live_observe(obs_nl(obs_r2_n()), sessAL(), True{}, Nil{})
 
 # JOIN #a(1), seven chatter rows (2-8), three mentions (9-11).
 def cl_backlog() -> Cl.Client:
@@ -604,7 +603,7 @@ def step_jnew() -> Sess.NotifyLive & Sess.Session & List<&2, String> & List<&2, 
 
 # ---- Net dispatch (n9-final): floor-tied union THROUGH the Net entry ---------
 # Stored exclusions fill the cap but the oldest eight sit at/below the floor;
-# fresh live9 must still be honored through Net.net_notify_observe (a
+# fresh live9 must still be honored through Sess.notify_live_observe (a
 # floor-blind union would drop it past the cap and hand live9 instead).
 def nd_stored() -> List<&2, Nat>:
   List.append(&2, Nat, ids_upto(8n, 1n), ids_upto(16376n, 10n))
@@ -613,7 +612,7 @@ def nl_nd() -> Sess.NotifyLive:
   Sess.NotifyLive{marks8(), Notify.queue_empty(), 8n, None{}, 1n, scope(), scope(), nd_stored()}
 
 def obs_nd() -> Sess.NotifyLive & List<&2, Notify.Req>:
-  Net.net_notify_observe(nl_nd(), sess_r3(), True{}, 9n <> Nil{})
+  Sess.notify_live_observe(nl_nd(), sess_r3(), True{}, 9n <> Nil{})
 
 # ---- R3 pure (n9-bind2): accepted gate + gated seed (JS-safe) ------------------
 # The LC.history IO entries reach native FFI, so they live in the C-backend
@@ -1251,7 +1250,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("rejected keeps queue",
       nl_qlen_shown(nl_r3_kept()), "8")
     Unit <- E.must_eq("ungated seed bumps floor (bug shape)",
-      Nat.show(Sess.notify_live_scanned(Net.net_notify_seed_postrestore(nl_full_busy(), sess_r3()))), "9")
+      Nat.show(Sess.notify_live_scanned(Sess.notify_live_seed_postrestore(nl_full_busy(), sess_r3()))), "9")
     Unit <- E.must_eq("rejected drain hands eight",
       comp_jobs(comp_r3_k1()), "t0;t1;t2;t3;t4;t5;t6;t7;")
     Unit <- E.must_eq("rejected rescan admits nine",
@@ -1295,7 +1294,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("net observe claimed stays idle",
       nl_busy_shown(obs_nl(obs_net_claimed())), "false")
     Unit <- E.must_eq("net complete releases",
-      comp_rel(Net.net_notify_complete(obs_nl(obs_net()), 1n, scope())), "true")
+      comp_rel(Sess.notify_live_complete(obs_nl(obs_net()), 1n, scope())), "true")
     # G6: birc-notify default helper gating.
     Unit <- E.must_eq("birc-notify is deliverable",
       bool_str(NotifyIO.can_deliver(Some{"/x/birc-notify"})), "true")

@@ -41,23 +41,8 @@ def net_notify_observe(+nl: Sess.NotifyLive, +st: Sess.Session, deliver: Bool, +
 def net_notify_complete(+nl: Sess.NotifyLive, +ticket: Nat, +endpoint: String) -> Sess.NotifyLive & List<&2, N.Req> & Bool:
   Sess.notify_live_complete(nl, ticket, endpoint)
 
-def net_notify_cancel(+nl: Sess.NotifyLive, +endpoint: String) -> Sess.NotifyLive & Bool:
-  Sess.notify_live_cancel(nl, endpoint)
-
-def net_notify_reset_endpoint(+nl: Sess.NotifyLive, +new_endpoint: String, +new_floor: Nat) -> Sess.NotifyLive:
-  Sess.notify_live_reset_endpoint(nl, new_endpoint, new_floor)
-
-def net_notify_off(+nl: Sess.NotifyLive) -> Sess.NotifyLive:
-  Sess.notify_live_off(nl)
-
 def net_notify_seed_postrestore(+nl: Sess.NotifyLive, +st: Sess.Session) -> Sess.NotifyLive:
   Sess.notify_live_seed_postrestore(nl, st)
-
-def net_notify_merge_claims(+nl: Sess.NotifyLive, +fresh: List<&2, Nat>) -> Sess.NotifyLive:
-  Sess.notify_live_merge_claims(nl, fresh)
-
-def net_notify_seed_accepted(accepted: Bool, +nl: Sess.NotifyLive, +installed: List<&2, Nat>) -> Sess.NotifyLive:
-  Sess.notify_live_seed_accepted(accepted, nl, installed)
 
 def endpoint(+host: String, +port: U32) -> String:
   PrefLive.endpoint_key(host, port)
