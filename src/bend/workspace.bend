@@ -1357,6 +1357,52 @@ def live_step_keys(+ws: Workspace, +keys: Sess.Keys) -> Workspace & Sid.RoutedCm
   match keys:
     case Sess.Keys{+typed, enter, _, _, _, _, _, _, _}: live_step.enter(ws, keys, typed, enter)
 
+# Quit broadcast. step_keys.routed still returns one RoutedCmd for the
+# focused part (the isolation proof mirrors that shape). A /quit Cont
+# also needs the same QUIT lines on every other live part's current
+# writer; generations stay on those writers, so this list carries no bump.
+def quit_line(+line: String) -> Bool:
+  String.eq(String.take(line, 5n), "QUIT ")
+
+def quit_lines.keep(hit: Bool, +h: String, +rest: List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}: h <> rest
+    case False{}: rest
+
+def quit_lines(+xs: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, +t}: quit_lines.keep(quit_line(h), h, quit_lines(t))
+
+def quit_broadcast.skip(same: Bool, +id: Key.ServerId, +outs: List<&2, String>, +rest: List<&2, Sid.RoutedCmd>) -> List<&2, Sid.RoutedCmd>:
+  match same:
+    case True{}: rest
+    case False{}: Sid.RoutedCmd{id, Sess.Cont{outs}} <> rest
+
+def quit_broadcast.parts(+parts: List<&2, Part>, +focus: Key.ServerId, +outs: List<&2, String>) -> List<&2, Sid.RoutedCmd>:
+  match parts:
+    case Nil{}: Nil{}
+    case Con{+h, +t}:
+      quit_broadcast.skip(Key.eq(part_id(h), focus), part_id(h), outs, quit_broadcast.parts(t, focus, outs))
+
+def quit_broadcast.lines(empty: Bool, +parts: List<&2, Part>, +focus: Key.ServerId, +outs: List<&2, String>) -> List<&2, Sid.RoutedCmd>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: quit_broadcast.parts(parts, focus, outs)
+
+def quit_broadcast.cmd(+cmd: Sess.NetCmd, +parts: List<&2, Part>, +focus: Key.ServerId) -> List<&2, Sid.RoutedCmd>:
+  match cmd:
+    case Sess.Cont{+outs}:
+      +lines = quit_lines(outs)
+      quit_broadcast.lines(List.is_empty(&2, String, lines), parts, focus, lines)
+    case _: Nil{}
+
+def quit_broadcast(+ws: Workspace, +rc: Sid.RoutedCmd) -> List<&2, Sid.RoutedCmd>:
+  match ws:
+    case Workspace{+parts, _, _, _}:
+      match rc:
+        case Sid.RoutedCmd{+s, +cmd}: quit_broadcast.cmd(cmd, parts, s)
+
 # Frame-path typing tick through the shared G6 owner: after keys apply, step
 # the current part's stored Reg and merge at most one TAGMSG wire into the
 # frame's own Cont output. Halt frames and non-Cont commands return untouched
