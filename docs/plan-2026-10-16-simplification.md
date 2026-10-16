@@ -261,6 +261,93 @@ happened. Wave 0's deletion of the eight shards was correct, and there is no
 
 ---
 
+## Wave 1 outcome
+
+Merged `e4ceb5b`…`5ac7796`. 35 files, **+1,622 / −792**. Laws 535, proofs 535.
+No file-set violations across five concurrent writers, and no attribution trailers
+(the global `attributeCommitsToAgent` fix took effect for this wave).
+
+| Task | Landed |
+|---|---|
+| T1.1 paint | `cluster_bounded(s, fuel)` at `columns.bend:122` replaces the per-cluster `String.length`; `2*len+2` outer bounds; one `Cut` bound per step instead of three redexes; `pending_display_lines.on` short-circuits on empty `pends`; `newest_lines` builds a bounded newest-first suffix instead of reversing the whole scrollback; `msg_prefix_w.width` and `preview_path_legacy` no longer evaluate eagerly. New `tests/perf/key_latency.py`. |
+| T1.2 protocol | `feed.gated`/`feed_parsed`/`feed` return `State` only — **`client.bend` is no longer imported by `isupport.bend`**; `fold_code` unifies the two casemap ladders; `sanitize_go` unifies the two sanitize walks; `authenticate_chunks` uses a parameter match and routes through `Irc.format_authenticate`; `decimal` single-owned by `endpoint.bend`; `modes_per_line` and `chans.per_line` deleted. |
+| T1.3 C dedup | `birc_month_days` and the range block deleted from `clock_ffi.c` — `utc_time.bend:valid` is the single calendar authority; new `src/ffi/birc_utf8_valid.h` replaces two independently-written validators; `BIRC_NET_TRACE` documented. |
+| T1.4 Python | new `src/media/_cache.py` (367 lines); `image.py` + `cards.py` 1043 → 791; masks passed explicitly per path class with **no default**; new `tests/keychain_transport_parity.py` binds 6697/6667 to `transport_policy.bend`. |
+| T1.5 IO | endpoint-scope key **3 definitions → 1**; five dead `net_notify_*` shims deleted; `notify_full.bend` no longer imports `net.bend` (251 assertions unchanged); new IO-only `helper_io.bend` replaces six helper-process copies with every tuned bound preserved. |
+
+### Measured results
+
+`view_us` (`tests/perf/hardening_profile.py`, `buffers=4`, profiled):
+
+| lines | before | after |
+|---|---|---|
+| 128 | 5482 | **2563** |
+| 256 | 5785 | **2658** |
+| 512 | 5057 | **2900** |
+| 1024 | 6300 | **2973** |
+
+Keystroke → painted glyph (`tests/perf/key_latency.py`, 24 samples):
+
+| | before | after |
+|---|---|---|
+| p50 | 1.17 ms | **0.87 ms** |
+| p95 | 1.46 ms | **1.18 ms** |
+| max | 1.53 ms | **1.27 ms** |
+
+⚠️ **The quadratic→linear claim is NOT yet demonstrated.** T1.1 said so itself:
+*"the corpus lines are short, so the old per-cluster `String.length` does not
+dominate this sweep"* and *"the sweep shows a lower band, not a change from linear
+to flat."* The ~2× lower band is real; proving flatness in line length needs a
+long-line corpus. That is T1.6 item 6.
+
+### Integration fixes applied by the reviewing agent
+T1.4 correctly stopped at two packaging breaks in files outside its set rather than
+editing them. Both fixed before merge:
+- `nix/cards.nix` copied only `cards.py` and `image.py`, so `birc-cards` failed at
+  import once `image.py` started loading `_cache.py` by sibling path. Now copies
+  `_cache.py` into the helpers directory and exports `BIRC_CACHE_PY`.
+- `nix/birc.nix` installed `keychain_birc.py` alone, so `_load_cache` found no
+  sibling and silently fell back to an **untested** inline copy of `trusted()`.
+  Now copies `_cache.py` to `$out/libexec/`.
+
+Also applied: `endpoint_key` still needs its move into `endpoint.bend` as
+`endpoint/2` (T1.2 owns that file, T1.5 could not edit it) — assigned to T1.6.
+
+### `make check` is red on master — pre-existing, not caused by this work
+The agents surfaced this by refusing to edit out-of-set files. Verified statically
+against pristine master:
+
+1. **`proof`** exceeds `PROOF_TIMEOUT=180` even on a quiet host, and is
+   **unshardable** (see the section above).
+2. **`test-reader-errors` does not compile.** `actor.bend:233` requires `Tr.Conn`;
+   `tests/bend/reader_errors.bend:18,21,33` builds and passes a `Socket`. Stale
+   since `c1a7a58 build: migrate to Bend 2.0.37`. In `test-review-pure`
+   (`Makefile:1370-1371`), so in `check`.
+3. **`test-actor-queue` expects a stale CAP REQ list.** `tests/net/actor_queue.py:104`
+   ends at `draft/chathistory`; the product now also sends `echo-message`,
+   `extended-join`, `account-tag`, `labeled-response`, `cap-notify`
+   (`cap_notify.bend:41,52,55,663`), added by `e967112` and `7c15474`. Also in
+   `test-review-pure`.
+4. **`tests/perf/paint_footprint.bend:66`** omits the required `+pends` argument of
+   `view_draft.state_typing_media_cards_cm_themed`, so no `delta_kb` /
+   `slope_kb_per_paint` numbers exist.
+5. **`tests/bend/theme_ws_render.bend`** expects framed text without the composer
+   `OpLine`. Fails identically on `e12fefc`. **Genuinely ambiguous** — it is not
+   established whether the composer line should be in `lines_text`. Currently in
+   `test-orphans`, not `check`.
+
+Items 2, 3 and 4 are harness staleness where the product is right, so AGENTS.md
+permits repair without approval. All are assigned to **T1.6**, whose central
+instruction is to establish *which* side is wrong before editing, and to leave a
+test failing rather than guess. Item 5 is investigation-only.
+
+**Consequence for Wave 5:** the integration gate cannot be "make check passes".
+The honest target is: establish this red baseline, prove no wave regressed it, and
+repair what is cheap. Record the residual red items explicitly rather than
+presenting a green gate.
+
+---
+
 # WAVE 0 — Foundation
 
 ## T0.1 Build correctness and speed
