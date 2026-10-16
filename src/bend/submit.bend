@@ -1463,79 +1463,101 @@ type Slash is Data:
   AwayCmd{}
   NoticeCmd{}
   RawCmd{}
+  Connect{}
+  Reconnect{}
+  History{}
+  Split{}
+  VSplit{}
+  SplitOff{}
+  Unsplit{}
+  Focus{}
   Unknown{}
 
 type SlashRow is Data:
   SlashRow{name: String, cmd: Slash}
 
-def slash_rows() -> List<&2, SlashRow>:
-  SlashRow{"join", Join{}}
-    <> SlashRow{"part", Part{}}
-    <> SlashRow{"close", CloseCmd{}}
-    <> SlashRow{"msg", Msg{}}
-    <> SlashRow{"query", QueryCmd{}}
-    <> SlashRow{"nick", Nick{}}
-    <> SlashRow{"me", Me{}}
-    <> SlashRow{"quit", Quit{}}
-    <> SlashRow{"settings", SettingsCmd{}}
-    <> SlashRow{"set", SetCmd{}}
-    <> SlashRow{"toggle", ToggleCmd{}}
-    <> SlashRow{"mute", MuteCmd{}}
-    <> SlashRow{"unmute", UnmuteCmd{}}
-    <> SlashRow{"mutes", MutesCmd{}}
-    # Session owns connection, pane, and history commands; keep their
-    # aliases here too (history sits beside search in completion order).
-    <> SlashRow{"connect", Unknown{}}
-    <> SlashRow{"reconnect", Unknown{}}
-    <> SlashRow{"open", OpenCmd{}}
-    <> SlashRow{"links", LinksCmd{}}
-    <> SlashRow{"search", SearchCmd{}}
-    <> SlashRow{"history", Unknown{}}
-    <> SlashRow{"preview", PreviewCmd{}}
-    <> SlashRow{"images", ImagesCmd{}}
-    <> SlashRow{"theme", ThemeCmd{}}
-    <> SlashRow{"log", LogCmd{}}
-    <> SlashRow{"split", Unknown{}}
-    <> SlashRow{"vsplit", Unknown{}}
-    <> SlashRow{"split-off", Unknown{}}
-    <> SlashRow{"unsplit", Unknown{}}
-    <> SlashRow{"focus", Unknown{}}
-    <> SlashRow{"upload", UploadCmd{}}
-    <> SlashRow{"whois", WhoisCmd{}}
-    <> SlashRow{"who", WhoCmd{}}
-    <> SlashRow{"list", ListCmd{}}
-    <> SlashRow{"names", NamesCmd{}}
-    <> SlashRow{"topic", TopicCmd{}}
-    <> SlashRow{"mode", ModeCmd{}}
-    <> SlashRow{"kick", KickCmd{}}
-    <> SlashRow{"invite", InviteCmd{}}
-    <> SlashRow{"away", AwayCmd{}}
-    <> SlashRow{"notice", NoticeCmd{}}
-    <> SlashRow{"raw", RawCmd{}}
-    <> SlashRow{"quote", RawCmd{}}
-    <> Nil{}
+# One cons builds one catalog row. The list is folded here, once, before
+# lookup scans it. Order is the completion catalog, including Session aliases.
+def slash_cons(+name: String, cmd: Slash, rest: List<&2, SlashRow>) -> List<&2, SlashRow>:
+  SlashRow{name, cmd} <> rest
 
-def slash_lookup(xs: List<&2, SlashRow>, +verb: String) -> Slash:
-  match xs:
-    case Nil{}:
+def slash_rows() -> List<&2, SlashRow>:
+  slash_cons("join", Join{},
+  slash_cons("part", Part{},
+  slash_cons("close", CloseCmd{},
+  slash_cons("msg", Msg{},
+  slash_cons("query", QueryCmd{},
+  slash_cons("nick", Nick{},
+  slash_cons("me", Me{},
+  slash_cons("quit", Quit{},
+  slash_cons("settings", SettingsCmd{},
+  slash_cons("set", SetCmd{},
+  slash_cons("toggle", ToggleCmd{},
+  slash_cons("mute", MuteCmd{},
+  slash_cons("unmute", UnmuteCmd{},
+  slash_cons("mutes", MutesCmd{},
+  slash_cons("connect", Connect{},
+  slash_cons("reconnect", Reconnect{},
+  slash_cons("open", OpenCmd{},
+  slash_cons("links", LinksCmd{},
+  slash_cons("search", SearchCmd{},
+  slash_cons("history", History{},
+  slash_cons("preview", PreviewCmd{},
+  slash_cons("images", ImagesCmd{},
+  slash_cons("theme", ThemeCmd{},
+  slash_cons("log", LogCmd{},
+  slash_cons("split", Split{},
+  slash_cons("vsplit", VSplit{},
+  slash_cons("split-off", SplitOff{},
+  slash_cons("unsplit", Unsplit{},
+  slash_cons("focus", Focus{},
+  slash_cons("upload", UploadCmd{},
+  slash_cons("whois", WhoisCmd{},
+  slash_cons("who", WhoCmd{},
+  slash_cons("list", ListCmd{},
+  slash_cons("names", NamesCmd{},
+  slash_cons("topic", TopicCmd{},
+  slash_cons("mode", ModeCmd{},
+  slash_cons("kick", KickCmd{},
+  slash_cons("invite", InviteCmd{},
+  slash_cons("away", AwayCmd{},
+  slash_cons("notice", NoticeCmd{},
+  slash_cons("raw", RawCmd{},
+  slash_cons("quote", RawCmd{},
+  Nil{}))))))))))))))))))))))))))))))))))))))))))
+
+# Catalog length is 42. Fuel bounds the scan and decreases on the miss path.
+def slash_fuel() -> Nat:
+  64n
+
+# hit is a parameter so the miss path is the only recursive call. Fuel is
+# matched first and decreases on that call. A hit returns on the next entry
+# without scanning the tail, so the initial fuel must exceed the catalog.
+def slash_lookup(fuel: Nat, hit: Bool, +found: Slash, xs: List<&2, SlashRow>, +verb: String) -> Slash:
+  match fuel:
+    case 0n:
       Unknown{}
-    case Con{row, t}:
-      match row:
-        case SlashRow{+name, +c}:
-          Bool.pick(Slash, Irc.ieq(name, verb), c, slash_lookup(t, verb))
+    case 1n+p:
+      match hit:
+        case True{}:
+          found
+        case False{}:
+          match xs:
+            case Nil{}:
+              Unknown{}
+            case Con{SlashRow{+name, +c}, t}:
+              slash_lookup(p, Irc.ieq(name, verb), c, t, verb)
 
 def slash_of(+verb: String) -> Slash:
-  slash_lookup(slash_rows(), verb)
+  slash_lookup(slash_fuel(), False{}, Unknown{}, slash_rows(), verb)
 
-# Unknown also names Session-owned aliases. Distinguish those catalog entries
-# from a dropped absolute path without duplicating the command list.
-def slash_known.rows(rows: List<&2, SlashRow>, +verb: String) -> Bool:
-  match rows:
-    case Nil{}: False{}
-    case Con{SlashRow{name, _}, rest}: Irc.ieq(name, verb) || slash_known.rows(rest, verb)
+def slash_known.on(cmd: Slash) -> Bool:
+  match cmd:
+    case Unknown{}: False{}
+    case _: True{}
 
 def slash_known(verb: String) -> Bool:
-  slash_known.rows(slash_rows(), verb)
+  slash_known.on(slash_of(verb))
 
 type Input is Data:
   EmptyInput{}
@@ -1756,8 +1778,11 @@ def input_sensitive(+cl: Cl.Client, +raw: String) -> Bool:
 # recheck under the Session iso. Either may fire (fail closed); the fixed
 # half keeps every prior suppression, the negotiated half resolves
 # negotiated-only targets through the one shared target owner.
+def input_sensitive_iso.parsed(+iso: Is.State, +cl: Cl.Client, +input: Input) -> Bool:
+  input_sensitive.parsed(cl, input) || input_sensitive.negotiated_mode(iso, cl, input)
+
 def input_sensitive_iso(+iso: Is.State, +cl: Cl.Client, +raw: String) -> Bool:
-  input_sensitive(cl, raw) || input_sensitive.negotiated_mode(iso, cl, parse_input(raw))
+  input_sensitive_iso.parsed(iso, cl, parse_input(raw))
 
 def submit_is_open.parsed(input: Input) -> Bool:
   match input:
@@ -1960,7 +1985,51 @@ def submit_notice_with_echo.words(+iso: Is.State, +cl: Cl.Client, pair: String &
 def submit_notice_with_echo(+iso: Is.State, +cl: Cl.Client, rest: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_notice_with_echo.words(iso, cl, take_word(rest), echo_ok)
 
-def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+# iso is None on the fixed-target path and Some on the negotiated path.
+# echo_ok is consulted only by the message verbs; every other arm ignores it.
+# Session-owned verbs stay local: the Session dispatcher owns Dial, history,
+# and split, and a direct submit of those verbs still reports unknown.
+type SubmitCtx is Data:
+  SubmitCtx{iso: Maybe<&2, Is.State>, echo_ok: Bool}
+
+def submit_ctx_plain(+echo_ok: Bool) -> SubmitCtx:
+  SubmitCtx{None{}, echo_ok}
+
+def submit_ctx_iso(+iso: Is.State, +echo_ok: Bool) -> SubmitCtx:
+  SubmitCtx{Some{iso}, echo_ok}
+
+def submit_cmd.msg_iso(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_msg_echo(cl, rest, echo_ok)
+    case Some{+s}: submit_msg_with_echo(s, cl, rest, echo_ok)
+
+def submit_cmd.msg(ctx: SubmitCtx, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match ctx:
+    case SubmitCtx{iso, +echo_ok}: submit_cmd.msg_iso(iso, echo_ok, cl, rest)
+
+def submit_cmd.query_iso(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_query_echo(cl, rest, echo_ok)
+    case Some{+s}: submit_query_with_echo(s, cl, rest, echo_ok)
+
+def submit_cmd.query(ctx: SubmitCtx, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match ctx:
+    case SubmitCtx{iso, +echo_ok}: submit_cmd.query_iso(iso, echo_ok, cl, rest)
+
+def submit_cmd.notice_iso(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_notice_echo(cl, rest, echo_ok)
+    case Some{+s}: submit_notice_with_echo(s, cl, rest, echo_ok)
+
+def submit_cmd.notice(ctx: SubmitCtx, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match ctx:
+    case SubmitCtx{iso, +echo_ok}: submit_cmd.notice_iso(iso, echo_ok, cl, rest)
+
+def submit_cmd.me(ctx: SubmitCtx, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match ctx:
+    case SubmitCtx{_, +echo_ok}: submit_me_echo(cl, rest, echo_ok)
+
+def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:
     case Join{}:
       submit_join(cl, rest)
@@ -1969,13 +2038,13 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
     case CloseCmd{}:
       submit_close(cl, rest)
     case Msg{}:
-      submit_msg(cl, rest)
+      submit_cmd.msg(ctx, cl, rest)
     case QueryCmd{}:
-      submit_query(cl, rest)
+      submit_cmd.query(ctx, cl, rest)
     case Nick{}:
       submit_nick(cl, rest)
     case Me{}:
-      submit_me(cl, rest)
+      submit_cmd.me(ctx, cl, rest)
     case Quit{}:
       submit_quit(cl, rest)
     case SettingsCmd{}:
@@ -2025,82 +2094,33 @@ def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> C
     case AwayCmd{}:
       submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
     case NoticeCmd{}:
-      submit_notice(cl, rest)
+      submit_cmd.notice(ctx, cl, rest)
     case RawCmd{}:
       submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
+    case Connect{}:
+      submit_unknown(cl, verb)
+    case Reconnect{}:
+      submit_unknown(cl, verb)
+    case History{}:
+      submit_unknown(cl, verb)
+    case Split{}:
+      submit_unknown(cl, verb)
+    case VSplit{}:
+      submit_unknown(cl, verb)
+    case SplitOff{}:
+      submit_unknown(cl, verb)
+    case Unsplit{}:
+      submit_unknown(cl, verb)
+    case Focus{}:
+      submit_unknown(cl, verb)
     case Unknown{}:
       submit_unknown(cl, verb)
 
+def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+  submit_cmd.go(submit_ctx_plain(False{}), cl, verb, rest, cmd)
+
 def submit_cmd_with.do(+iso: Is.State, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
-  match cmd:
-    case Join{}:
-      submit_join(cl, rest)
-    case Part{}:
-      submit_part(cl, rest)
-    case CloseCmd{}:
-      submit_close(cl, rest)
-    case Msg{}:
-      submit_msg_with(iso, cl, rest)
-    case QueryCmd{}:
-      submit_query_with(iso, cl, rest)
-    case Nick{}:
-      submit_nick(cl, rest)
-    case Me{}:
-      submit_me(cl, rest)
-    case Quit{}:
-      submit_quit(cl, rest)
-    case SettingsCmd{}:
-      submit_settings(cl)
-    case SetCmd{}:
-      submit_set(cl, rest)
-    case ToggleCmd{}:
-      submit_toggle(cl, rest)
-    case MuteCmd{}:
-      submit_mute(cl, rest)
-    case UnmuteCmd{}:
-      submit_unmute(cl, rest)
-    case MutesCmd{}:
-      submit_mutes(cl)
-    case LinksCmd{}:
-      submit_links(cl)
-    case OpenCmd{}:
-      submit_open_cmd(cl, rest)
-    case SearchCmd{}:
-      submit_search(cl, rest)
-    case PreviewCmd{}:
-      submit_preview(cl, rest)
-    case ImagesCmd{}:
-      (echo_sys(cl, images_status(images_arg(Irc.drop_spaces(rest)))), empty_out())
-    case ThemeCmd{}:
-      (echo_sys(cl, theme_status(theme_arg(Irc.drop_spaces(rest)))), empty_out())
-    case LogCmd{}:
-      (Cl.log_open(cl), empty_out())
-    case UploadCmd{}:
-      (echo_err(cl, "upload requires an active session confirmation"), empty_out())
-    case WhoisCmd{}:
-      submit_wire(cl, Commands.whois(rest), "usage: /whois [server] nick[,nick]")
-    case WhoCmd{}:
-      submit_wire(cl, Commands.who(Cl.active_buf_name(cl), rest), "usage: /who [mask [o]]")
-    case ListCmd{}:
-      submit_wire(cl, Commands.list(rest), "usage: /list [channels [server]]")
-    case NamesCmd{}:
-      submit_wire(cl, Commands.names(Cl.active_buf_name(cl), rest), "usage: /names [channels [server]]")
-    case TopicCmd{}:
-      submit_wire(cl, Commands.topic(Cl.active_buf_name(cl), rest), "usage: /topic [#channel] [:text]")
-    case ModeCmd{}:
-      submit_mode(cl, rest)
-    case KickCmd{}:
-      submit_wire(cl, Commands.kick(Cl.active_buf_name(cl), rest), "usage: /kick [#channel] nick [reason]")
-    case InviteCmd{}:
-      submit_wire(cl, Commands.invite(Cl.active_buf_name(cl), rest), "usage: /invite nick [#channel]")
-    case AwayCmd{}:
-      submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
-    case NoticeCmd{}:
-      submit_notice_with(iso, cl, rest)
-    case RawCmd{}:
-      submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
-    case Unknown{}:
-      submit_unknown(cl, verb)
+  submit_cmd.go(submit_ctx_iso(iso, False{}), cl, verb, rest, cmd)
 
 def submit_plain.on(+cl: Cl.Client, +input: String, on_server: Bool) -> Cl.Client & List<&2, String>:
   match on_server:
@@ -2162,30 +2182,10 @@ def submit_with(+iso: Is.State, +cl: Cl.Client, +input: String) -> Cl.Client & L
 # /msg, /query, /me, /notice) consult the negotiated bit; every other
 # command delegates to the unnegotiated dispatch unchanged.
 def submit_cmd_echo.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
-  match cmd:
-    case Msg{}:
-      submit_msg_echo(cl, rest, echo_ok)
-    case QueryCmd{}:
-      submit_query_echo(cl, rest, echo_ok)
-    case Me{}:
-      submit_me_echo(cl, rest, echo_ok)
-    case NoticeCmd{}:
-      submit_notice_echo(cl, rest, echo_ok)
-    case _:
-      submit_cmd.do(cl, verb, rest, cmd)
+  submit_cmd.go(submit_ctx_plain(echo_ok), cl, verb, rest, cmd)
 
 def submit_cmd_with_echo.do(+iso: Is.State, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
-  match cmd:
-    case Msg{}:
-      submit_msg_with_echo(iso, cl, rest, echo_ok)
-    case QueryCmd{}:
-      submit_query_with_echo(iso, cl, rest, echo_ok)
-    case Me{}:
-      submit_me_echo(cl, rest, echo_ok)
-    case NoticeCmd{}:
-      submit_notice_with_echo(iso, cl, rest, echo_ok)
-    case _:
-      submit_cmd_with.do(iso, cl, verb, rest, cmd)
+  submit_cmd.go(submit_ctx_iso(iso, echo_ok), cl, verb, rest, cmd)
 
 def submit_parsed_echo(+cl: Cl.Client, input: Input, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match input:
@@ -2243,7 +2243,8 @@ def submit_halt_ok() -> Bool:
 
 def submit_is_connect.parsed(input: Input) -> Bool:
   match input:
-    case CommandInput{_, +verb, _}: Irc.ieq(verb, "connect") || Irc.ieq(verb, "reconnect")
+    case CommandInput{Connect{}, _, _}: True{}
+    case CommandInput{Reconnect{}, _, _}: True{}
     case _: False{}
 
 def submit_is_connect(+input: String) -> Bool:
@@ -2258,8 +2259,10 @@ def connect_from_input.verb(is_recon: Bool, +rest: String) -> Conn:
 
 def connect_from_input.parsed(input: Input) -> Conn:
   match input:
-    case CommandInput{_, +verb, +rest}:
-      connect_from_input.verb(Irc.ieq(verb, "reconnect"), rest)
+    case CommandInput{Reconnect{}, _, +rest}:
+      connect_from_input.verb(True{}, rest)
+    case CommandInput{Connect{}, _, +rest}:
+      connect_from_input.verb(False{}, rest)
     case _: ConnBad{}
 
 def connect_from_input(+input: String) -> Conn:
