@@ -122,7 +122,9 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 
 # Incremental + parallel Bend builds (BUILD mode).
 # Every Bend test binary is a real file target under $(BLDDIR)/ with prerequisites
-# on its own tests/bend/<stem>.bend plus all src/bend/*.bend. Phony test targets
+# on its own tests/bend/<stem>.bend plus the import closure in
+# build/<stem>.bend.d (scripts/bend-deps.sh). Until that file exists,
+# BEND_SRC_DEPS is the fail-closed fallback. Phony test targets
 # depend on those files and only run the golden/driver, so fresh outputs skip
 # recompile. Missing sources fail closed (no rule / nonzero exit).
 # Parallelism: the default above is one job per core. `make -jN check` overrides
@@ -131,64 +133,86 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 # mktemp. `proof` has no file outputs and is safe to run concurrently with
 # builds. Local iteration: `make -j$(nproc) check`. CI/bounded hosts:
 # `MAKEFLAGS=-j2 make check`. Do not use `make -j` with `update` (pin move).
-# .bend files inline C (`import "../ffi/*.c"`), so an FFI-only edit must
-# invalidate every Bend output. Link rules already list BEND_UI_SRCS;
-# compile rules must too, or Make relinks a stale generated TU.
+# .bend files inline C (`import "../ffi/*.c"`). BEND_SRC_DEPS is the
+# fallback closure (every Bend and FFI input) used until a per-entry
+# build/<stem>.bend.d exists. Link rules list BEND_UI_SRCS directly.
 BEND_SRC_DEPS := $(BEND_UI_SRCS)
 # Default native Bend test binary (180s bound).
-$(BLDDIR)/%: tests/bend/%.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/%: tests/bend/%.bend $(BLDDIR)/%.bend.d
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $< -o $@
 # JS backend fixtures (180s bound).
-$(BLDDIR)/%.js: tests/bend/%.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/%.js: tests/bend/%.bend $(BLDDIR)/%.bend.d
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $< -o $@
 # Second-backend review fixtures: build/<guard>_review.js from tests/bend/<guard>.bend.
-$(BLDDIR)/%_review.js: tests/bend/%.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/%_review.js: tests/bend/%.bend $(BLDDIR)/%.bend.d
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $< -o $@
 # Generated C intermediates (default 300s bound; 180s overrides below).
-$(BLDDIR)/%.c: tests/bend/%.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/%.c: tests/bend/%.bend $(BLDDIR)/%.bend.d
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 300 bend $< -o $@
+# Import closure. Missing imports fail the script (nonzero) before mv.
+$(BLDDIR)/%.bend.d: tests/bend/%.bend $(BIRC_MAKE_DIR)/scripts/bend-deps.sh
+	@mkdir -p $(dir $@)
+	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $< > $@.tmp
+	mv $@.tmp $@
+# Keep closure files. A pattern-only prerequisite is otherwise intermediate
+# and Make deletes it, which drops the next build back to the full fallback.
+.SECONDARY: $(patsubst tests/bend/%.bend,$(BLDDIR)/%.bend.d,$(wildcard tests/bend/*.bend)) $(BLDDIR)/birc-proto.bend.d
+$(BLDDIR)/birc-proto.bend.d: $(PROTO) $(BIRC_MAKE_DIR)/scripts/bend-deps.sh
+	@mkdir -p $(dir $@)
+	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $(PROTO) birc-proto > $@.tmp
+	mv $@.tmp $@
+# Absent closure files fall back to every Bend and FFI input.
+define bend_dep_fallback
+ifeq ($$(wildcard $(BLDDIR)/$(1).bend.d),)
+$(BLDDIR)/$(1) $(BLDDIR)/$(1).js $(BLDDIR)/$(1).c $(BLDDIR)/$(1)_review.js: $$(BEND_SRC_DEPS)
+endif
+endef
+$(foreach stem,$(patsubst tests/bend/%.bend,%,$(wildcard tests/bend/*.bend)),$(eval $(call bend_dep_fallback,$(stem))))
+ifeq ($(wildcard $(BLDDIR)/birc-proto.bend.d),)
+$(BLDDIR)/birc-proto: $(BEND_SRC_DEPS)
+endif
 # Long/short timeout overrides (literal deadlines keep test-build-deadlines green).
-$(BLDDIR)/irc_commands: tests/bend/irc_commands.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/irc_commands: tests/bend/irc_commands.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
-$(BLDDIR)/message_split: tests/bend/message_split.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/message_split: tests/bend/message_split.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
-$(BLDDIR)/reconnect_recovery: tests/bend/reconnect_recovery.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/reconnect_recovery: tests/bend/reconnect_recovery.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
-$(BLDDIR)/reconnect_auth: tests/bend/reconnect_auth.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/reconnect_auth: tests/bend/reconnect_auth.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
-$(BLDDIR)/mode_privacy: tests/bend/mode_privacy.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/mode_privacy: tests/bend/mode_privacy.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
-$(BLDDIR)/reconnect_echoes: tests/bend/reconnect_echoes.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/reconnect_echoes: tests/bend/reconnect_echoes.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 900 bend $< -o $@
 # auth_privacy: calm-host Bend build 92s, loaded laptop ~180s at the default
 # 180s bound; 360 restores ~2x margin over worst observed.
-$(BLDDIR)/auth_privacy: tests/bend/auth_privacy.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/auth_privacy: tests/bend/auth_privacy.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 360 bend $< -o $@
-$(BLDDIR)/ipv6_transport_native: tests/bend/ipv6_transport_native.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/ipv6_transport_native: tests/bend/ipv6_transport_native.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 300 bend $< -o $@
-$(BLDDIR)/richtext_demo: tests/bend/richtext_demo.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/richtext_demo: tests/bend/richtext_demo.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 90 bend $< -o $@
-$(BLDDIR)/ui_input_queue.c: tests/bend/ui_input_queue.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/ui_input_queue.c: tests/bend/ui_input_queue.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $< -o $@
-$(BLDDIR)/demo_identity.c: tests/bend/demo_identity.bend $(BEND_SRC_DEPS)
+$(BLDDIR)/demo_identity.c: tests/bend/demo_identity.bend
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $< -o $@
 # Protocol self-test binary (file target; build-proto phony depends on it).
-$(BLDDIR)/birc-proto: $(PROTO) $(BEND_SRC_DEPS)
+$(BLDDIR)/birc-proto: $(PROTO) $(BLDDIR)/birc-proto.bend.d
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
 # Generated-C link rules (FFI headers + build-config trigger re-link).
@@ -1509,6 +1533,12 @@ include $(BIRC_MAKE_DIR)/mk/pty-shard.mk
 include $(BIRC_MAKE_DIR)/mk/wf-cards.mk
 include $(BIRC_MAKE_DIR)/mk/wf-settings.mk
 include $(BIRC_MAKE_DIR)/mk/wf-filter.mk
+endif
+# Exact import closures. Only files that already exist are included, so a
+# clean tree keeps the BEND_SRC_DEPS fallback above. In-tree only: a temp
+# cwd (test-nix-preflight) has no tests/bend and must not scan the world.
+ifneq ($(wildcard tests/bend/expect.bend),)
+-include $(wildcard $(BLDDIR)/*.bend.d)
 endif
 
 PNG_TEST_CFLAGS := -std=c99 -O1 -Werror=vla -pedantic -Wall -Wextra -Werror -isystem src/ui
