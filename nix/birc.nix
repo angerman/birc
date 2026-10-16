@@ -70,6 +70,9 @@ in stdenv.mkDerivation {
       --set-default BIRC_NOTIFY_HELPER "${notify}/bin/birc-notify" \
       --set-default SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt"
     cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
+    # keychain_birc.py resolves the shared helper from a sibling _cache.py; without
+    # this it silently falls back to an inline copy that no test exercises.
+    cp src/media/_cache.py $out/libexec/_cache.py
     makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
       --add-flags $out/libexec/keychain_birc.py \
       --set-default BIRC_PROGRAM "$out/bin/birc"
