@@ -376,8 +376,11 @@ def split_test_cl() -> Cl.Client:
 def split_ops_check.go(xs: List<&2, V.DrawOp>, split: Bool, first: Bool, second: Bool) -> Bool:
   match xs:
     case Nil{}: split && first && second
+    # h=22 at rows=24: status_y(24)=23, body_top=1, and view.bend's body_box_h
+    # keeps y+h <= status_y so the box never reaches the status row. 22 is the
+    # largest h satisfying that; 21 would leave a row unused.
     case Con{V.OpSplit{x, y, w, h, axis}, t}:
-      split_ops_check.go(t, U32.is_eq(x, 0) && U32.is_eq(y, 1) && U32.is_eq(w, 62) && U32.is_eq(h, 21) && U32.is_eq(axis, 1), first, second)
+      split_ops_check.go(t, U32.is_eq(x, 0) && U32.is_eq(y, 1) && U32.is_eq(w, 62) && U32.is_eq(h, 22) && U32.is_eq(axis, 1), first, second)
     case Con{V.OpText{_, _, _, _, _, +text}, t}:
       split_ops_check.go(t, split, first || String.eq(text, "#one [active]"), second || String.eq(text, "server"))
     case Con{_, t}: split_ops_check.go(t, split, first, second)

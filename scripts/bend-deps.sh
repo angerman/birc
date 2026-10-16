@@ -136,6 +136,15 @@ def direct_bend_imports(path):
             names.add(Path(spec).name)
     return names
 
+def is_program(path):
+    """A layer set must only contain runnable goldens. 11 of the 196 files under
+    tests/bend are predicate/fixture libraries with no `def main`; building one
+    fails with `Error: no main to run` and stops the whole scoped target."""
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("def main"):
+            return True
+    return False
+
 def emit_layers():
     blddir = os.environ.get("BLDDIR", "build")
     groups = {
@@ -148,6 +157,8 @@ def emit_layers():
     if not root.is_dir():
         fail("tests/bend is missing")
     for path in sorted(root.glob("*.bend")):
+        if not is_program(path):
+            continue
         names = direct_bend_imports(path)
         stem = "birc-proto" if path.name == "proto_demo.bend" else path.stem
         for group, goals in groups.items():
