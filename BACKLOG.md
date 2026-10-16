@@ -1,5 +1,11 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
+- runtime_reconnect C-backend arity: FIXED (test-only) — main holding
+  4 live Sessions breached the 247-word native continuation limit
+  ("an arity over 247") as Session grew. Split into phase defs holding
+  only SBox singleton-list cells (session_drafts_demo idiom);
+  assertions unchanged, in the same order. `runtime_reconnect=ok`.
+
 - test-dns-live red: FIXED — the "wrong answer" was a correct AAAA
   response: dual-stack `Dns.resolve` now parses A and AAAA, and the
   live test accepts a well-formed AAAA record for one.one.one.one.
