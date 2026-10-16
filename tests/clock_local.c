@@ -4,6 +4,7 @@
 #define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "lint-ffi/ffi_stub.h"
 #define CID_UTC_LOCAL_PARTS 99u
@@ -24,6 +25,30 @@ static void must(int ok, const char *label) {
   if (!ok) { fprintf(stderr, "clock_local: %s\n", label); exit(1); }
 }
 
+/* Bend pastes FFI into a temp .c with no -I. Those files carry the header
+ * text in a #else. Reject a drift between that copy and the header. */
+static void header_copy(const char *path) {
+  FILE *hf = fopen("src/ffi/birc_utf8_valid.h", "rb");
+  FILE *cf = fopen(path, "rb");
+  long hs, cs;
+  char *h, *c;
+  must(hf != NULL && cf != NULL, "open utf8 sources");
+  must(fseek(hf, 0, SEEK_END) == 0 && fseek(cf, 0, SEEK_END) == 0, "seek utf8");
+  hs = ftell(hf);
+  cs = ftell(cf);
+  must(hs > 0 && cs > hs, "utf8 sizes");
+  must(fseek(hf, 0, SEEK_SET) == 0 && fseek(cf, 0, SEEK_SET) == 0, "rewind utf8");
+  h = malloc((size_t)hs);
+  c = malloc((size_t)cs);
+  must(h != NULL && c != NULL, "alloc utf8");
+  must(fread(h, 1, (size_t)hs, hf) == (size_t)hs, "read header");
+  must(fread(c, 1, (size_t)cs, cf) == (size_t)cs, "read caller");
+  must(memmem(c, (size_t)cs, h, (size_t)hs) != NULL, path);
+  free(h);
+  free(c);
+  must(fclose(hf) == 0 && fclose(cf) == 0, "close utf8");
+}
+
 static void zone(const char *name) {
   must(setenv("TZ", name, 1) == 0, "set TZ");
   tzset();
@@ -38,6 +63,8 @@ static void converted(uint32_t y, uint32_t m, uint32_t d, uint32_t h,
 
 int main(void) {
   Env e = {0};
+  header_copy("src/ffi/auth_bridge_ffi.c");
+  header_copy("src/ffi/history_search_ffi.c");
   Term fields[6] = {2026u, 9u, 28u, 17u, 40u, 27u};
   zone("UTC0");
   converted(2026u, 9u, 28u, 17u, 40u, 27u, 17u, 40u, 27u, "UTC");

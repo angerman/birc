@@ -13,6 +13,64 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+/* Makefile links pass -I src/ffi, and a direct include of this file
+ * searches src/ffi for the sibling header. Bend's `bend -o` paste
+ * compiles a temporary translation unit with no -I, so that include
+ * is invisible there; the #else text is birc_utf8_valid.h unchanged. */
+#if __has_include("birc_utf8_valid.h")
+#include "birc_utf8_valid.h"
+#else
+/* Strict UTF-8 (RFC 3629). Rejects overlong encodings, UTF-16 surrogates
+ * (U+D800..U+DFFF), truncated sequences, and lead bytes outside
+ * 0x00..0x7F / 0xC2..0xF4. U+0000, CR, and LF are valid UTF-8; callers
+ * that forbid them apply that policy themselves. Empty input is valid.
+ * A null pointer is not. */
+#ifndef BIRC_UTF8_VALID_H
+#define BIRC_UTF8_VALID_H
+
+#include <stddef.h>
+
+static int birc_utf8_valid(const unsigned char *bytes, size_t size) {
+  size_t at = 0;
+  if (!bytes)
+    return 0;
+  while (at < size) {
+    unsigned int lead = bytes[at++];
+    unsigned int count;
+    unsigned int low = 0x80u;
+    unsigned int high = 0xbfu;
+    if (lead < 0x80u)
+      continue;
+    if (lead >= 0xc2u && lead <= 0xdfu)
+      count = 1u;
+    else if (lead >= 0xe0u && lead <= 0xefu) {
+      count = 2u;
+      if (lead == 0xe0u)
+        low = 0xa0u;
+      if (lead == 0xedu)
+        high = 0x9fu;
+    } else if (lead >= 0xf0u && lead <= 0xf4u) {
+      count = 3u;
+      if (lead == 0xf0u)
+        low = 0x90u;
+      if (lead == 0xf4u)
+        high = 0x8fu;
+    } else
+      return 0;
+    if (size - at < count || bytes[at] < low || bytes[at] > high)
+      return 0;
+    ++at;
+    while (--count > 0u) {
+      if (bytes[at] < 0x80u || bytes[at] > 0xbfu)
+        return 0;
+      ++at;
+    }
+  }
+  return 1;
+}
+
+#endif /* BIRC_UTF8_VALID_H */
+#endif
 
 /* Evidence bits: regular file, euid-owned, final symlink, mode 0600, missing. */
 #define BIRC_SEARCH_REGULAR ((uint32_t)1u)
@@ -111,45 +169,7 @@ static int birc_history_search_admitted(uint32_t bits) {
 /* Strict UTF-8: the scan hands Bend exact bytes, so undecodable content
  * refuses closed (EILSEQ) instead of corrupting cursor offsets. */
 static int birc_history_search_utf8_ok(const unsigned char *data, size_t len) {
-  size_t i = 0;
-  while (i < len) {
-    unsigned char c = data[i];
-    uint32_t cp = 0u;
-    size_t need = 0;
-    size_t k = 0;
-    if (c < 0x80u) {
-      i++;
-      continue;
-    } else if ((c & 0xE0u) == 0xC0u) {
-      need = 1;
-      cp = (uint32_t)(c & 0x1Fu);
-    } else if ((c & 0xF0u) == 0xE0u) {
-      need = 2;
-      cp = (uint32_t)(c & 0x0Fu);
-    } else if ((c & 0xF8u) == 0xF0u) {
-      need = 3;
-      cp = (uint32_t)(c & 0x07u);
-    } else {
-      return 0;
-    }
-    if (need > len - i - 1u) {
-      return 0;
-    }
-    for (k = 0; k < need; k++) {
-      unsigned char d = data[i + 1u + k];
-      if ((d & 0xC0u) != 0x80u) {
-        return 0;
-      }
-      cp = (cp << 6) | (uint32_t)(d & 0x3Fu);
-    }
-    if ((need == 1u && cp < 0x80u) || (need == 2u && cp < 0x800u)
-        || (need == 3u && cp < 0x10000u) || cp > 0x10FFFFu
-        || (cp >= 0xD800u && cp <= 0xDFFFu)) {
-      return 0;
-    }
-    i += 1u + need;
-  }
-  return 1;
+  return birc_utf8_valid(data, len);
 }
 
 /* Snapshot-cutoff read core: reads EXACTLY snapshot bytes via the
