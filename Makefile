@@ -232,20 +232,24 @@ $(BLDDIR)/%_review.js: tests/bend/%.bend $(BLDDIR)/%.bend.d
 $(BLDDIR)/%.c: tests/bend/%.bend $(BLDDIR)/%.bend.d
 	$(NIXRUN) timeout 300 bend $< -o $@
 # Import closure. Missing imports fail the script (nonzero) before mv.
+# Through $(NIXRUN) like every other recipe: the scanner execs python3, and
+# test-nix-preflight puts a `python3` on PATH that exits 77 so no rule can
+# reach for an ambient interpreter. Regeneration only happens when a test
+# source or the scanner changes, so the re-entry is not on the steady-state path.
 $(BLDDIR)/%.bend.d: tests/bend/%.bend $(BIRC_MAKE_DIR)/scripts/bend-deps.sh
 	@mkdir -p $(dir $@)
-	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $< > $@.tmp
+	BLDDIR='$(BLDDIR)' $(NIXRUN) sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $< > $@.tmp
 	mv $@.tmp $@
 $(BLDDIR)/golden-layers.mk: $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $(wildcard tests/bend/*.bend)
 	@mkdir -p $(dir $@)
-	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh --layers > $@.tmp
+	BLDDIR='$(BLDDIR)' $(NIXRUN) sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh --layers > $@.tmp
 	mv $@.tmp $@
 # Keep closure files. A pattern-only prerequisite is otherwise intermediate
 # and Make deletes it, which drops the next build back to the full fallback.
 .SECONDARY: $(patsubst tests/bend/%.bend,$(BLDDIR)/%.bend.d,$(wildcard tests/bend/*.bend)) $(BLDDIR)/birc-proto.bend.d
 $(BLDDIR)/birc-proto.bend.d: $(PROTO) $(BIRC_MAKE_DIR)/scripts/bend-deps.sh
 	@mkdir -p $(dir $@)
-	BLDDIR='$(BLDDIR)' sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $(PROTO) birc-proto > $@.tmp
+	BLDDIR='$(BLDDIR)' $(NIXRUN) sh $(BIRC_MAKE_DIR)/scripts/bend-deps.sh $(PROTO) birc-proto > $@.tmp
 	mv $@.tmp $@
 # Absent closure files fall back to every Bend and FFI input.
 define bend_dep_fallback
