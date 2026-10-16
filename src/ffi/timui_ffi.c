@@ -1,5 +1,26 @@
 /* Bend TimUI foreign effects — open, frame, close, tty watch, and winch.
- * TIMUI_IMPLEMENTATION once. Include-guarded for multi-import. */
+ * TIMUI_IMPLEMENTATION once. Include-guarded for multi-import.
+ *
+ * Duplicated caps (no single source of truth; do not "fix" one side here):
+ *   recv clamp 65536 — dns_ffi.c max clamp, tls_ffi.c bytes[65536],
+ *     actor.bend Tr.recv_octets(..., 65536)
+ *   history scan 8 MiB — history_search_ffi.c BIRC_SEARCH_SCAN_MAX,
+ *     history_search_io.bend SCAN_NATIVE_CAP (8388608)
+ *   TLS setup 5s — unnamed literal 5000 at transport.bend Tls.open_for;
+ *     tls_ffi.c reads that deadline as f[2] milliseconds
+ *   tab/buffer slots 16 — BIRC_TAB_SLOTS below (spans, store, alerts) and
+ *     drafts.bend ENTRY_CAP. birc_str_list drops names past the cap with
+ *     no error (the remainder is sunk). That silent truncation is the
+ *     dangerous pair: Bend can hold 16 drafts while paint shows fewer tabs.
+ *   composer bytes — BIRC_COMPOSER_CAP (512) is only this buffer. drafts.bend
+ *     TEXT_BYTES is 4096, not 512. A longer reseed is clipped here.
+ *   media — birc_media.h CAP 8 / FRAME_CAP 24 / LIMIT 2 MiB vs media.bend
+ *     CAP() 8 (pending and ready). Frame cap, byte limit, 320px, and
+ *     1536000 pixel-frames exist only in C.
+ *   OSC8 — single-sourced: timui.h TIMUI_HYPERLINK_MAX_BYTES 1024, so
+ *     BIRC_URL_CAP is 1025 and a URL of length >= 1025 is a plain span.
+ *     1024-byte targets are kept. Do not reintroduce a second cap.
+ */
 #ifndef BIRC_TIMUI_FFI_C
 #define BIRC_TIMUI_FFI_C
 #include <errno.h>
@@ -66,17 +87,11 @@ typedef uint64_t Loc;
 #ifndef CID_WINCH_CLOSE
 #define CID_WINCH_CLOSE CID(Winch.close)
 #endif
-#ifndef CID_SYS_OPEN_PROGRAM
-#define CID_SYS_OPEN_PROGRAM CID(Sys.open_program)
-#endif
-#ifndef CID_SYS_CLIPBOARD_PROGRAM
-#define CID_SYS_CLIPBOARD_PROGRAM CID(Sys.clipboard_program)
+#ifndef CID_SYS_PLATFORM
+#define CID_SYS_PLATFORM CID(Sys.platform)
 #endif
 #ifndef CID_SYS_MEDIA_PROGRAM
 #define CID_SYS_MEDIA_PROGRAM CID(Sys.media_program)
-#endif
-#ifndef CID_SYS_NOTIFY_DEFAULT
-#define CID_SYS_NOTIFY_DEFAULT CID(Sys.notify_default)
 #endif
 #ifndef CID_TIMUI_MEDIA_ADD
 #define CID_TIMUI_MEDIA_ADD CID(Timui.media_add)
@@ -92,9 +107,18 @@ typedef uint64_t Loc;
 #endif
 
 /* An IRC record is at most 512 octets, but Latin-1 fallback can expand
- * every octet to two UTF-8 bytes. Never truncate a decoded click target. */
+ * every octet to two UTF-8 bytes. Never truncate a decoded click target.
+ * Decline when ulen >= BIRC_URL_CAP (1025). A 1024-byte target still fits
+ * with its NUL. docs/FFI.md's "255 bytes" figure is stale. */
 enum { BIRC_URL_CAP = TIMUI_HYPERLINK_MAX_BYTES + 1 };
 enum { BIRC_PREVIEW_CAP = BIRC_MEDIA_CAP };
+/* drafts.bend ENTRY_CAP is 16. Label storage is 64 bytes with a 63-byte
+ * cluster clip. The composer array is not TEXT_BYTES (4096). */
+enum { BIRC_TAB_SLOTS = 16, BIRC_TAB_LABEL = 64, BIRC_COMPOSER_CAP = 512 };
+/* Historic dark mention chip (0x1E1E2E / 0xFFD700). Theme.tab_mention_bg/fg
+ * own the palette. OpTabs does not carry those words yet, so paint still
+ * passes these constants. Activity stays reverse video, not a colour. */
+enum { BIRC_TAB_MENTION_BG = 0x1E1E2Eu, BIRC_TAB_MENTION_FG = 0xFFD700u };
 
 typedef struct {
   int active;       /* 1 if selection exists */
@@ -113,7 +137,7 @@ typedef struct {
 } BircPreview;
 
 typedef struct {
-  char composer[512];
+  char composer[BIRC_COMPOSER_CAP];
   TimuiTextAreaState st;
   int last_tab;
   uint32_t last_bell_seq;
@@ -301,6 +325,10 @@ static void birc_profile_view_end(BircUi *bu, uint64_t now) {
   bu->profile_view_start_ns = 0;
 }
 
+/* Start of Bend's pure-View phase. Default-off: unless BIRC_FRAME_PROFILE=1
+ * this returns the handle unchanged. It is not profile_t0 at frame entry;
+ * that mark ends the View phase. The call site is unconditional and lives
+ * in net.bend; gate it there. Keep this seam. */
 Term timui_view_begin_run(Env e, Term *f, IoWork *w) {
   Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
   BircUi *bu = birc_state(ui);
@@ -642,7 +670,9 @@ static Term birc_cons_head(Env e, Term xs, Term *tail) {
   return fb[0];
 }
 /* Byte-capped labels must inspect the complete source cluster, including any
- * attachment beyond the cap. The composer keeps its separate code-point clip. */
+ * attachment beyond the cap. The composer keeps its separate code-point clip.
+ * Names past BIRC_TAB_SLOTS are discarded with no error: the unread tail is
+ * sunk, not drawn. That is silent truncation against drafts.bend ENTRY_CAP. */
 static size_t birc_cluster_fit(const char *text, size_t length, size_t cap) {
   size_t kept = 0;
   if (!text) return 0;
@@ -653,8 +683,8 @@ static size_t birc_cluster_fit(const char *text, size_t length, size_t cap) {
   }
   return kept;
 }
-static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
-                         int max) {
+static int birc_str_list(Env e, Term xs, char store[][BIRC_TAB_LABEL],
+                         const char **labs, int max) {
   int n = 0;
   while (n < max && term_aux(xs) == CID_CON) {
     Term t;
@@ -664,7 +694,9 @@ static int birc_str_list(Env e, Term xs, char store[][64], const char **labs,
     Term h = birc_cons_head(e, xs, &t);
     xs = t;
     s = io_cstr(e, h, &len);
-    /* Keep the byte/code-point cap, then back up past a partial cluster. */
+    /* Keep the byte/code-point cap, then back up past a partial cluster.
+     * 63 is BIRC_TAB_LABEL-1. test-utf8-fit greps this expression; the
+     * Makefile owns that check, so the spelling stays literal. */
     nlen = birc_utf8_fit(s, (size_t)len < 63 ? (size_t)len : (size_t)63);
     nlen = birc_cluster_fit(s, (size_t)len, nlen);
     if (nlen > 0)
@@ -697,12 +729,13 @@ static void birc_bell_update(BircUi *bu, uint32_t enabled, uint32_t seq) {
 }
 static void birc_draw_tab_alerts(TimuiFrame *fr, TimuiRect r,
                                  const char *const *labels, int ntabs,
-                                 const uint32_t *alerts, int nalerts, int sel) {
-  TimuiTabSpan spans[16];
+                                 const uint32_t *alerts, int nalerts, int sel,
+                                 uint32_t mention_bg, uint32_t mention_fg) {
+  TimuiTabSpan spans[BIRC_TAB_SLOTS];
   int i, scroll;
   if (!fr || !labels || !alerts || ntabs <= 0 || r.w <= 0)
     return;
-  (void)timui_tabs_layout(labels, ntabs, 1, spans, 16);
+  (void)timui_tabs_layout(labels, ntabs, 1, spans, BIRC_TAB_SLOTS);
   scroll = timui_tabs_scroll(spans, ntabs, sel, r.w, 0);
   timui_push_clip(fr, r);
   for (i = 0; i < ntabs && i < nalerts; i++) {
@@ -714,7 +747,7 @@ static void birc_draw_tab_alerts(TimuiFrame *fr, TimuiRect r,
     sx = r.x + spans[i].x - scroll;
     box = TIMUI_RECT(sx, r.y, spans[i].w, 1);
     if (alerts[i] >= 2)
-      style = timui_style_make(0x1E1E2Eu, 0xFFD700u, TIMUI_ATTR_BOLD);
+      style = timui_style_make(mention_bg, mention_fg, TIMUI_ATTR_BOLD);
     else
       style = timui_style_make(TIMUI_COLOR_DEFAULT, TIMUI_COLOR_DEFAULT,
                                TIMUI_ATTR_REVERSE);
@@ -788,6 +821,9 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
             r.w == in.w + 2 && r.h == in.h + 2)
           body_box = 1;
       }
+      /* Role is inferred: the first x==0 box is the chat body, every other
+       * box is the nick list. OpSplit has no pane-role field (view.bend),
+       * so this cannot yet be deleted. Mouse hit-testing uses the rects. */
       if (ly->bu->body_count == 0 && r.x == 0) {
         ly->bu->body_inner[0] = (TimuiRect){r.x + 1, r.y + 1,
           r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
@@ -838,16 +874,16 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     Term f[8];
     Loc loc = ctr_take(e, op, 8, f);
     TimuiRect r;
-    char store[16][64];
-    const char *labs[16];
-    uint32_t alerts[16] = {0};
+    char store[BIRC_TAB_SLOTS][BIRC_TAB_LABEL];
+    const char *labs[BIRC_TAB_SLOTS];
+    uint32_t alerts[BIRC_TAB_SLOTS] = {0};
     int ntabs, nalerts, orig, sel;
     r.x = (int)(uint32_t)f[0];
     r.y = (int)(uint32_t)f[1];
     r.w = (int)(uint32_t)f[2];
     r.h = 1;
-    ntabs = birc_str_list(e, f[4], store, labs, 16);
-    nalerts = birc_u32_list(e, f[5], alerts, 16);
+    ntabs = birc_str_list(e, f[4], store, labs, BIRC_TAB_SLOTS);
+    nalerts = birc_u32_list(e, f[5], alerts, BIRC_TAB_SLOTS);
     orig = (int)(uint32_t)f[3];
     sel = orig < 0 ? 0 : orig;
     if (ntabs > 0 && sel >= ntabs)
@@ -861,7 +897,11 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     }
     if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
-    birc_draw_tab_alerts(fr, r, labs, ntabs, alerts, nalerts, sel);
+    /* f[0..7] are OpTabs as declared in view.bend. Mention colours belong
+     * in f[8] (bg) and f[9] (fg) once that constructor grows; until then
+     * the historic dark pair is the only pair C can paint. */
+    birc_draw_tab_alerts(fr, r, labs, ntabs, alerts, nalerts, sel,
+                         BIRC_TAB_MENTION_BG, BIRC_TAB_MENTION_FG);
     if (ly && ly->bu)
       birc_bell_update(ly->bu, (uint32_t)f[6], (uint32_t)f[7]);
     if (ly && sel != orig && sel >= 0 && sel < ntabs)
@@ -1314,11 +1354,11 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     }
     /* Inline composer: the widget sits on the last inner body row after
      * Bend's <nick> prefix. body_inner[0] is the chat body (first OpBox
-     * with x==0); split mode captures both panes. Always seat exactly
-     * one widget in the bottom-most, left-most pane over ALL panes
-     * (even zero-inner), mirroring Bend's split_composer_rect, so typing
-     * stays live at every size; Bend clips the prefix to this same inner
-     * geometry (possibly zero bytes). */
+     * with x==0); split mode captures both panes. The bottom-most,
+     * left-most pane is chosen by geometry because OpSplit carries no
+     * pane role (view.bend). Bend already computes split_composer_rect
+     * and passes compose_x. Do not delete this loop until that role
+     * exists and split-mode typing is retested at every size. */
     if (bu) {
       int chosen = -1;
       int i;
@@ -1682,18 +1722,20 @@ static void __attribute__((constructor)) winch_close_use(void) {
   io_eff(CID_WINCH_CLOSE, winch_close_run);
 }
 #endif
-#if CID_SYS_OPEN_PROGRAM
-Term sys_open_program_run(Env e, Term *f, IoWork *w) {
+#if CID_SYS_PLATFORM
+/* 1 = Apple, 0 = every other host. Program names are Bend policy. */
+Term sys_platform_run(Env e, Term *f, IoWork *w) {
+  (void)e;
   (void)f;
   (void)w;
 #if defined(__APPLE__)
-  return io_str(e, "open", 4);
+  return (Term)1u;
 #else
-  return io_str(e, "xdg-open", 8);
+  return (Term)0u;
 #endif
 }
-static void __attribute__((constructor)) sys_open_program_use(void) {
-  io_eff(CID_SYS_OPEN_PROGRAM, sys_open_program_run);
+static void __attribute__((constructor)) sys_platform_use(void) {
+  io_eff(CID_SYS_PLATFORM, sys_platform_run);
 }
 #endif
 #if CID_SYS_MEDIA_PROGRAM
@@ -1705,34 +1747,6 @@ Term sys_media_program_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) sys_media_program_use(void) {
   io_eff(CID_SYS_MEDIA_PROGRAM, sys_media_program_run);
-}
-#endif
-#if CID_SYS_NOTIFY_DEFAULT
-Term sys_notify_default_run(Env e, Term *f, IoWork *w) {
-  (void)f;
-  (void)w;
-#ifdef __APPLE__
-  return io_str(e, "osascript", 9);
-#else
-  return io_str(e, "notify-send", 11);
-#endif
-}
-static void __attribute__((constructor)) sys_notify_default_use(void) {
-  io_eff(CID_SYS_NOTIFY_DEFAULT, sys_notify_default_run);
-}
-#endif
-#if CID_SYS_CLIPBOARD_PROGRAM
-Term sys_clipboard_program_run(Env e, Term *f, IoWork *w) {
-  (void)f;
-  (void)w;
-#ifdef __APPLE__
-  return io_str(e, "pbcopy", 6);
-#else
-  return io_str(e, "", 0);
-#endif
-}
-static void __attribute__((constructor)) sys_clipboard_program_use(void) {
-  io_eff(CID_SYS_CLIPBOARD_PROGRAM, sys_clipboard_program_run);
 }
 #endif
 #if CID_SYS_EXIT_DONE
