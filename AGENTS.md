@@ -40,7 +40,8 @@ security and data-safety requirements still apply.
 When using Bend:
 - run `bend guide` to learn it
 - use `LAWS.bend` to keep important rules
-- run affected law checks while iterating; run the full proof with the integrated batch gate
+- run the full proof with the integrated batch gate; no selective law-check target exists
+- a commit that adds or renames a `src/` file updates the concern row it belongs to — never a file list
 - use parallel work only for independent, useful slices with separate writers
 
 When using timui.h:
@@ -84,42 +85,38 @@ silent flake/source pin updates. Routine Nix work uses
 
 ## Layout
 
-| Path | Role |
+Concern rows name a glob and an invariant. A commit that adds or renames a
+`src/` file updates the concern row it belongs to — never a file list.
+Per-file rows are only the modules whose contract is easy to misread.
+
+| Path | Invariant |
 |---|---|
-| `TODO.md` | Bend migration checklist (M8 = TimUI example parity) |
-| `src/bend/*.bend` | Protocol, client, submit, frame, session (pure), dns_wire, actor, net (IO), view, app |
-| `src/bend/buffer.bend` | Buffer / Client container types (I15b) |
-| `src/bend/client_laws.bend` | Feed inspectors and `*_ok` predicates (I15a) |
-| `src/bend/view_laws.bend` | View fixtures and proof-facing predicates |
-| `src/bend/auth.bend` | Parsed, phase-gated SASL exchange (pure) |
-| `src/bend/outbound.bend` | Pure send-cap batches and finite credits |
-| `src/bend/replay.bend` | Bounded file-snapshot replay through the live byte framer |
-| `src/bend/history_io.bend` | Private history append effects; keep foreign IO outside proof-facing History |
-| `src/bend/history_startup.bend` / `history_startup_io.bend` | Auth-free startup snapshots, nontrimming import, and fresh-ID dividers |
-| `src/bend/live_context.bend` / `startup_headless.bend` | Settings-before-history startup policy and generation-scoped actor release |
-| `src/bend/preferences_runtime.bend` / `preferences_live.bend` | Bounded settings queue, edit-wins loading, and quit drain |
-| `src/launcher/preferences_birc.py` | Private nonsecret settings file and literal helper protocol |
-| `src/bend/join_plan.bend` | Desired membership, transient keys, and welcome/auth recovery barrier |
-| `src/bend/irc_commands.bend` / `message_chunks.bend` | Shared command validation and lossless cluster-safe wire chunks |
-| `src/bend/links.bend` | Shared URL lexical rules (pure) |
-| `src/bend/diagnostic.bend` | Bounded log text/redaction and numeric helper diagnostics (pure) |
-| `src/bend/media.bend` | Image request identity, one-worker queue, and stale-result policy (pure) |
-| `src/bend/upload.bend` | Local path decoding, per-file consent, worker ownership, and fixed-origin results (pure) |
-| `src/bend/upload_io.bend` | Bounded uploader process; never forward child diagnostics |
-| `src/bend/theme.bend` | Named color themes; Dark preserves historic values (pure) |
-| `src/bend/emoji.bend` | View-only shortcode table; wire/history keep raw source (pure) |
-| `src/bend/notify.bend` / `notify_io.bend` | Per-event notification policy; bounded explicit-helper delivery |
-| `src/ffi/timui_ffi.c` | TimUI open/frame/close |
-| `src/ffi/dns_ffi.c` | Byte reads, deadline-owned connect/send, socket dup/shutdown |
-| `src/bend/endpoint.bend` | Shared DNS/IPv4 host:port syntax and conflicting-port checks |
-| `src/bend/transport_policy.bend` | Pure transport/default-port policy for CLI and proofs |
-| `src/bend/transport.bend` / `src/bend/tls.bend` | Affine plaintext/TLS connection dispatch and TLS effect declarations |
-| `src/ffi/tls_ffi.c` | Verified OpenSSL transport; no IRC parsing or authentication policy |
-| `src/ffi/clock_ffi.c` | Local clock for log timestamps |
-| `src/media/image.py` | Bounded HTTP(S)/local image helper; normalized frames and private remote-asset cache |
-| `src/media/upload.py` | Confirmed, bounded streaming uploads to `0x0.st` |
-| `src/ui/timui.h` | Vendored single-header TUI |
-| `LAWS.bend` / `PROOF.bend` | Laws and proofs |
+| `TODO.md` | Migration checklist through M27. Current contracts are this file; the milestone history is not a status board. |
+| `LAWS.bend` / `PROOF.bend` | 535 laws discharged 1:1. `LAWS.bend` must never import the IO/effect layer. |
+| `src/bend/{actor,app,auth_bridge,net,wsnet,timui,dns,tls,transport,clock,*_io,*_live,*_worker,*_runtime}.bend` | IO/effect layer: foreign effects, or the modules that run them. `LAWS.bend` must never import these. `dns` here is `src/bend/dns.bend` only; `src/bend/dns_wire.bend` and `src/bend/dns_query.bend` are pure. |
+| `src/bend/*.bend` | Pure domain modules that are outside the IO/effect row and do not import it. Proofs may import those. |
+| `src/ffi/*.c` | Thin native effects. C does not parse IRC or decide authentication. `TIMUI_IMPLEMENTATION` lives only in `src/ffi/timui_ffi.c`. |
+| `src/launcher/*.py` / `src/media/*.py` | Private nonsecret helpers. Remote HTTPS uses the standard-library certificate check. Confirmed uploads use the `0x0.st` helper. |
+| `src/ui/timui.h` | Vendored single-header TUI. |
+| `docs/FFI.md` / `docs/build-speed.md` / `docs/column-walker-retention.md` | Reference notes. This file wins when they disagree. |
+
+| Path | Invariant |
+|---|---|
+| `src/bend/cap_notify.bend` | IRCv3 capability registry and the sole `CAP END` owner. Not notification policy. |
+| `src/bend/notify.bend` | Per-event notification policy. Delivery effects stay in `src/bend/notify_io.bend`. |
+| `src/bend/auth.bend` | Parsed, phase-gated SASL. Credentials bind to the initial host and port. |
+| `src/bend/outbound.bend` | Proof-facing send-cap batches and finite credits. Queue rules stay here, not in `src/bend/actor.bend`. |
+| `src/bend/history_io.bend` | Foreign history append. The proof-facing history module does not own this effect. |
+| `src/bend/history_startup.bend` | Auth-free startup snapshots, nontrimming import, and fresh-ID dividers. The archive worker is `src/bend/history_startup_io.bend`. |
+| `src/bend/live_context.bend` / `src/bend/startup_headless.bend` | Settings-before-history startup and generation-scoped actor release. Both import the IO layer, so `LAWS.bend` must not import them. |
+| `src/bend/preferences_runtime.bend` | Bounded settings queue, edit-wins loading, and quit drain. Live loading is `src/bend/preferences_live.bend`. |
+| `src/bend/join_plan.bend` | Desired membership, transient keys, and the welcome/auth recovery barrier. |
+| `src/bend/replay.bend` | Bounded file-snapshot replay through the live byte framer; fails closed. It imports `src/bend/clock.bend`, so proofs must not import it. |
+| `src/bend/media.bend` | Image request identity, one-worker queue, and stale-result policy (pure). |
+| `src/bend/upload.bend` | Local path decoding, per-file consent, and fixed-origin results (pure). The process effect is `src/bend/upload_io.bend`. |
+| `src/bend/transport_policy.bend` | Pure transport and default-port policy. TLS effects stay in `src/bend/tls.bend`. |
+| `src/bend/client_laws.bend` / `src/bend/view_laws.bend` | Proof-facing feed and view predicates. |
+| `src/bend/emoji.bend` | View-only shortcodes. Wire text and history keep the raw source. |
 
 ## Engineering
 
@@ -152,7 +149,7 @@ silent flake/source pin updates. Routine Nix work uses
   Escape cancellation and F10 shutdown. Never replace a draft with a warning.
 - Keep IRC lines ≤ 512 bytes including CRLF.
 - Bend owns frame iteration (`Timui.frame` = one begin/draw/end, returns `Ui & UiKeys`); C has no outer frame while-loop or blocking input poll. Output readiness checks and waits use the bounded frame-output budget. Live paint is `List<DrawOp>` (`OpBox` / `OpSplit` / `OpText` / `OpTabs` / `OpLine` / `OpMedia`); C walks and paints, and does not tokenize, classify, or wrap IRC. Bend expands logical chat lines into resize-safe visible rows with hanging indents. `OpTabs` carries Bend-owned alert levels plus the bell enable flag and event sequence. C renders activity with reverse video, mentions/private messages with gold, and emits one BEL when the sequence advances. Keys are Data on the frame return; a clicked chat link returns its exact URL for Bend to open. C reports the raw key, mods, and wheel; Bend maps Shift-arrows, PageUp/PageDown (`Sess.body_h`), history, and Esc/F10. A tty watcher and a `SIGWINCH` pipe wake one `Chan(UiMsg)`. The UI parks on that channel. Every paint applies the keys the frame read, including a chunk or Eof paint.
-- Net: `IO.spawn` actor owns affine `Tr.Conn`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd/TLS handle (never `Chan(Conn)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` uses `replay.bend` and fails closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
+- Net: `IO.spawn` actor owns affine `Tr.Conn`; UI ↔ actor via `Chan(NetEvt)` / `Chan(NetCmd)` (Data). Live inbound is `recv_octets` + `Fr.push`; completed lines are UTF-8, with Latin-1 fallback if a line is not valid UTF-8. The actor owns the fd/TLS handle (never `Chan(Conn)`). `SEND_CAP` is 8 outbound lines per actor tick; leftover stays in `pending`. `--frames N` is N ticks (at most `SEND_CAP*N` lines during the loop); cmd close and fuel-0 flush `pending` so `/quit` is not dropped. `frames=0` live loops are `@unsafe`. Live DNS A is Bend UDP plus `recv_octets`. Demo/offline idle actor waits for `Dial`; Demo/Connecting `Cont` carries no IRC outs (no flush after Dial). C does not tokenize. Clock is applied at log IO, not every paint. `--replay FILE` uses `src/bend/replay.bend` and fails closed. `--help` is Bend's runtime CLI; birc usage is `--help-irc`.
 - Shutdown (P5): the writer flushes its healthy pending FIFO, closes its connection, and posts `WriterDone`. Only the current generation's `WriterDone` acknowledges shutdown; reader EOF and stale completions cannot. Demo/Offline idle writers acknowledge too; Connecting/Reconnecting do not wait for a pending dial. Then `Timui.close`, bounded status output, and `Sys.exit_done` ensure parked IO cannot linger. Do not use `IO.die` for successful UI shutdown: the pinned runtime writes an unbounded stderr newline even for an empty message. TimUI teardown restores terminal state before the final `_Exit`.
 - All terminal writes, including BEL and OSC 52, use the frame deadline. The native transport owns at most three UTF-8 suffix bytes; later writes must complete them first. Clipboard process work runs through Bend `Process.run` outside the frame, not synchronous `popen` in C.
 - Log lines carry author identity and stable global IDs. Never infer new events by comparing rendered text/timestamps. Reconnect dividers are `Reconnect`, not a substring test; `Reconnecting` preserves same-endpoint intent through dialing. Unread names and alert levels are separate fields.
@@ -189,7 +186,7 @@ silent flake/source pin updates. Routine Nix work uses
   file whose exclusive creation failed.
 - Native cells store complete UTF-8 clusters in buffer-owned arenas. Bare cell copies must not transfer arena attachments. Bend layout, native tabs, and FFI clipping use the same TimUI common-cluster boundaries and widths, not scalar sums. Selection appends complete clusters with checked growth; failure leaves the previous clipboard unchanged. OSC8 targets are exact through 1024 bytes; decline larger targets.
 - Bend keeps clusters whole across source style runs, with the leading character's style. Word wrapping prefers complete IRC spaces; oversized words/URLs hard-wrap. Hidden boundary spaces still contribute to source-character anchors. Tab-label byte clipping must retain complete common clusters.
-- History append creates `0600` files and repairs owned regular files via descriptor `fchmod` before writing. Reject final symlinks, nonregular files, and foreign ownership; never change the global umask. Keep the foreign append effect in `history_io.bend`, not the proof-facing History module.
+- History append creates `0600` files and repairs owned regular files via descriptor `fchmod` before writing. Reject final symlinks, nonregular files, and foreign ownership; never change the global umask. Keep the foreign append effect in `src/bend/history_io.bend`, not the proof-facing History module.
 - Keep actual channel names such as `+#room` unchanged in creation, membership events, and stored history. At message/typing audience boundaries, prefer an exact resident channel before STATUSMSG fallback; `@#room` remains an unambiguous alias. Measure nickname-prefix columns on the complete painted text, not nickname width plus punctuation.
 - Canonicalize known synthetic identities at creation, not generic stored-name lookup. A peer named `server` is a query; construct the control buffer with `server_buf`. A new connection clears channel roster/topic, but keeps same-endpoint chat history. Split NICK handling shares Client's accepted-rename predicate.
 - `Sub.slash_rows` is the command/completion catalog, including Session-owned aliases in their established order. Space-scan wrappers must preserve their distinct remainder policies: protocol keeps separators, verb drops one, word drops all.
@@ -207,7 +204,7 @@ silent flake/source pin updates. Routine Nix work uses
   every commit. Preserve real deadlines and terminal/process cleanup assertions.
 - Prove laws; do not weaken them to make a candidate pass.
 - The pinned Bend `Bool.pick` evaluates both alternatives eagerly. For recursive branches or row construction, use parameter matches or a lazy continuation; do not pass recursive calls as its values. `BIRC_FRAME_PROFILE=1` measures pure View separately from native frame phases; instrumentation is default-off.
-- Keep proof-facing queue rules in `outbound.bend`, not the IO actor module. Importing the actor into `LAWS.bend` brings foreign/unsafe dependencies and the checker rejects the proof set.
+- Keep proof-facing queue rules in `src/bend/outbound.bend`, not the IO actor module. Importing the actor into `LAWS.bend` brings foreign/unsafe dependencies and the checker rejects the proof set.
 - Bend pitfalls: no `match f(x)`; `+T` is copyable; match binders in param order;
   self-recursion needs decreasing fuel as the first arg; no dotted forward refs;
   `match` cannot scrutinize a computed value, a local binder, or a destructuring let;
