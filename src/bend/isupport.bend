@@ -1197,14 +1197,6 @@ def kicklen(+st: State) -> U32:
   match st:
     case State{_, _, +lim, _, _, _}: limits.kick(lim)
 
-def chans.per_line(+ch: Chans) -> U32:
-  match ch:
-    case Chans{_, _, _, _, _, _, +mpl, _, _}: mpl
-
-def modes_per_line(+st: State) -> U32:
-  match st:
-    case State{+ch, _, _, _, _, _}: chans.per_line(ch)
-
 def chans.maxlist(+ch: Chans) -> String:
   match ch:
     case Chans{_, _, _, _, _, _, _, +ml, _}: ml
