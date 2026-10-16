@@ -47,9 +47,10 @@ int main(void) {
   converted(2024u, 13u, 1u, 0u, 0u, 0u, 24u, 0u, 0u, "bad month rejects");
   converted(2024u, 1u, 1u, 24u, 0u, 0u, 24u, 0u, 0u, "bad hour rejects");
   converted(2024u, 1u, 1u, 0u, 0u, 61u, 24u, 0u, 0u, "bad second rejects");
-  converted(2024u, 1u, 31u, 12u, 34u, 60u, 24u, 0u, 0u, "wrong leap minute rejects");
-  converted(2024u, 1u, 1u, 23u, 59u, 60u, 24u, 0u, 0u, "wrong leap date rejects");
-  converted(UINT32_MAX, 1u, 1u, 0u, 0u, 0u, 24u, 0u, 0u, "year bound rejects");
+  /* Leap-second placement is Utc.valid. libc sees :59 and the extra
+   * second is display-only, so a non-policy :60 still converts here. */
+  converted(2024u, 1u, 31u, 12u, 34u, 60u, 12u, 34u, 60u, "leap second is display-only");
+  converted(2024u, 1u, 1u, 23u, 59u, 60u, 23u, 59u, 60u, "leap second date is not rechecked");
   zone("Asia/Seoul");
   converted(2026u, 9u, 28u, 17u, 40u, 27u, 2u, 40u, 27u, "Seoul next day");
   converted(2012u, 6u, 30u, 23u, 59u, 60u, 8u, 59u, 60u, "leap second retained");

@@ -1,4 +1,7 @@
-/* Local seconds-of-day as U32. Bend formats with Clock.fmt_hms. */
+/* Local seconds-of-day as U32. Bend formats with Clock.fmt_hms.
+ * Calendar bounds live in utc_time.bend:valid. This file converts an
+ * already-valid date through timegm/localtime_r and checks the libc
+ * round trip; it does not repeat the calendar gate. */
 #ifndef BIRC_CLOCK_FFI_C
 #define BIRC_CLOCK_FFI_C
 #include <errno.h>
@@ -28,29 +31,16 @@ struct birc_clock_parts {
   uint32_t hour, minute, second;
 };
 
-static uint32_t birc_month_days(uint32_t year, uint32_t month) {
-  static const uint32_t days[12] = {31u, 28u, 31u, 30u, 31u, 30u,
-                                   31u, 31u, 30u, 31u, 30u, 31u};
-  uint32_t leap = year % 4u == 0u && (year % 100u != 0u || year % 400u == 0u);
-  return days[month - 1u] + (month == 2u ? leap : 0u);
-}
-
 /* timegm/localtime_r use the event's date for DST and calendar rollover.
- * Convert a leap second at :59, then retain its extra second for display. */
+ * Convert a leap second at :59, then retain its extra second for display.
+ * Callers pass a Utc.valid date; a libc normalization that does not
+ * round-trip still fails closed with hour 24. */
 static struct birc_clock_parts birc_utc_local_parts(
     uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
     uint32_t minute, uint32_t second) {
   struct birc_clock_parts result = {24u, 0u, 0u};
   struct tm utc = {0}, local;
   time_t epoch;
-  if (year < 1u || year > 9999u || month < 1u || month > 12u
-      || day < 1u || day > 31u || hour >= 24u || minute >= 60u
-      || second > 60u)
-    return result;
-  if (day > birc_month_days(year, month)
-      || (second == 60u && (hour != 23u || minute != 59u
-                           || day != birc_month_days(year, month))))
-    return result;
   utc.tm_year = (int)year - 1900;
   utc.tm_mon = (int)month - 1;
   utc.tm_mday = (int)day;
