@@ -374,6 +374,53 @@ dominate this sweep"* and *"the sweep shows a lower band, not a change from line
 to flat."* The ~2× lower band is real; proving flatness in line length needs a
 long-line corpus. That is T1.6 item 6.
 
+### RESOLVED — the fix is linear, measured
+
+T1.6 built `tests/perf/long_lines.py` (64 / 128 / 256 / 510 octets before LF; 511+
+is dropped by the framer since `LINE_MAX` is 510). Run on `aarch64-darwin-1.lan`
+against a freshly built `birc`, 96 lines per run:
+
+| line octets | `view_us` | per line |
+|---|---|---|
+| 64 | 1,577 | 16.43 |
+| 128 | 2,718 | 28.31 |
+| 256 | 6,407 | 66.74 |
+| 510 | 12,559 | 130.82 |
+
+**64 → 510 octets is ×7.97 in length and ×7.96 in cost.** Quadratic would have been
+×63.5. The harness's own verdict is `shape=linear`.
+
+So removing `String.length(rest)` from the per-cluster fuel calculation
+(`columns.bend:116`, called once per cluster from 8 sites) did convert the paint
+path's width/wrap measurement from O(L²) to O(L). The earlier short-line sweep
+could not show this because at ~40 characters the quadratic term is smaller than
+the constant overhead — which is exactly why the honest caveat mattered.
+
+### Newly found: the four largest-closure targets have the smallest timeouts
+`make test-goldens-io` fails on a **quiet** lane (so not contention) with
+`Error 124` on `build/live_context`, `build/net_demo`, `build/deferred_frame.c` and
+`build/mss_stale_socket.c`. Their closures are the largest in the suite —
+57, 69, 74 and 74 modules — yet none is in the `bend_slow_compile` table
+(`Makefile:265-283`), so they fall through to the default `timeout 180 bend`
+(`Makefile:224`) or `timeout 300` for the `.c` variant (`:233`).
+
+That combination cannot work: a 74-module closure is ~45,000 lines of Bend, which
+at the calibrated ~325 lines/s is ~140 s of elaboration *before* Bend emits a
+~1-million-line C file that clang must then compile and link — and `Makefile:18-20`
+already records that link alone taking 143 s calm and ~280 s loaded.
+
+Three of them (`test-deferred-frame`, `test-live-context`, `test-live-context-io`)
+are prerequisites of `test-review-pure`, so they are in `make check`. This is a
+seventh pre-existing red item, and it is a **configuration** defect rather than a
+code defect: the timeouts were patched target-by-target as people hit them
+(`irc_commands`, `message_split`, `reconnect_*`, `mode_privacy` at 900;
+`auth_privacy` at 360) and the four largest were never reached.
+
+Fix: add them to `bend_slow_compile` with **measured** values. Never guess a
+timeout — the existing ones encode calm-host measurements, and a guessed number
+either flakes or hides a real hang.
+
+
 ### Integration fixes applied by the reviewing agent
 T1.4 correctly stopped at two packaging breaks in files outside its set rather than
 editing them. Both fixed before merge:
