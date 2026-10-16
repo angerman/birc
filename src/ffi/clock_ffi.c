@@ -1,7 +1,13 @@
 /* Local seconds-of-day as U32. Bend formats with Clock.fmt_hms.
  * Calendar bounds live in utc_time.bend:valid. This file converts an
  * already-valid date through timegm/localtime_r and checks the libc
- * round trip; it does not repeat the calendar gate. */
+ * round trip; it does not repeat the calendar gate.
+ *
+ * BIRC_NET_TRACE is default-off. When the variable is set to any value,
+ * net_trace writes one bounded stderr line per mark:
+ *   birc_net_trace seq=<n> stage=<u> txn=<u> ms=<u> count=<u>
+ * The line is numeric only (sequence, stage, batch txn, monotonic
+ * milliseconds, counter). Unset, it emits nothing. */
 #ifndef BIRC_CLOCK_FFI_C
 #define BIRC_CLOCK_FFI_C
 #include <errno.h>
