@@ -109,3 +109,9 @@ def resolve.selected(selected: Maybe<&2, U32>, host: String) -> Maybe<&1, String
 def resolve(endpoint: Endpoint, separate: Maybe<&2, U32>, fallback: U32) -> Maybe<&1, String & U32>:
   match endpoint:
     case Endpoint{host, port}: resolve.selected(select_port(port, separate, fallback), host)
+
+# History records and credentials both scope on this string. Keep host
+# spelling and a terminal DNS root dot byte-for-byte: no case folding, no
+# dot stripping. SNI normalization is a different step.
+def endpoint(+host: String, +port: U32) -> String:
+  host ++ ":" ++ U32.show(port)
