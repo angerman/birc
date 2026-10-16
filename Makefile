@@ -292,6 +292,13 @@ $(eval $(call bend_slow_compile,ipv6_transport_native,ipv6_transport_native,300)
 $(eval $(call bend_slow_compile,richtext_demo,richtext_demo,90))
 $(eval $(call bend_slow_compile,ui_input_queue.c,ui_input_queue,180))
 $(eval $(call bend_slow_compile,demo_identity.c,demo_identity,180))
+# Native binaries whose `bend -o` step also runs clang over a 10-13 MB generated
+# C file. Calm-host measurements on an idle 8-core lane at -j1: live_context 58s
+# (C 10.1 MB), net_demo 84s (C 13.0 MB). Each compile wants ~165% CPU because Bun
+# is internally threaded, so at -j5 they exceed the 180s default. 360s follows the
+# auth_privacy precedent (92s calm -> 360s, ~4x) rather than inventing a margin.
+$(eval $(call bend_slow_compile,live_context,live_context,360))
+$(eval $(call bend_slow_compile,net_demo,net_demo,360))
 # Protocol self-test binary (file target; build-proto phony depends on it).
 $(BLDDIR)/birc-proto: $(PROTO) $(BLDDIR)/birc-proto.bend.d
 	$(NIXRUN) timeout 180 bend $(PROTO) -o $(BLDDIR)/birc-proto
