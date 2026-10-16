@@ -201,9 +201,50 @@ def sess_trip_wire(trip: Sess.Session & Sess.NetCmd & Bool) -> String:
   match trip:
     case (_, cmd, halt): outs_of(cmd) ++ ";" ++ Bool.pick(String, halt, "halt", "go")
 
-def main() -> IO(Unit):
+type ADBox is Data:
+  ADBox{cell: List<&2, SC.AD>}
+
+# Singleton-list box: AD embeds Session by value, so the live AD captures
+# in one main flatten past the 247-word native continuation limit ("an
+# arity over 247"). Boxing each fixture behind a recursive List cell keeps
+# bind captures narrow (session_drafts_demo idiom); use sites unbox
+# transiently. The Nil arm is unreachable by construction.
+def box(+ad: SC.AD) -> ADBox:
+  ADBox{ad <> Nil{}}
+
+def unbox.cell(+cell: List<&2, SC.AD>) -> SC.AD:
+  match cell:
+    case Con{+ad, _}: ad
+    case Nil{}: online()
+
+def unbox(+b: ADBox) -> SC.AD:
+  match b:
+    case ADBox{+cell}: unbox.cell(cell)
+
+type SBox is Data:
+  SBox{cell: List<&2, Sess.Session>}
+
+def sbox(+st: Sess.Session) -> SBox:
+  SBox{st <> Nil{}}
+
+def sunbox.cell(+cell: List<&2, Sess.Session>) -> Sess.Session:
+  match cell:
+    case Con{+st, _}: st
+    case Nil{}: Sess.session_online(Sess.session_with_client(link_client(), "#t"))
+
+def sunbox(+b: SBox) -> Sess.Session:
+  match b:
+    case SBox{+cell}: sunbox.cell(cell)
+
+# The pinned native backend permits at most 247 flattened capture words
+# per continuation (AGENTS.md). One main holding the live AD/Session
+# fixtures breaches it ("an arity over 247"); each phase below holds only
+# boxed fixtures, and main only sequences phases. Assertions are unchanged,
+# in the same order.
+def ph_schedule() -> IO(Unit):
+  +ten = box(SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, lines(10n)), "#t"))))
+  +exact = box(SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see " ++ exact_url(), "alice", 1n}]), "#t"))))
   do IO<Unit>:
-    # ---- bounded visible scheduling ----
     Unit <- E.must_eq("online schedules visible page", Nat.show(SC.ad_pending(SC.observe_visible(online()))), "1")
     Unit <- E.must_eq("demo schedules nothing", Nat.show(SC.ad_pending(SC.observe_visible(demo()))), "0")
     Unit <- E.must_eq("stopping schedules nothing", Nat.show(SC.ad_pending(SC.observe_visible(stopping()))), "0")
@@ -216,42 +257,49 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("plaintext never schedules", Nat.show(SC.ad_pending(SC.observe_visible(SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see http://example.test/read", "alice", 1n}]), "#t")))))), "0")
     Unit <- E.must_eq("code stays opaque", Nat.show(SC.ad_pending(SC.observe_visible(SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "`" ++ page() ++ "`", "alice", 1n}]), "#t")))))), "0")
     Unit <- E.must_eq("non-chat rows never schedule", Nat.show(SC.ad_pending(SC.observe_visible(SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.System{}, "", page(), "", 1n}]), "#t")))))), "0")
-    +ten : SC.AD = SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, lines(10n)), "#t")))
-    Unit <- E.must_eq("visible queue capped at eight", Nat.show(SC.ad_pending(SC.observe_visible(ten))), "8")
+    Unit <- E.must_eq("visible queue capped at eight", Nat.show(SC.ad_pending(SC.observe_visible(unbox(ten)))), "8")
     Unit <- E.must_eq("settle never schedules", Nat.show(SC.ad_pending(SC.settle(online()))), "0")
-    +exact : SC.AD = SC.wrap(Sess.session_online(Sess.session_with_client(Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "", "see " ++ exact_url(), "alice", 1n}]), "#t")))
-    Unit <- E.must_eq("exact URL text preserved", String.join(C.known_urls(SC.ad_cards(SC.observe_visible(exact)), C.CardInline{1n}), "|"), exact_url())
-    # ---- worker ownership ----
+    Unit <- E.must_eq("exact URL text preserved", String.join(C.known_urls(SC.ad_cards(SC.observe_visible(unbox(exact))), C.CardInline{1n}), "|"), exact_url())
+    return Unit{}
+
+def ph_worker() -> IO(Unit):
+  do IO<Unit>:
     Unit <- E.must_eq("worker starts exact job", job_of(SC.take_job(SC.observe_visible(online()))), "1:1:" ++ page())
     Unit <- E.must_eq("one worker only", job_of(SC.take_job(started())), "none")
     Unit <- E.must_eq("idle takes nothing", job_of(SC.take_job(online())), "none")
     Unit <- E.must("stopping forbids jobs", Bool.not(SC.job_allowed(stopping())))
     Unit <- E.must("online allows jobs", SC.job_allowed(online()))
-    # ---- completion admission and stale-result policy ----
+    return Unit{}
+
+def ph_admit() -> IO(Unit):
+  +done = box(SC.complete(started(), 1n, 1n, page(), "Hello\nA description\n"))
+  +gone = box(SC.with_cards(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), SC.ad_cards(started()), SC.ad_full(started())))
+  do IO<Unit>:
     Unit <- E.must("exact completion accepted", SC.accept_result(started(), 1n, 1n, page()))
     Unit <- E.must("wrong ticket rejected", Bool.not(SC.accept_result(started(), 1n, 2n, page())))
     Unit <- E.must("wrong generation rejected", Bool.not(SC.accept_result(started(), 2n, 1n, page())))
     Unit <- E.must("wrong URL rejected", Bool.not(SC.accept_result(started(), 1n, 1n, "https://x.test/other")))
     Unit <- E.must("stale attempt keeps worker", SC.accept_result(SC.complete(started(), 1n, 2n, page(), "T\nD\n"), 1n, 1n, page()))
     Unit <- E.must_eq("stale attempt stores nothing", Nat.show(SC.ad_ready(SC.complete(started(), 1n, 2n, page(), "T\nD\n"))), "0")
-    +done : SC.AD = SC.complete(started(), 1n, 1n, page(), "Hello\nA description\n")
-    Unit <- E.must_eq("accepted title stored", card_title(C.card(SC.ad_cards(done), C.CardInline{1n}, page())), "Hello")
-    Unit <- E.must_eq("accepted completion releases worker", job_of(SC.take_job(done)), "none")
-    Unit <- E.must_eq("stored card never refetches", Nat.show(SC.ad_pending(SC.observe_visible(done))), "0")
+    Unit <- E.must_eq("accepted title stored", card_title(C.card(SC.ad_cards(unbox(done)), C.CardInline{1n}, page())), "Hello")
+    Unit <- E.must_eq("accepted completion releases worker", job_of(SC.take_job(unbox(done))), "none")
+    Unit <- E.must_eq("stored card never refetches", Nat.show(SC.ad_pending(SC.observe_visible(unbox(done)))), "0")
     Unit <- E.must("disabled completion rejected", Bool.not(SC.accept_result(SC.set_enabled(started(), False{}), 1n, 1n, page())))
     Unit <- E.must_eq("disabled completion stores nothing", Nat.show(SC.ad_ready(SC.complete(SC.set_enabled(started(), False{}), 1n, 1n, page(), "T\nD\n"))), "0")
-    +gone : SC.AD = SC.with_cards(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), SC.ad_cards(started()), SC.ad_full(started()))
-    Unit <- E.must_eq("removed-source completion stores nothing", Nat.show(SC.ad_ready(SC.complete(gone, 1n, 1n, page(), "T\nD\n"))), "0")
+    Unit <- E.must_eq("removed-source completion stores nothing", Nat.show(SC.ad_ready(SC.complete(unbox(gone), 1n, 1n, page(), "T\nD\n"))), "0")
     Unit <- E.must_eq("reset generation stores nothing", Nat.show(SC.ad_ready(SC.complete(SC.reset_endpoint(started()), 1n, 1n, page(), "T\nD\n"))), "0")
     Unit <- E.must_eq("reject stores nothing", Nat.show(SC.ad_ready(SC.reject(started(), 1n, 1n, page()))), "0")
     Unit <- E.must_eq("reject releases worker", job_of(SC.take_job(SC.reject(started(), 1n, 1n, page()))), "none")
     Unit <- E.must("wrong reject keeps worker", SC.accept_result(SC.reject(started(), 1n, 2n, page()), 1n, 1n, page()))
-    # ---- fullscreen open/paint/close ----
+    return Unit{}
+
+def ph_full() -> IO(Unit):
+  +unsupported = box(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.set_supported(ready_media(), False{})), SC.ad_cards(media_ad()), SC.ad_full(media_ad())))
+  do IO<Unit>:
     Unit <- E.must("open without token stays closed", Bool.not(SC.ad_open(SC.open_full(online_img(), M.Inline{1n}, image()))))
     Unit <- E.must("accepted token opens", SC.ad_open(opened_ad()))
     Unit <- E.must_eq("overlay carries token", U32.show(C.token_of(SC.ad_full(opened_ad()))), "7")
-    +unsupported : SC.AD = SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.set_supported(ready_media(), False{})), SC.ad_cards(media_ad()), SC.ad_full(media_ad()))
-    Unit <- E.must("open without support stays closed", Bool.not(SC.ad_open(SC.open_full(unsupported, M.Inline{1n}, image()))))
+    Unit <- E.must("open without support stays closed", Bool.not(SC.ad_open(SC.open_full(unbox(unsupported), M.Inline{1n}, image()))))
     Unit <- E.must_eq("overlay covers body", overlay_of(opened_ad(), 24, 80), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
     Unit <- E.must_eq("closed paints nothing", overlay_of(media_ad(), 24, 80), "")
     Unit <- E.must_eq("stale token paints nothing", overlay_of(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), retokened_media()), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad())), 24, 80), "")
@@ -263,28 +311,37 @@ def main() -> IO(Unit):
     Unit <- E.must("endpoint reset closes overlay", Bool.not(SC.ad_open(SC.reset_endpoint(opened_ad()))))
     Unit <- E.must("removed source closes overlay", Bool.not(SC.ad_open(SC.settle(SC.with_cards(Sess.session_set_client(SC.ad_session(opened_ad()), Cl.init("me", "s")), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad()))))))
     Unit <- E.must("key-step settle closes stale overlay", Bool.not(SC.ad_open(stepped_ad(SC.step_keys(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.initial(True{})), SC.ad_cards(media_ad()), SC.ad_full(opened_ad())), idle_keys())))))
-    # ---- endpoint isolation and log silence ----
+    return Unit{}
+
+def ph_isolate() -> IO(Unit):
+  +done = box(SC.complete(started(), 1n, 1n, page(), "Hello\nA description\n"))
+  +other = box(SC.complete(started(), 1n, 1n, page(), "T\nD\n"))
+  do IO<Unit>:
     Unit <- E.must_eq("endpoint reset drops queue", Nat.show(SC.ad_pending(SC.reset_endpoint(started()))), "0")
-    Unit <- E.must_eq("endpoint reset drops ready", Nat.show(SC.ad_ready(SC.reset_endpoint(done))), "0")
-    +other : SC.AD = SC.complete(started(), 1n, 1n, page(), "T\nD\n")
+    Unit <- E.must_eq("endpoint reset drops ready", Nat.show(SC.ad_ready(SC.reset_endpoint(unbox(done)))), "0")
     Unit <- E.must_eq("scopes stay isolated", Nat.show(SC.ad_ready(SC.observe_visible(online()))), "0")
-    Unit <- E.must_eq("completed scope keeps its card", Nat.show(SC.ad_ready(other)), "1")
+    Unit <- E.must_eq("completed scope keeps its card", Nat.show(SC.ad_ready(unbox(other))), "1")
     Unit <- E.must_eq("observe emits no diagnostics", Nat.show(Cl.log_seq_of(SC.ad_client(SC.observe_visible(online())))), Nat.show(Cl.log_seq_of(SC.ad_client(online()))))
     Unit <- E.must_eq("settle emits no diagnostics", Nat.show(Cl.log_seq_of(SC.ad_client(SC.settle(online())))), Nat.show(Cl.log_seq_of(SC.ad_client(online()))))
-    Unit <- E.must_eq("complete emits no diagnostics", Nat.show(Cl.log_seq_of(SC.ad_client(done))), Nat.show(Cl.log_seq_of(SC.ad_client(online()))))
-    # ---- wire preservation and the 512-byte cap ----
-    +room : Cl.Client = set_named(channel("#t"), "#t")
-    +live : Sess.Session = Sess.session_online(Sess.session_with_client(room, "#t"))
-    Unit <- E.must_eq("key-step outs preserved", trip_wire(SC.step_keys(SC.wrap(live), enter_keys("hello"))), sess_trip_wire(Sess.step_keys(live, enter_keys("hello"))))
-    Unit <- E.must("key-step outs within cap", outs_ok(stepped_cmd(SC.step_keys(SC.wrap(live), enter_keys("hello")))))
-    +long : String = repeat(600n, "a")
-    Unit <- E.must_eq("overlong rejection preserved", trip_wire(SC.step_keys(SC.wrap(live), enter_keys(long))), sess_trip_wire(Sess.step_keys(live, enter_keys(long))))
-    Unit <- E.must("overlong outs within cap", outs_ok(stepped_cmd(SC.step_keys(SC.wrap(live), enter_keys(long)))))
-    Unit <- E.must_eq("enter outs preserved", trip_wire(SC.step_enter(SC.wrap(live), "hello")), sess_trip_wire(Sess.step_enter(live, "hello")))
-    Unit <- E.must_eq("chunk outs preserved", chunk_outs(SC.step_chunk(SC.wrap(live), Fr.string_to_octets("PING :abc\r\n"), 0)), sess_chunk_outs(Sess.step_on_chunk_ms(live, Fr.string_to_octets("PING :abc\r\n"), 0)))
+    Unit <- E.must_eq("complete emits no diagnostics", Nat.show(Cl.log_seq_of(SC.ad_client(unbox(done)))), Nat.show(Cl.log_seq_of(SC.ad_client(online()))))
+    return Unit{}
+
+def ph_wire() -> IO(Unit):
+  +live = sbox(Sess.session_online(Sess.session_with_client(set_named(channel("#t"), "#t"), "#t")))
+  +long = repeat(600n, "a")
+  do IO<Unit>:
+    Unit <- E.must_eq("key-step outs preserved", trip_wire(SC.step_keys(SC.wrap(sunbox(live)), enter_keys("hello"))), sess_trip_wire(Sess.step_keys(sunbox(live), enter_keys("hello"))))
+    Unit <- E.must("key-step outs within cap", outs_ok(stepped_cmd(SC.step_keys(SC.wrap(sunbox(live)), enter_keys("hello")))))
+    Unit <- E.must_eq("overlong rejection preserved", trip_wire(SC.step_keys(SC.wrap(sunbox(live)), enter_keys(long))), sess_trip_wire(Sess.step_keys(sunbox(live), enter_keys(long))))
+    Unit <- E.must("overlong outs within cap", outs_ok(stepped_cmd(SC.step_keys(SC.wrap(sunbox(live)), enter_keys(long)))))
+    Unit <- E.must_eq("enter outs preserved", trip_wire(SC.step_enter(SC.wrap(sunbox(live)), "hello")), sess_trip_wire(Sess.step_enter(sunbox(live), "hello")))
+    Unit <- E.must_eq("chunk outs preserved", chunk_outs(SC.step_chunk(SC.wrap(sunbox(live)), Fr.string_to_octets("PING :abc\r\n"), 0)), sess_chunk_outs(Sess.step_on_chunk_ms(sunbox(live), Fr.string_to_octets("PING :abc\r\n"), 0)))
     Unit <- E.must("wire_ok on control hello", SC.wire_ok(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), "hello"))
     Unit <- E.must("chunk_ok on ping", SC.chunk_ok(Sess.session_online(Sess.session_with_client(Cl.init("me", "s"), "#t")), Fr.string_to_octets("PING :abc\r\n"), 0))
-    # ---- worker protocol (pure surface) ----
+    return Unit{}
+
+def ph_proto() -> IO(Unit):
+  do IO<Unit>:
     Unit <- E.must_eq("remote arg is exact URL", args_shape(CN.cards_args(page())), page())
     Unit <- E.must_eq("local path takes --local", args_shape(CN.cards_args("/tmp/page.html")), "--local|/tmp/page.html")
     Unit <- E.must_eq("failed worker yields empty", CN.cards_payload(Fail{(7, "boom")}), "")
@@ -294,8 +351,23 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("accepted on_card stores", Nat.show(C.ready_count(Sess.session_cards(on_card_st(CN.on_card_session(True{}, session_of(started()), 1n, 1n, page(), "T\nD\n"))))), "1")
     Unit <- E.must_eq("stale completion stays quiet", on_card_repaint(CN.on_card_session(False{}, session_of(started()), 1n, 1n, page(), "T\nD\n")), "quiet")
     Unit <- E.must_eq("stale on_card stores nothing", Nat.show(C.ready_count(Sess.session_cards(on_card_st(CN.on_card_session(False{}, session_of(started()), 1n, 1n, page(), "T\nD\n"))))), "0")
-    # ---- card text rows (production View painter) ----
-    +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
+    return Unit{}
+
+def ph_rows() -> IO(Unit):
+  +known : C.State = C.State{True{}, 1n, 2n, None{}, Nil{}, [C.CardReady{C.CardInline{1n}, page(), "T", "D", ""}],}
+  do IO<Unit>:
     Unit <- E.must_eq("known target paints rows", Nat.show(List.length(&2, V.BodyRow, V.card_rows_for(C.paint_entries(known), 1n, 80))), "2")
     Unit <- E.must_eq("unknown target paints nothing", Nat.show(List.length(&2, V.BodyRow, V.card_rows_for(C.paint_entries(known), 2n, 80))), "0")
+    return Unit{}
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- ph_schedule()
+    Unit <- ph_worker()
+    Unit <- ph_admit()
+    Unit <- ph_full()
+    Unit <- ph_isolate()
+    Unit <- ph_wire()
+    Unit <- ph_proto()
+    Unit <- ph_rows()
     IO.print("session_cards_demo=ok")
