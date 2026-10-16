@@ -117,7 +117,10 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 # mktemp. `proof` has no file outputs and is safe to run concurrently with
 # builds. Local iteration: `make -j$(nproc) check`. CI/bounded hosts:
 # `MAKEFLAGS=-j2 make check`. Do not use `make -j` with `update` (pin move).
-BEND_SRC_DEPS := $(wildcard src/bend/*.bend)
+# .bend files inline C (`import "../ffi/*.c"`), so an FFI-only edit must
+# invalidate every Bend output. Link rules already list BEND_UI_SRCS;
+# compile rules must too, or Make relinks a stale generated TU.
+BEND_SRC_DEPS := $(BEND_UI_SRCS)
 # Default native Bend test binary (180s bound).
 $(BLDDIR)/%: tests/bend/%.bend $(BEND_SRC_DEPS)
 	@mkdir -p $(BLDDIR)
