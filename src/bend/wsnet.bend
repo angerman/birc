@@ -1086,25 +1086,19 @@ def ws_history_save(+ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Wor
 # part, and only the current part paints, so observing the current part
 # after each step is complete. The media stage additionally honors the
 # one global physical image lease (G2).
-def ws_media.job(job: Maybe<&2, M.Request>, +media: M.State, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
+def ws_media.applied(job: Maybe<&2, M.Request>, clear: Bool, repaint: Bool, +ws2: W.Workspace, ui: T.Ui, +id: Key.ServerId, +gen: U32, +evt: Chan(Sess.UiMsg), +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
   match job:
     case None{}:
-      +clear = Bool.not(Nat.is_eq(old_generation, M.generation(media)))
-      +repaint = Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after)
-      +ws2 = ws_replace(ws, id, Sess.session_set_media(observed, media))
       do IO<T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>>:
-        ui2 : T.Ui <- Net.media_clear(clear, ui)
+        ui2 : T.Ui <- Net.media_stage.effects(clear, None{}, ui, evt)
         return (ui2, ws2, repaint, lease)
     case Some{+req}:
-      +clear = Bool.not(Nat.is_eq(old_generation, M.generation(media)))
-      +repaint = Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after)
-      +ws2 = ws_replace(ws, id, Sess.session_set_media(observed, media))
-      +evt = ws_evt.id(evts, id)
-      lease2: Maybe<&2, WsMedia> = Some{WsMedia{id, gen, req}}
       do IO<T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>>:
-        ui2 : T.Ui <- Net.media_clear(clear, ui)
-        Unit <- Net.media_spawn(Some{req}, evt)
-        return (ui2, ws2, repaint, lease2)
+        ui2 : T.Ui <- Net.media_stage.effects(clear, Some{req}, ui, evt)
+        return (ui2, ws2, repaint, Some{WsMedia{id, gen, req}})
+
+def ws_media.job(job: Maybe<&2, M.Request>, +media: M.State, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
+  ws_media.applied(job, Bool.not(Nat.is_eq(old_generation, M.generation(media))), Nat.is_gt(Cl.log_seq_of(Sess.session_cl(observed)), old_after), ws_replace(ws, id, Sess.session_set_media(observed, media)), ui, id, gen, ws_evt.id(evts, id), lease)
 
 def ws_media.jobs(pair: M.State & Maybe<&2, M.Request>, +observed: Sess.Session, +old_generation: Nat, +old_after: Nat, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +gen: U32, +evts: WsEvts, +lease: Maybe<&2, WsMedia>) -> IO(T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia>):
   match pair:
@@ -1426,32 +1420,42 @@ def ws_keys_halted.ms(+halt: Bool) -> IO(U32):
     case True{}: IO.pure(U32, 0)
     case False{}: Clock.millis()
 
-def ws_keys_halted.go(+now_ms: U32, +halt: Bool, +ws2: W.Workspace, +rc: Sid.RoutedCmd, ui: T.Ui, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  ws_done(ui, W.live_frame_tick.rc(ws2, rc, halt, now_ms), old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_keys_halted.go(+loop: WsLoop, +now_ms: U32, +halt: Bool, +rc: Sid.RoutedCmd, ui: T.Ui, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws2, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      ws_done(ui, W.live_frame_tick.rc(ws2, rc, halt, now_ms), old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
-def ws_keys_halted(+halt: Bool, +ws2: W.Workspace, +rc: Sid.RoutedCmd, ui: T.Ui, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    now_ms : U32 <- ws_keys_halted.ms(halt)
-    ws_keys_halted.go(now_ms, halt, ws2, rc, ui, old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_keys_halted(+loop: WsLoop, +halt: Bool, +rc: Sid.RoutedCmd, ui: T.Ui, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws2, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        now_ms : U32 <- ws_keys_halted.ms(halt)
+        ws_keys_halted.go(ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), now_ms, halt, rc, ui, old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 def ws_keys_ticked.go(trip: W.Workspace & Sid.RoutedCmd & Bool, ui: T.Ui, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match trip:
-    case (+ws2, +rc, halt): ws_keys_halted(halt, ws2, rc, ui, old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+    case (+ws2, +rc, halt): ws_keys_halted(ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), halt, rc, ui, old, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 def ws_keys_done.tripped(trip: W.Workspace & Sid.RoutedCmd & Bool, +typed: String, +restore: Bool) -> W.Workspace & Sid.RoutedCmd & Bool:
   match trip:
     case (+ws2, +rc, halt): (ws_upload.restored(ws2, typed, restore), rc, halt)
 
-def ws_keys_done(ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +tab: U32, +up: U32, +dn: U32, +hist: U32, +quit: U32, +comp: U32, +focus: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  ws_keys_ticked.go(ws_keys_done.tripped(W.live_step_keys(ws, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp, focus)), typed, restore), ui, ws, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_keys_done(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +tab: U32, +up: U32, +dn: U32, +hist: U32, +quit: U32, +comp: U32, +focus: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      ws_keys_ticked.go(ws_keys_done.tripped(W.live_step_keys(ws, Sess.keys_of(typed, enter, tab, click, up, dn, hist, comp, focus)), typed, restore), ui, ws, rows, cols, quit, more, tab, click, up, dn, hist, enter, comp, focus, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
-def ws_pol.go(ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +pol: Sess.KeyPol, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match pol:
-    case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
-      ws_keys_done(ui, ws, typed, enter, rows, cols, click, tab, up, dn, hist, quit, comp, focus, more, restore, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_pol.go(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, +pol: Sess.KeyPol, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match pol:
+        case Sess.KeyPol{+tab, +up, +dn, +hist, +quit, +comp, +focus}:
+          ws_keys_done(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, enter, rows, cols, click, tab, up, dn, hist, quit, comp, focus, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
-def ws_pol(ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  ws_pol.go(ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, Sess.key_pol_for(W.current_session(ws), key, mods, codepoint, wheel, rows), bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_pol(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      ws_pol.go(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, Sess.key_pol_for(W.current_session(ws), key, mods, codepoint, wheel, rows), k)
 
 def ws_f7.rc(+ws2: W.Workspace) -> Sid.RoutedCmd:
   Sid.RoutedCmd{W.ws_current(ws2), Sess.Cont{Nil{}}}
@@ -1463,20 +1467,24 @@ def ws_f7.posted(got: T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia>
         scheduled2 : Bool <- ws_more(scheduled, consumed, more || moved || repaint, main)
         k((ui, ws_mkloop(ws, bell, scheduled2, ctx, media, owner, ups, notify, cards, begun), False{}))
 
-def ws_f7(ui: T.Ui, +ws: W.Workspace, +typed: String, +rows: U32, +cols: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  +sized = W.set_current_size(ws, rows, cols)
-  +ws2 = W.cycle_ws(W.cycle_server(sized, typed))
-  +moved = W.cycle_moved(W.cycle_server(sized, typed))
-  do IO<Unit>:
-    Unit <- ws_emit(ws_f7.rc(ws2), cmds, evts)
-    Unit <- Net.ack_key(is_key, ack)
-    got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_upload.presented(ws, ws2), W.ws_current(ws2), evts, pevts, ctx, media, owner, ups, cards, False{})
-    ws_f7.posted(got, more, moved, main, scheduled, consumed, bell, notify, begun, k)
+def ws_f7(+loop: WsLoop, ui: T.Ui, +typed: String, +rows: U32, +cols: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      +sized = W.set_current_size(ws, rows, cols)
+      +ws2 = W.cycle_ws(W.cycle_server(sized, typed))
+      +moved = W.cycle_moved(W.cycle_server(sized, typed))
+      do IO<Unit>:
+        Unit <- ws_emit(ws_f7.rc(ws2), cmds, evts)
+        Unit <- Net.ack_key(is_key, ack)
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_upload.presented(ws, ws2), W.ws_current(ws2), evts, pevts, ctx, media, owner, ups, cards, False{})
+        ws_f7.posted(got, more, moved, main, scheduled, consumed, bell, notify, begun, k)
 
-def ws_act.go(ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, f7: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match f7:
-    case True{}: ws_f7(ui, ws, typed, rows, cols, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case False{}: ws_pol(ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_act.go(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +restore: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, f7: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match f7:
+        case True{}: ws_f7(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, rows, cols, more, is_key, main, cmds, evts, pevts, ack, consumed, k)
+        case False{}: ws_pol(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 # Upload admission after the single fullscreen decision: the 810
 # Enter/key/codepoint suppression, more coalescing, and draft restore
@@ -1490,7 +1498,7 @@ def ws_act.gated(pair: W.Workspace & Bool, ui: T.Ui, +typed: String, +enter_orig
       +code_sup = Bool.pick(U32, handled, 0, codepoint)
       +more = more_orig || handled
       +restore = handled && enter_orig
-      ws_act.go(ui, ws_keyed, typed, enter, rows, cols, click, key_sup, mods, code_sup, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, U32.is_eq(key_sup, Sess.KEY_F7()), bell, ctx, media, owner, ups, notify, WsCardsAll{parts2, lease}, begun, k)
+      ws_act.go(ws_mkloop(ws_keyed, bell, scheduled, ctx, media, owner, ups, notify, WsCardsAll{parts2, lease}, begun), ui, typed, enter, rows, cols, click, key_sup, mods, code_sup, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, U32.is_eq(key_sup, Sess.KEY_F7()), k)
 
 # Fullscreen pre-step (accepted painter dispatch order): F9/Escape reach
 # the current part's sidecar before F7/key dispatch, and a handled key is
@@ -1501,16 +1509,20 @@ def ws_act.keyed(applied: List<&2, WsCards> & U32, ui: T.Ui, +ws: W.Workspace, +
     case (+parts2, +key2):
       ws_act.gated(ws_upload.gated(Bool.not(U32.is_eq(key2, key)), ws, key2, mods), ui, typed, enter, rows, cols, click, key2, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, parts2, lease, begun, k)
 
-def ws_act.on(on: Bool, ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  +id = W.ws_current(ws)
-  +gen = ws_part.gen(ws, id)
-  +lease = ws_cards_all.lease(cards)
-  ws_act.keyed(ws_fullscreen.applied(ws_fullscreen.keyed(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), W.current_session(ws), key, mods), ws_cards_all.parts(cards), id, gen, key), ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, lease, begun, k)
+def ws_act.on(+loop: WsLoop, on: Bool, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      +id = W.ws_current(ws)
+      +gen = ws_part.gen(ws, id)
+      +lease = ws_cards_all.lease(cards)
+      ws_act.keyed(ws_fullscreen.applied(ws_fullscreen.keyed(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), W.current_session(ws), key, mods), ws_cards_all.parts(cards), id, gen, key), ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, lease, begun, k)
 
-def ws_act(ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    on : Bool <- CNet.cards_enabled()
-    ws_act.on(on, ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_act(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        on : Bool <- CNet.cards_enabled()
+        ws_act.on(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), on, ui, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 def ws_cmd.pick(+c0: Chan(Sess.NetCmd), +c1: Chan(Sess.NetCmd), +c2: Chan(Sess.NetCmd), +c3: Chan(Sess.NetCmd), +n: Nat) -> Chan(Sess.NetCmd):
   match n:
@@ -1555,31 +1567,37 @@ def ws_frame.begun_after(acc: T.Ui & WsLoop & Bool, +cmds: WsCmds, k: (T.Ui & Ws
                 Unit <- ws_begin_all(cmds, ws)
                 k((ui, WsLoop{ws, bell, scheduled, ctx, media, owner, ups, notify, cards, True{}}, halt))
 
-def ws_frame.keys(ui: T.Ui, +ws: W.Workspace, keys: T.UiKeys, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match keys:
-    case T.UiKeys{enter, +typed, +rows, cols, click, +key, +mods, codepoint, wheel, more, +url, +clipboard}:
-      do IO<Unit>:
-        Unit <- Net.open_clicked(Some{ws_evt.id(evts, W.ws_current(ws))}, url)
-        Unit <- Net.frame_clipboard(clipboard, Some{ws_evt.id(evts, W.ws_current(ws))})
-        ws_act(ui, ws, typed, T.flag_on(enter), rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, acc => ws_frame.begun_after(acc, cmds, k))
+def ws_frame.keys(+loop: WsLoop, ui: T.Ui, keys: T.UiKeys, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match keys:
+        case T.UiKeys{enter, +typed, +rows, cols, click, +key, +mods, codepoint, wheel, more, +url, +clipboard}:
+          do IO<Unit>:
+            Unit <- Net.open_clicked(Some{ws_evt.id(evts, W.ws_current(ws))}, url)
+            Unit <- Net.frame_clipboard(clipboard, Some{ws_evt.id(evts, W.ws_current(ws))})
+            ws_act(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, T.flag_on(enter), rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), is_key, main, cmds, evts, pevts, ack, consumed, acc => ws_frame.begun_after(acc, cmds, k))
 
-def ws_frame(got: T.Ui & T.UiKeys, +ws: W.Workspace, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case (ui, keys): ws_frame.keys(ui, ws, keys, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_frame(+loop: WsLoop, got: T.Ui & T.UiKeys, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case (ui, keys): ws_frame.keys(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, keys, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 def ws_paint(+ws: W.Workspace, ui: T.Ui, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     on : Bool <- CNet.cards_enabled()
     got : T.Ui & T.UiKeys <- Net.paint_session_cards(ui, W.paint_session(ws, bell), ws_cards.sidecar(ws_cards_all.parts(cards), W.ws_current(ws), ws_part.gen(ws, W.ws_current(ws)), on))
-    ws_frame(got, ws, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
+    ws_frame(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, is_key, main, cmds, evts, pevts, ack, consumed, k)
 # ---- worker completion routes (G1 origin validation) -------------------------
 # Media/upload workers post to their part slot channel, so completions
 # arrive routed; the preferences worker posts to the dedicated channel
 # and applies to the sole owning part. Every route validates its origin
 # (live part plus slot generation) BEFORE any live effects; rejected
 # preference completions only retire exact tickets, with no Session or paint.
-def ws_drop(ui: T.Ui, +ws: W.Workspace, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  k((ui, ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), False{}))
+def ws_drop(+loop: WsLoop, ui: T.Ui, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      k((ui, ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), False{}))
 
 def ws_notify.done_cont(pair: WsNotify & W.Workspace, ui: T.Ui, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
@@ -1596,33 +1614,41 @@ def ws_notify.done_loop(+nnot: WsNotify, +ticket: Nat, +endpoint: String, ui: T.
 def ws_media.retired(ui: T.Ui, +ws: W.Workspace, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   k((ui, ws_mkloop(ws, bell, scheduled, ctx, None{}, owner, ups, notify, cards, begun), False{}))
 
-def ws_media.gone(exact: Bool, ui: T.Ui, +ws: W.Workspace, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match exact:
-    case True{}: ws_media.retired(ui, ws, bell, scheduled, ctx, owner, ups, notify, cards, begun, k)
-    case False{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_media.gone(+loop: WsLoop, exact: Bool, ui: T.Ui, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match exact:
+        case True{}: ws_media.retired(ui, ws, bell, scheduled, ctx, owner, ups, notify, cards, begun, k)
+        case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
 
 def ws_post.painted(got: T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +notify: WsNotify, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
     case (ui, +ws, +ctx, media, owner, ups, cards, _): ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
-def ws_cards.tokened(+cs2: C.State, +fl: C.Fullscreen, +ws: W.Workspace, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws, s, evts, pevts, ctx, media, owner, ups, ws_cards_all.upsert(cards, WsCards{s, ws_part.gen(ws, s), cs2, fl}), True{})
-    ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+def ws_cards.tokened(+loop: WsLoop, +cs2: C.State, +fl: C.Fullscreen, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws, s, evts, pevts, ctx, media, owner, ups, ws_cards_all.upsert(cards, WsCards{s, ws_part.gen(ws, s), cs2, fl}), True{})
+        ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
-def ws_cards.admitted(accepted: Bool, +ws: W.Workspace, +s: Key.ServerId, +cs: C.State, +fl: C.Fullscreen, +cl: Cl.Client, +generation: Nat, +ticket: Nat, +url: String, +payload: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match accepted:
-    case True{}: ws_cards.tokened(C.complete(cs, cl, generation, ticket, url, payload), fl, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case False{}: ws_cards.tokened(C.reject(cs, generation, ticket, url), fl, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_cards.admitted(+loop: WsLoop, accepted: Bool, +s: Key.ServerId, +cs: C.State, +fl: C.Fullscreen, +cl: Cl.Client, +generation: Nat, +ticket: Nat, +url: String, +payload: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match accepted:
+        case True{}: ws_cards.tokened(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), C.complete(cs, cl, generation, ticket, url, payload), fl, s, ui, main, cmds, evts, pevts, ack, k)
+        case False{}: ws_cards.tokened(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), C.reject(cs, generation, ticket, url), fl, s, ui, main, cmds, evts, pevts, ack, k)
 
 # Completion consumes only the stamped client projection of its origin part.
 def ws_cards.stamped_cl(+p: W.Part, +ts: String) -> Cl.Client:
   Cl.set_now(Sess.session_cl(W.part_session(p)), ts)
 
-def ws_cards.live(ok: Bool, found: C.State & C.Fullscreen, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +cl: Cl.Client, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match found:
-    case (+cs, +fl):
-      ws_cards.admitted(ok && C.accept(cs, cl, generation, ticket, url), ws, s, cs, fl, cl, generation, ticket, url, payload, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_cards.live(+loop: WsLoop, ok: Bool, found: C.State & C.Fullscreen, ui: T.Ui, +s: Key.ServerId, +cl: Cl.Client, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match found:
+        case (+cs, +fl):
+          ws_cards.admitted(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ok && C.accept(cs, cl, generation, ticket, url), s, cs, fl, cl, generation, ticket, url, payload, ui, main, cmds, evts, pevts, ack, k)
 
 # Handoff: after an exact removed-origin retirement the freed lease must
 # stage the current part through the shared ws_cards_stage (same gate the
@@ -1635,18 +1661,22 @@ def ws_cards.retired_handoff(staged: W.Workspace & WsCardsAll, ui: T.Ui, +bell: 
     case (+ws2, +cards2):
       k((ui, ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards2, begun), False{}))
 
-def ws_cards.retired(ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, +evts: WsEvts, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    staged : W.Workspace & WsCardsAll <- ws_cards_stage(ws, evts, ws_cards_all.released(cards, s, generation, ticket, url))
-    ws_cards.retired_handoff(staged, ui, bell, scheduled, ctx, media, owner, ups, notify, begun, k)
+def ws_cards.retired(+loop: WsLoop, ui: T.Ui, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +evts: WsEvts, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        staged : W.Workspace & WsCardsAll <- ws_cards_stage(ws, evts, ws_cards_all.released(cards, s, generation, ticket, url))
+        ws_cards.retired_handoff(staged, ui, bell, scheduled, ctx, media, owner, ups, notify, begun, k)
 
 # (B) the exact worker completed but its origin is gone, so the lease
 # retires and the stored sidecar request releases with no live session
 # effects and no paint. A wrong completion keeps everything untouched.
-def ws_cards.gone(exact: Bool, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +bell: U32, +scheduled: Bool, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, +evts: WsEvts, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match exact:
-    case True{}: ws_cards.retired(ui, ws, s, generation, ticket, url, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, evts, k)
-    case False{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_cards.gone(+loop: WsLoop, exact: Bool, ui: T.Ui, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +evts: WsEvts, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match exact:
+        case True{}: ws_cards.retired(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, s, generation, ticket, url, evts, k)
+        case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
 
 # C2: envelope exactness retires the lease; slot liveness gates effects.
 # A completion matching the captured Sid plus generation/ticket/url is the
@@ -1657,18 +1687,20 @@ def ws_cards.gone(exact: Bool, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +ge
 # C.reject still retains, and a replay after release admits nothing.
 def ws_cards.got_on(+on: Bool, +got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
-    case None{}: ws_cards.gone(ws_clease.exact(ws_cards_all.lease(cards), s, generation, ticket, url), ui, ws, s, generation, ticket, url, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, evts, k)
+    case None{}: ws_cards.gone(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ws_clease.exact(ws_cards_all.lease(cards), s, generation, ticket, url), ui, s, generation, ticket, url, evts, k)
     case Some{+p}:
       +gen = W.part_gen(p)
       +exact = ws_clease.exact(ws_cards_all.lease(cards), s, generation, ticket, url)
       +live = ws_clease.live(ws_cards_all.lease(cards), s, gen)
       +cl = ws_cards.stamped_cl(p, ts)
-      ws_cards.live(exact && live, ws_cards.sidecar(ws_cards_all.parts(cards), s, gen, on), ui, ws, s, cl, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, ws_cards_all.retired_if(exact, cards), begun, k)
+      ws_cards.live(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, ws_cards_all.retired_if(exact, cards), begun), exact && live, ws_cards.sidecar(ws_cards_all.parts(cards), s, gen, on), ui, s, cl, generation, ticket, url, payload, main, cmds, evts, pevts, ack, k)
 
-def ws_cards.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    on : Bool <- CNet.cards_enabled()
-    ws_cards.got_on(on, got, ui, ws, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_cards.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        on : Bool <- CNet.cards_enabled()
+        ws_cards.got_on(on, got, ui, ws, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
 def ws_media.tokened(+st: Sess.Session, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
@@ -1730,10 +1762,12 @@ def ws_media_complete(accepted: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.Serve
     case False{}: ws_media.rejected(ws, id, st, generation, ticket, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
     case True{}: ws_media_complete.gated(ws_media.union_room(ws, id, st, generation, ticket, url), ui, ws, id, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
-def ws_media.admitted(admitted: Bool, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match admitted:
-    case False{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case True{}: ws_media_complete(Sess.session_accept_media_result(st, generation, ticket, url), ui, ws, s, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
+def ws_media.admitted(+loop: WsLoop, admitted: Bool, ui: T.Ui, +s: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match admitted:
+        case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case True{}: ws_media_complete(Sess.session_accept_media_result(st, generation, ticket, url), ui, ws, s, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
 # M2: envelope exactness retires the lease; slot liveness gates effects.
 # A completion matching the captured Sid plus generation/ticket/url is
@@ -1752,67 +1786,83 @@ def ws_media.stale_ws(release: Bool, +ws: W.Workspace, +s: Key.ServerId, +st: Se
     case True{}: ws_replace(ws, s, ws_media.stale_released(st, generation, ticket, url))
     case False{}: ws
 
-def ws_media.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_media.gone(ws_mlease.exact(media, s, generation, ticket, url), ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case Some{+p}:
-      +st = Sess.session_set_now(W.part_session(p), ts)
-      +exact = ws_mlease.exact(media, s, generation, ticket, url)
-      +live = ws_mlease.live(media, s, W.part_gen(p))
-      +ws2 = ws_media.stale_ws(exact && Bool.not(live), ws, s, st, generation, ticket, url)
-      ws_media.admitted(exact && live, ui, ws2, s, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, Bool.pick(Maybe<&2, WsMedia>, exact, None{}, media), owner, ups, notify, cards, begun, k)
+def ws_media.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_media.gone(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ws_mlease.exact(media, s, generation, ticket, url), ui, k)
+        case Some{+p}:
+          +st = Sess.session_set_now(W.part_session(p), ts)
+          +exact = ws_mlease.exact(media, s, generation, ticket, url)
+          +live = ws_mlease.live(media, s, W.part_gen(p))
+          +ws2 = ws_media.stale_ws(exact && Bool.not(live), ws, s, st, generation, ticket, url)
+          ws_media.admitted(ws_mkloop(ws2, bell, scheduled, ctx, Bool.pick(Maybe<&2, WsMedia>, exact, None{}, media), owner, ups, notify, cards, begun), exact && live, ui, s, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, k)
 
 def ws_upload.emit(ncmd: Sess.NetCmd, +id: Key.ServerId, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
   match ncmd:
     case Sess.Cont{+outs}: ws_emit_outs(id, outs, cmds, evts)
     case _: IO.pure(Unit, Unit{})
 
-def ws_upload.sent(pair: Cl.Client & String & Sess.NetCmd, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match pair:
-    case (+cl, _, ncmd):
-      +next = Sess.session_observe_media(Sess.session_set_client(st, cl), Cl.log_seq_of(Sess.session_cl(st)))
+def ws_upload.sent(+loop: WsLoop, pair: Cl.Client & String & Sess.NetCmd, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match pair:
+        case (+cl, _, ncmd):
+          +next = Sess.session_observe_media(Sess.session_set_client(st, cl), Cl.log_seq_of(Sess.session_cl(st)))
+          do IO<Unit>:
+            Unit <- ws_upload.emit(ncmd, id, cmds, evts)
+            got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_replace(ws, id, next), id, evts, pevts, ctx, media, owner, ups, cards, False{})
+            ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+
+def ws_upload.erred(+loop: WsLoop, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
       do IO<Unit>:
-        Unit <- ws_upload.emit(ncmd, id, cmds, evts)
-        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_replace(ws, id, next), id, evts, pevts, ctx, media, owner, ups, cards, False{})
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_replace(ws, id, Sess.session_error(st, msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
         ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
-def ws_upload.erred(+ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_replace(ws, id, Sess.session_error(st, msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
-    ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+def ws_upload.url(+loop: WsLoop, fits: Bool, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +url: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match fits:
+        case False{}: ws_upload.erred(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), old, id, st, "upload URL exceeds IRC message limit", ui, main, cmds, evts, pevts, ack, k)
+        case True{}: ws_upload.sent(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), Sess.apply_keys_echo(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}, Sess.session_negotiated(st), Sess.session_echo_ok(st)), old, id, st, ui, main, cmds, evts, pevts, ack, k)
 
-def ws_upload.url(fits: Bool, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +url: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match fits:
-    case False{}: ws_upload.erred(ws, old, id, st, "upload URL exceeds IRC message limit", ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case True{}: ws_upload.sent(Sess.apply_keys_echo(Sess.session_cl(st), Sess.session_net(st), Sess.session_port(st), url, True{}, Sess.session_negotiated(st), Sess.session_echo_ok(st)), ws, old, id, st, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_upload.completed(+loop: WsLoop, pair: Sess.Session & Maybe<&2, String>, +old: W.Workspace, +id: Key.ServerId, +request: Up.Request, +allowed: Bool, +error: U32, +http_status: U32, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match pair:
+        case (+st, result):
+          match result:
+            case Some{+url}: ws_upload.url(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), Up.wire_fits(request, url), old, id, st, url, ui, main, cmds, evts, pevts, ack, k)
+            case None{}:
+              +msg = Bool.pick(String, Bool.not(allowed), "upload result discarded: canceled or destination changed", Bool.pick(String, U32.is_zero(error), "upload returned an invalid URL", UploadIO.error_text(error, http_status)))
+              ws_upload.erred(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), old, id, st, msg, ui, main, cmds, evts, pevts, ack, k)
 
-def ws_upload.completed(pair: Sess.Session & Maybe<&2, String>, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, +request: Up.Request, +allowed: Bool, +error: U32, +http_status: U32, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match pair:
-    case (+st, result):
-      match result:
-        case Some{+url}: ws_upload.url(Up.wire_fits(request, url), ws, old, id, st, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-        case None{}:
-          +msg = Bool.pick(String, Bool.not(allowed), "upload result discarded: canceled or destination changed", Bool.pick(String, U32.is_zero(error), "upload returned an invalid URL", UploadIO.error_text(error, http_status)))
-          ws_upload.erred(ws, old, id, st, msg, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_upload_complete(+loop: WsLoop, owned: Bool, ui: T.Ui, +id: Key.ServerId, +st: Sess.Session, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match owned:
+        case False{}: ws_upload.erred(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ws_lease.up_drop(ups, id), notify, cards, begun), ws, id, st, "upload result discarded: canceled or destination changed", ui, main, cmds, evts, pevts, ack, k)
+        case True{}:
+          ws_upload.completed(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ws_lease.up_drop(ups, id), notify, cards, begun), Sess.session_upload_complete(st, request, result), ws, id, request, Up.eligible(Sess.session_upload(st), request, Sess.session_upload_scope(st), Sess.session_upload_online(st)), error, http_status, ui, main, cmds, evts, pevts, ack, k)
 
-def ws_upload_complete(owned: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match owned:
-    case False{}: ws_upload.erred(ws, ws, id, st, "upload result discarded: canceled or destination changed", ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ws_lease.up_drop(ups, id), notify, cards, begun, k)
-    case True{}:
-      ws_upload.completed(Sess.session_upload_complete(st, request, result), ws, ws, id, request, Up.eligible(Sess.session_upload(st), request, Sess.session_upload_scope(st), Sess.session_upload_online(st)), error, http_status, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ws_lease.up_drop(ups, id), notify, cards, begun, k)
+def ws_upload.admitted(+loop: WsLoop, admitted: Bool, ui: T.Ui, +s: Key.ServerId, +st: Sess.Session, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match admitted:
+        case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case True{}: ws_upload_complete(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), Net.upload_owned(Sess.session_upload(st), request), ui, s, st, request, result, error, http_status, main, cmds, evts, pevts, ack, k)
 
-def ws_upload.admitted(admitted: Bool, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +st: Sess.Session, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match admitted:
-    case False{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case True{}: ws_upload_complete(Net.upload_owned(Sess.session_upload(st), request), ui, ws, s, st, request, result, error, http_status, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-
-def ws_upload.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case Some{+p}:
-      +admitted = ws_lease.up_has(ups, s, W.part_gen(p))
-      +st = Sess.session_set_now(W.part_session(p), ts)
-      ws_upload.admitted(admitted, ui, ws, s, st, request, result, error, http_status, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_upload.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +request: Up.Request, +result: String, +error: U32, +http_status: U32, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case Some{+p}:
+          +admitted = ws_lease.up_has(ups, s, W.part_gen(p))
+          +st = Sess.session_set_now(W.part_session(p), ts)
+          ws_upload.admitted(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), admitted, ui, s, st, request, result, error, http_status, main, cmds, evts, pevts, ack, k)
 
 def ws_prefs.result(result: PrefLive.Context & Sess.Session & List<&2, String> & Bool, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match result:
@@ -1829,38 +1879,46 @@ def ws_prefs.rejected(m: Sess.UiMsg, ctx: PrefLive.Context, owner: Maybe<&2, WsL
 
 def ws_prefs.reject(result: PrefLive.Context & Maybe<&2, WsLease>, ui: T.Ui, +ws: W.Workspace, +bell: U32, +scheduled: Bool, +media: Maybe<&2, WsMedia>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match result:
-    case (+ctx, +owner): ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+    case (+ctx, +owner): ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
 
-def ws_prefs.gen(current: Bool, m: Sess.UiMsg, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +st: Sess.Session, +gen: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match current:
-    case False{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
-    case True{}:
-      match m:
-        case Sess.PreferencesLoaded{+ticket, +prefs, +code}: ws_prefs.result(PrefLive.loaded(ctx, st, gen, ticket, prefs, code), ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
-        case Sess.PreferencesSaved{+ticket, +code}: ws_prefs.result(PrefLive.saved(ctx, st, ticket, code), ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
-        case _: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_prefs.gen(+loop: WsLoop, current: Bool, m: Sess.UiMsg, ui: T.Ui, +s: Key.ServerId, +st: Sess.Session, +gen: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match current:
+        case False{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
+        case True{}:
+          match m:
+            case Sess.PreferencesLoaded{+ticket, +prefs, +code}: ws_prefs.result(PrefLive.loaded(ctx, st, gen, ticket, prefs, code), ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+            case Sess.PreferencesSaved{+ticket, +code}: ws_prefs.result(PrefLive.saved(ctx, st, ticket, code), ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+            case _: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
 
-def ws_prefs.got(+got: Maybe<&2, W.Part>, +held: WsLease, m: Sess.UiMsg, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, +ts: String, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
-    case Some{+p}:
-      match held:
-        case WsLease{+s, +wanted}:
-          +st = Sess.session_set_now(W.part_session(p), ts)
-          +gen = W.part_gen(p)
-          ws_prefs.gen(U32.is_eq(wanted, gen), m, ui, ws, s, st, gen, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_prefs.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, +held: WsLease, m: Sess.UiMsg, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ts: String, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
+        case Some{+p}:
+          match held:
+            case WsLease{+s, +wanted}:
+              +st = Sess.session_set_now(W.part_session(p), ts)
+              +gen = W.part_gen(p)
+              ws_prefs.gen(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), U32.is_eq(wanted, gen), m, ui, s, st, gen, main, cmds, evts, pevts, ack, k)
 
-def ws_prefs.owned(+owner: Maybe<&2, WsLease>, m: Sess.UiMsg, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, +ts: String, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match owner:
-    case None{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
-    case Some{+held}:
-      match held:
-        case WsLease{+s, _}: ws_prefs.got(W.find_part(ws, s), held, m, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, ts, k)
+def ws_prefs.owned(+loop: WsLoop, m: Sess.UiMsg, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ts: String, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match owner:
+        case None{}: ws_prefs.reject(ws_prefs.rejected(m, ctx, owner), ui, ws, bell, scheduled, media, ups, notify, cards, begun, k)
+        case Some{+held}:
+          match held:
+            case WsLease{+s, _}: ws_prefs.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), W.find_part(ws, s), held, m, ui, main, cmds, evts, pevts, ack, ts, k)
 
-def ws_prefs.msg(m: Sess.UiMsg, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    ts : String <- Clock.hhmmss()
-    ws_prefs.owned(owner, m, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, ups, notify, cards, begun, ts, k)
+def ws_prefs.msg(+loop: WsLoop, m: Sess.UiMsg, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      do IO<Unit>:
+        ts : String <- Clock.hhmmss()
+        ws_prefs.owned(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), m, ui, main, cmds, evts, pevts, ack, ts, k)
 
 def ws_histload.installed(got: PrefLive.Context & Sess.Session, +before: PrefLive.Context, +before_seq: Nat, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
@@ -1873,58 +1931,70 @@ def ws_histload.installed(got: PrefLive.Context & Sess.Session, +before: PrefLiv
         staged : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_new, id, evts, pevts, pctx, media, owner, ups, cards, True{})
         ws_post.painted(staged, main, cmds, evts, pevts, ack, scheduled, bell, nnot2, begun, k)
 
-def ws_histload.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +ticket: Nat, +got_gen: U32, +ep: String, +snapshot: Cl.Client, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case Some{+p}:
-      +st = Sess.session_set_now(W.part_session(p), ts)
-      +before_seq = Cl.log_seq_of(Sess.session_cl(st))
-      do IO<Unit>:
-        installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, W.part_gen(p), got_gen, ticket, ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
-        ws_histload.installed(installed, ctx, before_seq, ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+def ws_histload.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +ticket: Nat, +got_gen: U32, +ep: String, +snapshot: Cl.Client, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case Some{+p}:
+          +st = Sess.session_set_now(W.part_session(p), ts)
+          +before_seq = Cl.log_seq_of(Sess.session_cl(st))
+          do IO<Unit>:
+            installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, W.part_gen(p), got_gen, ticket, ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
+            ws_histload.installed(installed, ctx, before_seq, ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
 
 def ws_search.landed(landed: Bool, +ws2: W.Workspace, +ws: W.Workspace, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match landed:
-    case False{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+    case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
     case True{}:
       do IO<Unit>:
         got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws2, s, evts, pevts, ctx, media, owner, ups, cards, False{})
         ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
-def ws_search.done(pair: W.Workspace & Bool, +ws: W.Workspace, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match pair:
-    case (+ws2, +landed): ws_search.landed(landed, ws2, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_search.done(+loop: WsLoop, pair: W.Workspace & Bool, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match pair:
+        case (+ws2, +landed): ws_search.landed(landed, ws2, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
-def ws_search.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +ticket: Nat, +hgen: Nat, +wgen: U32, +endpoint: String, +orig: String, +result: Hs.DiskResult, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case Some{_}: ws_search.done(W.on_search_done(ws, s, ticket, hgen, wgen, endpoint, orig, result), ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_search.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +ticket: Nat, +hgen: Nat, +wgen: U32, +endpoint: String, +orig: String, +result: Hs.DiskResult, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case Some{_}: ws_search.done(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), W.on_search_done(ws, s, ticket, hgen, wgen, endpoint, orig, result), s, ui, main, cmds, evts, pevts, ack, k)
 
-def ws_routed_error.got(+got: Maybe<&2, W.Part>, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +msg: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match got:
-    case None{}: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
-    case Some{+p}:
-      do IO<Unit>:
-        got2 : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, s, Sess.session_error(Sess.session_set_now(W.part_session(p), ts), msg)), s, evts, pevts, ctx, media, owner, ups, cards, False{})
-        ws_post.painted(got2, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+def ws_routed_error.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +msg: String, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match got:
+        case None{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+        case Some{+p}:
+          do IO<Unit>:
+            got2 : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, s, Sess.session_error(Sess.session_set_now(W.part_session(p), ts), msg)), s, evts, pevts, ctx, media, owner, ups, cards, False{})
+            ws_post.painted(got2, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 # ---- dispatch ---------------------------------------------------------------
 def ws_paint.ui_erred(got: T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +notify: WsNotify, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
     case (ui, +ws, +ctx, media, owner, ups, cards, _): ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
-def ws_paint.ui_err(+ws: W.Workspace, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  +id = W.ws_current(ws)
-  do IO<Unit>:
-    ts : String <- Clock.hhmmss()
-    got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, id, Sess.session_error(Sess.session_set_now(ws_part.st(ws, id), ts), msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
-    ws_paint.ui_erred(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+def ws_paint.ui_err(+loop: WsLoop, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      +id = W.ws_current(ws)
+      do IO<Unit>:
+        ts : String <- Clock.hhmmss()
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, id, Sess.session_error(Sess.session_set_now(ws_part.st(ws, id), ts), msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
+        ws_paint.ui_erred(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
-def ws_paint.ui(+ws: W.Workspace, ui: T.Ui, m: Sess.UiMsg, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match m:
-    case Sess.UiKey{}: ws_paint(ws, ui, True{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.UiContinue{}: ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, True{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.UiError{+msg}: ws_paint.ui_err(ws, msg, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case _: ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_paint.ui(+loop: WsLoop, ui: T.Ui, m: Sess.UiMsg, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match m:
+        case Sess.UiKey{}: ws_paint(ws, ui, True{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
+        case Sess.UiContinue{}: ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, True{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
+        case Sess.UiError{+msg}: ws_paint.ui_err(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), msg, ui, main, cmds, evts, pevts, ack, k)
+        case _: ws_paint(ws, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
 
 # The loop-global bell advances only across routed inbound, by the routed
 # part's own alert delta when that part has bell enabled (event-origin
@@ -1935,16 +2005,18 @@ def ws_paint.ui(+ws: W.Workspace, ui: T.Ui, m: Sess.UiMsg, +main: Chan(WsMsg), +
 def ws_net_painted.posted(got: T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +notify: WsNotify, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
-def ws_net_painted.coded(+next: W.Workspace, +after: U32, +code: U32, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  +noticed = W.auth_noticed(next, Key.first(), code)
-  +after_bell = W.bell_after_on(W.part_bell(ws, s), after, bell, W.part_bell_on(ws, s))
-  do IO<Unit>:
-    got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, noticed, s, evts, pevts, ctx, media, owner, ups, cards, False{})
-    ws_net_painted.posted(got, main, cmds, evts, pevts, ack, scheduled, after_bell, notify, begun, k)
+def ws_net_painted.coded(+loop: WsLoop, +next: W.Workspace, +after: U32, +code: U32, ui: T.Ui, +s: Key.ServerId, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      +noticed = W.auth_noticed(next, Key.first(), code)
+      +after_bell = W.bell_after_on(W.part_bell(ws, s), after, bell, W.part_bell_on(ws, s))
+      do IO<Unit>:
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, noticed, s, evts, pevts, ctx, media, owner, ups, cards, False{})
+        ws_net_painted.posted(got, main, cmds, evts, pevts, ack, scheduled, after_bell, notify, begun, k)
 
 def ws_net_painted.fired(fired: WsNotify & W.Workspace, +after: U32, +code: U32, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match fired:
-    case (+nst2, +next2): ws_net_painted.coded(next2, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst2, cards, begun, k)
+    case (+nst2, +next2): ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst2, cards, begun), next2, after, code, ui, s, main, cmds, evts, pevts, ack, k)
 
 # Pre-accept snapshot for the notify fire path: the part session from the
 # pre-accept workspace seeds reconnect-fresh floors. A part missing pre
@@ -1956,7 +2028,7 @@ def ws_net_painted.pre_parts(+got: Maybe<&2, W.Part>, +post: List<&2, W.Part>) -
 
 def ws_net_painted.fire(fire: Bool, +nst: WsNotify, +next: W.Workspace, +s: Key.ServerId, +gen: U32, +pre: Sess.Session, +pst: Sess.Session, ui: T.Ui, +ws: W.Workspace, +after: U32, +code: U32, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match fire:
-    case False{}: ws_net_painted.coded(next, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst, cards, begun, k)
+    case False{}: ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst, cards, begun), next, after, code, ui, s, main, cmds, evts, pevts, ack, k)
     case True{}:
       do IO<Unit>:
         fired : WsNotify & W.Workspace <- ws_notify.fire(nst, next, s, gen, pre, pst, evts)
@@ -1964,47 +2036,51 @@ def ws_net_painted.fire(fire: Bool, +nst: WsNotify, +next: W.Workspace, +s: Key.
 
 def ws_net_painted.part.cells(+pre: List<&2, W.Part>, +post: List<&2, W.Part>, +after: U32, +code: U32, +nst: WsNotify, +next: W.Workspace, +s: Key.ServerId, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match pre:
-    case Nil{}: ws_net_painted.coded(next, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst, cards, begun, k)
+    case Nil{}: ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst, cards, begun), next, after, code, ui, s, main, cmds, evts, pevts, ack, k)
     case Con{+old, _}:
       match post:
-        case Nil{}: ws_net_painted.coded(next, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst, cards, begun, k)
+        case Nil{}: ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst, cards, begun), next, after, code, ui, s, main, cmds, evts, pevts, ack, k)
         case Con{+p, _}: ws_net_painted.fire(True{}, nst, next, s, W.part_gen(p), W.part_session(old), W.part_session(p), ui, ws, after, code, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, cards, begun, k)
 
 def ws_net_painted.part.changed(changed: Bool, +post: List<&2, W.Part>, +after: U32, +code: U32, +nst: WsNotify, +next: W.Workspace, +s: Key.ServerId, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match changed:
-    case False{}: ws_net_painted.coded(next, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst, cards, begun, k)
+    case False{}: ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst, cards, begun), next, after, code, ui, s, main, cmds, evts, pevts, ack, k)
     case True{}: ws_net_painted.part.cells(ws_net_painted.pre_parts(W.find_part(ws, s), post), post, after, code, nst, next, s, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, cards, begun, k)
 
 def ws_net_painted.part(+got: Maybe<&2, W.Part>, +before: U32, +after: U32, +code: U32, +nst: WsNotify, +next: W.Workspace, +s: Key.ServerId, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
-    case None{}: ws_net_painted.coded(next, after, code, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, nst, cards, begun, k)
+    case None{}: ws_net_painted.coded(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, nst, cards, begun), next, after, code, ui, s, main, cmds, evts, pevts, ack, k)
     case Some{+p}: ws_net_painted.part.changed(Bool.not(U32.is_eq(after, before)), [p], after, code, nst, next, s, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, cards, begun, k)
 
-def ws_net_painted(both: W.Workspace & U32, ui: T.Ui, +ws: W.Workspace, +s: Key.ServerId, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match both:
-    case (+next, +after):
-      do IO<Unit>:
-        +code : U32 <- AuthBridge.observed(W.auth_edge(ws, next))
-        ws_net_painted.part(W.find_part(next, s), W.part_bell(ws, s), after, code, notify, next, s, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, cards, begun, k)
+def ws_net_painted(+loop: WsLoop, both: W.Workspace & U32, ui: T.Ui, +s: Key.ServerId, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match both:
+        case (+next, +after):
+          do IO<Unit>:
+            +code : U32 <- AuthBridge.observed(W.auth_edge(ws, next))
+            ws_net_painted.part(W.find_part(next, s), W.part_bell(ws, s), after, code, notify, next, s, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, cards, begun, k)
 
-def ws_routed.msg(+ws: W.Workspace, +rm: Sid.RoutedMsg, +s: Key.ServerId, m: Sess.UiMsg, ui: T.Ui, +got: Maybe<&2, W.Part>, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +now_ms: U32, +ts: String, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match m:
-    case Sess.FromNet{_, _}:
-      ws_on_net(ws, rm, now_ms, ts, main, cmds, evts, both => ws_net_painted(both, ui, ws, s, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k))
-    case Sess.MediaFetched{+generation, +ticket, +url, +payload}:
-      ws_media.got(got, ui, ws, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.CardFetched{+generation, +ticket, +url, +payload}:
-      ws_cards.got(got, ui, ws, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.UploadFetched{+request, +result, +error, +http_status}:
-      ws_upload.got(got, ui, ws, s, request, result, error, http_status, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.HistoryLoaded{+ticket, +gen, +ep, +snapshot}:
-      ws_histload.got(got, ui, ws, s, ticket, gen, ep, snapshot, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.SearchDone{+ticket, +gen, +wgen, +endpoint, +orig, +result}:
-      ws_search.got(got, ui, ws, s, ticket, gen, wgen, endpoint, orig, result, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case Sess.NotifyDone{+ticket, +endpoint}:
-      ws_notify.done_loop(notify, ticket, endpoint, ui, ws, s, evts, bell, scheduled, ctx, media, owner, ups, cards, begun, k)
-    case Sess.UiError{+msg}: ws_routed_error.got(got, ui, ws, s, msg, ts, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case _: ws_drop(ui, ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun, k)
+def ws_routed.msg(+loop: WsLoop, +rm: Sid.RoutedMsg, +s: Key.ServerId, m: Sess.UiMsg, ui: T.Ui, +got: Maybe<&2, W.Part>, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +now_ms: U32, +ts: String, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match m:
+        case Sess.FromNet{_, _}:
+          ws_on_net(ws, rm, now_ms, ts, main, cmds, evts, both => ws_net_painted(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), both, ui, s, main, cmds, evts, pevts, ack, k))
+        case Sess.MediaFetched{+generation, +ticket, +url, +payload}:
+          ws_media.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, k)
+        case Sess.CardFetched{+generation, +ticket, +url, +payload}:
+          ws_cards.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, generation, ticket, url, payload, ts, main, cmds, evts, pevts, ack, k)
+        case Sess.UploadFetched{+request, +result, +error, +http_status}:
+          ws_upload.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, request, result, error, http_status, ts, main, cmds, evts, pevts, ack, k)
+        case Sess.HistoryLoaded{+ticket, +gen, +ep, +snapshot}:
+          ws_histload.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, ticket, gen, ep, snapshot, ts, main, cmds, evts, pevts, ack, k)
+        case Sess.SearchDone{+ticket, +gen, +wgen, +endpoint, +orig, +result}:
+          ws_search.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, ticket, gen, wgen, endpoint, orig, result, main, cmds, evts, pevts, ack, k)
+        case Sess.NotifyDone{+ticket, +endpoint}:
+          ws_notify.done_loop(notify, ticket, endpoint, ui, ws, s, evts, bell, scheduled, ctx, media, owner, ups, cards, begun, k)
+        case Sess.UiError{+msg}: ws_routed_error.got(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, ui, s, msg, ts, main, cmds, evts, pevts, ack, k)
+        case _: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
 
 # Keep the exact loop owner envelope boxed across both clock effects.
 # Ui and the continuation remain outside the Data cell.
@@ -2016,7 +2092,7 @@ def ws_routed.stamped(+saved: List<&2, WsLoop>, +rm: Sid.RoutedMsg, ui: T.Ui, +m
         T.Sys.exit_fail("birc: missing routed loop state")
     case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
       match rm:
-        case Sid.RoutedMsg{+s, m}: ws_routed.msg(ws, rm, s, m, ui, W.find_part(ws, s), main, cmds, evts, pevts, ack, scheduled, now_ms, ts, bell, ctx, media, owner, ups, notify, cards, begun, k)
+        case Sid.RoutedMsg{+s, m}: ws_routed.msg(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), rm, s, m, ui, W.find_part(ws, s), main, cmds, evts, pevts, ack, now_ms, ts, k)
 
 def ws_routed.wait(+saved: List<&2, WsLoop>, +rm: Sid.RoutedMsg, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
@@ -2035,17 +2111,19 @@ def ws_tick.emit(+outs: List<&2, W.ServerOuts>, +cmds: WsCmds, +evts: WsEvts) ->
         Unit <- ws_emit_outs(s, o, cmds, evts)
         ws_tick.emit(t, cmds, evts)
 
-def ws_tick.go(+ws2: W.Workspace, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, changed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
-  match changed:
-    case True{}: ws_paint(ws2, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
-    case False{}: k((ui, ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), False{}))
+def ws_tick.go(+loop: WsLoop, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), changed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws2, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      match changed:
+        case True{}: ws_paint(ws2, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
+        case False{}: k((ui, ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), False{}))
 
 def ws_tick.painted(+pair: W.TickOut, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
     case W.TickOut{+ws2, changed, +outs}:
       do IO<Unit>:
         Unit <- ws_tick.emit(outs, cmds, evts)
-        ws_tick.go(ws2, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, changed, k)
+        ws_tick.go(ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, main, cmds, evts, pevts, ack, changed, k)
 
 def ws_redial.painted(+next: W.Workspace, +old: W.Workspace, +intent: Sid.Intent, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
@@ -2260,7 +2338,7 @@ def ws_parked.msg(wmsg: WsMsg, +saved: List<&2, WsLoop>, ui: T.Ui, +main: Chan(W
     case WsPrefs{m}:
       match saved:
         case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
-          ws_prefs.msg(m, ui, ws, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+          ws_prefs.msg(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), m, ui, main, cmds, evts, pevts, ack, k)
         case Nil{}: ws_parked.missing(ui, cmds)
     case WsRedial{+intent}:
       match saved:
@@ -2275,7 +2353,7 @@ def ws_parked.msg(wmsg: WsMsg, +saved: List<&2, WsLoop>, ui: T.Ui, +main: Chan(W
     case WsUi{m}:
       match saved:
         case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
-          ws_paint.ui(ws, ui, m, main, cmds, evts, pevts, ack, scheduled, bell, ctx, media, owner, ups, notify, cards, begun, k)
+          ws_paint.ui(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, m, main, cmds, evts, pevts, ack, k)
         case Nil{}: ws_parked.missing(ui, cmds)
 
 # Receive-carry: Ui/message/continuation remain outside Data. EOF forwards
