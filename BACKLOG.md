@@ -1,20 +1,25 @@
 # birc backlog — findings awaiting a calm host or a fix slice
 
-- **Multiserver `/quit` only quits the focused server.**
+- Multiserver `/quit` only quit the focused server: **FIXED** (`0962849`).
   `tests/pty/server_multiserver.py` — the first test ever to execute the
-  `--server` path — reproduces it stably across two runs. With two loopback
-  peers, `/quit` puts `QUIT :birc` on the focused part's socket only; the
-  other part's wire ends at `JOIN #t` / `PONG` and never receives `QUIT`, yet
-  the process exits 0 and prints `birc=ok`. Cause: `/quit` enqueues on the
-  focused part, so the other writer's pending FIFO is empty and
-  `ws_shutdown.drop` (`src/bend/wsnet.bend:2078`) acknowledges its `WriterDone`
-  without a line ever being sent; `ws_shutdown.close` (`:2200`) then closes
-  every command channel. Peers see a socket close, not a clean quit. The fix
-  fans `QUIT` onto every part and touches session quit generation
-  (`W.live_step_keys` via `ws_keys_done`, `wsnet.bend:1431`), so it is a
-  behaviour change rather than a one-liner. The target is deliberately **not**
-  in `PTY_SUITE_TARGETS`, so the gate stays green while the defect is open;
-  run it directly. The assertion was not weakened to hide this.
+  `--server` path — reproduced it stably across two runs. With two loopback
+  peers, `/quit` put `QUIT :birc` on the focused part's socket only; the other
+  part's wire ended at `JOIN #t` / `PONG` and never received `QUIT`, yet the
+  process exited 0 and printed `birc=ok`. Cause: `/quit` enqueued on the focused
+  part, so the other writer's pending FIFO was empty and `ws_shutdown.drop`
+  (`src/bend/wsnet.bend:2171`) acknowledged its `WriterDone` without a line ever
+  being sent; `ws_shutdown.close` (`:2293`) then closed every command channel.
+  Peers saw a socket close, not a clean quit.
+  Fix: `quit_broadcast` (`src/bend/workspace.bend:1400`) copies every
+  `QUIT `-prefixed line onto the other live parts as `Cont`, skipping the focused
+  part, with **no generation bump**. `step_keys.routed` / `step_keys.routed.pick`
+  (`workspace.bend:522` / `:517`) are untouched, so `route_transport`'s `{==}`
+  definitional-equality mirror still holds. Verified `server_multiserver=ok`,
+  exit 0, and the second peer's wire now ends
+  `…PONG :beta-routed\r\nQUIT :birc\r\n`; re-verified on a quiet lane after the
+  `wsnet` continuation refactor (`0600a0c`) that also touched this path. The
+  target is still deliberately **not** in `PTY_SUITE_TARGETS`, so run it
+  directly. The assertion was never weakened to hide the original defect.
 
 - Input latency scales with scrollback: `visible_lines` walks the whole
   buffer twice per frame per pane (`List.length` + `List.drop`) before
@@ -139,19 +144,37 @@
   `cards.bend` fullscreen math is unaffected). `feed_demo=ok`
   verified on the calm host; `test-proto` + `proto-parity` sanity
   green.
-- test-theme-ws-render: FAILING on base (pre-existing, not a pend
-  regression). `ws2 framed rendered bytes exact` mismatches on
-  trailing composer whitespace in both the working tree and a
-  stashed pristine run: got=[...<me> ] want=[...<me>]. The pend
-  slice passes `Nil{}` pends on that path, which is behavior-identical
-  by construction (append xs Nil = xs; zero-count label = base label).
-  Needs a calm-host rerun + golden review by the typing/composer
-  slice owner.
-- proof: TIMEOUT under host load (loadavg 25+ on 10 cores), both at
-  the default 180 s and at PROOF_TIMEOUT=1200/2400. A niced baseline
-  proof at detached HEAD d286f90 also timed out, so the stall is
-  environmental, not a slice regression; rerun `make proof` on a calm
-  host before qualifying the optimistic-send batch.
+- test-theme-ws-render: FIXED (`9b5bd55`) — oracle drift, not a view
+  regression, and the same family as `test-feed body_ys` above.
+  `ws2 framed rendered bytes exact` compares `lines_text`, which
+  concatenates every `OpLine`. Since the inline-`<nick>` composer
+  (`c19445d`) each frame also carries a `composer_ops` OpLine holding
+  the nine-space timestamp indent plus `<nick> `, and the expectation
+  predated that, stopping at `...a end`. It now includes the composer
+  prefix, which matches the documented intent in the `wf-composer split
+  prefix` entry above ("Bend always paints the `<nick>` prefix in that
+  same pane"). Green on a quiet lane at `4f75027`. No product change was
+  needed and none was made; the assertion was not relaxed.
+- proof: **NOT a host-load problem — it does not complete anywhere.** This
+  supersedes the earlier "environmental, rerun on a calm host" reading, which
+  was wrong. On an *idle* 8-core lane with `PROOF_TIMEOUT=10800`:
+  `9374.16s user 21901.30s system 289% cpu 3:00:05.55 total`, then `Error 124`,
+  no verdict. System time is 2.3x user time, so the run is GC/allocation-bound
+  inside Bun rather than doing proof math. At `PROOF_TIMEOUT=2400` it reaches
+  `Error 124` after 40:13; at the default 180 on a quiet lane, after 3:11.
+  It is also **unshardable**: a partial book holding 25 of the 535 laws fails
+  with `Error: 510 TODOs found`, because Bend checks the whole book at once, so
+  the corpus cannot be split across lanes or cores.
+  Consequence: `check: proof test lint-ffi test-paste-harness`
+  (`Makefile:1601`) has been unpassable since `03cb8c2` (2026-10-08) took
+  `LAWS.bend` from 425 to 535 laws. That bears on three open boxes —
+  `TODO.md:44` (obtain a stock `bend PROOF.bend` pass), `TODO.md:45` (pass the
+  complete `make check`) and `TODO.md:60` (locate the remaining full-book cost:
+  it is allocator-bound, and the book is indivisible). A fix needs a Bend/Bun
+  allocator or proof-engine change, or a per-law check mode; it is not reachable
+  from this repo's sources. **Stop re-running it on calmer hosts.** The
+  535 `law` / 535 `def Laws.X` counts are still asserted at every merge, so the
+  corpus stays structurally complete and orphan-free even while uncheckable.
 - test-media-anchor and the native `build/session_cards_demo`: both were
   FAILING with `Error: an arity over 247`, the C-backend flattened-capture-word
   cap. Verified identical on the pre-review baseline `208f7c9` and on
@@ -205,6 +228,22 @@
   working tree and in a pristine /tmp/birc-proof-base checkout, so
   it is unrelated to the optimistic-send slice. Media-slice owner
   to triage.
+- test-pty-m20-media-cache: FAILING, and **pre-existing** — verified at the
+  pre-review baseline `208f7c9` on a quiet lane (`make
+  test-pty-m20-media-cache` rc=2, identical assertion, identical line).
+  `tests/pty/m20_media_cache.py:89` asserts
+  `expected['a'] not in png_uploads(live.output)`: after the remote image
+  cache evicts its oldest entry, that entry must be served without
+  re-uploading, but it is uploaded instead. It is the **only** red target in
+  `make test-pty` — every other PTY case is green (`link_click`, `launchers
+  failed/absent/slow/slowquit`, `media kitty/iterm/pending_quit/
+  unread_recovery`, `cycles=12/12`, `many_eof`). Not caused by the
+  `src/media/_cache.py` extraction, which postdates the failure. Two traps for
+  whoever picks it up: running the file directly (`python3
+  tests/pty/m20_media_cache.py ./build/birc`) dies with `ImportError: cannot
+  import name 'Protocol' from 'typing'`, because `tests/pty/typing.py` shadows
+  the stdlib module via `sys.path[0]` — use the make target; and this is a
+  behavioural oracle about cache eviction, so do not relax it.
 
 ## Resolved
 
