@@ -9,6 +9,13 @@ P2 UI responsiveness, P3 Bend-over-C, P4 structural DRY/SOLID).
 **Orphan tests:** wire them; if one fails, quarantine and report — never fix
 product code and never weaken a test to make it pass.
 
+**Outcome:** all five waves were implemented and merged. See
+`docs/report-2026-10-17-simplification.md` for the measured before/after, the
+integration-gate results, the test-integrity audit, and the proposals in this
+plan that turned out to be impossible or inadvisable. This document is the
+handover as written; the report is what actually happened, including where the
+plan was wrong.
+
 ---
 
 ## 0. Global rules (every task MUST obey)
