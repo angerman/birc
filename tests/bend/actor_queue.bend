@@ -119,6 +119,28 @@ def boot_spawn(tls: Bool, +port: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.Ne
     case False{}: IO.spawn(Unit, Act.actor_boot("127.0.0.1", port, "probe", 1, evt, cmd, boot, False{}, 0))
     case True{}: IO.spawn(Unit, Act.actor_boot_tls("127.0.0.1", port, "probe", 1, evt, cmd, boot, False{}, 0, True{}))
 
+def run_close_spawn(first: Bool, tls: Bool, +port: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Act.Boot)) -> IO(Unit):
+  match first:
+    case True{}: boot_spawn(tls, port, evt, cmd, boot)
+    case False{}:
+      do IO<Unit>:
+        Unit <- setup_spawn(tls, Act.Writer{None{}, 0, Nil{}, Nil{}, 1, Out.budget_frames(1), False{}}, evt, cmd, boot)
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", port, 1, "probe"})
+        return Unit{}
+
+def run_close(+port: U32, +first: Bool, +tls: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- run_close_spawn(first, tls, port, evt, cmd, boot)
+    Unit <- IO.sleep(100)
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- IO.print("held")
+    Unit <- IO.sleep(500)
+    Unit <- wait_eof(evt)
+    IO.print("closed")
+
 def run_boot(+port: U32, +drop: Bool, +tls: Bool) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
@@ -143,6 +165,11 @@ def boot_port(p: Maybe<&2, U32>, drop: Bool, tls: Bool) -> IO(Unit):
     case None{}: IO.die(Unit, 1, "invalid port")
     case Some{port}: run_boot(port, drop, tls)
 
+def close_port(p: Maybe<&2, U32>, first: Bool, tls: Bool) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}: run_close(port, first, tls)
+
 def args(xs: List<&1, String>) -> IO(Unit):
   match xs:
     case Con{_, Con{p, Con{_, Con{_, Con{"dropsetup", Nil{}}}}}}:
@@ -157,6 +184,12 @@ def args(xs: List<&1, String>) -> IO(Unit):
       boot_port(U32.read(p), False{}, False{})
     case Con{_, Con{p, Con{_, Con{_, Con{"bootls", Nil{}}}}}}:
       boot_port(U32.read(p), True{}, True{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"closesetup", Nil{}}}}}}:
+      close_port(U32.read(p), False{}, False{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"closels", Nil{}}}}}}:
+      close_port(U32.read(p), False{}, True{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootclose", Nil{}}}}}}:
+      close_port(U32.read(p), True{}, False{})
     case Con{_, Con{p, Con{f, Con{n, Con{+mode, Nil{}}}}}}: parsed(U32.read(p), U32.read(f), U32.read(n), mode)
     case _: IO.die(Unit, 1, "expected port frames count mode")
 

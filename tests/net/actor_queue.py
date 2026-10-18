@@ -103,6 +103,9 @@ def main() -> None:
     held_setup(binary, drop=True, tls=False, mode="bootdrop")
     held_setup(binary, drop=False, tls=False, mode="bootdial")
     held_setup(binary, drop=True, tls=True, mode="bootls")
+    held_setup(binary, drop=False, tls=False, mode="closesetup")
+    held_setup(binary, drop=False, tls=True, mode="closels")
+    held_setup(binary, drop=False, tls=False, mode="bootclose")
 
 
 def redial(binary: str) -> None:
@@ -270,7 +273,9 @@ def held_setup(binary: str, *, drop: bool, tls: bool = False, mode: str | None =
                     wire.extend(data)
             assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
             assert checkpoint, (mode, "no held checkpoint", stdout, stderr)
-            if tls:
+            if mode in ("droptls", "bootls", "closesetup", "closels", "bootclose"):
+                assert wire == b"", (mode, "quit during connect must send nothing", wire)
+            elif tls:
                 assert wire == b"", (mode, "Drop must close before a TLS ClientHello", wire)
             else:
                 actual = wire.decode().splitlines()
@@ -293,6 +298,9 @@ def held_setup(binary: str, *, drop: bool, tls: bool = False, mode: str | None =
         "bootdrop": "Drop during first connect sends zero registration bytes",
         "bootdial": "first connect without Drop registers after release",
         "bootls": "Drop during first TLS connect sends no ClientHello",
+        "closesetup": "cmd close during Dial sends zero registration bytes",
+        "closels": "cmd close during TLS Dial sends no ClientHello",
+        "bootclose": "cmd close during first connect sends zero registration bytes",
     }[mode]
     print(f"actor queue {label}: PASS")
 
