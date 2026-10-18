@@ -99,6 +99,7 @@ def main() -> None:
     # + same hold without Drop: CAP/NICK/USER handshake reaches the peer.
     held_setup(binary, drop=True)
     held_setup(binary, drop=False)
+    held_setup(binary, drop=True, tls=True)
 
 
 def redial(binary: str) -> None:
@@ -192,7 +193,7 @@ HANDSHAKE = [
 ]
 
 
-def held_setup(binary: str, *, drop: bool) -> None:
+def held_setup(binary: str, *, drop: bool, tls: bool = False) -> None:
     """Hold TCP setup until the child queues Drop (or skips it), then release.
 
     listen(1) + a filler connection saturates the accept backlog so the
@@ -203,7 +204,7 @@ def held_setup(binary: str, *, drop: bool) -> None:
     Drop during setup must close with zero peer bytes. Without Drop, the
     peer must see the exact registration handshake after release.
     """
-    mode = "dropsetup" if drop else "dialsetup"
+    mode = "droptls" if tls else ("dropsetup" if drop else "dialsetup")
     wire = bytearray()
     peer = None
     filler = None
@@ -265,11 +266,14 @@ def held_setup(binary: str, *, drop: bool) -> None:
                     wire.extend(data)
             assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
             assert checkpoint, (mode, "no held checkpoint", stdout, stderr)
-            actual = wire.decode().splitlines()
-            if drop:
-                assert actual == [], (mode, "expected zero registration bytes", actual)
+            if tls:
+                assert wire == b"", (mode, "Drop must close before a TLS ClientHello", wire)
             else:
-                assert actual == HANDSHAKE, (mode, actual, HANDSHAKE)
+                actual = wire.decode().splitlines()
+                if drop:
+                    assert actual == [], (mode, "expected zero registration bytes", actual)
+                else:
+                    assert actual == HANDSHAKE, (mode, actual, HANDSHAKE)
         finally:
             if child.poll() is None:
                 child.kill()
@@ -278,9 +282,12 @@ def held_setup(binary: str, *, drop: bool) -> None:
                 peer.close()
             if filler is not None:
                 filler.close()
-    label = "Drop during held setup sends zero registration bytes" if drop else (
-        "held setup without Drop registers after release"
-    )
+    if tls:
+        label = "Drop during held TLS setup sends no ClientHello"
+    elif drop:
+        label = "Drop during held setup sends zero registration bytes"
+    else:
+        label = "held setup without Drop registers after release"
     print(f"actor queue {label}: PASS")
 
 
