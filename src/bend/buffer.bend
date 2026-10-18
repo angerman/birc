@@ -728,6 +728,13 @@ type AuthConfig is Data:
   AuthDisabled{}
   AuthConfig{mode: AuthMode, host: String, port: U32, prefix: String, success: String}
 
+# Flat SASL spot. Must not be AuthPhase: a phase inside a phase makes
+# C codegen recurse until the process is killed.
+type AuthHold is Data:
+  HoldCap{}
+  HoldChallenge{}
+  HoldResult{}
+
 type AuthPhase is Data:
   AuthIdle{}
   AuthCap{}
@@ -735,8 +742,8 @@ type AuthPhase is Data:
   AuthResult{}
   AuthDone{}
   # Registration (001) before SASL completed: not success, not failure.
-  # `resume` is the SASL phase that must still accept later controls.
-  AuthHeld{resume: AuthPhase}
+  # `resume` is the SASL spot that must still accept later controls.
+  AuthHeld{resume: AuthHold}
   AuthNickWait{}
   AuthNickProbe{}
   AuthNickResult{}

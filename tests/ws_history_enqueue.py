@@ -50,6 +50,10 @@ with tempfile.TemporaryDirectory(prefix="birc-ws-hist-enq-") as directory:
     assert lines == ["delta=yes", "failed=yes", "baseline=yes", "retry=yes"], lines
     assert not bad.exists(), "failed sync append must not create the child"
 
+    lines = run(root / "fence.log", "fence")
+    assert lines == ["save=ok", "fenced=yes"], lines
+    assert (root / "fence.log").read_text() == "OLD\nNEW\n", (root / "fence.log").read_text()
+
     lines = run(root / "queued.log", "queued")
     assert lines == ["failed=no", "kept=yes"], lines
 

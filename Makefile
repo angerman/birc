@@ -740,12 +740,15 @@ BIRC_UI_CACHE_RUN := $(NIXRUN)
 else
 BIRC_UI_CACHE_RUN :=
 endif
+# Client codegen measured 761s wall on a loaded host (2026-10-18, 33MB C).
+# A 300s cap dies with Error 124 before bend prints anything. 1200 leaves
+# margin for that load without treating a quiet type error as a hang.
 $(BLDDIR)/birc_bend.c: $(APP) $(BEND_UI_SRCS) $(BUILD_INPUTS) $(BLDDIR)/build-config
 	@rc=0; $(BIRC_UI_CACHE_RUN) sh $(BIRC_MAKE_DIR)/scripts/build-ui-cache.sh restore $(BLDDIR) || rc=$$?; \
 	if [ $$rc -eq 0 ]; then \
 	  touch $(BLDDIR)/birc $(BLDDIR)/birc_bend.c; \
 	elif [ $$rc -eq 1 ]; then \
-	  $(NIXRUN) timeout 300 bend $(APP) -o $(BLDDIR)/birc_bend.c; \
+	  $(NIXRUN) timeout 1200 bend $(APP) -o $(BLDDIR)/birc_bend.c; \
 	else \
 	  exit $$rc; \
 	fi

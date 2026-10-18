@@ -9,6 +9,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/history.bend as Hist
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/server_key.bend as Key
+import ../../src/bend/history_io.bend as HistIO
 
 def report(result: Maybe<&2, String>) -> IO(Unit):
   match result:
@@ -35,7 +36,7 @@ def report_held(tag: String, +hot: WsNet.WsHot) -> IO(WsNet.WsHot):
 def hot_jobs.from(+empty: WsNet.WsHot, +path: String, +ch: Chan(WsNet.HistJob)) -> WsNet.WsHot:
   match empty:
     case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, _, _}:
-      WsNet.WsHot{on, path, cap, Some{ch}, warm, frame, ts, reload, "", 0n}
+      WsNet.WsHot{on, path, cap, Some{ch}, warm, frame, ts, reload, WsNet.ws_pend.empty(), 0n}
 
 def hot_jobs(+path: String, +ch: Chan(WsNet.HistJob)) -> WsNet.WsHot:
   hot_jobs.from(WsNet.ws_hot.empty(), path, ch)
@@ -194,6 +195,39 @@ def queued.go(+path: String) -> IO(Unit):
     got : W.Workspace & Bool & WsNet.WsHot <- WsNet.ws_history.async_go(Bool.not(String.is_empty(data)), data, ckpt, new_ws, id, hot_jobs(path, ch))
     queued.finish(got, live_cl, id)
 
+# Barrier ack means the queued line is already in the file.
+def fence.after(flushed: WsNet.WsHot & Bool, +path: String) -> IO(Unit):
+  match flushed:
+    case (_, +ok):
+      do IO<Unit>:
+        notice : Maybe<&2, String> <- HistIO.history_append_file(path, "NEW\n")
+        Unit <- report(notice)
+        report_bool("fenced", ok)
+
+def fence.send(+ch: Chan(WsNet.HistJob), +path: String) -> IO(WsNet.WsHot & Bool):
+  do IO<WsNet.WsHot & Bool>:
+    _ : Result<&1, &1, WsNet.HistJob, Unit> <- Chan.send(WsNet.HistJob, ch, WsNet.HistJob{path, "OLD\n", 0n, 0n, 1n})
+    WsNet.ws_history.flush_before(hot_jobs(path, ch))
+
+def fence.stop(+ch: Chan(WsNet.HistJob), +main: Chan(WsNet.WsMsg)) -> IO(Unit):
+  do IO<Unit>:
+    _ : Result<&1, &1, WsNet.HistJob, Unit> <- Chan.send(WsNet.HistJob, ch, WsNet.HistStop{})
+    _ : Maybe<&1, WsNet.WsMsg> <- Chan.recv(WsNet.WsMsg, main)
+    return Unit{}
+
+def fence.run(+ch: Chan(WsNet.HistJob), +main: Chan(WsNet.WsMsg), +path: String) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.spawn(Unit, WsNet.hist_worker(ch, main))
+    flushed : WsNet.WsHot & Bool <- fence.send(ch, path)
+    Unit <- fence.after(flushed, path)
+    fence.stop(ch, main)
+
+def fence.go(+path: String) -> IO(Unit):
+  do IO<Unit>:
+    ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 4)
+    main : Chan(WsNet.WsMsg) <- Chan.new(WsNet.WsMsg, 4)
+    fence.run(ch, main, path)
+
 def stop.go() -> IO(Unit):
   do IO<Unit>:
     ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
@@ -216,6 +250,8 @@ def run(+path: String, mode: String) -> IO(Unit):
       syncfail.go(path)
     case "queued":
       queued.go(path)
+    case "fence":
+      fence.go(path)
     case "stop":
       stop.go()
     case _: IO.die(Unit, 1, "unknown mode")

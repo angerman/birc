@@ -25,9 +25,15 @@ type Reply is Data:
 def unchanged(phase: Cl.AuthPhase) -> Reply:
   Reply{phase, Nil{}, Quiet{}}
 
+def step.hold.spot(phase: Cl.AuthPhase) -> Cl.AuthHold:
+  match phase:
+    case Cl.AuthChallenge{}: Cl.HoldChallenge{}
+    case Cl.AuthResult{}: Cl.HoldResult{}
+    case _: Cl.HoldCap{}
+
 def step.hold(hold: Bool, phase: Cl.AuthPhase) -> Reply:
   match hold:
-    case True{}: unchanged(Cl.AuthHeld{phase})
+    case True{}: unchanged(Cl.AuthHeld{step.hold.spot(phase)})
     case False{}: unchanged(phase)
 
 def step.cap(hold: Bool, e: Irc.SaslEvent) -> Reply:
@@ -82,22 +88,21 @@ def phase_same(a: Cl.AuthPhase, b: Cl.AuthPhase) -> Bool:
     case Cl.AuthResult{}: phase_same.result(b)
     case _: False{}
 
-def step.held.pack(same: Bool, phase: Cl.AuthPhase, outs: List<&2, String>, notice: Notice) -> Reply:
+def step.held.pack(same: Bool, phase: Cl.AuthPhase, hold: Cl.AuthHold, outs: List<&2, String>, notice: Notice) -> Reply:
   match same:
-    case True{}: Reply{Cl.AuthHeld{phase}, outs, notice}
+    case True{}: Reply{Cl.AuthHeld{hold}, outs, notice}
     case False{}: Reply{phase, outs, notice}
 
-def step.held.got(before: Cl.AuthPhase, reply: Reply) -> Reply:
+def step.held.got(before: Cl.AuthPhase, hold: Cl.AuthHold, reply: Reply) -> Reply:
   match reply:
     case Reply{+phase, outs, notice}:
-      step.held.pack(phase_same(before, phase), phase, outs, notice)
+      step.held.pack(phase_same(before, phase), phase, hold, outs, notice)
 
-def step.held(resume: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
+def step.held(resume: Cl.AuthHold, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
   match resume:
-    case Cl.AuthCap{}: step.held.got(Cl.AuthCap{}, step.cap(False{}, e))
-    case Cl.AuthChallenge{}: step.held.got(Cl.AuthChallenge{}, step.challenge(False{}, e, user, pass))
-    case Cl.AuthResult{}: step.held.got(Cl.AuthResult{}, step.result(False{}, e))
-    case _: unchanged(resume)
+    case Cl.HoldCap{}: step.held.got(Cl.AuthCap{}, Cl.HoldCap{}, step.cap(False{}, e))
+    case Cl.HoldChallenge{}: step.held.got(Cl.AuthChallenge{}, Cl.HoldChallenge{}, step.challenge(False{}, e, user, pass))
+    case Cl.HoldResult{}: step.held.got(Cl.AuthResult{}, Cl.HoldResult{}, step.result(False{}, e))
 
 def step(phase: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
   match phase:
