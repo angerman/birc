@@ -65,20 +65,31 @@ def inner_extent.on(+n: U32, large: Bool) -> Nat:
 def inner_extent(+n: U32) -> Nat:
   inner_extent.on(n, U32.is_ge(n, 3))
 
-# The full body box is rows-3 on normal terminals. TimUI FLEX(1),FLEX(1)
-# gives the rounding remainder to the second constraint after rounding the first.
+# The full body box is rows-2 on normal terminals (tabs plus the box border).
+# TimUI FLEX(1),FLEX(1) gives the rounding remainder to the second constraint
+# after rounding the first.
 def body_box_h.on(+rows: U32, normal: Bool) -> U32:
   match normal:
-    case True{}: U32.sub(rows, 3)
+    case True{}: U32.sub(rows, 2)
     case False{}: 1
 
 def body_box_h(+rows: U32) -> U32:
   body_box_h.on(rows, U32.is_ge(rows, 4))
 
+def page_drop.on(+n: U32, zero: Bool) -> U32:
+  match zero:
+    case True{}: 0
+    case False{}: U32.sub(n, 1)
+
+def page_drop(+n: U32) -> U32:
+  page_drop.on(n, U32.is_zero(n))
+
+# The lower stacked pane is the shorter half, and its history window also
+# reserves the composer row. That is one line under the upper pane.
 def page_height.stacked(+focus: U32, +h: U32) -> Nat:
   match focus:
     case 0: inner_extent(first_extent(h))
-    case _: inner_extent(second_extent(h))
+    case _: inner_extent(page_drop(second_extent(h)))
 
 def page_height.on(axis: Axis, +focus: U32, +rows: U32) -> Nat:
   match axis:
@@ -97,7 +108,7 @@ def page_height(+rows: U32, st: State) -> Nat:
 def page_height_ok() -> Bool:
   Nat.is_eq(page_height(24, On{Stacked{}, "a", "b", 0}), 9n)
     && Nat.is_eq(page_height(24, On{Stacked{}, "a", "b", 1}), 8n)
-    && Nat.is_eq(page_height(24, On{SideBySide{}, "a", "b", 0}), 19n)
+    && Nat.is_eq(page_height(24, On{SideBySide{}, "a", "b", 0}), 20n)
     && Nat.is_eq(page_height(2, On{Stacked{}, "a", "b", 1}), 1n)
 
 def extents_fit(+n: U32) -> Bool:
@@ -125,7 +136,7 @@ def name_at.got(got: Maybe<&2, Cl.Buffer>) -> String:
     case None{}: ""
     case Some{b}:
       match b:
-        case Cl.Buffer{+name, _, _, _, _, _}: name
+        case Cl.Buffer{+name, _, _, _, _, _, _, _}: name
 
 def name_at(+cl: Cl.Client, +i: Nat) -> String:
   Bool.pick(String, Nat.is_eq(i, 0n), "*server*", name_at.got(Cl.nth_buf(Cl.client_bufs(cl), i)))

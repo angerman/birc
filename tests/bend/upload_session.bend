@@ -51,7 +51,7 @@ def line_texts(lines: List<&2, Cl.Line>) -> String:
 def buffers_text(bufs: List<&2, Cl.Buffer>) -> String:
   match bufs:
     case Nil{}: ""
-    case Con{Cl.Buffer{_, _, topic, lines, _, _}, t}: topic ++ "|" ++ line_texts(lines) ++ buffers_text(t)
+    case Con{Cl.Buffer{_, _, topic, lines, _, _, _, _}, t}: topic ++ "|" ++ line_texts(lines) ++ buffers_text(t)
 
 def saved_text(st: Sess.Session) -> String:
   buffers_text(Cl.client_bufs(Sess.session_cl(st)))
@@ -95,14 +95,14 @@ def nick_client() -> Cl.Client:
   Feed.feed(Feed.feed(Sess.session_cl(online()), ":alice!u@h JOIN :+#room"), ":adam!u@h JOIN :+#room")
 
 def complete_tab(+st: Sess.Session, text: String) -> Sess.Session:
-  Sess.st_of_keys(Sess.step_keys(st, Sess.Keys{text, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, True{}, 0}))
+  Sess.st_of_keys(Sess.step_keys(st, Sess.Keys{text, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 1, 0}))
 
 def batch_busy() -> Sess.Session:
   +pending = Sess.st_of_keys(Sess.step_enter(online(), "/upload /tmp/a /tmp/b"))
   take_state(Sess.session_upload_take(key_state(Sess.session_upload_key(shown(pending), 22, 0))))
 
 def unsent_batch() -> Sess.Session:
-  Sess.st_of_keys(Sess.step_keys(batch_busy(), Sess.Keys{"unsent draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0}))
+  Sess.st_of_keys(Sess.step_keys(batch_busy(), Sess.Keys{"unsent draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0}))
 
 def next_pending() -> Sess.Session:
   complete_state(Sess.session_upload_complete(unsent_batch(), U.Request{U.Scope{"irc.example", 6667, "+#room"}, "/tmp/a"}, "https://0x0.st/a\n"))
@@ -187,7 +187,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("Busy transition cannot mark identical request presented", take_path(Sess.session_upload_take(key_state(Sess.session_upload_key(Sess.session_upload_present(duplicate_busy(), duplicate_pending()), 22, 0)))), "none")
     Unit <- E.must_eq("new paint can enable duplicate path next file", take_path(Sess.session_upload_take(key_state(Sess.session_upload_key(shown(duplicate_pending()), 22, 0)))), "/tmp/a")
     Unit <- E.must("maintain retains same presented request", Sess.session_upload_presented(Sess.session_upload_maintain(presented())))
-    Unit <- E.must("pending ordinary editing retains presentation", Sess.session_upload_presented(Sess.st_of_keys(Sess.step_keys(presented(), Sess.Keys{"draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0}))))
+    Unit <- E.must("pending ordinary editing retains presentation", Sess.session_upload_presented(Sess.st_of_keys(Sess.step_keys(presented(), Sess.Keys{"draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0}))))
     Unit <- E.must("different request resets presentation", Bool.not(Sess.session_upload_presented(Sess.session_set_upload(presented(), U.Confirm{U.Request{U.Scope{"irc.example", 6667, "+#room"}, "/tmp/other"}, Nil{}}))))
     Unit <- E.must("Busy cannot retain presentation", Bool.not(Sess.session_upload_presented(busy())))
     Unit <- E.must("scope invalidation removes presentation", Bool.not(Sess.session_upload_presented(Sess.session_upload_maintain(switch_target(presented())))))
@@ -206,7 +206,7 @@ def main() -> IO(Unit):
     Unit <- E.must("local full path absent from stored lines", Bool.not(String.contains(saved_text(offered()), "/tmp/private file.txt")))
     Unit <- E.must_eq("warning includes public destination and explicit keys", Sess.session_upload_hint(offered()), "F8: upload publicly to 0x0.st; Esc: cancel | +#room | private file.txt (files=1)")
     Unit <- E.must_eq("warning never replaces composer", Sess.session_draft(offered()), "")
-    Unit <- E.must_eq("drop is not staged until submit", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_keys(online(), Sess.Keys{"'/tmp/private file.txt'", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0})))), "idle")
+    Unit <- E.must_eq("drop is not staged until submit", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_keys(online(), Sess.Keys{"'/tmp/private file.txt'", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0})))), "idle")
     Unit <- E.must_eq("explicit malformed path is refused", wire(Sess.step_enter(online(), "/upload file://remote/tmp/a")), "")
     Unit <- E.must_eq("malformed path absent from history", history(Sess.st_of_keys(Sess.step_enter(online(), "/upload file://remote/tmp/a"))), "")
     Unit <- E.must_eq("offline upload refuses without worker", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_enter(Sess.session_fail(online(), "fixture"), "/upload /tmp/a")))), "idle")
@@ -234,7 +234,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("busy permits ordinary message", wire(Sess.step_enter(busy(), "hello")), "PRIVMSG +#room :hello")
     Unit <- E.must_eq("busy message enters normal command history", history(Sess.st_of_keys(Sess.step_enter(busy(), "hello"))), "hello")
     Unit <- E.must_eq("busy keeps owner across message", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_enter(busy(), "hello")))), "busy:True")
-    Unit <- E.must_eq("busy ordinary draft retained", Sess.session_draft(Sess.st_of_keys(Sess.step_keys(busy(), Sess.Keys{"draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0}))), "draft")
+    Unit <- E.must_eq("busy ordinary draft retained", Sess.session_draft(Sess.st_of_keys(Sess.step_keys(busy(), Sess.Keys{"draft", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0}))), "draft")
     Unit <- E.must("ordinary completion positive control", Bool.not(String.eq(Sess.session_draft(ordinary_tab()), "a")))
     Unit <- E.must("ordinary completion cycle positive control", Bool.not(String.eq(Sess.session_draft(ordinary_tab()), Sess.session_draft(ordinary_cycle()))))
     Unit <- E.must_eq("busy nickname completion starts like ordinary control", Sess.session_draft(busy_tab()), Sess.session_draft(ordinary_tab()))

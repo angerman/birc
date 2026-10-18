@@ -300,7 +300,7 @@ def ph_full() -> IO(Unit):
     Unit <- E.must("accepted token opens", SC.ad_open(opened_ad()))
     Unit <- E.must_eq("overlay carries token", U32.show(C.token_of(SC.ad_full(opened_ad()))), "7")
     Unit <- E.must("open without support stays closed", Bool.not(SC.ad_open(SC.open_full(unbox(unsupported), M.Inline{1n}, image()))))
-    Unit <- E.must_eq("overlay covers body", overlay_of(opened_ad(), 24, 80), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
+    Unit <- E.must_eq("overlay covers body", overlay_of(opened_ad(), 24, 80), "box:0,1,62,23;media:1,2,60,21,0,21,7;")
     Unit <- E.must_eq("closed paints nothing", overlay_of(media_ad(), 24, 80), "")
     Unit <- E.must_eq("stale token paints nothing", overlay_of(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), retokened_media()), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad())), 24, 80), "")
     Unit <- E.must_eq("unsupported paints nothing", overlay_of(SC.with_cards(Sess.session_set_media(SC.ad_session(media_ad()), M.set_supported(ready_media(), False{})), SC.ad_cards(opened_ad()), SC.ad_full(opened_ad())), 24, 80), "")

@@ -275,7 +275,7 @@ def vis_chrono_ok.vis(xs: List<&2, Cl.Line>) -> Bool:
 
 def vis_chrono_ok.buf(b: Cl.Buffer) -> Bool:
   match b:
-    case Cl.Buffer{_, _, _, +lines, _, _}:
+    case Cl.Buffer{_, _, _, +lines, _, _, _, _}:
       vis_chrono_ok.vis(V.visible_lines(lines, 10n, 0n))
 
 def vis_chrono_ok() -> Bool:
@@ -376,11 +376,9 @@ def split_test_cl() -> Cl.Client:
 def split_ops_check.go(xs: List<&2, V.DrawOp>, split: Bool, first: Bool, second: Bool) -> Bool:
   match xs:
     case Nil{}: split && first && second
-    # h=22 at rows=24: status_y(24)=23, body_top=1, and view.bend's body_box_h
-    # keeps y+h <= status_y so the box never reaches the status row. 22 is the
-    # largest h satisfying that; 21 would leave a row unused.
+    # h=23 at rows=24: the body box runs through the last screen row.
     case Con{V.OpSplit{x, y, w, h, axis}, t}:
-      split_ops_check.go(t, U32.is_eq(x, 0) && U32.is_eq(y, 1) && U32.is_eq(w, 62) && U32.is_eq(h, 22) && U32.is_eq(axis, 1), first, second)
+      split_ops_check.go(t, U32.is_eq(x, 0) && U32.is_eq(y, 1) && U32.is_eq(w, 62) && U32.is_eq(h, 23) && U32.is_eq(axis, 1), first, second)
     case Con{V.OpText{_, _, _, _, _, +text}, t}:
       split_ops_check.go(t, split, first || String.eq(text, "#one [active]"), second || String.eq(text, "server"))
     case Con{_, t}: split_ops_check.go(t, split, first, second)
@@ -405,7 +403,7 @@ def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       dummy_line(i) <> dummy_lines.go(p, 1n+i)
 
 def dummy_cl(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "s", Cl.Buffer{"server", False{}, "", dummy_lines.go(n, 0n), Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.buf_indexed("server", False{}, "", dummy_lines.go(n, 0n), Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
 
 def body_line_ys.go(ops: List<&2, V.DrawOp>) -> List<&2, U32>:
   match ops:
@@ -527,8 +525,8 @@ def body_ys_ok() -> Bool:
     && body_ys_case(6, 8n)
     && body_ys_case(7, 8n)
     && body_ys_case(8, 8n)
-    && lay_body_ok(V.lay(4, 80, 0), 1, 2, 3)
-    && lay_body_ok(V.lay(24, 80, 0), 1, 22, 23)
+    && lay_body_ok(V.lay(4, 80, 0), 1, 3, 4)
+    && lay_body_ok(V.lay(24, 80, 0), 1, 23, 24)
 
     && ys_clear_chrome(4)
     && ys_clear_chrome(5)

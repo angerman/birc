@@ -73,10 +73,16 @@ static int playback(TimuiImageProtocol protocol, uint32_t loops) {
     test.size = 0;
     CHECK(timui_begin(ui, &frame)); timui_image_draw(frame, image, (TimuiRect){2,1,3,2}); timui_end(frame);
     CHECK(!contains(&test, "a=f")); /* movement does not restart playback */
+    test.size = 0;
+    CHECK(timui_begin(ui, &frame)); timui_image_draw(frame, image, (TimuiRect){2,1,3,2}); timui_end(frame);
+    CHECK(test.size == 0); /* unchanged: skip delete/transmit/place */
   } else if (protocol == TIMUI_IMAGE_PROTOCOL_ITERM2) {
     CHECK(contains(&test, "1337;File=inline=1;size=14"));
     CHECK(contains(&test, "R0lGODlh")); /* GIF, not the first PNG */
     CHECK(!contains(&test, "a=f"));
+    test.size = 0;
+    CHECK(timui_begin(ui, &frame)); timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
+    CHECK(test.size == 0); /* unchanged: skip base64 re-emit */
   } else {
     CHECK(!contains(&test, "a=f") && !contains(&test, "1337;File="));
   }

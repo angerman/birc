@@ -18,7 +18,7 @@ def lines_signature(xs: List<&2, Cl.Line>) -> String:
 def buffers_signature(xs: List<&2, Cl.Buffer>) -> String:
   match xs:
     case Nil{}: ""
-    case Con{Cl.Buffer{name, ch, topic, lines, nicks, Cl.ScrollAt{after, tail}}, rest}:
+    case Con{Cl.Buffer{name, ch, topic, lines, nicks, Cl.ScrollAt{after, tail}, _, _}, rest}:
       name ++ Bool.pick(String, ch, "#", "-") ++ "{" ++ topic ++ "|"
         ++ String.join(nicks, ",") ++ "|" ++ Nat.show(after) ++ ":" ++ Nat.show(tail)
         ++ "|" ++ lines_signature(lines) ++ "}" ++ buffers_signature(rest)
@@ -79,7 +79,7 @@ def last_text(xs: List<&2, Cl.Line>) -> String:
 def lines_at.got(got: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match got:
     case None{}: Nil{}
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}: lines
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}: lines
 
 def lines_at(cl: Cl.Client, i: Nat) -> List<&2, Cl.Line>:
   lines_at.got(Cl.nth_buf(Cl.client_bufs(cl), i))
@@ -87,7 +87,7 @@ def lines_at(cl: Cl.Client, i: Nat) -> List<&2, Cl.Line>:
 def active_topic.got(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{Cl.Buffer{_, _, topic, _, _, _}}: topic
+    case Some{Cl.Buffer{_, _, topic, _, _, _, _, _}}: topic
 
 def active_topic(+cl: Cl.Client) -> String:
   active_topic.got(Cl.nth_buf(Cl.client_bufs(cl), Cl.active_of(cl)))

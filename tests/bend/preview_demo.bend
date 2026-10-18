@@ -16,7 +16,7 @@ def take_outs(pair: Cl.Client & List<&2, String>) -> List<&2, String>:
 def active_topic.on(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{Cl.Buffer{_, _, +topic, _, _, _}}: topic
+    case Some{Cl.Buffer{_, _, +topic, _, _, _, _, _}}: topic
 
 def active_topic(+cl: Cl.Client) -> String:
   match cl:

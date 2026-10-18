@@ -329,10 +329,10 @@ def target_in_buf(target: Target, +url: String, buf: Cl.Buffer) -> Bool:
   match target:
     case CardInline{id}:
       match buf:
-        case Cl.Buffer{_, _, _, lines, _, _}: lines_have_id(lines, id)
+        case Cl.Buffer{_, _, _, lines, _, _, _, _}: lines_have_id(lines, id)
     case CardManual{}:
       match buf:
-        case Cl.Buffer{name, _, topic, _, _, _}: String.eq(name, MANUAL_BUF()) && String.eq(topic, url)
+        case Cl.Buffer{name, _, topic, _, _, _, _, _}: String.eq(name, MANUAL_BUF()) && String.eq(topic, url)
 
 def target_in_bufs(bufs: List<&2, Cl.Buffer>, +target: Target, +url: String) -> Bool:
   match bufs:
@@ -545,108 +545,44 @@ def line_at(lines: List<&2, Cl.Line>, index: Nat) -> Maybe<&2, Cl.Line>:
         case 0n: Some{line}
         case 1n+p: line_at(tail, p)
 
-def visible_rows(rows: List<&2, V.AnchoredRow>, +lines: List<&2, Cl.Line>, +count: Nat) -> List<&2, Candidate>:
+def visible_rows(rows: List<&2, V.AnchoredRow>) -> List<&2, Candidate>:
   match rows:
     case Nil{}: Nil{}
-    case Con{V.AnchoredRow{_, Cl.ScrollAt{after, _}}, tail}:
-      List.append(&2, Candidate,
-        visible_line(line_at(lines, Nat.sub(Nat.sub(count, after), 1n))),
-        visible_rows(tail, lines, count))
+    case Con{V.AnchoredRow{_, _, +line}, tail}:
+      List.append(&2, Candidate, visible_line(Some{line}), visible_rows(tail))
 
-def visible_crop(+rows: List<&2, V.AnchoredRow>, +lines: List<&2, Cl.Line>, +height: Nat, scroll: Cl.Scroll) -> List<&2, Candidate>:
-  +end = V.viewport_end(rows, height, scroll)
-  visible_rows(List.take(&2, V.AnchoredRow, List.drop(&2, V.AnchoredRow, rows, Nat.sub(end, height)), height),
-    lines, List.length(&2, Cl.Line, lines))
+def visible_crop(+rows: List<&2, V.AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, Candidate>:
+  visible_rows(V.visible_anchored_crop(rows, height, scroll))
 
-def visible_buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, Candidate>:
-  match allowed:
-    case False{}: Nil{}
-    case True{}:
-      match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_crop(V.anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media), lines, height, scroll)
+# Prefer when the caller already holds V.visible_anchored_panes_media_cards_cm.
+def visible_candidates_from_rows(+rows: List<&2, V.AnchoredRow>) -> List<&2, Candidate>:
+  newest(visible_rows(rows))
 
-def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, Candidate>:
-  match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
-      visible_buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, joins, nicks, server, media)
-
-def visible_split(pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State) -> List<&2, Candidate>:
-  match pair:
-    case (+r1, +r2):
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
-          List.append(&2, Candidate,
-            visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media),
-            visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media))
-
-def visible_single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, Candidate>:
-  match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
-      visible_buffer(V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
-        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
-
-def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
-  match split:
-    case Sp.Off{}: visible_single(cl, rows, cols, media)
-    case Sp.On{axis, first, second, _}:
-      visible_split(V.split_rects(axis, V.lay_body_rect(V.lay(rows, cols, 0))), cl, first, second, media)
-
-def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
-  newest(visible_panes(cl, rows, cols, split, media))
-
-# Cards-aware scheduling over the exact painted rows: card rows that push a
-# chat line out of the viewport also keep it out of the scheduled set.
 # Negotiated-cm scheduling over the exact painted rows: the same
 # cm-aware anchored owner the live paint path uses
-# (V.anchored_lines_media_cards_cm), so mute filtering agrees with paint and
-# offscreen rows stay unscheduled. Default-RFC scheduling would mute rows
-# paint retains (e.g. a[b under CASEMAPPING=ascii with muted a{b) and leak
-# hidden URLs into the queue.
-def visible_buffer_cards.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  match allowed:
-    case False{}: Nil{}
-    case True{}:
-      match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_crop(V.anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media, cards), lines, height, scroll)
-
+# (V.visible_anchored_panes_media_cards_cm), so mute filtering agrees with
+# paint and offscreen rows stay unscheduled. Default-RFC wrappers below
+# delegate with Cl.dflt_cm() / Nil{} cards — a separate non-cm walk would
+# mute rows paint retains (e.g. a[b under CASEMAPPING=ascii with muted a{b)
+# and leak hidden URLs into the queue.
 def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
-      visible_buffer_cards.allowed_cm(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def visible_split_cards_cm(+cm: String, pair: V.Rect & V.Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  match pair:
-    case (+r1, +r2):
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
-          List.append(&2, Candidate,
-            visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              V.rect_vis_h(r1), V.rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
-            visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              V.rect_vis_h(r2), V.rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
-
-def visible_single_cards_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
-      visible_buffer_cards_cm(cm, V.active_buf.on(Cl.nth_buf(bufs, active)), V.vis_h(rows),
-        V.rect_vis_w(V.lay_body_rect(V.lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
+  visible_rows(V.visible_anchored_buf_media_cards_cm(cm, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
 
 def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  match split:
-    case Sp.Off{}: visible_single_cards_cm(cm, cl, rows, cols, media, cards)
-    case Sp.On{axis, first, second, _}:
-      visible_split_cards_cm(cm, V.split_rects(axis, V.lay_body_rect(V.lay(rows, cols, 0))), cl, first, second, media, cards)
+  visible_rows(V.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, media, cards))
 
 def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   newest(visible_panes_cards_cm(cm, cl, rows, cols, split, media, cards))
+
+# Fixed-default APIs: one-line delegates to the cm-aware owner.
+def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, Candidate>:
+  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, joins, nicks, server, media, Nil{})
+
+def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
+  visible_panes_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, Nil{})
+
+def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
+  visible_candidates_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, Nil{})
 
 # ---- Fullscreen images (one overlay; Bend owns open/close, C only paints) ----
 

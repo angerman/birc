@@ -11,7 +11,7 @@ def path() -> String:
   "/tmp/synthetic-local.png"
 
 def client() -> Cl.Client:
-  Cl.Client{"me", "s", Cl.server_buf() <> Cl.Buffer{"*preview*", False{}, path(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.server_buf() <> Cl.buf_indexed("*preview*", False{}, path(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
 
 def no_raw.ops(xs: List<&2, V.DrawOp>) -> Bool:
   match xs:

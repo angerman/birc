@@ -67,7 +67,7 @@ def muted_arrival() -> Bool:
   String.eq(row_texts(rows(cl, 8)), row_texts(V.body_of.buf(b, 3n, 8, False{}, "muted" <> Nil{}, True{}, True{}, "s")))
 
 def replacement_anchor() -> Bool:
-  +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "abc👩‍💻uvwxyz", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
+  +b: Cl.Buffer = Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "abc👩‍💻uvwxyz", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
   +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 7n, 0n)
   String.eq(last(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "c")
     && String.eq(last(V.body_of.buf(scrolled, 1n, 4, False{}, Nil{}, True{}, True{}, "s")), "abc")

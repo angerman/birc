@@ -82,7 +82,7 @@ def buffer_count(whole: Bool, buffer: Cl.Buffer, media: M.State) -> Nat:
   match whole:
     case True{}:
       match buffer:
-        case Cl.Buffer{name, _, _, lines, _, _}:
+        case Cl.Buffer{name, _, _, lines, _, _, _, _}:
           List.length(&2, V.BodyRow, V.body_rows_media(lines, name, 180, True{}, media))
     case False{}:
       List.length(&2, V.BodyRow, V.body_of.buf_media(buffer, 45n, 180, True{}, Nil{}, True{}, True{}, "s", media))
@@ -148,7 +148,7 @@ def run_seed(buffer: Bool, +mode: String, +links: Nat, +n: Nat, +line_count: Nat
   match buffer:
     case True{}:
       +first = Nat.mod(seed, 1000n)
-      +buf : Cl.Buffer = Cl.Buffer{"#t", True{}, "", viewport_lines(line_count, first), Nil{}, Cl.ScrollAt{0n, 0n}}
+      +buf : Cl.Buffer = Cl.buf_indexed("#t", True{}, "", viewport_lines(line_count, first), Nil{}, Cl.ScrollAt{0n, 0n})
       do IO<Unit>:
         Unit <- source_info(viewport_text(first))
         Unit <- IO.print("line_count=" ++ Nat.show(line_count) ++ " width=180 height=45\n")

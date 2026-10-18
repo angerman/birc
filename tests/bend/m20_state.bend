@@ -8,6 +8,7 @@ import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/session.bend as Sess
+import ../../src/bend/isupport.bend as Isupport
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/media.bend as M
 
@@ -91,7 +92,7 @@ def reconnected() -> Cl.Client:
 
 def topic.got(buf: Maybe<&2, Cl.Buffer>) -> String:
   match buf:
-    case Some{Cl.Buffer{_, _, topic, _, _, _}}: topic
+    case Some{Cl.Buffer{_, _, topic, _, _, _, _, _}}: topic
     case None{}: ""
 
 def reconnect() -> IO(Unit):
@@ -156,7 +157,7 @@ def command_names(xs: List<&2, String>) -> String:
 
 def completion() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must("N12 log command completes", completion.got(Sess.comp_step(Cl.init("me", "s"), Sess.comp0(), "/lo"), "/log "))
+    Unit <- E.must("N12 log command completes", completion.got(Sess.comp_step_iso(Isupport.defaults(), Cl.init("me", "s"), Sess.comp0(), "/lo"), "/log "))
     Unit <- E.must_eq("N12 log dispatch remains accepted", Cl.active_buf_name(client(Sub.submit(Cl.init("me", "s"), "/log"))), "*log*")
     Unit <- E.must("N12 ordinary join completion remains", Sess.comp_step_ok())
     E.must_eq("K02 existing completion order and aliases remain explicit", command_names(Sess.slash_command_list()), "/join|/part|/close|/msg|/query|/nick|/me|/quit|/settings|/set|/toggle|/mute|/unmute|/mutes|/connect|/reconnect|/open|/links|/search|/preview|/images|/log|/split|/vsplit|/split-off|/unsplit|/focus|/upload|/whois|/who|/list|/names|/topic|/mode|/kick|/invite|/away|/notice|/raw|/quote|")

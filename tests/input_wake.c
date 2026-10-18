@@ -281,6 +281,30 @@ static int full_output_escape_control(void) {
   return 0;
 }
 
+static int focus_report_does_not_spin(void) {
+  Fixture f;
+  uint32_t key, more;
+  CHECK(fixture_start(&f) == 0);
+  /* DEC focus-in. The frame leaves it queued for poll_event, which the UI
+   * loop does not call. The next idle frame must drop it and park. */
+  CHECK(feed(&f, "\x1b[I", 3, &key, &more) == 0);
+  CHECK(key == TIMUI_KEY_UNKNOWN && more == 1);
+  CHECK(paint(&f, &key, &more) == 0);
+  CHECK(key == TIMUI_KEY_UNKNOWN && more == 0);
+  /* The stale focus must not block the tty. One byte is consumed, and the
+   * following idle frame stays parked. */
+  CHECK(feed(&f, "a", 1, &key, &more) == 0);
+  {
+    char leftover;
+    ssize_t n = read(f.input[0], &leftover, 1);
+    CHECK(n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK));
+  }
+  CHECK(paint(&f, &key, &more) == 0);
+  CHECK(key == TIMUI_KEY_UNKNOWN && more == 0);
+  CHECK(fixture_stop(&f) == 0);
+  return 0;
+}
+
 static int timed_parser_controls(void) {
   static const struct { const char *bytes; size_t size; int state, pasting; } cases[] = {
     {"\x1b[", 2, 2, 0}, {"\x1bO", 2, 3, 0},
@@ -304,13 +328,61 @@ static int timed_parser_controls(void) {
   return 0;
 }
 
+/* Esc while a mouse selection is active clears it and must not quit: Bend
+ * maps a returned Escape to quit. Upload cancel still receives Esc when
+ * there is no selection (timed_escape_control / upload_keys). */
+static int selection_escape_clears_without_quit(void) {
+  Fixture f;
+  uint32_t key, more;
+  CHECK(fixture_start(&f) == 0);
+  f.state->sel.active = 1;
+  f.state->sel.dragging = 0;
+  CHECK(feed(&f, "\x1b", 1, &key, &more) == 0);
+  now_ms += 100;
+  CHECK(paint(&f, &key, &more) == 0);
+  CHECK(key == 0);
+  CHECK(!f.state->sel.active && !f.state->sel.dragging);
+  CHECK(!timui_should_quit(f.ui));
+  CHECK(fixture_stop(&f) == 0);
+  return 0;
+}
+
+/* Mid-draft unmodified Right is suppressed for ghost accept; Shift+Right
+ * must still report so Bend can switch tabs. */
+static int shift_right_mid_draft(void) {
+  Fixture f;
+  TimuiFrame *fr;
+  size_t tlen = 0;
+  CHECK(fixture_start(&f) == 0);
+  memcpy(f.state->composer, "abc", 4);
+  f.state->st.cursor = 1;
+  CHECK(timui_begin(f.ui, &fr));
+  f.ui->key_pressed = TIMUI_KEY_RIGHT;
+  f.ui->key_mods = TIMUI_MOD_SHIFT;
+  (void)draw_composer(fr, 0, 23, 40, f.state, &tlen);
+  CHECK(f.ui->key_pressed == TIMUI_KEY_RIGHT);
+  CHECK(f.ui->key_mods == TIMUI_MOD_SHIFT);
+  timui_end(fr);
+  CHECK(timui_begin(f.ui, &fr));
+  f.ui->key_pressed = TIMUI_KEY_RIGHT;
+  f.ui->key_mods = TIMUI_MOD_NONE;
+  (void)draw_composer(fr, 0, 23, 40, f.state, &tlen);
+  CHECK(f.ui->key_pressed == TIMUI_KEY_UNKNOWN);
+  timui_end(fr);
+  CHECK(fixture_stop(&f) == 0);
+  return 0;
+}
+
 int main(void) {
   CHECK(idle_and_output_controls() == 0);
   CHECK(timed_escape_control() == 0);
   CHECK(split_escape_control() == 0);
   CHECK(nonkey_escape_gap() == 0);
   CHECK(full_output_escape_control() == 0);
+  CHECK(focus_report_does_not_spin() == 0);
   CHECK(timed_parser_controls() == 0);
+  CHECK(selection_escape_clears_without_quit() == 0);
+  CHECK(shift_right_mid_draft() == 0);
   puts("input_wake=ok");
   return 0;
 }

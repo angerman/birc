@@ -382,10 +382,10 @@ def target_in_buf(target: Target, +url: String, buf: Cl.Buffer) -> Bool:
   match target:
     case Inline{id}:
       match buf:
-        case Cl.Buffer{_, _, _, lines, _, _}: lines_have_id(lines, id)
+        case Cl.Buffer{_, _, _, lines, _, _, _, _}: lines_have_id(lines, id)
     case Manual{}:
       match buf:
-        case Cl.Buffer{name, _, topic, _, _, _}: String.eq(name, "*preview*") && String.eq(topic, url)
+        case Cl.Buffer{name, _, topic, _, _, _, _, _}: String.eq(name, "*preview*") && String.eq(topic, url)
 
 def target_in_bufs(bufs: List<&2, Cl.Buffer>, +target: Target, +url: String) -> Bool:
   match bufs:
@@ -560,7 +560,7 @@ def observe_lines(xs: List<&2, Cl.Line>, state: State, +after: Nat) -> State:
 def observe_bufs(bufs: List<&2, Cl.Buffer>, state: State, +after: Nat) -> State:
   match bufs:
     case Nil{}: state
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, tail}: observe_bufs(tail, observe_lines(lines, state, after), after)
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, tail}: observe_bufs(tail, observe_lines(lines, state, after), after)
 
 def observe.pick(online: Bool, +state: State, +client: Cl.Client, after: Nat) -> State:
   match online:

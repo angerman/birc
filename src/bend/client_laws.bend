@@ -23,7 +23,7 @@ def show_buf.chan(+ch: Bool) -> String:
 
 def show_buf(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, _}:
+    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, _, _, _}:
       String.concat(
         name
           <> show_buf.chan(ch)
@@ -72,7 +72,7 @@ def buf_nlines.on(got: Maybe<&2, Cl.Buffer>) -> Nat:
       0n
     case Some{b}:
       match b:
-        case Cl.Buffer{_, _, _, +lines, _, _}:
+        case Cl.Buffer{_, _, _, +lines, _, _, _, _}:
           List.length(&2, Cl.Line, lines)
 
 def buf_nlines(+cl: Cl.Client, +i: Nat) -> Nat:
@@ -92,7 +92,7 @@ def has_buf(+cl: Cl.Client, +name: String) -> Bool:
 
 def buf_nicks.text(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, _, _, +nicks, _}:
+    case Cl.Buffer{_, _, _, _, +nicks, _, _, _}:
       show_nicks(nicks)
 
 def buf_nicks.got(got: Maybe<&2, Cl.Buffer>) -> String:
@@ -169,7 +169,7 @@ def buf_texts.on(got: Maybe<&2, Cl.Buffer>) -> String:
       ""
     case Some{b}:
       match b:
-        case Cl.Buffer{_, _, _, +lines, _, _}:
+        case Cl.Buffer{_, _, _, +lines, _, _, _, _}:
           lines_pipe(lines)
 
 def buf_texts(+cl: Cl.Client, +i: Nat) -> String:
@@ -275,14 +275,14 @@ def log_ts_ok.lines(+xs: List<&2, Cl.Line>) -> Bool:
 
 def log_ts_ok.buf(+b: Cl.Buffer) -> Bool:
   match b:
-    case Cl.Buffer{_, _, _, +lines, _, _}:
+    case Cl.Buffer{_, _, _, +lines, _, _, _, _}:
       log_ts_ok.lines(lines)
 
 def log_ts_ok.feed.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
   match got:
     case Some{b}:
       match b:
-        case Cl.Buffer{_, _, _, +lines, _, _}:
+        case Cl.Buffer{_, _, _, +lines, _, _, _, _}:
           match lines:
             case Con{Cl.Line{_, +ts, _, +author, +id}, _}:
               String.eq(ts, "12:00:00")

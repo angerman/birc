@@ -41,6 +41,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("pong-top0-closed", U32.show(Out.next_pong_txn(2148532223)), "0")
     Unit <- E.must_eq("pong-exhausted-stays", U32.show(Out.next_pong_txn(0)), "0")
     Unit <- E.must_eq("pong-first2048-closed", U32.show(Out.pong_first(2048)), "0")
+    Unit <- E.must_eq("pong-last2048-closed", U32.show(Out.pong_last(2048)), "0")
     Unit <- E.must_eq("pong-last0", U32.show(Out.pong_last(0)), "2148532223")
     Unit <- E.must_eq("pong-last2047", U32.show(Out.pong_last(2047)), "4294967295")
     IO.print("outbound_txn=ok")

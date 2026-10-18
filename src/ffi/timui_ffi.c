@@ -161,6 +161,16 @@ typedef struct {
   int preview_count;
   BircOutput output;
   BircMediaCache media;
+  /* Attrs 8: drawn after the composer widget so it is not cleared. */
+  char ghost[128];
+  int ghost_x;
+  int ghost_y;
+  int ghost_w; /* Bend OpText.w columns; paint maxx is gx + ghost_w. */
+  int ghost_on;
+  uint32_t ghost_fg;
+  /* Reused UTF-8 encode buffer for OpText / span paint (no per-op malloc). */
+  char *paint_buf;
+  size_t paint_cap;
 } BircUi;
 static BircUi *birc_state(const Timui *ui) {
   return ui ? (BircUi *)timui_userdata(ui) : NULL;
@@ -180,6 +190,9 @@ static BircUi *birc_final_retained_state;
 static void birc_state_destroy(BircUi *state) {
   if (!state)
     return;
+  free(state->paint_buf);
+  state->paint_buf = NULL;
+  state->paint_cap = 0;
   for (int i = 0; i < BIRC_PREVIEW_CAP; i++) {
     if (state->previews[i].image)
       timui_image_free(NULL, state->previews[i].image);
@@ -609,13 +622,15 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
 static void __attribute__((constructor)) timui_open_use(void) {
   io_eff(CID_TIMUI_OPEN, timui_open_run);
 }
+/* One grapheme advance that also returns width (no second width table).
+ * Bend already sized OpText/spans via columns.bend; this only defends maxx. */
 static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_w) {
   size_t i = 0;
   int64_t cx = x;
   if (!s) n = 0;
   while (i < n) {
-    size_t next = timui_grapheme_next(s, n, i);
-    int w = timui_grapheme_width(s + i, next - i);
+    int w = 0;
+    size_t next = timui_grapheme_next_w_(s, n, i, &w);
     if (next <= i) break;
     if (w == 0 && timui_utf8_decode(s + i, n - i, NULL) <= 0)
       w = 1;
@@ -629,11 +644,81 @@ static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_
     *out_w = (int)(cx - x);
   return i;
 }
+#ifndef CID_SCON
+#define CID_SCON 0u /* test stub: fall back to io_cstr */
+#endif
+#ifndef CID_SNIL
+#define CID_SNIL 0u
+#endif
+/* Encode a Bend String into bu->paint_buf (length-bounded). Returns 1 and
+ * sets *out / *out_n on success. Falls back to io_cstr when the term is not
+ * an SCon chain (unit-test stubs) — caller frees only in that path. */
+static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *out_n,
+                         char **owned) {
+  size_t n = 0;
+  u64 aux;
+  *owned = NULL;
+  *out = "";
+  *out_n = 0;
+  if (!bu) {
+    u64 len = 0;
+    char *heap = io_cstr(e, s, &len);
+    *owned = heap;
+    *out = heap ? heap : "";
+    *out_n = (size_t)len;
+    return heap != NULL || len == 0;
+  }
+  aux = term_aux(s);
+  if (CID_SCON != 0u && (aux == CID_SCON || aux == CID_SNIL)) {
+    Term cur = s;
+    while (term_aux(cur) == CID_SCON) {
+      Term fb[2];
+      Loc sp = ctr_take(e, cur, 2, fb);
+      char enc[4];
+      int k = timui_utf8_encode_((uint32_t)fb[0], enc);
+      if (n + (size_t)k + 1 > bu->paint_cap) {
+        size_t need = bu->paint_cap ? bu->paint_cap * 2 : 128;
+        char *next;
+        while (need < n + (size_t)k + 1)
+          need *= 2;
+        next = (char *)realloc(bu->paint_buf, need);
+        if (!next) {
+          spare_free(e, cls_fit(2), sp);
+          return 0;
+        }
+        bu->paint_buf = next;
+        bu->paint_cap = need;
+      }
+      memcpy(bu->paint_buf + n, enc, (size_t)k);
+      n += (size_t)k;
+      cur = fb[1];
+      spare_free(e, cls_fit(2), sp);
+    }
+    if (bu->paint_cap == 0) {
+      bu->paint_buf = (char *)malloc(1);
+      if (!bu->paint_buf) return 0;
+      bu->paint_cap = 1;
+    }
+    bu->paint_buf[n] = '\0';
+    *out = bu->paint_buf;
+    *out_n = n;
+    return 1;
+  }
+  {
+    u64 len = 0;
+    char *heap = io_cstr(e, s, &len);
+    *owned = heap;
+    *out = heap ? heap : "";
+    *out_n = (size_t)len;
+    return 1;
+  }
+}
 static int birc_put_span(TimuiFrame *fr, int x, int y, int maxx, const char *p,
                          size_t n, uint32_t fg, uint32_t attrs, const char *uri) {
   int w = 0;
   TimuiStyle st;
   if (!fr || n == 0 || x >= maxx) return x;
+  /* Bend owns column clipping (columns.bend). Defensive fit only. */
   n = birc_clip_cols(p, n, x, maxx, &w);
   if (n == 0) return x;
   st = timui_style_make(fg, TIMUI_COLOR_DEFAULT, attrs);
@@ -765,28 +850,36 @@ static int birc_draw_spans(Env e, TimuiFrame *fr, int x, int y, int maxx,
     xs = rest;
     if (cid == CID_VIEW_COL) {
       Loc loc = ctr_take(e, sp, 3, f);
-      u64 tlen = 0;
-      char *text = io_cstr(e, f[2], &tlen);
-      x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, (uint32_t)f[1],
+      const char *text = "";
+      size_t tlen = 0;
+      char *owned = NULL;
+      BircUi *bu = (fr && fr->ui) ? birc_state(fr->ui) : NULL;
+      (void)birc_draw_str(e, f[2], bu, &text, &tlen, &owned);
+      x = birc_put_span(fr, x, y, maxx, text, tlen, (uint32_t)f[1],
                         (uint32_t)f[0], NULL);
-      free(text);
+      free(owned);
       spare_free(e, cls_fit(3), loc);
     } else {
       Loc loc = ctr_take(e, sp, 2, f);
       if (cid == CID_VIEW_LNK) {
-        u64 ulen = 0, tlen = 0;
+        u64 ulen = 0;
         char *url = io_cstr(e, f[0], &ulen);
-        char *text = io_cstr(e, f[1], &tlen);
-        x = birc_put_link(fr, x, y, maxx, url, (size_t)ulen, text, (size_t)tlen,
-                          fg);
+        const char *text = "";
+        size_t tlen = 0;
+        char *owned = NULL;
+        BircUi *bu = (fr && fr->ui) ? birc_state(fr->ui) : NULL;
+        (void)birc_draw_str(e, f[1], bu, &text, &tlen, &owned);
+        x = birc_put_link(fr, x, y, maxx, url, (size_t)ulen, text, tlen, fg);
         free(url);
-        free(text);
+        free(owned);
       } else if (cid == CID_VIEW_SPN) {
-        u64 tlen = 0;
-        char *text = io_cstr(e, f[1], &tlen);
-        x = birc_put_span(fr, x, y, maxx, text, (size_t)tlen, fg,
-                          (uint32_t)f[0], NULL);
-        free(text);
+        const char *text = "";
+        size_t tlen = 0;
+        char *owned = NULL;
+        BircUi *bu = (fr && fr->ui) ? birc_state(fr->ui) : NULL;
+        (void)birc_draw_str(e, f[1], bu, &text, &tlen, &owned);
+        x = birc_put_span(fr, x, y, maxx, text, tlen, fg, (uint32_t)f[0], NULL);
+        free(owned);
       }
       spare_free(e, cls_fit(2), loc);
     }
@@ -821,9 +914,10 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
             r.w == in.w + 2 && r.h == in.h + 2)
           body_box = 1;
       }
-      /* Role is inferred: the first x==0 box is the chat body, every other
-       * box is the nick list. OpSplit has no pane-role field (view.bend),
-       * so this cannot yet be deleted. Mouse hit-testing uses the rects. */
+      /* TODO(pane-tag): OpBox/OpSplit need an explicit pane role in
+       * view.bend (and cards.bend emitters). Until then role is inferred:
+       * the first x==0 box is the chat body, every other box is the nick
+       * list. Mouse hit-testing and the composer chooser use these rects. */
       if (ly->bu->body_count == 0 && r.x == 0) {
         ly->bu->body_inner[0] = (TimuiRect){r.x + 1, r.y + 1,
           r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
@@ -864,11 +958,32 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     int x = (int)(uint32_t)f[0];
     int y = (int)(uint32_t)f[1];
     int w = (int)(uint32_t)f[2];
-    u64 n = 0;
-    char *s = io_cstr(e, f[5], &n);
-    (void)birc_put_span(fr, x, y, x + w, s, (size_t)n, (uint32_t)f[3],
-                        (uint32_t)f[4], NULL);
-    free(s);
+    const char *s = "";
+    size_t n = 0;
+    char *owned = NULL;
+    BircUi *bu = ly ? ly->bu : NULL;
+    (void)birc_draw_str(e, f[5], bu, &s, &n, &owned);
+    /* 8 marks composer-row text that the widget would wipe. Keep it and
+     * paint it after the text area. Bend owns column width (f[2]); do not
+     * infer maxx from strlen. */
+    if ((uint32_t)f[4] == 8 && bu) {
+      size_t gn = n;
+      if (gn >= sizeof bu->ghost)
+        gn = sizeof bu->ghost - 1;
+      gn = birc_cluster_fit(s, n, gn);
+      if (gn > 0)
+        memcpy(bu->ghost, s, gn);
+      bu->ghost[gn] = '\0';
+      bu->ghost_x = x;
+      bu->ghost_y = y;
+      bu->ghost_w = w;
+      bu->ghost_fg = (uint32_t)f[3];
+      bu->ghost_on = 1;
+    } else {
+      (void)birc_put_span(fr, x, y, x + w, s, n, (uint32_t)f[3],
+                          (uint32_t)f[4], NULL);
+    }
+    free(owned);
     spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPTABS) {
     Term f[8];
@@ -889,12 +1004,10 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     if (ntabs > 0 && sel >= ntabs)
       sel = ntabs - 1;
     orig = sel;
-    if (ly && ly->bu && ly->ui) {
-      if (ly->bu->last_tab >= 0 && ly->bu->last_tab != orig) {
-        timui_full_redraw(ly->ui);
-      }
+    /* Tab index changes repaint via the cell diff; full_redraw is reserved
+     * for grid size changes (timui_ui_resize_pixels above). */
+    if (ly && ly->bu)
       ly->bu->last_tab = orig;
-    }
     if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
     /* f[0..7] are OpTabs as declared in view.bend. Mention colours belong
@@ -1246,6 +1359,7 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width,
   TimuiRect r;
   TimuiTextAreaResult res;
   size_t n;
+  int at_end;
   if (!fr || !stt) return 0;
   id = TIMUI_ID("birc.composer");
   if (timui_focus(fr) != id) timui_set_focus(fr, id);
@@ -1254,7 +1368,14 @@ static int draw_composer(TimuiFrame *fr, int x, int y, int width,
   r.w = width;
   if (r.w < 1) r.w = 1;
   r.h = 1;
+  /* Unmodified Right moves the cursor unless it is already at the end.
+   * Only an at-end unmodified Right is reported, so Bend can accept the
+   * ghost suffix. Shift+Right (tab switch) must still reach Bend. */
+  at_end = stt->st.cursor >= strlen(stt->composer);
   res = timui_text_area_mut(fr, id, r, &stt->st, TIMUI_TEXT_AREA_ENTER_SUBMITS);
+  if (!at_end && fr->ui && fr->ui->key_pressed == TIMUI_KEY_RIGHT &&
+      fr->ui->key_mods == TIMUI_MOD_NONE)
+    fr->ui->key_pressed = TIMUI_KEY_UNKNOWN;
   n = strlen(stt->composer);
   *tlen = n;
   return res.submitted ? 1 : 0;
@@ -1335,6 +1456,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->preview_count = 0;
       birc_media_prune(ui, bu);
       bu->link_url[0] = '\0';
+      bu->ghost_on = 0;
+      bu->ghost_w = 0;
+      bu->ghost[0] = '\0';
       memset(bu->body_inner, 0, sizeof bu->body_inner);
       memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
     }
@@ -1355,10 +1479,9 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     /* Inline composer: the widget sits on the last inner body row after
      * Bend's <nick> prefix. body_inner[0] is the chat body (first OpBox
      * with x==0); split mode captures both panes. The bottom-most,
-     * left-most pane is chosen by geometry because OpSplit carries no
-     * pane role (view.bend). Bend already computes split_composer_rect
-     * and passes compose_x. Do not delete this loop until that role
-     * exists and split-mode typing is retested at every size. */
+     * left-most pane is chosen by geometry until OpBox carries a pane
+     * tag (TODO above). Bend already computes split_composer_rect and
+     * passes compose_x. */
     if (bu) {
       int chosen = -1;
       int i;
@@ -1388,6 +1511,20 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
         cxx = in.x + (int)cx;
         cw = in.w - (int)cx;
         enter = draw_composer(fr, cxx, cy, cw, bu, &tlen);
+        if (bu->ghost_on) {
+          int gx = bu->ghost_x;
+          int gw = bu->ghost_w;
+          size_t gn = strlen(bu->ghost);
+          /* A suffix is compose_x plus the draft width. A panel line saved
+           * in the same slot is already a screen column, left of that. */
+          if (gx >= (int)compose_x)
+            gx += in.x;
+          if (gw < 0)
+            gw = 0;
+          /* maxx from Bend OpText.w; birc_put_span / birc_clip_cols defend. */
+          (void)birc_put_span(fr, gx, bu->ghost_y, gx + gw,
+                              bu->ghost, gn, bu->ghost_fg, 0, NULL);
+        }
       } else {
         enter = 0;
         tlen = 0;
@@ -1455,8 +1592,10 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
   if (bu && bu->profile_enabled)
     profile_t3 = birc_profile_now_ns();
   {
-    /* Dismiss before the overlay is painted. A consumed Escape is not a
-     * Bend navigation event, so there may be no later frame to repair it. */
+    /* Clear selection before the overlay is painted. Esc that dismisses a
+     * selection must not reach Bend (Bend maps Esc to quit). Upload-cancel
+     * Esc is a separate path: with no selection, Esc is returned below and
+     * Bend cancels a pending upload when one exists. */
     if (bu && bu->sel.active) {
       if (ui->key_pressed == TIMUI_KEY_ESCAPE) {
         bu->sel.active = 0;

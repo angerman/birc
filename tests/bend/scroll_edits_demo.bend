@@ -15,7 +15,7 @@ def id_at(lines: List<&2, Cl.Line>, index: Nat) -> Nat:
 
 def anchor_id(buffer: Cl.Buffer) -> Nat:
   match buffer:
-    case Cl.Buffer{_, _, _, +lines, _, Cl.ScrollAt{after, _}}:
+    case Cl.Buffer{_, _, _, +lines, _, Cl.ScrollAt{after, _}, _, _}:
       id_at(lines, Nat.sub(List.length(&2, Cl.Line, lines), 1n+after))
 
 def anchor_id.got(buffer: Maybe<&2, Cl.Buffer>) -> Nat:
@@ -28,7 +28,7 @@ def client_anchor(+cl: Cl.Client) -> Nat:
 
 def anchor_tail(buffer: Cl.Buffer) -> Nat:
   match buffer:
-    case Cl.Buffer{_, _, _, _, _, Cl.ScrollAt{_, tail}}: tail
+    case Cl.Buffer{_, _, _, _, _, Cl.ScrollAt{_, tail}, _, _}: tail
 
 def client_tail.got(buffer: Maybe<&2, Cl.Buffer>) -> Nat:
   match buffer:
@@ -39,11 +39,9 @@ def client_tail(+cl: Cl.Client) -> Nat:
   client_tail.got(Cl.nth_buf(Cl.client_bufs(cl), Cl.active_of(cl)))
 
 def three_lines() -> Cl.Buffer:
-  Cl.Buffer{"#t", True{}, "",
-    Cl.Line{Cl.Msg{}, "", "first", "a", 1n}
+  Cl.buf_indexed("#t", True{}, "", Cl.Line{Cl.Msg{}, "", "first", "a", 1n}
       <> Cl.Line{Cl.Msg{}, "", "second", "b", 2n}
-      <> Cl.Line{Cl.Msg{}, "", "third", "c", 3n} <> Nil{},
-    Nil{}, Cl.ScrollAt{1n, 2n}}
+      <> Cl.Line{Cl.Msg{}, "", "third", "c", 3n} <> Nil{}, Nil{}, Cl.ScrollAt{1n, 2n})
 
 def purge_newer_ok() -> Bool:
   +b = Cl.purge_nick_buf(three_lines(), "c")

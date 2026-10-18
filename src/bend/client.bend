@@ -409,7 +409,7 @@ def feed_kick_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
 
 def is_channel_buf(+b: Cl.Buffer) -> Bool:
   match b:
-    case Cl.Buffer{_, +ch, _, _, _, _}:
+    case Cl.Buffer{_, +ch, _, _, _, _, _, _}:
       ch
 
 def feed_quit.one.log(b: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
@@ -434,9 +434,9 @@ def feed_quit_with.one(+isc: Cl.Iso, +b: Cl.Buffer, +from: String, +reason: Stri
 
 def feed_quit_with.query(+cm: String, +h: Cl.Buffer, +from: String, +reason: String, +ts: String) -> Cl.Buffer:
   match h:
-    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
       feed_quit.query.on(
-        Cl.Buffer{name, ch, topic, lines, nicks, scroll},
+        Cl.buf_indexed(name, ch, topic, lines, nicks, scroll),
         from,
         reason,
         ts,
@@ -511,8 +511,8 @@ def feed_nick_with.query.on(+isc: Cl.Iso, +h: Cl.Buffer, +from: String, +to: Str
 
 def feed_nick_with.query(+isc: Cl.Iso, +h: Cl.Buffer, +from: String, +to: String, +ts: String) -> Cl.Buffer:
   match h:
-    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      feed_nick_with.query.on(isc, Cl.Buffer{name, ch, topic, lines, nicks, scroll}, from, to, ts, Cl.buf_eq_cm(Cl.iso_cm(isc), name, from) && Cl.is_query_name(name))
+    case Cl.Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      feed_nick_with.query.on(isc, Cl.buf_indexed(name, ch, topic, lines, nicks, scroll), from, to, ts, Cl.buf_eq_cm(Cl.iso_cm(isc), name, from) && Cl.is_query_name(name))
 
 def feed_nick_with.apply.on(+isc: Cl.Iso, +h: Cl.Buffer, +from: String, +to: String, +ts: String, ch: Bool) -> Cl.Buffer:
   match ch:
@@ -1097,7 +1097,7 @@ def trees_to_tree(+xs: List<&2, SearchTree>) -> SearchTree:
 
 def buf_to_tree(+b: Cl.Buffer) -> SearchTree:
   match b:
-    case Cl.Buffer{+name, _, _, +lines, _, _}:
+    case Cl.Buffer{+name, _, _, +lines, _, _, _, _}:
       trees_to_tree(lines_to_trees(name, lines))
 
 def is_search_buf(+name: String) -> Bool:
@@ -1116,7 +1116,7 @@ def buf_collect_trees(xs: List<&2, Cl.Buffer>) -> List<&2, SearchTree>:
       Nil{}
     case Con{b, t}:
       match b:
-        case Cl.Buffer{+name, _, _, _, _, _}:
+        case Cl.Buffer{+name, _, _, _, _, _, _, _}:
           buf_collect_trees.cons(buf_to_tree(b), buf_collect_trees(t), is_search_buf(name))
 
 def bufs_to_tree(+bufs: List<&2, Cl.Buffer>) -> SearchTree:

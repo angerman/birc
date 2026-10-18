@@ -25,7 +25,7 @@ def operation_ids.lines(lines: List<&2, Cl.Line>) -> List<&2, Nat>:
 def operation_ids.buffers(bufs: List<&2, Cl.Buffer>) -> List<&2, Nat>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, rest}:
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, rest}:
       List.append(&2, Nat, operation_ids.lines(lines), operation_ids.buffers(rest))
 
 def operation_ids(snapshot: Cl.Client) -> List<&2, Nat>:
@@ -53,8 +53,8 @@ def strip_operations(lines: List<&2, Cl.Line>, +ids: List<&2, Nat>) -> List<&2, 
 def snapshot.buffers(bufs: List<&2, Cl.Buffer>, +ids: List<&2, Nat>) -> List<&2, Cl.Buffer>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{name, channel, topic, lines, nicks, scroll}, rest}:
-      Cl.Buffer{name, channel, topic, strip_operations(lines, ids), nicks, scroll} <> snapshot.buffers(rest, ids)
+    case Con{Cl.Buffer{name, channel, topic, lines, nicks, scroll, _, _}, rest}:
+      Cl.buf_indexed(name, channel, topic, strip_operations(lines, ids), nicks, scroll) <> snapshot.buffers(rest, ids)
 
 def archive_lines.keep(skip: Bool, line: Cl.Line, rest: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
   match skip:
@@ -77,7 +77,7 @@ def seen(names: List<&2, String>, +name: String) -> Bool:
 def room(got: Maybe<&2, Cl.Buffer>, +cap: U32) -> Nat:
   match got:
     case None{}: 0n
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}:
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}:
       Cl.clamp_nat(U32.to_nat(cap), Nat.sub(Cl.SCROLL_CAP(), List.length(&2, Cl.Line, lines)))
 
 def target.create(ok: Bool, +cl: Cl.Client, +name: String) -> Cl.Client & Maybe<&2, Nat>:
@@ -121,7 +121,7 @@ def collect.buffer(+acc: Import, b: Cl.Buffer, +control: Bool, cap: U32) -> Impo
   match acc:
     case Import{_, _, names}:
       match b:
-        case Cl.Buffer{+name, _, _, lines, _, _}:
+        case Cl.Buffer{+name, _, _, lines, _, _, _, _}:
           collect.allowed((control || (Cl.target_wire(name) && Bool.not(String.is_empty(name))))
             && (control || Bool.not(seen(names, name))), acc, name, archive_lines(lines), control, cap)
 
@@ -132,7 +132,7 @@ def collect(bufs: List<&2, Cl.Buffer>, acc: Import, first: Bool, +cap: U32) -> I
 
 def recent_id(b: Cl.Buffer) -> Nat:
   match b:
-    case Cl.Buffer{_, _, _, lines, _, _}: H.last_id(archive_lines(lines))
+    case Cl.Buffer{_, _, _, lines, _, _, _, _}: H.last_id(archive_lines(lines))
 
 def recent(a: Cl.Buffer, b: Cl.Buffer) -> Bool:
   Nat.is_ge(recent_id(a), recent_id(b))
@@ -188,7 +188,7 @@ def install_startup.mark(on: Bool, cl: Cl.Client, index: Nat, now: String) -> Cl
 def install_startup.buffers(bufs: List<&2, Cl.Buffer>, +index: Nat, +cutoff: Nat, cl: Cl.Client, +now: String) -> Cl.Client:
   match bufs:
     case Nil{}: cl
-    case Con{Cl.Buffer{+name, _, _, +lines, _, _}, rest}:
+    case Con{Cl.Buffer{+name, _, _, +lines, _, _, _, _}, rest}:
       install_startup.buffers(rest, 1n+index, cutoff,
         install_startup.mark(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(H.last_id(lines), cutoff)
           && Nat.is_lt(List.length(&2, Cl.Line, lines), Cl.SCROLL_CAP()), cl, index, now), now)
@@ -216,7 +216,7 @@ def diagnostics.lines(lines: List<&2, Cl.Line>) -> List<&2, String>:
 def diagnostics.buffers(bufs: List<&2, Cl.Buffer>) -> List<&2, String>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, rest}:
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, rest}:
       List.append(&2, String, diagnostics.lines(lines), diagnostics.buffers(rest))
 
 def diagnostics(snapshot: Cl.Client) -> List<&2, String>:

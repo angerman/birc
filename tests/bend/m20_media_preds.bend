@@ -18,8 +18,8 @@ def ready(+n: Nat) -> List<&2, M.MediaReady>:
     case 1n+p: M.MediaReady{M.Inline{n}, url(n), U32.from_nat(n)} <> ready(p)
 
 def client() -> Cl.Client:
-  Cl.Client{"me", "s", [Cl.Buffer{"*server*", False{}, "", lines(8n), Nil{}, Cl.ScrollAt{0n, 0n}},
-    Cl.Buffer{"*preview*", False{}, "manual.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}],
+  Cl.Client{"me", "s", [Cl.buf_indexed("*server*", False{}, "", lines(8n), Nil{}, Cl.ScrollAt{0n, 0n}),
+    Cl.buf_indexed("*preview*", False{}, "manual.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})],
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 8n}
 
 def full() -> M.State:

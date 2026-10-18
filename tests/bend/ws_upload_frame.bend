@@ -108,7 +108,7 @@ def lines_has(+xs: List<&2, Cl.Line>, +needle: String) -> Bool:
 def bufs_has(+xs: List<&2, Cl.Buffer>, +needle: String) -> Bool:
   match xs:
     case Nil{}: False{}
-    case Con{Cl.Buffer{_, _, topic, lines, _, _}, t}: String.contains(topic, needle) || lines_has(lines, needle) || bufs_has(t, needle)
+    case Con{Cl.Buffer{_, _, topic, lines, _, _, _, _}, t}: String.contains(topic, needle) || lines_has(lines, needle) || bufs_has(t, needle)
 
 def chat_has.got(+got: Maybe<&2, W.Part>, +needle: String) -> Bool:
   match got:

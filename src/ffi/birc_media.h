@@ -152,13 +152,17 @@ static uint32_t birc_media_add(BircMediaCache *cache, const char *text, size_t l
   }
   if (offset != size || !birc_media_parse(&media, bytes, size))
     goto invalid;
-  media.token = ++cache->next_token;
-  /* Reuse released payload slots before the standalone FIFO fallback. Bend
-   * releases exactly the tokens absent from its accepted completion state. */
+  /* Reuse released payload slots only. Native FIFO must not evict a token
+   * Bend still owns; with no empty slot, drop the newly parsed media. */
   for (i = 0; i < BIRC_MEDIA_CAP; i++) {
     unsigned slot = (cache->next_slot + (unsigned)i) % BIRC_MEDIA_CAP;
     if (!cache->slots[slot].token) { cache->next_slot = slot; break; }
   }
+  if (cache->slots[cache->next_slot].token) {
+    free(media.bytes);
+    return 0;
+  }
+  media.token = ++cache->next_token;
   free(cache->slots[cache->next_slot].bytes);
   cache->slots[cache->next_slot] = media;
   cache->next_slot = (cache->next_slot + 1) % BIRC_MEDIA_CAP;

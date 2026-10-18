@@ -10,14 +10,14 @@ def row(+text: String, id: Nat) -> Cl.Line:
 
 def base(cap: U32) -> Cl.Client:
   +settings = Cl.set_hist_cap(Cl.get_settings(Cl.client_set_sasl(Cl.init("me", "irc.example"), "account", "secret")), cap)
-  Cl.Client{"me", "irc.example", Cl.Buffer{"server", False{}, "local topic", row("local", 50n) <> Nil{}, "kept" <> Nil{}, Cl.ScrollAt{0n, 0n}} <> Cl.empty_buf("early", False{}) <> Nil{}, 1n, "14:00:00", settings, Cl.AuthCap{}, 50n}
+  Cl.Client{"me", "irc.example", Cl.buf_indexed("server", False{}, "local topic", row("local", 50n) <> Nil{}, "kept" <> Nil{}, Cl.ScrollAt{0n, 0n}) <> Cl.empty_buf("early", False{}) <> Nil{}, 1n, "14:00:00", settings, Cl.AuthCap{}, 50n}
 
 def snapshot() -> Cl.Client:
-  Cl.Client{"archive", "irc.example", Cl.Buffer{"server", False{}, "stale topic", row("old1", 1n) <> row("old2", 2n) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}} <> Cl.Buffer{"#room", True{}, "stale room", row("chat", 3n) <> Nil{}, "stale nick" <> Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "old time", Cl.settings0(), Cl.AuthIdle{}, 3n}
+  Cl.Client{"archive", "irc.example", Cl.buf_indexed("server", False{}, "stale topic", row("old1", 1n) <> row("old2", 2n) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Cl.buf_indexed("#room", True{}, "stale room", row("chat", 3n) <> Nil{}, "stale nick" <> Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "old time", Cl.settings0(), Cl.AuthIdle{}, 3n}
 
 def metadata(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{+nick, +host, Con{Cl.Buffer{+name, False{}, +topic, Con{Cl.Line{_, _, +text, _, id}, _}, +nicks, _}, _}, active, +now, +settings, Cl.AuthCap{}, +seq}:
+    case Cl.Client{+nick, +host, Con{Cl.Buffer{+name, False{}, +topic, Con{Cl.Line{_, _, +text, _, id}, _}, +nicks, _, _, _}, _}, active, +now, +settings, Cl.AuthCap{}, +seq}:
       String.eq(nick, "me") && String.eq(host, "irc.example") && String.eq(name, "server")
         && String.eq(topic, "local topic") && String.eq(text, "local") && Nat.is_eq(id, 50n)
         && String.eq(String.join(nicks, "|"), "kept") && Nat.is_eq(active, 1n)
@@ -49,7 +49,7 @@ def fill(+n: Nat, cl: Cl.Client) -> Cl.Client:
     case 1n+p: fill(p, fill.client(Cl.buf_get(cl, "local" ++ Nat.show(n), False{}, True{})))
 
 def archive_buf(+name: String, +text: String, id: Nat) -> Cl.Buffer:
-  Cl.Buffer{name, Cl.target_channel(name), "", row(text, id) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
+  Cl.buf_indexed(name, Cl.target_channel(name), "", row(text, id) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
 
 def admission_snapshot() -> Cl.Client:
   Cl.Client{"old", "irc.example", Cl.server_buf() <> archive_buf("#old", "old target", 1n)
@@ -83,14 +83,14 @@ def rows(n: Nat, +id: Nat) -> List<&2, Cl.Line>:
     case 1n+p: row("local", id) <> rows(p, 1n+id)
 
 def full_server(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "irc.example", Cl.Buffer{"server", False{}, "", rows(n, 1n), Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, n}
+  Cl.Client{"me", "irc.example", Cl.buf_indexed("server", False{}, "", rows(n, 1n), Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, n}
 
 def server_snapshot() -> Cl.Client:
   Cl.Client{"old", "irc.example", archive_buf("server", "last archived row", 1n) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
 
 def server_rows(cl: Cl.Client) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _}, _}, _, _, _, _, _}: lines
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, _}, _, _, _, _, _}: lines
     case _: Nil{}
 
 def last_text(lines: List<&2, Cl.Line>) -> String:
@@ -139,7 +139,7 @@ def line_ids(lines: List<&2, Cl.Line>) -> String:
 def ids_at.found(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}: line_ids(lines)
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}: line_ids(lines)
 
 def ids_at(cl: Cl.Client, index: Nat) -> String:
   ids_at.found(Cl.nth_buf(Cl.client_bufs(cl), index))
@@ -156,7 +156,7 @@ def diagnostic_identity() -> Bool:
 
 def zero_mirror() -> Bool:
   +snapshot: Cl.Client = Cl.Client{"old", "irc.example", archive_buf("server", "archive with zero ID", 0n)
-    <> Cl.Buffer{"*log*", False{}, "", Cl.Line{Cl.Error{}, "", "unassigned", "", 0n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+    <> Cl.buf_indexed("*log*", False{}, "", Cl.Line{Cl.Error{}, "", "unassigned", "", 0n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
   String.eq(CL.buf_texts(H.install(base(1), snapshot), 0n), "local|archive with zero ID|")
 
 def main() -> IO(Unit):

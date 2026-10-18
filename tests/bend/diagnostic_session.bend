@@ -13,7 +13,7 @@ import ../../src/bend/view.bend as V
 
 def log_lines.from(bufs: List<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match bufs:
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, Nil{}}: lines
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, Nil{}}: lines
     case _: Nil{}
 
 def log_lines(cl: Cl.Client) -> List<&2, Cl.Line>:
@@ -37,7 +37,7 @@ def signature(lines: List<&2, Cl.Line>) -> String:
 def names(bufs: List<&2, Cl.Buffer>) -> String:
   match bufs:
     case Nil{}: ""
-    case Con{Cl.Buffer{name, _, _, _, _, _}, tail}: name ++ ";" ++ names(tail)
+    case Con{Cl.Buffer{name, _, _, _, _, _, _, _}, tail}: name ++ ";" ++ names(tail)
 
 def client_names(cl: Cl.Client) -> String:
   match cl:

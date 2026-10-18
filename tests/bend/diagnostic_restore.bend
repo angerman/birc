@@ -8,7 +8,7 @@ import ../../src/bend/session.bend as Sess
 
 def log_lines.from(bufs: List<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match bufs:
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, Nil{}}: lines
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, Nil{}}: lines
     case _: Nil{}
 
 def log_lines(cl: Cl.Client) -> List<&2, Cl.Line>:
@@ -16,7 +16,7 @@ def log_lines(cl: Cl.Client) -> List<&2, Cl.Line>:
 
 def lines_at.got(buf: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match buf:
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}: lines
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}: lines
     case None{}: Nil{}
 
 def lines_at(cl: Cl.Client, i: Nat) -> List<&2, Cl.Line>:

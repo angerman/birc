@@ -95,18 +95,30 @@ def pong_stride() -> U32:
   1048576
 def pong_gens() -> U32:
   2048
+def pong_first.on(oor: Bool, +gen: U32) -> U32:
+  match oor:
+    case True{}: 0
+    case False{}: U32.add(pong_txn(), U32.mul(gen, pong_stride()))
 def pong_first(+gen: U32) -> U32:
-  Bool.pick(U32, U32.is_ge(gen, pong_gens()), 0, U32.add(pong_txn(), U32.mul(gen, pong_stride())))
+  pong_first.on(U32.is_ge(gen, pong_gens()), gen)
+def pong_last.on(oor: Bool, +gen: U32) -> U32:
+  match oor:
+    case True{}: 0
+    case False{}: U32.add(pong_first(gen), U32.sub(pong_stride(), 1))
 def pong_last(+gen: U32) -> U32:
-  Bool.pick(U32, U32.is_ge(gen, pong_gens()), 0, U32.add(pong_first(gen), U32.sub(pong_stride(), 1)))
+  pong_last.on(U32.is_ge(gen, pong_gens()), gen)
 def next_pong_gen(+cur: U32) -> U32:
   U32.div(U32.sub(cur, pong_txn()), pong_stride())
 def next_pong_is_top(+cur: U32) -> Bool:
   U32.is_eq(cur, pong_last(next_pong_gen(cur)))
+def next_pong_guarded.step(at_top: Bool, +cur: U32) -> U32:
+  match at_top:
+    case True{}: 0
+    case False{}: U32.add(cur, 1)
 def next_pong_guarded(exhausted: Bool, +cur: U32) -> U32:
   match exhausted:
     case True{}: 0
-    case False{}: Bool.pick(U32, next_pong_is_top(cur), 0, U32.add(cur, 1))
+    case False{}: next_pong_guarded.step(next_pong_is_top(cur), cur)
 def next_pong_txn(+cur: U32) -> U32:
   next_pong_guarded(U32.is_zero(cur) || U32.is_lt(cur, pong_txn()), cur)
 def repeat_txn.go(n: Nat, +txn: U32, acc: List<&2, U32>) -> List<&2, U32>:

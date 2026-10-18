@@ -73,7 +73,7 @@ def ctxB(+st: Sess.Session) -> PrefLive.Context:
   PrefLive.initial(PrefWorker.Options{False{}, False{}, False{}, False{}}, st, 0, "")
 
 def cardsB(+cs: C.State, +fl: C.Fullscreen) -> WsNet.WsCardsAll:
-  WsNet.WsCardsAll{WsNet.WsCards{s0(), 0, cs, fl} <> Nil{}, Some{leaseA()}}
+  WsNet.WsCardsAll{WsNet.WsCards{s0(), 0, cs, fl} <> Nil{}, Some{leaseA()}, WsNet.ws_hot.empty()}
 
 def owner_text.other(s1hit: Bool) -> String:
   match s1hit:

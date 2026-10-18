@@ -33,7 +33,7 @@ def seed_loop() -> WsNet.WsLoop:
   +ws = seed_ws()
   +ctx = PrefLive.initial(PrefWorker.Options{False{}, False{}, False{}, False{}}, seed_session(), 0, "carrier.history")
   +notify : WsNet.WsNotify = WsNet.WsNotify{WsNet.ws_notify.parts(WsNet.ws_notify.seed_all(ws)), Some{WsNet.WsNotifyLease{Key.ServerId{1n}, 53, 59n, "notify.test:6697"}}, 61n}
-  +cards : WsNet.WsCardsAll = WsNet.WsCardsAll{[WsNet.WsCards{s0(), 0, C.initial(True{}), C.FullOff{}}], Some{WsNet.WsCardsLease{Key.ServerId{2n}, 67, C.Request{C.CardInline{11n}, "https://carrier.test/card", 71n, 73n}}}}
+  +cards : WsNet.WsCardsAll = WsNet.WsCardsAll{[WsNet.WsCards{s0(), 0, C.initial(True{}), C.FullOff{}}], Some{WsNet.WsCardsLease{Key.ServerId{2n}, 67, C.Request{C.CardInline{11n}, "https://carrier.test/card", 71n, 73n}}}, WsNet.ws_hot.empty()}
   WsNet.ws_mkloop(ws, 77, True{}, ctx, Some{WsNet.WsMedia{Key.ServerId{1n}, 41, M.Request{M.Inline{3n}, "https://carrier.test/a.png", 5n, 7n}}}, Some{WsNet.WsLease{Key.ServerId{2n}, 43}}, [WsNet.WsLease{Key.ServerId{3n}, 47}], notify, cards, False{})
 
 def ws_ok(+ws: W.Workspace) -> Bool:
@@ -66,7 +66,7 @@ def loop_notify_ok(+notify: WsNet.WsNotify) -> Bool:
 
 def loop_cards_ok(+cards: WsNet.WsCardsAll) -> Bool:
   match cards:
-    case WsNet.WsCardsAll{Con{WsNet.WsCards{Key.ServerId{0n}, 0, +cs, C.FullOff{}}, Nil{}}, Some{WsNet.WsCardsLease{Key.ServerId{2n}, 67, C.Request{C.CardInline{11n}, "https://carrier.test/card", 71n, 73n}}}}: C.enabled(cs)
+    case WsNet.WsCardsAll{Con{WsNet.WsCards{Key.ServerId{0n}, 0, +cs, C.FullOff{}}, Nil{}}, Some{WsNet.WsCardsLease{Key.ServerId{2n}, 67, C.Request{C.CardInline{11n}, "https://carrier.test/card", 71n, 73n}}}, _}: C.enabled(cs)
     case _: False{}
 
 # All ten outer fields and every captured physical lease identity are checked.

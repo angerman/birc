@@ -16,7 +16,7 @@ def text() -> String:
   "alice: before " ++ url() ++ " after :eyes:漢z"
 
 def buffer() -> Cl.Buffer:
-  Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "12:00:00", text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}
+  Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "12:00:00", text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n})
 
 def client() -> Cl.Client:
   Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, [Cl.Line{Cl.Msg{}, "12:00:00", text(), "alice", 1n}])
@@ -94,11 +94,11 @@ def main() -> IO(Unit):
     +paused : Cl.Buffer = V.scroll_buf_media(buffer(), 3n, 24, False{}, Nil{}, True{}, True{}, "s", 4n, 0n, ready())
     Unit <- E.must("paused resize bounded", Nat.is_le(List.length(&2, V.BodyRow, V.body_of.buf_media(paused, 3n, 50, False{}, Nil{}, True{}, True{}, "s", ready())), 3n))
     Unit <- E.must("eviction anchor bounded", Nat.is_le(List.length(&2, V.BodyRow, V.body_of.buf_media(paused, 3n, 24, False{}, Nil{}, True{}, True{}, "s", M.empty())), 3n))
-    +only : Cl.Buffer = Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", "alice: " ++ url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}
+    +only : Cl.Buffer = Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", "alice: " ++ url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n})
     +inside : Cl.Buffer = V.scroll_buf_media(only, 2n, 12, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready())
     Unit <- E.must_eq("paused inside image", ops_shape(V.body_ops(V.Rect{0, 0, 14, 4}, V.body_of.buf_media(inside, 2n, 12, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,12,6,2,2,7;")
     Unit <- E.must_eq("resize preserves virtual image position", ops_shape(V.body_ops(V.Rect{0, 0, 42, 4}, V.body_of.buf_media(inside, 2n, 40, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,40,6,2,2,7;")
-    +manual : Cl.Buffer = Cl.Buffer{"*preview*", False{}, url(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
+    +manual : Cl.Buffer = Cl.buf_indexed("*preview*", False{}, url(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
     +manual_media : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Manual{}, url(), 9}], M.Supported{}}
     +manual_paused : Cl.Buffer = V.scroll_buf_media(manual, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, manual_media)
     Unit <- E.must_eq("manual preview uses expanded navigation rows", ops_shape(V.body_ops(V.Rect{0, 0, 22, 4}, V.body_of.buf_media(manual_paused, 2n, 20, False{}, Nil{}, True{}, True{}, "s", manual_media))), "1,1,20,6,2,2,9;")

@@ -22,7 +22,7 @@ def fed() -> Cl.Client:
 def buf_lines.on(got: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match got:
     case None{}: Nil{}
-    case Some{Cl.Buffer{_, _, _, +lines, _, _}}: lines
+    case Some{Cl.Buffer{_, _, _, +lines, _, _, _, _}}: lines
 
 def buf_lines(+cl: Cl.Client, +i: Nat) -> List<&2, Cl.Line>:
   buf_lines.on(Cl.nth_buf(Cl.client_bufs(cl), i))

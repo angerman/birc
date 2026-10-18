@@ -1803,13 +1803,16 @@ def s3_seed(+ws: Workspace, +id: Key.ServerId) -> U32:
   s3_seed.got(find_part(ws, id))
 
 def s3_tab_keys(+typed: String) -> Sess.Keys:
-  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, True{}, 0}
+  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 1, 0}
 
 def s3_comp.show(+c: Sess.Comp) -> String:
   match c:
     case Sess.CompNone{}: "N"
     case Sess.CompActive{+pre, +word, idx}: "A:" ++ pre ++ "|" ++ word ++ "|" ++ Nat.show(idx)
     case Sess.CompUpload{_, _, _}: "U"
+    case Sess.CompHelp{_}: "H"
+    case Sess.CompHidden{}: "D"
+    case Sess.CompPick{idx}: "P:" ++ Nat.show(idx)
 
 def s3_comp.st(+st: Sess.Session) -> String:
   match st:

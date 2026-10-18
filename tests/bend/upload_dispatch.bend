@@ -34,7 +34,7 @@ def texts(lines: List<&2, Cl.Line>) -> String:
 def stored(bufs: List<&2, Cl.Buffer>) -> String:
   match bufs:
     case Nil{}: ""
-    case Con{Cl.Buffer{_, _, _, lines, _, _}, rest}: texts(lines) ++ stored(rest)
+    case Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, rest}: texts(lines) ++ stored(rest)
 
 def unknown.got(trip: Sess.Session & Sess.NetCmd & Bool, raw: String, verb: String) -> Bool:
   match trip:

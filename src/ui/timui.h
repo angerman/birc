@@ -3252,6 +3252,14 @@ struct TimuiClipSnapshot {
   int has_clip;
 };
 
+/* One recorded image placement (visible + uncropped rects). Named so the
+ * current-frame and last-frame arrays are assignment-compatible. */
+typedef struct TimuiImagePlace_ {
+  TimuiImage *img;
+  TimuiRect rect;
+  TimuiRect full;
+} TimuiImagePlace_;
+
 struct Timui {
   TimuiConfig cfg;
   TimuiAllocator alloc;
@@ -3358,12 +3366,10 @@ struct Timui {
   /* Terminal-image placements recorded this frame by timui_image_draw;
    * emitted ON TOP of the cell diff in timui_end, so they compose with the
    * renderer. Protocol-specific lifecycle state is tracked separately. */
-  struct {
-    TimuiImage *img;
-    TimuiRect rect;
-    TimuiRect full;
-  } img_place[TIMUI_IMAGE_PLACEMENT_CAP]; /* rect=visible, full=uncropped */
+  TimuiImagePlace_ img_place[TIMUI_IMAGE_PLACEMENT_CAP]; /* rect=visible, full=uncropped */
   int img_place_count;
+  /* Prior completed frame: skip delete/transmit/place when identical. */
+  TimuiImagePlace_ img_last_place[TIMUI_IMAGE_PLACEMENT_CAP];
   int img_last_count; /* placements emitted last frame */
   TimuiImageProtocol
       img_last_protocol; /* protocol that emitted those placements */
@@ -3390,7 +3396,9 @@ struct Timui {
  * timui_images.c; called by timui_end in timui_core.c. Internal to the unity
  * build: `static` keeps it out of the consumer's link namespace, which is what
  * the trailing underscore has always promised (see check-symbols). */
-static void timui_images_flush_(Timui *ui);
+/* Returns 1 when the transport accepted image bytes this call (caller may
+ * invalidate the cell-diff cursor). Unchanged placements return 0. */
+static int timui_images_flush_(Timui *ui);
 /* Private fidelity result for one image draw. The public function stays void;
  * chart renderers consume this local outcome immediately and direct callers
  * discard it, avoiding mutable cross-draw state on Timui. */
@@ -4991,6 +4999,25 @@ TIMUI_API uint64_t timui_now_ms(void) {
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
+/* Focus reports are put back so poll_event can see them after begin. Nothing
+ * in the frame loop consumes them. Left in place they stay readable forever:
+ * the next begin skips the tty, reports more input, and repaints at full
+ * speed. Drop only the previous frame's unconsumed focus before deciding
+ * whether to read. A report from this begin is still queued afterward. */
+static void timui_drop_unconsumed_focus_(Timui *ui) {
+  int i = 0;
+  if (!ui)
+    return;
+  while (i < ui->event_count) {
+    if (ui->events[i].kind != TIMUI_EVENT_FOCUS) {
+      i++;
+      continue;
+    }
+    memmove(&ui->events[i], &ui->events[i + 1],
+            (size_t)(ui->event_count - i - 1) * sizeof(ui->events[0]));
+    ui->event_count--;
+  }
+}
 /* Push an event back to the front of the queue so a full Enter/text table
  * can stop consuming this frame without dropping or merging the rest. */
 static void timui_unget_event_(Timui *ui, const TimuiEvent *ev) {
@@ -5015,6 +5042,7 @@ TIMUI_API TimuiResult timui_begin_result(Timui *ui, TimuiFrame **out_frame) {
    * before I/O and its early returns so no failed restart can extend a borrow.
    */
   timui_images_release_placements_(ui);
+  timui_drop_unconsumed_focus_(ui);
   if (ui->should_quit)
     return TIMUI_ERR_CLOSED;
   /* Leftover events from a full Enter/text table must drain before we read
@@ -5397,10 +5425,9 @@ static int timui_frame_emit_(Timui *ui) {
   /* Kitty-graphics images drawn ON TOP of the diffed cells. Also run when the
    * count dropped to 0 (img_last_count>0) so scrolled-away placements get
    * cleared. A placement's CUP moves the physical cursor, so force the next
-   * frame's diff to re-CUP whenever we emitted any. */
+   * frame's diff to re-CUP only when flush actually wrote. */
   if (ui->img_place_count > 0 || ui->img_last_count > 0) {
-    timui_images_flush_(ui);
-    if (ui->img_place_count > 0) {
+    if (timui_images_flush_(ui)) {
       ui->renderer.last_x = -1;
       ui->renderer.last_y = -1;
     }
@@ -16413,10 +16440,17 @@ static size_t timui_grapheme_decode_(const char *s, size_t len, size_t off,
   return off + (size_t)adv;
 }
 
-TIMUI_API size_t timui_grapheme_next(const char *s, size_t len, size_t off) {
+/* Advance one cluster from `off` and optionally report its display width.
+ * Width uses the same rules as the prior timui_grapheme_width walk, but is
+ * computed during the boundary scan so callers need not re-measure. */
+static size_t timui_grapheme_next_w_(const char *s, size_t len, size_t off,
+                                    int *out_w) {
   uint32_t cp = 0;
-  size_t cur;
+  size_t cur, i;
   int ri_count = 0;
+  int w = 0, saw_ri = 0, saw_zwj = 0, saw_vs16 = 0, saw_emoji = 0;
+  if (out_w)
+    *out_w = 0;
   if (!s || off >= len)
     return len;
   cur = timui_grapheme_decode_(s, len, off, &cp);
@@ -16425,11 +16459,16 @@ TIMUI_API size_t timui_grapheme_next(const char *s, size_t len, size_t off) {
     uint32_t ncp = 0;
     size_t n = timui_grapheme_decode_(s, len, cur, &ncp);
     if (n > cur && ncp == '\n')
-      return n; /* CRLF is one cluster */
+      cur = n; /* CRLF is one cluster */
+    if (out_w)
+      *out_w = 0; /* control cluster */
     return cur;
   }
-  if (cp == '\n')
+  if (cp == '\n') {
+    if (out_w)
+      *out_w = 0;
     return cur;
+  }
   if (timui_grapheme_ri_(cp))
     ri_count = 1;
 
@@ -16458,7 +16497,53 @@ TIMUI_API size_t timui_grapheme_next(const char *s, size_t len, size_t off) {
     }
     break;
   }
+  if (!out_w)
+    return cur;
+  for (i = off; i < cur;) {
+    uint32_t gcp = 0;
+    size_t n = timui_grapheme_decode_(s, cur, i, &gcp);
+    int cw;
+    if (n <= i)
+      break;
+    if (gcp == 0x200D) {
+      saw_zwj = 1;
+      i = n;
+      continue;
+    }
+    if (gcp == 0xFE0F) {
+      saw_vs16 = 1;
+      i = n;
+      continue;
+    }
+    if (timui_grapheme_extend_(gcp)) {
+      i = n;
+      continue;
+    }
+    if (timui_grapheme_ri_(gcp)) {
+      saw_ri++;
+      saw_emoji = 1;
+      i = n;
+      continue;
+    }
+    if (timui_grapheme_emoji_base_(gcp))
+      saw_emoji = 1;
+    cw = timui_utf8_width(gcp);
+    if (cw > w)
+      w = cw;
+    i = n;
+  }
+  if (saw_ri >= 1)
+    w = 2;
+  else if (saw_zwj && saw_emoji)
+    w = 2;
+  else if (saw_vs16 && saw_emoji && w < 2)
+    w = 2;
+  *out_w = w;
   return cur;
+}
+
+TIMUI_API size_t timui_grapheme_next(const char *s, size_t len, size_t off) {
+  return timui_grapheme_next_w_(s, len, off, NULL);
 }
 
 TIMUI_API size_t timui_grapheme_prev(const char *s, size_t len, size_t off) {
@@ -16480,50 +16565,10 @@ TIMUI_API size_t timui_grapheme_prev(const char *s, size_t len, size_t off) {
 }
 
 TIMUI_API int timui_grapheme_width(const char *s, size_t len) {
-  size_t end, i;
-  int w = 0, saw_ri = 0, saw_zwj = 0, saw_vs16 = 0, saw_emoji = 0;
+  int w = 0;
   if (!s || len == 0)
     return 0;
-  end = timui_grapheme_next(s, len, 0);
-  for (i = 0; i < end;) {
-    uint32_t cp = 0;
-    size_t n = timui_grapheme_decode_(s, end, i, &cp);
-    int cw;
-    if (n <= i)
-      break;
-    if (cp == 0x200D) {
-      saw_zwj = 1;
-      i = n;
-      continue;
-    }
-    if (cp == 0xFE0F) {
-      saw_vs16 = 1;
-      i = n;
-      continue;
-    }
-    if (timui_grapheme_extend_(cp)) {
-      i = n;
-      continue;
-    }
-    if (timui_grapheme_ri_(cp)) {
-      saw_ri++;
-      saw_emoji = 1;
-      i = n;
-      continue;
-    }
-    if (timui_grapheme_emoji_base_(cp))
-      saw_emoji = 1;
-    cw = timui_utf8_width(cp);
-    if (cw > w)
-      w = cw;
-    i = n;
-  }
-  if (saw_ri >= 1)
-    return 2;
-  if (saw_zwj && saw_emoji)
-    return 2;
-  if (saw_vs16 && saw_emoji && w < 2)
-    return 2;
+  (void)timui_grapheme_next_w_(s, len, 0, &w);
   return w;
 }
 /* SPDX-License-Identifier: Apache-2.0
@@ -17356,14 +17401,21 @@ TIMUI_API TimuiResult timui_cells_resize(TimuiCellBuffer *buf, int w, int h,
 }
 TIMUI_API void timui_cells_clear(TimuiCellBuffer *buf) {
   size_t i, n;
+  TimuiCell blank;
   if (!buf || !buf->cells)
     return;
   n = (size_t)buf->w * (size_t)buf->h;
-  memset(buf->cells, 0,
-         n * sizeof(TimuiCell)); /* codepoint/attrs/width/flags/links = 0 */
-  for (i = 0; i < n; i++) { /* empty = DEFAULT colour (ADR 0001), not black */
-    buf->cells[i].fg = TIMUI_COLOR_DEFAULT;
-    buf->cells[i].bg = TIMUI_COLOR_DEFAULT;
+  /* One template cell, then doubling memcpy — DEFAULT is 0xFFFFFFFF, so a
+   * raw memset(0) cannot seed fg/bg. Keep grapheme_cap; only reset length. */
+  memset(&blank, 0, sizeof blank);
+  blank.fg = TIMUI_COLOR_DEFAULT;
+  blank.bg = TIMUI_COLOR_DEFAULT;
+  if (n > 0) {
+    buf->cells[0] = blank;
+    for (i = 1; i < n; i <<= 1) {
+      size_t chunk = i <= n - i ? i : n - i;
+      memcpy(buf->cells + i, buf->cells, chunk * sizeof(TimuiCell));
+    }
   }
   buf->link_count = 0; /* hyperlinks are per-frame */
   buf->grapheme_size = 0; /* cells never outlive their frame's arena */
@@ -17509,7 +17561,7 @@ static uint32_t render_safe_cp(uint32_t cp) {
  * Allocation failure is atomic: the caller paints one replacement glyph. */
 static int cell_store_grapheme_(TimuiCellBuffer *buf, TimuiCell *cell,
                                 const char *text, size_t len) {
-  size_t off = 0, bytes = 0, needed, cap, source_off = 0;
+  size_t off = 0, bytes = 0, needed, cap, source_off = 0, start;
   int source_owned = 0;
   char encoded[4], *arena;
   if (buf->graphemes && (uintptr_t)text >= (uintptr_t)buf->graphemes) {
@@ -17519,19 +17571,11 @@ static int cell_store_grapheme_(TimuiCellBuffer *buf, TimuiCell *cell,
       source_off = (size_t)delta;
     }
   }
-  while (off < len) {
-    uint32_t cp;
-    int adv = timui_utf8_decode(text + off, len - off, &cp), count;
-    if (adv <= 0) { cp = 0xFFFDu; adv = 1; }
-    count = timui_utf8_encode_(render_safe_cp(cp), encoded);
-    if ((size_t)count > SIZE_MAX - bytes)
-      return 0;
-    bytes += (size_t)count;
-    off += (size_t)adv;
-  }
-  if (bytes > SIZE_MAX - buf->grapheme_size)
+  /* Upper bound: each source byte becomes at most one UTF-8 replacement
+   * codepoint (3 bytes). Grow once, then sanitize in a single pass. */
+  if (len > (SIZE_MAX / 3) || len * 3 > SIZE_MAX - buf->grapheme_size)
     return 0;
-  needed = buf->grapheme_size + bytes;
+  needed = buf->grapheme_size + len * 3;
   if (needed > buf->grapheme_cap) {
     cap = buf->grapheme_cap ? buf->grapheme_cap : 128;
     while (cap < needed) {
@@ -17547,9 +17591,7 @@ static int cell_store_grapheme_(TimuiCellBuffer *buf, TimuiCell *cell,
     if (source_owned)
       text = arena + source_off;
   }
-  cell->grapheme_offset = buf->grapheme_size;
-  cell->grapheme_len = bytes;
-  off = 0;
+  start = buf->grapheme_size;
   while (off < len) {
     uint32_t cp;
     int adv = timui_utf8_decode(text + off, len - off, &cp), count;
@@ -17557,8 +17599,11 @@ static int cell_store_grapheme_(TimuiCellBuffer *buf, TimuiCell *cell,
     count = timui_utf8_encode_(render_safe_cp(cp), encoded);
     memcpy(buf->graphemes + buf->grapheme_size, encoded, (size_t)count);
     buf->grapheme_size += (size_t)count;
+    bytes += (size_t)count;
     off += (size_t)adv;
   }
+  cell->grapheme_offset = start;
+  cell->grapheme_len = bytes;
   return 1;
 }
 static void clear_cell_default_(TimuiCellBuffer *buf, int x, int y) {
@@ -17728,16 +17773,15 @@ TIMUI_API void timui_draw_text_linked(TimuiCellBuffer *buf, int x, int y,
   while (i < text.len) {
     uint32_t cp = 0;
     int adv = timui_utf8_decode(text.ptr + i, text.len - i, &cp);
-    size_t next = timui_grapheme_next(text.ptr, text.len, i);
+    int w = 0;
+    size_t next = timui_grapheme_next_w_(text.ptr, text.len, i, &w);
     int invalid = adv <= 0;
-    int w;
     if (adv <= 0) {
       cp = 0xFFFD;
       adv = 1;
     }
     if (next <= i || next > text.len)
       next = i + (size_t)adv;
-    w = timui_grapheme_width(text.ptr + i, next - i);
     if (invalid && w == 0)
       w = 1; /* malformed bytes still paint a replacement, never disappear */
     if (w > 0) {
@@ -28258,26 +28302,86 @@ static TimuiFrameOutcome_ sixel_emit_(TimuiTransport *t, const TimuiImage *img,
   return timui_framed_end_(&o.fr);
 }
 
+static int image_rect_same_(TimuiRect a, TimuiRect b);
+
+/* True when this frame's placements match the last completed emit and no
+ * image still needs a protocol transmit. Kitty animation stays terminal-side
+ * (a=a / a=f); unchanged warm frames skip delete/transmit/place entirely. */
+static int image_placement_needs_tx_(TimuiImage *img, Timui *ui,
+                                     TimuiImageProtocol protocol) {
+  int slot;
+  if (!img)
+    return 1;
+  if (protocol == TIMUI_IMAGE_PROTOCOL_KITTY) {
+    slot = image_id_slot_find_(img, ui);
+    if (slot < 0)
+      return 1;
+    return *image_id_slot_at_(img, slot).dirty != 0;
+  }
+  /* iTerm2 / Sixel reuse kitty_dirty as "content changed since last emit". */
+  return img->kitty_dirty != 0;
+}
+
+static int image_placements_unchanged_(Timui *ui, TimuiImageProtocol protocol) {
+  int i;
+  if (!ui || protocol != ui->img_last_protocol)
+    return 0;
+  if (ui->img_place_count != ui->img_last_count)
+    return 0;
+  if (ui->img_place_count <= 0)
+    return 1; /* both empty: nothing to delete or emit */
+  for (i = 0; i < ui->img_place_count; i++) {
+    if (ui->img_place[i].img != ui->img_last_place[i].img)
+      return 0;
+    if (!image_rect_same_(ui->img_place[i].rect, ui->img_last_place[i].rect))
+      return 0;
+    if (!image_rect_same_(ui->img_place[i].full, ui->img_last_place[i].full))
+      return 0;
+    if (image_placement_needs_tx_(ui->img_place[i].img, ui, protocol))
+      return 0;
+  }
+  return 1;
+}
+
+static void image_placements_remember_(Timui *ui, TimuiImageProtocol protocol,
+                                       int count) {
+  int i;
+  if (!ui)
+    return;
+  if (count > TIMUI_IMAGE_PLACEMENT_CAP)
+    count = TIMUI_IMAGE_PLACEMENT_CAP;
+  for (i = 0; i < count; i++)
+    ui->img_last_place[i] = ui->img_place[i];
+  ui->img_last_count = count;
+  ui->img_last_protocol = protocol;
+}
+
 /* Transmit/place or emit every image recorded this frame, on top of the cell
  * diff. Kitty gets explicit placement lifecycle management; iTerm2 is a direct
- * inline image write with no placement ids or delete escape. */
-static void timui_images_flush_(Timui *ui) {
+ * inline image write with no placement ids or delete escape. Returns 1 when
+ * any image bytes were accepted (cursor invalidate), 0 when skipped/idle. */
+static int timui_images_flush_(Timui *ui) {
   int i;
   int emitted = 0;
   int cleanup_owed = 0;
+  int wrote = 0;
   TimuiImageProtocol protocol;
   TimuiAllocator scratch;
   if (!ui)
-    return;
+    return 0;
   scratch = image_allocator_(ui);
   protocol = timui_image_protocol(ui);
+  if (image_placements_unchanged_(ui, protocol))
+    return 0; /* same protocol, ptrs, rects, and clean payloads */
   if (ui->img_last_count > 0 &&
       ui->img_last_protocol == TIMUI_IMAGE_PROTOCOL_KITTY) {
     TimuiFrameOutcome_ deleted = kitty_delete_all_placements(&ui->transport);
     cleanup_owed = (deleted != TIMUI_FRAME_DONE);
+    if (deleted == TIMUI_FRAME_DONE)
+      wrote = 1;
     if (deleted == TIMUI_FRAME_OPEN) {
       ui->framing_debt = 1;
-      return; /* the terminal is still eating: compose nothing more */
+      return wrote; /* the terminal is still eating: compose nothing more */
     }
   }
   if (protocol == TIMUI_IMAGE_PROTOCOL_KITTY) {
@@ -28371,6 +28475,7 @@ static void timui_images_flush_(Timui *ui) {
           break;
         }
         *cache.dirty = 0;
+        wrote = 1;
       }
       if (image_cup_(&ui->transport, r.x, r.y)) {
         TimuiFrameOutcome_ placed = kitty_place_(&ui->transport, *cache.id, r.w,
@@ -28383,20 +28488,23 @@ static void timui_images_flush_(Timui *ui) {
           break;
         }
         emitted++;
+        wrote = 1;
       }
     }
   } else if (protocol == TIMUI_IMAGE_PROTOCOL_ITERM2) {
     for (i = 0; i < ui->img_place_count; i++) {
       TimuiFrameOutcome_ rc;
+      TimuiImage *img = ui->img_place[i].img;
       /* Admission used the payload present at draw time. An RGBA update can
        * replace it before timui_end; do not announce those raw bytes as an
        * inline PNG file. The next draw lazily encodes the current pixels. */
-      if (!image_has_png_(ui->img_place[i].img))
+      if (!image_has_png_(img))
         continue;
-      rc = iterm2_emit_(&ui->transport, scratch, ui->img_place[i].img,
-                        ui->img_place[i].rect);
+      rc = iterm2_emit_(&ui->transport, scratch, img, ui->img_place[i].rect);
       if (rc == TIMUI_FRAME_DONE) {
+        img->kitty_dirty = 0; /* content accepted; warm frames may skip */
         emitted++;
+        wrote = 1;
         continue;
       }
       if (rc == TIMUI_FRAME_NONE)
@@ -28407,11 +28515,15 @@ static void timui_images_flush_(Timui *ui) {
     }
   } else if (protocol == TIMUI_IMAGE_PROTOCOL_SIXEL) {
     for (i = 0; i < ui->img_place_count; i++) {
-      TimuiFrameOutcome_ rc = sixel_emit_(
-          &ui->transport, ui->img_place[i].img, ui->img_place[i].rect,
-          ui->img_place[i].full, ui->cell_px_w, ui->cell_px_h);
+      TimuiImage *img = ui->img_place[i].img;
+      TimuiFrameOutcome_ rc =
+          sixel_emit_(&ui->transport, img, ui->img_place[i].rect,
+                      ui->img_place[i].full, ui->cell_px_w, ui->cell_px_h);
       if (rc == TIMUI_FRAME_DONE) {
+        if (img)
+          img->kitty_dirty = 0;
         emitted++;
+        wrote = 1;
         continue;
       }
       if (rc == TIMUI_FRAME_NONE)
@@ -28428,15 +28540,22 @@ static void timui_images_flush_(Timui *ui) {
     /* iTerm2 and Sixel do not create retained placements, so their successful
      * emission cannot supersede an old Kitty placement that the terminal still
      * composites. Preserve the Kitty marker for the next frame or teardown. */
-    return;
+    return wrote;
   }
-  if (emitted > 0) {
+  if (emitted > 0 && emitted == ui->img_place_count) {
+    /* Full success: next identical frame may skip delete/transmit/place. */
+    image_placements_remember_(ui, protocol, emitted);
+  } else if (emitted > 0) {
+    /* Partial: keep a marker so Kitty cleanup still runs; do not claim skip. */
+    for (i = 0; i < emitted && i < ui->img_place_count; i++)
+      ui->img_last_place[i] = ui->img_place[i];
     ui->img_last_count = emitted;
     ui->img_last_protocol = protocol;
   } else if (!cleanup_owed) {
     ui->img_last_count = 0;
     ui->img_last_protocol = TIMUI_IMAGE_PROTOCOL_NONE;
   }
+  return wrote;
 }
 
 /* Delete the Kitty placements left by the last completed frame. Keep the

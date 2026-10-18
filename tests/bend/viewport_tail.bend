@@ -11,7 +11,7 @@ import ../../src/bend/view.bend as V
 # Read the actual buffer fields, including its synthetic topic and anchor.
 def legacy(b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +media: M.State) -> List<&2, V.BodyRow>:
   match b:
-    case Cl.Buffer{+name, _, +topic, +raw, _, scroll}:
+    case Cl.Buffer{+name, _, +topic, +raw, _, scroll, _, _}:
       +lines = V.media_display_lines(name, topic, raw, media)
       V.visible_anchored(V.anchored_lines_media(lines, name, w, show_ts, mutes, True{}, True{}, "s", List.length(&2, Cl.Line, lines), media), height, scroll)
 
@@ -48,7 +48,7 @@ def group(+tag: String, +b: Cl.Buffer, +mutes: List<&2, String>, +media: M.State
     check(tag ++ " clamped anchor", Cl.set_buf_anchor(b, Cl.ScrollAt{999n, 999n}), 45n, 180, True{}, mutes, media)
 
 def buffer(name: String, lines: List<&2, Cl.Line>) -> Cl.Buffer:
-  Cl.Buffer{name, True{}, "", lines, ["alice", "bob"], Cl.ScrollAt{0n, 0n}}
+  Cl.buf_indexed(name, True{}, "", lines, ["alice", "bob"], Cl.ScrollAt{0n, 0n})
 
 def mixed() -> List<&2, Cl.Line>:
   [Cl.Line{Cl.Msg{}, "12:34:56", "<alice> **bold** :eyes: 漢👩‍💻 é " ++ B.image_url(), "alice", 1n},
@@ -85,7 +85,7 @@ def manual_diagnostics() -> List<&2, Cl.Line>:
    Cl.Line{Cl.System{}, "12:34:57", "retrying image preview", "", 19n}]
 
 def manual() -> Cl.Buffer:
-  Cl.Buffer{"*preview*", False{}, B.image_url(), manual_diagnostics(), Nil{}, Cl.ScrollAt{0n, 0n}}
+  Cl.buf_indexed("*preview*", False{}, B.image_url(), manual_diagnostics(), Nil{}, Cl.ScrollAt{0n, 0n})
 
 def empty_known() -> Cl.Line:
   Cl.Line{Cl.Msg{}, "12:34:56", "", "alice", 17n}

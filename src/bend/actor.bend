@@ -911,6 +911,57 @@ def writer_admit_begin(+host: String, +port: U32, +force_tls: Bool, +nick: Strin
 def dial_superseded(+dial_gen: U32, +writer_gen: U32, connected: Bool) -> Bool:
   connected && U32.is_eq(dial_gen, writer_gen)
 
+# Dial replaces the live socket. Flush the healthy pending FIFO first (same
+# send_batch contract as writer_finish) without posting WriterDone; admit
+# begins with an empty queue for the new generation.
+def writer_dial_flush_drop(pair: Tr.Conn & Sent) -> IO(Unit):
+  match pair:
+    case (sock, _): writer_drop(sock)
+
+def writer_dial_flushed(
+  pair: Tr.Conn & Sent,
+  +host: String,
+  +port: U32,
+  +force_tls: Bool,
+  +nick: String,
+  +dial_gen: U32,
+  +evt: Chan(Sess.UiMsg),
+  +boot: Chan(Boot),
+  +cmd: Chan(Sess.NetCmd),
+  +scope: AuthScope,
+  +budget: Out.Budget,
+  +next_txn: U32,
+  k: (Writer & AuthScope) -> IO(Unit)
+) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- writer_dial_flush_drop(pair)
+    writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, k)
+
+def writer_dial_flush(
+  sock: Maybe<&1, Tr.Conn>,
+  +pending: List<&2, String>,
+  +pending_txn: List<&2, U32>,
+  +host: String,
+  +port: U32,
+  +force_tls: Bool,
+  +nick: String,
+  +dial_gen: U32,
+  +evt: Chan(Sess.UiMsg),
+  +boot: Chan(Boot),
+  +cmd: Chan(Sess.NetCmd),
+  +scope: AuthScope,
+  +budget: Out.Budget,
+  +next_txn: U32,
+  k: (Writer & AuthScope) -> IO(Unit)
+) -> IO(Unit):
+  match sock:
+    case None{}:
+      writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, k)
+    case Some{s}:
+      do IO<Unit>:
+        pair : Tr.Conn & Sent <- send_batch(s, pending, pending_txn)
+        writer_dial_flushed(pair, host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, k)
+
 def writer_dial_some(
   redundant: Bool,
   w: Writer,
@@ -929,11 +980,9 @@ def writer_dial_some(
     case True{}: k((w, scope))
     case False{}:
       match w:
-        case Writer{sock, _, _, _, +next_txn, budget, _}:
+        case Writer{sock, _, +pending, +pending_txn, +next_txn, budget, _}:
           +next_scope = auth_scope_dial(scope, host, port)
-          do IO<Unit>:
-            Unit <- close_socket(sock)
-            writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, next_scope, budget, next_txn, Nil{}, False{}, k)
+          writer_dial_flush(sock, pending, pending_txn, host, port, force_tls, nick, dial_gen, evt, boot, cmd, next_scope, budget, next_txn, k)
 
 def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +scope: AuthScope, force_tls: Bool, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match c:

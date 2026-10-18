@@ -94,7 +94,7 @@ def ad_hist_len(+ad: AD.AD) -> Nat:
   ad_hist_len.st(AD.ad_session(ad))
 
 def hist_keys() -> Sess.Keys:
-  Sess.Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistPrev{}, False{}, 0}
+  Sess.Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistPrev{}, 0, 0}
 
 def ad_recall(+ad: AD.AD) -> String:
   AD.ad_composer(AD.do_step(ad, hist_keys()))
@@ -146,13 +146,16 @@ def ws_composer(+ws: W.Workspace, +id: Key.ServerId) -> String:
   Sess.session_draft(ws_part_st(ws, id))
 
 def comp_keys(+typed: String) -> Sess.Keys:
-  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, True{}, 0}
+  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 1, 0}
 
 def ws_comp.show(+c: Sess.Comp) -> String:
   match c:
     case Sess.CompNone{}: "N"
     case Sess.CompActive{+pre, +word, idx}: "A:" ++ pre ++ "|" ++ word ++ "|" ++ Nat.show(idx)
     case Sess.CompUpload{_, _, _}: "U"
+    case Sess.CompHelp{_}: "H"
+    case Sess.CompHidden{}: "D"
+    case Sess.CompPick{idx}: "P:" ++ Nat.show(idx)
 
 def ws_comp.st(+st: Sess.Session) -> String:
   match st:
@@ -339,7 +342,7 @@ def id_lines.go(+xs: List<&2, Cl.Line>, +acc: List<&2, Nat>) -> List<&2, Nat>:
 
 def id_buf.all(+b: Cl.Buffer, +acc: List<&2, Nat>) -> List<&2, Nat>:
   match b:
-    case Cl.Buffer{_, _, _, +lines, _, _}: id_lines.go(lines, acc)
+    case Cl.Buffer{_, _, _, +lines, _, _, _, _}: id_lines.go(lines, acc)
 
 def id_all.go(+xs: List<&2, Cl.Buffer>, +acc: List<&2, Nat>) -> List<&2, Nat>:
   match xs:
@@ -1456,8 +1459,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("s2p multiline first action keeps draft", prod_enter_draft("/me waves\nhello"), "/me waves\nhello")
     Unit <- E.must_eq("s2p single action keeps wire semantics", prod_enter_outs("/me waves"), "PRIVMSG #b :" ++ SCon{Chr{1}, "ACTION waves" ++ SCon{Chr{1}, ""}})
     Unit <- E.must_eq("s2p offline rejected multiline PART keeps membership", String.join(Sess.session_desired_channels(prod_st.trip(Sess.step_keys(Sess.session_set_net(Sess.session_with_client(ad_rooms(), "#a"), Sess.Offline{}), Sess.keys_enter("/part #b bye\nhello")))), "|"), String.join(Sess.session_desired_channels(Sess.session_set_net(Sess.session_with_client(ad_rooms(), "#a"), Sess.Offline{})), "|"))
-    Unit <- E.must_eq("s2p typing multiline keeps exact composer", prod_draft(Sess.step_keys(Sess.session_demo(ad_rooms(), "#a"), Sess.Keys{"aa\nbb", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0})), "aa\nbb")
-    Unit <- E.must_eq("s2p typing multiline emits no wires", prod_outs(Sess.step_keys(Sess.session_demo(ad_rooms(), "#a"), Sess.Keys{"aa\nbb", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0})), "")
+    Unit <- E.must_eq("s2p typing multiline keeps exact composer", prod_draft(Sess.step_keys(Sess.session_demo(ad_rooms(), "#a"), Sess.Keys{"aa\nbb", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0})), "aa\nbb")
+    Unit <- E.must_eq("s2p typing multiline emits no wires", prod_outs(Sess.step_keys(Sess.session_demo(ad_rooms(), "#a"), Sess.Keys{"aa\nbb", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0})), "")
     Unit <- E.must("bl s0 alert bumps global once", U32.is_eq(bl_b1, 1))
     Unit <- E.must("bl background alert paints advanced", U32.is_eq(bl_painted(bl_w1, bl_b1), 1))
     Unit <- E.must("bl sibling bell isolated", U32.is_eq(W.part_bell(bl_w1, s1()), 0))

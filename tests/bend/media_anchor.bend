@@ -91,7 +91,7 @@ def ready_session(+st: Sess.Session) -> Sess.Session:
 
 def anchor(b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, _, _, _, Cl.ScrollAt{after, tail}}: Nat.show(after) ++ ":" ++ Nat.show(tail)
+    case Cl.Buffer{_, _, _, _, _, Cl.ScrollAt{after, tail}, _, _}: Nat.show(after) ++ ":" ++ Nat.show(tail)
 
 def shape(xs: List<&2, V.DrawOp>) -> String:
   match xs:
@@ -108,7 +108,7 @@ def session_paint(+st: Sess.Session, width: U32) -> String:
 
 def raw_lines(b: Cl.Buffer) -> List<&2, Cl.Line>:
   match b:
-    case Cl.Buffer{_, _, _, lines, _, _}: lines
+    case Cl.Buffer{_, _, _, lines, _, _, _, _}: lines
 
 def raw_text(lines: List<&2, Cl.Line>) -> String:
   match lines:
@@ -117,7 +117,7 @@ def raw_text(lines: List<&2, Cl.Line>) -> String:
 
 def topic(b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, topic, _, _, _}: topic
+    case Cl.Buffer{_, _, topic, _, _, _, _, _}: topic
 
 def rows_text(xs: List<&2, V.BodyRow>) -> String:
   match xs:
@@ -135,7 +135,7 @@ def projection_controls() -> IO(Unit):
     IO.pure(Unit, Unit{})
 
 def inline_paused() -> Cl.Buffer:
-  V.scroll_buf_media(Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}}, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready_inline())
+  V.scroll_buf_media(Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}), 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready_inline())
 
 def first_line(lines: List<&2, Cl.Line>) -> Cl.Line:
   match lines:
@@ -149,8 +149,8 @@ def split_client.of(cl: Cl.Client) -> Cl.Client:
   match cl:
     case Cl.Client{nick, server, _, _, now, stg, auth, _}:
       Cl.Client{nick, server,
-        [Cl.Buffer{"server", False{}, "", [Cl.Line{Cl.Msg{}, "", url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}},
-         Cl.Buffer{"#b", True{}, "", [Cl.Line{Cl.Msg{}, "", "https://x/b.gif", "bob", 2n}], Nil{}, Cl.ScrollAt{0n, 0n}}],
+        [Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}),
+         Cl.buf_indexed("#b", True{}, "", [Cl.Line{Cl.Msg{}, "", "https://x/b.gif", "bob", 2n}], Nil{}, Cl.ScrollAt{0n, 0n})],
         0n, now, Cl.set_ts(stg, False{}), auth, 2n}
 
 def split_client() -> Cl.Client:

@@ -170,7 +170,7 @@ def find_sig.pick(hit: Bool, found: Nat & Bool, cont: Nat & Bool) -> Nat & Bool:
 
 def find_sig.buf(+h: Cl.Buffer, cont: Nat & Bool, +name: String) -> Nat & Bool:
   match h:
-    case Cl.Buffer{+stored, _, _, +lines, _, _}:
+    case Cl.Buffer{+stored, _, _, +lines, _, _, _, _}:
       find_sig.pick(Irc.ieq(stored, name), last_sig(lines), cont)
 
 def find_sig.go(+xs: List<&2, Cl.Buffer>, +name: String) -> Nat & Bool:
@@ -192,7 +192,7 @@ def new_error.go(+after: List<&2, Cl.Buffer>, +before: List<&2, Cl.Buffer>) -> B
     case Nil{}: False{}
     case Con{+h, +t}:
       match h:
-        case Cl.Buffer{+name, _, _, +lines, _, _}:
+        case Cl.Buffer{+name, _, _, +lines, _, _, _, _}:
           +tail = new_error.go(t, before)
           sig_new_error(last_sig(lines), find_sig.go(before, name)) || tail
 
@@ -427,16 +427,16 @@ def step_halt(+ad: AD, +keys: Sess.Keys) -> Bool:
   step_halt.got(step_keys(ad, keys))
 
 def typing_keys(+typed: String) -> Sess.Keys:
-  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0}
+  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 0}
 
 def tab_keys(+typed: String, dir: Cl.TabDir) -> Sess.Keys:
-  Sess.Keys{typed, False{}, dir, None{}, 0n, 0n, Sess.HistStay{}, False{}, 0}
+  Sess.Keys{typed, False{}, dir, None{}, 0n, 0n, Sess.HistStay{}, 0, 0}
 
 def click_keys(+typed: String, +i: Nat) -> Sess.Keys:
-  Sess.Keys{typed, False{}, Cl.TabStay{}, Some{i}, 0n, 0n, Sess.HistStay{}, False{}, 0}
+  Sess.Keys{typed, False{}, Cl.TabStay{}, Some{i}, 0n, 0n, Sess.HistStay{}, 0, 0}
 
 def focus_keys(+typed: String) -> Sess.Keys:
-  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, False{}, 1}
+  Sess.Keys{typed, False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistStay{}, 0, 1}
 
 # ---- proof-facing fixtures and predicates -------------------------------
 # Small fixed fixtures (two rooms, short texts) mirroring the golden
@@ -582,7 +582,7 @@ def s5_hist_len(+ad: AD) -> Nat:
   s5_hist_len.st(ad_session(ad))
 
 def hist_prev_keys() -> Sess.Keys:
-  Sess.Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistPrev{}, False{}, 0}
+  Sess.Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, Sess.HistPrev{}, 0, 0}
 
 def disconnected_multiline_ok() -> Bool:
   +conn = do_enter(s2_with_net(Sess.Connecting{}), "aa\nbb")

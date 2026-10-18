@@ -6,7 +6,7 @@ import ../../src/bend/history.bend as H
 
 def configured() -> Cl.Client:
   +settings = Cl.set_ts(Cl.get_settings(Cl.client_set_sasl(Cl.init("configured", "a"), "user", "pass")), False{})
-  Cl.Client{"configured", "a", Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "prefix", "author", 50n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 0n, "14:00:00", settings, Cl.AuthCap{}, 50n}
+  Cl.Client{"configured", "a", Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "prefix", "author", 50n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "14:00:00", settings, Cl.AuthCap{}, 50n}
 
 def errors(xs: List<&2, Cl.Line>) -> Nat:
   match xs:
@@ -16,7 +16,7 @@ def errors(xs: List<&2, Cl.Line>) -> Nat:
 
 def preserved(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{+nick, +server, Con{Cl.Buffer{_, _, _, Con{Cl.Line{_, _, +text, +author, id}, _}, _, _}, _}, _, +now, +settings, Cl.AuthCap{}, seq}:
+    case Cl.Client{+nick, +server, Con{Cl.Buffer{_, _, _, Con{Cl.Line{_, _, +text, +author, id}, _}, _, _, _, _}, _}, _, +now, +settings, Cl.AuthCap{}, seq}:
       String.eq(nick, "configured") && String.eq(server, "a") && String.eq(now, "14:00:00")
         && Bool.not(Cl.settings_ts(settings)) && String.eq(Cl.settings_sasl_user(settings), "user")
         && String.eq(text, "prefix") && String.eq(author, "author") && Nat.is_eq(id, 50n) && Nat.is_ge(seq, 50n)
@@ -24,7 +24,7 @@ def preserved(cl: Cl.Client) -> Bool:
 
 def errors_cl(cl: Cl.Client) -> Nat:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _}, _}, _, _, _, _, _}: errors(lines)
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, _}, _, _, _, _, _}: errors(lines)
     case _: 0n
 
 def report(+cl: Cl.Client) -> IO(Unit):

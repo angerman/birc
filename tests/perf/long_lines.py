@@ -4,12 +4,15 @@
 The framer keeps at most 510 octets before LF (512 with CRLF) and drops a
 longer record, so the sweep is 64 / 128 / 256 / 510. One quiet run checks
 that the profiler stays default-off. Each length then uses the profiled
-pty replay. This reports the shape of the after-curve; the previous
-per-cluster walk is no longer in the tree.
+pty replay. Measurement lines still print; the process exits nonzero unless
+the after-curve classifies as linear (flat / superlinear / undefined fail).
+
+Self-check (no binary): `python3 tests/perf/long_lines.py --self-check`
+injects synthetic superlinear samples and asserts a nonzero gate. Not wired
+into `test-perf-gates` (measurement-only Makefile target).
 """
 from __future__ import annotations
 
-import os
 import re
 import sys
 import tempfile
@@ -78,7 +81,48 @@ def classify(samples: list[tuple[int, int]]) -> str:
     return "linear"
 
 
+def gate_ok(verdict: str) -> bool:
+    return verdict == "linear"
+
+
+def gate(verdict: str) -> int:
+    """Fail closed unless the curve is linear. Still print the shape first."""
+    print("long_lines shape=" + verdict)
+    if not gate_ok(verdict):
+        print(f"long_lines: expected linear, got {verdict}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def self_check() -> int:
+    """Synthetic shapes: linear passes; superlinear / undefined / flat fail."""
+    linear = [(64, 100), (128, 210), (256, 420), (510, 850)]
+    superlinear = [(64, 100), (128, 500), (256, 4000), (510, 40000)]
+    undefined = [(64, 0), (128, 10), (256, 20), (510, 40)]
+    flat = [(64, 100), (128, 110), (256, 120), (510, 130)]
+    if classify(linear) != "linear" or not gate_ok("linear"):
+        print("long_lines self-check: linear samples must pass", file=sys.stderr)
+        return 1
+    for name, samples in (
+        ("superlinear", superlinear),
+        ("undefined", undefined),
+        ("flat", flat),
+    ):
+        verdict = classify(samples)
+        if verdict != name or gate_ok(verdict):
+            print(
+                f"long_lines self-check: {name} must classify and fail closed "
+                f"(got {verdict!r})",
+                file=sys.stderr,
+            )
+            return 1
+    print("long_lines self-check: PASS")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1] == "--self-check":
+        return self_check()
     if len(sys.argv) != 2:
         print(__doc__.strip(), file=sys.stderr)
         return 2
@@ -107,9 +151,7 @@ def main() -> int:
             f"long_lines bytes={width} lines={BUFFERS * LINES} "
             f"view_us={measured} view_us_per_line={per_line:.2f}"
         )
-    verdict = classify(samples)
-    print("long_lines shape=" + verdict)
-    return 0
+    return gate(classify(samples))
 
 
 if __name__ == "__main__":

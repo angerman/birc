@@ -206,10 +206,42 @@ def lines_after_except(lines: List<&2, Cl.Line>, +seq: Nat, +excluded: List<&2, 
           lines_after.keep(Nat.is_gt(id, seq) && Bool.not(List.contains(~Nat, ~Nat.is_eq, excluded, id)),
             line, lines_after_except(t, seq, excluded))
 
+# Newest-first. Stop at the first id already saved. Id 0 is not a checkpoint.
+def lines_newest.stop(+id: Nat, +seq: Nat) -> Bool:
+  Bool.and(Nat.is_gt(id, 0n), Bool.not(Nat.is_gt(id, seq)))
+
+def lines_newest.rest(stop: Bool, take: Bool, +line: Cl.Line, rest: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match stop:
+    case True{}: Nil{}
+    case False{}: lines_after.keep(take, line, rest)
+
+def lines_newest(lines: List<&2, Cl.Line>, +seq: Nat) -> List<&2, Cl.Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+line, t}:
+      match line:
+        case Cl.Line{_, _, _, _, +id}:
+          lines_newest.rest(lines_newest.stop(id, seq), Nat.is_gt(id, seq), line, lines_newest(t, seq))
+
+def lines_newest_except(lines: List<&2, Cl.Line>, +seq: Nat, +excluded: List<&2, Nat>) -> List<&2, Cl.Line>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+line, t}:
+      match line:
+        case Cl.Line{_, _, _, _, +id}:
+          lines_newest.rest(lines_newest.stop(id, seq),
+            Nat.is_gt(id, seq) && Bool.not(List.contains(~Nat, ~Nat.is_eq, excluded, id)),
+            line, lines_newest_except(t, seq, excluded))
+
+def extract_new_buf.text(synthetic: Bool, +name: String, +newest: List<&2, Cl.Line>, +seq: Nat) -> String:
+  match synthetic:
+    case True{}: ""
+    case False{}: serialize_lines(name, lines_newest(newest, seq))
+
 def extract_new_buf(+seq: Nat, b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, _, _, lines, _, _}:
-      Bool.pick(String, Cl.target_is_synthetic(name), "", serialize_lines(name, lines_after(lines, seq)))
+    case Cl.Buffer{+name, _, _, _, _, _, +newest, _}:
+      extract_new_buf.text(Cl.target_is_synthetic(name), name, newest, seq)
 
 def extract_new_bufs(bufs: List<&2, Cl.Buffer>, +seq: Nat) -> String:
   match bufs:
@@ -226,20 +258,30 @@ def new_entries.lines(lines: List<&2, Cl.Line>, +target: String, +control: Bool)
     case Nil{}: Nil{}
     case Con{line, t}: parse_entry.control(control, target, line) <> new_entries.lines(t, target, control)
 
+def new_entries.one(synthetic: Bool, +name: String, +newest: List<&2, Cl.Line>, +seq: Nat, first: Bool) -> List<&2, HistEntry>:
+  match synthetic:
+    case True{}: Nil{}
+    case False{}: new_entries.lines(lines_newest(newest, seq), name, first)
+
+def new_entries.one_except(synthetic: Bool, +name: String, +newest: List<&2, Cl.Line>, +seq: Nat, first: Bool, +excluded: List<&2, Nat>) -> List<&2, HistEntry>:
+  match synthetic:
+    case True{}: Nil{}
+    case False{}: new_entries.lines(lines_newest_except(newest, seq, excluded), name, first)
+
 def new_entries(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool) -> List<&2, HistEntry>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, +newest, _}, t}:
       List.append(&2, HistEntry,
-        Bool.pick(List<&2, HistEntry>, Cl.target_is_synthetic(name), Nil{}, new_entries.lines(lines_after(lines, seq), name, first)),
+        new_entries.one(Cl.target_is_synthetic(name), name, newest, seq, first),
         new_entries(t, seq, False{}))
 
 def new_entries_except(bufs: List<&2, Cl.Buffer>, +seq: Nat, first: Bool, +excluded: List<&2, Nat>) -> List<&2, HistEntry>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{+name, _, _, lines, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, +newest, _}, t}:
       List.append(&2, HistEntry,
-        Bool.pick(List<&2, HistEntry>, Cl.target_is_synthetic(name), Nil{}, new_entries.lines(lines_after_except(lines, seq, excluded), name, first)),
+        new_entries.one_except(Cl.target_is_synthetic(name), name, newest, seq, first, excluded),
         new_entries_except(t, seq, False{}, excluded))
 
 def entry_line(entry: HistEntry) -> Cl.Line:
@@ -258,15 +300,29 @@ def serialize_entries(entries: List<&2, HistEntry>, +endpoint: String) -> String
         case Entry{target, line}: serialize_line_for(endpoint, target, line) ++ serialize_entries(t, endpoint)
         case ServerEntry{line}: serialize_line_for(endpoint, "*server*", line) ++ serialize_entries(t, endpoint)
 
-def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Client) -> String:
-  match new_cl:
-    case Cl.Client{_, _, bufs, _, _, _, _, _}:
-      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
+# A matching log sequence means every stored id is already at or below the
+# baseline. Walking the scrollback to confirm that is the idle-tick cost.
+def extract_new_history_for.same(same: Bool, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
+  match same:
+    case True{}: ""
+    case False{}:
+      match new_cl:
+        case Cl.Client{_, _, bufs, _, _, _, _, _}:
+          serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
 
-def extract_new_history_for_except(+endpoint: String, +old_cl: Cl.Client, new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
-  match new_cl:
-    case Cl.Client{_, _, bufs, _, _, _, _, _}:
-      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
+def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
+  extract_new_history_for.same(Nat.is_eq(Cl.log_seq_of(old_cl), Cl.log_seq_of(new_cl)), endpoint, old_cl, new_cl)
+
+def extract_new_history_for_except.same(same: Bool, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
+  match same:
+    case True{}: ""
+    case False{}:
+      match new_cl:
+        case Cl.Client{_, _, bufs, _, _, _, _, _}:
+          serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
+
+def extract_new_history_for_except(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
+  extract_new_history_for_except.same(Nat.is_eq(Cl.log_seq_of(old_cl), Cl.log_seq_of(new_cl)), endpoint, old_cl, new_cl, excluded)
 
 # ---- applying history on load ---------------------------------------------
 
@@ -300,7 +356,7 @@ def oldest_target.at(eligible: Bool, old: Maybe<&2, OldestTarget>, i: Nat, lines
 def oldest_target(bufs: List<&2, Cl.Buffer>, +i: Nat, old: Maybe<&2, OldestTarget>) -> Maybe<&2, OldestTarget>:
   match bufs:
     case Nil{}: old
-    case Con{Cl.Buffer{+name, _, _, lines, _, _}, rest}:
+    case Con{Cl.Buffer{+name, _, _, lines, _, _, _, _}, rest}:
       oldest_target(rest, 1n+i, oldest_target.at(Nat.is_gt(i, 0n) && Bool.not(Cl.target_is_synthetic(name)), old, i, lines))
 
 def evict_target.got(old: Maybe<&2, OldestTarget>, cl: Cl.Client) -> Cl.Client:
@@ -378,8 +434,8 @@ def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
 
 def cap_buf_history(b: Cl.Buffer, cap: U32) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{+name, is_ch, +topic, +lines, +nicks, scroll}:
-      Cl.Buffer{name, is_ch, topic, Bool.pick(List<&2, Cl.Line>, Cl.target_is_synthetic(name), lines, Cl.take_last(lines, U32.to_nat(cap))), nicks, scroll}
+    case Cl.Buffer{+name, is_ch, +topic, +lines, +nicks, scroll, _, _}:
+      Cl.buf_indexed(name, is_ch, topic, Bool.pick(List<&2, Cl.Line>, Cl.target_is_synthetic(name), lines, Cl.take_last(lines, U32.to_nat(cap))), nicks, scroll)
 
 def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer>:
   match bufs:

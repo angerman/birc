@@ -543,7 +543,7 @@ def notify_collect_lines(lines: List<&2, Cl.Line>, +scope: String, +target: Stri
 def notify_collect_bufs(bufs: List<&2, Cl.Buffer>, +scope: String, +nick: String, +cutoff: Nat, +index: Nat) -> List<&2, NotifyEvent>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{+name, is_channel, _, lines, _, _}, t}:
+    case Con{Cl.Buffer{+name, is_channel, _, lines, _, _, _, _}, t}:
       +head = notify_collect_lines(lines, scope, name, nick, cutoff, notify_is_query(name, is_channel, index))
       +tail = notify_collect_bufs(t, scope, nick, cutoff, Nat.add(index, 1n))
       List.append(&2, NotifyEvent, head, tail)
@@ -552,6 +552,3 @@ def notify_collect(+cl: Cl.Client, +scope: String, +cutoff: Nat) -> List<&2, Not
   match cl:
     case Cl.Client{+nick, _, +bufs, _, _, _, _, _}:
       notify_collect_bufs(bufs, scope, nick, cutoff, 0n)
-
-# Fold accumulator threads the redaction credentials: a fold step cannot close
-# over runtime values, so user/pass ride along and are returned untouched.

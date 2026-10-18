@@ -1155,8 +1155,15 @@ def paint_card_go(xs: List<&2, CardEntry>, +id: Nat, +w: U32, +boxed: List<&2, P
     case Con{CardEntry{other, +texts}, t}:
       List.append(&2, BodyRow, paint_card_hit(Nat.is_eq(other, id), texts, w, boxed), paint_card_go(t, id, w, boxed))
 
+def paint_cards_for.on(zero: Bool, +xs: List<&2, CardEntry>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match zero:
+    case True{}: Nil{}
+    case False{}: paint_card_go(xs, id, w, boxed)
+
+# Id 0 never owns inline cards (admission and live kinds require id > 0);
+# skip the ready-card scan on synthetic/pending rows.
 def paint_cards_for(+xs: List<&2, CardEntry>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
-  paint_card_go(xs, id, w, boxed)
+  paint_cards_for.on(Nat.is_eq(id, 0n), xs, id, w, boxed)
 
 def paint_with_cards(cards: Maybe<&2, List<&2, CardEntry>>, rows: List<&2, BodyRow>, +id: Nat, +w: U32, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match cards:
@@ -1313,7 +1320,7 @@ def body_of.lines_cm(+cm: String, lines: List<&2, Cl.Line>, mutes: List<&2, Stri
     case Con{_, _}: Cl.filter_kinds(Cl.filter_muted_lines_cm(cm, lines, mutes, chan, server), joins, nicks)
 
 type AnchoredRow is Data:
-  AnchoredRow{body: BodyRow, anchor: Cl.Scroll}
+  AnchoredRow{body: BodyRow, anchor: Cl.Scroll, line: Cl.Line}
 
 def row_chars(row: BodyRow) -> Nat:
   match row:
@@ -1326,15 +1333,15 @@ def rows_chars(rows: List<&2, BodyRow>) -> Nat:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_chars(h), rows_chars(t))
 
-def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat) -> List<&2, AnchoredRow>:
+def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   match rows:
     case Nil{}: Nil{}
     case Con{+h, t}:
       +tail = Nat.sub(chars, row_chars(h))
-      AnchoredRow{h, Cl.ScrollAt{after, tail}} <> anchored_rows(t, after, tail)
+      AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> anchored_rows(t, after, tail, line)
 
-def anchored_line(+rows: List<&2, BodyRow>, +after: Nat) -> List<&2, AnchoredRow>:
-  anchored_rows(rows, after, rows_chars(rows))
+def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
+  anchored_rows(rows, after, rows_chars(rows), line)
 
 def paint_filter_cm(cm: Maybe<&2, String>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
   match cm:
@@ -1353,7 +1360,7 @@ def paint_anchored(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: B
     case Con{+h, t}:
       +after = Nat.sub(left, 1n)
       +head = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
-      List.append(&2, AnchoredRow, anchored_line(head, after), paint_anchored(t, name, w, show_ts, mutes, joins, nicks, server, after, boxed))
+      List.append(&2, AnchoredRow, anchored_line(head, after, h), paint_anchored(t, name, w, show_ts, mutes, joins, nicks, server, after, boxed))
 
 def anchored_lines_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
   paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_only(media))
@@ -1379,7 +1386,7 @@ def anchor_end.on(found: Bool, +i: Nat, k: Nat -> Nat) -> Nat:
 def anchor_end(rows: List<&2, AnchoredRow>, +want: Cl.Scroll, +i: Nat) -> Nat:
   match rows:
     case Nil{}: i
-    case Con{AnchoredRow{_, anchor}, t}:
+    case Con{AnchoredRow{_, anchor, _}, t}:
       anchor_end.on(anchor_reached(anchor, want), 1n+i, n => anchor_end(t, want, n))
 
 def viewport_end(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> Nat:
@@ -1392,7 +1399,7 @@ def viewport_end(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) ->
 def anchored_bodies(rows: List<&2, AnchoredRow>) -> List<&2, BodyRow>:
   match rows:
     case Nil{}: Nil{}
-    case Con{AnchoredRow{body, _}, t}: body <> anchored_bodies(t)
+    case Con{AnchoredRow{body, _, _}, t}: body <> anchored_bodies(t)
 
 def visible_anchored(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> List<&2, BodyRow>:
   +end = viewport_end(rows, height, want)
@@ -1480,16 +1487,295 @@ def paint_bottom_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +hei
       +rows = paint_recent_go(rev, name, w, show_ts, mutes, joins, nicks, server, boxed, (height, Nil{}))
       paint_bottom_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
-def paint_bottom(bottom: Bool, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
-  match bottom:
-    case True{}: paint_bottom_use(newest_lines(lines, height), lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
+# Pending sends and the preview injection are not on the stored spine.
+def spine_live(+name: String, +boxed: List<&2, PaintOpts>) -> Bool:
+  Bool.and(List.is_empty(&2, Cl.PendSend, opt_pends(boxed)), Bool.not(String.eq(name, "*preview*")))
+
+def paint_source(live: Bool, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +boxed: List<&2, PaintOpts>) -> List<&2, Cl.Line>:
+  match live:
+    case True{}: raw
+    case False{}: paint_display_lines(name, topic, raw, boxed)
+
+type Step is Data:
+  Step{after: Nat, budget: Nat, on_anchor: Bool}
+
+def window_stop(on_anchor: Bool, +budget: Nat) -> Bool:
+  match on_anchor:
+    case True{}: False{}
+    case False{}: Nat.is_eq(budget, 0n)
+
+def window_next_budget(on_anchor: Bool, +budget: Nat, +n: Nat, +height: Nat) -> Nat:
+  match on_anchor:
+    case True{}: height
+    case False{}: Nat.sub(budget, Nat.min(budget, n))
+
+# Newest-first lines, oldest-first anchored rows. The anchor line is always
+# wrapped. Older lines stop once `height` extra rows exist.
+def window_body(
+  stop: Bool,
+  +h: Cl.Line,
+  +after: Nat,
+  +budget: Nat,
+  +on_anchor: Bool,
+  +height: Nat,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  k: Step -> List<&2, AnchoredRow>
+) -> List<&2, AnchoredRow>:
+  match stop:
+    case True{}: Nil{}
+    case False{}:
+      +body = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
+      +older = k(Step{Nat.add(after, 1n), window_next_budget(on_anchor, budget, List.length(&2, BodyRow, body), height), False{}})
+      List.append(&2, AnchoredRow, older, anchored_line(body, after, h))
+
+def window_with(
+  step: Step,
+  +h: Cl.Line,
+  +height: Nat,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  k: Step -> List<&2, AnchoredRow>
+) -> List<&2, AnchoredRow>:
+  match step:
+    case Step{+after, +budget, +on_anchor}:
+      window_body(window_stop(on_anchor, budget), h, after, budget, on_anchor, height, name, w, show_ts, mutes, joins, nicks, server, boxed, k)
+
+def window_go(
+  fuel: Nat,
+  lines: List<&2, Cl.Line>,
+  step: Step,
+  +height: Nat,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> List<&2, AnchoredRow>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match lines:
+        case Nil{}: Nil{}
+        case Con{+h, t}:
+          window_with(step, h, height, name, w, show_ts, mutes, joins, nicks, server, boxed,
+            next => window_go(p, t, next, height, name, w, show_ts, mutes, joins, nicks, server, boxed))
+
+def take_emit(zero: Bool, +h: Cl.Line, k: Unit -> List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match zero:
+    case True{}: Nil{}
+    case False{}: h <> k(Unit{})
+
+def take_new(fuel: Nat, lines: List<&2, Cl.Line>, +n: Nat) -> List<&2, Cl.Line>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match lines:
+        case Nil{}: Nil{}
+        case Con{+h, t}:
+          take_emit(Nat.is_eq(n, 0n), h, done => take_new(p, t, Nat.sub(n, 1n)))
+
+def rev_new(lines: List<&2, Cl.Line>, +acc: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match lines:
+    case Nil{}: acc
+    case Con{+h, t}: rev_new(t, h <> acc)
+
+type Next is Data:
+  Next{after: Nat, budget: Nat}
+
+# `lines` is oldest-first, starting at the line just newer than the anchor.
+# Stop after `height` rows; a short buffer includes every newer line.
+def newer_from(
+  stop: Bool,
+  +h: Cl.Line,
+  +after: Nat,
+  +budget: Nat,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  k: Next -> List<&2, AnchoredRow>
+) -> List<&2, AnchoredRow>:
+  match stop:
+    case True{}: Nil{}
+    case False{}:
+      +body = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
+      +n = List.length(&2, BodyRow, body)
+      List.append(&2, AnchoredRow, anchored_line(body, after, h),
+        k(Next{Nat.sub(after, 1n), Nat.sub(budget, Nat.min(budget, n))}))
+
+def newer_open(
+  step: Next,
+  +h: Cl.Line,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  k: Next -> List<&2, AnchoredRow>
+) -> List<&2, AnchoredRow>:
+  match step:
+    case Next{+after, +budget}:
+      newer_from(Nat.is_eq(budget, 0n), h, after, budget, name, w, show_ts, mutes, joins, nicks, server, boxed, k)
+
+def newer_go(
+  fuel: Nat,
+  lines: List<&2, Cl.Line>,
+  step: Next,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> List<&2, AnchoredRow>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      match lines:
+        case Nil{}: Nil{}
+        case Con{+h, t}:
+          newer_open(step, h, name, w, show_ts, mutes, joins, nicks, server, boxed,
+            next => newer_go(p, t, next, name, w, show_ts, mutes, joins, nicks, server, boxed))
+
+# Drop the newer prefix in place, then reverse only the screenful that can
+# affect this page. `height` here is a line budget, not a row budget.
+def newer_start(wide: Bool, +after: Nat, +take: Nat) -> Nat:
+  match wide:
+    case True{}: Nat.sub(after, take)
+    case False{}: 0n
+
+def newer_lines(+newest: List<&2, Cl.Line>, +after: Nat, +budget: Nat) -> List<&2, Cl.Line>:
+  +take = Nat.min(after, budget)
+  +start = newer_start(Nat.is_gt(after, take), after, take)
+  rev_new(take_new(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, start), Nat.sub(after, start)), Nil{})
+
+def newer_after(zero: Bool, +after: Nat) -> Nat:
+  match zero:
+    case True{}: 0n
+    case False{}: Nat.sub(after, 1n)
+
+def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2, Cl.Line>, +after: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+  match has_newer:
+    case False{}: older
+    case True{}:
+      List.append(&2, AnchoredRow, older,
+        newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height}, name, w, show_ts, mutes, joins, nicks, server, boxed))
+
+def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
+  match past:
+    case True{}: Nat.sub(count, 1n)
+    case False{}: after
+
+def window_anchored(+newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+  +at = window_after(Bool.and(Nat.is_gt(count, 0n), Nat.is_ge(after, count)), after, count)
+  window_join(Nat.is_gt(at, 0n),
+    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, at), Step{at, height, True{}}, height, name, w, show_ts, mutes, joins, nicks, server, boxed),
+    newest, at, height, name, w, show_ts, mutes, joins, nicks, server, boxed)
+
+# One ScrollAt window under media+cards paint. Admission and nav consumers
+# share this instead of each re-entering window_go.
+def window_media_cards_cm(+cm: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  window_anchored(newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, paint_media_cards_cm(cm, media, cards))
+
+def window_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match b:
+    case Cl.Buffer{+name, _, _, _, _, Cl.ScrollAt{+after, _}, +newest, +count}:
+      window_media_cards_cm(cm, newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, media, cards)
+
+# Viewport slice of an anchored window (AnchoredRow units; preserves ScrollAt).
+def visible_anchored_crop(+rows: List<&2, AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, AnchoredRow>:
+  +end = viewport_end(rows, height, scroll)
+  List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height)
+
+def visible_anchored_buf_media_cards_cm.allowed(+cm: String, allowed: Bool, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}:
+      match b:
+        case Cl.Buffer{_, _, _, _, _, +scroll, _, _}:
+          visible_anchored_crop(window_buf_media_cards_cm(cm, b, height, w, show_ts, mutes, joins, nicks, server, media, cards), height, scroll)
+
+def visible_anchored_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match b:
+    case Cl.Buffer{name, _, _, _, _, _, _, _}:
+      visible_anchored_buf_media_cards_cm.allowed(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
+        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
+
+def paint_preview_row(show: Bool, +rows: List<&2, BodyRow>, +topic: String, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match show:
+    case False{}: rows
+    case True{}:
+      +extra = paint_body_rows(paint_filter(boxed, Cl.Line{Cl.System{}, "", topic, "", 0n} <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
+      List.append(&2, BodyRow, extra, rows)
+
+def paint_bottom.edge(+newest: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  +rows = paint_recent_go(List.append(&2, Cl.Line, rev_new(pending_for_buf(opt_pends(boxed), name), Nil{}), newest), name, w, show_ts, mutes, joins, nicks, server, boxed, (height, Nil{}))
+  paint_preview_row(Bool.and(Nat.is_lt(List.length(&2, BodyRow, rows), height), String.eq(name, "*preview*")), rows, topic, name, w, show_ts, mutes, joins, nicks, server, boxed)
+
+def paint_bottom.live(live: Bool, +newest: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match live:
+    case True{}: paint_recent_go(newest, name, w, show_ts, mutes, joins, nicks, server, boxed, (height, Nil{}))
+    case False{}: paint_bottom.edge(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+
+def paint_bottom.away(live: Bool, +newest: List<&2, Cl.Line>, +lines: List<&2, Cl.Line>, +name: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+  match live:
     case False{}: visible_anchored(paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), boxed), height, scroll)
+    case True{}:
+      match scroll:
+        case Cl.ScrollAt{+after, _}:
+          visible_anchored(window_anchored(newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll)
+
+def paint_bottom(bottom: Bool, live: Bool, +newest: List<&2, Cl.Line>, +lines: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+  match bottom:
+    case True{}: paint_bottom.live(live, newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: paint_bottom.away(live, newest, lines, name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
+
+def paint_body_of.scrolled(live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+  match live:
+    case True{}: paint_bottom.away(True{}, newest, raw, name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
+    case False{}: paint_bottom.away(False{}, newest, paint_display_lines(name, topic, raw, boxed), name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
+
+def paint_body_of.bottom(preview: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  match preview:
+    case True{}:
+      +shown = paint_display_lines(name, topic, raw, boxed)
+      paint_bottom_use(newest_lines(shown, height), shown, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: paint_bottom.live(live, newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+
+def paint_body_of.at(bottom: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+  match bottom:
+    case True{}: paint_body_of.bottom(String.eq(name, "*preview*"), live, newest, raw, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: paint_body_of.scrolled(live, newest, raw, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
 
 def paint_body_of(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}}:
-      +lines = paint_display_lines(name, topic, raw_lines, boxed)
-      paint_bottom(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed, Cl.ScrollAt{after, tail})
+    case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}, +newest, +count}:
+      paint_body_of.at(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), spine_live(name, boxed), newest, raw_lines, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, Cl.ScrollAt{after, tail})
 
 def body_of.buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
   paint_body_of(b, height, w, show_ts, mutes, joins, nicks, server, paint_media_only(media))
@@ -1500,7 +1786,7 @@ def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List
 def row_anchor_at(rows: List<&2, AnchoredRow>, i: Nat) -> Cl.Scroll:
   match rows:
     case Nil{}: Cl.ScrollAt{0n, 0n}
-    case Con{AnchoredRow{_, +anchor}, t}:
+    case Con{AnchoredRow{_, +anchor, _}, t}:
       match i:
         case 0n: anchor
         case 1n+p: row_anchor_at(t, p)
@@ -1512,41 +1798,137 @@ def moved_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +
   +end = Nat.sub(count, clamp_scroll(Nat.sub(count, target), count, height))
   Bool.pick(Cl.Scroll, Nat.is_eq(end, count), Cl.ScrollAt{0n, 0n}, row_anchor_at(rows, Nat.sub(end, 1n)))
 
+def shift_len(bottom: Bool, +count: Nat, +end: Nat) -> Nat:
+  match bottom:
+    case True{}: count
+    case False{}: end
+
+def shift_len_of(+rows: List<&2, AnchoredRow>, want: Cl.Scroll) -> Nat:
+  match want:
+    case Cl.ScrollAt{+after, +tail}:
+      shift_len(Bool.and(Nat.is_eq(after, 0n), Nat.is_eq(tail, 0n)), List.length(&2, AnchoredRow, rows), anchor_end(rows, want, 0n))
+
+def row_after(row: AnchoredRow) -> Nat:
+  match row:
+    case AnchoredRow{_, Cl.ScrollAt{+after, _}, _}: after
+
+def first_after(rows: List<&2, AnchoredRow>) -> Nat:
+  match rows:
+    case Nil{}: 0n
+    case Con{+h, _}: row_after(h)
+
+def last_after(rows: List<&2, AnchoredRow>) -> Nat:
+  match rows:
+    case Nil{}: 1n
+    case Con{+h, Nil{}}: row_after(h)
+    case Con{_, +t}: last_after(t)
+
+def shift_at_top.go(empty: Bool, +rows: List<&2, AnchoredRow>, +count: Nat) -> Bool:
+  match empty:
+    case True{}: True{}
+    case False{}: Nat.is_eq(first_after(rows), Nat.sub(count, 1n))
+
+def shift_at_top(+rows: List<&2, AnchoredRow>, +count: Nat) -> Bool:
+  shift_at_top.go(Bool.or(List.is_empty(&2, AnchoredRow, rows), Nat.is_eq(count, 0n)), rows, count)
+
+def shift_at_bottom(+rows: List<&2, AnchoredRow>) -> Bool:
+  match rows:
+    case Nil{}: True{}
+    case Con{_, _}: Nat.is_eq(last_after(rows), 0n)
+
+def shift_pick.page(at_top: Bool, short: Bool, +rows: List<&2, AnchoredRow>, +height: Nat) -> Cl.Scroll:
+  match at_top:
+    case False{}: row_anchor_at(rows, 0n)
+    case True{}:
+      match short:
+        case True{}: Cl.ScrollAt{0n, 0n}
+        case False{}: row_anchor_at(rows, Nat.sub(height, 1n))
+
+def shift_pick.zero(zero: Bool, +at_top: Bool, +rows: List<&2, AnchoredRow>, +count: Nat, +height: Nat, +target: Nat) -> Cl.Scroll:
+  match zero:
+    case True{}: shift_pick.page(at_top, Nat.is_lt(count, height), rows, height)
+    case False{}: row_anchor_at(rows, Nat.sub(target, 1n))
+
+def shift_pick(snap: Bool, +at_top: Bool, +rows: List<&2, AnchoredRow>, +target: Nat, +count: Nat, +height: Nat) -> Cl.Scroll:
+  match snap:
+    case True{}: Cl.ScrollAt{0n, 0n}
+    case False{}: shift_pick.zero(Nat.is_eq(target, 0n), at_top, rows, count, height, target)
+
+# Move by whole rows inside a window that contains the anchor line, `up`
+# older rows, and `dn` newer rows. Snap to the live tail only when that
+# window includes the newest line.
+def shift_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll, +up: Nat, +dn: Nat, +lines_n: Nat) -> Cl.Scroll:
+  +count = List.length(&2, AnchoredRow, rows)
+  +index = shift_len_of(rows, want)
+  +target = Cl.clamp_nat(Nat.sub(Nat.add(index, dn), up), count)
+  shift_pick(Bool.and(shift_at_bottom(rows), Nat.is_eq(target, count)), shift_at_top(rows, lines_n), rows, target, count, height)
+
+def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+  List.append(&2, AnchoredRow,
+    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed),
+    newer_go(rev_tail_fuel(), newer_lines(newest, after, Nat.add(dn, 32n)), Next{newer_after(Nat.is_eq(after, 0n), after), dn}, name, w, show_ts, mutes, joins, nicks, server, boxed))
+
+def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
+  Cl.set_buf_anchor(b, shift_anchor(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll, up, dn, count))
+
+def scroll_buf_media.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> Cl.Buffer:
+  +lines = media_display_lines(name, topic, raw, media)
+  +rows = anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
+  Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+
+def scroll_buf_media.go(live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> Cl.Buffer:
+  match live:
+    case False{}: scroll_buf_media.full(b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
+    case True{}:
+      match scroll:
+        case Cl.ScrollAt{+after, _}:
+          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_only(media), scroll)
+
 def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
-      +lines = media_display_lines(name, topic, raw_lines, media)
-      +rows = anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
-      Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+    case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
+      scroll_buf_media.go(spine_live(name, paint_media_only(media)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
 
 def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
   scroll_buf_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
 
+def scroll_buf_media_cards_cm.full(+cm: String, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
+  +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw, media))
+  +rows = anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards)
+  Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+
+def scroll_buf_media_cards_cm.go(+cm: String, live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
+  match live:
+    case False{}: scroll_buf_media_cards_cm.full(cm, b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+    case True{}:
+      match scroll:
+        case Cl.ScrollAt{+after, _}:
+          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_cards_cm(cm, media, cards), scroll)
+
 def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{+name, _, +topic, +raw_lines, _, +scroll}:
-      +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw_lines, media))
-      +rows = anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards)
-      Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+    case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
+      +boxed = paint_media_cards_cm(cm, media, cards)
+      scroll_buf_media_cards_cm.go(cm, Bool.and(spine_live(name, boxed), List.is_empty(&2, Cl.PendSend, pends)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, +topic, _, _, _}:
+    case Cl.Buffer{_, _, +topic, _, _, _, _, _}:
       topic
 
 def nicks_title_of(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, _, _, _, _, _}:
+    case Cl.Buffer{+name, _, _, _, _, _, _, _}:
       name
 
 def nicks_list_of(+b: Cl.Buffer) -> List<&2, String>:
   match b:
-    case Cl.Buffer{_, _, _, _, +nicks, _}:
+    case Cl.Buffer{_, _, _, _, +nicks, _, _, _}:
       nicks
 
 def status_of.buf(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{_, _, _, _, +nicks, _}:
+    case Cl.Buffer{_, _, _, _, +nicks, _, _, _}:
       "/connect /join /part /close /msg /nick /me /preview /quit  ·  Up/Down hist  ·  Shift+Left/Right  ·  Esc  ·  "
         ++ Nat.show(List.length(&2, String, nicks))
         ++ " nicks"
@@ -1597,7 +1979,7 @@ def tab_names.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>, first:
   match bufs:
     case Nil{}:
       Nil{}
-    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, _, _}, t}:
       tab_lab(name, first, Cl.buf_unread_status(unreads, name)) <> tab_names.go(t, unreads, False{})
 
 # Server buffer keeps the name "server" internally; the tab strip uses
@@ -1609,7 +1991,7 @@ def tab_alerts.go(bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>, first
   match bufs:
     case Nil{}:
       Nil{}
-    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, _, _}, t}:
       match first:
         case True{}: 0 <> tab_alerts.go(t, unreads, False{})
         case False{}: Cl.buf_unread_status(unreads, name) <> tab_alerts.go(t, unreads, False{})
@@ -1625,7 +2007,7 @@ def tab_names.go_cm(+cm: String, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, C
   match bufs:
     case Nil{}:
       Nil{}
-    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, _, _}, t}:
       tab_lab(name, first, Cl.buf_unread_status_cm(cm, unreads, name)) <> tab_names.go_cm(cm, t, unreads, False{})
 
 def tab_names_cm(+cm: String, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, Cl.Alert>) -> List<&2, String>:
@@ -1635,7 +2017,7 @@ def tab_alerts.go_cm(+cm: String, bufs: List<&2, Cl.Buffer>, +unreads: List<&2, 
   match bufs:
     case Nil{}:
       Nil{}
-    case Con{Cl.Buffer{+name, _, _, _, _, _}, t}:
+    case Con{Cl.Buffer{+name, _, _, _, _, _, _, _}, t}:
       match first:
         case True{}: 0 <> tab_alerts.go_cm(cm, t, unreads, False{})
         case False{}: Cl.buf_unread_status_cm(cm, unreads, name) <> tab_alerts.go_cm(cm, t, unreads, False{})
@@ -1661,18 +2043,13 @@ def mid_w.on(+cols: U32, wide: Bool) -> U32:
 def mid_w(+cols: U32) -> U32:
   mid_w.on(cols, U32.is_gt(cols, 24))
 
-def status_y.on(+rows: U32, ge: Bool) -> U32:
-  match ge:
-    case True{}:
-      U32.sub(rows, 1)
-    case False{}:
-      0
-
+# Off-screen. The cheat-sheet row is gone; the body box ends on the last
+# screen row and the composer is its last inner line.
 def status_y(+rows: U32) -> U32:
-  status_y.on(rows, U32.is_ge(rows, 1))
+  rows
 
-# Body last occupied row is y+h-1. Keep y+h <= status_y so the box never
-# reaches the status row. The composer lives on the last inner body row.
+# Body last occupied row is y+h-1. The box runs through the last screen row.
+# The composer lives on the last inner body row.
 # Prefer y=1 (row 0 is tabs bar).
 def body_top.small(+end: U32, ge: Bool) -> U32:
   match ge:
@@ -1736,15 +2113,14 @@ def user_rect(+cols: U32, +uw: U32) -> Rect:
 
 def lay(+rows: U32, +cols: U32, +uw: U32) -> Lay:
   +mid = mid_w(cols)
-  +sy = status_y(rows)
-  +top = body_top(sy)
-  +bh = body_box_h(sy, top)
+  +top = body_top(rows)
+  +bh = body_box_h(rows, top)
   Lay{
     Rect{0, 0, tabs_w(cols, uw), 1},
     user_rect(cols, uw),
     Rect{0, top, mid, bh},
     Rect{mid, top, nick_w(cols, mid), bh},
-    Rect{0, sy, cols, 1}
+    Rect{0, status_y(rows), cols, 0}
   }
 
 
@@ -2041,7 +2417,7 @@ def preview_path_of.on(+topic: String, preview: Bool) -> String:
 
 def preview_path_of(+b: Cl.Buffer) -> String:
   match b:
-    case Cl.Buffer{+name, _, +topic, _, _, _}:
+    case Cl.Buffer{+name, _, +topic, _, _, _, _, _}:
       preview_path_of.on(topic, String.eq(name, "*preview*") && Bool.not(Links.is_url_prefix(topic)))
 
 # `Bool.pick` would run preview_path_of on every frame. Production passes
@@ -2050,14 +2426,6 @@ def preview_path_legacy(legacy: Bool, +b: Cl.Buffer) -> String:
   match legacy:
     case True{}: preview_path_of(b)
     case False{}: ""
-
-def rect_vis_h(r: Rect) -> Nat:
-  match r:
-    case Rect{_, _, _, +h}: Sp.inner_extent(body_hist_h(h))
-
-def rect_vis_w(r: Rect) -> U32:
-  match r:
-    case Rect{_, _, +w, _}: inner_w(w)
 
 def split_rects.side(r: Rect) -> Rect & Rect:
   match r:
@@ -2079,6 +2447,39 @@ def split_rects(axis: Sp.Axis, r: Rect) -> Rect & Rect:
 def lay_body_rect(l: Lay) -> Rect:
   match l:
     case Lay{_, _, +body, _, _}: body
+
+def rect_vis_h(r: Rect) -> Nat:
+  match r:
+    case Rect{_, _, _, +h}: Sp.inner_extent(body_hist_h(h))
+
+def rect_vis_w(r: Rect) -> U32:
+  match r:
+    case Rect{_, _, +w, _}: inner_w(w)
+
+def visible_anchored_split_media_cards_cm(+cm: String, pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match pair:
+    case (+r1, +r2):
+      match cl:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+          List.append(&2, AnchoredRow,
+            visible_anchored_buf_media_cards_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
+              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
+            visible_anchored_buf_media_cards_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
+              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
+
+def visible_anchored_single_media_cards_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match cl:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+      visible_anchored_buf_media_cards_cm(cm, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
+        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
+
+# Cropped visible AnchoredRows for every painted pane under media+cards+cm.
+# Media and cards admission both consume this list via *.rows / visible_rows.
+def visible_anchored_panes_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match split:
+    case Sp.Off{}: visible_anchored_single_media_cards_cm(cm, cl, rows, cols, media, cards)
+    case Sp.On{axis, first, second, _}:
+      visible_anchored_split_media_cards_cm(cm, split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media, cards)
 
 def focused_rect.pair(pair: Rect & Rect, focus: U32) -> Rect:
   match pair:
@@ -2116,31 +2517,102 @@ def visible_media.line_at(lines: List<&2, Cl.Line>, index: Nat) -> Maybe<&2, Cl.
         case 0n: Some{line}
         case 1n+p: visible_media.line_at(tail, p)
 
-def visible_media.rows(rows: List<&2, AnchoredRow>, +lines: List<&2, Cl.Line>, +count: Nat) -> List<&2, M.Candidate>:
+def visible_media.rows(rows: List<&2, AnchoredRow>) -> List<&2, M.Candidate>:
   match rows:
     case Nil{}: Nil{}
-    case Con{AnchoredRow{_, Cl.ScrollAt{after, _}}, tail}:
-      List.append(&2, M.Candidate,
-        visible_media.line(visible_media.line_at(lines, Nat.sub(Nat.sub(count, after), 1n))),
-        visible_media.rows(tail, lines, count))
+    case Con{AnchoredRow{_, _, +line}, tail}:
+      List.append(&2, M.Candidate, visible_media.line(Some{line}), visible_media.rows(tail))
 
-def visible_media.crop(+rows: List<&2, AnchoredRow>, +lines: List<&2, Cl.Line>, +height: Nat, scroll: Cl.Scroll) -> List<&2, M.Candidate>:
-  +end = viewport_end(rows, height, scroll)
-  visible_media.rows(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height),
-    lines, List.length(&2, Cl.Line, lines))
+def visible_media.crop(+rows: List<&2, AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, M.Candidate>:
+  visible_media.rows(visible_anchored_crop(rows, height, scroll))
+
+def at_bottom(scroll: Cl.Scroll) -> Bool:
+  match scroll:
+    case Cl.ScrollAt{+after, +tail}:
+      Bool.and(Nat.is_eq(after, 0n), Nat.is_eq(tail, 0n))
+
+# A filtered line paints nothing, so it is not a visible candidate.
+def visible_bottom.keep(empty: Bool, +line: Cl.Line) -> List<&2, M.Candidate>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: visible_media.line(Some{line})
+
+def visible_bottom.after(got: Nat & List<&2, M.Candidate>, +mine: List<&2, M.Candidate>) -> Nat & List<&2, M.Candidate>:
+  match got:
+    case (left, +tail): (left, List.append(&2, M.Candidate, tail, mine))
+
+# Newest-first. Stop once the viewport rows are filled, matching paint_recent.
+def visible_bottom.more(done: Bool, +left: Nat, +h: Cl.Line, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, k: Nat -> (Nat & List<&2, M.Candidate>)) -> Nat & List<&2, M.Candidate>:
+  match done:
+    case True{}: (0n, Nil{})
+    case False{}:
+      +rows = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
+      +keep = Nat.min(left, List.length(&2, BodyRow, rows))
+      visible_bottom.after(k(Nat.sub(left, keep)), visible_bottom.keep(Nat.is_eq(keep, 0n), h))
+
+def visible_bottom.go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, +left: Nat) -> Nat & List<&2, M.Candidate>:
+  match lines:
+    case Nil{}: (left, Nil{})
+    case Con{+h, t}:
+      visible_bottom.more(Nat.is_eq(left, 0n), left, h, name, w, show_ts, mutes, joins, nicks, server, boxed,
+        next => visible_bottom.go(t, name, w, show_ts, mutes, joins, nicks, server, boxed, next))
+
+# `short` is the rare muted suffix that did not fill the pane. Only then
+# is the full-history candidate list built.
+def visible_bottom.pair(got: Nat & List<&2, M.Candidate>, +truncated: Bool) -> Bool & List<&2, M.Candidate>:
+  match got:
+    case (left, +cands): (Bool.and(truncated, Nat.is_gt(left, 0n)), cands)
+
+def visible_bottom.scan(got: Newest, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, +boxed: List<&2, PaintOpts>) -> Bool & List<&2, M.Candidate>:
+  match got:
+    case Newest{+rev, +truncated}:
+      visible_bottom.pair(visible_bottom.go(rev, name, w, show_ts, mutes, joins, nicks, server, boxed, height), truncated)
+
+def visible_media.full(+newest: List<&2, Cl.Line>, +count: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, scroll: Cl.Scroll, +media: M.State) -> List<&2, M.Candidate>:
+  match scroll:
+    case Cl.ScrollAt{+after, _}:
+      visible_media.crop(window_anchored(newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, paint_media_only(media)), height, scroll)
+
+def visible_media.buffer.tail.use(short: Bool, +cands: List<&2, M.Candidate>, +lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, scroll: Cl.Scroll, +media: M.State) -> List<&2, M.Candidate>:
+  match short:
+    case False{}: cands
+    case True{}: visible_media.full(lines, 0n, name, w, show_ts, mutes, joins, nicks, server, height, scroll, media)
+
+def visible_media.buffer.tail.scanned(scanned: Bool & List<&2, M.Candidate>, +lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, scroll: Cl.Scroll, +media: M.State) -> List<&2, M.Candidate>:
+  match scanned:
+    case (short, +cands):
+      visible_media.buffer.tail.use(short, cands, lines, name, w, show_ts, mutes, joins, nicks, server, height, scroll, media)
+
+def visible_media.buffer.tail(+lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, scroll: Cl.Scroll, +media: M.State) -> List<&2, M.Candidate>:
+  visible_media.buffer.tail.scanned(
+    visible_bottom.scan(newest_lines(lines, height), name, w, show_ts, mutes, joins, nicks, server, height, paint_media_only(media)),
+    lines, name, w, show_ts, mutes, joins, nicks, server, height, scroll, media)
+
+def visible_media.spine.got(got: Nat & List<&2, M.Candidate>) -> List<&2, M.Candidate>:
+  match got:
+    case (_, +cands): cands
+
+# The stored spine is the whole buffer, newest-first, so a short row list
+# means the pane really is short. No second walk.
+def visible_media.spine(+newest: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, +media: M.State) -> List<&2, M.Candidate>:
+  visible_media.spine.got(visible_bottom.go(newest, name, w, show_ts, mutes, joins, nicks, server, paint_media_only(media), height))
+
+def visible_media.buffer.where(bottom: Bool, +name: String, +lines: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +height: Nat, scroll: Cl.Scroll, +media: M.State) -> List<&2, M.Candidate>:
+  match bottom:
+    case False{}: visible_media.full(newest, count, name, w, show_ts, mutes, joins, nicks, server, height, scroll, media)
+    case True{}: visible_media.spine(newest, name, w, show_ts, mutes, joins, nicks, server, height, media)
 
 def visible_media.buffer.allowed(allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, M.Candidate>:
   match allowed:
     case False{}: Nil{}
     case True{}:
       match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_media.crop(anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media), lines, height, scroll)
+        case Cl.Buffer{+name, _, _, +lines, _, +scroll, +newest, +count}:
+          visible_media.buffer.where(at_bottom(scroll), name, lines, newest, count, w, show_ts, mutes, joins, nicks, server, height, scroll, media)
 
 def visible_media.buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, M.Candidate>:
   match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
+    case Cl.Buffer{name, _, _, _, _, _, _, _}:
       visible_media.buffer.allowed(Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
         b, height, w, show_ts, mutes, joins, nicks, server, media)
 
@@ -2170,49 +2642,24 @@ def visible_media.panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State,
 def visible_media_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media.panes(cl, rows, cols, split, media), media)
 
-# Cards-aware admission: the same panes, rows, mutes, and anchors the cards
-# paint path shows, so card rows that push a chat line out of the viewport
-# also keep it out of the scheduled set.
-def visible_media_cards.buffer.allowed_cm(+cm: String, allowed: Bool, b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match allowed:
-    case False{}: Nil{}
-    case True{}:
-      match b:
-        case Cl.Buffer{+name, _, _, +lines, _, scroll}:
-          visible_media.crop(anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server,
-            List.length(&2, Cl.Line, lines), media, cards), lines, height, scroll)
+# Cards-aware admission: consume the shared cropped anchored window so card
+# rows that push a chat line out of the viewport also keep it unscheduled.
+# Bottom and scrolled paths share window_media_cards_cm (same crop as cards).
+def visible_media_cards.from_rows(+rows: List<&2, AnchoredRow>) -> List<&2, M.Candidate>:
+  visible_media.rows(rows)
 
 def visible_media_cards.buffer_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match b:
-    case Cl.Buffer{name, _, _, _, _, _}:
-      visible_media_cards.buffer.allowed_cm(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
-        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
-
-def visible_media_cards.split_cm(+cm: String, pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match pair:
-    case (+r1, +r2):
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
-          List.append(&2, M.Candidate,
-            visible_media_cards.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
-              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
-            visible_media_cards.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
-              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
-
-def visible_media_cards.single_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
-      visible_media_cards.buffer_cm(cm, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
-        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
+  visible_media_cards.from_rows(visible_anchored_buf_media_cards_cm(cm, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
 
 def visible_media_cards.panes_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
-  match split:
-    case Sp.Off{}: visible_media_cards.single_cm(cm, cl, rows, cols, media, cards)
-    case Sp.On{axis, first, second, _}:
-      visible_media_cards.split_cm(cm, split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media, cards)
+  visible_media_cards.from_rows(visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, media, cards))
 
 def visible_media_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media_cards.panes_cm(cm, cl, rows, cols, split, media, cards), media)
+
+# Prefer when the caller already holds visible_anchored_panes_media_cards_cm.
+def visible_media_candidates_from_rows(+rows: List<&2, AnchoredRow>, +media: M.State) -> List<&2, M.Candidate>:
+  M.newest_candidates(visible_media_cards.from_rows(rows), media)
 def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   match move:
     case False{}: cl
@@ -2253,7 +2700,7 @@ def split_title.base(+name: String, +topic: String) -> String:
 
 def split_title(+b: Cl.Buffer, +focused: U32, +pane: U32) -> String:
   match b:
-    case Cl.Buffer{+name, _, +topic, _, _, _}:
+    case Cl.Buffer{+name, _, +topic, _, _, _, _, _}:
       +base = split_title.base(name, topic)
       Bool.pick(String, U32.is_eq(focused, pane), base ++ " [active]", base)
 
@@ -2362,11 +2809,23 @@ def paint_nicks(r: Rect, +title: String, +names: List<&2, String>, +boxed: List<
     case Rect{x, y, +w, h}:
       paint_nick_wide(x, y, w, h, title, names, U32.is_gt(w, 2), boxed)
 
+def paint_view_kept.go(empty: Bool, ops: List<&2, DrawOp>) -> List<&2, DrawOp>:
+  match empty:
+    case True{}: ops
+    case False{}: ops
+
+def paint_view_kept(ops: List<&2, DrawOp>, +sr: Rect, +st: String) -> List<&2, DrawOp>:
+  match sr:
+    case Rect{_, _, _, _}: paint_view_kept.go(String.is_empty(st), ops)
+
+# The cheat sheet used to occupy a reserved row under the box. That row is the
+# box border now, so nothing is painted there.
 def paint_view_rest(+br: Rect, +bod: List<&2, BodyRow>, +preview: String, +nr: Rect, +title: String, +nicks: List<&2, String>, +sr: Rect, +st: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
-  List.append(&2, DrawOp, image_ops(br, preview),
-    List.append(&2, DrawOp, paint_body_ops(body_hist_rect(br), bod, boxed),
-    List.append(&2, DrawOp, paint_nicks(nr, title, nicks, boxed),
-      op_text(sr, paint_dim(boxed), st) <> Nil{})))
+  paint_view_kept(
+    List.append(&2, DrawOp, image_ops(br, preview),
+      List.append(&2, DrawOp, paint_body_ops(body_hist_rect(br), bod, boxed),
+        paint_nicks(nr, title, nicks, boxed))),
+    sr, st)
 
 def paint_view_ops(
   +boxed: List<&2, PaintOpts>,

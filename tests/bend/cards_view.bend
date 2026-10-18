@@ -107,7 +107,7 @@ def main() -> IO(Unit):
     +ten : Cl.Client = Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, lines(10n))
     Unit <- E.must_eq("visible newest capped", Nat.show(List.length(&2, C.Candidate, C.visible_candidates(ten, 24, 80, Sp.Off{}, M.empty()))), "8")
     Unit <- E.must_eq("visible newest first", cand_shape(C.visible_candidates(ten, 24, 80, Sp.Off{}, M.empty())), "10:https://x.test/p10|9:https://x.test/p9|8:https://x.test/p8|7:https://x.test/p7|6:https://x.test/p6|5:https://x.test/p5|4:https://x.test/p4|3:https://x.test/p3")
-    +synthetic : Cl.Client = Cl.Client{"me", "s", [Cl.Buffer{"*settings*", False{}, "", [src], Nil{}, Cl.ScrollAt{0n, 0n}}], 0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
+    +synthetic : Cl.Client = Cl.Client{"me", "s", [Cl.buf_indexed("*settings*", False{}, "", [src], Nil{}, Cl.ScrollAt{0n, 0n})], 0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
     Unit <- E.must_eq("synthetic buffers excluded", cand_shape(C.visible_candidates(synthetic, 24, 80, Sp.Off{}, M.empty())), "")
     +muted : Cl.Client = submitted(Sub.submit(channel("#room"), "/mute alice"))
     +muted_alice : Cl.Client = set_named(Feed.feed(muted, ":alice!u@h PRIVMSG #room :see " ++ page()), "#room")
@@ -131,11 +131,11 @@ def main() -> IO(Unit):
     Unit <- E.must("accepted token opens", C.is_open(full))
     Unit <- E.must_eq("overlay carries token", U32.show(C.token_of(full)), "7")
     Unit <- E.must_eq("closed token is zero", U32.show(C.token_of(C.FullOff{})), "0")
-    Unit <- E.must_eq("overlay covers body", ops_shape(C.fullscreen_ops(24, 80, full)), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
-    Unit <- E.must_eq("tiny overlay covers body", ops_shape(C.fullscreen_ops(5, 10, full)), "box:0,1,5,3;media:1,2,3,1,0,1,7;")
+    Unit <- E.must_eq("overlay covers body", ops_shape(C.fullscreen_ops(24, 80, full)), "box:0,1,62,23;media:1,2,60,21,0,21,7;")
+    Unit <- E.must_eq("tiny overlay covers body", ops_shape(C.fullscreen_ops(5, 10, full)), "box:0,1,5,4;media:1,2,3,2,0,2,7;")
     Unit <- E.must("close returns to chat", Bool.not(C.is_open(C.close(full))))
     Unit <- E.must("retained token stays open", C.is_open(C.maintain_full(full, ready_media(), card_client())))
-    Unit <- E.must_eq("retained token paints", ops_shape(C.fullscreen_ops(24, 80, C.maintain_full(full, ready_media(), card_client()))), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
+    Unit <- E.must_eq("retained token paints", ops_shape(C.fullscreen_ops(24, 80, C.maintain_full(full, ready_media(), card_client()))), "box:0,1,62,23;media:1,2,60,21,0,21,7;")
     Unit <- E.must("unsupported terminal closes", Bool.not(C.is_open(C.maintain_full(full, M.set_supported(ready_media(), False{}), card_client()))))
     Unit <- E.must("reset closes", Bool.not(C.is_open(C.maintain_full(full, M.reset(ready_media()), card_client()))))
     Unit <- E.must("disable closes", Bool.not(C.is_open(C.maintain_full(full, M.set_enabled(ready_media(), False{}), card_client()))))

@@ -503,34 +503,6 @@ def take_word.scanned(pair: String & String) -> String & String:
 def take_word(s: String) -> String & String:
   take_word.scanned(Irc.take_until_space(s))
 
-def submit_msg.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (cl2, None{}):
-      (cl2, empty_out())
-    case (cl2, Some{+bi}):
-      send_message(Cl.set_active(cl2, bi), bi, who, body)
-
-def submit_msg.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match internal:
-    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_msg.got(Cl.buf_get(cl, Cl.message_key(cl, who), Cl.target_channel(who), True{}), who, body)
-
-def submit_msg.bad(+cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match bad:
-    case True{}:
-      (echo_err(cl, "usage: /msg nick text"), empty_out())
-    case False{}:
-      submit_msg.readonly(Cl.target_is_synthetic(who), cl, who, body)
-
-def submit_msg.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+who, +body):
-      +target = Cl.target_name(who)
-      submit_msg.bad(cl, String.is_empty(target) || String.is_empty(body), target, body)
-
-def submit_msg(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_msg.words(cl, take_word(rest))
-
 def submit_msg_echo.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
     case (cl2, None{}):
@@ -558,44 +530,6 @@ def submit_msg_echo.words(+cl: Cl.Client, pair: String & String, +echo_ok: Bool)
 
 def submit_msg_echo(+cl: Cl.Client, +rest: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_msg_echo.words(cl, take_word(rest), echo_ok)
-
-def submit_query.send(has_text: Bool, +cl: Cl.Client, +bi: Nat, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match has_text:
-    case False{}:
-      (cl, empty_out())
-    case True{}:
-      send_message(cl, bi, who, body)
-
-def submit_query.found(+cl2: Cl.Client, +bi: Nat, +who: String, +body: String, has_text: Bool) -> Cl.Client & List<&2, String>:
-  submit_query.send(has_text, Cl.set_active(cl2, bi), bi, who, body)
-
-def submit_query.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, has_text: Bool) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (cl2, None{}):
-      (cl2, empty_out())
-    case (cl2, Some{+bi}):
-      submit_query.found(cl2, bi, who, body, has_text)
-
-def submit_query.readonly(internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match internal:
-    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_query.text(Cl.buf_get(cl, Cl.message_key(cl, who), Cl.target_channel(who), True{}), who, body, Bool.not(String.is_empty(body)))
-
-def submit_query.empty(+cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match empty:
-    case True{}:
-      (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
-    case False{}:
-      submit_query.readonly(Cl.target_is_synthetic(who) && Bool.not(String.is_empty(body)), cl, who, body)
-
-def submit_query.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+who, +body):
-      +target = Cl.target_name(who)
-      submit_query.empty(cl, String.is_empty(target), target, body)
-
-def submit_query(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_query.words(cl, take_word(Irc.drop_spaces(rest)))
 
 def submit_query_echo.send(has_text: Bool, +cl: Cl.Client, +bi: Nat, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match has_text:
@@ -644,7 +578,7 @@ def submit_wire(+cl: Cl.Client, line: Maybe<&2, String>, usage: String) -> Cl.Cl
 def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
   match bufs:
     case Nil{}: False{}
-    case Con{Cl.Buffer{+name, +channel, _, _, _, _}, rest}:
+    case Con{Cl.Buffer{+name, +channel, _, _, _, _, _, _}, rest}:
       (channel && Irc.ieq(name, target)) || mode_resident(rest, target)
 
 def mode_command.named(named: Bool, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
@@ -663,26 +597,6 @@ def mode_command(+cl: Cl.Client, +args: String) -> Maybe<&2, String>:
 
 def submit_mode(+cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
   submit_wire(cl, mode_command(cl, args), "usage: /mode [target] [modes [args]]")
-
-def submit_notice.got(pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (cl, None{}): (echo_err(cl, "buffer limit reached"), Nil{})
-    case (cl, Some{+i}): send_text(Cl.set_active(cl, i), i, target, body, True{})
-
-def submit_notice.valid(valid: Bool, +cl: Cl.Client, +target: String, body: String) -> Cl.Client & List<&2, String>:
-  match valid:
-    case False{}: (echo_err(cl, "usage: /notice target text"), Nil{})
-    case True{}:
-      submit_notice.got(Cl.buf_get(cl, Cl.message_key(cl, target), Cl.target_channel(target), True{}), target, body)
-
-def submit_notice.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+target, +body):
-      submit_notice.valid(Commands.word(target) && Commands.framing(body) && Bool.not(Cl.target_is_synthetic(target) || String.is_empty(body)),
-        cl, target, Commands.trailing(body))
-
-def submit_notice(cl: Cl.Client, rest: String) -> Cl.Client & List<&2, String>:
-  submit_notice.words(cl, take_word(rest))
 
 def submit_notice_echo.got(pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
@@ -726,53 +640,8 @@ def send_action_chunks_gated(xs: List<&2, String>, +cl: Cl.Client, +target: Stri
     case Con{+body, rest}:
       send_chunks.tail(send_action_chunks_gated(rest, echo_action_gated(cl, Cl.active_of(cl), body, echo_ok), target, echo_ok), Irc.format_privmsg(target, ctcp_action(body)))
 
-def send_action_chunks(xs: List<&2, String>, +cl: Cl.Client, +target: String) -> Cl.Client & List<&2, String>:
-  send_action_chunks_gated(xs, cl, target, False{})
-
-def submit_me.parts(parts: Maybe<&2, List<&2, String>>, cl: Cl.Client, target: String) -> Cl.Client & List<&2, String>:
-  match parts:
-    case None{}: (echo_err(cl, "action cluster exceeds IRC line limit"), Nil{})
-    case Some{xs}: send_action_chunks(xs, cl, target)
-
-def submit_me.clean(valid: Bool, cl: Cl.Client, target: String, body: String, budget: Nat) -> Cl.Client & List<&2, String>:
-  match valid:
-    case False{}: (echo_err(cl, "action contains an invalid framing character"), Nil{})
-    case True{}: submit_me.parts(Chunks.split(body, budget), cl, target)
-
-def submit_me.budget(+cl: Cl.Client, +tgt: String, +rest: String, +overhead: Nat, fits: Bool) -> Cl.Client & List<&2, String>:
-  match fits:
-    case False{}:
-      (echo_err(cl, "action target exceeds IRC line limit"), empty_out())
-    case True{}:
-      +body = Irc.strip_ctl(rest)
-      submit_me.clean(Commands.framing(body), cl, tgt, body, Nat.sub(Irc.LINE_MAX(), overhead))
-
-def submit_me.chan(+cl: Cl.Client, +rest: String, on_server: Bool) -> Cl.Client & List<&2, String>:
-  match on_server:
-    case True{}:
-      (echo_err(cl, "not in a channel — /join #chan first"), empty_out())
-    case False{}:
-      +tgt = Irc.strip_ctl(Cl.active_buf_name(cl))
-      +overhead = Irc.utf8_len(Irc.format_privmsg(tgt, ctcp_action("")))
-      submit_me.budget(cl, tgt, rest, overhead, Commands.word(tgt) && Nat.is_lt(overhead, Irc.LINE_MAX()))
-
 def active_is_synthetic(+cl: Cl.Client) -> Bool:
   Cl.target_is_synthetic(Cl.active_buf_name(cl))
-
-def submit_me.target(+cl: Cl.Client, +rest: String, synthetic: Bool) -> Cl.Client & List<&2, String>:
-  match synthetic:
-    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}: submit_me.chan(cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
-
-def submit_me.on(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
-  match empty:
-    case True{}:
-      (echo_err(cl, "usage: /me action"), empty_out())
-    case False{}:
-      submit_me.target(cl, rest, active_is_synthetic(cl))
-
-def submit_me(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_me.on(cl, rest, String.is_empty(rest))
 
 def submit_me_echo.parts(parts: Maybe<&2, List<&2, String>>, cl: Cl.Client, target: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match parts:
@@ -1308,9 +1177,9 @@ def clear_link_results.lines(lines: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
 
 def clear_link_results.buf(b: Cl.Buffer) -> Cl.Buffer:
   match b:
-    case Cl.Buffer{name, channel, topic, +lines, nicks, scroll}:
+    case Cl.Buffer{name, channel, topic, +lines, nicks, scroll, _, _}:
       +kept = clear_link_results.lines(lines)
-      Cl.Buffer{name, channel, topic, kept, nicks, Cl.reanchor_lines(lines, kept, scroll)}
+      Cl.buf_indexed(name, channel, topic, kept, nicks, Cl.reanchor_lines(lines, kept, scroll))
 
 def clear_link_results(+cl: Cl.Client) -> Cl.Client:
   Cl.buf_modify_client(cl, Cl.active_of(cl), clear_link_results.buf)
@@ -1471,6 +1340,7 @@ type Slash is Data:
   SplitOff{}
   Unsplit{}
   Focus{}
+  HelpCmd{}
   Unknown{}
 
 type SlashRow is Data:
@@ -1482,6 +1352,7 @@ def slash_cons(+name: String, cmd: Slash, rest: List<&2, SlashRow>) -> List<&2, 
   SlashRow{name, cmd} <> rest
 
 def slash_rows() -> List<&2, SlashRow>:
+  slash_cons("help", HelpCmd{},
   slash_cons("join", Join{},
   slash_cons("part", Part{},
   slash_cons("close", CloseCmd{},
@@ -1524,9 +1395,9 @@ def slash_rows() -> List<&2, SlashRow>:
   slash_cons("notice", NoticeCmd{},
   slash_cons("raw", RawCmd{},
   slash_cons("quote", RawCmd{},
-  Nil{}))))))))))))))))))))))))))))))))))))))))))
+  Nil{})))))))))))))))))))))))))))))))))))))))))))
 
-# Catalog length is 42. Fuel bounds the scan and decreases on the miss path.
+# Catalog length is 43. Fuel bounds the scan and decreases on the miss path.
 def slash_fuel() -> Nat:
   64n
 
@@ -1831,30 +1702,6 @@ def needs_connection(input: Input) -> Bool:
     case CommandInput{cmd, _, +rest}: command_needs_connection(cmd, rest)
     case EmptyInput{}: False{}
 
-def submit_msg_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match internal:
-    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}:
-      +key = Is.chan_target_cl(iso, cl, who)
-      +chan = Is.is_channel(iso, who)
-      submit_msg.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body)
-
-def submit_msg_with.bad(+iso: Is.State, +cl: Cl.Client, bad: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match bad:
-    case True{}:
-      (echo_err(cl, "usage: /msg nick text"), empty_out())
-    case False{}:
-      submit_msg_with.readonly(iso, Cl.target_is_synthetic(who), cl, who, body)
-
-def submit_msg_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+who, +body):
-      +target = Cl.target_name(who)
-      submit_msg_with.bad(iso, cl, String.is_empty(target) || String.is_empty(body), target, body)
-
-def submit_msg_with(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_msg_with.words(iso, cl, take_word(rest))
-
 def submit_msg_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
@@ -1879,30 +1726,6 @@ def submit_msg_with_echo.words(+iso: Is.State, +cl: Cl.Client, pair: String & St
 def submit_msg_with_echo(+iso: Is.State, +cl: Cl.Client, +rest: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_msg_with_echo.words(iso, cl, take_word(rest), echo_ok)
 
-def submit_query_with.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match internal:
-    case True{}: (echo_err(cl, "read-only buffer"), empty_out())
-    case False{}:
-      +key = Is.chan_target_cl(iso, cl, who)
-      +chan = Is.is_channel(iso, who)
-      submit_query.text(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, Bool.not(String.is_empty(body)))
-
-def submit_query_with.empty(+iso: Is.State, +cl: Cl.Client, empty: Bool, +who: String, +body: String) -> Cl.Client & List<&2, String>:
-  match empty:
-    case True{}:
-      (echo_err(cl, "usage: /query <nick> [text]"), empty_out())
-    case False{}:
-      submit_query_with.readonly(iso, Cl.target_is_synthetic(who) && Bool.not(String.is_empty(body)), cl, who, body)
-
-def submit_query_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+who, +body):
-      +target = Cl.target_name(who)
-      submit_query_with.empty(iso, cl, String.is_empty(target), target, body)
-
-def submit_query_with(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
-  submit_query_with.words(iso, cl, take_word(Irc.drop_spaces(rest)))
-
 def submit_query_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match internal:
     case True{}: (echo_err(cl, "read-only buffer"), empty_out())
@@ -1926,23 +1749,6 @@ def submit_query_with_echo.words(+iso: Is.State, +cl: Cl.Client, pair: String & 
 
 def submit_query_with_echo(+iso: Is.State, +cl: Cl.Client, +rest: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_query_with_echo.words(iso, cl, take_word(Irc.drop_spaces(rest)), echo_ok)
-
-def submit_notice_with.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +target: String, body: String) -> Cl.Client & List<&2, String>:
-  match valid:
-    case False{}: (echo_err(cl, "usage: /notice target text"), Nil{})
-    case True{}:
-      +key = Is.chan_target_cl(iso, cl, target)
-      +chan = Is.is_channel(iso, target)
-      submit_notice.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), target, body)
-
-def submit_notice_with.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
-  match pair:
-    case (+target, +body):
-      submit_notice_with.valid(iso, Commands.word(target) && Commands.framing(body) && Bool.not(Cl.target_is_synthetic(target) || String.is_empty(body)),
-        cl, target, Commands.trailing(body))
-
-def submit_notice_with(+iso: Is.State, +cl: Cl.Client, rest: String) -> Cl.Client & List<&2, String>:
-  submit_notice_with.words(iso, cl, take_word(rest))
 
 def submit_notice_with_echo.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +target: String, body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match valid:
@@ -2089,6 +1895,8 @@ def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, 
       submit_unknown(cl, verb)
     case Focus{}:
       submit_unknown(cl, verb)
+    case HelpCmd{}:
+      (cl, empty_out())
     case Unknown{}:
       submit_unknown(cl, verb)
 

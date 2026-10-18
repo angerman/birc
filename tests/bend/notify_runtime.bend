@@ -99,6 +99,12 @@ def reqs_bodies(pair: Notify.State & List<&2, Notify.Req>) -> String:
 def sess_mention() -> Sess.Session:
   Sess.session_with_client(cl_mention(), "#room")
 
+def stage_handed(+s: Notify.Stage) -> String:
+  req_titles(Notify.stage_reqs(s))
+
+def stage_reqs_len(+s: Notify.Stage) -> String:
+  Nat.show(List.length(&2, Notify.Req, Notify.stage_reqs(s)))
+
 def hi_shown(+got: Maybe<&2, Nat>) -> String:
   match got:
     case None{}: "unknown"
@@ -244,9 +250,9 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("same rows under fresh scope notify",
       reqs_len(Sess.notify_observe(after(Notify.on(), cl_mention(), 0n), cl_mention(), other_scope(), 0n, "", "")), "1")
     Unit <- E.must_eq("session seam dispatches one mention",
-      reqs_len(Sess.notify_observe_session(Notify.on(), sess_mention(), 0n)), "1")
+      stage_reqs_len(Sess.notify_observe_session_staged(Notify.on(), sess_mention(), 0n, Notify.queue_empty())), "1")
     Unit <- E.must_eq("session seam title exact",
-      reqs_titles(Sess.notify_observe_session(Notify.on(), sess_mention(), 0n)), "bob in #room;")
+      stage_handed(Sess.notify_observe_session_staged(Notify.on(), sess_mention(), 0n, Notify.queue_empty())), "bob in #room;")
     Unit <- E.must_eq("disabled stays silent", reqs_len(observed(Notify.off(), cl_mention(), 0n)), "0")
     Unit <- E.must_eq("mention advances scope mark",
       hi_shown(Notify.hi_of(after(Notify.on(), cl_mention(), 0n), scope())), "2")

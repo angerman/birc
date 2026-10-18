@@ -24,7 +24,7 @@ def lines(n: Nat, +id: Nat) -> List<&2, Cl.Line>:
     case 1n+p: line(id) <> lines(p, 1n+id)
 
 def buffer(name: String, rows: List<&2, Cl.Line>) -> Cl.Buffer:
-  Cl.Buffer{name, True{}, "", rows, Nil{}, Cl.ScrollAt{0n, 0n}}
+  Cl.buf_indexed(name, True{}, "", rows, Nil{}, Cl.ScrollAt{0n, 0n})
 
 def client() -> Cl.Client:
   Cl.Client{"me", "s", Cl.server_buf() <> buffer("#left", lines(10n, 1n))
@@ -138,7 +138,7 @@ def failed(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
 
 def manual_client() -> Cl.Client:
   Cl.Client{"me", "s", List.append(&2, Cl.Buffer, Cl.client_bufs(client()),
-    [Cl.Buffer{"*preview*", False{}, "/tmp/synthetic.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}]),
+    [Cl.buf_indexed("*preview*", False{}, "/tmp/synthetic.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})]),
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n}
 
 def prospective(pair: M.State & Maybe<&2, M.Request>, client: Cl.Client) -> M.State:
@@ -168,7 +168,7 @@ def admission.session() -> S.Session:
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 33n}, S.Online{}, True{}), 30, 160)
 
 def admission.page_up(st: S.Session) -> S.Session:
-  Terminal.entered(S.step_keys(st, S.Keys{"", False{}, Cl.TabStay{}, None{}, 25n, 0n, S.HistStay{}, False{}, 0}))
+  Terminal.entered(S.step_keys(st, S.Keys{"", False{}, Cl.TabStay{}, None{}, 25n, 0n, S.HistStay{}, 0, 0}))
 
 def admission.rows(+st: S.Session, cols: U32) -> List<&2, V.BodyRow>:
   V.body_of.buf_media(Anchor.active_buf(S.session_cl(st)), 25n, V.rect_vis_w(V.lay_body_rect(V.lay(30, cols, 0))),

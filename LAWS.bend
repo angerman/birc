@@ -221,7 +221,7 @@ law split_ordinary_rename_allowed:
   {Cl.nick_rename_allowed("alice", "bob") == True{} : Bool}
 
 law server_query_seeded:
-  {Cl.empty_buf("server", False{}) == Cl.Buffer{"server", False{}, "", Nil{}, "server" <> Nil{}, Cl.ScrollAt{0n, 0n}} : Cl.Buffer}
+  {Cl.empty_buf("server", False{}) == Cl.buf_indexed("server", False{}, "", Nil{}, "server" <> Nil{}, Cl.ScrollAt{0n, 0n}) : Cl.Buffer}
 
 law verb_keeps_extra_separators:
   {Sub.take_verb("cmd   rest") == ("cmd", "  rest") : String & String}
@@ -233,7 +233,7 @@ law protocol_scan_keeps_separators:
   {Irc.take_until_space("cmd   rest") == ("cmd", "   rest") : String & String}
 
 law log_command_has_completion:
-  {Sess.comp_candidates(Cl.init("me", "s"), "/lo") == "/log" <> Nil{} : List<&2, String>}
+  {Sess.comp_candidates_iso(Isupport.defaults(), Cl.init("me", "s"), "/lo") == "/log" <> Nil{} : List<&2, String>}
 
 law reader_eof_is_not_writer_completion:
   {Sess.writer_done_current(Sess.FromNet{1, Sess.Eof{}}, 1) == False{} : Bool}
@@ -347,8 +347,8 @@ law framer_roundtrip:
 law scroll_bounds:
   {VL.scroll_bounds_ok(100n, 10n, 5n) == True{} : Bool}
 
-# LAW: body height is rows minus five chrome rows (tabs, borders,
-# status, composer), with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
+# LAW: body height is the history rows in the body box (24 → 20),
+# with a floor of 1. Layout is Bend DrawOp; C does not cap rows.
 law body_h_fits:
   {Sess.body_h_ok() == True{} : Bool}
 

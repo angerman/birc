@@ -96,7 +96,7 @@ def replayed() -> Cl.Client:
 def buf_last_text.on(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{Cl.Buffer{_, _, _, +lines, _, _}}: last_text(lines)
+    case Some{Cl.Buffer{_, _, _, +lines, _, _, _, _}}: last_text(lines)
 
 def buf_last_text(+cl: Cl.Client, +i: Nat) -> String:
   match cl:
@@ -106,7 +106,7 @@ def buf_last_text(+cl: Cl.Client, +i: Nat) -> String:
 def buf_topic.on(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{Cl.Buffer{_, _, +topic, _, _, _}}: topic
+    case Some{Cl.Buffer{_, _, +topic, _, _, _, _, _}}: topic
 
 def buf_topic(+cl: Cl.Client, +i: Nat) -> String:
   match cl:

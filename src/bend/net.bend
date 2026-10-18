@@ -24,6 +24,7 @@ import ./auth_bridge.bend as AuthBridge
 import ./upload.bend as Up
 import ./upload_io.bend as UploadIO
 import ./view_hint.bend as Hint
+import ./composer_ui.bend as Cu
 import ./theme.bend as Theme
 import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
@@ -161,6 +162,50 @@ def paint_overlay(+vm: V.ViewModel, +full: C.Fullscreen, +media: M.State, +clien
     case V.ViewModel{+ops, +inp}:
       V.ViewModel{List.append(&2, V.DrawOp, ops, CV.overlay_ops(full, media, client, rows, cols)), inp}
 
+def vm_ops(+vm: V.ViewModel) -> List<&2, V.DrawOp>:
+  match vm:
+    case V.ViewModel{+ops, _}: ops
+
+# Body ops only — no fullscreen overlay. The warm frame cache stores this
+# list so F9/Escape can repaint overlay without a cold body rebuild.
+def paint_base.body(
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +cm: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>
+) -> V.ViewModel:
+  match size:
+    case Sess.Size{+rows, +cols}:
+      V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), typers, split, media, C.paint_entries(cards), th, pends)
+
+def paint_base.hint(
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>
+) -> V.ViewModel:
+  match size:
+    case Sess.Size{+rows, +cols}:
+      paint_overlay(paint_base.body(cl, draft, net, size, split, typers, media, cards, cm, th, pends), full, media, cl, rows, cols)
+
+def paint_finish(ui: T.Ui, +base: V.ViewModel, +rows: U32, +cols: U32, lines: List<&2, String>, +draft: String, +ghost: String, +gx: U32, +th: Theme.Id, +warn: Bool, +seed: U32, +cx: U32) -> IO(T.Ui & T.UiKeys):
+  paint_vm(ui, Hint.panel_ops(base, rows, cols, lines, ghost, Hint.ghost_x(gx, draft), th, warn), seed, cx)
+
 def paint_go.hint(
   ui: T.Ui,
   +cl: Cl.Client,
@@ -174,24 +219,170 @@ def paint_go.hint(
   +cards: C.State,
   +full: C.Fullscreen,
   +cm: String,
-  hint: String,
+  +hint: String,
   +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
+  +pends: List<&2, Cl.PendSend>,
+  +comp: Sess.Comp
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, +cols}:
+      +cx = V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl)))
+      +base = paint_base.hint(cl, draft, net, size, split, typers, media, cards, full, cm, th, pends)
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
-        paint_vm(ui, paint_overlay(Hint.status_themed(V.view_draft.state_typing_media_cards_cm_themed(cm, cl, rows, cols, draft, Sess.net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), typers, split, media, C.paint_entries(cards), th, pends), rows, cols, hint, th), full, media, cl, rows, cols), seed, V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl))))
+        paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
+
+# True: paint-ready overlay on cached body ops. False: body only (caller overlays
+# for paint; hot_fresh stores these ops, never overlay ops).
+def paint_go.hot_base(
+  use: Bool,
+  +frame: List<&2, V.DrawOp>,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>
+) -> V.ViewModel:
+  match use:
+    case True{}:
+      match size:
+        case Sess.Size{+rows, +cols}:
+          paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
+    case False{}: paint_base.body(cl, draft, net, size, split, typers, media, cards, cm, th, pends)
+
+def paint_go.hot_kept(+frame: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
+  match got:
+    case (ui, keys): (ui, keys, frame, True{})
+
+# Cache pre-overlay body ops from a cold build.
+def paint_go.hot_fresh(+body: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
+  match got:
+    case (ui, keys): (ui, keys, body, True{})
+
+def paint_go.hot_out(use: Bool, +frame: List<&2, V.DrawOp>, +body: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
+  match use:
+    case True{}: paint_go.hot_kept(frame, got)
+    case False{}: paint_go.hot_fresh(body, got)
+
+def paint_go.hot_use.warm(
+  +frame: List<&2, V.DrawOp>,
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +hint: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>,
+  +comp: Sess.Comp
+) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match size:
+    case Sess.Size{+rows, +cols}:
+      +cx = V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl)))
+      +base = paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
+      do IO<T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool>:
+        ui : T.Ui <- T.Timui.view_begin(ui)
+        got : T.Ui & T.UiKeys <- paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
+        return paint_go.hot_kept(frame, got)
+
+def paint_go.hot_use.cold(
+  +frame: List<&2, V.DrawOp>,
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +hint: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>,
+  +comp: Sess.Comp
+) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match size:
+    case Sess.Size{+rows, +cols}:
+      +cx = V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl)))
+      +body_vm = paint_base.body(cl, draft, net, size, split, typers, media, cards, cm, th, pends)
+      +body = vm_ops(body_vm)
+      +base = paint_overlay(body_vm, full, media, cl, rows, cols)
+      do IO<T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool>:
+        ui : T.Ui <- T.Timui.view_begin(ui)
+        got : T.Ui & T.UiKeys <- paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
+        return paint_go.hot_fresh(body, got)
+
+def paint_go.hot_use(
+  use: Bool,
+  +frame: List<&2, V.DrawOp>,
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +hint: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>,
+  +comp: Sess.Comp
+) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match use:
+    case True{}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, hint, th, pends, comp)
+    case False{}: paint_go.hot_use.cold(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, hint, th, pends, comp)
+
+def paint_go.hot(
+  warm: Bool,
+  +frame: List<&2, V.DrawOp>,
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +cm: String,
+  +hint: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>,
+  comp: Sess.Comp
+) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  paint_go.hot_use(Bool.and(warm, Bool.not(List.is_empty(&2, V.DrawOp, frame))), frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, hint, th, pends, comp)
 
 def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +cm: String, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
-  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th, Nil{})
+  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, cm, "", th, Nil{}, Sess.comp0())
 
 def paint_session.hint(ui: T.Ui, +st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, _, _}:
       +cm = Sess.session_cm(st)
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), cm, hint, theme, Sess.session_pends(st))
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), cm, hint, theme, Sess.session_pends(st), Sess.session_comp(st))
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   paint_session.hint(ui, st, Sess.session_upload_hint(st))
@@ -204,11 +395,23 @@ def paint_session_cards.hint(ui: T.Ui, +st: Sess.Session, +cards: C.State, +full
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _, _}:
       +cm = Sess.session_cm(st)
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, cm, hint, theme, Sess.session_pends(st))
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, cm, hint, theme, Sess.session_pends(st), Sess.session_comp(st))
 
 def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys):
   match found:
     case (+cs, +fl): paint_session_cards.hint(ui, st, cs, fl, Sess.session_upload_hint(st))
+
+# `warm` reuses the last body ops. The composer, ghost, menu, and fullscreen
+# overlay are still built for this frame.
+def paint_session_cards.hot_go(+st: Sess.Session, +cs: C.State, +fl: C.Fullscreen, warm: Bool, +frame: List<&2, V.DrawOp>, ui: T.Ui) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match st:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _, _}:
+      +cm = Sess.session_cm(st)
+      paint_go.hot(warm, frame, ui, cl, draft, net, seed, size, split, Ty.names_cm(cm, typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cs, fl, cm, Sess.session_upload_hint(st), theme, Sess.session_pends(st), Sess.session_comp(st))
+
+def paint_session_cards.hot(warm: Bool, +frame: List<&2, V.DrawOp>, ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match found:
+    case (+cs, +fl): paint_session_cards.hot_go(st, cs, fl, warm, frame, ui)
 
 def emit_outs(chan: Chan(Sess.NetCmd), +outs: List<&2, String>, +gen: U32, empty: Bool) -> IO(U32):
   match empty:
@@ -852,6 +1055,9 @@ def on_from(
       on_evt(e, ui, st, evt, cmd, ack, gen, k)
 
 
+def on_typing_tick.painted(acc: T.Ui & Sess.Session & U32 & Bool, k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)) -> IO(Unit):
+  k((True{}, acc))
+
 def on_typing_tick.pick(
   pair: Sess.Session & Bool,
   ui: T.Ui,
@@ -859,17 +1065,17 @@ def on_typing_tick.pick(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+  k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)
 ) -> IO(Unit):
   match pair:
     case (+st2, changed):
       match changed:
         case False{}:
-          k((ui, st2, gen, False{}))
+          k((False{}, (ui, st2, gen, False{})))
         case True{}:
           do IO<Unit>:
             got : T.Ui & T.UiKeys <- paint_session(ui, st2)
-            on_chunk.paint(got, st2, evt, cmd, ack, gen, k)
+            on_chunk.paint(got, st2, evt, cmd, ack, gen, acc => on_typing_tick.painted(acc, k))
 
 def on_typing_tick.retry(pair: Sess.Session & Bool, retry: Bool) -> Sess.Session & Bool:
   match pair:
@@ -885,7 +1091,7 @@ def on_typing_tick.emit(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+  k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)
 ) -> IO(Unit):
   match ticked:
     case (+st3, +outs):
@@ -902,7 +1108,7 @@ def on_typing_tick.typed(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+  k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)
 ) -> IO(Unit):
   match expired:
     case (+st2, changed):
@@ -916,7 +1122,7 @@ def on_typing_tick.ready(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+  k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)
 ) -> IO(Unit):
   match got:
     case (ui, ready):
@@ -930,11 +1136,17 @@ def on_typing_tick(
   +cmd: Chan(Sess.NetCmd),
   +ack: Chan(Unit),
   +gen: U32,
-  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+  k: (Bool & (T.Ui & Sess.Session & U32 & Bool)) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
     got : T.Ui & U32 <- T.Timui.redraw_ready(ui)
     on_typing_tick.ready(got, st, now_ms, evt, cmd, ack, gen, k)
+
+# Kept for the message match. The live loop handles ticks itself so an
+# unchanged second does not scan scrollback.
+def on_typing_tick.busy(pair: Bool & (T.Ui & Sess.Session & U32 & Bool), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (_, acc): k(acc)
 
 def on_reconnect.enabled(
   enabled: Bool,
@@ -1224,7 +1436,7 @@ def on_msg_go(
     case Sess.UiError{+msg}:
       paint_input(ui, Sess.session_error(st, msg), False{}, evt, cmd, ack, gen, k)
     case Sess.TypingTick{now_ms}:
-      on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, k)
+      on_typing_tick(ui, st, now_ms, evt, cmd, ack, gen, pair => on_typing_tick.busy(pair, k))
     case Sess.Reconnect{+host, port, scheduled_gen}:
       on_reconnect(ui, st, host, port, scheduled_gen, evt, cmd, ack, gen, k)
     case Sess.SearchDone{+ticket, +gen2, +wgen, +endpoint, +orig, +result}:
@@ -1288,6 +1500,13 @@ def auth_notice(+st: Sess.Session, code: U32) -> Sess.Session:
       Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{},
         "authentication notification failed (code: " ++ U32.show(code) ++ ")"))
 
+# An unchanged typing tick must not wrap scrollback just to admit images.
+# Upload consent still runs: it is the endpoint-invalidation owner.
+def live_step.observe(scan: Bool, acc: T.Ui & Sess.Session & U32 & Bool, old_media_gen: Nat, +evt: Chan(Sess.UiMsg), k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match scan:
+    case False{}: upload_stage(acc, evt, k)
+    case True{}: media_stage(acc, old_media_gen, evt, after => cards_live_stage(after, evt, done => upload_stage(done, evt, k)))
+
 def live_step.saved(
   status: Sess.Session & Bool,
   ui: T.Ui,
@@ -1301,13 +1520,14 @@ def live_step.saved(
   +new_endpoint: String,
   allowed: Bool,
   +evt: Chan(Sess.UiMsg),
+  +scan: Bool,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match status:
     case (+st, failed):
       do IO<Unit>:
         pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
-        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => media_stage(next, old_media_gen, evt, after => cards_live_stage(after, evt, done => upload_stage(done, evt, k))))
+        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => live_step.observe(scan, next, old_media_gen, evt, k))
 
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
@@ -1319,6 +1539,7 @@ def live_step.next(
   +hist_path: String,
   +ctx: PrefLive.Context,
   +evt: Chan(Sess.UiMsg),
+  +scan: Bool,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match acc:
@@ -1335,7 +1556,25 @@ def live_step.next(
         # A save failure belongs only in the non-persisted diagnostic buffer.
         # Repaint through the existing coalesced continuation, never UiError:
         # saving an Error chat row would recursively fail and notify again.
-        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, k)
+        # A key that only edits the draft leaves log, buffer, and scroll alone.
+        # Admission walks the viewport; skip it until the visible history moves.
+        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, Bool.or(scan, Bool.not(Cl.view_same(old_cl, Sess.session_cl(observed_st)))), k)
+
+def live_step.tick(
+  pair: Bool & (T.Ui & Sess.Session & U32 & Bool),
+  +scheduled: Bool,
+  +consumed: Bool,
+  +old_cl: Cl.Client,
+  +old_endpoint: String,
+  +old_media_gen: Nat,
+  +hist_path: String,
+  +ctx: PrefLive.Context,
+  +evt: Chan(Sess.UiMsg),
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match pair:
+    case (+scan, acc):
+      live_step.next(acc, scheduled, consumed, old_cl, old_endpoint, old_media_gen, hist_path, ctx, evt, scan, k)
 
 def is_continue(m: Sess.UiMsg) -> Bool:
   match m:
@@ -1378,7 +1617,7 @@ def preferences_message.result(result: PrefLive.Context & Sess.Session & List<&2
       do IO<Unit>:
         emitted : U32 <- emit_cmd(evt, cmd, Sess.Cont{outs}, gen)
         preferences_message.painted(paint, ui, st, emitted, evt, cmd, ack,
-          acc => live_step.next(acc, scheduled, False{}, old_cl, old_endpoint, old_media_gen, hist_path, ctx, evt,
+          acc => live_step.next(acc, scheduled, False{}, old_cl, old_endpoint, old_media_gen, hist_path, ctx, evt, True{},
             next => preferences_stage(next, ctx, evt, cmd, ack, k)))
 
 def history_message.result(result: PrefLive.Context & Sess.Session, ui: T.Ui, +gen: U32, +scheduled: Bool, hist_path: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), k: ((T.Ui & Sess.Session & U32 & Bool) & PrefLive.Context) -> IO(Unit)) -> IO(Unit):
@@ -1387,7 +1626,7 @@ def history_message.result(result: PrefLive.Context & Sess.Session, ui: T.Ui, +g
       # Install the archive checkpoint BEFORE this paint reads more input.
       # Imports are not new events; commands read by this paint still are.
       preferences_message.painted(True{}, ui, st, gen, evt, cmd, ack,
-        acc => live_step.next(acc, scheduled, False{}, Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt,
+        acc => live_step.next(acc, scheduled, False{}, Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, True{},
           next => preferences_stage(next, ctx, evt, cmd, ack, k)))
 
 def live_step.dispatch(+m: Sess.UiMsg, ui: T.Ui, +st: Sess.Session, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, +scheduled: Bool, +hist_path: String, +ctx: PrefLive.Context, k: ((T.Ui & Sess.Session & U32 & Bool) & PrefLive.Context) -> IO(Unit)) -> IO(Unit):
@@ -1400,8 +1639,18 @@ def live_step.dispatch(+m: Sess.UiMsg, ui: T.Ui, +st: Sess.Session, +evt: Chan(S
       do IO<Unit>:
         result : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, gen, got_gen, ticket, ep, snapshot, cmd)
         history_message.result(result, ui, gen, scheduled, hist_path, evt, cmd, ack, k)
+    case Sess.UiKey{}:
+      on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, False{}, next => preferences_stage(next, ctx, evt, cmd, ack, k)))
+    case Sess.UiContinue{}:
+      on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, False{}, next => preferences_stage(next, ctx, evt, cmd, ack, k)))
+    case Sess.TypingTick{now_ms}:
+      do IO<Unit>:
+        ts : String <- Clock.hhmmss()
+        on_typing_tick(ui, Sess.session_set_now(st, ts), now_ms, evt, cmd, ack, gen,
+          pair => live_step.tick(pair, scheduled, False{}, Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt,
+            next => preferences_stage(next, ctx, evt, cmd, ack, k)))
     case _:
-      on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, next => preferences_stage(next, ctx, evt, cmd, ack, k)))
+      on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, True{}, next => preferences_stage(next, ctx, evt, cmd, ack, k)))
 
 # Frame callbacks return `more`; the loop stores whether a single
 # continuation is outstanding. Other paints can consume input but cannot

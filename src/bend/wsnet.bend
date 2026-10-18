@@ -78,6 +78,8 @@ import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
 import ./preferences_live.bend as LoadedPrefs
 import ./startup_headless.bend as Headless
+import ./history_startup.bend as HistStart
+import ./history_startup_io.bend as Archive
 
 type WsMsg is Data:
   WsUi{msg: Sess.UiMsg}
@@ -85,6 +87,8 @@ type WsMsg is Data:
   WsPrefs{m: Sess.UiMsg}
   WsRedial{intent: Sid.Intent}
   WsTick{now_ms: U32}
+  # History-worker append failure: *log* diagnostic only, never UiError/chat Error.
+  WsHistDiag{msg: String}
 
 type WsCmds is Data:
   WsCmds{c0: Chan(Sess.NetCmd), c1: Chan(Sess.NetCmd), c2: Chan(Sess.NetCmd), c3: Chan(Sess.NetCmd)}
@@ -136,8 +140,21 @@ type WsCardsLease is Data:
 # Loop-carried cards bundle: the per-part sidecars plus the one global
 # physical lease. Only the current part stages, but the lease gates every
 # part, so at most one cards helper runs across all parts.
+# One ordered history writer. The UI chain enqueues the already-built
+# record and keeps painting; the worker appends in order and posts a
+# diagnostic only when the write fails.
+type HistJob is Data:
+  HistJob{path: String, data: String}
+  HistStop{}
+
+# Cached process facts and the last body paint. `on` is BIRC_CARDS, read
+# once at startup. `warm` means `frame` is still the visible body.
+# `reload` is a mid-session endpoint-change archive ticket awaiting HistoryLoaded.
+type WsHot is Data:
+  WsHot{on: Bool, path: String, cap: U32, jobs: Maybe<&2, Chan(HistJob)>, warm: Bool, frame: List<&2, V.DrawOp>, ts: String, reload: Maybe<&2, Nat>}
+
 type WsCardsAll is Data:
-  WsCardsAll{parts: List<&2, WsCards>, lease: Maybe<&2, WsCardsLease>}
+  WsCardsAll{parts: List<&2, WsCards>, lease: Maybe<&2, WsCardsLease>, hot: WsHot}
 
 # Per-part notify sidecar: the slot generation fences re-added slots and the
 # accepted N9 NotifyLive owns per-part logical state (marks, bounded queue,
@@ -938,28 +955,80 @@ def ws_cards.sidecar(+xs: List<&2, WsCards>, +id: Key.ServerId, +gen: U32, on: B
 
 # Bundle accessors: the lease rides with the sidecars through the loop so
 # every stage and completion sees the same physical owner.
+def ws_hot.empty() -> WsHot:
+  WsHot{False{}, "", 0, None{}, False{}, Nil{}, "", None{}}
+
+def ws_hot.on(+hot: WsHot) -> Bool:
+  match hot:
+    case WsHot{+on, _, _, _, _, _, _, _}: on
+
+def ws_hot.warm(+hot: WsHot) -> Bool:
+  match hot:
+    case WsHot{_, _, _, _, +warm, _, _, _}: warm
+
+def ws_hot.frame(+hot: WsHot) -> List<&2, V.DrawOp>:
+  match hot:
+    case WsHot{_, _, _, _, _, +frame, _, _}: frame
+
+def ws_hot.reload_of(+hot: WsHot) -> Maybe<&2, Nat>:
+  match hot:
+    case WsHot{_, _, _, _, _, _, _, +reload}: reload
+
+def ws_hot.with_reload(+hot: WsHot, reload: Maybe<&2, Nat>) -> WsHot:
+  match hot:
+    case WsHot{+on, +path, +cap, +jobs, +warm, +frame, +ts, _}:
+      WsHot{on, path, cap, jobs, warm, frame, ts, reload}
+
+def ws_hot.cold(+all: WsCardsAll) -> WsCardsAll:
+  match all:
+    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload}}:
+      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, False{}, Nil{}, ts, reload}}
+
+def ws_hot.keep(+all: WsCardsAll, +frame: List<&2, V.DrawOp>, warm: Bool) -> WsCardsAll:
+  match all:
+    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload}}:
+      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, warm, frame, ts, reload}}
+
 def ws_cards_all.empty() -> WsCardsAll:
-  WsCardsAll{Nil{}, None{}}
+  WsCardsAll{Nil{}, None{}, ws_hot.empty()}
+
+def ws_cards_all.live(on: Bool, +path: String, +cap: U32, +jobs: Chan(HistJob)) -> WsCardsAll:
+  WsCardsAll{Nil{}, None{}, WsHot{on, path, cap, Some{jobs}, False{}, Nil{}, "", None{}}}
+
+def ws_cards_all.hot_set(+all: WsCardsAll, +hot: WsHot) -> WsCardsAll:
+  match all:
+    case WsCardsAll{+parts, +lease, _}: WsCardsAll{parts, lease, hot}
+
+def ws_hot.path_got(+d: PrefLive.Details) -> String:
+  match d:
+    case PrefLive.Details{_, _, _, +path, _, _}: path
+
+def ws_hot.path_of(+ctx: PrefLive.Context) -> String:
+  ws_hot.path_got(PrefLive.details(ctx))
 
 def ws_cards_all.parts(+all: WsCardsAll) -> List<&2, WsCards>:
   match all:
-    case WsCardsAll{+parts, _}: parts
+    case WsCardsAll{+parts, _, _}: parts
 
 def ws_cards_all.lease(+all: WsCardsAll) -> Maybe<&2, WsCardsLease>:
   match all:
-    case WsCardsAll{_, +lease}: lease
+    case WsCardsAll{_, +lease, _}: lease
+
+def ws_cards_all.hot(+all: WsCardsAll) -> WsHot:
+  match all:
+    case WsCardsAll{_, _, +hot}: hot
 
 def ws_cards_all.upsert(+all: WsCardsAll, +e: WsCards) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, +lease}: WsCardsAll{ws_cards.upsert(parts, e), lease}
+    case WsCardsAll{+parts, +lease, +hot}: WsCardsAll{ws_cards.upsert(parts, e), lease, hot}
 
 def ws_cards_all.leased(+all: WsCardsAll, +lease: Maybe<&2, WsCardsLease>) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, _}: WsCardsAll{parts, lease}
+    case WsCardsAll{+parts, _, +hot}: WsCardsAll{parts, lease, hot}
 
 def ws_cards_all.retired(+all: WsCardsAll) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, _}: WsCardsAll{parts, None{}}
+    case WsCardsAll{+parts, _, +hot}: WsCardsAll{parts, None{}, hot}
 
 def ws_cards_all.retired_if(exact: Bool, +all: WsCardsAll) -> WsCardsAll:
   match exact:
@@ -984,7 +1053,7 @@ def ws_cards.released(+parts: List<&2, WsCards>, +s: Key.ServerId, +generation: 
 
 def ws_cards_all.released(+all: WsCardsAll, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, _}: WsCardsAll{ws_cards.released(parts, s, generation, ticket, url), None{}}
+    case WsCardsAll{+parts, _, +hot}: WsCardsAll{ws_cards.released(parts, s, generation, ticket, url), None{}, hot}
 
 # (C) fullscreen visibility gate: the Net overlay covers the body while
 # open, so hidden underlay rows schedule nothing. The already-running
@@ -1064,21 +1133,152 @@ def ws_history.got(pair: Sess.Session & Bool, +ws: W.Workspace, +id: Key.ServerI
     case (+st, failed):
       ws_history.saved(st, failed, ws, id, path, new_ep, cap, allowed && Bool.not(String.eq(old_ep, new_ep)))
 
-def ws_history_save(+ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId) -> IO(W.Workspace & Bool):
+def hist_worker.note(notice: Maybe<&2, String>, +main: Chan(WsMsg)) -> IO(Unit):
+  match notice:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{+msg}:
+      do IO<Unit>:
+        _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsHistDiag{msg})
+        return Unit{}
+
+def hist_worker.got(job: HistJob, +main: Chan(WsMsg), k: Unit -> IO(Unit)) -> IO(Unit):
+  match job:
+    case HistStop{}: IO.pure(Unit, Unit{})
+    case HistJob{+path, +data}:
+      do IO<Unit>:
+        notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
+        Unit <- hist_worker.note(notice, main)
+        k(Unit{})
+
+def hist_worker.recv(g: Maybe<&1, HistJob>, +main: Chan(WsMsg), k: HistJob -> IO(Unit)) -> IO(Unit):
+  match g:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{+job}: k(job)
+
+@unsafe
+def hist_worker(+jobs: Chan(HistJob), +main: Chan(WsMsg)) -> IO(Unit):
+  do IO<Unit>:
+    g : Maybe<&1, HistJob> <- Chan.recv(HistJob, jobs)
+    hist_worker.recv(g, main, job => hist_worker.got(job, main, _ => hist_worker(jobs, main)))
+
+def ws_history.enqueue_poll(p: Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob>) -> Unit:
+  match p:
+    case Ready{_}: Unit{}
+    case Wait{_}: Unit{}
+
+# Coalesce: try_send 0ms; Wait (full/timeout) drops the job so the UI never parks.
+def ws_history.enqueue(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Unit):
+  match have:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      match jobs:
+        case None{}: IO.pure(Unit, Unit{})
+        case Some{+ch}:
+          do IO<Unit>:
+            p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, data}, 0)
+            return ws_history.enqueue_poll(p)
+
+def ws_history.have_jobs(jobs: Maybe<&2, Chan(HistJob)>) -> Bool:
+  match jobs:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def ws_history.noted(pair: Sess.Session & Bool, +new_ws: W.Workspace, +affected: Key.ServerId) -> W.Workspace & Bool:
+  match pair:
+    case (+st, failed): (ws_replace(new_ws, affected, st), failed)
+
+def ws_history.async_noted(pair: W.Workspace & Bool, +hot: WsHot) -> W.Workspace & Bool & WsHot:
+  match pair:
+    case (+ws, failed): (ws, (failed, hot))
+
+def ws_history.async_go(queued: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+  match queued:
+    case True{}:
+      do IO<W.Workspace & Bool & WsHot>:
+        Unit <- ws_history.enqueue(Bool.not(String.is_empty(data)), jobs, path, data)
+        return (new_ws, (False{}, hot))
+    case False{}:
+      do IO<W.Workspace & Bool & WsHot>:
+        notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
+        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), hot)
+
+def ws_history.reload_ticket(+cl: Cl.Client) -> Nat:
+  Nat.add(1000n, Cl.log_seq_of(cl))
+
+def ws_history.reload_nick(+cl: Cl.Client) -> String:
+  Cl.nick_of(cl)
+
+def ws_history.reload_host(+cl: Cl.Client) -> String:
+  Cl.server_of(cl)
+
+def ws_history.reload_now(+cl: Cl.Client) -> String:
+  match cl:
+    case Cl.Client{_, _, _, _, +now, _, _, _}: now
+
+def ws_history.reload_spawn(load: Bool, +ticket: Nat, +gen: U32, +path: String, +ep: String, +cap: U32, +cl: Cl.Client, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  match load:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      Archive.start(ticket, gen, path, ep, cap, ws_history.reload_nick(cl), ws_history.reload_host(cl), ws_history.reload_now(cl), evt)
+
+def ws_history.reload_pending(load: Bool, +ticket: Nat) -> Maybe<&2, Nat>:
+  match load:
+    case True{}: Some{ticket}
+    case False{}: None{}
+
+# Mid-session endpoint change: enqueue the append, spawn Archive (history_startup_io)
+# for HistoryLoaded, and return without File.open on the UI task.
+def ws_history.changed_async(queued: Bool, +load: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+  +ticket = ws_history.reload_ticket(cl)
+  do IO<W.Workspace & Bool & WsHot>:
+    Unit <- ws_history.enqueue(Bool.and(queued, Bool.not(String.is_empty(data))), jobs, path, data)
+    Unit <- ws_history.reload_spawn(load, ticket, gen, path, new_ep, cap, cl, evt)
+    return (new_ws, (False{}, ws_hot.with_reload(hot, ws_history.reload_pending(load, ticket))))
+
+def ws_history.changed_sync(+path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+  do IO<W.Workspace & Bool & WsHot>:
+    notice : Maybe<&2, String> <- HistIO.history_append_file.check(Bool.not(enabled) || String.is_empty(path) || String.is_empty(data), path, data)
+    got : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected, path, old_ep, new_ep, cap, allowed)
+    return ws_history.async_noted(got, hot)
+
+def ws_history_save.branch.changed(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+  match have:
+    case True{}:
+      ws_history.changed_async(enabled, allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(cl)), jobs, path, data, new_ws, affected, cap, new_ep, gen, evt, hot, cl)
+    case False{}:
+      ws_history.changed_sync(path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, hot)
+
+def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+  match changed:
+    case True{}:
+      ws_history_save.branch.changed(ws_history.have_jobs(jobs), jobs, path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
+    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), jobs, path, data, new_ws, affected, hot)
+
+def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +new_st: Sess.Session, +old_ep: String, +new_ep: String, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
+  match hot:
+    case WsHot{_, +path, +cap, +jobs, _, _, _, _}:
+      +old_cl = Sess.session_cl(old_st)
+      +new_cl = Sess.session_cl(new_st)
+      +enabled = allowed && Cl.settings_history(Cl.get_settings(new_cl))
+      +data = Hist.extract_new_history_for_except(new_ep, old_cl, new_cl, Hs.hist_live_archived(Sess.session_hist_live(new_st)))
+      ws_history_save.branch(changed, jobs, path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, ws_part.gen(new_ws, affected), evt, hot, new_cl)
+
+def ws_history_save.run(run: Bool, +ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
+  match run:
+    case False{}: IO.pure(W.Workspace & Bool & WsHot, (new_ws, (False{}, hot)))
+    case True{}:
+      +old_st = ws_part.st(old_ws, affected)
+      +new_st = ws_part.st(new_ws, affected)
+      +old_ep = Net.session_endpoint(old_st)
+      +new_ep = Net.session_endpoint(new_st)
+      +allowed = PrefLive.history_allowed(ctx, new_st)
+      ws_history_save.go(Bool.not(String.eq(old_ep, new_ep)), allowed, old_st, new_st, old_ep, new_ep, old_ws, new_ws, affected, hot, evt)
+
+def ws_history_save(+ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
   +old_st = ws_part.st(old_ws, affected)
   +new_st = ws_part.st(new_ws, affected)
-  +old_ep = Net.session_endpoint(old_st)
-  +new_ep = Net.session_endpoint(new_st)
-  +allowed = PrefLive.history_allowed(ctx, new_st)
-  +old_cl = Sess.session_cl(old_st)
-  +new_cl = Sess.session_cl(new_st)
-  +enabled = allowed && Cl.settings_history(Cl.get_settings(new_cl))
-  +excluded = Hs.hist_live_archived(Sess.session_hist_live(new_st))
-  do IO<W.Workspace & Bool>:
-    +path : String <- Hist.resolve_history_path()
-    cap : U32 <- Hist.resolve_history_cap()
-    notice : Maybe<&2, String> <- HistIO.maybe_save_history.check_except(enabled, path, new_ep, old_cl, new_cl, excluded)
-    ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected, path, old_ep, new_ep, cap, allowed)
+  +same = Bool.and(Nat.is_eq(Cl.log_seq_of(Sess.session_cl(old_st)), Cl.log_seq_of(Sess.session_cl(new_st))), String.eq(Net.session_endpoint(old_st), Net.session_endpoint(new_st)))
+  ws_history_save.run(Bool.not(same), ctx, old_ws, new_ws, affected, hot, evt)
 
 # ---- media/upload/preferences stages ----------------------------------------
 # Current-part stages mirroring Net.media_stage/upload_stage/
@@ -1201,9 +1401,8 @@ def ws_cards.staged(found: C.State & C.Fullscreen, +ws: W.Workspace, +id: Key.Se
 def ws_cards_stage(+ws: W.Workspace, +evts: WsEvts, +cards: WsCardsAll) -> IO(W.Workspace & WsCardsAll):
   +id = W.ws_current(ws)
   +gen = ws_part.gen(ws, id)
-  do IO<W.Workspace & WsCardsAll>:
-    +on : Bool <- CNet.cards_enabled()
-    ws_cards.staged(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), ws, id, gen, W.current_session(ws), cards, evts, on)
+  +on = ws_hot.on(ws_cards_all.hot(cards))
+  ws_cards.staged(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), ws, id, gen, W.current_session(ws), cards, evts, on)
 
 # Fullscreen entry/exit binding over the current part's cards sidecar
 # (accepted painter dispatch): F9 toggles, Escape closes. Entry opens the
@@ -1304,13 +1503,80 @@ def ws_post.saved(got: W.Workspace & Bool, ui: T.Ui, +evts: WsEvts, +pevts: Chan
         staged : T.Ui & W.Workspace & Bool & Maybe<&2, WsMedia> <- ws_media_stage(ui, ws, evts, media)
         ws_post.staged(staged, evts, pevts, ctx, owner, ups, cards, failed)
 
+def ws_size_eq(a: Sess.Size, b: Sess.Size) -> Bool:
+  match a:
+    case Sess.Size{+r1, +c1}:
+      match b:
+        case Sess.Size{+r2, +c2}: Bool.and(U32.is_eq(r1, r2), U32.is_eq(c1, c2))
+
+def ws_axis_eq(a: Sp.Axis, b: Sp.Axis) -> Bool:
+  match a:
+    case Sp.SideBySide{}:
+      match b:
+        case Sp.SideBySide{}: True{}
+        case Sp.Stacked{}: False{}
+    case Sp.Stacked{}:
+      match b:
+        case Sp.SideBySide{}: False{}
+        case Sp.Stacked{}: True{}
+
+def ws_split_eq(a: Sp.State, b: Sp.State) -> Bool:
+  match a:
+    case Sp.Off{}:
+      match b:
+        case Sp.Off{}: True{}
+        case Sp.On{_, _, _, _}: False{}
+    case Sp.On{+axis, +first, +second, +focus}:
+      match b:
+        case Sp.Off{}: False{}
+        case Sp.On{+axis2, +first2, +second2, +focus2}:
+          Bool.and(Bool.and(ws_axis_eq(axis, axis2), String.eq(first, first2)), Bool.and(String.eq(second, second2), U32.is_eq(focus, focus2)))
+
+def ws_view_quiet.cur(same: Bool, +old_ws: W.Workspace, +new_ws: W.Workspace) -> Bool:
+  match same:
+    case False{}: False{}
+    case True{}:
+      +id = W.ws_current(new_ws)
+      +os = ws_part.st(old_ws, id)
+      +ns = ws_part.st(new_ws, id)
+      Bool.and(
+        Bool.and(ws_size_eq(Sess.session_size(os), Sess.session_size(ns)), Cl.view_same(Sess.session_cl(os), Sess.session_cl(ns))),
+        Bool.and(
+          Bool.and(List.is_empty(&2, Cl.PendSend, Sess.session_pends(os)), List.is_empty(&2, Cl.PendSend, Sess.session_pends(ns))),
+          ws_split_eq(Sess.session_split(os), Sess.session_split(ns))))
+
+def ws_view_quiet(+old_ws: W.Workspace, +new_ws: W.Workspace) -> Bool:
+  ws_view_quiet.cur(Key.eq(W.ws_current(old_ws), W.ws_current(new_ws)), old_ws, new_ws)
+
+# Draft keys leave the log, scroll, size, split, and pending sends alone.
+# Skip history, image admission, and card admission. Upload consent and
+# preference drain still run.
+def ws_post_fast.got(staged: W.Workspace & List<&2, WsLease>, ui: T.Ui, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
+  match staged:
+    case (+ws, +ups2): ws_post.carded((ws, cards), ui, pevts, ctx, media, owner, ups2, False{})
+
+def ws_post_fast(ui: T.Ui, +new_ws: W.Workspace, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
+  do IO<T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool>:
+    staged : W.Workspace & List<&2, WsLease> <- ws_upload_stage(new_ws, evts, ups)
+    ws_post_fast.got(staged, ui, pevts, ctx, media, owner, cards)
+
+def ws_post.history.rest(rest: Bool & WsHot, +ws: W.Workspace, ui: T.Ui, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
+  match rest:
+    case (failed, +hot):
+      ws_post.saved((ws, failed), ui, evts, pevts, ctx, media, owner, ups, ws_hot.cold(ws_cards_all.hot_set(cards, hot)))
+
+def ws_post.history(got: W.Workspace & Bool & WsHot, ui: T.Ui, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
+  match got:
+    case (+ws, rest):
+      ws_post.history.rest(rest, ws, ui, evts, pevts, ctx, media, owner, ups, cards)
+
 def ws_post.skipped(skipped: Bool, ui: T.Ui, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
   match skipped:
-    case True{}: ws_post.saved((new_ws, False{}), ui, evts, pevts, ctx, media, owner, ups, cards)
+    case True{}: ws_post.saved((new_ws, False{}), ui, evts, pevts, ctx, media, owner, ups, ws_hot.cold(cards))
     case False{}:
       do IO<T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool>:
-        got : W.Workspace & Bool <- ws_history_save(ctx, old_ws, new_ws, affected)
-        ws_post.saved(got, ui, evts, pevts, ctx, media, owner, ups, cards)
+        got : W.Workspace & Bool & WsHot <- ws_history_save(ctx, old_ws, new_ws, affected, ws_cards_all.hot(cards), ws_evt.at(evts, ws_id_nat(affected)))
+        ws_post.history(got, ui, evts, pevts, ctx, media, owner, ups, cards)
 
 def ws_post(ui: T.Ui, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll, skipped: Bool) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
   ws_post.skipped(skipped, ui, old_ws, new_ws, affected, evts, pevts, ctx, media, owner, ups, cards)
@@ -1405,14 +1671,20 @@ def ws_done.posted(got: T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedi
 def ws_done.sized(+ws2: W.Workspace, +old: W.Workspace, +rows: U32, +cols: U32) -> W.Workspace:
   ws_upload.presented(old, W.set_current_size(ws2, rows, cols))
 
+def ws_done.post(quiet: Bool, ui: T.Ui, +old: W.Workspace, +next: W.Workspace, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +cards: WsCardsAll) -> IO(T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool):
+  match quiet:
+    case True{}: ws_post_fast(ui, next, evts, pevts, ctx, media, owner, ups, cards)
+    case False{}: ws_post(ui, old, next, W.ws_current(next), evts, pevts, ctx, media, owner, ups, cards, False{})
+
 def ws_done(ui: T.Ui, trip: W.Workspace & Sid.RoutedCmd & Bool, +old: W.Workspace, +rows: U32, +cols: U32, +quit: U32, +more: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +enter: Bool, +comp: U32, +focus: U32, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match trip:
     case (+ws2, +rc, halt):
+      +next = ws_done.sized(ws2, old, rows, cols)
       do IO<Unit>:
         Unit <- ws_emit(rc, cmds, evts)
         Unit <- ws_emit_quit(ws2, rc, cmds, evts)
         Unit <- Net.ack_key(is_key, ack)
-        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_done.sized(ws2, old, rows, cols), W.ws_current(ws2), evts, pevts, ctx, media, owner, ups, cards, False{})
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_done.post(ws_view_quiet(old, next), ui, old, next, evts, pevts, ctx, media, owner, ups, cards)
         ws_done.posted(got, quit, more, tab, click, up, dn, hist, enter, comp, focus, halt, main, scheduled, consumed, bell, notify, begun, k)
 
 def ws_keys_halted.ms(+halt: Bool) -> IO(U32):
@@ -1490,7 +1762,7 @@ def ws_act.go(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32,
 # Enter/key/codepoint suppression, more coalescing, and draft restore
 # apply to the post-fullscreen key, and the revalidated sidecar parts
 # rejoin their lease for dispatch.
-def ws_act.gated(pair: W.Workspace & Bool, ui: T.Ui, +typed: String, +enter_orig: Bool, +rows: U32, +cols: U32, +click: U32, +key2: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more_orig: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +parts2: List<&2, WsCards>, +lease: Maybe<&2, WsCardsLease>, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+def ws_act.gated(pair: W.Workspace & Bool, ui: T.Ui, +typed: String, +enter_orig: Bool, +rows: U32, +cols: U32, +click: U32, +key2: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more_orig: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +parts2: List<&2, WsCards>, +lease: Maybe<&2, WsCardsLease>, +hot: WsHot, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match pair:
     case (+ws_keyed, +handled):
       +enter = enter_orig && Bool.not(handled)
@@ -1498,16 +1770,16 @@ def ws_act.gated(pair: W.Workspace & Bool, ui: T.Ui, +typed: String, +enter_orig
       +code_sup = Bool.pick(U32, handled, 0, codepoint)
       +more = more_orig || handled
       +restore = handled && enter_orig
-      ws_act.go(ws_mkloop(ws_keyed, bell, scheduled, ctx, media, owner, ups, notify, WsCardsAll{parts2, lease}, begun), ui, typed, enter, rows, cols, click, key_sup, mods, code_sup, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, U32.is_eq(key_sup, Sess.KEY_F7()), k)
+      ws_act.go(ws_mkloop(ws_keyed, bell, scheduled, ctx, media, owner, ups, notify, WsCardsAll{parts2, lease, hot}, begun), ui, typed, enter, rows, cols, click, key_sup, mods, code_sup, wheel, more, restore, is_key, main, cmds, evts, pevts, ack, consumed, U32.is_eq(key_sup, Sess.KEY_F7()), k)
 
 # Fullscreen pre-step (accepted painter dispatch order): F9/Escape reach
 # the current part's sidecar before F7/key dispatch, and a handled key is
 # zeroed so it neither cycles, cancels an upload, nor quits. The
 # revalidated sidecar writes back on every key.
-def ws_act.keyed(applied: List<&2, WsCards> & U32, ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +lease: Maybe<&2, WsCardsLease>, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+def ws_act.keyed(applied: List<&2, WsCards> & U32, ui: T.Ui, +ws: W.Workspace, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +lease: Maybe<&2, WsCardsLease>, +hot: WsHot, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match applied:
     case (+parts2, +key2):
-      ws_act.gated(ws_upload.gated(Bool.not(U32.is_eq(key2, key)), ws, key2, mods), ui, typed, enter, rows, cols, click, key2, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, parts2, lease, begun, k)
+      ws_act.gated(ws_upload.gated(Bool.not(U32.is_eq(key2, key)), ws, key2, mods), ui, typed, enter, rows, cols, click, key2, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, parts2, lease, hot, begun, k)
 
 def ws_act.on(+loop: WsLoop, on: Bool, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
@@ -1515,14 +1787,12 @@ def ws_act.on(+loop: WsLoop, on: Bool, ui: T.Ui, +typed: String, +enter: Bool, +
       +id = W.ws_current(ws)
       +gen = ws_part.gen(ws, id)
       +lease = ws_cards_all.lease(cards)
-      ws_act.keyed(ws_fullscreen.applied(ws_fullscreen.keyed(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), W.current_session(ws), key, mods), ws_cards_all.parts(cards), id, gen, key), ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, lease, begun, k)
+      ws_act.keyed(ws_fullscreen.applied(ws_fullscreen.keyed(ws_cards.sidecar(ws_cards_all.parts(cards), id, gen, on), W.current_session(ws), key, mods), ws_cards_all.parts(cards), id, gen, key), ui, ws, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, lease, ws_cards_all.hot(cards), begun, k)
 
 def ws_act(+loop: WsLoop, ui: T.Ui, +typed: String, +enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +more: Bool, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
     case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
-      do IO<Unit>:
-        on : Bool <- CNet.cards_enabled()
-        ws_act.on(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), on, ui, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, consumed, k)
+      ws_act.on(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ws_hot.on(ws_cards_all.hot(cards)), ui, typed, enter, rows, cols, click, key, mods, codepoint, wheel, more, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
 def ws_cmd.pick(+c0: Chan(Sess.NetCmd), +c1: Chan(Sess.NetCmd), +c2: Chan(Sess.NetCmd), +c3: Chan(Sess.NetCmd), +n: Nat) -> Chan(Sess.NetCmd):
   match n:
@@ -1583,11 +1853,17 @@ def ws_frame(+loop: WsLoop, got: T.Ui & T.UiKeys, +is_key: Bool, +main: Chan(WsM
       match got:
         case (ui, keys): ws_frame.keys(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, keys, is_key, main, cmds, evts, pevts, ack, consumed, k)
 
+def ws_paint.kept(painted: T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool, +ws: W.Workspace, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match painted:
+    case (ui, keys, frame, warm):
+      ws_frame(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, ws_hot.keep(cards, frame, warm), begun), (ui, keys), is_key, main, cmds, evts, pevts, ack, consumed, k)
+
 def ws_paint(+ws: W.Workspace, ui: T.Ui, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +consumed: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  +hot = ws_cards_all.hot(cards)
+  +on = ws_hot.on(hot)
   do IO<Unit>:
-    on : Bool <- CNet.cards_enabled()
-    got : T.Ui & T.UiKeys <- Net.paint_session_cards(ui, W.paint_session(ws, bell), ws_cards.sidecar(ws_cards_all.parts(cards), W.ws_current(ws), ws_part.gen(ws, W.ws_current(ws)), on))
-    ws_frame(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), got, is_key, main, cmds, evts, pevts, ack, consumed, k)
+    painted : T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool <- Net.paint_session_cards.hot(ws_hot.warm(hot), ws_hot.frame(hot), ui, W.paint_session(ws, bell), ws_cards.sidecar(ws_cards_all.parts(cards), W.ws_current(ws), ws_part.gen(ws, W.ws_current(ws)), on))
+    ws_paint.kept(painted, ws, is_key, main, cmds, evts, pevts, ack, scheduled, consumed, bell, ctx, media, owner, ups, notify, cards, begun, k)
 # ---- worker completion routes (G1 origin validation) -------------------------
 # Media/upload workers post to their part slot channel, so completions
 # arrive routed; the preferences worker posts to the dedicated channel
@@ -1928,8 +2204,39 @@ def ws_histload.installed(got: PrefLive.Context & Sess.Session, +before: PrefLiv
       +ws_new = ws_replace(ws, id, st)
       +nnot2 = ws_notify.seeded(notify, ws_new, id, accepted, installed)
       do IO<Unit>:
-        staged : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_new, id, evts, pevts, pctx, media, owner, ups, cards, True{})
+        staged : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, old, ws_new, id, evts, pevts, pctx, media, owner, ups, ws_cards_all.hot_set(cards, ws_hot.with_reload(ws_cards_all.hot(cards), None{})), True{})
         ws_post.painted(staged, main, cmds, evts, pevts, ack, scheduled, bell, nnot2, begun, k)
+
+def ws_histload.reload_match(pending: Maybe<&2, Nat>, +ticket: Nat, +gen: U32, +got_gen: U32, +ep: String, +cur: String) -> Bool:
+  match pending:
+    case None{}: False{}
+    case Some{+want}:
+      Nat.is_eq(want, ticket) && U32.is_eq(gen, got_gen) && String.eq(ep, cur)
+
+def ws_histload.mid(ok: Bool, +st: Sess.Session, +snapshot: Cl.Client, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match ok:
+    case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
+    case True{}:
+      +cl2 = HistStart.install_startup(HistStart.report_diagnostics(Sess.session_cl(st), snapshot), snapshot)
+      +ws_new = ws_replace(ws, id, Sess.session_set_client(st, cl2))
+      +cards2 = ws_cards_all.hot_set(cards, ws_hot.with_reload(ws_cards_all.hot(cards), None{}))
+      do IO<Unit>:
+        staged : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_new, id, evts, pevts, ctx, media, owner, ups, cards2, True{})
+        ws_post.painted(staged, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+
+def ws_histload.after(accepted: Bool, got: PrefLive.Context & Sess.Session, +before: PrefLive.Context, +before_seq: Nat, +st: Sess.Session, +snapshot: Cl.Client, +ticket: Nat, +got_gen: U32, +ep: String, +gen: U32, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match accepted:
+    case True{}:
+      ws_histload.installed(got, before, before_seq, ws, ws, id, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+    case False{}:
+      match got:
+        case (+pctx, _):
+          ws_histload.mid(ws_histload.reload_match(ws_hot.reload_of(ws_cards_all.hot(cards)), ticket, gen, got_gen, ep, Net.session_endpoint(st)), st, snapshot, ws, id, ui, main, cmds, evts, pevts, ack, scheduled, bell, pctx, media, owner, ups, notify, cards, begun, k)
+
+def ws_histload.done(got: PrefLive.Context & Sess.Session, +before: PrefLive.Context, +before_seq: Nat, +st: Sess.Session, +snapshot: Cl.Client, +ticket: Nat, +got_gen: U32, +ep: String, +gen: U32, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match got:
+    case (+pctx, _):
+      ws_histload.after(PrefLive.history_accepted(before, pctx), got, before, before_seq, st, snapshot, ticket, got_gen, ep, gen, ws, id, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
 
 def ws_histload.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.ServerId, +ticket: Nat, +got_gen: U32, +ep: String, +snapshot: Cl.Client, +ts: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
@@ -1939,9 +2246,10 @@ def ws_histload.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.Se
         case Some{+p}:
           +st = Sess.session_set_now(W.part_session(p), ts)
           +before_seq = Cl.log_seq_of(Sess.session_cl(st))
+          +gen = W.part_gen(p)
           do IO<Unit>:
-            installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, W.part_gen(p), got_gen, ticket, ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
-            ws_histload.installed(installed, ctx, before_seq, ws, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+            installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, gen, got_gen, ticket, ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
+            ws_histload.done(installed, ctx, before_seq, st, snapshot, ticket, got_gen, ep, gen, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
 
 def ws_search.landed(landed: Bool, +ws2: W.Workspace, +ws: W.Workspace, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match landed:
@@ -1986,6 +2294,17 @@ def ws_paint.ui_err(+loop: WsLoop, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +
         ts : String <- Clock.hhmmss()
         got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, id, Sess.session_error(Sess.session_set_now(ws_part.st(ws, id), ts), msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
         ws_paint.ui_erred(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
+
+# Append failures land in *log* only (Cl.diagnostic), never a chat Error row.
+def ws_hist_diag(+loop: WsLoop, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+  match loop:
+    case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
+      +id = W.ws_current(ws)
+      +st = ws_part.st(ws, id)
+      +st2 = Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{}, msg))
+      do IO<Unit>:
+        got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, id, st2), id, evts, pevts, ctx, media, owner, ups, cards, True{})
+        ws_post.painted(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
 def ws_paint.ui(+loop: WsLoop, ui: T.Ui, m: Sess.UiMsg, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
@@ -2115,7 +2434,7 @@ def ws_tick.go(+loop: WsLoop, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts
   match loop:
     case WsLoop{+ws2, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
       match changed:
-        case True{}: ws_paint(ws2, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, cards, begun, k)
+        case True{}: ws_paint(ws2, ui, False{}, main, cmds, evts, pevts, ack, scheduled, False{}, bell, ctx, media, owner, ups, notify, ws_hot.cold(cards), begun, k)
         case False{}: k((ui, ws_mkloop(ws2, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), False{}))
 
 def ws_tick.painted(+pair: W.TickOut, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
@@ -2355,6 +2674,11 @@ def ws_parked.msg(wmsg: WsMsg, +saved: List<&2, WsLoop>, ui: T.Ui, +main: Chan(W
         case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
           ws_paint.ui(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, m, main, cmds, evts, pevts, ack, k)
         case Nil{}: ws_parked.missing(ui, cmds)
+    case WsHistDiag{+msg}:
+      match saved:
+        case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
+          ws_hist_diag(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), msg, ui, main, cmds, evts, pevts, ack, k)
+        case Nil{}: ws_parked.missing(ui, cmds)
 
 # Receive-carry: Ui/message/continuation remain outside Data. EOF forwards
 # the exact envelope; network messages keep its recursive cell through the
@@ -2564,15 +2888,23 @@ def ws_start.ctx(+lp_acc: Maybe<&2, LoadedPrefs.Context>, +options: PrefWorker.O
     case Some{+lp}: PrefLive.prepared(lp, path, known)
     case None{}: PrefLive.initial(options, ws_part.st(ws, W.ws_current(ws)), ws_part.gen(ws, W.ws_current(ws)), path)
 
-def ws_begin.zero(+frames: U32, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ctx: PrefLive.Context, +begun: Bool, zero: Bool) -> IO(Unit):
+def ws_begin.zero(+frames: U32, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ctx: PrefLive.Context, +cards: WsCardsAll, +begun: Bool, zero: Bool) -> IO(Unit):
   match zero:
-    case True{}: ws_idle((ui, ws_mkloop(ws, 0, False{}, ctx, None{}, None{}, Nil{}, ws_notify.seed_all(ws), ws_cards_all.empty(), begun)), main, cmds, evts, pevts, ack)
-    case False{}: ws_loop(Sess.ticks_of(frames), (ui, ws_mkloop(ws, 0, False{}, ctx, None{}, None{}, Nil{}, ws_notify.seed_all(ws), ws_cards_all.empty(), begun)), main, cmds, evts, pevts, ack)
+    case True{}: ws_idle((ui, ws_mkloop(ws, 0, False{}, ctx, None{}, None{}, Nil{}, ws_notify.seed_all(ws), cards, begun)), main, cmds, evts, pevts, ack)
+    case False{}: ws_loop(Sess.ticks_of(frames), (ui, ws_mkloop(ws, 0, False{}, ctx, None{}, None{}, Nil{}, ws_notify.seed_all(ws), cards, begun)), main, cmds, evts, pevts, ack)
+
+def ws_begin.armed(+frames: U32, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ctx: PrefLive.Context, +begun: Bool, on: Bool, +cap: U32, +jobs: Chan(HistJob)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.spawn(Unit, hist_worker(jobs, main))
+    ws_begin.zero(frames, ui, ws, main, cmds, evts, pevts, ack, ctx, ws_cards_all.live(on, ws_hot.path_of(ctx), cap, jobs), begun, U32.is_eq(frames, 0))
 
 def ws_begin(+frames: U32, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +ctx: PrefLive.Context, +begun: Bool) -> IO(Unit):
   do IO<Unit>:
     Unit <- IO.spawn(Unit, ws_more_send(main))
-    ws_begin.zero(frames, ui, ws, main, cmds, evts, pevts, ack, ctx, begun, U32.is_eq(frames, 0))
+    on : Bool <- CNet.cards_enabled()
+    cap : U32 <- Hist.resolve_history_cap()
+    jobs : Chan(HistJob) <- Chan.new(HistJob, 8)
+    ws_begin.armed(frames, ui, ws, main, cmds, evts, pevts, ack, ctx, begun, on, cap, jobs)
 
 def ws_watch.win(wr: Result<&1, &1, U32 & String, T.Winch>, tty: T.Tty, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +begun: Bool) -> IO(Unit):
   match wr:

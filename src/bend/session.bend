@@ -25,6 +25,7 @@ import ./isupport.bend as Isupport
 import ./history_search.bend as Hs
 import ./theme.bend as Theme
 import ./endpoint.bend as Ep
+import ./composer_ui.bend as Cu
 
 # The first welcome names the nickname actually assigned by the server. A
 # requested nickname can differ because of server policy or length limits.
@@ -282,7 +283,7 @@ def body_h(+rows: U32) -> Nat:
 # Body lines and PageUp/PageDown share this height. Bend applies it
 # from the frame's row count (Sess.key_pol); C does not take a page.
 def body_h_ok() -> Bool:
-  Nat.is_eq(body_h(24), 19n) && Nat.is_eq(body_h(16), 11n) && Nat.is_eq(body_h(6), 1n) && Nat.is_eq(body_h(7), 2n)
+  Nat.is_eq(body_h(24), 20n) && Nat.is_eq(body_h(16), 12n) && Nat.is_eq(body_h(6), 2n) && Nat.is_eq(body_h(7), 3n)
 
 
 def push_pure_join2(
@@ -861,18 +862,19 @@ type Keys is Data:
     up: Nat,
     dn: Nat,
     hist: HistDir,
-    comp: Bool,
+    # 0 none, 1 tab-cycle, 2 accept the ghost suffix, 3 dismiss help or the menu.
+    comp: U32,
     focus: U32
   }
 
 def comp_on(+n: U32) -> Bool:
-  Bool.not(U32.is_zero(n))
+  U32.is_eq(n, 1)
 
 def keys_enter(+line: String) -> Keys:
-  Keys{line, True{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}, False{}, 0}
+  Keys{line, True{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}, 0, 0}
 
 def keys_focus() -> Keys:
-  Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}, False{}, 1}
+  Keys{"", False{}, Cl.TabStay{}, None{}, 0n, 0n, HistStay{}, 0, 1}
 
 # TimUI key numbers (TimuiKey). Bend maps them; C only reports the raw key.
 def KEY_ESCAPE() -> U32:
@@ -918,6 +920,9 @@ def KEY_F6() -> U32:
 
 def KEY_F7() -> U32:
   21
+
+def KEY_F8() -> U32:
+  22
 
 def KEY_F9() -> U32:
   23
@@ -1056,17 +1061,17 @@ def key_pol_ok() -> Bool:
     && pol_eq(key_pol(KEY_DOWN(), 0, 0, 24), 0, 0, 0, 2, 0, 0, 0)
     && pol_eq(key_pol(KEY_ESCAPE(), 0, 0, 24), 0, 0, 0, 0, 1, 0, 0)
     && pol_eq(key_pol(KEY_F10(), 0, 0, 24), 0, 0, 0, 0, 1, 0, 0)
-    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 0, 24), 0, 19, 0, 0, 0, 0, 0)
-    && pol_eq(key_pol(KEY_PAGE_DOWN(), 0, 0, 24), 0, 0, 19, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 0, 24), 0, 20, 0, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_PAGE_DOWN(), 0, 0, 24), 0, 0, 20, 0, 0, 0, 0)
     && pol_eq(key_pol(0, 0, 3, 24), 0, 3, 0, 0, 0, 0, 0)
     && pol_eq(key_pol(0, 0, 4294967294, 24), 0, 0, 2, 0, 0, 0, 0)
-    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 2, 24), 0, 21, 0, 0, 0, 0, 0)
+    && pol_eq(key_pol(KEY_PAGE_UP(), 0, 2, 24), 0, 22, 0, 0, 0, 0, 0)
     && pol_eq(key_pol(KEY_TAB(), 0, 0, 24), 0, 0, 0, 0, 0, 1, 0)
     && pol_eq(key_pol_raw(KEY_F6(), 0, 0, 0, 9n), 0, 0, 0, 0, 0, 0, 1)
     && pol_eq(key_pol_raw(0, MOD_CTRL(), 119, 0, 9n), 0, 0, 0, 0, 0, 0, 1)
 
 def keys_of(+typed: String, enter: Bool, +tab: U32, +click: U32, +up: U32, +dn: U32, +hist: U32, +comp: U32, +focus: U32) -> Keys:
-  Keys{typed, enter, Cl.tab_dir(tab), click_of(click), U32.to_nat(up), U32.to_nat(dn), hist_dir(hist), comp_on(comp), focus}
+  Keys{typed, enter, Cl.tab_dir(tab), click_of(click), U32.to_nat(up), U32.to_nat(dn), hist_dir(hist), comp, focus}
 
 def tab_hot(d: Cl.TabDir) -> Bool:
   match d:
@@ -1113,6 +1118,12 @@ type Comp is Data:
   CompNone{}
   CompActive{pre: String, word: String, idx: Nat}
   CompUpload{state: Up.State, completion: Maybe<&2, CompWord>, presented: Bool}
+  # /help stays up after Enter clears the draft, until Esc or an edit.
+  CompHelp{topic: String}
+  # Esc hid the slash menu; the next edit brings it back.
+  CompHidden{}
+  # Selected row in the slash menu. Up and down move it.
+  CompPick{idx: Nat}
 
 type CompWord is Data:
   CompWord{pre: String, word: String, idx: Nat}
@@ -1127,9 +1138,16 @@ def comp_word(comp: Comp) -> Maybe<&2, CompWord>:
     case CompNone{}: None{}
     case CompActive{pre, word, idx}: Some{CompWord{pre, word, idx}}
     case CompUpload{_, completion, _}: completion
+    case CompHelp{_}: None{}
+    case CompHidden{}: None{}
+    case CompPick{_}: None{}
 
 def comp_ordinary(comp: Comp) -> Comp:
-  comp_from_word(comp_word(comp))
+  match comp:
+    case CompHelp{topic}: CompHelp{topic}
+    case CompHidden{}: CompHidden{}
+    case CompPick{idx}: CompPick{idx}
+    case _: comp_from_word(comp_word(comp))
 
 def comp0() -> Comp:
   CompNone{}
@@ -1167,23 +1185,12 @@ def nick_match.ok(own: Bool, sw: Bool) -> Bool:
     case False{}:
       sw
 
-def nick_match(+cand: String, +my_nick: String, +word: String) -> Bool:
-  nick_match.ok(Irc.ieq(cand, my_nick), String.starts_with(Irc.rfc1459(cand), Irc.rfc1459(word)))
-
 def match_nicks.keep(+cand: String, rest: List<&2, String>, hit: Bool) -> List<&2, String>:
   match hit:
     case True{}:
       cand <> rest
     case False{}:
       rest
-
-def match_nicks.go(xs: List<&2, String>, +my_nick: String, +word: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, +t}:
-      +rest = match_nicks.go(t, my_nick, word)
-      match_nicks.keep(h, rest, nick_match(h, my_nick, word))
 
 def comp_next_idx.wrap(wrap: Bool, +p: Nat) -> Nat:
   match wrap:
@@ -1232,16 +1239,6 @@ def match_slash.go(xs: List<&2, String>, +word: String) -> List<&2, String>:
       +rest = match_slash.go(t, word)
       match_slash.keep(h, rest, String.starts_with(Irc.rfc1459(h), Irc.rfc1459(word)))
 
-def comp_candidates.on(+cl: Cl.Client, +word: String, slash: Bool) -> List<&2, String>:
-  match slash:
-    case True{}:
-      match_slash.go(slash_command_list(), word)
-    case False{}:
-      match_nicks.go(Cl.active_nicks(cl), Cl.nick_of(cl), word)
-
-def comp_candidates(+cl: Cl.Client, +word: String) -> List<&2, String>:
-  comp_candidates.on(cl, word, is_slash_word(word))
-
 def comp_format.choice(+pre: String, +item: String, slash: Bool) -> String:
   match slash:
     case True{}:
@@ -1267,46 +1264,10 @@ def comp_pick.on(
       +item = str_get(matches, idx)
       (CompActive{pre, word, idx}, comp_format_cand(pre, word, item), 1)
 
-def comp_step.active(+cl: Cl.Client, +pre: String, +word: String, +idx: Nat, +typed: String) -> Comp & String & U32:
-  +matches = comp_candidates(cl, word)
-  +len = List.length(&2, String, matches)
-  comp_pick.on(matches, pre, word, typed, comp_next_idx(idx, len), Nat.is_eq(len, 0n))
-
-def comp_step.fresh(+cl: Cl.Client, pair: String & String, +typed: String) -> Comp & String & U32:
-  match pair:
-    case (+pre, +word):
-      +matches = comp_candidates(cl, word)
-      comp_pick.on(matches, pre, word, typed, 0n, Nat.is_eq(List.length(&2, String, matches), 0n))
-
-def comp_step.upload(word: Maybe<&2, CompWord>, +cl: Cl.Client, +typed: String) -> Comp & String & U32:
-  match word:
-    case None{}: comp_step.fresh(cl, split_word(typed), typed)
-    case Some{CompWord{pre, word, idx}}: comp_step.active(cl, pre, word, idx, typed)
-
-def comp_step(+cl: Cl.Client, comp: Comp, +typed: String) -> Comp & String & U32:
-  match comp:
-    case CompNone{}:
-      comp_step.fresh(cl, split_word(typed), typed)
-    case CompActive{+pre, +word, idx}:
-      comp_step.active(cl, pre, word, idx, typed)
-    case CompUpload{_, completion, _}:
-      comp_step.upload(completion, cl, typed)
-
-def comp_step_ok.check(c: Comp, +str: String, seed: U32) -> Bool:
-  String.eq(str, "/join ") && U32.is_eq(seed, 1)
-
-def comp_step_ok.got(trip: Comp & String & U32) -> Bool:
-  match trip:
-    case (c, str, seed):
-      comp_step_ok.check(c, str, seed)
-
-def comp_step_ok() -> Bool:
-  comp_step_ok.got(comp_step(Cl.init("me", "s"), comp0(), "/j"))
-
 # ---- negotiated completion (I2 dynamic) -----------------------------------
 # Nick completion folds under the Session CASEMAPPING (ascii/strict/rfc1459
 # differ exactly on []\^~); slash commands stay fixed (ASCII-only, identical
-# under every mapping). Fixed comp_step above is kept for laws.
+# under every mapping).
 def nick_match_iso(+iso: Isupport.State, +cand: String, +my_nick: String, +word: String) -> Bool:
   nick_match.ok(Isupport.cm_eq(iso, cand, my_nick), String.starts_with(Isupport.cm_fold(iso, cand), Isupport.cm_fold(iso, word)))
 
@@ -1352,6 +1313,25 @@ def comp_step_iso(+iso: Isupport.State, +cl: Cl.Client, comp: Comp, +typed: Stri
       comp_step_iso.active(iso, cl, pre, word, idx, typed)
     case CompUpload{_, completion, _}:
       comp_step_iso.upload(iso, completion, cl, typed)
+    case CompHelp{_}:
+      comp_step_iso.fresh(iso, cl, split_word(typed), typed)
+    case CompHidden{}:
+      comp_step_iso.fresh(iso, cl, split_word(typed), typed)
+    case CompPick{_}:
+      comp_step_iso.fresh(iso, cl, split_word(typed), typed)
+
+def comp_step_ok.check(c: Comp, +str: String, seed: U32) -> Bool:
+  String.eq(str, "/join ") && U32.is_eq(seed, 1)
+
+def comp_step_ok.got(trip: Comp & String & U32) -> Bool:
+  match trip:
+    case (c, str, seed):
+      comp_step_ok.check(c, str, seed)
+
+# Slash-command completion under defaults is identical to every CASEMAPPING
+# (ASCII-only verbs). Laws and tests call the negotiated ladder.
+def comp_step_ok() -> Bool:
+  comp_step_ok.got(comp_step_iso(Isupport.defaults(), Cl.init("me", "s"), comp0(), "/j"))
 
 
 type Size is Data:
@@ -1940,9 +1920,6 @@ def session_resume_joins(+st: Session) -> Session & List<&2, String>:
 def session_split(+st: Session) -> Sp.State:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, split, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: split
-
-def key_pol_for(+st: Session, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +rows: U32) -> KeyPol:
-  key_pol_raw(key, mods, codepoint, wheel, Sp.page_height(rows, session_split(st)))
 
 def split_key_ok() -> Bool:
   pol_eq(key_pol_raw(KEY_F6(), 0, 0, 0, 9n), 0, 0, 0, 0, 0, 0, 1)
@@ -2547,6 +2524,46 @@ def session_comp(+st: Session) -> Comp:
     case Session{_, _, _, _, _, _, _, _, _, _, +comp, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
       comp
 
+def panel_open(comp: Comp, +draft: String) -> Bool:
+  match comp:
+    case CompHelp{_}: True{}
+    case CompHidden{}: False{}
+    case CompUpload{_, _, _}: False{}
+    case _: Bool.or(Cu.is_help(draft), Bool.not(List.is_empty(&2, String, Cu.menu_lines(draft))))
+
+def panel_esc.on(esc: Bool, +st: Session) -> Bool:
+  match esc:
+    case False{}: False{}
+    case True{}: panel_open(session_comp(st), session_draft(st))
+
+def panel_esc(+st: Session, +key: U32) -> Bool:
+  panel_esc.on(U32.is_eq(key, KEY_ESCAPE()), st)
+
+def comp_right(right: Bool, +comp: U32) -> U32:
+  match right:
+    case True{}: 2
+    case False{}: comp
+
+def key_pol_right(pol: KeyPol, right: Bool) -> KeyPol:
+  match pol:
+    case KeyPol{tab, up, dn, hist, quit, comp, focus}:
+      KeyPol{tab, up, dn, hist, quit, comp_right(right, comp), focus}
+
+def key_pol_esc.go(pol: KeyPol) -> KeyPol:
+  match pol:
+    case KeyPol{tab, up, dn, hist, _, _, focus}:
+      KeyPol{tab, up, dn, hist, 0, 3, focus}
+
+def key_pol_esc(pol: KeyPol, esc: Bool) -> KeyPol:
+  match esc:
+    case False{}: pol
+    case True{}: key_pol_esc.go(pol)
+
+def key_pol_for(+st: Session, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +rows: U32) -> KeyPol:
+  key_pol_esc(
+    key_pol_right(key_pol_raw(key, mods, codepoint, wheel, Sp.page_height(rows, session_split(st))), Bool.and(U32.is_eq(key, KEY_RIGHT()), U32.is_zero(mods))),
+    panel_esc(st, key))
+
 def comp_upload_state(comp: Comp) -> Up.State:
   match comp:
     case CompUpload{state, _, _}: state
@@ -2675,7 +2692,7 @@ def session_upload_key.cancel(cancel: Bool, confirm: Bool, +st: Session) -> Sess
 
 def session_upload_key(+st: Session, +key: U32, mods: U32) -> Session & Bool:
   session_upload_key.cancel(U32.is_eq(key, KEY_ESCAPE()) && Up.active(session_upload(st)),
-    U32.is_eq(key, 22) && U32.is_zero(mods) && Up.pending(session_upload(st)) && session_upload_presented(st), session_upload_maintain(st))
+    U32.is_eq(key, KEY_F8()) && U32.is_zero(mods) && Up.pending(session_upload(st)) && session_upload_presented(st), session_upload_maintain(st))
 
 def session_upload_take.got(pair: Up.State & Maybe<&2, Up.Request>, st: Session) -> Session & Maybe<&2, Up.Request>:
   match pair:
@@ -3091,17 +3108,126 @@ def nav_after(
       +cl3 = snap_if(enter, View.scroll_active_media_cards_cm(Isupport.casemapping(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends))
       focus_after(U32.is_eq(focus, 1), cl3, split2)
 
-def finish_keys.comp(+st: Session, is_comp: Bool, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
-  match is_comp:
+def panel_keep.same(same: Bool, comp: Comp) -> Comp:
+  match same:
+    case False{}: CompNone{}
     case True{}:
-      finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed))
-    case False{}:
-      finish_hist(st, cl, cmd, halt_of(enter, typed), seed_of(hdir), CompNone{}, split, hist_move(hist, draft, hdir))
+      match comp:
+        case CompHelp{topic}: CompHelp{topic}
+        case CompHidden{}: CompHidden{}
+        case CompPick{idx}: CompPick{idx}
+        case _: CompNone{}
 
-def finish_keys.nav(+st: Session, pair: Cl.Client & Sp.State, is_comp: Bool, +cmd: NetCmd, +hist: Hist, +comp: Comp, +typed: String, +draft: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
+def panel_keep(comp: Comp, +typed: String, +draft: String) -> Comp:
+  panel_keep.same(String.eq(typed, draft), comp)
+
+def panel_dismiss(comp: Comp) -> Comp:
+  match comp:
+    case CompHelp{_}: CompNone{}
+    case _: CompHidden{}
+
+def ghost_seed.on(empty: Bool) -> U32:
+  match empty:
+    case True{}: 0
+    case False{}: 1
+
+def ghost_seed(+typed: String) -> U32:
+  ghost_seed.on(String.is_empty(Cu.ghost_suffix(typed)))
+
+# Help and a hidden menu survive a frame that does not change the composer.
+# `prev` is the draft before this frame; `shown` is the draft after it.
+def finish_keys.shown(pair: Hist & String, +st: Session, +cl: Cl.Client, +cmd: NetCmd, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, +prev: String) -> Session & NetCmd & Bool:
+  match pair:
+    case (h2, +shown):
+      finish_hist(st, cl, cmd, halt, seed, panel_keep(comp, shown, prev), split, (h2, shown))
+
+def pick_idx(comp: Comp) -> Nat:
+  match comp:
+    case CompPick{idx}: idx
+    case _: 0n
+
+def menu_movable(comp: Comp, +draft: String) -> Bool:
+  match comp:
+    case CompHelp{_}: False{}
+    case CompHidden{}: False{}
+    case CompUpload{_, _, _}: False{}
+    case _: Bool.or(Nat.is_gt(Cu.menu_len(draft), 1n), Nat.is_gt(Cu.emoji_len(draft), 0n))
+
+def dir_down(dir: HistDir) -> Bool:
+  match dir:
+    case HistNext{}: True{}
+    case _: False{}
+
+# Wire/history keep raw shortcodes. Explicit Tab/Right accept commits glyphs
+# via compose_accept; ordinary typed frames must not auto-rewrite the draft.
+def finish_keys.typed(dir: HistDir, +draft: String) -> String:
+  match dir:
+    case HistStay{}: draft
+    case _: draft
+
+def finish_keys.plain(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
+  finish_keys.shown(hist_move(hist, finish_keys.typed(hdir, draft), hdir), st, cl, cmd, halt_of(enter, typed), seed_of(hdir), comp, split, prev)
+
+def pick_len.on(slash: Bool, +draft: String) -> Nat:
+  match slash:
+    case True{}: Cu.menu_len(draft)
+    case False{}: Cu.emoji_len(draft)
+
+def pick_len(+draft: String) -> Nat:
+  pick_len.on(Nat.is_gt(Cu.menu_len(draft), 1n), draft)
+
+def finish_keys.pick(down: Bool, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +draft: String, +prev: String) -> Session & NetCmd & Bool:
+  +n = pick_len(draft)
+  +idx = Cu.pick_move(down, Cu.pick_clamp(pick_idx(comp), n), n)
+  finish_hist(st, cl, cmd, False{}, 1, panel_keep(CompPick{idx}, draft, prev), split, (hist, draft))
+
+def finish_keys.navmenu(open: Bool, dir: HistDir, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +enter: Bool) -> Session & NetCmd & Bool:
+  match open:
+    case True{}: finish_keys.pick(dir_down(dir), st, cl, cmd, hist, comp, split, draft, prev)
+    case False{}: finish_keys.plain(st, cl, cmd, hist, comp, split, typed, draft, prev, dir, enter)
+
+def finish_keys.dir(dir: HistDir, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +enter: Bool) -> Session & NetCmd & Bool:
+  match dir:
+    case HistStay{}: finish_keys.plain(st, cl, cmd, hist, comp, split, typed, draft, prev, dir, enter)
+    case _: finish_keys.navmenu(menu_movable(comp, draft), dir, st, cl, cmd, hist, comp, split, typed, draft, prev, enter)
+
+def finish_keys.accept(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +prev: String) -> Session & NetCmd & Bool:
+  +next = Cu.compose_accept(typed, pick_idx(comp))
+  finish_hist(st, cl, cmd, False{}, ghost_seed(typed), panel_keep(comp, next, prev), split, (hist, next))
+
+def finish_keys.dismiss(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +draft: String, +hdir: HistDir) -> Session & NetCmd & Bool:
+  finish_hist(st, cl, cmd, False{}, seed_of(hdir), panel_dismiss(comp), split, hist_move(hist, draft, hdir))
+
+# Nick CompActive keeps Tab cycling. A slash/emoji picker or unique ghost
+# finishes the selected (or sole) candidate instead.
+def tab_cycle_comp(comp: Comp) -> Bool:
+  match comp:
+    case CompActive{_, _, _}: True{}
+    case CompUpload{_, _, _}: True{}
+    case _: False{}
+
+def finish_keys.tab(accept: Bool, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +prev: String) -> Session & NetCmd & Bool:
+  match accept:
+    case True{}: finish_keys.accept(st, cl, cmd, hist, comp, split, typed, prev)
+    case False{}: finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed))
+
+def finish_keys.comp(+st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
+  match code:
+    case 1:
+      finish_keys.tab(
+        Bool.and(Bool.not(tab_cycle_comp(comp)), Cu.tab_accept_ok(typed, pick_idx(comp))),
+        st, cl, cmd, hist, comp, split, typed, prev)
+    case 2:
+      finish_keys.accept(st, cl, cmd, hist, comp, split, typed, prev)
+    case 3:
+      finish_keys.dismiss(st, cl, cmd, hist, comp, split, draft, hdir)
+    case _:
+      finish_keys.dir(hdir, st, cl, cmd, hist, comp, split, typed, draft, prev, enter)
+
+def finish_keys.nav(+st: Session, pair: Cl.Client & Sp.State, +code: U32, +cmd: NetCmd, +hist: Hist, +comp: Comp, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
   match pair:
     case (cl3, split3):
-      finish_keys.comp(st, is_comp, cl3, cmd, hist, comp, split3, typed, draft, hdir, enter)
+      finish_keys.comp(st, code, cl3, cmd, hist, comp, split3, typed, draft, prev, hdir, enter)
 
 def finish_keys.open(+st: Session) -> Size & M.State & Isupport.State & C.State & List<&2, Cl.PendSend> & Comp:
   match st:
@@ -3111,7 +3237,7 @@ def finish_keys.open(+st: Session) -> Size & M.State & Isupport.State & C.State 
 def finish_keys.keyed(size: Size, +media: M.State, +iso: Isupport.State, +cards: C.State, +pends: List<&2, Cl.PendSend>, +comp: Comp, +st: Session, keys: Keys, +hist: Hist, +cl2: Cl.Client, +draft2: String, +cmd: NetCmd, split2: Sp.State) -> Session & NetCmd & Bool:
   match keys:
     case Keys{+typed, +enter, +tab, +click, +up, +dn, +hdir, is_comp, focus}:
-      finish_keys.nav(st, nav_after(cl2, split2, size, enter, tab, click, up, dn, focus, media, iso, cards, pends), is_comp, cmd, hist, comp, typed, draft2, hdir, enter)
+      finish_keys.nav(st, nav_after(cl2, split2, size, enter, tab, click, up, dn, focus, media, iso, cards, pends), is_comp, cmd, hist, comp, typed, draft2, session_draft(st), hdir, enter)
 
 def finish_keys.opened(opened: Size & M.State & Isupport.State & C.State & List<&2, Cl.PendSend> & Comp, +st: Session, keys: Keys, +hist: Hist, +cl2: Cl.Client, +draft2: String, +cmd: NetCmd, split2: Sp.State) -> Session & NetCmd & Bool:
   match opened:
@@ -3159,7 +3285,7 @@ def session_submit_target(+typed: String) -> Maybe<&2, String>:
 def session_submit_stored.got(+st: Session, +target: String, got: Maybe<&2, Cl.Buffer>) -> Bool:
   match got:
     case None{}: False{}
-    case Some{Cl.Buffer{+name, _, _, _, _, _}}: Bool.not(session_cm_eq(st, target, name))
+    case Some{Cl.Buffer{+name, _, _, _, _, _, _, _}}: Bool.not(session_cm_eq(st, target, name))
 
 def session_submit_stored.bufs(+st: Session, +target: String, +bufs: List<&2, Cl.Buffer>, +i: Nat) -> Bool:
   session_submit_stored.got(st, target, Cl.nth_buf(bufs, i))
@@ -3252,13 +3378,34 @@ def visible_media_net(net: NetState) -> Bool:
     case Stopping{_}: False{}
     case _: True{}
 
+# ---- C8 live: Session-retained cards (setters before shared observe) ----
+
+def session_cards(st: Session) -> C.State:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +cf, _, _, labelsbox, +pends}: unbox_cards(cf)
+
+def session_set_cards(st: Session, +cards: C.State) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, [C.Retained{cards, unbox_full(cf)}], regbox, theme, labelsbox, pends}
+
+# Shared ScrollAt window for media+cards admission. Media observe (runs first
+# on the live stage) also feeds cards when both are enabled so the same
+# anchored rows are not rebuilt for that path.
+def session_observe_visible_share_cards(do_cards: Bool, +st: Session, +kept: C.State, +anchored: List<&2, View.AnchoredRow>) -> Session:
+  match do_cards:
+    case False{}: st
+    case True{}: session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
+
 def session_observe_visible_media.gated(+cm: String, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
   match open:
     case True{}: st
     case False{}:
       +current = M.maintain(media, cl)
-      +entries = C.paint_entries(C.maintain(cards, cl))
-      session_set_media(st, M.enqueue_candidates(View.visible_media_candidates_cards_cm(cm, cl, rows, cols, split, current, entries), current))
+      +kept = C.maintain(cards, cl)
+      +anchored = View.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, current, C.paint_entries(kept))
+      +st1 = session_set_media(st, M.enqueue_candidates(View.visible_media_candidates_from_rows(anchored, current), current))
+      session_observe_visible_share_cards(C.enabled(kept), st1, kept, anchored)
 
 def session_observe_visible_media.allowed(allowed: Bool, +st: Session) -> Session:
   match allowed:
@@ -3303,22 +3450,13 @@ def session_observe_media(+st: Session, +after: Nat) -> Session:
 # step paths only settle dead state (never schedule). The physical cards
 # worker stays owned until its exact completion, even across disable/reset.
 
-def session_cards(st: Session) -> C.State:
-  match st:
-    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +cf, _, _, labelsbox, +pends}: unbox_cards(cf)
-
-def session_set_cards(st: Session, +cards: C.State) -> Session:
-  match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, [C.Retained{cards, unbox_full(cf)}], regbox, theme, labelsbox, pends}
-
 def session_observe_visible_cards.gated(+cm: String, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
   match open:
     case True{}: st
     case False{}:
       +kept = C.maintain(cards, cl)
-      +entries = C.paint_entries(kept)
-      session_set_cards(st, C.enqueue_candidates(C.visible_candidates_cards_cm(cm, cl, rows, cols, split, media, entries), kept))
+      +anchored = View.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, media, C.paint_entries(kept))
+      session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
 
 def session_observe_visible_cards.allowed(allowed: Bool, +st: Session) -> Session:
   match allowed:
@@ -3862,9 +4000,78 @@ def step_keys.upload_modal(pending: Bool, +st: Session, +keys: Keys) -> Session 
         case Keys{+typed, enter, _, _, _, _, _, _, _}:
           step_keys.upload_modal.go(enter, st, keys, typed)
 
+def help_open(+st: Session, +topic: String) -> Session & NetCmd & Bool:
+  +opened = session_put_finish(st, session_cl(st), "", session_hist(st), 1, CompHelp{topic}, session_split(st))
+  (session_after(opened, Cont{Nil{}}), Cont{Nil{}}, False{})
+
+def step_keys.help_on(is_help: Bool, +st: Session, keys: Keys, +typed: String) -> Session & NetCmd & Bool:
+  match is_help:
+    case False{}: session_label_trip(step_keys.upload_modal(False{}, st, keys))
+    case True{}: session_label_trip(help_open(st, Cu.help_arg(typed)))
+
+def step_keys.help.typed(enter: Bool, +st: Session, keys: Keys, +typed: String) -> Session & NetCmd & Bool:
+  match enter:
+    case False{}: session_label_trip(step_keys.upload_modal(False{}, st, keys))
+    case True{}: step_keys.help_on(Cu.is_help(typed), st, keys, typed)
+
+def step_keys.help(enter: Bool, +st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  match keys:
+    case Keys{+typed, _, _, _, _, _, _, _, _}:
+      step_keys.help.typed(enter, st, keys, typed)
+
+def step_keys.open(st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  match keys:
+    case Keys{+typed, +enter, +tab, +click, +up, +dn, +hist, +comp, +focus}:
+      step_keys.help.typed(enter, st, Keys{typed, enter, tab, click, up, dn, hist, comp, focus}, typed)
+
+def step_keys.start(pending: Bool, +st: Session, keys: Keys) -> Session & NetCmd & Bool:
+  match pending:
+    case True{}: session_label_trip(step_keys.upload_modal(True{}, st, keys))
+    case False{}: step_keys.open(st, keys)
+
 def step_keys(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
   +next = session_upload_maintain(st)
-  session_label_trip(step_keys.upload_modal(Up.pending(session_upload(next)), next, keys))
+  step_keys.start(Up.pending(session_upload(next)), next, keys)
+
+def typing_line.on(empty: Bool, +notice: String) -> List<&2, String>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: notice <> Nil{}
+
+def typing_line(typers: List<&2, String>) -> List<&2, String>:
+  +notice = View.typing_notice(typers)
+  typing_line.on(String.is_empty(notice), notice)
+
+def panel_menu(xs: List<&2, String>, typers: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}: typing_line(typers)
+    case _: xs
+
+def panel_lines.rest(is_help: Bool, +draft: String, typers: List<&2, String>, +idx: Nat) -> List<&2, String>:
+  match is_help:
+    case True{}: Cu.help_lines(Cu.help_arg(draft), 24n)
+    case False{}: panel_menu(Cu.emoji_or(draft, idx), typers)
+
+# Hidden wins over a draft that still reads /help, so Esc can dismiss the
+# catalog and the next Esc is free to quit.
+def panel_lines.help(comp: Comp, +draft: String, typers: List<&2, String>) -> List<&2, String>:
+  match comp:
+    case CompHidden{}: typing_line(typers)
+    case CompUpload{_, _, _}: typing_line(typers)
+    case CompHelp{+topic}: Cu.help_lines(topic, 24n)
+    case CompPick{+idx}: panel_lines.rest(Cu.is_help(draft), draft, typers, idx)
+    case _: panel_lines.rest(Cu.is_help(draft), draft, typers, 0n)
+
+def panel_lines.comp(comp: Comp, +draft: String, typers: List<&2, String>) -> List<&2, String>:
+  panel_lines.help(comp, draft, typers)
+
+def panel_lines.on(empty: Bool, comp: Comp, +draft: String, +hint: String, typers: List<&2, String>) -> List<&2, String>:
+  match empty:
+    case False{}: hint <> Nil{}
+    case True{}: panel_lines.comp(comp, draft, typers)
+
+def panel_lines(comp: Comp, +draft: String, +hint: String, typers: List<&2, String>) -> List<&2, String>:
+  panel_lines.on(String.is_empty(hint), comp, draft, hint, typers)
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))
@@ -4428,15 +4635,6 @@ def notify_observe(+st: Notify.State, +cl: Cl.Client, +scope: String, +cutoff: N
 def notify_seed_postrestore(+st: Notify.State, +scope: String, +imported: Cl.Client) -> Notify.State:
   Notify.seed(st, scope, Cl.log_seq_of(imported))
 
-# One-call live seam for the parent loop: exact-spelling scope plus the
-# Client's own credential pair for title/body redaction. The parent calls this
-# after each live chunk with the pre-chunk log_seq as cutoff, stages returned
-# Reqs into the bounded async queue, and keeps the returned Notify.State.
-def notify_observe_session(+st: Notify.State, +sess: Session, +cutoff: Nat) -> Notify.State & List<&2, Notify.Req>:
-  match sess:
-    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, labelsbox, +pends}:
-      notify_observe(st, cl, notify_scope_of(sess), cutoff, Cl.client_sasl_user(cl), Cl.client_sasl_pass(cl))
-
 # ---- live dispatch package (N9 full) -----------------------------------------
 # The per-chunk entry the parent loop calls after each live chunk. It feeds
 # the chunk through the same step_on_chunk_ms every other live path uses,
@@ -4504,10 +4702,9 @@ def notify_live_init(+st: Notify.State, +scanned: Nat) -> NotifyLive:
 def notify_live_init_ep(+st: Notify.State, +scanned: Nat, +endpoint: String) -> NotifyLive:
   NotifyLive{st, Notify.queue_empty(), scanned, None{}, 1n, endpoint, "", Nil{}}
 
-# Staged twin of notify_observe_session: same exact-spelling scope, same
-# client credentials, same cutoff floor, but marks advance only for reqs
-# admitted to the bounded queue. A literal notify_observe_session call here
-# would consume marks for cap-dropped rows, so the live path stages instead.
+# Live session seam: exact-spelling scope, client credentials, and cutoff
+# floor. Marks advance only for reqs admitted to the bounded queue so a full
+# queue can retry without consuming at-most-once for dropped rows.
 def notify_observe_session_staged(+st: Notify.State, +sess: Session, +floor: Nat, +q: Notify.Queue) -> Notify.Stage:
   match sess:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, labelsbox, +pends}:
@@ -4534,7 +4731,7 @@ def notify_claims_lines(lines: List<&2, Cl.Line>, +nick: String, +query: Bool, +
 def notify_claims_bufs(bufs: List<&2, Cl.Buffer>, +nick: String, +before: Nat, +index: Nat) -> List<&2, Nat>:
   match bufs:
     case Nil{}: Nil{}
-    case Con{Cl.Buffer{+name, is_channel, _, +lines, _, _}, t}:
+    case Con{Cl.Buffer{+name, is_channel, _, +lines, _, _, _, _}, t}:
       List.append(&2, Nat, notify_claims_lines(lines, nick, notify_is_query(name, is_channel, index), before), notify_claims_bufs(t, nick, before, Nat.add(index, 1n)))
 
 def notify_claims_installed(+before: Nat, +after: Cl.Client) -> List<&2, Nat>:

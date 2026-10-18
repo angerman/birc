@@ -107,7 +107,11 @@ def redial(binary: str) -> None:
         "CAP REQ :labeled-response", "CAP REQ :cap-notify",
         "CAP END", "NICK probe", "USER probe 0 * :probe",
     ]
-    first_expected = [f"NOTICE #t :{i}" for i in range(17, 9, -1)]
+    # frames=1 sends SEND_CAP (8) then Dial flushes the healthy remainder
+    # (NOTICE 8..1 + QUIT) before close; Cont{fresh} rides the new socket.
+    first_expected = (
+        [f"NOTICE #t :{i}" for i in range(17, 0, -1)] + ["QUIT :queue-test"]
+    )
     wire = [bytearray(), bytearray()]
     peers = []
     checkpoint = False
@@ -171,7 +175,7 @@ def redial(binary: str) -> None:
                 child.wait()
             for peer in peers:
                 peer.close()
-    print("actor queue redial discards old pending and retains new FIFO: PASS")
+    print("actor queue redial flushes old pending and retains new FIFO: PASS")
 
 
 if __name__ == "__main__":

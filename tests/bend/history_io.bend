@@ -36,7 +36,7 @@ def marker_count(lines: List<&2, Cl.Line>) -> Nat:
 
 def loaded_ok(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, +lines, _, _}, Nil{}}, _, _, _, _, _}:
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, +lines, _, _, _, _}, Nil{}}, _, _, _, _, _}:
       Nat.is_eq(List.length(&2, Cl.Line, lines), 4n)
         && Nat.is_eq(marker_count(lines), 1n)
         && String.ends_with(CL.buf_texts(cl, 0n), "last-2|last-1|last-é|12:00:00|")

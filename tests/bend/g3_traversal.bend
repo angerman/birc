@@ -136,7 +136,7 @@ def buf_ids_on(got: Maybe<&2, Cl.Buffer>) -> List<&2, Nat>:
     case None{}: Nil{}
     case Some{b}:
       match b:
-        case Cl.Buffer{_, _, _, +lines, _, _}: buf_line_ids(lines)
+        case Cl.Buffer{_, _, _, +lines, _, _, _, _}: buf_line_ids(lines)
 
 def buf_ids(+cl: Cl.Client, +i: Nat) -> List<&2, Nat>:
   match cl:

@@ -133,7 +133,7 @@ def notify_before_restore() -> W.Workspace:
   W.single_client("restored.test", 6697, False{}, Cl.init("me", "restored.test"), "#restored")
 
 def notify_restored() -> W.Workspace:
-  +cl : Cl.Client = Cl.Client{"me", "restored.test", Cl.server_buf() <> Cl.Buffer{"#restored", True{}, "", [Cl.Line{Cl.Highlight{}, "12:00:00", "me: synthetic restored alert", "alice", 17n}], Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 17n}
+  +cl : Cl.Client = Cl.Client{"me", "restored.test", Cl.server_buf() <> Cl.buf_indexed("#restored", True{}, "", [Cl.Line{Cl.Highlight{}, "12:00:00", "me: synthetic restored alert", "alice", 17n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 17n}
   W.single_client("restored.test", 6697, False{}, cl, "#restored")
 
 def load_opts() -> PrefWorker.Options:
@@ -169,7 +169,7 @@ def b_url() -> String:
   "https://x.test/b.png"
 
 def b_client() -> Cl.Client:
-  Cl.Client{"me", "h.example", Cl.server_buf() <> Cl.Buffer{"#b", True{}, "", [Cl.Line{Cl.Msg{}, "", b_url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}} <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
+  Cl.Client{"me", "h.example", Cl.server_buf() <> Cl.buf_indexed("#b", True{}, "", [Cl.Line{Cl.Msg{}, "", b_url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
 
 def b_req() -> M.Request:
   M.Request{M.Inline{1n}, b_url(), 1n, 1n}

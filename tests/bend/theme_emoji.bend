@@ -42,7 +42,7 @@ def line_text(line: Cl.Line) -> String:
     case Cl.Line{_, _, text, _, _}: text
 
 def narrow_new_alias() -> Bool:
-  +b: Cl.Buffer = Cl.Buffer{"server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:gem:b", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}}
+  +b: Cl.Buffer = Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:gem:b", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
   +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
   String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "�")
     && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, True{}, True{}, "s")), "💎")
@@ -64,7 +64,7 @@ def fed_chan() -> Cl.Client:
 def buf_lines(+got: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
   match got:
     case None{}: Nil{}
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}: lines
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}: lines
 
 def chan_lines(+cl: Cl.Client) -> List<&2, Cl.Line>:
   buf_lines(Cl.nth_buf(Cl.client_bufs(cl), 1n))
@@ -141,7 +141,7 @@ def stored_code() -> String:
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must_eq("table has 70 entries", Nat.show(List.length(&2, Emoji.Entry, Emoji.aliases())), "70")
+    Unit <- E.must_eq("table has 72 entries", Nat.show(List.length(&2, Emoji.Entry, Emoji.aliases())), "72")
     Unit <- E.must("every entry resolves to its glyph", each_resolves(Emoji.aliases()))
     Unit <- E.must_eq("new aliases render", rendered(":smile: :check: :sun: :dog: :gem:"), "0[😄 ✅ ☀ 🐶 💎]")
     Unit <- E.must_eq("old table intact", rendered(":eyes: :thumbs-up: :+1: :joy: :heart:"), "0[👀 👍 👍 🤣 ❤]")

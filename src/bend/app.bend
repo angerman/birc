@@ -10,6 +10,7 @@ import ./clock.bend as Clock
 import ./replay.bend as Replay
 import ./auth_bridge.bend as AuthBridge
 import ./endpoint.bend as Ep
+import ./timui.bend as T
 
 def run_demo(+frames: U32, +cl: Cl.Client, +chan: String, port: U32, force_tls: Bool) -> IO(Unit):
   Net.run_offline(frames, cl, chan, port, force_tls)
@@ -57,6 +58,28 @@ def main_replay(+frames: U32, +nick: String, +chan: String, +path: String, port:
     cl : Cl.Client <- load_replay(path, nick, "replay")
     main_offline(frames, chan, cl, port, force_tls)
 
+# Interactive tty always uses the workspace warm-paint path, even when
+# --server extras are empty (host/port remain the primary endpoint).
+# Headless keeps Net.run_live (prepared/legacy preference contracts).
+def main_dispatch.servers.tty(
+  headless: Bool,
+  +frames: U32,
+  +host: String,
+  +port: U32,
+  +nick: String,
+  +chan: String,
+  +sasl_user: String,
+  +sasl_pass: String,
+  +auth: Args.AuthOptions,
+  force_tls: Bool,
+  +servers: List<&2, Ep.Endpoint>
+) -> IO(Unit):
+  match headless:
+    case True{}:
+      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
+    case False{}:
+      WsNet.run_ws(frames, host, port, servers, nick, chan, sasl_user, sasl_pass, auth, force_tls)
+
 def main_dispatch.servers(
   +frames: U32,
   +host: String,
@@ -67,14 +90,11 @@ def main_dispatch.servers(
   +sasl_pass: String,
   +auth: Args.AuthOptions,
   force_tls: Bool,
-  +servers: List<&2, Ep.Endpoint>,
-  single: Bool
+  +servers: List<&2, Ep.Endpoint>
 ) -> IO(Unit):
-  match single:
-    case True{}:
-      main_live(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls)
-    case False{}:
-      WsNet.run_ws(frames, host, port, servers, nick, chan, sasl_user, sasl_pass, auth, force_tls)
+  do IO<Unit>:
+    tty : U32 <- T.Timui.isatty()
+    main_dispatch.servers.tty(U32.is_zero(tty), frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls, servers)
 
 def main_dispatch.demo(
   +frames: U32,
@@ -95,7 +115,7 @@ def main_dispatch.demo(
         cl : Cl.Client <- demo_client(nick)
         main_offline(frames, chan, cl, port, force_tls)
     case False{}:
-      main_dispatch.servers(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls, servers, List.is_empty(&2, Ep.Endpoint, servers))
+      main_dispatch.servers(frames, host, port, nick, chan, sasl_user, sasl_pass, auth, force_tls, servers)
 
 def main_dispatch.on(
   +frames: U32,

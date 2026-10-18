@@ -157,6 +157,10 @@ type Line is Data:
 type Scroll is Data:
   ScrollAt{after: Nat, tail: Nat}
 
+# `lines` stays oldest-first for history. `newest` is the same lines,
+# newest-first, so paint and scroll start at the live edge. `count` is
+# their length. Appends cons onto `newest`. Middle rewrites and trims
+# rebuild both through buf_indexed.
 type Buffer is Data:
   Buffer{
     name: String,
@@ -164,8 +168,17 @@ type Buffer is Data:
     topic: String,
     lines: List<&2, Line>,
     nicks: List<&2, String>,
-    scroll: Scroll
+    scroll: Scroll,
+    newest: List<&2, Line>,
+    count: Nat
   }
+
+def buf_indexed(+name: String, +is_channel: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll) -> Buffer:
+  Buffer{name, is_channel, topic, lines, nicks, scroll, List.reverse(&2, Line, lines), List.length(&2, Line, lines)}
+
+# Scroll changes do not rebuild the line spine.
+def buf_with_scroll(+name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>, +count: Nat) -> Buffer:
+  Buffer{name, ch, topic, lines, nicks, scroll, newest, count}
 
 type AlertLevel is Data:
   Activity{}
@@ -649,9 +662,9 @@ def reanchor_lines(+old: List<&2, Line>, lines: List<&2, Line>, scroll: Scroll) 
 
 def purge_nick_buf(b: Buffer, +nick: String) -> Buffer:
   match b:
-    case Buffer{name, is_ch, topic, +lines, nicks, scroll}:
+    case Buffer{name, is_ch, topic, +lines, nicks, scroll, _, _}:
       +kept = purge_nick_lines(lines, nick)
-      Buffer{name, is_ch, topic, kept, nicks, reanchor_lines(lines, kept, scroll)}
+      buf_indexed(name, is_ch, topic, kept, nicks, reanchor_lines(lines, kept, scroll))
 
 type AuthMode is Data:
   SaslOnly{}
@@ -780,7 +793,7 @@ def del_mute_client(+cl: Client, +pat: String) -> Client:
 # ---- init ---------------------------------------------------------------
 
 def server_buf() -> Buffer:
-  Buffer{"server", False{}, "", Nil{}, Nil{}, ScrollAt{0n, 0n}}
+  buf_indexed("server", False{}, "", Nil{}, Nil{}, ScrollAt{0n, 0n})
 
 def init(+nick: String, +server: String) -> Client:
   Client{nick, server, server_buf() <> Nil{}, 0n, "", settings0(), AuthIdle{}, 0n}
@@ -899,8 +912,8 @@ def buf_count(+bufs: List<&2, Buffer>) -> Nat:
 
 def buf_clear(b: Buffer) -> Buffer:
   match b:
-    case Buffer{+name, is_channel, +topic, _, +nicks, _}:
-      Buffer{name, is_channel, topic, Nil{}, nicks, ScrollAt{0n, 0n}}
+    case Buffer{+name, is_channel, +topic, _, +nicks, _, _, _}:
+      buf_indexed(name, is_channel, topic, Nil{}, nicks, ScrollAt{0n, 0n})
 
 def buf_clear_at(+cl: Client, +i: Nat) -> Client:
   match cl:
@@ -909,14 +922,14 @@ def buf_clear_at(+cl: Client, +i: Nat) -> Client:
 
 def buf_set_lines(+lines: List<&2, Line>, b: Buffer) -> Buffer:
   match b:
-    case Buffer{+name, is_channel, +topic, _, +nicks, _}:
+    case Buffer{+name, is_channel, +topic, _, +nicks, _, _, _}:
       +kept = List.drop(
         &2,
         Line,
         lines,
         Nat.sub(List.length(&2, Line, lines), SCROLL_CAP())
       )
-      Buffer{name, is_channel, topic, kept, nicks, ScrollAt{0n, 0n}}
+      buf_indexed(name, is_channel, topic, kept, nicks, ScrollAt{0n, 0n})
 
 def buf_set_lines_fn(lines: List<&2, Line>, b: Buffer) -> Buffer:
   buf_set_lines(lines, b)
@@ -948,7 +961,7 @@ def mark_unread.buf_cm(+cm: String, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: S
     case None{}: stg
     case Some{b}:
       match b:
-        case Buffer{+name, _, _, _, _, _}:
+        case Buffer{+name, _, _, _, _, _, _, _}:
           mark_unread.check_cm(cm, False{}, is_hl, name, stg)
 
 def mark_unread_idx.on_cm(+cm: String, is_active: Bool, got: Maybe<&2, Buffer>, is_hl: Bool, +stg: Settings) -> Settings:
@@ -980,34 +993,13 @@ def buf_find.rest(cont: Maybe<&2, Nat>, hit: Bool, +i: Nat) -> Maybe<&2, Nat>:
     case False{}:
       cont
 
-def buf_find.go(xs: List<&2, Buffer>, +name: String, +i: Nat) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case Con{h, +t}:
-      match h:
-        case Buffer{+n, _, _, _, _, _}:
-          buf_find.rest(buf_find.go(t, name, 1n+i), buf_eq_cm(dflt_cm(), n, name), i)
-
-def buf_find.skip0(xs: List<&2, Buffer>, +name: String) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case Con{_, t}:
-      buf_find.go(t, name, 1n)
-
-def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
-  match cl:
-    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
-      buf_find.skip0(bufs, name)
-
 def buf_find_cm.go(xs: List<&2, Buffer>, +cm: String, +name: String, +i: Nat) -> Maybe<&2, Nat>:
   match xs:
     case Nil{}:
       None{}
     case Con{h, +t}:
       match h:
-        case Buffer{+n, _, _, _, _, _}:
+        case Buffer{+n, _, _, _, _, _, _, _}:
           buf_find.rest(buf_find_cm.go(t, cm, name, 1n+i), buf_eq_cm(cm, n, name), i)
 
 def buf_find_cm.skip0(xs: List<&2, Buffer>, +cm: String, +name: String) -> Maybe<&2, Nat>:
@@ -1022,12 +1014,15 @@ def buf_find_cm(+cl: Client, +cm: String, +name: String) -> Maybe<&2, Nat>:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
       buf_find_cm.skip0(bufs, cm, name)
 
+def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
+  buf_find_cm(cl, dflt_cm(), name)
+
 # A + channel may itself be named +#room. At message boundaries, prefer an
 # exact resident channel to interpreting its leading + as a STATUSMSG prefix.
 # @ cannot begin a channel name, so @#room always remains an audience alias.
 def message_key.resident(+name: String, got: Maybe<&2, Buffer>) -> String:
   match got:
-    case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key(name))
+    case Some{Buffer{_, channel, _, _, _, _, _, _}}: Bool.pick(String, channel, name, target_key(name))
     case None{}: target_key(name)
 
 def message_key.found(+cl: Client, +name: String, found: Maybe<&2, Nat>) -> String:
@@ -1052,7 +1047,7 @@ def message_key(+cl: Client, +raw: String) -> String:
 
 def message_key_with.resident(+types: String, +status: String, +sigils: String, +name: String, got: Maybe<&2, Buffer>) -> String:
   match got:
-    case Some{Buffer{_, channel, _, _, _, _}}: Bool.pick(String, channel, name, target_key_with(types, status, sigils, name))
+    case Some{Buffer{_, channel, _, _, _, _, _, _}}: Bool.pick(String, channel, name, target_key_with(types, status, sigils, name))
     case None{}: target_key_with(types, status, sigils, name)
 
 def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
@@ -1089,7 +1084,7 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
   +canonical = target_name(name)
   +channel = is_channel || target_channel(canonical)
-  Buffer{canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n}}
+  buf_indexed(canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n})
 
 # Keep the last n lines in original order (oldest → newest).
 def take_last(+xs: List<&2, Line>, n: Nat) -> List<&2, Line>:
@@ -1107,18 +1102,27 @@ def buf_log.scroll(scroll: Scroll) -> Scroll:
     case ScrollAt{+after, +tail}:
       buf_log.scroll.on(Nat.is_gt(after, 0n) || Nat.is_gt(tail, 0n), after, tail)
 
-def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
+# Under the cap, cons the new line onto the newest-first spine. At the cap,
+# drop the oldest line and rebuild both orders once.
+def buf_push.over(over: Bool, +name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>, +count: Nat, +line: Line, +cap: Nat) -> Buffer:
+  match over:
+    case True{}:
+      buf_indexed(name, ch, topic, take_last(List.append(&2, Line, lines, line <> Nil{}), cap), nicks, buf_log.scroll(scroll))
+    case False{}:
+      Buffer{name, ch, topic, List.append(&2, Line, lines, line <> Nil{}), nicks, buf_log.scroll(scroll), line <> newest, 1n+count}
+
+def buf_push(+b: Buffer, +line: Line, +cap: Nat) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      +lines2 = take_last(List.append(&2, Line, lines, line <> Nil{}), SCROLL_CAP())
-      Buffer{name, ch, topic, lines2, nicks, buf_log.scroll(scroll)}
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, +newest, +count}:
+      buf_push.over(Nat.is_ge(count, cap), name, ch, topic, lines, nicks, scroll, newest, count, line, cap)
+
+def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
+  buf_push(b, line, SCROLL_CAP())
 
 # Diagnostics have no author/nick payload and retain only bounded, private text.
 # Mirror IDs are the original event IDs; copying does not create a new event.
 def diagnostic_append(+line: Line, b: Buffer) -> Buffer:
-  match b:
-    case Buffer{name, ch, topic, lines, nicks, scroll}:
-      Buffer{name, ch, topic, take_last(List.append(&2, Line, lines, line <> Nil{}), Diagnostic.ROW_CAP()), nicks, buf_log.scroll(scroll)}
+  buf_push(b, line, Diagnostic.ROW_CAP())
 
 def diagnostic_slot.make(full: Bool, cl: Client) -> Client & Maybe<&2, Nat>:
   match full:
@@ -1221,7 +1225,7 @@ def diagnostic_fresh_buf.on(internal: Bool, acc: DiagnosticFresh, lines: List<&2
 
 def diagnostic_fresh_buf(acc: DiagnosticFresh, b: Buffer) -> DiagnosticFresh:
   match b:
-    case Buffer{name, _, _, lines, _, _}:
+    case Buffer{name, _, _, lines, _, _, _, _}:
       diagnostic_fresh_buf.on(Irc.ieq(name, Diagnostic.name()), acc, lines)
 
 def diagnostic_fresh.fin(acc: DiagnosticFresh) -> Client:
@@ -1245,7 +1249,7 @@ def buf_reconnect.on(internal: Bool, b: Buffer, now: String) -> Buffer:
 # must not bypass their smaller row cap; the session records a bounded stage.
 def buf_reconnect(+b: Buffer, +now: String) -> Buffer:
   match b:
-    case Buffer{+name, _, _, _, _, _}:
+    case Buffer{+name, _, _, _, _, _, _, _}:
       buf_reconnect.on(Irc.ieq(name, Diagnostic.name()), b, now)
 
 def is_reconnect(kind: LineKind) -> Bool:
@@ -1303,13 +1307,13 @@ type StampBufs is Data:
 
 def stamp_bufs.step.lines(pair: List<&2, Line> & Nat, name: String, channel: Bool, topic: String, nicks: List<&2, String>, scroll: Scroll, rev: List<&2, Buffer>) -> StampBufs:
   match pair:
-    case (lines, seq): StampBufs{Buffer{name, channel, topic, lines, nicks, scroll} <> rev, seq}
+    case (lines, seq): StampBufs{buf_indexed(name, channel, topic, lines, nicks, scroll) <> rev, seq}
 
 def stamp_bufs.step(acc: StampBufs, b: Buffer) -> StampBufs:
   match acc:
     case StampBufs{rev, seq}:
       match b:
-        case Buffer{name, channel, topic, lines, nicks, scroll}:
+        case Buffer{name, channel, topic, lines, nicks, scroll, _, _}:
           stamp_bufs.step.lines(stamp_lines(lines, seq), name, channel, topic, nicks, scroll, rev)
 
 def stamp_bufs.fin(acc: StampBufs) -> List<&2, Buffer> & Nat:
@@ -1330,7 +1334,7 @@ def stamp_logs(cl: Client) -> Client:
 
 def buf_has_lines(b: Buffer) -> Bool:
   match b:
-    case Buffer{_, _, _, Nil{}, _, _}: False{}
+    case Buffer{_, _, _, Nil{}, _, _, _, _}: False{}
     case _: True{}
 
 def reconnect_marker.has(has: Bool, b: Buffer, now: String) -> Buffer:
@@ -1355,8 +1359,8 @@ def reconnect_markers(cl: Client, now: String) -> Client:
 # Roster and topic describe the current connection, unlike retained history.
 def reset_channel_buf(b: Buffer) -> Buffer:
   match b:
-    case Buffer{name, True{}, _, lines, _, scroll}:
-      Buffer{name, True{}, "", lines, Nil{}, scroll}
+    case Buffer{name, True{}, _, lines, _, scroll, _, _}:
+      buf_indexed(name, True{}, "", lines, Nil{}, scroll)
     case _: b
 
 def reset_channel_bufs(bufs: List<&2, Buffer>) -> List<&2, Buffer>:
@@ -1394,7 +1398,7 @@ def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, 
 
 def normal_buffer_count.step(n: Nat, b: Buffer) -> Nat:
   match b:
-    case Buffer{name, _, _, _, _, _}:
+    case Buffer{name, _, _, _, _, _, _, _}:
       Nat.add(n, Bool.pick(Nat, Irc.ieq(name, Diagnostic.name()), 0n, 1n))
 
 def normal_buffer_count(bufs: List<&2, Buffer>) -> Nat:
@@ -1421,12 +1425,12 @@ def promote_channel.on(promote: Bool, b: Buffer) -> Buffer:
     case False{}: b
     case True{}:
       match b:
-        case Buffer{name, _, topic, lines, nicks, scroll}:
-          Buffer{name, True{}, topic, lines, List.filter(~String, ~channel_nick, nicks), scroll}
+        case Buffer{name, _, topic, lines, nicks, scroll, _, _}:
+          buf_indexed(name, True{}, topic, lines, List.filter(~String, ~channel_nick, nicks), scroll)
 
 def promote_channel(channel: Bool, b: Buffer) -> Buffer:
   match b:
-    case Buffer{_, +was_channel, _, _, _, _}:
+    case Buffer{_, +was_channel, _, _, _, _, _, _}:
       promote_channel.on(channel && Bool.not(was_channel), b)
 
 def buf_get.found(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, create: Bool, found: Maybe<&2, Nat>) -> Client & Maybe<&2, Nat>:
@@ -1466,7 +1470,7 @@ def client_log_ts.pick(empty: Bool, +ts: String, +now: String) -> String:
 def client_log.destination(got: Maybe<&2, Buffer>) -> Bool:
   match got:
     case None{}: False{}
-    case Some{Buffer{name, _, _, _, _, _}}: Irc.ieq(name, Diagnostic.name())
+    case Some{Buffer{name, _, _, _, _, _, _, _}}: Irc.ieq(name, Diagnostic.name())
 
 def diagnostic_mirror(mirror: Bool, cl: Client, +line: Line) -> Client:
   match line:
@@ -1562,38 +1566,97 @@ def nick_has_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> Bool:
 
 def nick_has_cm(+b: Buffer, +cm: String, +nick: String) -> Bool:
   match b:
-    case Buffer{_, _, _, _, +nicks, _}:
+    case Buffer{_, _, _, _, +nicks, _, _, _}:
       nick_has_cm.go(cm, nicks, nick)
 
 def nick_has(+b: Buffer, +nick: String) -> Bool:
   match b:
-    case Buffer{_, _, _, _, +nicks, _}:
+    case Buffer{_, _, _, _, +nicks, _, _, _}:
       List.contains(~String, ~nick_eq, nicks, nick)
 
 def nick_add.keep(+b: Buffer, skip: Bool, +nick: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
       match skip:
         case True{}:
-          Buffer{name, ch, topic, lines, nicks, scroll}
+          buf_indexed(name, ch, topic, lines, nicks, scroll)
         case False{}:
-          Buffer{name, ch, topic, lines, List.append(&2, String, nicks, nick <> Nil{}), scroll}
+          buf_indexed(name, ch, topic, lines, List.append(&2, String, nicks, nick <> Nil{}), scroll)
 
-def nick_add.body(+b: Buffer, +nick: String, empty: Bool) -> Buffer:
+def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, nick), t, h <> nick_del.go(t, nick))
+
+def nick_del(+b: Buffer, +raw: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, lines, nick_del.go(nicks, nick_strip(raw)), scroll)
+
+def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, from), to <> t, h <> nick_rename.go(t, from, to))
+
+def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, lines, nick_rename.go(nicks, nick_strip(from), nick_strip(to)), scroll)
+
+def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, nick), t, h <> nick_del_cm.go(cm, t, nick))
+
+def nick_del_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, lines, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)), scroll)
+
+def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, from), to <> t, h <> nick_rename_cm.go(cm, t, from, to))
+
+def nick_rename_cm(+b: Buffer, +cm: String, +sigils: String, +from: String, +to: String) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, lines, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)), scroll)
+
+def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
       match empty:
         case True{}:
-          Buffer{name, ch, topic, lines, nicks, scroll}
+          buf_indexed(name, ch, topic, lines, nicks, scroll)
         case False{}:
           nick_add.keep(
-            Buffer{name, ch, topic, lines, nicks, scroll},
-            nick_has(Buffer{name, ch, topic, lines, nicks, scroll}, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
+            buf_indexed(name, ch, topic, lines, nicks, scroll),
+            nick_has_cm(buf_indexed(name, ch, topic, lines, nicks, scroll), cm, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
             nick)
 
+def nick_add_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
+  +n = nick_strip_set(sigils, raw)
+  nick_add_cm.body(cm, b, n, String.is_empty(n))
+
+def nick_add_all_cm.go(xs: List<&2, String>, +cm: String, +sigils: String, +b: Buffer) -> Buffer:
+  match xs:
+    case Nil{}: b
+    case Con{+h, +t}: nick_add_all_cm.go(t, cm, sigils, nick_add_cm(b, cm, sigils, h))
+
+def nick_add_all_cm(+b: Buffer, +cm: String, +sigils: String, +ns: List<&2, String>) -> Buffer:
+  nick_add_all_cm.go(ns, cm, sigils, b)
+
 def nick_add(+b: Buffer, +raw: String) -> Buffer:
-  +n = nick_strip(raw)
-  nick_add.body(b, n, String.is_empty(n))
+  nick_add_cm(b, dflt_cm(), dflt_strip(), raw)
 
 def nick_add_who(+who: String, b: Buffer) -> Buffer:
   nick_add(b, who)
@@ -1610,84 +1673,12 @@ def nick_add_step(b: Buffer, h: String) -> Buffer:
 def nick_add_all(+b: Buffer, +ns: List<&2, String>) -> Buffer:
   List.foldl(~&2, ~String, ~Buffer, ~nick_add_step, ns, b)
 
-def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, nick), t, h <> nick_del.go(t, nick))
-
-def nick_del(+b: Buffer, +raw: String) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nick_del.go(nicks, nick_strip(raw)), scroll}
-
-def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, from), to <> t, h <> nick_rename.go(t, from, to))
-
-def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nick_rename.go(nicks, nick_strip(from), nick_strip(to)), scroll}
-
-def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, nick), t, h <> nick_del_cm.go(cm, t, nick))
-
-def nick_del_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)), scroll}
-
-def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, from), to <> t, h <> nick_rename_cm.go(cm, t, from, to))
-
-def nick_rename_cm(+b: Buffer, +cm: String, +sigils: String, +from: String, +to: String) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)), scroll}
-
-def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buffer:
-  match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      match empty:
-        case True{}:
-          Buffer{name, ch, topic, lines, nicks, scroll}
-        case False{}:
-          nick_add.keep(
-            Buffer{name, ch, topic, lines, nicks, scroll},
-            nick_has_cm(Buffer{name, ch, topic, lines, nicks, scroll}, cm, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
-            nick)
-
-def nick_add_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
-  +n = nick_strip_set(sigils, raw)
-  nick_add_cm.body(cm, b, n, String.is_empty(n))
-
-def nick_add_all_cm.go(xs: List<&2, String>, +cm: String, +sigils: String, +b: Buffer) -> Buffer:
-  match xs:
-    case Nil{}: b
-    case Con{+h, +t}: nick_add_all_cm.go(t, cm, sigils, nick_add_cm(b, cm, sigils, h))
-
-def nick_add_all_cm(+b: Buffer, +cm: String, +sigils: String, +ns: List<&2, String>) -> Buffer:
-  nick_add_all_cm.go(ns, cm, sigils, b)
-
 # ---- set topic / active / nick ------------------------------------------
 
 def set_topic(+b: Buffer, +topic: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, _, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, lines, nicks, scroll}
+    case Buffer{+name, +ch, _, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, lines, nicks, scroll)
 
 def set_topic_fn(topic: String, b: Buffer) -> Buffer:
   set_topic(b, topic)
@@ -1703,7 +1694,7 @@ def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
       stg
     case Some{b}:
       match b:
-        case Buffer{+name, _, _, _, _, _}:
+        case Buffer{+name, _, _, _, _, _, _, _}:
           set_unreads(stg, del_unread_items(settings_unreads(stg), name))
 
 def set_active.unread_index(control: Bool, stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
@@ -1731,28 +1722,28 @@ def set_active_clamp(+cl: Client, +i: Nat) -> Client:
 
 def set_buf_anchor(+b: Buffer, +sc: Scroll) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, _}:
-      Buffer{name, ch, topic, lines, nicks, sc}
+    case Buffer{+name, +ch, +topic, +lines, +nicks, _, +newest, +count}:
+      buf_with_scroll(name, ch, topic, lines, nicks, sc, newest, count)
 
 def set_buf_scroll(+b: Buffer, +sc: Nat) -> Buffer:
   set_buf_anchor(b, ScrollAt{sc, 0n})
 
 def set_buf_name(+b: Buffer, +name: String) -> Buffer:
   match b:
-    case Buffer{_, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{target_name(name), ch, topic, lines, nicks, scroll}
+    case Buffer{_, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(target_name(name), ch, topic, lines, nicks, scroll)
 
 def is_query_name(+name: String) -> Bool:
   Bool.not(target_is_synthetic(name) || target_channel(name))
 
 def query_target(+b: Buffer, +target: String) -> Bool:
   match b:
-    case Buffer{+name, ch, _, _, _, _}:
+    case Buffer{+name, ch, _, _, _, _, _, _}:
       Bool.not(ch) && is_query_name(name) && Irc.ieq(name, target)
 
 def query_target_cm(+cm: String, +b: Buffer, +target: String) -> Bool:
   match b:
-    case Buffer{+name, ch, _, _, _, _}:
+    case Buffer{+name, ch, _, _, _, _, _, _}:
       Bool.not(ch) && is_query_name(name) && buf_eq_cm(cm, name, target)
 
 def query_lines.keep(hit: Bool, b: Buffer, rest: List<&2, Line>) -> List<&2, Line>:
@@ -1760,7 +1751,7 @@ def query_lines.keep(hit: Bool, b: Buffer, rest: List<&2, Line>) -> List<&2, Lin
     case False{}: rest
     case True{}:
       match b:
-        case Buffer{_, _, _, lines, _, _}: List.append(&2, Line, lines, rest)
+        case Buffer{_, _, _, lines, _, _, _, _}: List.append(&2, Line, lines, rest)
 
 def query_lines(bufs: List<&2, Buffer>, +target: String) -> List<&2, Line>:
   match bufs:
@@ -1795,8 +1786,8 @@ def coalesce_queries.base_cm(+cm: String, got: Maybe<&2, Buffer>, b: Buffer, +ta
 
 def coalesce_queries.buffer(b: Buffer, target: String, +merged: List<&2, Line>) -> Buffer:
   match b:
-    case Buffer{_, channel, topic, lines, nicks, scroll}:
-      Buffer{target, channel, topic, merged, nicks, reanchor_lines(lines, merged, scroll)}
+    case Buffer{_, channel, topic, lines, nicks, scroll, _, _}:
+      buf_indexed(target, channel, topic, merged, nicks, reanchor_lines(lines, merged, scroll))
 
 def coalesce_queries.keep(hit: Bool, seen: Bool, b: Buffer, +target: String, merged: List<&2, Line>, preferred: Maybe<&2, Buffer>, rest: List<&2, Buffer>) -> List<&2, Buffer>:
   match hit:
@@ -1892,15 +1883,8 @@ def clamp_nat(+n: Nat, +maxs: Nat) -> Nat:
 
 def apply_buf_scroll.on(+b: Buffer, +up: Nat, +dn: Nat) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, ScrollAt{+scroll, _}}:
-      Buffer{
-        name,
-        ch,
-        topic,
-        lines,
-        nicks,
-        ScrollAt{clamp_nat(scroll_add_nat(scroll, up, dn), List.length(&2, Line, lines)), 0n}
-      }
+    case Buffer{+name, +ch, +topic, +lines, +nicks, ScrollAt{+scroll, _}, +newest, +count}:
+      buf_with_scroll(name, ch, topic, lines, nicks, ScrollAt{clamp_nat(scroll_add_nat(scroll, up, dn), count), 0n}, newest, count)
 
 def scroll_delta(+up: Nat, +dn: Nat, b: Buffer) -> Buffer:
   apply_buf_scroll.on(b, up, dn)
@@ -1916,7 +1900,7 @@ def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
       0n
     case Some{b}:
       match b:
-        case Buffer{_, _, _, _, _, ScrollAt{+scroll, _}}:
+        case Buffer{_, _, _, _, _, ScrollAt{+scroll, _}, _, _}:
           scroll
 
 def buf_scroll_of(+cl: Client, +i: Nat) -> Nat:
@@ -1936,6 +1920,34 @@ def active_of(+cl: Client) -> Nat:
   match cl:
     case Client{_, _, _, +active, _, _, +auth, +log_seq}:
       active
+
+def scroll_eq(a: Scroll, b: Scroll) -> Bool:
+  match a:
+    case ScrollAt{+aa, +at}:
+      match b:
+        case ScrollAt{+ba, +bt}:
+          Bool.and(Nat.is_eq(aa, ba), Nat.is_eq(at, bt))
+
+def buf_scroll(b: Buffer) -> Scroll:
+  match b:
+    case Buffer{_, _, _, _, _, +scroll, _, _}:
+      scroll
+
+def active_scroll.got(b: Maybe<&2, Buffer>) -> Scroll:
+  match b:
+    case None{}: ScrollAt{0n, 0n}
+    case Some{buf}: buf_scroll(buf)
+
+def active_scroll(+cl: Client) -> Scroll:
+  match cl:
+    case Client{_, _, +bufs, +active, _, _, _, _}:
+      active_scroll.got(nth_buf(bufs, active))
+
+# Composer edits leave the visible history alone. Callers use this to skip
+# image and card admission on those keys.
+def view_same(+a: Client, +b: Client) -> Bool:
+  Bool.and(Bool.and(Nat.is_eq(log_seq_of(a), log_seq_of(b)), Nat.is_eq(active_of(a), active_of(b))),
+    scroll_eq(active_scroll(a), active_scroll(b)))
 
 def cycle_next.i.on(wrap: Bool, +active: Nat) -> Nat:
   match wrap:
@@ -2080,7 +2092,7 @@ def active_nicks.on(got: Maybe<&2, Buffer>) -> List<&2, String>:
       Nil{}
     case Some{b}:
       match b:
-        case Buffer{_, _, _, _, +nicks, _}:
+        case Buffer{_, _, _, _, +nicks, _, _, _}:
           nicks
 
 def active_nicks(+cl: Client) -> List<&2, String>:
@@ -2094,7 +2106,7 @@ def active_buf_name.on(got: Maybe<&2, Buffer>) -> String:
       "server"
     case Some{b}:
       match b:
-        case Buffer{+name, _, _, _, _, _}:
+        case Buffer{+name, _, _, _, _, _, _, _}:
           name
 
 def active_buf_name(+cl: Client) -> String:
@@ -2108,7 +2120,7 @@ def active_buf_lines.on(got: Maybe<&2, Buffer>) -> List<&2, Line>:
       Nil{}
     case Some{b}:
       match b:
-        case Buffer{_, _, _, +lines, _, _}:
+        case Buffer{_, _, _, +lines, _, _, _, _}:
           lines
 
 def active_buf_lines(+cl: Client) -> List<&2, Line>:
@@ -2145,8 +2157,8 @@ def ceil_lines.go(+xs: List<&2, Line>, +ceiling: Nat) -> List<&2, Line>:
 
 def ceil_bufs.buf(+h: Buffer, +rest: List<&2, Buffer>, +ceiling: Nat) -> List<&2, Buffer>:
   match h:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll}:
-      Buffer{name, ch, topic, ceil_lines.go(lines, ceiling), nicks, scroll} <> rest
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_indexed(name, ch, topic, ceil_lines.go(lines, ceiling), nicks, scroll) <> rest
 
 def ceil_bufs.go(+xs: List<&2, Buffer>, +ceiling: Nat) -> List<&2, Buffer>:
   match xs:

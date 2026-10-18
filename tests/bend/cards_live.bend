@@ -223,7 +223,7 @@ def paint_id2() -> List<&2, V.CardEntry>:
 
 # Union cm repro: CASEMAPPING=ascii with muted a{b. The newest one-row a[b
 # message stays painted (ascii keeps { and [ distinct); the older bob URL is
-# a separate author. Narrow (rows=6, one painted row) hides the older URL;
+# a separate author. Narrow (rows=5, one painted history row) hides the older URL;
 # wide (rows=24) paints both.
 def cm_ascii_client() -> Cl.Client:
   Cl.buf_set_lines_at(Cl.init("me", "s"), 0n,
@@ -237,7 +237,7 @@ def cm_iso_ascii() -> Is.State:
   Is.apply_line(Is.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")
 
 def cm_narrow() -> Sess.Session:
-  Sess.session_set_size(Sess.session_set_iso(Sess.session_online(Sess.session_with_client(cm_muted_client(), "#t")), cm_iso_ascii()), 6, 80)
+  Sess.session_set_size(Sess.session_set_iso(Sess.session_online(Sess.session_with_client(cm_muted_client(), "#t")), cm_iso_ascii()), 5, 80)
 
 def cm_wide() -> Sess.Session:
   Sess.session_set_size(Sess.session_set_iso(Sess.session_online(Sess.session_with_client(cm_muted_client(), "#t")), cm_iso_ascii()), 24, 80)
@@ -478,7 +478,7 @@ def main() -> IO(Unit):
     Unit <- E.must("F9 without token opens nothing", Bool.not(fs_open(Sess.session_fullscreen_key(online(), Sess.KEY_F9(), 0))))
     Unit <- E.must("accepted token opens on F9", fs_open(Sess.session_fullscreen_key(media_online(), Sess.KEY_F9(), 0)))
     +fs_opened : Sess.Session = fs_st(Sess.session_fullscreen_key(media_online(), Sess.KEY_F9(), 0))
-    Unit <- E.must_eq("overlay covers body", overlay_of(fs_opened, 24, 80), "box:0,1,62,22;media:1,2,60,20,0,20,7;")
+    Unit <- E.must_eq("overlay covers body", overlay_of(fs_opened, 24, 80), "box:0,1,62,23;media:1,2,60,21,0,21,7;")
     Unit <- E.must("F9 toggles closed", Bool.not(fs_open(Sess.session_fullscreen_key(fs_opened, Sess.KEY_F9(), 0))))
     Unit <- E.must_eq("Escape closes overlay", fs_handled(Sess.session_fullscreen_key(fs_opened, Sess.KEY_ESCAPE(), 0)), "handled")
     Unit <- E.must("Escape leaves no overlay", Bool.not(fs_open(Sess.session_fullscreen_key(fs_opened, Sess.KEY_ESCAPE(), 0))))
@@ -511,8 +511,8 @@ def main() -> IO(Unit):
     # ---- union cm: cards schedule the negotiated paint rows, not default RFC ----
     # Narrow: paint retains newest a[b, hiding the older bob URL, so nothing
     # enqueues. Default RFC mutes the newest and leaks the offscreen URL.
-    Unit <- E.must_eq("cm narrow paints newest only", cand_ids(C.visible_candidates_cards_cm("ascii", cm_muted_client(), 6, 80, Sp.Off{}, M.empty(), paint_empty())), "")
-    Unit <- E.must_eq("default-RFC narrow leaks offscreen url", cand_ids(C.visible_candidates_cards_cm(Cl.dflt_cm(), cm_muted_client(), 6, 80, Sp.Off{}, M.empty(), paint_empty())), "1")
+    Unit <- E.must_eq("cm narrow paints newest only", cand_ids(C.visible_candidates_cards_cm("ascii", cm_muted_client(), 5, 80, Sp.Off{}, M.empty(), paint_empty())), "")
+    Unit <- E.must_eq("default-RFC narrow leaks offscreen url", cand_ids(C.visible_candidates_cards_cm(Cl.dflt_cm(), cm_muted_client(), 5, 80, Sp.Off{}, M.empty(), paint_empty())), "1")
     Unit <- E.must_eq("cm narrow schedules nothing", Nat.show(cards_pending(Sess.session_observe_visible_cards(cm_narrow()))), "0")
     # Wide: both rows painted, so the older URL enqueues exactly.
     Unit <- E.must_eq("cm wide admits painted url", cand_ids(C.visible_candidates_cards_cm("ascii", cm_muted_client(), 24, 80, Sp.Off{}, M.empty(), paint_empty())), "1")

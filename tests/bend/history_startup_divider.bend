@@ -14,7 +14,7 @@ def last_is_marker(lines: List<&2, Cl.Line>) -> Bool:
 
 def marker_at.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
   match got:
-    case Some{Cl.Buffer{_, _, _, lines, _, _}}: last_is_marker(lines)
+    case Some{Cl.Buffer{_, _, _, lines, _, _, _, _}}: last_is_marker(lines)
     case None{}: False{}
 
 def marker_at(cl: Cl.Client, index: Nat) -> Bool:

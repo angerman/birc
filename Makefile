@@ -288,6 +288,7 @@ $(eval $(call bend_slow_compile,reconnect_auth,reconnect_auth,900))
 $(eval $(call bend_slow_compile,mode_privacy,mode_privacy,900))
 $(eval $(call bend_slow_compile,reconnect_echoes,reconnect_echoes,900))
 $(eval $(call bend_slow_compile,auth_privacy,auth_privacy,360))
+$(eval $(call bend_slow_compile,composer_help,composer_help,900))
 $(eval $(call bend_slow_compile,ipv6_transport_native,ipv6_transport_native,300))
 $(eval $(call bend_slow_compile,richtext_demo,richtext_demo,90))
 $(eval $(call bend_slow_compile,ui_input_queue.c,ui_input_queue,180))
@@ -578,6 +579,10 @@ test-upload-policy: $(BLDDIR)/upload_demo ## Local path parsing, per-file consen
 
 test-upload-session: $(BLDDIR)/upload_session ## Session consent, ordinary drafts/history/completion, and private dropped paths.
 	$(NIXRUN) sh scripts/check-golden.sh upload_session=ok timeout 15 ./$(BLDDIR)/upload_session
+
+.PHONY: test-composer-help
+test-composer-help: $(BLDDIR)/composer_help ## Composer ghost/menu; typed shortcodes stay raw; Tab/Right accept glyphs.
+	$(NIXRUN) sh scripts/check-golden.sh composer_help=ok timeout 30 ./$(BLDDIR)/composer_help
 
 .PHONY: test-upload-dispatch
 test-upload-dispatch: $(BLDDIR)/upload_dispatch ## Unknown slash commands keep priority over ambiguous local drops.

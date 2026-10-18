@@ -18,14 +18,7 @@ def bench_bufs(+n: Nat, +i: Nat) -> List<&2, Cl.Buffer>:
     case 0n:
       Nil{}
     case 1n+p:
-      Cl.Buffer{
-        "#bench" ++ Nat.show(i),
-        True{},
-        "",
-        bench_lines(Cl.SCROLL_CAP(), 0n),
-        Nil{},
-        0n
-      } <> bench_bufs(p, Nat.add(i, 1n))
+      Cl.buf_indexed("#bench" ++ Nat.show(i), True{}, "", bench_lines(Cl.SCROLL_CAP(), 0n), Nil{}, 0n) <> bench_bufs(p, Nat.add(i, 1n))
 
 def bench_tree() -> Feed.SearchTree:
   Feed.bufs_to_tree(bench_bufs(Cl.MAX_BUFFERS(), 0n))
