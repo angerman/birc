@@ -76,27 +76,45 @@ def body_box_h.on(+rows: U32, normal: Bool) -> U32:
 def body_box_h(+rows: U32) -> U32:
   body_box_h.on(rows, U32.is_ge(rows, 4))
 
-def page_drop.on(+n: U32, zero: Bool) -> U32:
+# History row above the inline composer. view.body_hist_h is this function;
+# a zero-height pane stays empty instead of wrapping.
+def hist_h.on(+h: U32, zero: Bool) -> U32:
   match zero:
     case True{}: 0
-    case False{}: U32.sub(n, 1)
+    case False{}: U32.sub(h, 1)
 
-def page_drop(+n: U32) -> U32:
-  page_drop.on(n, U32.is_zero(n))
+def hist_h(+h: U32) -> U32:
+  hist_h.on(h, U32.is_zero(h))
 
-# The lower stacked pane is the shorter half, and its history window also
-# reserves the composer row. That is one line under the upper pane.
-def page_height.stacked(+focus: U32, +h: U32) -> Nat:
+# view.lay's body box: the tab bar is row 0, and the box runs through the
+# last screen row. Terminals shorter than two rows keep a one-row box.
+def screen_body_h.on(+rows: U32, tall: Bool) -> U32:
+  match tall:
+    case True{}: U32.sub(rows, 1)
+    case False{}: 1
+
+def screen_body_h(+rows: U32) -> U32:
+  screen_body_h.on(rows, U32.is_ge(rows, 2))
+
+def page_height.pane(+focus: U32, +bh: U32) -> U32:
   match focus:
-    case 0: inner_extent(first_extent(h))
-    case _: inner_extent(page_drop(second_extent(h)))
+    case 0: first_extent(bh)
+    case _: second_extent(bh)
+
+# Stacked paint splits the screen body, then body_hist_rect reserves the
+# composer row in each pane before inner_extent drops the border. Page
+# motion uses that same count. Splitting the single-pane rows-2 box and
+# reserving the composer only on the lower pane matches paint at 24 rows
+# and diverges for other heights.
+def page_height.stacked(+focus: U32, +rows: U32) -> Nat:
+  inner_extent(hist_h(page_height.pane(focus, screen_body_h(rows))))
 
 def page_height.on(axis: Axis, +focus: U32, +rows: U32) -> Nat:
   match axis:
     case SideBySide{}:
       inner_extent(body_box_h(rows))
     case Stacked{}:
-      page_height.stacked(focus, body_box_h(rows))
+      page_height.stacked(focus, rows)
 
 def page_height(+rows: U32, st: State) -> Nat:
   match st:
@@ -108,6 +126,8 @@ def page_height(+rows: U32, st: State) -> Nat:
 def page_height_ok() -> Bool:
   Nat.is_eq(page_height(24, On{Stacked{}, "a", "b", 0}), 9n)
     && Nat.is_eq(page_height(24, On{Stacked{}, "a", "b", 1}), 8n)
+    && Nat.is_eq(page_height(13, On{Stacked{}, "a", "b", 0}), 3n)
+    && Nat.is_eq(page_height(13, On{Stacked{}, "a", "b", 1}), 3n)
     && Nat.is_eq(page_height(24, On{SideBySide{}, "a", "b", 0}), 20n)
     && Nat.is_eq(page_height(2, On{Stacked{}, "a", "b", 1}), 1n)
 

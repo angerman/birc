@@ -117,6 +117,7 @@ Per-file rows are only the modules whose contract is easy to misread.
 | `src/bend/transport_policy.bend` | Pure transport and default-port policy. TLS effects stay in `src/bend/tls.bend`. |
 | `src/bend/client_laws.bend` / `src/bend/view_laws.bend` | Proof-facing feed and view predicates. |
 | `src/bend/emoji.bend` | View-only shortcodes. Wire text and history keep the raw source. |
+| `src/bend/session_keys.bend` | Pure composer key, panel, and input-recall decisions. `session.bend` keeps `Hist`/`Comp`/`Keys` constructors and applies the returned plan. |
 
 ## Engineering
 

@@ -190,18 +190,12 @@
   reports `an arity over 247`; the remaining suspects are `ph_rows`
   holding one `C.State` and any single unboxed `Session` temporary the C
   flattener keeps across a `ph_*` bind.
-- media_anchor `stacked distinct clips` FAILS, and did so identically at
-  the pre-review baseline `208f7c9` and at current master (both compiled
-  for the JS backend, which has no 247 cap, so the assertion actually
-  runs):
-  `got=[1,2,40,6,2,3,11;1,8,40,6,2,2,22;] want=[1,2,40,6,2,3,11;1,7,40,6,1,3,22;]`
-  Only the **second** stacked clip differs: `y` 8 vs 7, `clip_y` 2 vs 1,
-  `clip_h` 2 vs 3. **Not a regression** — byte-identical at both revisions.
-  It was invisible before because the native build never compiled, and the
-  JS build of this program was not wired into a gate. Needs a decision on
-  whether stacked-clip geometry or the fixture is right; do not just copy
-  `got` into `want` without establishing which one is correct, because
-  clip rects govern what part of an image is painted.
+- media_anchor stacked clips: resolved by keeping paint geometry.
+  `body_hist_rect` is the history window (composer row reserved, then the
+  inner border). The old want `(y=7, clip_y=1, clip_h=3)` sits on the lower
+  pane's border row. The paint result `(y=8, clip_y=2, clip_h=2)` is the
+  inner window. `page_height` for stacked panes now uses that same window;
+  the old lower-only composer drop matched paint only at 24 rows.
 - test-state: FAILING on the pre-review baseline `208f7c9`, so not a
   regression from the simplification waves. `query_collision` fails —
   `state_demo.bend:68 query_collision_ok` feeds PRIVMSGs from `a` and

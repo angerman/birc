@@ -2269,15 +2269,8 @@ def last_body_row(+rows: U32) -> U32:
 # empty draft, so history layout never jumps. History paints in the box
 # above that row; the <nick> prefix paints at the row with normal nick
 # styling, and C draws the text_area widget after it at body_x+compose_x.
-def body_hist_h.on(+h: U32, zero: Bool) -> U32:
-  match zero:
-    case True{}:
-      0
-    case False{}:
-      U32.sub(h, 1)
-
 def body_hist_h(+h: U32) -> U32:
-  body_hist_h.on(h, U32.is_zero(h))
+  Sp.hist_h(h)
 
 def body_hist_rect(r: Rect) -> Rect:
   match r:

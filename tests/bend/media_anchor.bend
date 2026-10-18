@@ -167,8 +167,117 @@ def vm_shape(vm: V.ViewModel) -> String:
   match vm:
     case V.ViewModel{ops, _}: shape(ops)
 
+def split_vm(cl: Cl.Client, axis: Sp.Axis, rows: U32, cols: U32) -> V.ViewModel:
+  V.view_draft.state_typing_media(cl, rows, cols, "", "online", Nil{}, split_state(axis, 1), split_media())
+
 def split_paint(cl: Cl.Client, axis: Sp.Axis, rows: U32, cols: U32) -> String:
-  vm_shape(V.view_draft.state_typing_media(cl, rows, cols, "", "online", Nil{}, split_state(axis, 1), split_media()))
+  vm_shape(split_vm(cl, axis, rows, cols))
+
+def vm_ops(vm: V.ViewModel) -> List<&2, V.DrawOp>:
+  match vm:
+    case V.ViewModel{ops, _}: ops
+
+def medias_of(xs: List<&2, V.DrawOp>) -> List<&2, V.DrawOp>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{V.OpMedia{x, y, w, h, clip_y, clip_h, token}, t}:
+      V.OpMedia{x, y, w, h, clip_y, clip_h, token} <> medias_of(t)
+    case Con{_, t}: medias_of(t)
+
+# Painted pixels are the clip, not the full virtual image height.
+def clip_inside(op: V.DrawOp) -> Bool:
+  match op:
+    case V.OpMedia{_, _, _, +h, +clip_y, +clip_h, _}:
+      U32.is_gt(clip_h, 0) && U32.is_le(U32.add(clip_y, clip_h), h)
+    case _: False{}
+
+def painted_overlap(a: V.DrawOp, b: V.DrawOp) -> Bool:
+  match a b:
+    case V.OpMedia{+ax, +ay, +aw, _, _, +ah, _} V.OpMedia{+bx, +by, +bw, _, _, +bh, _}:
+      U32.is_lt(ax, U32.add(bx, bw)) && U32.is_lt(bx, U32.add(ax, aw)) && U32.is_lt(ay, U32.add(by, bh)) && U32.is_lt(by, U32.add(ay, ah))
+    case _ _: True{}
+
+def y_in_inner(op: V.DrawOp, r: V.Rect) -> Bool:
+  match op r:
+    case V.OpMedia{_, +y, _, _, _, +clip_h, _} V.Rect{_, +ry, _, +rh}:
+      U32.is_ge(y, V.inner_min(ry, rh)) && U32.is_le(U32.add(y, clip_h), U32.add(V.inner_last(ry, rh), 1))
+    case _ _: False{}
+
+def distinct_pair(xs: List<&2, V.DrawOp>) -> Bool:
+  match xs:
+    case Con{+a, Con{+b, Nil{}}}: clip_inside(a) && clip_inside(b) && Bool.not(painted_overlap(a, b))
+    case _: False{}
+
+def split_panes.or(first: Bool, +a: V.DrawOp, +b: V.DrawOp, +r1: V.Rect, +r2: V.Rect) -> Bool:
+  match first:
+    case True{}: True{}
+    case False{}: y_in_inner(a, r2) && y_in_inner(b, r1)
+
+def split_panes(+a: V.DrawOp, +b: V.DrawOp, +r1: V.Rect, +r2: V.Rect) -> Bool:
+  split_panes.or(y_in_inner(a, r1) && y_in_inner(b, r2), a, b, r1, r2)
+
+def panes_of(xs: List<&2, V.DrawOp>, r1: V.Rect, r2: V.Rect) -> Bool:
+  match xs:
+    case Con{a, Con{b, Nil{}}}: split_panes(a, b, r1, r2)
+    case _: False{}
+
+def hist_pair.go(pair: V.Rect & V.Rect) -> V.Rect & V.Rect:
+  match pair:
+    case (+r1, +r2): (V.body_hist_rect(r1), V.body_hist_rect(r2))
+
+def hist_pair(axis: Sp.Axis, +rows: U32, +cols: U32) -> V.Rect & V.Rect:
+  hist_pair.go(V.split_rects(axis, V.lay_body_rect(V.lay(rows, cols, 0))))
+
+def clip_ok.on(ok: Bool, +why: String) -> String:
+  match ok:
+    case True{}: ""
+    case False{}: why
+
+def clip_report.on(pair: V.Rect & V.Rect, +ops: List<&2, V.DrawOp>) -> String:
+  match pair:
+    case (+r1, +r2):
+      clip_ok.on(distinct_pair(ops) && panes_of(ops, r1, r2), "clip")
+
+def clip_report(+cl: Cl.Client, +axis: Sp.Axis, +rows: U32, +cols: U32) -> String:
+  clip_report.on(hist_pair(axis, rows, cols), medias_of(vm_ops(split_vm(cl, axis, rows, cols))))
+
+def focus_vis.on(pair: V.Rect & V.Rect, +focus: U32) -> Nat:
+  match pair:
+    case (+r1, +r2):
+      match focus:
+        case 0: V.rect_vis_h(r1)
+        case _: V.rect_vis_h(r2)
+
+def focus_vis(+rows: U32, +focus: U32, axis: Sp.Axis) -> Nat:
+  focus_vis.on(V.split_rects(axis, V.lay_body_rect(V.lay(rows, 80, 0))), focus)
+
+def page_vs_paint(+rows: U32, +axis: Sp.Axis, +focus: U32) -> Bool:
+  Nat.is_eq(Sp.page_height(rows, Sp.On{axis, "a", "b", focus}), focus_vis(rows, focus, axis))
+
+def off_vs_paint(+rows: U32) -> Bool:
+  Nat.is_eq(Sp.page_height(rows, Sp.Off{}), V.rect_vis_h(V.lay_body_rect(V.lay(rows, 80, 0))))
+
+def first_bad(+a: String, +b: String) -> String:
+  match a:
+    case SNil{}: b
+    case SCon{_, _}: a
+
+def page_bad.on(ok: Bool, +msg: String) -> String:
+  match ok:
+    case True{}: ""
+    case False{}: msg
+
+def page_bad(+rows: U32) -> String:
+  first_bad(page_bad.on(page_vs_paint(rows, Sp.Stacked{}, 0), U32.show(rows) ++ ":stack0"),
+    first_bad(page_bad.on(page_vs_paint(rows, Sp.Stacked{}, 1), U32.show(rows) ++ ":stack1"),
+      first_bad(page_bad.on(page_vs_paint(rows, Sp.SideBySide{}, 0), U32.show(rows) ++ ":side0"),
+        first_bad(page_bad.on(page_vs_paint(rows, Sp.SideBySide{}, 1), U32.show(rows) ++ ":side1"),
+          page_bad.on(off_vs_paint(rows), U32.show(rows) ++ ":off")))))
+
+def page_sweep.msg(fuel: Nat, +rows: U32) -> String:
+  match fuel:
+    case 0n: ""
+    case 1n+p: first_bad(page_bad(rows), page_sweep.msg(p, U32.add(rows, 1)))
 
 def manual_controls() -> IO(Unit):
   +pending = sbox(paused_session())
@@ -213,9 +322,12 @@ def split_controls() -> IO(Unit):
   +side = cbox(split_paused(Sp.SideBySide{}, 9))
   +stacked = cbox(split_paused(Sp.Stacked{}, 13))
   do IO<Unit>:
-    Unit <- E.must_eq("side-by-side distinct clips", split_paint(cunbox(side), Sp.SideBySide{}, 9, 80), "1,2,29,6,1,4,11;32,2,29,6,0,4,22;")
-    Unit <- E.must_eq("side-by-side resized clips", split_paint(cunbox(side), Sp.SideBySide{}, 9, 56), "1,2,17,6,1,4,11;20,2,17,6,0,4,22;")
-    Unit <- E.must_eq("stacked distinct clips", split_paint(cunbox(stacked), Sp.Stacked{}, 13, 80), "1,2,40,6,2,3,11;1,7,40,6,1,3,22;")
+    Unit <- E.must_eq("side-by-side distinct clips", split_paint(cunbox(side), Sp.SideBySide{}, 9, 80), "1,2,29,6,0,5,11;32,3,29,6,0,4,22;")
+    Unit <- E.must_eq("side-by-side resized clips", split_paint(cunbox(side), Sp.SideBySide{}, 9, 56), "1,2,17,6,0,5,11;20,3,17,6,0,4,22;")
+    Unit <- E.must_eq("stacked distinct clips", split_paint(cunbox(stacked), Sp.Stacked{}, 13, 80), "1,2,40,6,2,3,11;1,8,40,6,1,3,22;")
+    Unit <- E.must_eq("side clips sit inside history", clip_report(cunbox(side), Sp.SideBySide{}, 9, 80), "")
+    Unit <- E.must_eq("stacked clips sit inside history", clip_report(cunbox(stacked), Sp.Stacked{}, 13, 80), "")
+    Unit <- E.must_eq("page height matches paint", page_sweep.msg(40n, 1), "")
     Unit <- E.must_eq("first pane source preserved", raw_text(raw_lines(V.active_buf.on(Cl.nth_buf(Cl.client_bufs(cunbox(side)), 0n)))), url())
     Unit <- E.must_eq("second pane source preserved", raw_text(raw_lines(active_buf(cunbox(side)))), "https://x/b.gif")
     IO.pure(Unit, Unit{})

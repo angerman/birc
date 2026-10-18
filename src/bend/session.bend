@@ -26,6 +26,7 @@ import ./history_search.bend as Hs
 import ./theme.bend as Theme
 import ./endpoint.bend as Ep
 import ./composer_ui.bend as Cu
+import ./session_keys.bend as Sk
 
 # The first welcome names the nickname actually assigned by the server. A
 # requested nickname can differ because of server policy or length limits.
@@ -743,6 +744,7 @@ def cmd_connect_ok() -> Bool:
 # Input-recall ring, key frame, and completion stay in this file: Sess.Hist,
 # Sess.Keys, and Sess.Comp are matched by workspace.bend and session_drafts.bend.
 # Bend constructors are namespace-owned, so moving the types would fork them.
+# Recall steps and composer key/panel decisions live in session_keys.bend.
 type Hist is Data:
   Hist{lines: List<&2, String>, pos: Nat}
 
@@ -776,40 +778,6 @@ def hist_push(+h: Hist, +line: String) -> Hist:
 def str_get(+xs: List<&2, String>, +i: Nat) -> String:
   Maybe.default(&2, String, List.get(&2, String, xs, i), "")
 
-def hist_prev.on(+lines: List<&2, String>, +pos: Nat, z: Bool) -> Hist & String:
-  match z:
-    case True{}:
-      (Hist{lines, pos}, str_get(lines, pos))
-    case False{}:
-      +p = Nat.sub(pos, 1n)
-      (Hist{lines, p}, str_get(lines, p))
-
-def hist_prev(h: Hist) -> Hist & String:
-  match h:
-    case Hist{+lines, +pos}:
-      hist_prev.on(lines, pos, Nat.is_eq(pos, 0n))
-
-def hist_next.at(+lines: List<&2, String>, +p: Nat, +n: Nat, last: Bool) -> Hist & String:
-  match last:
-    case True{}:
-      (Hist{lines, n}, "")
-    case False{}:
-      (Hist{lines, p}, str_get(lines, p))
-
-def hist_next.on(+lines: List<&2, String>, +pos: Nat, +n: Nat, last: Bool) -> Hist & String:
-  match last:
-    case True{}:
-      (Hist{lines, n}, "")
-    case False{}:
-      +p = Nat.add(pos, 1n)
-      hist_next.at(lines, p, n, Nat.is_eq(p, n))
-
-def hist_next(h: Hist) -> Hist & String:
-  match h:
-    case Hist{+lines, +pos}:
-      +n = List.length(&2, String, lines)
-      hist_next.on(lines, pos, n, Nat.is_ge(pos, n))
-
 type HistDir is Data:
   HistStay{}
   HistPrev{}
@@ -829,14 +797,21 @@ def hist_dir.on(+n: U32, prev: Bool, next: Bool) -> HistDir:
 def hist_dir(+n: U32) -> HistDir:
   hist_dir.on(n, U32.is_eq(n, 1), U32.is_eq(n, 2))
 
-def hist_move(+h: Hist, +draft: String, dir: HistDir) -> Hist & String:
+def sk_dir(dir: HistDir) -> Sk.HistStep:
   match dir:
-    case HistStay{}:
-      (h, draft)
-    case HistPrev{}:
-      hist_prev(h)
-    case HistNext{}:
-      hist_next(h)
+    case HistStay{}: Sk.StepStay{}
+    case HistPrev{}: Sk.StepPrev{}
+    case HistNext{}: Sk.StepNext{}
+
+def hist_move.at(+lines: List<&2, String>, pair: Nat & String) -> Hist & String:
+  match pair:
+    case (+pos, +shown):
+      (Hist{lines, pos}, shown)
+
+def hist_move(+h: Hist, +draft: String, dir: HistDir) -> Hist & String:
+  match h:
+    case Hist{+lines, +pos}:
+      hist_move.at(lines, Sk.hist_move(lines, pos, draft, sk_dir(dir)))
 
 def click_of.on(+n: U32, z: Bool) -> Maybe<&2, Nat>:
   match z:
@@ -1146,6 +1121,22 @@ def comp_ordinary(comp: Comp) -> Comp:
 
 def comp0() -> Comp:
   CompNone{}
+
+def view_of(comp: Comp) -> Sk.CView:
+  match comp:
+    case CompNone{}: Sk.CNone{}
+    case CompActive{_, _, _}: Sk.CActive{}
+    case CompUpload{_, _, _}: Sk.CUpload{}
+    case CompHelp{+topic}: Sk.CHelp{topic}
+    case CompHidden{}: Sk.CHidden{}
+    case CompPick{+idx}: Sk.CPick{idx}
+
+def comp_of(view: Sk.CView) -> Comp:
+  match view:
+    case Sk.CHelp{+topic}: CompHelp{topic}
+    case Sk.CHidden{}: CompHidden{}
+    case Sk.CPick{+idx}: CompPick{idx}
+    case _: CompNone{}
 
 # Endpoint transitions drop the interactive completion word so a stale
 # pre/word pair cannot revive old-endpoint text on the next Tab frame. An
@@ -2478,22 +2469,6 @@ def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
     case False{}:
       cl
 
-def halt_of(enter: Bool, +line: String) -> Bool:
-  match enter:
-    case True{}:
-      Sub.submit_is_quit(line)
-    case False{}:
-      False{}
-
-def seed_of(dir: HistDir) -> U32:
-  match dir:
-    case HistStay{}:
-      0
-    case HistPrev{}:
-      1
-    case HistNext{}:
-      1
-
 def session_seed(+st: Session) -> U32:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, seed, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
@@ -2520,11 +2495,7 @@ def session_comp(+st: Session) -> Comp:
       comp
 
 def panel_open(comp: Comp, +draft: String) -> Bool:
-  match comp:
-    case CompHelp{_}: True{}
-    case CompHidden{}: False{}
-    case CompUpload{_, _, _}: False{}
-    case _: Bool.or(Cu.is_help(draft), Bool.not(List.is_empty(&2, String, Cu.menu_lines(draft))))
+  Sk.panel_open(view_of(comp), draft)
 
 def panel_esc.on(esc: Bool, +st: Session) -> Bool:
   match esc:
@@ -3110,116 +3081,41 @@ def nav_after(
       +cl3 = snap_if(enter, View.scroll_active_media_cards_cm(Isupport.casemapping(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends))
       focus_after(U32.is_eq(focus, 1), cl3, split2)
 
-def panel_keep.same(same: Bool, comp: Comp) -> Comp:
-  match same:
-    case False{}: CompNone{}
-    case True{}:
-      match comp:
-        case CompHelp{topic}: CompHelp{topic}
-        case CompHidden{}: CompHidden{}
-        case CompPick{idx}: CompPick{idx}
-        case _: CompNone{}
-
 def panel_keep(comp: Comp, +typed: String, +draft: String) -> Comp:
-  panel_keep.same(String.eq(typed, draft), comp)
+  comp_of(Sk.panel_keep(view_of(comp), typed, draft))
 
 def panel_dismiss(comp: Comp) -> Comp:
-  match comp:
-    case CompHelp{_}: CompNone{}
-    case _: CompHidden{}
-
-def ghost_seed.on(empty: Bool) -> U32:
-  match empty:
-    case True{}: 0
-    case False{}: 1
-
-def ghost_seed(+typed: String) -> U32:
-  ghost_seed.on(String.is_empty(Cu.ghost_suffix(typed)))
-
-# Help and a hidden menu survive a frame that does not change the composer.
-# `prev` is the draft before this frame; `shown` is the draft after it.
-def finish_keys.shown(pair: Hist & String, +st: Session, +cl: Cl.Client, +cmd: NetCmd, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, +prev: String) -> Session & NetCmd & Bool:
-  match pair:
-    case (h2, +shown):
-      finish_hist(st, cl, cmd, halt, seed, panel_keep(comp, shown, prev), split, (h2, shown))
+  comp_of(Sk.panel_dismiss(view_of(comp)))
 
 def pick_idx(comp: Comp) -> Nat:
-  match comp:
-    case CompPick{idx}: idx
-    case _: 0n
+  Sk.pick_idx(view_of(comp))
 
-def menu_movable(comp: Comp, +draft: String) -> Bool:
-  match comp:
-    case CompHelp{_}: False{}
-    case CompHidden{}: False{}
-    case CompUpload{_, _, _}: False{}
-    case _: Bool.or(Nat.is_gt(Cu.menu_len(draft), 1n), Nat.is_gt(Cu.emoji_len(draft), 0n))
+def key_plan.placed(+lines: List<&2, String>, +pos: Nat, +draft: String) -> Hist & String:
+  (Hist{lines, pos}, draft)
 
-def dir_down(dir: HistDir) -> Bool:
-  match dir:
-    case HistNext{}: True{}
-    case _: False{}
+def key_plan.use_hist(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, +pos: Nat, +draft: String) -> Session & NetCmd & Bool:
+  match hist:
+    case Hist{+lines, _}:
+      finish_hist(st, cl, cmd, halt, seed, comp, split, key_plan.placed(lines, pos, draft))
 
 # Wire/history keep raw shortcodes. Explicit Tab/Right accept commits glyphs
 # via compose_accept; ordinary typed frames must not auto-rewrite the draft.
-def finish_keys.plain(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
-  finish_keys.shown(hist_move(hist, draft, hdir), st, cl, cmd, halt_of(enter, typed), seed_of(hdir), comp, split, prev)
+# Nick CompActive keeps Tab cycling (KeyCycle). A slash/emoji picker or unique
+# ghost finishes the selected candidate instead.
+def key_plan.use(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, plan: Sk.KeyPlan) -> Session & NetCmd & Bool:
+  match plan:
+    case Sk.KeyCycle{}:
+      finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed))
+    case Sk.KeyApply{halt, +seed, view, +pos, +draft}:
+      key_plan.use_hist(st, cl, cmd, hist, halt, seed, comp_of(view), split, pos, draft)
 
-def pick_len.on(slash: Bool, +draft: String) -> Nat:
-  match slash:
-    case True{}: Cu.menu_len(draft)
-    case False{}: Cu.emoji_len(draft)
-
-def pick_len(+draft: String) -> Nat:
-  pick_len.on(Nat.is_gt(Cu.menu_len(draft), 1n), draft)
-
-def finish_keys.pick(down: Bool, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +draft: String, +prev: String) -> Session & NetCmd & Bool:
-  +n = pick_len(draft)
-  +idx = Cu.pick_move(down, Cu.pick_clamp(pick_idx(comp), n), n)
-  finish_hist(st, cl, cmd, False{}, 1, panel_keep(CompPick{idx}, draft, prev), split, (hist, draft))
-
-def finish_keys.navmenu(open: Bool, dir: HistDir, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +enter: Bool) -> Session & NetCmd & Bool:
-  match open:
-    case True{}: finish_keys.pick(dir_down(dir), st, cl, cmd, hist, comp, split, draft, prev)
-    case False{}: finish_keys.plain(st, cl, cmd, hist, comp, split, typed, draft, prev, dir, enter)
-
-def finish_keys.dir(dir: HistDir, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +enter: Bool) -> Session & NetCmd & Bool:
-  match dir:
-    case HistStay{}: finish_keys.plain(st, cl, cmd, hist, comp, split, typed, draft, prev, dir, enter)
-    case _: finish_keys.navmenu(menu_movable(comp, draft), dir, st, cl, cmd, hist, comp, split, typed, draft, prev, enter)
-
-def finish_keys.accept(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +prev: String) -> Session & NetCmd & Bool:
-  +next = Cu.compose_accept(typed, pick_idx(comp))
-  finish_hist(st, cl, cmd, False{}, ghost_seed(typed), panel_keep(comp, next, prev), split, (hist, next))
-
-def finish_keys.dismiss(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +draft: String, +hdir: HistDir) -> Session & NetCmd & Bool:
-  finish_hist(st, cl, cmd, False{}, seed_of(hdir), panel_dismiss(comp), split, hist_move(hist, draft, hdir))
-
-# Nick CompActive keeps Tab cycling. A slash/emoji picker or unique ghost
-# finishes the selected (or sole) candidate instead.
-def tab_cycle_comp(comp: Comp) -> Bool:
-  match comp:
-    case CompActive{_, _, _}: True{}
-    case CompUpload{_, _, _}: True{}
-    case _: False{}
-
-def finish_keys.tab(accept: Bool, +st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +prev: String) -> Session & NetCmd & Bool:
-  match accept:
-    case True{}: finish_keys.accept(st, cl, cmd, hist, comp, split, typed, prev)
-    case False{}: finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed))
+def finish_keys.comp.at(+lines: List<&2, String>, +pos: Nat, +st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, hdir: HistDir, enter: Bool) -> Session & NetCmd & Bool:
+  key_plan.use(st, cl, cmd, Hist{lines, pos}, comp, split, typed, Sk.finish_keys.comp(code, lines, pos, view_of(comp), typed, draft, prev, sk_dir(hdir), enter))
 
 def finish_keys.comp(+st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
-  match code:
-    case 1:
-      finish_keys.tab(
-        Bool.and(Bool.not(tab_cycle_comp(comp)), Cu.tab_accept_ok(typed, pick_idx(comp))),
-        st, cl, cmd, hist, comp, split, typed, prev)
-    case 2:
-      finish_keys.accept(st, cl, cmd, hist, comp, split, typed, prev)
-    case 3:
-      finish_keys.dismiss(st, cl, cmd, hist, comp, split, draft, hdir)
-    case _:
-      finish_keys.dir(hdir, st, cl, cmd, hist, comp, split, typed, draft, prev, enter)
+  match hist:
+    case Hist{+lines, +pos}:
+      finish_keys.comp.at(lines, pos, st, code, cl, cmd, comp, split, typed, draft, prev, hdir, enter)
 
 def finish_keys.nav(+st: Session, pair: Cl.Client & Sp.State, +code: U32, +cmd: NetCmd, +hist: Hist, +comp: Comp, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
   match pair:
@@ -4030,45 +3926,13 @@ def step_keys(+st: Session, keys: Keys) -> Session & NetCmd & Bool:
   +next = session_upload_maintain(st)
   step_keys.start(Up.pending(session_upload(next)), next, keys)
 
-def typing_line.on(empty: Bool, +notice: String) -> List<&2, String>:
-  match empty:
-    case True{}: Nil{}
-    case False{}: notice <> Nil{}
-
-def typing_line(typers: List<&2, String>) -> List<&2, String>:
-  +notice = View.typing_notice(typers)
-  typing_line.on(String.is_empty(notice), notice)
-
-def panel_menu(xs: List<&2, String>, typers: List<&2, String>) -> List<&2, String>:
-  match xs:
-    case Nil{}: typing_line(typers)
-    case _: xs
-
-def panel_lines.rest(is_help: Bool, +draft: String, typers: List<&2, String>, +idx: Nat) -> List<&2, String>:
-  match is_help:
-    case True{}: Cu.help_lines(Cu.help_arg(draft), 24n)
-    case False{}: panel_menu(Cu.emoji_or(draft, idx), typers)
-
 # Hidden wins over a draft that still reads /help, so Esc can dismiss the
 # catalog and the next Esc is free to quit.
-def panel_lines.help(comp: Comp, +draft: String, typers: List<&2, String>) -> List<&2, String>:
-  match comp:
-    case CompHidden{}: typing_line(typers)
-    case CompUpload{_, _, _}: typing_line(typers)
-    case CompHelp{+topic}: Cu.help_lines(topic, 24n)
-    case CompPick{+idx}: panel_lines.rest(Cu.is_help(draft), draft, typers, idx)
-    case _: panel_lines.rest(Cu.is_help(draft), draft, typers, 0n)
-
-def panel_lines.comp(comp: Comp, +draft: String, typers: List<&2, String>) -> List<&2, String>:
-  panel_lines.help(comp, draft, typers)
-
-def panel_lines.on(empty: Bool, comp: Comp, +draft: String, +hint: String, typers: List<&2, String>) -> List<&2, String>:
-  match empty:
-    case False{}: hint <> Nil{}
-    case True{}: panel_lines.comp(comp, draft, typers)
+def panel_menu(xs: List<&2, String>, typers: List<&2, String>) -> List<&2, String>:
+  Sk.panel_menu(xs, typers)
 
 def panel_lines(comp: Comp, +draft: String, +hint: String, typers: List<&2, String>) -> List<&2, String>:
-  panel_lines.on(String.is_empty(hint), comp, draft, hint, typers)
+  Sk.panel_lines(view_of(comp), draft, hint, typers)
 
 def step_enter(+st: Session, +line: String) -> Session & NetCmd & Bool:
   step_keys(st, keys_enter(line))

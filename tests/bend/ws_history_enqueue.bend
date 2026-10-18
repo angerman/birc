@@ -34,15 +34,15 @@ def report_held(tag: String, +hot: WsNet.WsHot) -> IO(WsNet.WsHot):
 
 def hot_jobs.from(+empty: WsNet.WsHot, +path: String, +ch: Chan(WsNet.HistJob)) -> WsNet.WsHot:
   match empty:
-    case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, _}:
-      WsNet.WsHot{on, path, cap, Some{ch}, warm, frame, ts, reload, ""}
+    case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, _, _}:
+      WsNet.WsHot{on, path, cap, Some{ch}, warm, frame, ts, reload, "", 0n}
 
 def hot_jobs(+path: String, +ch: Chan(WsNet.HistJob)) -> WsNet.WsHot:
   hot_jobs.from(WsNet.ws_hot.empty(), path, ch)
 
 def fill_one(+ch: Chan(WsNet.HistJob), +path: String, +data: String) -> IO(Bool):
   do IO<Bool>:
-    p : Poll<&1, &1, Result<&1, &1, WsNet.HistJob, Unit>, WsNet.HistJob> <- Chan.try_send(WsNet.HistJob, ch, WsNet.HistJob{path, data}, 0)
+    p : Poll<&1, &1, Result<&1, &1, WsNet.HistJob, Unit>, WsNet.HistJob> <- Chan.try_send(WsNet.HistJob, ch, WsNet.HistJob{path, data, 0n, 0n, 0n}, 0)
     return WsNet.ws_history.enqueue_poll(p)
 
 def overflow.pending(+path: String, +ch: Chan(WsNet.HistJob)) -> IO(WsNet.WsHot):
@@ -104,8 +104,8 @@ def accepted.go(+path: String, +ch: Chan(WsNet.HistJob)) -> IO(Unit):
 
 def missing.hot.from(+empty: WsNet.WsHot, +path: String) -> WsNet.WsHot:
   match empty:
-    case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, +pending}:
-      WsNet.WsHot{on, path, cap, None{}, warm, frame, ts, reload, pending}
+    case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, +pending, _}:
+      WsNet.WsHot{on, path, cap, None{}, warm, frame, ts, reload, pending, 0n}
 
 def missing.hot(+path: String) -> WsNet.WsHot:
   missing.hot.from(WsNet.ws_hot.empty(), path)
