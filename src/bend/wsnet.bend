@@ -89,6 +89,8 @@ type WsMsg is Data:
   WsTick{now_ms: U32}
   # History-worker append failure: *log* diagnostic only, never UiError/chat Error.
   WsHistDiag{msg: String}
+  # History worker drained HistStop (or closed admission); shutdown may finish.
+  WsHistDone{}
 
 type WsCmds is Data:
   WsCmds{c0: Chan(Sess.NetCmd), c1: Chan(Sess.NetCmd), c2: Chan(Sess.NetCmd), c3: Chan(Sess.NetCmd)}
@@ -150,8 +152,10 @@ type HistJob is Data:
 # Cached process facts and the last body paint. `on` is BIRC_CARDS, read
 # once at startup. `warm` means `frame` is still the visible body.
 # `reload` is a mid-session endpoint-change archive ticket awaiting HistoryLoaded.
+# `pending` holds same-path overflow bytes waiting for worker capacity (FIFO
+# coalesce). Never UI-append while older HistJobs are still queued.
 type WsHot is Data:
-  WsHot{on: Bool, path: String, cap: U32, jobs: Maybe<&2, Chan(HistJob)>, warm: Bool, frame: List<&2, V.DrawOp>, ts: String, reload: Maybe<&2, Nat>}
+  WsHot{on: Bool, path: String, cap: U32, jobs: Maybe<&2, Chan(HistJob)>, warm: Bool, frame: List<&2, V.DrawOp>, ts: String, reload: Maybe<&2, Nat>, pending: String}
 
 type WsCardsAll is Data:
   WsCardsAll{parts: List<&2, WsCards>, lease: Maybe<&2, WsCardsLease>, hot: WsHot}
@@ -192,9 +196,10 @@ type WsLoop is Data:
   WsLoop{ws: W.Workspace, bell: U32, scheduled: Bool, ctx: PrefLive.Context, media: Maybe<&2, WsMedia>, prefs: Maybe<&2, WsLease>, up: List<&2, WsLease>, notify: WsNotify, cards: WsCardsAll, begun: Bool}
 
 # Unified shutdown bundle: pending writer acknowledgements plus the
-# bounded preferences drain over the main channel.
+# bounded preferences drain over the main channel. `hist` is True while
+# waiting for the history worker's WsHistDone under the same drain budget.
 type WsShut is Data:
-  WsShut{pending: List<&2, Key.ServerId>, ctx: PrefLive.Context, st: Sess.Session, id: Key.ServerId, owner: Maybe<&2, WsLease>, ok: Bool, started: U32, done: Bool}
+  WsShut{pending: List<&2, Key.ServerId>, ctx: PrefLive.Context, st: Sess.Session, id: Key.ServerId, owner: Maybe<&2, WsLease>, ok: Bool, started: U32, done: Bool, hist: Bool}
 
 # Startup load bundle. A Data box (not a tuple): the pinned checker
 # cannot match tuple types carrying Maybe past the second element.
@@ -956,44 +961,57 @@ def ws_cards.sidecar(+xs: List<&2, WsCards>, +id: Key.ServerId, +gen: U32, on: B
 # Bundle accessors: the lease rides with the sidecars through the loop so
 # every stage and completion sees the same physical owner.
 def ws_hot.empty() -> WsHot:
-  WsHot{False{}, "", 0, None{}, False{}, Nil{}, "", None{}}
+  WsHot{False{}, "", 0, None{}, False{}, Nil{}, "", None{}, ""}
 
 def ws_hot.on(+hot: WsHot) -> Bool:
   match hot:
-    case WsHot{+on, _, _, _, _, _, _, _}: on
+    case WsHot{+on, _, _, _, _, _, _, _, _}: on
 
 def ws_hot.warm(+hot: WsHot) -> Bool:
   match hot:
-    case WsHot{_, _, _, _, +warm, _, _, _}: warm
+    case WsHot{_, _, _, _, +warm, _, _, _, _}: warm
 
 def ws_hot.frame(+hot: WsHot) -> List<&2, V.DrawOp>:
   match hot:
-    case WsHot{_, _, _, _, _, +frame, _, _}: frame
+    case WsHot{_, _, _, _, _, +frame, _, _, _}: frame
 
 def ws_hot.reload_of(+hot: WsHot) -> Maybe<&2, Nat>:
   match hot:
-    case WsHot{_, _, _, _, _, _, _, +reload}: reload
+    case WsHot{_, _, _, _, _, _, _, +reload, _}: reload
+
+def ws_hot.pending_of(+hot: WsHot) -> String:
+  match hot:
+    case WsHot{_, _, _, _, _, _, _, _, +pending}: pending
+
+def ws_hot.jobs_of(+hot: WsHot) -> Maybe<&2, Chan(HistJob)>:
+  match hot:
+    case WsHot{_, _, _, +jobs, _, _, _, _, _}: jobs
+
+def ws_hot.with_pending(+hot: WsHot, +pending: String) -> WsHot:
+  match hot:
+    case WsHot{+on, +path, +cap, +jobs, +warm, +frame, +ts, +reload, _}:
+      WsHot{on, path, cap, jobs, warm, frame, ts, reload, pending}
 
 def ws_hot.with_reload(+hot: WsHot, reload: Maybe<&2, Nat>) -> WsHot:
   match hot:
-    case WsHot{+on, +path, +cap, +jobs, +warm, +frame, +ts, _}:
-      WsHot{on, path, cap, jobs, warm, frame, ts, reload}
+    case WsHot{+on, +path, +cap, +jobs, +warm, +frame, +ts, _, +pending}:
+      WsHot{on, path, cap, jobs, warm, frame, ts, reload, pending}
 
 def ws_hot.cold(+all: WsCardsAll) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload}}:
-      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, False{}, Nil{}, ts, reload}}
+    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload, +pending}}:
+      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, False{}, Nil{}, ts, reload, pending}}
 
 def ws_hot.keep(+all: WsCardsAll, +frame: List<&2, V.DrawOp>, warm: Bool) -> WsCardsAll:
   match all:
-    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload}}:
-      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, warm, frame, ts, reload}}
+    case WsCardsAll{+parts, +lease, WsHot{+on, +path, +cap, +jobs, _, _, +ts, +reload, +pending}}:
+      WsCardsAll{parts, lease, WsHot{on, path, cap, jobs, warm, frame, ts, reload, pending}}
 
 def ws_cards_all.empty() -> WsCardsAll:
   WsCardsAll{Nil{}, None{}, ws_hot.empty()}
 
 def ws_cards_all.live(on: Bool, +path: String, +cap: U32, +jobs: Chan(HistJob)) -> WsCardsAll:
-  WsCardsAll{Nil{}, None{}, WsHot{on, path, cap, Some{jobs}, False{}, Nil{}, "", None{}}}
+  WsCardsAll{Nil{}, None{}, WsHot{on, path, cap, Some{jobs}, False{}, Nil{}, "", None{}, ""}}
 
 def ws_cards_all.hot_set(+all: WsCardsAll, +hot: WsHot) -> WsCardsAll:
   match all:
@@ -1150,9 +1168,14 @@ def hist_worker.note(notice: Maybe<&2, String>, +main: Chan(WsMsg)) -> IO(Unit):
         _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsHistDiag{msg})
         return Unit{}
 
+def hist_worker.done(+main: Chan(WsMsg)) -> IO(Unit):
+  do IO<Unit>:
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsHistDone{})
+    return Unit{}
+
 def hist_worker.got(job: HistJob, +main: Chan(WsMsg), k: Unit -> IO(Unit)) -> IO(Unit):
   match job:
-    case HistStop{}: IO.pure(Unit, Unit{})
+    case HistStop{}: hist_worker.done(main)
     case HistJob{+path, +data}:
       do IO<Unit>:
         notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
@@ -1161,7 +1184,7 @@ def hist_worker.got(job: HistJob, +main: Chan(WsMsg), k: Unit -> IO(Unit)) -> IO
 
 def hist_worker.recv(g: Maybe<&1, HistJob>, +main: Chan(WsMsg), k: HistJob -> IO(Unit)) -> IO(Unit):
   match g:
-    case None{}: IO.pure(Unit, Unit{})
+    case None{}: hist_worker.done(main)
     case Some{+job}: k(job)
 
 @unsafe
@@ -1182,9 +1205,8 @@ def ws_history.enqueue_poll(p: Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJ
     case Wait{_}: False{}
 
 # Non-blocking offer. True = worker channel accepted the job. False = full,
-# closed, or missing channel — caller must sync-append or report failure.
-# Never treat Wait as success: that permanently advances the save baseline
-# while discarding the HistJob (BIRC2 gaps).
+# closed, or missing channel. Never treat Wait as success: that permanently
+# advances the save baseline while discarding the HistJob (BIRC2 gaps).
 def ws_history.enqueue(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Bool):
   match have:
     case False{}: IO.pure(Bool, True{})
@@ -1196,26 +1218,86 @@ def ws_history.enqueue(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: Strin
             p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, data}, 0)
             return ws_history.enqueue_poll(p)
 
-# Enqueue when the worker has capacity; otherwise append on the UI task so
-# unaccepted bytes are never dropped. A channel-accepted job yields None
-# here; the worker posts WsHistDiag only if its later write fails.
+# Characterization helper: True means the channel owns the bytes (no sync
+# write). False still sync-appends for missing-channel tests only.
 def ws_history.write_accepted(accepted: Bool, +path: String, +data: String) -> IO(Maybe<&2, String>):
   match accepted:
     case True{}: IO.pure(Maybe<&2, String>, None{})
     case False{}: HistIO.history_append_file(path, data)
 
-def ws_history.write(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Maybe<&2, String>):
-  match have:
-    case False{}: IO.pure(Maybe<&2, String>, None{})
-    case True{}:
-      do IO<Maybe<&2, String>>:
-        accepted : Bool <- ws_history.enqueue(True{}, jobs, path, data)
-        ws_history.write_accepted(accepted, path, data)
+def ws_history.blob(+pending: String, +data: String) -> String:
+  pending ++ data
+
+# Channel accepted the coalesced blob: clear pending. Otherwise hold the
+# blob on WsHot — never UI-append while older jobs remain queued.
+def ws_history.write_held(accepted: Bool, +hot: WsHot, +blob: String) -> WsHot:
+  match accepted:
+    case True{}: ws_hot.with_pending(hot, "")
+    case False{}: ws_hot.with_pending(hot, blob)
+
+def ws_history.write_chan.go(empty: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String) -> IO(Maybe<&2, String> & WsHot):
+  match empty:
+    case True{}: IO.pure(Maybe<&2, String> & WsHot, (None{}, hot))
+    case False{}:
+      do IO<Maybe<&2, String> & WsHot>:
+        p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, blob}, 0)
+        return (None{}, ws_history.write_held(ws_history.enqueue_poll(p), hot, blob))
+
+def ws_history.write_chan(+ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String) -> IO(Maybe<&2, String> & WsHot):
+  ws_history.write_chan.go(String.is_empty(blob), ch, hot, path, blob)
+
+def ws_history.write_sync.go(empty: Bool, +path: String, +data: String, +hot: WsHot) -> IO(Maybe<&2, String> & WsHot):
+  match empty:
+    case True{}: IO.pure(Maybe<&2, String> & WsHot, (None{}, hot))
+    case False{}:
+      do IO<Maybe<&2, String> & WsHot>:
+        notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
+        return (notice, hot)
+
+def ws_history.write_sync(+path: String, +data: String, +hot: WsHot) -> IO(Maybe<&2, String> & WsHot):
+  ws_history.write_sync.go(String.is_empty(data), path, data, hot)
+
+# Prefer channel admission; on overflow coalesce same-path bytes into
+# WsHot.pending and retry when capacity returns. Missing channel still
+# sync-appends (no older queued owner).
+def ws_history.write(+hot: WsHot, +data: String) -> IO(Maybe<&2, String> & WsHot):
+  match hot:
+    case WsHot{_, +path, _, +jobs, _, _, _, _, +pending}:
+      match jobs:
+        case None{}: ws_history.write_sync(path, data, hot)
+        case Some{+ch}: ws_history.write_chan(ch, hot, path, ws_history.blob(pending, data))
 
 def ws_history.have_jobs(jobs: Maybe<&2, Chan(HistJob)>) -> Bool:
   match jobs:
     case None{}: False{}
     case Some{_}: True{}
+
+# Blocking flush of pending then HistStop, then close admission. Spawned
+# at shutdown so the drain loop can still honor DRAIN_MS.
+def ws_history.drain_pending(empty: Bool, +ch: Chan(HistJob), +path: String, +pend: String) -> IO(Unit):
+  match empty:
+    case True{}: IO.pure(Unit, Unit{})
+    case False{}:
+      do IO<Unit>:
+        _ : Result<&1, &1, HistJob, Unit> <- Chan.send(HistJob, ch, HistJob{path, pend})
+        return Unit{}
+
+def ws_history.drain_stop(+hot: WsHot) -> IO(Unit):
+  match hot:
+    case WsHot{_, +path, _, +jobs, _, _, _, _, +pending}:
+      match jobs:
+        case None{}: IO.pure(Unit, Unit{})
+        case Some{+ch}:
+          do IO<Unit>:
+            Unit <- ws_history.drain_pending(String.is_empty(pending), ch, path, pending)
+            _ : Result<&1, &1, HistJob, Unit> <- Chan.send(HistJob, ch, HistStop{})
+            Unit <- Chan.close(HistJob, ch)
+            return Unit{}
+
+def ws_history.drain_spawn(have: Bool, +hot: WsHot) -> IO(Unit):
+  match have:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}: IO.spawn(Unit, ws_history.drain_stop(hot))
 
 def ws_history.noted(pair: Sess.Session & Bool, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId) -> W.Workspace & Bool:
   match pair:
@@ -1225,16 +1307,23 @@ def ws_history.async_noted(pair: W.Workspace & Bool, +hot: WsHot) -> W.Workspace
   match pair:
     case (+ws, failed): (ws, (failed, hot))
 
-def ws_history.async_go(queued: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+def ws_history.async_written(pair: Maybe<&2, String> & WsHot, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId) -> W.Workspace & Bool & WsHot:
+  match pair:
+    case (+notice, +hot2):
+      ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot2)
+
+def ws_history.async_go(queued: Bool, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
   match queued:
     case True{}:
       do IO<W.Workspace & Bool & WsHot>:
-        notice : Maybe<&2, String> <- ws_history.write(Bool.not(String.is_empty(data)), jobs, path, data)
-        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
+        pair : Maybe<&2, String> & WsHot <- ws_history.write(hot, data)
+        return ws_history.async_written(pair, ckpt, new_ws, affected)
     case False{}:
-      do IO<W.Workspace & Bool & WsHot>:
-        notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
-        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
+      match hot:
+        case WsHot{_, +path, _, _, _, _, _, _, _}:
+          do IO<W.Workspace & Bool & WsHot>:
+            notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
+            return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
 
 def ws_history.reload_ticket(+cl: Cl.Client) -> Nat:
   Nat.add(1000n, Cl.log_seq_of(cl))
@@ -1287,11 +1376,11 @@ def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path
   match changed:
     case True{}:
       ws_history_save.branch.changed(ws_history.have_jobs(jobs), path, data, ckpt, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
-    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), jobs, path, data, ckpt, new_ws, affected, hot)
+    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), data, ckpt, new_ws, affected, hot)
 
 def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +new_st: Sess.Session, +old_ep: String, +new_ep: String, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
   match hot:
-    case WsHot{_, +path, +cap, +jobs, _, _, _, _}:
+    case WsHot{_, +path, +cap, +jobs, _, _, _, _, _}:
       +old_cl = Sess.session_cl(old_st)
       +new_cl = Sess.session_cl(new_st)
       +enabled = allowed && Cl.settings_history(Cl.get_settings(new_cl))
@@ -2549,100 +2638,107 @@ def ws_shut.arm.go(busy: Bool, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
 def ws_shut.arm(+ctx: PrefLive.Context, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
   ws_shut.arm.go(PrefLive.busy(ctx), pevts)
 
-def ws_shut.fire(fire: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.ready(+done: Bool, +hist: Bool) -> Bool:
+  Bool.and(done, Bool.not(hist))
+
+def ws_shut.fire(fire: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match fire:
-    case True{}: k((ui, WsShut{pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}}))
-    case False{}: k((ui, WsShut{pending, ctx, st, id, owner, ok, started, done}))
+    case True{}: k((ui, WsShut{pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}, False{}}))
+    case False{}: k((ui, WsShut{pending, ctx, st, id, owner, ok, started, done, hist}))
 
-def ws_shut.elapsed(+tnow: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.elapsed(+tnow: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   +elapsed = U32.sub(tnow, started)
-  +fire = Bool.not(U32.is_lt(elapsed, PrefWorker.DRAIN_MS())) && Bool.not(done)
-  ws_shut.fire(fire, ui, pending, ctx, st, id, owner, ok, started, done, k)
+  +fire = Bool.not(U32.is_lt(elapsed, PrefWorker.DRAIN_MS())) && Bool.not(ws_shut.ready(done, hist))
+  ws_shut.fire(fire, ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-def ws_shut.timed(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.timed(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     tnow : U32 <- Clock.millis()
-    ws_shut.elapsed(tnow, ui, pending, ctx, st, id, owner, ok, started, done, k)
+    ws_shut.elapsed(tnow, ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-def ws_shut.applied(result: PrefLive.Context & Sess.Session & List<&2, String> & Bool, +code: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.applied(result: PrefLive.Context & Sess.Session & List<&2, String> & Bool, +code: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match result:
     case (+pctx, +st, _, _):
       +busy2 = PrefLive.busy(pctx)
-      ws_shut.timed(ui, pending, pctx, st, id, Bool.pick(Maybe<&2, WsLease>, busy2, owner, None{}), ok && U32.is_zero(code), started, done || Bool.not(busy2), k)
+      ws_shut.timed(ui, pending, pctx, st, id, Bool.pick(Maybe<&2, WsLease>, busy2, owner, None{}), ok && U32.is_zero(code), started, done || Bool.not(busy2), hist, k)
 
-def ws_shut.reject.got(result: PrefLive.Context & Maybe<&2, WsLease>, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool) -> WsShut:
+def ws_shut.reject.got(result: PrefLive.Context & Maybe<&2, WsLease>, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool, hist: Bool) -> WsShut:
   match result:
-    case (+ctx, +owner): WsShut{pending, ctx, st, id, owner, ok && PrefLive.clean(ctx), started, done || Bool.not(PrefLive.busy(ctx))}
+    case (+ctx, +owner): WsShut{pending, ctx, st, id, owner, ok && PrefLive.clean(ctx), started, done || Bool.not(PrefLive.busy(ctx)), hist}
 
-def ws_shut.reject(m: Sess.UiMsg, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool) -> WsShut:
-  ws_shut.reject.got(ws_prefs.rejected(m, ctx, owner), pending, st, id, ok, started, done)
+def ws_shut.reject(m: Sess.UiMsg, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool) -> WsShut:
+  ws_shut.reject.got(ws_prefs.rejected(m, ctx, owner), pending, st, id, ok, started, done, hist)
 
 def ws_shut.rejected(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match shut:
-    case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done}: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, k)
+    case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done, hist}: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-def ws_shut.prefs_match(current: Bool, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +gen: U32, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.prefs_match(current: Bool, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +gen: U32, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match current:
-    case False{}: ws_shut.rejected(ws_shut.reject(m, pending, ctx, st, id, owner, ok, started, done), ui, k)
+    case False{}: ws_shut.rejected(ws_shut.reject(m, pending, ctx, st, id, owner, ok, started, done, hist), ui, k)
     case True{}:
       match m:
-        case Sess.PreferencesLoaded{+ticket, +prefs, +code}: ws_shut.applied(PrefLive.loaded(ctx, st, gen, ticket, prefs, code), code, ui, pending, id, owner, ok, started, done, k)
-        case Sess.PreferencesSaved{+ticket, +code}: ws_shut.applied(PrefLive.saved(ctx, st, ticket, code), code, ui, pending, id, owner, ok, started, done, k)
-        case Sess.PreferencesDeadline{_}: ws_shut.timed(ui, pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}, k)
-        case _: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, k)
+        case Sess.PreferencesLoaded{+ticket, +prefs, +code}: ws_shut.applied(PrefLive.loaded(ctx, st, gen, ticket, prefs, code), code, ui, pending, id, owner, ok, started, done, hist, k)
+        case Sess.PreferencesSaved{+ticket, +code}: ws_shut.applied(PrefLive.saved(ctx, st, ticket, code), code, ui, pending, id, owner, ok, started, done, hist, k)
+        case Sess.PreferencesDeadline{_}: ws_shut.timed(ui, pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}, False{}, k)
+        case _: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-def ws_shut.prefs_owned(+owner: Maybe<&2, WsLease>, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.prefs_owned(+owner: Maybe<&2, WsLease>, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match owner:
-    case None{}: ws_shut.rejected(ws_shut.reject(m, pending, ctx, st, id, owner, ok, started, done), ui, k)
+    case None{}: ws_shut.rejected(ws_shut.reject(m, pending, ctx, st, id, owner, ok, started, done, hist), ui, k)
     case Some{+held}:
       match held:
         case WsLease{+s, +wanted}:
           +gen = ws_part.gen(ws, id)
-          ws_shut.prefs_match(Key.eq(s, id) && U32.is_eq(wanted, gen), m, ui, pending, ctx, st, id, gen, owner, ok, started, done, k)
+          ws_shut.prefs_match(Key.eq(s, id) && U32.is_eq(wanted, gen), m, ui, pending, ctx, st, id, gen, owner, ok, started, done, hist, k)
 
-def ws_shut.msg(wmsg: WsMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.msg(wmsg: WsMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match wmsg:
-    case WsNet{+rm}: ws_shut.timed(ui, ws_shutdown.drop(ws, rm, pending, W.writer_done_acked(ws, rm)), ctx, st, id, owner, ok, started, done, k)
-    case WsPrefs{m}: ws_shut.prefs_owned(owner, m, ui, pending, ctx, st, id, ok, started, done, ws, k)
-    case _: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, k)
+    case WsNet{+rm}: ws_shut.timed(ui, ws_shutdown.drop(ws, rm, pending, W.writer_done_acked(ws, rm)), ctx, st, id, owner, ok, started, done, hist, k)
+    case WsPrefs{m}: ws_shut.prefs_owned(owner, m, ui, pending, ctx, st, id, ok, started, done, hist, ws, k)
+    case WsHistDone{}: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, False{}, k)
+    case _: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-def ws_shut.got(g: Maybe<&1, WsMsg>, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.got(g: Maybe<&1, WsMsg>, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match g:
     case None{}: Net.shutdown_finish(ui, ok)
-    case Some{wmsg}: ws_shut.msg(wmsg, ui, pending, ctx, st, id, owner, ok, started, done, ws, k)
+    case Some{wmsg}: ws_shut.msg(wmsg, ui, pending, ctx, st, id, owner, ok, started, done, hist, ws, k)
 
 def ws_shut.owner(was_active: Bool, +ctx: PrefLive.Context, +owner: Maybe<&2, WsLease>, +id: Key.ServerId, +gen: U32) -> Maybe<&2, WsLease>:
   ws_lease.prefs_next(owner, was_active, PrefLive.active(ctx), id, gen)
 
-def ws_shut.started(was_active: Bool, +ctx2: PrefLive.Context, ui: T.Ui, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, +main: Chan(WsMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.started(was_active: Bool, +ctx2: PrefLive.Context, ui: T.Ui, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   +busy2 = PrefLive.busy(ctx2)
   +owner2 = ws_shut.owner(was_active, ctx2, owner, id, ws_part.gen(ws, id))
   do IO<Unit>:
     g : Maybe<&1, WsMsg> <- Chan.recv(WsMsg, main)
-    ws_shut.got(g, ui, pending, ctx2, st, id, owner2, ok, started, done || Bool.not(busy2), ws, k)
+    ws_shut.got(g, ui, pending, ctx2, st, id, owner2, ok, started, done || Bool.not(busy2), hist, ws, k)
 
-def ws_shut.step(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.step(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     ctx2 : PrefLive.Context <- PrefLive.start(ctx, pevts)
-    ws_shut.started(PrefLive.active(ctx), ctx2, ui, pending, st, id, owner, ok, started, done, ws, main, k)
+    ws_shut.started(PrefLive.active(ctx), ctx2, ui, pending, st, id, owner, ok, started, done, hist, ws, main, k)
 
-def ws_shut.drained(done: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
-  match done:
+def ws_shut.drained.go(ready: Bool, +done: Bool, +hist: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+  match ready:
     case True{}: Net.shutdown_finish(ui, ok)
-    case False{}: ws_shut.step(ui, pending, ctx, st, id, owner, ok, started, done, ws, main, pevts, k)
+    case False{}: ws_shut.step(ui, pending, ctx, st, id, owner, ok, started, done, hist, ws, main, pevts, k)
 
-def ws_shut.pending(+pending: List<&2, Key.ServerId>, ui: T.Ui, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+def ws_shut.drained(+done: Bool, +hist: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+  ws_shut.drained.go(ws_shut.ready(done, hist), done, hist, ui, pending, ctx, st, id, owner, ok, started, ws, main, pevts, k)
+
+def ws_shut.pending(+pending: List<&2, Key.ServerId>, ui: T.Ui, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match pending:
-    case Nil{}: ws_shut.drained(done, ui, pending, ctx, st, id, owner, ok, started, ws, main, pevts, k)
-    case Con{_, _}: ws_shut.step(ui, pending, ctx, st, id, owner, ok, started, done, ws, main, pevts, k)
+    case Nil{}: ws_shut.drained(done, hist, ui, pending, ctx, st, id, owner, ok, started, ws, main, pevts, k)
+    case Con{_, _}: ws_shut.step(ui, pending, ctx, st, id, owner, ok, started, done, hist, ws, main, pevts, k)
 
 @unsafe
 def ws_shutdown_wait(acc: T.Ui & WsShut, +ws: W.Workspace, +main: Chan(WsMsg), +evts: WsEvts, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
   match acc:
     case (ui, +shut):
       match shut:
-        case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done}:
-          ws_shut.pending(pending, ui, ctx, st, id, owner, ok, started, done, ws, main, pevts, acc2 => ws_shutdown_wait(acc2, ws, main, evts, pevts))
+        case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done, hist}:
+          ws_shut.pending(pending, ui, ctx, st, id, owner, ok, started, done, hist, ws, main, pevts, acc2 => ws_shutdown_wait(acc2, ws, main, evts, pevts))
 
 def ws_shutdown.close(+cmds: WsCmds) -> IO(Unit):
   match cmds:
@@ -2656,13 +2752,16 @@ def ws_shutdown.close(+cmds: WsCmds) -> IO(Unit):
 
 def ws_shutdown(+loop: WsLoop, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
   match loop:
-    case WsLoop{_, _, _, +ctx, _, +owner, _, _, _, _}:
+    case WsLoop{_, _, _, +ctx, _, +owner, _, _, +cards, _}:
       +id = ws_shut.owner_id(owner, ws)
+      +hot = ws_cards_all.hot(cards)
+      +hist = ws_history.have_jobs(ws_hot.jobs_of(hot))
       do IO<Unit>:
         started : U32 <- Clock.millis()
         Unit <- ws_shut.arm(ctx, pevts)
         Unit <- ws_shutdown.close(cmds)
-        ws_shutdown_wait((ui, WsShut{ws_pending(ws), ctx, ws_part.st(ws, id), id, owner, True{}, started, Bool.not(PrefLive.busy(ctx))}), ws, main, evts, pevts)
+        Unit <- ws_history.drain_spawn(hist, hot)
+        ws_shutdown_wait((ui, WsShut{ws_pending(ws), ctx, ws_part.st(ws, id), id, owner, True{}, started, Bool.not(PrefLive.busy(ctx)), hist}), ws, main, evts, pevts)
 
 def ws_halt(halt: Bool, ui: T.Ui, +loop: WsLoop, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), k: (T.Ui & WsLoop) -> IO(Unit)) -> IO(Unit):
   match halt:
@@ -2713,6 +2812,10 @@ def ws_parked.msg(wmsg: WsMsg, +saved: List<&2, WsLoop>, ui: T.Ui, +main: Chan(W
       match saved:
         case Con{WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}, _}:
           ws_hist_diag(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), msg, ui, main, cmds, evts, pevts, ack, k)
+        case Nil{}: ws_parked.missing(ui, cmds)
+    case WsHistDone{}:
+      match saved:
+        case Con{+loop, _}: k((ui, loop, False{}))
         case Nil{}: ws_parked.missing(ui, cmds)
 
 # Receive-carry: Ui/message/continuation remain outside Data. EOF forwards

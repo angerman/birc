@@ -95,6 +95,10 @@ def main() -> None:
         run(binary, frames, count)
     run(binary, 1, 17, "drop")
     redial(binary)
+    # − Drop during held setup: zero registration bytes.
+    # + same hold without Drop: CAP/NICK/USER handshake reaches the peer.
+    held_setup(binary, drop=True)
+    held_setup(binary, drop=False)
 
 
 def redial(binary: str) -> None:
@@ -176,6 +180,108 @@ def redial(binary: str) -> None:
             for peer in peers:
                 peer.close()
     print("actor queue redial flushes old pending and retains new FIFO: PASS")
+
+
+HANDSHAKE = [
+    "CAP LS 302", "CAP REQ :server-time", "CAP REQ :message-tags",
+    "CAP REQ :account-notify", "CAP REQ :away-notify",
+    "CAP REQ :draft/chathistory", "CAP REQ :echo-message",
+    "CAP REQ :extended-join", "CAP REQ :account-tag",
+    "CAP REQ :labeled-response", "CAP REQ :cap-notify",
+    "CAP END", "NICK probe", "USER probe 0 * :probe",
+]
+
+
+def held_setup(binary: str, *, drop: bool) -> None:
+    """Hold TCP setup until the child queues Drop (or skips it), then release.
+
+    listen(1) + a filler connection saturates the accept backlog so the
+    child's connect blocks inside Dns.dial_dual. Drop must be queued before
+    the filler is accepted; otherwise connect completes via the backlog
+    before userspace accept and registration races ahead of Drop.
+
+    Drop during setup must close with zero peer bytes. Without Drop, the
+    peer must see the exact registration handshake after release.
+    """
+    mode = "dropsetup" if drop else "dialsetup"
+    wire = bytearray()
+    peer = None
+    filler = None
+    checkpoint = False
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        # Occupy the sole backlog slot so the child's Dial connect parks.
+        filler = socket.create_connection(server.getsockname(), timeout=2)
+        server.setblocking(False)
+        child = subprocess.Popen(
+            [binary, str(server.getsockname()[1]), "1", "0", mode],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                sources = [child.stdout]
+                if peer is not None:
+                    sources.append(peer)
+                ready, _, _ = select.select(sources, [], [], 0.05)
+                if child.stdout in ready:
+                    line = child.stdout.readline().strip()
+                    if line == b"held":
+                        # Drop (if any) is queued while connect is still pending.
+                        # Free the backlog slot, then take the child's socket.
+                        stuck, _ = server.accept()
+                        stuck.close()
+                        peer = None
+                        for _ in range(50):
+                            try:
+                                peer, _ = server.accept()
+                                break
+                            except BlockingIOError:
+                                time.sleep(0.02)
+                        assert peer is not None, (mode, "child never connected after release")
+                        peer.setblocking(False)
+                        checkpoint = True
+                    elif line == b"closed":
+                        break
+                    elif not line and child.poll() is not None:
+                        break
+                if peer is not None and peer in ready:
+                    data = peer.recv(65536)
+                    if data:
+                        wire.extend(data)
+                    else:
+                        break
+            stdout, stderr = child.communicate(timeout=2)
+            if peer is not None:
+                while True:
+                    ready, _, _ = select.select([peer], [], [], 0.2)
+                    if not ready:
+                        break
+                    data = peer.recv(65536)
+                    if not data:
+                        break
+                    wire.extend(data)
+            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+            assert checkpoint, (mode, "no held checkpoint", stdout, stderr)
+            actual = wire.decode().splitlines()
+            if drop:
+                assert actual == [], (mode, "expected zero registration bytes", actual)
+            else:
+                assert actual == HANDSHAKE, (mode, actual, HANDSHAKE)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            if peer is not None:
+                peer.close()
+            if filler is not None:
+                filler.close()
+    label = "Drop during held setup sends zero registration bytes" if drop else (
+        "held setup without Drop registers after release"
+    )
+    print(f"actor queue {label}: PASS")
 
 
 if __name__ == "__main__":

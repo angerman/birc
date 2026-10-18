@@ -1,5 +1,5 @@
 # A transient panel over the bottom of the chat. It never replaces the draft
-# and never enters history. attrs 8 is drawn by C after the composer widget,
+# and never enters history. OpGhost is drawn by C after the composer widget,
 # so a one-line warning still shows on a terminal too small for a panel row.
 import Base
 import ./buffer.bend as Cl
@@ -97,6 +97,11 @@ def paint_attr(hot: Bool, composer: Bool, +base: U32) -> U32:
     case True{}: base
     case False{}: paint_attr.hot(hot, base)
 
+def paint_op(composer: Bool, +x: U32, +y: U32, +w: U32, +fg: U32, +attrs: U32, +text: String) -> V.DrawOp:
+  match composer:
+    case True{}: V.OpGhost{x, y, w, fg, text}
+    case False{}: V.OpText{x, y, w, fg, attrs, text}
+
 def paint_at(fuel: Nat, xs: List<&2, String>, +x: U32, +y: U32, +w: U32, +fg: U32, +attrs: U32, +warn: Bool, +composer: Bool, +th: Theme.Id) -> List<&2, V.DrawOp>:
   match fuel:
     case 0n: Nil{}
@@ -105,11 +110,11 @@ def paint_at(fuel: Nat, xs: List<&2, String>, +x: U32, +y: U32, +w: U32, +fg: U3
         case Nil{}: Nil{}
         case Con{+h, t}:
           +hot = paint_hot(h)
-          V.OpText{x, y, w, paint_fg(hot, warn, fg, th), paint_attr(hot, composer, attrs), pad(h, w)} <> paint_at(p, t, x, U32.add(y, 1), w, fg, attrs, warn, composer, th)
+          paint_op(composer, x, y, w, paint_fg(hot, warn, fg, th), paint_attr(hot, composer, attrs), pad(h, w)) <> paint_at(p, t, x, U32.add(y, 1), w, fg, attrs, warn, composer, th)
 
 def line_attrs(composer: Bool, warn: Bool) -> U32:
   match composer:
-    case True{}: 8
+    case True{}: 0
     case False{}:
       match warn:
         case True{}: 1
@@ -123,7 +128,7 @@ def line_fg(warn: Bool, +th: Theme.Id) -> U32:
 def ghost_op(show: Bool, +ghost: String, +x: U32, +y: U32, +w: U32, +fg: U32) -> List<&2, V.DrawOp>:
   match show:
     case False{}: Nil{}
-    case True{}: V.OpText{x, y, w, fg, 8, ghost} <> Nil{}
+    case True{}: V.OpGhost{x, y, w, fg, ghost} <> Nil{}
 
 # The native composer keeps one deferred slot. A panel line already on the
 # composer row fills it; a second ghost suffix would replace that line.

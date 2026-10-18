@@ -368,12 +368,13 @@ def lines(desired: List<&2, Channel>) -> List<&2, String>:
     case Nil{}: Nil{}
     case Con{Channel{name, key}, rest}: channel_line(name, key) <> lines(rest)
 
-# AuthDone alone is not failure: SASL success, CAP rejection, and bare 001
-# all land there. Failure is a terminal AuthDone whose success_seq never
-# advanced past this connection's barrier baseline.
+# Explicit outcomes: AuthHeld is registration-before-SASL-completion (still
+# waiting). AuthDone without a success_seq advance is terminal failure
+# (904/NAK/NickFailed). Success advances success_seq past the barrier baseline.
 def failed(phase: Cl.AuthPhase, +baseline: Nat, +seq: Nat) -> Bool:
   match phase:
     case Cl.AuthDone{}: Bool.not(Nat.is_gt(seq, baseline))
+    case Cl.AuthHeld{}: False{}
     case _: False{}
 
 def hold.report(report: Report, failed: Bool) -> Report & Notice:

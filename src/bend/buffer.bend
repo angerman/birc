@@ -186,17 +186,44 @@ def buf_with_meta(+b: Buffer, +name: String, +ch: Bool, +topic: String, +nicks: 
     case Buffer{_, _, _, +lines, _, +scroll, +newest, +count}:
       Buffer{name, ch, topic, lines, nicks, scroll, newest, count}
 
-def spine_ids_eq(+a: List<&2, Line>, +b: List<&2, Line>) -> Bool:
+# Full LineKind equality, including nested Pending wrappers.
+def kind_eq(a: LineKind, b: LineKind) -> Bool:
+  match a b:
+    case Msg{} Msg{}: True{}
+    case Self{} Self{}: True{}
+    case System{} System{}: True{}
+    case Action{} Action{}: True{}
+    case Notice{} Notice{}: True{}
+    case Error{} Error{}: True{}
+    case Highlight{} Highlight{}: True{}
+    case Reconnect{} Reconnect{}: True{}
+    case LinkResult{} LinkResult{}: True{}
+    case Presence{} Presence{}: True{}
+    case Nick{} Nick{}: True{}
+    case Pending{ia} Pending{ib}: kind_eq(ia, ib)
+    case _ _: False{}
+
+# Dual-spine identity: id, kind, author, text, and ts must all agree.
+def line_eq(a: Line, b: Line) -> Bool:
+  match a b:
+    case Line{ka, tsa, texta, authora, ida} Line{kb, tsb, textb, authorb, idb}:
+      Nat.is_eq(ida, idb)
+        && kind_eq(ka, kb)
+        && String.eq(authora, authorb)
+        && String.eq(texta, textb)
+        && String.eq(tsa, tsb)
+
+def spine_lines_eq(+a: List<&2, Line>, +b: List<&2, Line>) -> Bool:
   match a:
     case Nil{}:
       match b:
         case Nil{}: True{}
         case _: False{}
-    case Con{Line{_, _, _, _, id_a}, ta}:
+    case Con{ha, ta}:
       match b:
         case Nil{}: False{}
-        case Con{Line{_, _, _, _, id_b}, tb}:
-          Nat.is_eq(id_a, id_b) && spine_ids_eq(ta, tb)
+        case Con{hb, tb}:
+          line_eq(ha, hb) && spine_lines_eq(ta, tb)
 
 # newest must be reverse(lines) and count must be their length.
 def buf_spines_ok(+b: Buffer) -> Bool:
@@ -204,7 +231,7 @@ def buf_spines_ok(+b: Buffer) -> Bool:
     case Buffer{_, _, _, +lines, _, _, +newest, +count}:
       Nat.is_eq(count, List.length(&2, Line, lines))
         && Nat.is_eq(count, List.length(&2, Line, newest))
-        && spine_ids_eq(newest, List.reverse(&2, Line, lines))
+        && spine_lines_eq(newest, List.reverse(&2, Line, lines))
 
 type AlertLevel is Data:
   Activity{}
@@ -707,6 +734,8 @@ type AuthPhase is Data:
   AuthChallenge{}
   AuthResult{}
   AuthDone{}
+  # Registration (001) before SASL completed: not success, not failure.
+  AuthHeld{}
   AuthNickWait{}
   AuthNickProbe{}
   AuthNickResult{}

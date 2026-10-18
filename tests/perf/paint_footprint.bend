@@ -53,6 +53,7 @@ def op_len(op: V.DrawOp) -> Nat:
     case V.OpLine{_, _, _, _, spans}: spans_len(spans)
     case V.OpImage{_, _, _, _, path}: String.length(path)
     case V.OpMedia{_, _, _, _, _, _, _}: 1n
+    case V.OpGhost{_, _, _, _, text}: String.length(text)
 
 def ops_len(xs: List<&2, V.DrawOp>) -> Nat:
   match xs:

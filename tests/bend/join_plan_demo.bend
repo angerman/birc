@@ -43,21 +43,47 @@ def capacity_controls() -> IO(Unit):
     Unit <- E.must("invalid whitespace/key cannot create intent", Nat.is_eq(List.length(&2, String, P.desired_names(P.remember(P.initial(""), "#bad name", "key", True{}))), 0n))
     IO.pure(Unit, Unit{})
 
+def auth_apply.reply(+cl: Cl.Client, reply: Auth.Reply) -> Cl.Client:
+  match reply:
+    case Auth.Reply{phase, _, notice}: Auth.apply_reply(cl, phase, notice)
+
+def auth_apply(+cl: Cl.Client, +line: String, +port: U32) -> Cl.Client:
+  auth_apply.reply(cl, Auth.step_for(cl, line, port))
+
+def auth_held(phase: Cl.AuthPhase) -> Bool:
+  match phase:
+    case Cl.AuthHeld{}: True{}
+    case _: False{}
+
 def auth_controls() -> IO(Unit):
   +cl = Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6667, "", "", "account", "secret")
-  +waiting = P.received(P.reset(P.initial("#start"), cl, 6667), cl, ":irc.example 001 me :welcome")
+  +welcome: String = ":irc.example 001 me :welcome"
+  +waiting = P.received(P.reset(P.initial("#start"), cl, 6667), cl, welcome)
   +held = flushed(P.flush(waiting, cl))
   +failed_cl = Cl.set_auth(cl, Cl.AuthDone{})
   +ok_cl = Cl.advance_auth_success(Cl.set_auth(cl, Cl.AuthDone{}))
   +wrong_port = P.reset(P.initial("#start"), cl, 6697)
+  # Live fold order: Auth.step then JoinPlan.flush. Bare 001 during SASL
+  # must land AuthHeld, not AuthDone-as-failure.
+  +cap_held = auth_apply(cl, welcome, 6667)
+  +challenge = auth_apply(cl, ":irc.example CAP me ACK :sasl", 6667)
+  +challenge_held = auth_apply(challenge, welcome, 6667)
+  +result = auth_apply(challenge, "AUTHENTICATE +", 6667)
+  +result_held = auth_apply(result, welcome, 6667)
   do IO<Unit>:
     Unit <- E.must("same host live port match requires auth", Auth.join_required(cl, 6667))
     Unit <- E.must("same host different live port skips auth barrier", Bool.not(Auth.join_required(cl, 6697)))
-    Unit <- E.must_eq("mismatched live port resets without NeedAuth", notice(P.flush(P.received(wrong_port, cl, ":irc.example 001 me :welcome"), cl)), "quiet")
-    Unit <- E.must_eq("mismatched port flushes joins without auth wait", lines(P.flush(P.received(wrong_port, cl, ":irc.example 001 me :welcome"), cl)), "JOIN #start")
+    Unit <- E.must_eq("mismatched live port resets without NeedAuth", notice(P.flush(P.received(wrong_port, cl, welcome), cl)), "quiet")
+    Unit <- E.must_eq("mismatched port flushes joins without auth wait", lines(P.flush(P.received(wrong_port, cl, welcome), cl)), "JOIN #start")
     Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
     Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
     Unit <- E.must_eq("bare 001 stays held not failed", notice(P.flush(held, cl)), "quiet")
+    Unit <- E.must("AuthCap bare 001 is AuthHeld", auth_held(Cl.get_auth(cap_held)))
+    Unit <- E.must_eq("Auth.step+flush AuthCap 001 is held not failed", notice(P.flush(waiting, cap_held)), "held")
+    Unit <- E.must("AuthChallenge bare 001 is AuthHeld", auth_held(Cl.get_auth(challenge_held)))
+    Unit <- E.must_eq("Auth.step+flush AuthChallenge 001 is held not failed", notice(P.flush(waiting, challenge_held)), "held")
+    Unit <- E.must("AuthResult bare 001 is AuthHeld", auth_held(Cl.get_auth(result_held)))
+    Unit <- E.must_eq("Auth.step+flush AuthResult 001 is held not failed", notice(P.flush(waiting, result_held)), "held")
     Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, failed_cl)), "failed")
     Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, failed_cl)), "")
     Unit <- E.must_eq("repeat auth failure is silent", notice(P.flush(flushed(P.flush(held, failed_cl)), failed_cl)), "quiet")

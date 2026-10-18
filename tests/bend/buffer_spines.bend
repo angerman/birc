@@ -11,6 +11,10 @@ def line(+text: String, +id: Nat) -> Cl.Line:
 def mismatched() -> Cl.Buffer:
   Cl.Buffer{"#t", True{}, "topic", line("a", 1n) <> line("b", 2n) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}, line("a", 1n) <> Nil{}, 2n}
 
+# Same ids and length as a valid reverse spine, but newest text differs.
+def same_ids_diff_text() -> Cl.Buffer:
+  Cl.Buffer{"#t", True{}, "topic", line("a", 1n) <> line("b", 2n) <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}, line("B", 2n) <> line("a", 1n) <> Nil{}, 2n}
+
 def spines_controls() -> IO(Unit):
   +empty = Cl.empty_buf("#t", True{})
   +pushed = Cl.buf_push(empty, line("one", 1n), 100n)
@@ -23,6 +27,7 @@ def spines_controls() -> IO(Unit):
     Unit <- E.must("topic meta keeps spines", Cl.buf_spines_ok(topic))
     Unit <- E.must("nick meta keeps spines", Cl.buf_spines_ok(nicked))
     Unit <- E.must("hand-built mismatch rejected", Bool.not(Cl.buf_spines_ok(mismatched())))
+    Unit <- E.must("same ids different text rejected", Bool.not(Cl.buf_spines_ok(same_ids_diff_text())))
     IO.pure(Unit, Unit{})
 
 def view_structure() -> IO(Unit):

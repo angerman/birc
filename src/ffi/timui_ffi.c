@@ -166,7 +166,7 @@ typedef struct {
   char ghost[128];
   int ghost_x;
   int ghost_y;
-  int ghost_w; /* Bend OpText.w columns; paint maxx is gx + ghost_w. */
+  int ghost_w; /* Bend OpGhost.w columns; paint maxx is gx + ghost_w. */
   int ghost_on;
   uint32_t ghost_fg;
   /* Reused UTF-8 encode buffer for OpText / span paint (no per-op malloc). */
@@ -993,10 +993,28 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     char *owned = NULL;
     BircUi *bu = ly ? ly->bu : NULL;
     (void)birc_draw_str(e, f[5], bu, &s, &n, &owned);
-    /* 8 marks composer-row text that the widget would wipe. Keep it and
-     * paint it after the text area. Bend owns column width (f[2]); do not
-     * infer maxx from strlen. */
-    if ((uint32_t)f[4] == 8 && bu) {
+    /* Underline (TIMUI_ATTR_UNDERLINE == 8) paints like any other Attrs;
+     * deferred composer text uses OpGhost, not an in-band attrs marker. */
+    (void)birc_put_span(fr, x, y, x + w, s, n, (uint32_t)f[3],
+                        (uint32_t)f[4], NULL);
+    free(owned);
+    spare_free(e, cls_fit(6), loc);
+#ifdef CID_VIEW_OPGHOST
+  } else if (cid == CID_VIEW_OPGHOST) {
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
+    int x = (int)(uint32_t)f[0];
+    int y = (int)(uint32_t)f[1];
+    int w = (int)(uint32_t)f[2];
+    const char *s = "";
+    size_t n = 0;
+    char *owned = NULL;
+    BircUi *bu = ly ? ly->bu : NULL;
+    (void)birc_draw_str(e, f[4], bu, &s, &n, &owned);
+    /* Composer-row text that the widget would wipe. Keep it and paint after
+     * the text area. Bend owns column width (f[2]); do not infer maxx from
+     * strlen. */
+    if (bu) {
       size_t gn = n;
       if (gn >= sizeof bu->ghost)
         gn = sizeof bu->ghost - 1;
@@ -1009,12 +1027,10 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
       bu->ghost_w = w;
       bu->ghost_fg = (uint32_t)f[3];
       bu->ghost_on = 1;
-    } else {
-      (void)birc_put_span(fr, x, y, x + w, s, n, (uint32_t)f[3],
-                          (uint32_t)f[4], NULL);
     }
     free(owned);
-    spare_free(e, cls_fit(6), loc);
+    spare_free(e, cls_fit(5), loc);
+#endif
   } else if (cid == CID_VIEW_OPTABS) {
     Term f[8];
     Loc loc = ctr_take(e, op, 8, f);
@@ -1551,7 +1567,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
             gx += in.x;
           if (gw < 0)
             gw = 0;
-          /* maxx from Bend OpText.w; birc_put_span / birc_clip_cols defend. */
+          /* maxx from Bend OpGhost.w; birc_put_span / birc_clip_cols defend. */
           (void)birc_put_span(fr, gx, bu->ghost_y, gx + gw,
                               bu->ghost, gn, bu->ghost_fg, 0, NULL);
         }

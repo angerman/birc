@@ -656,30 +656,37 @@ def writer_pong(same: Bool, st: Writer, +pongs: List<&2, String>, +txn: U32, +ev
 # Dial replay on the winner in order (pre-Dial Cont stays with its abandoned
 # setup, never migrates). The winner setup re-enters the same drain, so a
 # third Dial queued during a held winner setup abandons the winner before it
-# registers (last gen wins). Post-winner Drop is honored (closes, later Cont
-# unsent). The drain ends at a self-sent Pump{setup_gen} sentinel (the
-# writer's own pump idiom; live Pumps always carry an adopted gen, so only
-# the sentinel matches) or at cmd close (shutdown still finishes) or at fuel
-# exhaustion (falls back to the sequential path). No Socket/Conn crosses a
-# channel; the only spawn is the one-shot sentinel send. Pure steps are
-# JS-pinned.
+# registers (last gen wins). A Drop kept with no newer Dial also abandons
+# before register (zero peer bytes); post-winner Drop is honored the same
+# way after adopt (closes, later Cont unsent). The drain ends at a self-sent
+# Pump{setup_gen} sentinel (the writer's own pump idiom; live Pumps always
+# carry an adopted gen, so only the sentinel matches) or at cmd close
+# (shutdown still finishes) or at fuel exhaustion (falls back to the
+# sequential path). No Socket/Conn crosses a channel; the only spawn is the
+# one-shot sentinel send. Pure steps are JS-pinned.
 type QueuedDial is Data:
   QueuedDial{host: String, port: U32, gen: U32, nick: String}
 
 type AdmitAcc is Data:
-  AdmitAcc{latest: Maybe<&2, QueuedDial>, dials: List<&2, QueuedDial>, kept: List<&2, Sess.NetCmd>, closed: Bool}
+  AdmitAcc{latest: Maybe<&2, QueuedDial>, dials: List<&2, QueuedDial>, kept: List<&2, Sess.NetCmd>, closed: Bool, dropped: Bool}
 
 def admit_keep(+c: Sess.NetCmd, +acc: AdmitAcc) -> AdmitAcc & Bool:
   match acc:
-    case AdmitAcc{+latest, +dials, +kept, +closed}:
-      (AdmitAcc{latest, dials, c <> kept, closed}, False{})
+    case AdmitAcc{+latest, +dials, +kept, +closed, +dropped}:
+      (AdmitAcc{latest, dials, c <> kept, closed, dropped}, False{})
+
+def admit_drop(+acc: AdmitAcc) -> AdmitAcc & Bool:
+  match acc:
+    case AdmitAcc{+latest, +dials, +kept, +closed, _}:
+      (AdmitAcc{latest, dials, Sess.Drop{} <> kept, closed, True{}}, False{})
 
 def admit_dial(+host: String, +port: U32, +gen: U32, +nick: String, +acc: AdmitAcc) -> AdmitAcc & Bool:
   match acc:
-    case AdmitAcc{_, +dials, _, +closed}:
+    case AdmitAcc{_, +dials, _, +closed, _}:
       +qd: QueuedDial = QueuedDial{host, port, gen, nick}
       +grown = List.append(&2, QueuedDial, dials, qd <> Nil{})
-      (AdmitAcc{Some{qd}, grown, Nil{}, closed}, False{})
+      # Newer Dial clears kept and any prior Drop; winner path abandons this sock.
+      (AdmitAcc{Some{qd}, grown, Nil{}, closed, False{}}, False{})
 
 def admit_pump(stop: Bool, +acc: AdmitAcc) -> AdmitAcc & Bool:
   match stop:
@@ -695,7 +702,7 @@ def admit_consider(c: Sess.NetCmd, +setup_gen: U32, +acc: AdmitAcc) -> AdmitAcc 
     case Sess.Dial{+host, +port, +gen, +nick}:
       admit_dial(host, port, gen, nick, acc)
     case Sess.Drop{}:
-      admit_keep(Sess.Drop{}, acc)
+      admit_drop(acc)
     case Sess.Pump{+pgen}:
       admit_pump(U32.is_eq(pgen, setup_gen), acc)
     case Sess.OpenUrl{_}:
@@ -721,8 +728,8 @@ def writer_drain_got(got: Maybe<&1, Sess.NetCmd>, +setup_gen: U32, +acc: AdmitAc
   match got:
     case None{}:
       match acc:
-        case AdmitAcc{+latest, +dials, +kept, _}:
-          IO.pure(AdmitAcc, AdmitAcc{latest, dials, kept, True{}})
+        case AdmitAcc{+latest, +dials, +kept, _, +dropped}:
+          IO.pure(AdmitAcc, AdmitAcc{latest, dials, kept, True{}, dropped})
     case Some{c}:
       writer_drain_decided(admit_consider(c, setup_gen, acc), k)
 
@@ -836,10 +843,28 @@ def writer_admit_reg(pair: Tr.Conn & Bool, +kept: List<&2, Sess.NetCmd>, +closed
     case (sock, ok):
       writer_admit_reg_ok(ok, sock, kept, closed, gen, evt, boot, cmd, scope, budget, next_txn, k)
 
-def writer_admit_single(+kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+# Drop during setup sets AdmitAcc.dropped (and stays in kept). A newer Dial
+# clears both. Before register with no winning Dial: close with zero peer
+# bytes, then replay kept on None so later Cont stays unsent.
+def writer_admit_dropped(+kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Tr.close(sock)
+    writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}}, evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
+
+def writer_admit_register(+kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     pair : Tr.Conn & Bool <- register(sock, nick, auth_scope_enabled(scope))
     writer_admit_reg(pair, kept, closed, gen, evt, boot, cmd, scope, budget, next_txn, k)
+
+def writer_admit_single_go(drop: Bool, +kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+  match drop:
+    case True{}:
+      writer_admit_dropped(kept, closed, sock, gen, evt, cmd, scope, budget, next_txn, k)
+    case False{}:
+      writer_admit_register(kept, closed, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
+
+def writer_admit_single(+kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+  writer_admit_single_go(dropped, kept, closed, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
 
 # Winner replay honors Drop (L1-src6 GATE 2a): a queued Drop after the winner
 # closes the adopted socket and a later Cont finds None (unsent). The live
@@ -853,17 +878,17 @@ def writer_admit_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: Au
     Unit <- Tr.close(sock)
     retry(h2, p2, g2, n2, scope, kept, closed, k)
 
-def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case None{}:
-      writer_admit_single(kept, closed, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
+      writer_admit_single(kept, closed, dropped, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
       writer_admit_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, closed, sock, k, retry)
 
 def writer_admit_decide(+acc: AdmitAcc, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match acc:
-    case AdmitAcc{+latest, +dials, +kept, +closed}:
-      writer_admit_latest(latest, dials, kept, closed, sock, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
+    case AdmitAcc{+latest, +dials, +kept, +closed, +dropped}:
+      writer_admit_latest(latest, dials, kept, closed, dropped, sock, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
 
 def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match r:
@@ -872,7 +897,7 @@ def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String,
     case Done{sock}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, pump_send(cmd, gen))
-        acc : AdmitAcc <- writer_drain(65n, cmd, gen, AdmitAcc{None{}, Nil{}, kept0, closed0})
+        acc : AdmitAcc <- writer_drain(65n, cmd, gen, AdmitAcc{None{}, Nil{}, kept0, closed0, False{}})
         writer_admit_decide(acc, sock, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
 
 def writer_admit_sock(pair: Socket & String, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):

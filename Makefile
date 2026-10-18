@@ -826,7 +826,7 @@ test-shutdown-ack: $(BLDDIR)/shutdown_ack ## Only the current writer completion 
 
 # The pinned compiler namespaces constructors by the fixture import path.
 # Keep these test-only aliases out of the production thin FFI.
-SHUTDOWN_FFI_ALIASES := $(foreach op,COL LNK SPN OPBOX OPSPLIT OPTEXT OPTABS OPLINE OPIMAGE OPMEDIA,-DCID_VIEW_$(op)=CID_______SRC_BEND_VIEW_$(op))
+SHUTDOWN_FFI_ALIASES := $(foreach op,COL LNK SPN OPBOX OPSPLIT OPTEXT OPTABS OPLINE OPIMAGE OPMEDIA OPGHOST,-DCID_VIEW_$(op)=CID_______SRC_BEND_VIEW_$(op))
 test-shutdown-flush: $(BLDDIR)/shutdown_flush ## Actual socket half-close/stale EOF cannot bypass queued QUIT or idle writer completion.
 	$(NIXRUN) timeout 15 python3 tests/net/shutdown_flush.py ./$(BLDDIR)/shutdown_flush
 

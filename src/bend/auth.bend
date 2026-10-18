@@ -31,7 +31,7 @@ def step.cap(e: Irc.SaslEvent) -> Reply:
       Reply{Cl.AuthChallenge{}, "AUTHENTICATE PLAIN" <> Nil{}, Started{}}
     case Irc.SaslNak{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthCap{}, Cl.AuthDone{}), Rejected{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
     case _:
       unchanged(Cl.AuthCap{})
 
@@ -41,7 +41,7 @@ def step.challenge(e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
       Reply{Cl.AuthResult{}, B64.authenticate_chunks(B64.sasl_plain(user, pass)), Quiet{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthChallenge{}, Cl.AuthDone{}), Failed{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
     case _:
       unchanged(Cl.AuthChallenge{})
 
@@ -51,7 +51,7 @@ def step.result(e: Irc.SaslEvent) -> Reply:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Succeeded{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Failed{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthDone{})
+    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
     case _:
       unchanged(Cl.AuthResult{})
 
@@ -62,6 +62,7 @@ def step(phase: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) ->
     case Cl.AuthChallenge{}: step.challenge(e, user, pass)
     case Cl.AuthResult{}: step.result(e)
     case Cl.AuthDone{}: unchanged(Cl.AuthDone{})
+    case Cl.AuthHeld{}: unchanged(Cl.AuthHeld{})
     case Cl.AuthNickWait{}: unchanged(Cl.AuthNickWait{})
     case Cl.AuthNickProbe{}: unchanged(Cl.AuthNickProbe{})
     case Cl.AuthNickResult{}: unchanged(Cl.AuthNickResult{})

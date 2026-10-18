@@ -111,6 +111,8 @@ type DrawOp is Data:
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
   OpImage{x: U32, y: U32, w: U32, h: U32, path: String}
   OpMedia{x: U32, y: U32, w: U32, h: U32, clip_y: U32, clip_h: U32, token: U32}
+  # Deferred after the composer widget; never shares OpText attrs space.
+  OpGhost{x: U32, y: U32, w: U32, fg: U32, text: String}
 
 type Lay is Data:
   Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* Attrs-8 OpText must keep Bend's w for post-composer ghost paint maxx. */
+/* OpGhost must keep Bend's w for post-composer ghost paint maxx.
+ * Underlined OpText (attrs == TIMUI_ATTR_UNDERLINE) must paint normally. */
 #define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
@@ -75,30 +76,45 @@ static Term op_text(int x, int y, int w, uint32_t fg, uint32_t attrs,
   return fixture_ctr(CID_VIEW_OPTEXT, fields, 6);
 }
 
-static int ghost_honors_optext_w(void) {
+static Term op_ghost(int x, int y, int w, uint32_t fg, const char *s) {
+  Term fields[5] = {
+    (Term)(uint32_t)x, (Term)(uint32_t)y, (Term)(uint32_t)w,
+    (Term)fg, (Term)(uintptr_t)s
+  };
+  return fixture_ctr(CID_VIEW_OPGHOST, fields, 5);
+}
+
+static int open_lay(Timui **ui_out, TimuiFrame **fr_out, BircUi *bu, BircLay *ly) {
+  TimuiTransport transport = {discard_write, empty_read, NULL, NULL, NULL};
+  TimuiAllocator allocator = timui_default_allocator();
+  TimuiCellBuffer *buf;
+  memset(bu, 0, sizeof *bu);
+  CHECK(timui_open_for_test(ui_out, transport, 40, 4, &allocator) == TIMUI_OK);
+  (*ui_out)->cfg.userdata = bu;
+  CHECK(timui_begin(*ui_out, fr_out));
+  buf = timui_frame_buffer(*fr_out);
+  ly->buf = buf;
+  ly->border = timui_style_make(TIMUI_COLOR_DEFAULT, TIMUI_COLOR_DEFAULT, 0);
+  ly->root = TIMUI_RECT(0, 0, 40, 4);
+  ly->click = NULL;
+  ly->bu = bu;
+  ly->ui = *ui_out;
+  return 0;
+}
+
+static int ghost_honors_opghost_w(void) {
   Timui *ui;
   TimuiFrame *fr;
   TimuiCellBuffer *buf;
-  TimuiTransport transport = {discard_write, empty_read, NULL, NULL, NULL};
-  TimuiAllocator allocator = timui_default_allocator();
   BircUi bu;
   BircLay ly;
   Env e = fixture_env();
   Term op;
   int end;
-  memset(&bu, 0, sizeof bu);
-  CHECK(timui_open_for_test(&ui, transport, 40, 4, &allocator) == TIMUI_OK);
-  ui->cfg.userdata = &bu;
-  CHECK(timui_begin(ui, &fr));
-  buf = timui_frame_buffer(fr);
-  ly.buf = buf;
-  ly.border = timui_style_make(TIMUI_COLOR_DEFAULT, TIMUI_COLOR_DEFAULT, 0);
-  ly.root = TIMUI_RECT(0, 0, 40, 4);
-  ly.click = NULL;
-  ly.bu = &bu;
-  ly.ui = ui;
+  CHECK(open_lay(&ui, &fr, &bu, &ly) == 0);
+  buf = ly.buf;
   /* w=2 columns, six ASCII bytes: stash keeps text; paint clips to w. */
-  op = op_text(3, 1, 2, TIMUI_COLOR_DEFAULT, 8, "abcdef");
+  op = op_ghost(3, 1, 2, TIMUI_COLOR_DEFAULT, "abcdef");
   birc_draw_op(e, fr, op, &ly);
   CHECK(bu.ghost_on);
   CHECK(bu.ghost_w == 2);
@@ -115,8 +131,32 @@ static int ghost_honors_optext_w(void) {
   return 0;
 }
 
+static int underline_optext_paints(void) {
+  Timui *ui;
+  TimuiFrame *fr;
+  TimuiCellBuffer *buf;
+  BircUi bu;
+  BircLay ly;
+  Env e = fixture_env();
+  Term op;
+  CHECK(open_lay(&ui, &fr, &bu, &ly) == 0);
+  buf = ly.buf;
+  /* attrs == 8 is TIMUI_ATTR_UNDERLINE, not a ghost diversion. */
+  op = op_text(2, 1, 4, TIMUI_COLOR_DEFAULT, TIMUI_ATTR_UNDERLINE, "abcd");
+  birc_draw_op(e, fr, op, &ly);
+  CHECK(!bu.ghost_on);
+  CHECK(bu.ghost_w == 0);
+  CHECK(buf->cells[1 * buf->w + 2].codepoint == 'a');
+  CHECK(buf->cells[1 * buf->w + 3].codepoint == 'b');
+  CHECK((buf->cells[1 * buf->w + 2].attrs & TIMUI_ATTR_UNDERLINE) != 0);
+  timui_end(fr);
+  timui_close(ui);
+  return 0;
+}
+
 int main(void) {
-  CHECK(ghost_honors_optext_w() == 0);
+  CHECK(ghost_honors_opghost_w() == 0);
+  CHECK(underline_optext_paints() == 0);
   puts("ghost_width=ok");
   return 0;
 }

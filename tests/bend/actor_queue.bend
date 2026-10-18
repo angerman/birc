@@ -41,6 +41,33 @@ def wait_eof(+evt: Chan(Sess.UiMsg)) -> IO(Unit):
     g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
     wait_event(g, _ => wait_eof(evt))
 
+# Held-setup Drop (−): peer saturates the TCP backlog so Dial's connect parks;
+# queue Drop, signal "held", then the peer frees the slot. Registration must
+# send zero bytes. Sibling dialsetup (+): same hold, no Drop, CAP/NICK/USER.
+def setup_drop(drop: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match drop:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        return Unit{}
+
+def run_setup(+port: U32, +drop: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- IO.spawn(Unit, Act.writer_go(Act.Writer{None{}, 0, Nil{}, Nil{}, 1, Out.budget_frames(1), False{}}, evt, cmd, boot, False{}))
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", port, 1, "probe"})
+    # Let Dial enter Dns.dial_dual before Drop races the accept release.
+    Unit <- IO.sleep(100)
+    Unit <- setup_drop(drop, cmd)
+    Unit <- IO.print("held")
+    Unit <- IO.sleep(500)
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- wait_eof(evt)
+    IO.print("closed")
+
 def run_socket(sock: Socket, +port: U32, +frames: U32, +count: Nat, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
@@ -80,8 +107,17 @@ def parsed(p: Maybe<&2, U32>, f: Maybe<&2, U32>, n: Maybe<&2, U32>, +mode: Strin
                 r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
                 connected(r, port, frames, U32.to_nat(count), mode)
 
+def setup_port(p: Maybe<&2, U32>, drop: Bool) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}: run_setup(port, drop)
+
 def args(xs: List<&1, String>) -> IO(Unit):
   match xs:
+    case Con{_, Con{p, Con{_, Con{_, Con{"dropsetup", Nil{}}}}}}:
+      setup_port(U32.read(p), True{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"dialsetup", Nil{}}}}}}:
+      setup_port(U32.read(p), False{})
     case Con{_, Con{p, Con{f, Con{n, Con{+mode, Nil{}}}}}}: parsed(U32.read(p), U32.read(f), U32.read(n), mode)
     case _: IO.die(Unit, 1, "expected port frames count mode")
 
