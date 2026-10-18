@@ -274,6 +274,14 @@ def url(pair: String & String, state: Scan) -> Scan:
             Run{attrs, text, Bool.pick(Maybe<&2, String>, U32.is_zero(attrs), Some{text}, None{})}
               <> flush(attrs, acc, runs)}
 
+def outside.colon(colon: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
+  match colon:
+    case False{}: substitute(None{}, state)
+    case True{}:
+      match state:
+        case Scan{+s, attrs, end, scopes, text, previous, runs}:
+          substitute(alias.go(xs, s), Scan{s, attrs, end, scopes, text, previous, runs})
+
 def outside.url(is_url: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match is_url:
     case True{}:
@@ -283,7 +291,7 @@ def outside.url(is_url: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
     case False{}:
       match state:
         case Scan{+s, attrs, end, scopes, text, previous, runs}:
-          substitute(alias.go(xs, s), Scan{s, attrs, end, scopes, text, previous, runs})
+          outside.colon(String.starts_with(s, ":"), Scan{s, attrs, end, scopes, text, previous, runs}, xs)
 
 def outside.escape(escape: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match escape:

@@ -735,7 +735,8 @@ type AuthPhase is Data:
   AuthResult{}
   AuthDone{}
   # Registration (001) before SASL completed: not success, not failure.
-  AuthHeld{}
+  # `resume` is the SASL phase that must still accept later controls.
+  AuthHeld{resume: AuthPhase}
   AuthNickWait{}
   AuthNickProbe{}
   AuthNickResult{}

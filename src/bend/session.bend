@@ -122,24 +122,28 @@ def fold_step.auth_at(reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>
     case Auth.Reply{phase, outs, notice}:
       fold_step.auth.fed(fold_step.auth.feed_at(live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
 
-def fold_step.sasl_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.auth_at(Auth.step_for(cl, h, Auth.binding_port(cl)), cl, pongs, now_ms, h, stamp)
+def fold_step.sasl_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
+  fold_step.auth_at(Auth.step_for(cl, h, port), cl, pongs, now_ms, h, stamp)
 
 # The actor reader owns the single live wire PONG (a gen-tagged Sess.Pong
 # answered ahead of UI paints). The feed still skips PING lines here so they
 # never reach SASL/auth, but it emits no PONG outs of its own.
-def fold_step.ping_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.ping_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
   match ping:
     case True{}:
       FoldAcc{cl, pongs, now_ms}
     case False{}:
-      fold_step.sasl_at(cl, pongs, now_ms, h, stamp)
+      fold_step.sasl_at(cl, pongs, now_ms, h, stamp, port)
 
-def fold_step.got_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.ping_at(cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp)
+def fold_step.got_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
+  fold_step.ping_at(cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp, port)
+
+def fold_step.got.at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +port: U32) -> FoldAcc:
+  fold_step.got_at(cl, pongs, now_ms, h, None{}, port)
 
 def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String) -> FoldAcc:
-  fold_step.got_at(cl, pongs, now_ms, h, None{})
+  +port = Auth.binding_port(cl)
+  fold_step.got.at(cl, pongs, now_ms, h, port)
 
 # Negotiated fold chain (I2 dynamic): identical ping/SASL/auth/credential/lag
 # handling, but the feed leaves fold under the Session ISUPPORT parameters
@@ -180,18 +184,18 @@ def fold_step.auth_at_with(+isc: Cl.Iso, reply: Auth.Reply, +cl: Cl.Client, pong
     case Auth.Reply{phase, outs, notice}:
       fold_step.auth.fed(fold_step.auth.feed_at_with(isc, live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
 
-def fold_step.sasl_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.auth_at_with(isc, Auth.step_for(cl, h, Auth.binding_port(cl)), cl, pongs, now_ms, h, stamp)
+def fold_step.sasl_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
+  fold_step.auth_at_with(isc, Auth.step_for(cl, h, port), cl, pongs, now_ms, h, stamp)
 
-def fold_step.ping_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
+def fold_step.ping_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
   match ping:
     case True{}:
       FoldAcc{cl, Irc.pong_for(h) <> pongs, now_ms}
     case False{}:
-      fold_step.sasl_at_with(isc, cl, pongs, now_ms, h, stamp)
+      fold_step.sasl_at_with(isc, cl, pongs, now_ms, h, stamp, port)
 
-def fold_step.got_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.ping_at_with(isc, cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp)
+def fold_step.got_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
+  fold_step.ping_at_with(isc, cl, pongs, now_ms, h, Irc.is_ping_line(h), stamp, port)
 
 def fold_step(st: FoldAcc, h: String) -> FoldAcc:
   match st:
@@ -3982,13 +3986,13 @@ def live_step.fed_with(+cm: String, +fed: FoldAcc, typing: Ty.State, plan: JoinP
 # Admitted live lines rename split panes in the fold, exactly once and in
 # arrival order; archived (claimed) lines never reach this arm, so batch
 # NICKs leave Client, split, and drafts unchanged. No raw prepass exists.
-def live_step.registered(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, welcomed: Bool) -> LiveAcc:
+def live_step.registered(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, welcomed: Bool, +port: U32) -> LiveAcc:
   match registered:
     case None{}: acc
     case Some{+cl}:
       match acc:
         case LiveAcc{FoldAcc{_, reversed, +now_ms}, typing, plan, +iso, +hl, +reg, +renames}:
-          live_step.fed(fold_step.got_at(cl, reversed, now_ms, line, stamp),
+          live_step.fed(fold_step.got_at(cl, reversed, now_ms, line, stamp, port),
             Ty.apply_line_for(typing, cl, line, now_ms), JoinPlan.received(plan, cl, line), iso, hl,
             CapNotify.reg_on_line(reg, Cl.server_of(cl), Cl.nick_of(cl), line, welcomed), renames)
 
@@ -4021,13 +4025,13 @@ def live_is_dynamic.parsed(parsed: Maybe<&2, Irc.Message>) -> Bool:
 def live_is_dynamic(+line: String) -> Bool:
   live_is_dynamic.parsed(Irc.parse(line))
 
-def live_step.registered_with(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, +isc: Cl.Iso, welcomed: Bool) -> LiveAcc:
+def live_step.registered_with(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: String, stamp: Maybe<&2, String>, +isc: Cl.Iso, welcomed: Bool, +port: U32) -> LiveAcc:
   match registered:
     case None{}: acc
     case Some{+cl}:
       match acc:
         case LiveAcc{FoldAcc{_, reversed, +now_ms}, typing, plan, +iso, +hl, +reg, +renames}:
-          live_step.fed_with(Cl.iso_cm(isc), fold_step.got_at_with(isc, cl, reversed, now_ms, line, stamp),
+          live_step.fed_with(Cl.iso_cm(isc), fold_step.got_at_with(isc, cl, reversed, now_ms, line, stamp, port),
             Ty.apply_line_for_with(isc, typing, cl, line, now_ms), JoinPlan.received_with(Cl.iso_cm(isc), plan, cl, line), iso, hl,
             CapNotify.reg_on_line(reg, Cl.server_of(cl), Cl.nick_of(cl), line, welcomed), renames)
 
@@ -4106,21 +4110,21 @@ def live_prepare.reg(prepped: Isupport.State & String, +cl: Cl.Client, welcomed:
 def live_prepare(+iso: Isupport.State, +cl: Cl.Client, welcomed: Bool, +line: String) -> LiveAdmitted:
   live_prepare.reg(live_step.prep(iso, cl, line), cl, welcomed)
 
-def live_split_step.ready_branch(+reg: Maybe<&2, Cl.Client>, +isc: Cl.Iso, +line2: String, acc: LiveAcc, split: Sp.State, stamp: Maybe<&2, String>, dynamic: Bool, welcomed: Bool) -> LiveAcc & Sp.State:
+def live_split_step.ready_branch(+reg: Maybe<&2, Cl.Client>, +isc: Cl.Iso, +line2: String, acc: LiveAcc, split: Sp.State, stamp: Maybe<&2, String>, dynamic: Bool, welcomed: Bool, +port: U32) -> LiveAcc & Sp.State:
   match dynamic:
     case True{}:
-      +live2 = live_step.registered_with(reg, acc, line2, stamp, isc, welcomed)
+      +live2 = live_step.registered_with(reg, acc, line2, stamp, isc, welcomed, port)
       +split2 = live_split_admitted(reg, Cl.iso_cm(isc), split, line2)
       (live_drafts_note(live2, reg, Cl.iso_cm(isc), line2), split2)
     case False{}:
-      +live2 = live_step.registered(reg, acc, line2, stamp, welcomed)
+      +live2 = live_step.registered(reg, acc, line2, stamp, welcomed, port)
       +split2 = live_split_admitted(reg, Cl.iso_cm(isc), split, line2)
       (live_drafts_note(live2, reg, Cl.iso_cm(isc), line2), split2)
 
-def live_split_step.ready(ready: LiveAdmitted, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, stamp: Maybe<&2, String>, +hl: Hs.HistLive, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>) -> LiveAcc & Sp.State:
+def live_split_step.ready(ready: LiveAdmitted, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, stamp: Maybe<&2, String>, +hl: Hs.HistLive, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>, +port: U32) -> LiveAcc & Sp.State:
   match ready:
     case LiveAdmitted{+iso2, +line2, +reg}:
-      live_split_step.ready_branch(reg, Isupport.as_iso(iso2), line2, LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan, iso2, hl, lreg, renames}, split, stamp, live_is_dynamic(line2), JoinPlan.welcomed(plan))
+      live_split_step.ready_branch(reg, Isupport.as_iso(iso2), line2, LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan, iso2, hl, lreg, renames}, split, stamp, live_is_dynamic(line2), JoinPlan.welcomed(plan), port)
 
 # Combined live interceptor (H5+I2): every framed wire line first steps the
 # real H5 history owner. Claimed (batch-tagged archive) lines reach the batch
@@ -4128,28 +4132,39 @@ def live_split_step.ready(ready: LiveAdmitted, +cl: Cl.Client, reversed: List<&2
 # split, or join-recovery effects. Unclaimed lines continue through the
 # single I2 preparation/admission owner (one live_prepare per line, shared
 # by the Client feed and the split-pane gate). No raw prepass exists.
-def live_split_step.unclaimed(claimed: Bool, +hl2: Hs.HistLive, +iso: Isupport.State, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, +line: String, stamp: Maybe<&2, String>, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>) -> LiveAcc & Sp.State:
+def live_split_step.unclaimed(claimed: Bool, +hl2: Hs.HistLive, +iso: Isupport.State, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, +line: String, stamp: Maybe<&2, String>, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>, +port: U32) -> LiveAcc & Sp.State:
   match claimed:
     case True{}: (LiveAcc{FoldAcc{cl, reversed, now_ms}, typing, plan, iso, hl2, lreg, renames}, split)
     case False{}:
-      live_split_step.ready(live_prepare(iso, cl, JoinPlan.welcomed(plan), line), cl, reversed, now_ms, typing, plan, split, stamp, hl2, lreg, renames)
+      live_split_step.ready(live_prepare(iso, cl, JoinPlan.welcomed(plan), line), cl, reversed, now_ms, typing, plan, split, stamp, hl2, lreg, renames, port)
 
-def live_split_step.hist(pair: Hs.HistLive & Bool, +iso: Isupport.State, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, +line: String, stamp: Maybe<&2, String>, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>) -> LiveAcc & Sp.State:
+def live_split_step.hist(pair: Hs.HistLive & Bool, +iso: Isupport.State, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, typing: Ty.State, +plan: JoinPlan.State, split: Sp.State, +line: String, stamp: Maybe<&2, String>, +lreg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>, +port: U32) -> LiveAcc & Sp.State:
   match pair:
-    case (+hl2, +claimed): live_split_step.unclaimed(claimed, hl2, iso, cl, reversed, now_ms, typing, plan, split, line, stamp, lreg, renames)
+    case (+hl2, +claimed): live_split_step.unclaimed(claimed, hl2, iso, cl, reversed, now_ms, typing, plan, split, line, stamp, lreg, renames, port)
 
-def live_split_step.pair(+live: LiveAcc, split: Sp.State, +item: StampedLine) -> LiveAcc & Sp.State:
+def live_split_step.pair(+live: LiveAcc, split: Sp.State, +item: StampedLine, +port: U32) -> LiveAcc & Sp.State:
   match live:
     case LiveAcc{FoldAcc{+cl, reversed, now_ms}, typing, +plan, +iso, +hl, +lreg, +renames}:
       match item:
         case StampedLine{+line, stamp}:
           live_split_step.hist(Hs.hist_live_step(hl, Cl.nick_of(cl), Cl.server_of(cl), line, JoinPlan.welcomed(plan)),
-            iso, cl, reversed, now_ms, typing, plan, split, line, stamp, lreg, renames)
+            iso, cl, reversed, now_ms, typing, plan, split, line, stamp, lreg, renames, port)
 
-def live_split_step(acc: LiveAcc & Sp.State, item: StampedLine) -> LiveAcc & Sp.State:
+def live_split_step(+port: U32, acc: LiveAcc & Sp.State, item: StampedLine) -> LiveAcc & Sp.State:
   match acc:
     case (+live, +split):
-      live_split_step.pair(live, split, item)
+      live_split_step.pair(live, split, item, port)
+
+def fold_split.go(+fuel: Nat, +port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>) -> LiveAcc & Sp.State:
+  match fuel:
+    case 0n: acc
+    case 1n+f:
+      match xs:
+        case Nil{}: acc
+        case Con{+h, +t}: fold_split.go(f, port, live_split_step(port, acc, h), t)
+
+def fold_split(+port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>) -> LiveAcc & Sp.State:
+  fold_split.go(List.length(&2, StampedLine, xs), port, acc, xs)
 
 # Ceiling admission over the (LiveAcc & Sp.State) pair: step one line
 # through the single live entry, then revert the whole line (the entire
@@ -4176,24 +4191,24 @@ def live_split_ceiling.go(+prev_live: LiveAcc, +prev_split: Sp.State, next: Live
     case (+nlive, +split2):
       live_split_ceiling.next(prev_live, prev_split, nlive, split2, ceiling)
 
-def live_split_ceiling.step(+live: LiveAcc, +split: Sp.State, +item: StampedLine, +ceiling: Nat) -> LiveAcc & Sp.State:
-  live_split_ceiling.go(live, split, live_split_step.pair(live, split, item), ceiling)
+def live_split_ceiling.step(+live: LiveAcc, +split: Sp.State, +item: StampedLine, +ceiling: Nat, +port: U32) -> LiveAcc & Sp.State:
+  live_split_ceiling.go(live, split, live_split_step.pair(live, split, item, port), ceiling)
 
-def live_split_ceiling(prev: LiveAcc & Sp.State, +item: StampedLine, +ceiling: Nat) -> LiveAcc & Sp.State:
+def live_split_ceiling(prev: LiveAcc & Sp.State, +item: StampedLine, +ceiling: Nat, +port: U32) -> LiveAcc & Sp.State:
   match prev:
     case (+live, +split):
-      live_split_ceiling.step(live, split, item, ceiling)
+      live_split_ceiling.step(live, split, item, ceiling, port)
 
-def fold_split_ceiling.go(+fuel: Nat, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat) -> LiveAcc & Sp.State:
+def fold_split_ceiling.go(+fuel: Nat, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat, +port: U32) -> LiveAcc & Sp.State:
   match fuel:
     case 0n: acc
     case 1n+f:
       match xs:
         case Nil{}: acc
-        case Con{+h, +t}: fold_split_ceiling.go(f, live_split_ceiling(acc, h, ceiling), t, ceiling)
+        case Con{+h, +t}: fold_split_ceiling.go(f, live_split_ceiling(acc, h, ceiling, port), t, ceiling, port)
 
-def fold_split_ceiling(acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat) -> LiveAcc & Sp.State:
-  fold_split_ceiling.go(List.length(&2, StampedLine, xs), acc, xs, ceiling)
+def fold_split_ceiling(+port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat) -> LiveAcc & Sp.State:
+  fold_split_ceiling.go(List.length(&2, StampedLine, xs), acc, xs, ceiling, port)
 
 def step_chunk_got(
   +draft: String,
@@ -4277,7 +4292,7 @@ def step_on_chunk_pair(
     case (lines, rem2, drop2):
       step_chunk_got.folded(
         draft, chan, net, hist, size, seed, comp, port, rem2, drop2,
-        List.foldl(~&2, ~StampedLine, ~(LiveAcc & Sp.State), ~live_split_step, stamped_lines(lines, stamps), (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, iso, hl, unbox_reg(regbox), Nil{}}, split)), media, edits, cards, full, theme, labelsbox, pends)
+        fold_split(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, iso, hl, unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps)), media, edits, cards, full, theme, labelsbox, pends)
 
 def step_on_chunk_pair_ceiling(+st: Session, +now_ms: U32, got: List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match st:
@@ -4286,7 +4301,7 @@ def step_on_chunk_pair_ceiling(+st: Session, +now_ms: U32, got: List<&2, String>
         case (lines, rem2, drop2):
           step_chunk_got.folded(
             draft, chan, net, hist, size, seed, comp, port, rem2, drop2,
-            fold_split_ceiling((LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, unbox_iso(iso), unbox_hist_live(hlbox), unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps), ceiling), unbox_media(media), edits, unbox_cards(cf), unbox_full(cf), theme, labelsbox, pends)
+            fold_split_ceiling(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, unbox_iso(iso), unbox_hist_live(hlbox), unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps), ceiling), unbox_media(media), edits, unbox_cards(cf), unbox_full(cf), theme, labelsbox, pends)
 
 # NICK-arrival draft rename (I2 CM rename across the live path): the Client
 

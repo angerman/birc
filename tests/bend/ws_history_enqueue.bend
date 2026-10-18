@@ -168,6 +168,32 @@ def stop.after(+ch: Chan(WsNet.HistJob), +main: Chan(WsNet.WsMsg)) -> IO(Unit):
     g : Maybe<&1, WsNet.WsMsg> <- Chan.recv(WsNet.WsMsg, main)
     overflow.done(g)
 
+# Channel accept must keep the live log_seq. Rewinding it reuses IDs.
+def queued.finish(got: W.Workspace & Bool & WsNet.WsHot, +live: Cl.Client, +id: Key.ServerId) -> IO(Unit):
+  match got:
+    case (+ws2, rest):
+      match rest:
+        case (failed, _):
+          +got_seq = Cl.log_seq_of(Sess.session_cl(WsNet.ws_part.st(ws2, id)))
+          +want = Cl.log_seq_of(live)
+          do IO<Unit>:
+            Unit <- report_bool("failed", failed)
+            report_bool("kept", Nat.is_eq(got_seq, want))
+
+def queued.go(+path: String) -> IO(Unit):
+  +ep = syncfail.ep()
+  +old_ws = W.single_client("irc.example", 6697, False{}, Cl.init("me", "irc.example"), "#t")
+  +id = W.ws_current(old_ws)
+  +ckpt = WsNet.ws_part.st(old_ws, id)
+  +live_cl = Cl.client_log(Sess.session_cl(ckpt), 0n, Cl.Msg{}, "queued-row")
+  +new_st = Sess.session_set_client(ckpt, live_cl)
+  +new_ws = syncfail.part(old_ws, new_st)
+  +data = Hist.extract_new_history_for(ep, Sess.session_cl(ckpt), live_cl)
+  do IO<Unit>:
+    ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
+    got : W.Workspace & Bool & WsNet.WsHot <- WsNet.ws_history.async_go(Bool.not(String.is_empty(data)), data, ckpt, new_ws, id, hot_jobs(path, ch))
+    queued.finish(got, live_cl, id)
+
 def stop.go() -> IO(Unit):
   do IO<Unit>:
     ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
@@ -188,6 +214,8 @@ def run(+path: String, mode: String) -> IO(Unit):
       missing.go(path)
     case "syncfail":
       syncfail.go(path)
+    case "queued":
+      queued.go(path)
     case "stop":
       stop.go()
     case _: IO.die(Unit, 1, "unknown mode")

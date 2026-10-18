@@ -25,44 +25,88 @@ type Reply is Data:
 def unchanged(phase: Cl.AuthPhase) -> Reply:
   Reply{phase, Nil{}, Quiet{}}
 
-def step.cap(e: Irc.SaslEvent) -> Reply:
+def step.hold(hold: Bool, phase: Cl.AuthPhase) -> Reply:
+  match hold:
+    case True{}: unchanged(Cl.AuthHeld{phase})
+    case False{}: unchanged(phase)
+
+def step.cap(hold: Bool, e: Irc.SaslEvent) -> Reply:
   match e:
     case Irc.SaslAck{}:
       Reply{Cl.AuthChallenge{}, "AUTHENTICATE PLAIN" <> Nil{}, Started{}}
     case Irc.SaslNak{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthCap{}, Cl.AuthDone{}), Rejected{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
+    case Irc.SaslRegistered{}: step.hold(hold, Cl.AuthCap{})
     case _:
       unchanged(Cl.AuthCap{})
 
-def step.challenge(e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
+def step.challenge(hold: Bool, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
   match e:
     case Irc.SaslPlus{}:
       Reply{Cl.AuthResult{}, B64.authenticate_chunks(B64.sasl_plain(user, pass)), Quiet{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthChallenge{}, Cl.AuthDone{}), Failed{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
+    case Irc.SaslRegistered{}: step.hold(hold, Cl.AuthChallenge{})
     case _:
       unchanged(Cl.AuthChallenge{})
 
-def step.result(e: Irc.SaslEvent) -> Reply:
+def step.result(hold: Bool, e: Irc.SaslEvent) -> Reply:
   match e:
     case Irc.SaslSuccess{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Succeeded{}}
     case Irc.SaslFailure{}:
       Reply{Cl.AuthDone{}, CapNotify.cap_end_for(Cl.AuthResult{}, Cl.AuthDone{}), Failed{}}
-    case Irc.SaslRegistered{}: unchanged(Cl.AuthHeld{})
+    case Irc.SaslRegistered{}: step.hold(hold, Cl.AuthResult{})
     case _:
       unchanged(Cl.AuthResult{})
+
+def phase_same.cap(b: Cl.AuthPhase) -> Bool:
+  match b:
+    case Cl.AuthCap{}: True{}
+    case _: False{}
+
+def phase_same.challenge(b: Cl.AuthPhase) -> Bool:
+  match b:
+    case Cl.AuthChallenge{}: True{}
+    case _: False{}
+
+def phase_same.result(b: Cl.AuthPhase) -> Bool:
+  match b:
+    case Cl.AuthResult{}: True{}
+    case _: False{}
+
+def phase_same(a: Cl.AuthPhase, b: Cl.AuthPhase) -> Bool:
+  match a:
+    case Cl.AuthCap{}: phase_same.cap(b)
+    case Cl.AuthChallenge{}: phase_same.challenge(b)
+    case Cl.AuthResult{}: phase_same.result(b)
+    case _: False{}
+
+def step.held.pack(same: Bool, phase: Cl.AuthPhase, outs: List<&2, String>, notice: Notice) -> Reply:
+  match same:
+    case True{}: Reply{Cl.AuthHeld{phase}, outs, notice}
+    case False{}: Reply{phase, outs, notice}
+
+def step.held.got(before: Cl.AuthPhase, reply: Reply) -> Reply:
+  match reply:
+    case Reply{+phase, outs, notice}:
+      step.held.pack(phase_same(before, phase), phase, outs, notice)
+
+def step.held(resume: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
+  match resume:
+    case Cl.AuthCap{}: step.held.got(Cl.AuthCap{}, step.cap(False{}, e))
+    case Cl.AuthChallenge{}: step.held.got(Cl.AuthChallenge{}, step.challenge(False{}, e, user, pass))
+    case Cl.AuthResult{}: step.held.got(Cl.AuthResult{}, step.result(False{}, e))
+    case _: unchanged(resume)
 
 def step(phase: Cl.AuthPhase, e: Irc.SaslEvent, +user: String, +pass: String) -> Reply:
   match phase:
     case Cl.AuthIdle{}: unchanged(Cl.AuthIdle{})
-    case Cl.AuthCap{}: step.cap(e)
-    case Cl.AuthChallenge{}: step.challenge(e, user, pass)
-    case Cl.AuthResult{}: step.result(e)
+    case Cl.AuthCap{}: step.cap(True{}, e)
+    case Cl.AuthChallenge{}: step.challenge(True{}, e, user, pass)
+    case Cl.AuthResult{}: step.result(True{}, e)
     case Cl.AuthDone{}: unchanged(Cl.AuthDone{})
-    case Cl.AuthHeld{}: unchanged(Cl.AuthHeld{})
+    case Cl.AuthHeld{resume}: step.held(resume, e, user, pass)
     case Cl.AuthNickWait{}: unchanged(Cl.AuthNickWait{})
     case Cl.AuthNickProbe{}: unchanged(Cl.AuthNickProbe{})
     case Cl.AuthNickResult{}: unchanged(Cl.AuthNickResult{})

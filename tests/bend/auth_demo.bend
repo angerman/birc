@@ -42,6 +42,14 @@ def step_outs.at(+cl: Cl.Client, +line: String, +live_port: U32) -> Auth.Reply:
 def step_outs(+cl: Cl.Client, +line: String, +live_port: U32) -> String:
   step_outs.reply(step_outs.at(cl, line, live_port))
 
+def framed_outs(pair: Sess.Session & List<&2, String>) -> String:
+  match pair:
+    case (_, xs): String.concat(xs)
+
+# Session.port is the live fold port. Credentials stay bound to 6667.
+def live_port_outs(+port: U32) -> String:
+  framed_outs(Sess.step_on_framed_ms(Sess.session_with_client_at(credentials(), "#t", port), (":s CAP me ACK :sasl" <> Nil{}, Nil{}, False{}), Nil{}, 0))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("parsed_ack", Irc.is_cap_ack_sasl(":s CAP me ACK :server-time sasl"))
@@ -57,8 +65,8 @@ def main() -> IO(Unit):
     Unit <- E.must("phase_survives_chunk", String.eq(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> Nil{}), "AUTHENTICATE +"), "AUTHENTICATE AHVzZXIAcGFzcw=="))
     Unit <- E.must("no_credentials", String.is_empty(outs(Sess.fold_lines(Cl.init("me", "s"), ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> Nil{}))))
     Unit <- E.must("completed_no_restart", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> ":s 903 me :ok" <> Nil{}), ":s CAP me ACK :sasl")))
-    Unit <- E.must("registered_no_start", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), ":s CAP me ACK :sasl")))
-    Unit <- E.must("registered_no_payload", String.is_empty(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 001 me :welcome" <> Nil{}), "AUTHENTICATE +")))
+    Unit <- E.must("registered_still_starts", String.eq(auth_after(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), ":s CAP me ACK :sasl"), "AUTHENTICATE PLAIN"))
+    Unit <- E.must("registered_still_payload", String.eq(auth_after(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 001 me :welcome" <> Nil{}), "AUTHENTICATE +"), "AUTHENTICATE AHVzZXIAcGFzcw=="))
     Unit <- E.must("reconnected_auth_restarts", String.eq(reconnect_exchange(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), True{}), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw=="))
     Unit <- E.must("initial_up_auth_restarts", String.eq(reconnect_exchange(Sess.fold_lines(credentials(), ":s 001 me :welcome" <> Nil{}), False{}), "AUTHENTICATE PLAINAUTHENTICATE AHVzZXIAcGFzcw=="))
     Unit <- E.must("reconnected_no_credentials", String.is_empty(reconnect_exchange(Sess.fold_lines(Cl.init("me", "s"), ":s 001 me :welcome" <> Nil{}), True{})))
@@ -74,4 +82,6 @@ def main() -> IO(Unit):
     Unit <- E.must("same host different live port rejects join_required", Bool.not(Auth.join_required(credentials(), 6697)))
     Unit <- E.must("same host different live port keeps step_for quiet", String.is_empty(step_outs(credentials(), ":s CAP me ACK :sasl", 6697)))
     Unit <- E.must("matching live port starts SASL", String.contains(step_outs(credentials(), ":s CAP me ACK :sasl", Auth.binding_port(credentials())), "AUTHENTICATE PLAIN"))
+    Unit <- E.must("live fold mismatch port stays quiet", String.is_empty(live_port_outs(6697)))
+    Unit <- E.must("live fold matching port starts SASL", String.contains(live_port_outs(6667), "AUTHENTICATE PLAIN"))
     IO.print("auth_demo=ok")

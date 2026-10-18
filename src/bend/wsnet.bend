@@ -1324,8 +1324,18 @@ def ws_history.write_accepted(accepted: Bool, +path: String, +data: String) -> I
     case True{}: IO.pure(Maybe<&2, String>, None{})
     case False{}: HistIO.history_append_file(path, data)
 
+# Overflow stays bounded. Past 64KiB the new bytes are not copied onto the
+# UI string; the caller reports a save failure so the live checkpoint retries.
+def ws_history.over_cap(+n: Nat) -> Bool:
+  Nat.is_gt(n, 65536n)
+
+def ws_history.blob.on(over: Bool, +pending: String, +data: String) -> String:
+  match over:
+    case True{}: pending
+    case False{}: pending ++ data
+
 def ws_history.blob(+pending: String, +data: String) -> String:
-  pending ++ data
+  ws_history.blob.on(ws_history.over_cap(Nat.add(String.length(pending), String.length(data))), pending, data)
 
 # Channel accepted the coalesced blob: clear pending. Otherwise hold the
 # blob on WsHot — never UI-append while older jobs remain queued.
@@ -1342,13 +1352,18 @@ def ws_history.notice_ok(notice: Maybe<&2, String>) -> Bool:
     case None{}: True{}
     case Some{_}: False{}
 
-def ws_history.write_chan.go(empty: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String, +sid: Nat, +base: Nat, +seq: Nat) -> IO((Maybe<&2, String> & WsHot) & Bool):
-  match empty:
-    case True{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((None{}, hot), True{}))
+def ws_history.write_chan.send(over: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String, +sid: Nat, +base: Nat, +seq: Nat) -> IO((Maybe<&2, String> & WsHot) & Bool):
+  match over:
+    case True{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((Some{"history queue full"}, hot), False{}))
     case False{}:
       do IO<(Maybe<&2, String> & WsHot) & Bool>:
         p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, blob, sid, base, seq}, 0)
         return ((None{}, ws_history.write_held(ws_history.enqueue_poll(p), hot, blob)), False{})
+
+def ws_history.write_chan.go(empty: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String, +sid: Nat, +base: Nat, +seq: Nat) -> IO((Maybe<&2, String> & WsHot) & Bool):
+  match empty:
+    case True{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((None{}, hot), True{}))
+    case False{}: ws_history.write_chan.send(ws_history.over_cap(String.length(blob)), ch, hot, path, blob, sid, base, seq)
 
 def ws_history.write_chan(+ch: Chan(HistJob), +hot: WsHot, +path: String, +blob: String, +sid: Nat, +base: Nat, +seq: Nat) -> IO((Maybe<&2, String> & WsHot) & Bool):
   ws_history.write_chan.go(String.is_empty(blob), ch, hot, path, blob, sid, base, seq)
@@ -1428,12 +1443,16 @@ def ws_history.async_noted(pair: W.Workspace & Bool, +hot: WsHot) -> W.Workspace
   match pair:
     case (+ws, failed): (ws, (failed, hot))
 
-# Queued accept is unsaved: keep the checkpoint log_seq and raise `hold`
-# so a later extract does not append the same rows before the ack.
+# A channel accept is not a failed save. Leave the live log_seq alone so the
+# next line keeps a fresh id; `hold` is the extract floor until WsHistAck.
+# Rewind only when the append itself failed (a diagnostic notice).
+def ws_history.unsaved.none(durable: Bool) -> Bool:
+  Bool.and(durable, False{})
+
 def ws_history.unsaved(durable: Bool, notice: Maybe<&2, String>) -> Bool:
   match notice:
     case Some{_}: True{}
-    case None{}: Bool.not(durable)
+    case None{}: ws_history.unsaved.none(durable)
 
 def ws_history.hold_queued(durable: Bool, +hot: WsHot, +seq: Nat) -> WsHot:
   match durable:

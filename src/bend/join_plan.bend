@@ -374,7 +374,7 @@ def lines(desired: List<&2, Channel>) -> List<&2, String>:
 def failed(phase: Cl.AuthPhase, +baseline: Nat, +seq: Nat) -> Bool:
   match phase:
     case Cl.AuthDone{}: Bool.not(Nat.is_gt(seq, baseline))
-    case Cl.AuthHeld{}: False{}
+    case Cl.AuthHeld{_}: False{}
     case _: False{}
 
 def hold.report(report: Report, failed: Bool) -> Report & Notice:

@@ -52,7 +52,23 @@ def auth_apply(+cl: Cl.Client, +line: String, +port: U32) -> Cl.Client:
 
 def auth_held(phase: Cl.AuthPhase) -> Bool:
   match phase:
-    case Cl.AuthHeld{}: True{}
+    case Cl.AuthHeld{_}: True{}
+    case _: False{}
+
+def auth_is(want: Cl.AuthPhase, phase: Cl.AuthPhase) -> Bool:
+  match want:
+    case Cl.AuthChallenge{}:
+      match phase:
+        case Cl.AuthChallenge{}: True{}
+        case _: False{}
+    case Cl.AuthResult{}:
+      match phase:
+        case Cl.AuthResult{}: True{}
+        case _: False{}
+    case Cl.AuthDone{}:
+      match phase:
+        case Cl.AuthDone{}: True{}
+        case _: False{}
     case _: False{}
 
 def auth_controls() -> IO(Unit):
@@ -83,6 +99,11 @@ def auth_controls() -> IO(Unit):
     Unit <- E.must("AuthChallenge bare 001 is AuthHeld", auth_held(Cl.get_auth(challenge_held)))
     Unit <- E.must_eq("Auth.step+flush AuthChallenge 001 is held not failed", notice(P.flush(waiting, challenge_held)), "held")
     Unit <- E.must("AuthResult bare 001 is AuthHeld", auth_held(Cl.get_auth(result_held)))
+    Unit <- E.must("held AuthCap still accepts SASL ack", auth_is(Cl.AuthChallenge{}, Cl.get_auth(auth_apply(cap_held, ":irc.example CAP me ACK :sasl", 6667))))
+    Unit <- E.must("held AuthCap still accepts SASL nak", auth_is(Cl.AuthDone{}, Cl.get_auth(auth_apply(cap_held, ":irc.example CAP me NAK :sasl", 6667))))
+    Unit <- E.must("held AuthChallenge still accepts plus", auth_is(Cl.AuthResult{}, Cl.get_auth(auth_apply(challenge_held, "AUTHENTICATE +", 6667))))
+    Unit <- E.must("held AuthResult still accepts 903", auth_is(Cl.AuthDone{}, Cl.get_auth(auth_apply(result_held, ":irc.example 903 me :ok", 6667))))
+    Unit <- E.must("held AuthResult still accepts 904", auth_is(Cl.AuthDone{}, Cl.get_auth(auth_apply(result_held, ":irc.example 904 me :failed", 6667))))
     Unit <- E.must_eq("Auth.step+flush AuthResult 001 is held not failed", notice(P.flush(waiting, result_held)), "held")
     Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, failed_cl)), "failed")
     Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, failed_cl)), "")

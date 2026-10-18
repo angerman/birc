@@ -50,6 +50,9 @@ with tempfile.TemporaryDirectory(prefix="birc-ws-hist-enq-") as directory:
     assert lines == ["delta=yes", "failed=yes", "baseline=yes", "retry=yes"], lines
     assert not bad.exists(), "failed sync append must not create the child"
 
+    lines = run(root / "queued.log", "queued")
+    assert lines == ["failed=no", "kept=yes"], lines
+
     lines = run(root / "stop-unused.log", "stop")
     assert lines == ["stop=yes"], lines
 
