@@ -399,63 +399,6 @@ def after_conn(
         pair : Tr.Conn & Bool <- register(sock, nick, has_sasl)
         after_reg(pair, gen, evt, boot, cmd, live, k)
 
-def dial_after_sock(
-  pair: Socket & String,
-  +host: String,
-  +port: U32,
-  force_tls: Bool,
-  +nick: String,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +boot: Chan(Boot),
-  +cmd: Chan(Sess.NetCmd),
-  live: Bool,
-  has_sasl: Bool,
-  k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match pair:
-    case (sock, _):
-      do IO<Unit>:
-        cr : Result<&1, &1, (U32 & String), Tr.Conn> <- Tr.upgrade(sock, host, force_tls)
-        after_conn(cr, nick, gen, evt, boot, cmd, live, has_sasl, k)
-
-def dial_after_dual(
-  r: Result<&1, &1, U32 & String, Socket & String>,
-  +host: String,
-  +port: U32,
-  force_tls: Bool,
-  +nick: String,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +boot: Chan(Boot),
-  +cmd: Chan(Sess.NetCmd),
-  live: Bool,
-  has_sasl: Bool,
-  k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  match r:
-    case Fail{e}:
-      arm_fail(live, boot, evt, gen, err_msg(e), k)
-    case Done{pair}:
-      dial_after_sock(pair, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k)
-
-def dial_begin(
-  +host: String,
-  +port: U32,
-  force_tls: Bool,
-  +nick: String,
-  +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +boot: Chan(Boot),
-  +cmd: Chan(Sess.NetCmd),
-  live: Bool,
-  has_sasl: Bool,
-  k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)
-) -> IO(Unit):
-  do IO<Unit>:
-    r : Result<&1, &1, U32 & String, Socket & String> <- Dns.dial_dual(host, port, 1000)
-    dial_after_dual(r, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k)
-
 type AuthScope is Data:
   AuthScope{host: String, port: U32, enabled: Bool}
 
@@ -922,6 +865,59 @@ def writer_peek(+fuel: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: Admi
         pol : Poll<&1, &1, Maybe<&1, Sess.NetCmd>, Unit> <- Chan.try_recv(Sess.NetCmd, cmd, 0)
         pair : AdmitAcc & Bool <- writer_peek.polled(pol, setup_gen, acc)
         writer_peek.cont(pair, next => writer_peek(p, cmd, setup_gen, next))
+
+def dial_cancel(live: Bool, +boot: Chan(Boot), sock: Socket, +gen: U32, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Socket.close(sock)
+    Unit <- arm_ready(live, boot)
+    k((None{}, gen, Nil{}))
+
+def dial_after_plain(dropped: Bool, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit):
+  match dropped:
+    case True{}: dial_cancel(live, boot, sock, gen, k)
+    case False{}:
+      do IO<Unit>:
+        cr : Result<&1, &1, (U32 & String), Tr.Conn> <- Tr.upgrade(sock, host, force_tls)
+        after_conn(cr, nick, gen, evt, boot, cmd, live, has_sasl, k)
+
+def dial_after_latest(latest: Maybe<&2, QueuedDial>, dropped: Bool, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit), retry: String -> U32 -> U32 -> String -> ((Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+  match latest:
+    case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
+      do IO<Unit>:
+        Unit <- Socket.close(sock)
+        retry(h2, p2, g2, n2, k)
+    case None{}:
+      dial_after_plain(dropped, sock, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k)
+
+def dial_after_acc(+acc: AdmitAcc, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit), retry: String -> U32 -> U32 -> String -> ((Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+  match acc:
+    case AdmitAcc{+latest, _, _, _, +dropped}:
+      dial_after_latest(latest, dropped, sock, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k, retry)
+
+def dial_after_sock(pair: Socket & String, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit), retry: String -> U32 -> U32 -> String -> ((Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+  match pair:
+    case (sock, _):
+      do IO<Unit>:
+        acc : AdmitAcc <- writer_peek(65n, cmd, gen, AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}})
+        dial_after_acc(acc, sock, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k, retry)
+
+def dial_after_dual(r: Result<&1, &1, U32 & String, Socket & String>, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit), retry: String -> U32 -> U32 -> String -> ((Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      arm_fail(live, boot, evt, gen, err_msg(e), k)
+    case Done{pair}:
+      dial_after_sock(pair, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k, retry)
+
+def dial_begin.go(+fuel: Nat, +host: String, +port: U32, +force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +live: Bool, +has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit):
+  match fuel:
+    case 0n: arm_fail(live, boot, evt, gen, "dial", k)
+    case 1n+p:
+      do IO<Unit>:
+        r : Result<&1, &1, U32 & String, Socket & String> <- Dns.dial_dual(host, port, 1000)
+        dial_after_dual(r, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k, h2 => p2 => g2 => n2 => k2 => dial_begin.go(p, h2, p2, force_tls, n2, g2, evt, boot, cmd, live, has_sasl, k2))
+
+def dial_begin(+host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, has_sasl: Bool, k: (Maybe<&1, Tr.Conn> & U32 & List<&2, String>) -> IO(Unit)) -> IO(Unit):
+  dial_begin.go(8n, host, port, force_tls, nick, gen, evt, boot, cmd, live, has_sasl, k)
 
 def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +acc0: AdmitAcc, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match r:

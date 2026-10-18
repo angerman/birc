@@ -100,6 +100,9 @@ def main() -> None:
     held_setup(binary, drop=True)
     held_setup(binary, drop=False)
     held_setup(binary, drop=True, tls=True)
+    held_setup(binary, drop=True, tls=False, mode="bootdrop")
+    held_setup(binary, drop=False, tls=False, mode="bootdial")
+    held_setup(binary, drop=True, tls=True, mode="bootls")
 
 
 def redial(binary: str) -> None:
@@ -193,7 +196,7 @@ HANDSHAKE = [
 ]
 
 
-def held_setup(binary: str, *, drop: bool, tls: bool = False) -> None:
+def held_setup(binary: str, *, drop: bool, tls: bool = False, mode: str | None = None) -> None:
     """Hold TCP setup until the child queues Drop (or skips it), then release.
 
     listen(1) + a filler connection saturates the accept backlog so the
@@ -204,7 +207,8 @@ def held_setup(binary: str, *, drop: bool, tls: bool = False) -> None:
     Drop during setup must close with zero peer bytes. Without Drop, the
     peer must see the exact registration handshake after release.
     """
-    mode = "droptls" if tls else ("dropsetup" if drop else "dialsetup")
+    if mode is None:
+        mode = "droptls" if tls else ("dropsetup" if drop else "dialsetup")
     wire = bytearray()
     peer = None
     filler = None
@@ -282,12 +286,14 @@ def held_setup(binary: str, *, drop: bool, tls: bool = False) -> None:
                 peer.close()
             if filler is not None:
                 filler.close()
-    if tls:
-        label = "Drop during held TLS setup sends no ClientHello"
-    elif drop:
-        label = "Drop during held setup sends zero registration bytes"
-    else:
-        label = "held setup without Drop registers after release"
+    label = {
+        "droptls": "Drop during held TLS setup sends no ClientHello",
+        "dropsetup": "Drop during held setup sends zero registration bytes",
+        "dialsetup": "held setup without Drop registers after release",
+        "bootdrop": "Drop during first connect sends zero registration bytes",
+        "bootdial": "first connect without Drop registers after release",
+        "bootls": "Drop during first TLS connect sends no ClientHello",
+    }[mode]
     print(f"actor queue {label}: PASS")
 
 

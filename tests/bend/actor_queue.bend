@@ -114,10 +114,34 @@ def parsed(p: Maybe<&2, U32>, f: Maybe<&2, U32>, n: Maybe<&2, U32>, +mode: Strin
                 r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
                 connected(r, port, frames, U32.to_nat(count), mode)
 
+def boot_spawn(tls: Bool, +port: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Act.Boot)) -> IO(Unit):
+  match tls:
+    case False{}: IO.spawn(Unit, Act.actor_boot("127.0.0.1", port, "probe", 1, evt, cmd, boot, False{}, 0))
+    case True{}: IO.spawn(Unit, Act.actor_boot_tls("127.0.0.1", port, "probe", 1, evt, cmd, boot, False{}, 0, True{}))
+
+def run_boot(+port: U32, +drop: Bool, +tls: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- boot_spawn(tls, port, evt, cmd, boot)
+    Unit <- IO.sleep(100)
+    Unit <- setup_drop(drop, cmd)
+    Unit <- IO.print("held")
+    Unit <- IO.sleep(500)
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- wait_eof(evt)
+    IO.print("closed")
+
 def setup_port(p: Maybe<&2, U32>, drop: Bool, tls: Bool) -> IO(Unit):
   match p:
     case None{}: IO.die(Unit, 1, "invalid port")
     case Some{port}: run_setup(port, drop, tls)
+
+def boot_port(p: Maybe<&2, U32>, drop: Bool, tls: Bool) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}: run_boot(port, drop, tls)
 
 def args(xs: List<&1, String>) -> IO(Unit):
   match xs:
@@ -127,6 +151,12 @@ def args(xs: List<&1, String>) -> IO(Unit):
       setup_port(U32.read(p), True{}, True{})
     case Con{_, Con{p, Con{_, Con{_, Con{"dialsetup", Nil{}}}}}}:
       setup_port(U32.read(p), False{}, False{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootdrop", Nil{}}}}}}:
+      boot_port(U32.read(p), True{}, False{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootdial", Nil{}}}}}}:
+      boot_port(U32.read(p), False{}, False{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootls", Nil{}}}}}}:
+      boot_port(U32.read(p), True{}, True{})
     case Con{_, Con{p, Con{f, Con{n, Con{+mode, Nil{}}}}}}: parsed(U32.read(p), U32.read(f), U32.read(n), mode)
     case _: IO.die(Unit, 1, "expected port frames count mode")
 
