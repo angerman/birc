@@ -86,10 +86,10 @@ law old_authentication_cannot_release_recovery:
   {JoinPlan.ready(JoinPlan.NeedAuth{0n, JoinPlan.Unreported{}}, Cl.init("me", "s")) == False{} : Bool}
 
 law reset_keeps_key_revision_and_hold:
-  {JoinPlan.reset(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, True{}, JoinPlan.NoAuth{}, True{}, 3n}, Cl.init("me", "s")) == JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], False{}, False{}, JoinPlan.NoAuth{}, True{}, 3n} : JoinPlan.State}
+  {JoinPlan.reset(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, True{}, JoinPlan.NoAuth{}, True{}, 3n}, Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], False{}, False{}, JoinPlan.NoAuth{}, True{}, 3n} : JoinPlan.State}
 
 law new_endpoint_discards_previous_channel_keys:
-  {JoinPlan.endpoint(False{}, JoinPlan.State{[JoinPlan.Channel{"#old", "key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n}, "#new", Cl.init("me", "s")) == JoinPlan.State{[JoinPlan.Channel{"#new", ""}], False{}, False{}, JoinPlan.NoAuth{}, False{}, 3n} : JoinPlan.State}
+  {JoinPlan.endpoint(False{}, JoinPlan.State{[JoinPlan.Channel{"#old", "key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n}, "#new", Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#new", ""}], False{}, False{}, JoinPlan.NoAuth{}, False{}, 3n} : JoinPlan.State}
 
 law delayed_membership_echo_cannot_erase_intent:
   {JoinPlan.received(JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n}, Cl.init("me", "s"), ":me!u@h PART #room :old departure") == JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n} : JoinPlan.State}

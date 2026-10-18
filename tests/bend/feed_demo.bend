@@ -47,6 +47,21 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
     Unit <- E.must("notice*", CL.notice_star_server())
     Unit <- E.must("query", CL.privmsg_query_opens())
     Unit <- E.must("welcome", CL.welcome_server_line())
+    Unit <- E.must_eq(
+      "feed_001_guest",
+      Cl.nick_of(Feed.feed(Cl.init("me", "s"), ":s 001 Guest42 :welcome")),
+      "Guest42"
+    )
+    Unit <- E.must_eq(
+      "feed_001_peer",
+      Cl.nick_of(Feed.feed(Cl.init("me", "s"), ":alice!u@h 001 Guest42 :welcome")),
+      "me"
+    )
+    Unit <- E.must_eq(
+      "feed_001_short",
+      Cl.nick_of(Feed.feed(Cl.init("me", "s"), ":s 001 Guest42")),
+      "me"
+    )
     Unit <- E.must("empty_id", CL.feed_id(Cl.init("me", "s"), ""))
     Unit <- E.must("num_last", Pred.numeric_last_ok())
     Unit <- E.must("nick433", Pred.nick433_ok())

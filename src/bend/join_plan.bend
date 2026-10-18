@@ -128,10 +128,10 @@ def reset.barrier(required: Bool, baseline: Nat) -> Barrier:
     case False{}: NoAuth{}
     case True{}: NeedAuth{baseline, Unreported{}}
 
-def reset(state: State, +cl: Cl.Client) -> State:
+def reset(state: State, +cl: Cl.Client, +live_port: U32) -> State:
   match state:
     case State{desired, _, _, _, held, revision}:
-      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl), Cl.auth_success_seq(cl)), held, revision}
+      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl, live_port), Cl.auth_success_seq(cl)), held, revision}
 
 def revision(state: State) -> Nat:
   match state:
@@ -142,15 +142,15 @@ def bump(state: State) -> State:
     case State{desired, welcome, sent, barrier, held, revision}:
       State{desired, welcome, sent, barrier, held, Nat.add(revision, 1n)}
 
-def endpoint.fresh(state: State, chan: String, cl: Cl.Client) -> State:
+def endpoint.fresh(state: State, chan: String, cl: Cl.Client, +live_port: U32) -> State:
   match state:
     case State{_, _, _, _, held, revision}:
-      reset(initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision}, Isupport.defaults()), cl)
+      reset(initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision}, Isupport.defaults()), cl, live_port)
 
-def endpoint(same: Bool, state: State, chan: String, cl: Cl.Client) -> State:
+def endpoint(same: Bool, state: State, chan: String, cl: Cl.Client, +live_port: U32) -> State:
   match same:
-    case True{}: reset(state, cl)
-    case False{}: endpoint.fresh(state, chan, cl)
+    case True{}: reset(state, cl, live_port)
+    case False{}: endpoint.fresh(state, chan, cl, live_port)
 
 def desired_names.go(xs: List<&2, Channel>) -> List<&2, String>:
   match xs:

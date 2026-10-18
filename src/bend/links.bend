@@ -73,16 +73,20 @@ type Alias is Data:
 def aliases() -> List<&2, Emoji.Entry>:
   Emoji.aliases()
 
-def alias.hit(found: Bool, +s: String, +name: String, text: String, other: Maybe<&2, Alias>) -> Maybe<&2, Alias>:
+# Match before recurse: hit returns without evaluating the miss walk.
+# Miss uses a lazy Unit-> continuation (Bend args are eager).
+def alias_step(found: Bool, yes: Maybe<&2, Alias>, no: Unit -> Maybe<&2, Alias>) -> Maybe<&2, Alias>:
   match found:
-    case True{}: Some{Alias{text, String.drop(s, String.length(name))}}
-    case False{}: other
+    case True{}: yes
+    case False{}: no(Unit{})
 
 def alias.go(xs: List<&2, Emoji.Entry>, +s: String) -> Maybe<&2, Alias>:
   match xs:
     case Nil{}: None{}
     case Con{Emoji.Entry{+name, text}, t}:
-      alias.hit(String.starts_with(s, name), s, name, text, alias.go(t, s))
+      alias_step(String.starts_with(s, name),
+        Some{Alias{text, String.drop(s, String.length(name))}},
+        _ => alias.go(t, s))
 
 def delimiter.double(double: Bool, s: String) -> String:
   match double:
@@ -270,7 +274,7 @@ def url(pair: String & String, state: Scan) -> Scan:
             Run{attrs, text, Bool.pick(Maybe<&2, String>, U32.is_zero(attrs), Some{text}, None{})}
               <> flush(attrs, acc, runs)}
 
-def outside.url(is_url: Bool, state: Scan) -> Scan:
+def outside.url(is_url: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match is_url:
     case True{}:
       match state:
@@ -279,9 +283,9 @@ def outside.url(is_url: Bool, state: Scan) -> Scan:
     case False{}:
       match state:
         case Scan{+s, attrs, end, scopes, text, previous, runs}:
-          substitute(alias.go(aliases(), s), Scan{s, attrs, end, scopes, text, previous, runs})
+          substitute(alias.go(xs, s), Scan{s, attrs, end, scopes, text, previous, runs})
 
-def outside.escape(escape: Bool, state: Scan) -> Scan:
+def outside.escape(escape: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match escape:
     case True{}:
       match state:
@@ -291,45 +295,54 @@ def outside.escape(escape: Bool, state: Scan) -> Scan:
     case False{}:
       match state:
         case Scan{+s, attrs, end, scopes, text, +previous, runs}:
-          outside.url(is_url_prefix(s) && bound(previous), Scan{s, attrs, end, scopes, text, previous, runs})
+          outside.url(is_url_prefix(s) && bound(previous), Scan{s, attrs, end, scopes, text, previous, runs}, xs)
 
-def next.closed(closed: Bool, state: Scan) -> Scan:
+def next.closed.code(code: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
+  match code:
+    case True{}: literal(state)
+    case False{}:
+      match state:
+        case Scan{+s, attrs, end, scopes, text, previous, runs}:
+          outside.escape(escaped(s), Scan{s, attrs, end, scopes, text, previous, runs}, xs)
+
+def next.closed(closed: Bool, state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match closed:
     case True{}: close(state)
     case False{}:
       match state:
         case Scan{+s, +attrs, +end, +scopes, +text, +previous, +runs}:
-          Bool.pick(Scan, U32.is_ne(U32.and(attrs, 2), 0),
-            literal(Scan{s, attrs, end, scopes, text, previous, runs}),
-            outside.escape(escaped(s), Scan{s, attrs, end, scopes, text, previous, runs}))
+          next.closed.code(U32.is_ne(U32.and(attrs, 2), 0),
+            Scan{s, attrs, end, scopes, text, previous, runs}, xs)
 
-def next(state: Scan) -> Scan:
+def next(state: Scan, +xs: List<&2, Emoji.Entry>) -> Scan:
   match state:
     case Scan{+s, attrs, +end, scopes, text, previous, runs}:
       next.closed(Bool.not(String.is_empty(end)) && String.eq(delimiter(s), end),
-        Scan{s, attrs, end, scopes, text, previous, runs})
+        Scan{s, attrs, end, scopes, text, previous, runs}, xs)
 
 def finish(state: Scan) -> List<&2, Run>:
   match state:
     case Scan{_, attrs, _, _, text, _, runs}: List.reverse(&2, Run, flush(attrs, text, runs))
 
-def render.go.on(empty: Bool, state: Scan, k: Scan -> List<&2, Run>) -> List<&2, Run>:
+def render.go.on(empty: Bool, state: Scan, +xs: List<&2, Emoji.Entry>, k: Scan -> List<&2, Run>) -> List<&2, Run>:
   match empty:
     case True{}: finish(state)
-    case False{}: k(next(state))
+    case False{}: k(next(state, xs))
 
-def render.go(fuel: Nat, state: Scan) -> List<&2, Run>:
+def render.go(fuel: Nat, state: Scan, +xs: List<&2, Emoji.Entry>) -> List<&2, Run>:
   match fuel:
     case 0n: finish(state)
     case 1n+p:
       match state:
         case Scan{+s, +attrs, +end, +scopes, +text, +previous, +runs}:
-          render.go.on(String.is_empty(s), Scan{s, attrs, end, scopes, text, previous, runs},
-            state => render.go(p, state))
+          render.go.on(String.is_empty(s), Scan{s, attrs, end, scopes, text, previous, runs}, xs,
+            state => render.go(p, state, xs))
 
 # Every step consumes source; raw IRC/history/composer text is never rewritten.
+# Bind the emoji table once per render; alias.go walks that shared list.
 def render(+s: String) -> List<&2, Run>:
-  render.go(Nat.add(1n, String.length(s)), Scan{s, 0, "", Nil{}, "", "", Nil{}})
+  +xs = aliases()
+  render.go(Nat.add(1n, String.length(s)), Scan{s, 0, "", Nil{}, "", "", Nil{}}, xs)
 
 def extract_runs(xs: List<&2, Run>) -> List<&2, String>:
   match xs:

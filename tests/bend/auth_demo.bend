@@ -32,6 +32,16 @@ def reconnect_exchange(pair: Cl.Client & List<&2, String>, fail_first: Bool) -> 
       +after = Sess.session_cl(Sess.session_reconnected(before, "12:00:00"))
       outs(Sess.fold_lines(after, ":s CAP me ACK :sasl" <> "AUTHENTICATE +" <> Nil{}))
 
+def step_outs.reply(reply: Auth.Reply) -> String:
+  match reply:
+    case Auth.Reply{_, outs, _}: String.concat(outs)
+
+def step_outs.at(+cl: Cl.Client, +line: String, +live_port: U32) -> Auth.Reply:
+  Auth.step_for(cl, line, live_port)
+
+def step_outs(+cl: Cl.Client, +line: String, +live_port: U32) -> String:
+  step_outs.reply(step_outs.at(cl, line, live_port))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("parsed_ack", Irc.is_cap_ack_sasl(":s CAP me ACK :server-time sasl"))
@@ -60,4 +70,8 @@ def main() -> IO(Unit):
     Unit <- E.must("empty_prefix_auth_cap_agree", Bool.and(Bool.not(Auth.server_source("")), Bool.not(CapNotify.server_source(""))))
     Unit <- E.must("host_prefix_auth_cap_agree", Bool.and(Auth.server_source("irc.example"), CapNotify.server_source("irc.example")))
     Unit <- E.must("empty_cap_ack_rejected", String.is_empty(outs(Sess.fold_lines(credentials(), "CAP me ACK :sasl" <> Nil{}))))
+    Unit <- E.must("binding port admits join_required", Auth.join_required(credentials(), Auth.binding_port(credentials())))
+    Unit <- E.must("same host different live port rejects join_required", Bool.not(Auth.join_required(credentials(), 6697)))
+    Unit <- E.must("same host different live port keeps step_for quiet", String.is_empty(step_outs(credentials(), ":s CAP me ACK :sasl", 6697)))
+    Unit <- E.must("matching live port starts SASL", String.contains(step_outs(credentials(), ":s CAP me ACK :sasl", Auth.binding_port(credentials())), "AUTHENTICATE PLAIN"))
     IO.print("auth_demo=ok")

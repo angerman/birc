@@ -670,7 +670,7 @@ def frame_result.full_upload(pair: Sess.Session & Bool, +fs: Bool, ui: T.Ui, +en
 def frame_result.full(pair: Sess.Session & Bool, ui: T.Ui, +enter: Bool, +typed: String, +rows: U32, cols: U32, click: U32, +key: U32, +mods: U32, codepoint: U32, wheel: U32, more: Bool, +url: String, +clipboard: String, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match pair:
     case (+st, +fs):
-      frame_result.full_upload(Sess.session_upload_key(st, Bool.pick(U32, fs, 0, key), mods), fs, ui, enter, typed, rows, cols, click, key, mods, codepoint, wheel, more, url, clipboard, notice)
+      frame_result.full_upload(Sess.session_frame_key_admit(st, Bool.pick(U32, fs, 0, key), mods), fs, ui, enter, typed, rows, cols, click, key, mods, codepoint, wheel, more, url, clipboard, notice)
 
 def frame_result.keys(ui: T.Ui, +st: Sess.Session, keys: T.UiKeys, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO((T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool):
   match keys:
@@ -680,7 +680,7 @@ def frame_result.keys(ui: T.Ui, +st: Sess.Session, keys: T.UiKeys, +notice: Mayb
 def frame_result.present_pack(packed: T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool, before: Sess.Session) -> T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool:
   match packed:
     case (ui, after, cmd, halt, more):
-      (ui, Sess.session_upload_present(before, after), cmd, halt, more)
+      (ui, Sess.session_frame_key_seal(before, after), cmd, halt, more)
 
 def frame_result.present(result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool, before: Sess.Session) -> (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool:
   match result:

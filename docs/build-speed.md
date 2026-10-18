@@ -21,6 +21,14 @@ These wins keep BUILD-mode iteration fast.
    exists. Run the full `proof` target with the integrated batch gate
    (`make check`). Do not commit proof shards; generate any future
    split into `build/` from `PROOF.bend`.
+5. **Cheap LAWS IO import-closure gate.** Before paying for `make proof`,
+   run `make lint-laws-io` (or `sh scripts/check-laws-io.sh`). It walks
+   the `LAWS.bend` / `PROOF.bend` import closures and fails if any
+   IO/effect module from the AGENTS.md row appears
+   (`actor`/`net`/`wsnet`/`timui`/`clock`/`tls`/`transport`/`dns.bend`/
+   `*_io`/`*_live`/`*_worker`/`*_runtime`). Self-check:
+   `sh scripts/check-laws-io.sh --self-test` (synthetic `notify_io`
+   import must fail). Wired into `lint-ffi` and therefore `make check`.
 
 ## Batch discipline
 

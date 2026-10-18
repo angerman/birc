@@ -640,7 +640,7 @@ test-history-save-errors: $(BLDDIR)/history_save_errors ## Surface failed histor
 	$(NIXRUN) timeout 30 python3 tests/history_save_errors.py ./$(BLDDIR)/history_save_errors
 
 .PHONY: test-ws-history-enqueue
-test-ws-history-enqueue: $(BLDDIR)/ws_history_enqueue ## Full HistJob channel sync-appends; accepted offers never drop.
+test-ws-history-enqueue: $(BLDDIR)/ws_history_enqueue ## Full HistJob channel sync-appends; sync-fail keeps extract baseline.
 	$(NIXRUN) timeout 60 python3 tests/ws_history_enqueue.py ./$(BLDDIR)/ws_history_enqueue
 
 test-reader-errors: $(BLDDIR)/reader_errors ## Socket-read failure, orderly EOF, and no-data branch controls.

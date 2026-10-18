@@ -1113,6 +1113,15 @@ def ws_history.notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Sess
     case Some{+msg}:
       (Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{}, msg)), True{})
 
+# Append failure still surfaces *log*, but must not advance the extract
+# baseline: keep live rows and rewind log_seq to the pre-save checkpoint so
+# unsaved IDs remain visible to the next extract_new_history.
+def ws_history.kept(+st: Sess.Session, failed: Bool, +ckpt: Sess.Session) -> Sess.Session:
+  match failed:
+    case False{}: st
+    case True{}:
+      Sess.session_set_client(st, Cl.set_log_seq(Sess.session_cl(st), Cl.log_seq_of(Sess.session_cl(ckpt))))
+
 def ws_history.reloaded(+loaded: Cl.Client, +st: Sess.Session, +ws: W.Workspace, +id: Key.ServerId, failed: Bool) -> W.Workspace & Bool:
   +st2 = Sess.session_set_client(st, loaded)
   +ws2 = ws_replace(ws, id, st2)
@@ -1128,10 +1137,10 @@ def ws_history.saved(+st: Sess.Session, failed: Bool, +ws: W.Workspace, +id: Key
         loaded : Cl.Client <- Hist.history_load_client(path, new_ep, cap, Sess.session_cl(st))
         return ws_history.reloaded(loaded, st, ws, id, failed)
 
-def ws_history.got(pair: Sess.Session & Bool, +ws: W.Workspace, +id: Key.ServerId, +path: String, +old_ep: String, +new_ep: String, +cap: U32, allowed: Bool) -> IO(W.Workspace & Bool):
+def ws_history.got(pair: Sess.Session & Bool, +ckpt: Sess.Session, +ws: W.Workspace, +id: Key.ServerId, +path: String, +old_ep: String, +new_ep: String, +cap: U32, allowed: Bool) -> IO(W.Workspace & Bool):
   match pair:
-    case (+st, failed):
-      ws_history.saved(st, failed, ws, id, path, new_ep, cap, allowed && Bool.not(String.eq(old_ep, new_ep)))
+    case (+st, +failed):
+      ws_history.saved(ws_history.kept(st, failed, ckpt), failed, ws, id, path, new_ep, cap, allowed && Bool.not(String.eq(old_ep, new_ep)))
 
 def hist_worker.note(notice: Maybe<&2, String>, +main: Chan(WsMsg)) -> IO(Unit):
   match notice:
@@ -1208,24 +1217,24 @@ def ws_history.have_jobs(jobs: Maybe<&2, Chan(HistJob)>) -> Bool:
     case None{}: False{}
     case Some{_}: True{}
 
-def ws_history.noted(pair: Sess.Session & Bool, +new_ws: W.Workspace, +affected: Key.ServerId) -> W.Workspace & Bool:
+def ws_history.noted(pair: Sess.Session & Bool, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId) -> W.Workspace & Bool:
   match pair:
-    case (+st, failed): (ws_replace(new_ws, affected, st), failed)
+    case (+st, +failed): (ws_replace(new_ws, affected, ws_history.kept(st, failed, ckpt)), failed)
 
 def ws_history.async_noted(pair: W.Workspace & Bool, +hot: WsHot) -> W.Workspace & Bool & WsHot:
   match pair:
     case (+ws, failed): (ws, (failed, hot))
 
-def ws_history.async_go(queued: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+def ws_history.async_go(queued: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
   match queued:
     case True{}:
       do IO<W.Workspace & Bool & WsHot>:
         notice : Maybe<&2, String> <- ws_history.write(Bool.not(String.is_empty(data)), jobs, path, data)
-        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), hot)
+        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
     case False{}:
       do IO<W.Workspace & Bool & WsHot>:
         notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
-        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), hot)
+        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
 
 def ws_history.reload_ticket(+cl: Cl.Client) -> Nat:
   Nat.add(1000n, Cl.log_seq_of(cl))
@@ -1254,31 +1263,31 @@ def ws_history.reload_pending(load: Bool, +ticket: Nat) -> Maybe<&2, Nat>:
 # Mid-session endpoint change: sync append (save-before-load), then spawn
 # Archive for HistoryLoaded. Async enqueue raced the archive reader and
 # could drop the final old-endpoint rows when the worker queue was full.
-def ws_history.changed_async(queued: Bool, +load: Bool, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+def ws_history.changed_async(queued: Bool, +load: Bool, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   +ticket = ws_history.reload_ticket(cl)
   do IO<W.Workspace & Bool & WsHot>:
     notice : Maybe<&2, String> <- HistIO.history_append_file.check(Bool.not(queued) || String.is_empty(path) || String.is_empty(data), path, data)
     Unit <- ws_history.reload_spawn(load, ticket, gen, path, new_ep, cap, cl, evt)
-    return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), ws_hot.with_reload(hot, ws_history.reload_pending(load, ticket)))
+    return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), ws_hot.with_reload(hot, ws_history.reload_pending(load, ticket)))
 
-def ws_history.changed_sync(+path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+def ws_history.changed_sync(+path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
   do IO<W.Workspace & Bool & WsHot>:
     notice : Maybe<&2, String> <- HistIO.history_append_file.check(Bool.not(enabled) || String.is_empty(path) || String.is_empty(data), path, data)
-    got : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected, path, old_ep, new_ep, cap, allowed)
+    got : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected, path, old_ep, new_ep, cap, allowed)
     return ws_history.async_noted(got, hot)
 
-def ws_history_save.branch.changed(have: Bool, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+def ws_history_save.branch.changed(have: Bool, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match have:
     case True{}:
-      ws_history.changed_async(enabled, allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(cl)), path, data, new_ws, affected, cap, new_ep, gen, evt, hot, cl)
+      ws_history.changed_async(enabled, allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(cl)), path, data, ckpt, new_ws, affected, cap, new_ep, gen, evt, hot, cl)
     case False{}:
-      ws_history.changed_sync(path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, hot)
+      ws_history.changed_sync(path, data, ckpt, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, hot)
 
-def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match changed:
     case True{}:
-      ws_history_save.branch.changed(ws_history.have_jobs(jobs), path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
-    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), jobs, path, data, new_ws, affected, hot)
+      ws_history_save.branch.changed(ws_history.have_jobs(jobs), path, data, ckpt, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
+    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), jobs, path, data, ckpt, new_ws, affected, hot)
 
 def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +new_st: Sess.Session, +old_ep: String, +new_ep: String, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
   match hot:
@@ -1287,7 +1296,7 @@ def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +ne
       +new_cl = Sess.session_cl(new_st)
       +enabled = allowed && Cl.settings_history(Cl.get_settings(new_cl))
       +data = Hist.extract_new_history_for_except(new_ep, old_cl, new_cl, Hs.hist_live_archived(Sess.session_hist_live(new_st)))
-      ws_history_save.branch(changed, jobs, path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, ws_part.gen(new_ws, affected), evt, hot, new_cl)
+      ws_history_save.branch(changed, jobs, path, data, old_st, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, ws_part.gen(new_ws, affected), evt, hot, new_cl)
 
 def ws_history_save.run(run: Bool, +ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
   match run:
@@ -1367,7 +1376,7 @@ def ws_upload.keyed_at(pair: Sess.Session & Bool, +ws: W.Workspace, +id: Key.Ser
 
 def ws_upload.keyed(+ws: W.Workspace, +key: U32, +mods: U32) -> W.Workspace & Bool:
   +id = W.ws_current(ws)
-  ws_upload.keyed_at(Sess.session_upload_key(ws_part.st(ws, id), key, mods), ws, id)
+  ws_upload.keyed_at(Sess.session_frame_key_admit(ws_part.st(ws, id), key, mods), ws, id)
 
 # Fullscreen-first admission: a fullscreen-consumed key never reaches the
 # upload consent step, so Escape with an open overlay closes the overlay
@@ -1380,7 +1389,7 @@ def ws_upload.gated(fs: Bool, +ws: W.Workspace, +key: U32, +mods: U32) -> W.Work
 
 def ws_upload.presented(+old_ws: W.Workspace, +new_ws: W.Workspace) -> W.Workspace:
   +painted = W.ws_current(old_ws)
-  ws_replace(new_ws, painted, Sess.session_upload_present(ws_part.st(old_ws, painted), ws_part.st(new_ws, painted)))
+  ws_replace(new_ws, painted, Sess.session_frame_key_seal(ws_part.st(old_ws, painted), ws_part.st(new_ws, painted)))
 
 def ws_upload.restored_at(restore: Bool, +ws: W.Workspace, +id: Key.ServerId, +typed: String) -> W.Workspace:
   match restore:

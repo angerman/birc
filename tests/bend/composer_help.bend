@@ -7,6 +7,7 @@ import ../../src/bend/split.bend as Sp
 import ../../src/bend/view_laws.bend as VL
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
+import ../../src/bend/emoji.bend as Emoji
 
 def demo() -> Sess.Session:
   Sess.session_demo(Cl.init("me", "s"), "#a")
@@ -107,6 +108,17 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("rof row", Cu.emoji_line0(Cu.emoji_lines(":rof", 0n)), "→ 🤣  :rofl:")
     Unit <- E.must_eq("s row", Cu.emoji_line1(Cu.emoji_lines(":s", 1n)), "→ ⭐  :star:")
     Unit <- E.must("emoji menu", Cu.emoji_ok())
+    Unit <- E.must_eq(
+      "emoji_matches fuel1 first hit",
+      Nat.show(List.length(&2, Emoji.Entry, Cu.emoji_matches(1n, Emoji.Entry{":ab", "x"} <> Emoji.Entry{":cd", "y"} <> Nil{}, "a"))),
+      "1"
+    )
+    Unit <- E.must_eq(
+      "emoji_matches fuel1 first miss",
+      Nat.show(List.length(&2, Emoji.Entry, Cu.emoji_matches(1n, Emoji.Entry{":zz", "x"} <> Emoji.Entry{":aa", "y"} <> Nil{}, "a"))),
+      "0"
+    )
+    Unit <- E.must_eq("emoji_find fuel1 first hit", Cu.emoji_find(1n, Emoji.Entry{":eyes:", "👀"} <> Emoji.Entry{":wave:", "👋"} <> Nil{}, ":eyes:"), "👀")
     Unit <- E.must("help lines", Cu.help_ok())
     Unit <- E.must_eq("F8 key", U32.show(Sess.KEY_F8()), "22")
     Unit <- E.must_eq("help opens locally", opened_show(Sess.step_enter(demo(), "/help join")), ";H:join;;1;N")

@@ -337,10 +337,13 @@ def at_boundary.empty(empty: Bool, +stem: String) -> Bool:
 def at_boundary(+pre: String) -> Bool:
   at_boundary.empty(String.is_empty(String.take(pre, Nat.sub(String.length(pre), 1n))), String.take(pre, Nat.sub(String.length(pre), 1n)))
 
-def emoji_keep(eq: Bool, +text: String, +rest: String) -> String:
+def emoji_aliases() -> List<&2, Emoji.Entry>:
+  Emoji.aliases()
+
+def emoji_find_step(eq: Bool, +text: String, no: Unit -> String) -> String:
   match eq:
     case True{}: text
-    case False{}: rest
+    case False{}: no(Unit{})
 
 def emoji_find(fuel: Nat, xs: List<&2, Emoji.Entry>, +code: String) -> String:
   match fuel:
@@ -348,7 +351,8 @@ def emoji_find(fuel: Nat, xs: List<&2, Emoji.Entry>, +code: String) -> String:
     case 1n+p:
       match xs:
         case Nil{}: ""
-        case Con{Emoji.Entry{+name, +text}, t}: emoji_keep(String.eq(name, code), text, emoji_find(p, t, code))
+        case Con{Emoji.Entry{+name, +text}, t}:
+          emoji_find_step(String.eq(name, code), text, _ => emoji_find(p, t, code))
 
 def emoji_commit.hit(empty: Bool, +glyph: String, +pre: String, +s: String) -> String:
   match empty:
@@ -359,7 +363,7 @@ def emoji_commit.name(ok: Bool, +pre: String, +name: String, +s: String) -> Stri
   match ok:
     case False{}: s
     case True{}:
-      +glyph = emoji_find(80n, Emoji.aliases(), ":" ++ name ++ ":")
+      +glyph = emoji_find(80n, emoji_aliases(), ":" ++ name ++ ":")
       emoji_commit.hit(String.is_empty(glyph), glyph, pre, s)
 
 def emoji_commit.closed(c: Colon, +s: String) -> String:
@@ -400,10 +404,12 @@ def emoji_text(e: Emoji.Entry) -> String:
   match e:
     case Emoji.Entry{_, +text}: text
 
-def emoji_cons(ok: Bool, +e: Emoji.Entry, rest: List<&2, Emoji.Entry>) -> List<&2, Emoji.Entry>:
+# Match before recurse; both arms still need the tail, so miss/hit share one
+# lazy continuation for the recursive walk (Bend args are eager).
+def emoji_matches_step(ok: Bool, +h: Emoji.Entry, rest: Unit -> List<&2, Emoji.Entry>) -> List<&2, Emoji.Entry>:
   match ok:
-    case True{}: e <> rest
-    case False{}: rest
+    case True{}: h <> rest(Unit{})
+    case False{}: rest(Unit{})
 
 def emoji_matches(fuel: Nat, xs: List<&2, Emoji.Entry>, +pre: String) -> List<&2, Emoji.Entry>:
   match fuel:
@@ -411,12 +417,13 @@ def emoji_matches(fuel: Nat, xs: List<&2, Emoji.Entry>, +pre: String) -> List<&2
     case 1n+p:
       match xs:
         case Nil{}: Nil{}
-        case Con{+h, t}: emoji_cons(String.starts_with(emoji_name(h), ":" ++ pre), h, emoji_matches(p, t, pre))
+        case Con{+h, t}:
+          emoji_matches_step(String.starts_with(emoji_name(h), ":" ++ pre), h, _ => emoji_matches(p, t, pre))
 
 def emoji_len.pre(word: Maybe<&2, String>) -> Nat:
   match word:
     case None{}: 0n
-    case Some{+pre}: List.length(&2, Emoji.Entry, emoji_matches(80n, Emoji.aliases(), pre))
+    case Some{+pre}: List.length(&2, Emoji.Entry, emoji_matches(80n, emoji_aliases(), pre))
 
 def emoji_len(+s: String) -> Nat:
   emoji_len.pre(emoji_prefix(s))
@@ -447,7 +454,7 @@ def emoji_glyph.of(+ms: List<&2, Emoji.Entry>, +idx: Nat) -> String:
   emoji_text(emoji_at(ms, pick_clamp(idx, List.length(&2, Emoji.Entry, ms))))
 
 def emoji_glyph(+pre: String, +idx: Nat) -> String:
-  emoji_glyph.of(emoji_matches(80n, Emoji.aliases(), pre), idx)
+  emoji_glyph.of(emoji_matches(80n, emoji_aliases(), pre), idx)
 
 def emoji_row(first: Bool, +e: Emoji.Entry) -> String:
   menu_mark(first) ++ emoji_text(e) ++ "  " ++ emoji_name(e)
@@ -471,7 +478,7 @@ def emoji_lines.ms(+ms: List<&2, Emoji.Entry>, +idx: Nat) -> List<&2, String>:
 def emoji_lines.pre(word: Maybe<&2, String>, +idx: Nat) -> List<&2, String>:
   match word:
     case None{}: Nil{}
-    case Some{+pre}: emoji_lines.ms(emoji_matches(80n, Emoji.aliases(), pre), idx)
+    case Some{+pre}: emoji_lines.ms(emoji_matches(80n, emoji_aliases(), pre), idx)
 
 def emoji_lines(+s: String, +idx: Nat) -> List<&2, String>:
   emoji_lines.pre(emoji_prefix(s), idx)
@@ -503,7 +510,7 @@ def emoji_ghost.ms(+ms: List<&2, Emoji.Entry>, +pre: String, +idx: Nat) -> Strin
 def emoji_ghost.pre(word: Maybe<&2, String>, +idx: Nat) -> String:
   match word:
     case None{}: ""
-    case Some{+pre}: emoji_ghost.ms(emoji_matches(80n, Emoji.aliases(), pre), pre, idx)
+    case Some{+pre}: emoji_ghost.ms(emoji_matches(80n, emoji_aliases(), pre), pre, idx)
 
 def emoji_ghost(+s: String, +idx: Nat) -> String:
   emoji_ghost.pre(emoji_prefix(s), idx)
@@ -548,7 +555,7 @@ def compose_accept.slash(word: Maybe<&2, String>, +typed: String, +idx: Nat) -> 
 def compose_accept.pre(word: Maybe<&2, String>, +typed: String, +idx: Nat) -> String:
   match word:
     case None{}: compose_accept.slash(command_word(typed), typed, idx)
-    case Some{+pre}: compose_accept.ms(emoji_matches(80n, Emoji.aliases(), pre), typed, pre, idx)
+    case Some{+pre}: compose_accept.ms(emoji_matches(80n, emoji_aliases(), pre), typed, pre, idx)
 
 def compose_accept(+typed: String, +idx: Nat) -> String:
   compose_accept.pre(emoji_prefix(typed), typed, idx)
@@ -605,10 +612,10 @@ def take_lines(fuel: Nat, xs: List<&2, String>) -> List<&2, String>:
         case Nil{}: Nil{}
         case Con{+h, t}: h <> take_lines(p, t)
 
-def help_pick(hit: Bool, +name: String, +fallback: String) -> String:
+def help_exact_step(hit: Bool, +name: String, no: Unit -> String) -> String:
   match hit:
     case True{}: usage_line(name)
-    case False{}: fallback
+    case False{}: no(Unit{})
 
 def help_exact(fuel: Nat, xs: List<&2, Sub.SlashRow>, +topic: String) -> String:
   match fuel:
@@ -616,7 +623,8 @@ def help_exact(fuel: Nat, xs: List<&2, Sub.SlashRow>, +topic: String) -> String:
     case 1n+p:
       match xs:
         case Nil{}: ""
-        case Con{+h, t}: help_pick(Irc.ieq(row_name(h), topic), row_name(h), help_exact(p, t, topic))
+        case Con{+h, t}:
+          help_exact_step(Irc.ieq(row_name(h), topic), row_name(h), _ => help_exact(p, t, topic))
 
 def help_topic_lines.miss(empty: Bool, +line: String) -> List<&2, String>:
   match empty:
@@ -626,7 +634,9 @@ def help_topic_lines.miss(empty: Bool, +line: String) -> List<&2, String>:
 def help_topic_lines.on(empty: Bool, +topic: String, +limit: Nat) -> List<&2, String>:
   match empty:
     case True{}: take_lines(limit, catalog_lines(Sub.slash_fuel(), Sub.slash_rows()))
-    case False{}: help_topic_lines.miss(String.is_empty(help_exact(Sub.slash_fuel(), Sub.slash_rows(), topic)), help_exact(Sub.slash_fuel(), Sub.slash_rows(), topic))
+    case False{}:
+      +line = help_exact(Sub.slash_fuel(), Sub.slash_rows(), topic)
+      help_topic_lines.miss(String.is_empty(line), line)
 
 def help_topic_lines(+topic: String, +limit: Nat) -> List<&2, String>:
   help_topic_lines.on(String.is_empty(topic), topic, limit)

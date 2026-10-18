@@ -4,6 +4,7 @@ import Base
 import ./expect.bend as E
 import ../../src/bend/irc.bend as Irc
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/auth.bend as Auth
 import ../../src/bend/join_plan.bend as P
 
 def plan(pair: P.State & List<&2, String>) -> P.State:
@@ -44,11 +45,16 @@ def capacity_controls() -> IO(Unit):
 
 def auth_controls() -> IO(Unit):
   +cl = Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6667, "", "", "account", "secret")
-  +waiting = P.received(P.reset(P.initial("#start"), cl), cl, ":irc.example 001 me :welcome")
+  +waiting = P.received(P.reset(P.initial("#start"), cl, 6667), cl, ":irc.example 001 me :welcome")
   +held = flushed(P.flush(waiting, cl))
   +failed_cl = Cl.set_auth(cl, Cl.AuthDone{})
   +ok_cl = Cl.advance_auth_success(Cl.set_auth(cl, Cl.AuthDone{}))
+  +wrong_port = P.reset(P.initial("#start"), cl, 6697)
   do IO<Unit>:
+    Unit <- E.must("same host live port match requires auth", Auth.join_required(cl, 6667))
+    Unit <- E.must("same host different live port skips auth barrier", Bool.not(Auth.join_required(cl, 6697)))
+    Unit <- E.must_eq("mismatched live port resets without NeedAuth", notice(P.flush(P.received(wrong_port, cl, ":irc.example 001 me :welcome"), cl)), "quiet")
+    Unit <- E.must_eq("mismatched port flushes joins without auth wait", lines(P.flush(P.received(wrong_port, cl, ":irc.example 001 me :welcome"), cl)), "JOIN #start")
     Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
     Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
     Unit <- E.must_eq("bare 001 stays held not failed", notice(P.flush(held, cl)), "quiet")

@@ -29,13 +29,10 @@ import ./composer_ui.bend as Cu
 
 # The first welcome names the nickname actually assigned by the server. A
 # requested nickname can differ because of server policy or length limits.
-# Admit it before authentication, membership policy and the Client feed share
-# that identity; malformed/peer/later-other welcomes must not poison the nick.
+# Shape checks live in Feed.welcome_admit; Session adds the seen/CASEMAPPING
+# barrier so later/forged welcomes never reach Auth, JoinPlan, or the feed.
 def registration_nick(+nick: String) -> Bool:
-  Commands.word(nick) && Bool.not(Irc.starts_channel(nick)
-    || String.contains(nick, "*") || String.contains(nick, ",")
-    || String.contains(nick, "!") || String.contains(nick, "@")
-    || String.contains(nick, ":"))
+  Feed.welcome_nick(nick)
 
 def registration_client.accept(allowed: Bool, cl: Cl.Client, nick: String) -> Maybe<&2, Cl.Client>:
   match allowed:
@@ -49,9 +46,7 @@ def registration_client_iso.message(welcome: Bool, seen: Bool, +cl: Cl.Client, +
       # W3: framed style bytes normalize at every identity/policy
       # comparison via the shared proto_atom seam.
       +nick = Irc.proto_atom(Irc.msg_param(m, 0n))
-      registration_client.accept(Auth.server_source(Irc.source_prefix(line))
-        && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n)
-        && registration_nick(nick) && Bool.not(String.is_empty(Irc.msg_param(m, 1n)))
+      registration_client.accept(Feed.welcome_admit(Irc.source_prefix(line), m)
         && (Bool.not(seen) || Isupport.cm_eq(iso, nick, Cl.nick_of(cl))), cl, nick)
 
 def registration_client_iso.parsed(parsed: Maybe<&2, Irc.Message>, seen: Bool, cl: Cl.Client, line: String, +iso: Isupport.State) -> Maybe<&2, Cl.Client>:
@@ -127,7 +122,7 @@ def fold_step.auth_at(reply: Auth.Reply, +cl: Cl.Client, pongs: List<&2, String>
       fold_step.auth.fed(fold_step.auth.feed_at(live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
 
 def fold_step.sasl_at(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.auth_at(Auth.step_for(cl, h), cl, pongs, now_ms, h, stamp)
+  fold_step.auth_at(Auth.step_for(cl, h, Auth.binding_port(cl)), cl, pongs, now_ms, h, stamp)
 
 # The actor reader owns the single live wire PONG (a gen-tagged Sess.Pong
 # answered ahead of UI paints). The feed still skips PING lines here so they
@@ -185,7 +180,7 @@ def fold_step.auth_at_with(+isc: Cl.Iso, reply: Auth.Reply, +cl: Cl.Client, pong
       fold_step.auth.fed(fold_step.auth.feed_at_with(isc, live_consumed(cl, h), cl, pongs, now_ms, h, stamp), phase, outs, notice)
 
 def fold_step.sasl_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
-  fold_step.auth_at_with(isc, Auth.step_for(cl, h), cl, pongs, now_ms, h, stamp)
+  fold_step.auth_at_with(isc, Auth.step_for(cl, h, Auth.binding_port(cl)), cl, pongs, now_ms, h, stamp)
 
 def fold_step.ping_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
   match ping:
@@ -1426,7 +1421,7 @@ def SIZE0() -> Size:
 # Live sessions scope the history owner to the exact startup host:port
 # (gate H); demo/offline sessions stay unscoped (hist_live0).
 def session_with_client_at(+cl: Cl.Client, +chan: String, +port: U32) -> Session:
-  +plan = JoinPlan.reset(JoinPlan.initial(chan), cl)
+  +plan = JoinPlan.reset(JoinPlan.initial(chan), cl, port)
   +hl = Hs.hist_live_sync(Hs.hist_live0(), 0n, Ep.endpoint(Cl.server_of(cl), port))
   Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [hl], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default(), [0n], Nil{}}
 
@@ -1936,9 +1931,9 @@ def session_needs_reconnect_marker(+st: Session) -> Bool:
 
 def session_reset_auth(st: Session) -> Session:
   match st:
-    case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+    case Session{+cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, +port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
       +fresh = Cl.reset_auth(cl)
-      +next = JoinPlan.reset(plan, fresh)
+      +next = JoinPlan.reset(plan, fresh, port)
       Session{fresh, drop, rem, draft, JoinPlan.sent(next), chan, net, hist, size, seed, comp, split, typing, port, media, next, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
 
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
@@ -2257,7 +2252,7 @@ def session_autoreconnect.st(
   +labelsbox: List<&2, Nat>
 ) -> Session:
   +cl2 = Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "...")
-  +next = JoinPlan.reset(plan, cl2)
+  +next = JoinPlan.reset(plan, cl2, port)
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(server, port))
   # Same-endpoint reconnect: Media resets, but text cards and their worker
   # generation survive; the overlay revalidates against the reset Media.
@@ -2421,7 +2416,7 @@ def session_after.dial(
   +same = endpoint_same(cl, host, old_port, port)
   +next_net = dialing_state(same, net)
   +cl2 = endpoint_client(cl, host, old_port, port)
-  +next = JoinPlan.endpoint(same, plan, chan, cl2)
+  +next = JoinPlan.endpoint(same, plan, chan, cl2, port)
   +iso2 = Isupport.endpoint(same, iso)
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(host, port))
   Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, next_net, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}
@@ -2693,6 +2688,13 @@ def session_upload_key.cancel(cancel: Bool, confirm: Bool, +st: Session) -> Sess
 def session_upload_key(+st: Session, +key: U32, mods: U32) -> Session & Bool:
   session_upload_key.cancel(U32.is_eq(key, KEY_ESCAPE()) && Up.active(session_upload(st)),
     U32.is_eq(key, KEY_F8()) && U32.is_zero(mods) && Up.pending(session_upload(st)) && session_upload_presented(st), session_upload_maintain(st))
+
+# Shared frame-key consent owner for Net.frame_result and WsNet ws_upload.*.
+def session_frame_key_admit(+st: Session, +key: U32, mods: U32) -> Session & Bool:
+  session_upload_key(st, key, mods)
+
+def session_frame_key_seal(before: Session, +after: Session) -> Session:
+  session_upload_present(before, after)
 
 def session_upload_take.got(pair: Up.State & Maybe<&2, Up.Request>, st: Session) -> Session & Maybe<&2, Up.Request>:
   match pair:

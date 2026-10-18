@@ -722,12 +722,36 @@ def feed_num.other_reply(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Clien
         List.drop(&2, String, Irc.msg_params(m), 1n)}))
     case _: feed_num.other(cl, num, Irc.msg_last(m), U32.is_ge(num, 400))
 
-def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
+# Pure 001 shape gate shared with Session.registration_client_iso. Session
+# still owns the seen/CASEMAPPING barrier; Feed refuses peer/short/malformed
+# welcomes when called directly (replay/demo/fold).
+def welcome_nick(+nick: String) -> Bool:
+  Commands.word(nick) && Bool.not(Irc.starts_channel(nick)
+    || String.contains(nick, "*") || String.contains(nick, ",")
+    || String.contains(nick, "!") || String.contains(nick, "@")
+    || String.contains(nick, ":"))
+
+def welcome_admit(+prefix: String, +m: Irc.Message) -> Bool:
+  CapNotify.server_source(prefix)
+    && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n)
+    && welcome_nick(Irc.proto_atom(Irc.msg_param(m, 0n)))
+    && Bool.not(String.is_empty(Irc.msg_param(m, 1n)))
+
+def feed_n001.nick(admitted: Bool, +cl: Cl.Client, +nick: String) -> Cl.Client:
+  match admitted:
+    case True{}: Cl.set_nick(cl, nick)
+    case False{}: cl
+
+def feed_n001(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
+  # W3: identity adoption normalizes via the shared proto_atom seam;
+  # the logged welcome body keeps its raw bytes even when nick is refused.
+  +nick = Irc.proto_atom(Irc.msg_param(m, 0n))
+  Cl.client_log(feed_n001.nick(welcome_admit(prefix, m), cl, nick), 0n, Cl.System{}, Irc.msg_param(m, 1n))
+
+def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
   match k:
     case N001{}:
-      # W3: identity adoption normalizes via the shared proto_atom seam;
-      # the logged welcome body keeps its raw bytes.
-      Cl.client_log(Cl.set_nick(cl, Irc.proto_atom(Irc.msg_param(m, 0n))), 0n, Cl.System{}, Irc.msg_param(m, 1n))
+      feed_n001(cl, prefix, m)
     case N332{}:
       feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
     case N353{}:
@@ -739,10 +763,10 @@ def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message, +num: U32, k
     case NOther{}:
       feed_num.other_reply(cl, m, num)
 
-def feed_numeric_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
+def feed_numeric_with(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Message) -> Cl.Client:
   match m:
     case Irc.Message{_, _, _, +num, _}:
-      feed_num_with.by(cl, isc, m, num, num_kind(num_rows(), num))
+      feed_num_with.by(cl, isc, prefix, m, num, num_kind(num_rows(), num))
 
 def feed_mode.got(+cl: Cl.Client, +from: String, +ps: List<&2, String>, found: Maybe<&2, Nat>) -> Cl.Client:
   match found:
@@ -874,7 +898,7 @@ def feed_msg_with.cmd(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Mes
     case Irc.Mode{}:
       feed_mode(cl, m)
     case Irc.Numeric{_}:
-      feed_numeric_with(cl, isc, m)
+      feed_numeric_with(cl, isc, prefix, m)
     case Irc.Cap{}:
       cl
     case Irc.Tagmsg{}:

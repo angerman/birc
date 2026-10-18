@@ -108,17 +108,29 @@ def valid_config(mode: Cl.AuthMode, +prefix: String, +success: String) -> Bool:
 def credentials_valid(+cl: Cl.Client) -> Bool:
   Cl.client_has_credentials(cl) && secret_clean(Cl.client_sasl_user(cl)) && secret_clean(Cl.client_sasl_pass(cl))
 
+# Credential scope is exact host spelling plus live port equality (AGENTS).
+def binding_port.config(config: Cl.AuthConfig) -> U32:
+  match config:
+    case Cl.AuthDisabled{}: 0
+    case Cl.AuthConfig{_, _, port, _, _}: port
+
+def binding_port(+cl: Cl.Client) -> U32:
+  binding_port.config(Cl.client_auth_config(cl))
+
+def endpoint_bound(+host: String, +port: U32, +cl: Cl.Client, +live_port: U32) -> Bool:
+  String.eq(host, Cl.server_of(cl)) && U32.is_eq(port, live_port)
+    && U32.is_gt(port, 0) && U32.is_le(port, 65535)
+
 # A configured credential profile gates channel recovery, even when its current
 # exchange fails. A past success must never stand in for this connection's one.
-def join_required.config(config: Cl.AuthConfig, +cl: Cl.Client) -> Bool:
+def join_required.config(config: Cl.AuthConfig, +cl: Cl.Client, +live_port: U32) -> Bool:
   match config:
     case Cl.AuthDisabled{}: False{}
     case Cl.AuthConfig{_, host, +port, _, _}:
-      Cl.client_has_credentials(cl) && String.eq(host, Cl.server_of(cl))
-        && U32.is_gt(port, 0) && U32.is_le(port, 65535)
+      Cl.client_has_credentials(cl) && endpoint_bound(host, port, cl, live_port)
 
-def join_required(+cl: Cl.Client) -> Bool:
-  join_required.config(Cl.client_auth_config(cl), cl)
+def join_required(+cl: Cl.Client, +live_port: U32) -> Bool:
+  join_required.config(Cl.client_auth_config(cl), cl, live_port)
 
 def identify_line(+cl: Cl.Client) -> String:
   "PRIVMSG " ++ Cl.client_auth_service(cl) ++ " :IDENTIFY " ++ Cl.client_sasl_user(cl) ++ " " ++ Cl.client_sasl_pass(cl)
@@ -233,20 +245,20 @@ def step_for.allowed(ok: Bool, +cl: Cl.Client, config: Cl.AuthConfig, mode: Cl.A
     case False{}: unchanged(Cl.get_auth(cl))
     case True{}: step_for.phase(Cl.get_auth(cl), config, mode, cl, prefix, m)
 
-def step_for.config(config: Cl.AuthConfig, +cl: Cl.Client, prefix: String, m: Irc.Message) -> Reply:
+def step_for.config(config: Cl.AuthConfig, +cl: Cl.Client, +live_port: U32, prefix: String, m: Irc.Message) -> Reply:
   match config:
     case Cl.AuthDisabled{}: unchanged(Cl.get_auth(cl))
     case Cl.AuthConfig{+mode, +host, +port, +wanted, +success}:
-      step_for.allowed(String.eq(host, Cl.server_of(cl)) && U32.is_gt(port, 0) && U32.is_le(port, 65535)
+      step_for.allowed(endpoint_bound(host, port, cl, live_port)
         && valid_config(mode, wanted, success) && credentials_valid(cl), cl, Cl.AuthConfig{mode, host, port, wanted, success}, mode, prefix, m)
 
-def step_for.parsed(+cl: Cl.Client, prefix: String, m: Maybe<&2, Irc.Message>) -> Reply:
+def step_for.parsed(+cl: Cl.Client, +live_port: U32, prefix: String, m: Maybe<&2, Irc.Message>) -> Reply:
   match m:
     case None{}: unchanged(Cl.get_auth(cl))
-    case Some{msg}: step_for.config(Cl.client_auth_config(cl), cl, prefix, msg)
+    case Some{msg}: step_for.config(Cl.client_auth_config(cl), cl, live_port, prefix, msg)
 
-def step_for(+cl: Cl.Client, +line: String) -> Reply:
-  step_for.parsed(cl, Irc.source_prefix(line), Irc.parse(line))
+def step_for(+cl: Cl.Client, +line: String, +live_port: U32) -> Reply:
+  step_for.parsed(cl, live_port, Irc.source_prefix(line), Irc.parse(line))
 
 # Suppress only the trusted identity probe and exact confirmation controls.
 # Submit owns the shared automatic/manual credential self-echo classifier.

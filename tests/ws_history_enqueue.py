@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Full worker channel must sync-append; accepted enqueue must not drop bytes."""
+"""Full worker channel must sync-append; accepted enqueue must not drop bytes.
+Sync-append failure must keep the extract baseline (unsaved IDs retry)."""
 import subprocess
 import sys
 import tempfile
@@ -33,5 +34,13 @@ with tempfile.TemporaryDirectory(prefix="birc-ws-hist-enq-") as directory:
     lines = run(missing, "missing")
     assert lines == ["save=ok"], lines
     assert missing.read_text() == "sync-only\n", missing.read_text()
+
+    # Regular file as parent → open of child path fails closed.
+    blocker = root / "not-a-dir"
+    blocker.write_text("x")
+    bad = blocker / "child.log"
+    lines = run(bad, "syncfail")
+    assert lines == ["delta=yes", "failed=yes", "baseline=yes", "retry=yes"], lines
+    assert not bad.exists(), "failed sync append must not create the child"
 
 print("ws_history_enqueue=ok")
