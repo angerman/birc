@@ -177,15 +177,13 @@ def cap_recipient_name_ok(+recipient: String, +nick: String, registered: Bool) -
 def cap_recipient_ok(+m: Irc.Message, +nick: String, registered: Bool) -> Bool:
   cap_recipient_name_ok(Irc.msg_param(m, 0n), nick, registered)
 
-# Source validation mirrors Auth.server_source through the shared
-# Endpoint.host_ok primitive: single-label and dotted servers alike are
-# well-formed (RFC 2812); URLs, delimiters, and empty labels fail. (auth.bend
-# already depends on this module for CAP END, so the shared piece is the
-# Endpoint primitive, not the module.) Peer binding stays at the transport
-# and endpoint scope, not in this name. server remains in the signature for
-# the integrator's endpoint scope; the trust decision is the host validation.
+# Source validation shares Endpoint.server_source with Auth: single-label and
+# dotted servers alike are well-formed (RFC 2812); URLs, delimiters, empty
+# prefixes, and empty labels fail. Peer binding stays at the transport and
+# endpoint scope, not in this name. server remains in the signature for the
+# integrator's endpoint scope; the trust decision is the host validation.
 def server_source(+prefix: String) -> Bool:
-  Endpoint.host_ok(prefix)
+  Endpoint.server_source(prefix)
 
 def cap_trusted(+prefix: String, +server: String, +nick: String, +m: Irc.Message, registered: Bool) -> Bool:
   server_source(prefix) && cap_recipient_ok(m, nick, registered)

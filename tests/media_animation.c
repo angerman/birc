@@ -81,8 +81,18 @@ static int playback(TimuiImageProtocol protocol, uint32_t loops) {
     CHECK(contains(&test, "R0lGODlh")); /* GIF, not the first PNG */
     CHECK(!contains(&test, "a=f"));
     test.size = 0;
+    /* iTerm2 paints into cells: identical placement must re-emit, not skip. */
     CHECK(timui_begin(ui, &frame)); timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
-    CHECK(test.size == 0); /* unchanged: skip base64 re-emit */
+    CHECK(contains(&test, "1337;File="));
+    CHECK(test.size > 0);
+  } else if (protocol == TIMUI_IMAGE_PROTOCOL_SIXEL) {
+    /* Sixel also paints into cells; warm identical frames must re-emit. */
+    size_t first = test.size;
+    CHECK(first > 0);
+    CHECK(!contains(&test, "a=f") && !contains(&test, "1337;File="));
+    test.size = 0;
+    CHECK(timui_begin(ui, &frame)); timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
+    CHECK(test.size > 0);
   } else {
     CHECK(!contains(&test, "a=f") && !contains(&test, "1337;File="));
   }
@@ -156,6 +166,47 @@ static int png_kind_only(void) {
   CHECK(!image->animation); timui_image_free(NULL, image);
   return 0;
 }
+
+/* Cell rewrite under an iTerm2/Sixel image erases pixels; restoring the same
+ * placement must emit image bytes again. full_redraw must also force re-emit. */
+static int reemit_after_cell_rewrite(TimuiImageProtocol protocol) {
+  Test test = {0}; Timui *ui = NULL; TimuiFrame *frame;
+  TimuiTransport transport = {write_bytes, read_bytes, flush, close_bytes, &test};
+  TimuiAllocator allocator = {&test, allocate, resize, release};
+  unsigned char rgba[4] = {255,0,0,255};
+  TimuiImage *image;
+  TimuiStyle style = timui_style_make(TIMUI_COLOR_DEFAULT, TIMUI_COLOR_DEFAULT, 0);
+  const char *marker = protocol == TIMUI_IMAGE_PROTOCOL_ITERM2 ? "1337;File=" : NULL;
+  CHECK(protocol == TIMUI_IMAGE_PROTOCOL_ITERM2 ||
+        protocol == TIMUI_IMAGE_PROTOCOL_SIXEL);
+  CHECK(timui_open_for_test(&ui, transport, 20, 10, &allocator) == TIMUI_OK);
+  test.allowance = sizeof test.bytes;
+  timui_force_image_protocol(ui, protocol);
+  protocol = timui_image_protocol(ui);
+  image = timui_image_from_png_rgba(ui, png, sizeof png, rgba, 1, 1, 4); CHECK(image);
+  CHECK(timui_begin(ui, &frame));
+  timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
+  CHECK(test.size > 0);
+  if (marker) CHECK(contains(&test, marker));
+  test.size = 0;
+  CHECK(timui_begin(ui, &frame));
+  timui_label(frame, 1, 1, (TimuiStr){"X", 1}, style); /* overwrite covered cell */
+  timui_end(frame);
+  test.size = 0;
+  CHECK(timui_begin(ui, &frame));
+  timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
+  CHECK(test.size > 0);
+  if (marker) CHECK(contains(&test, marker));
+  test.size = 0;
+  timui_full_redraw(ui);
+  CHECK(timui_begin(ui, &frame));
+  timui_image_draw(frame, image, (TimuiRect){1,1,3,2}); timui_end(frame);
+  CHECK(test.size > 0);
+  if (marker) CHECK(contains(&test, marker));
+  timui_image_free(ui, image); timui_close(ui); CHECK(test.live == 0);
+  return 0;
+}
+
 int main(void) {
   CHECK(playback(TIMUI_IMAGE_PROTOCOL_KITTY, 0) == 0);
   CHECK(playback(TIMUI_IMAGE_PROTOCOL_KITTY, 2) == 0);
@@ -164,8 +215,11 @@ int main(void) {
   CHECK(playback(TIMUI_IMAGE_PROTOCOL_NONE, 0) == 0);
 #ifndef TIMUI_NO_IMAGES
   CHECK(partial_retry() == 0);
+  CHECK(reemit_after_cell_rewrite(TIMUI_IMAGE_PROTOCOL_ITERM2) == 0);
+  CHECK(reemit_after_cell_rewrite(TIMUI_IMAGE_PROTOCOL_SIXEL) == 0);
 #else
   (void)partial_retry;
+  (void)reemit_after_cell_rewrite;
 #endif
   CHECK(clipping(TIMUI_IMAGE_PROTOCOL_KITTY) == 0);
   CHECK(clipping(TIMUI_IMAGE_PROTOCOL_ITERM2) == 0);

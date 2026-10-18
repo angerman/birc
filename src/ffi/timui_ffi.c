@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -652,7 +653,9 @@ static size_t birc_clip_cols(const char *s, size_t n, int x, int maxx, int *out_
 #endif
 /* Encode a Bend String into bu->paint_buf (length-bounded). Returns 1 and
  * sets *out / *out_n on success. Falls back to io_cstr when the term is not
- * an SCon chain (unit-test stubs) — caller frees only in that path. */
+ * an SCon chain (unit-test stubs) — caller frees only in that path. On any
+ * allocation failure: *out="", *out_n=0, return 0 so callers that ignore the
+ * status still pass a zero-length span. */
 static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *out_n,
                          char **owned) {
   size_t n = 0;
@@ -663,10 +666,18 @@ static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *ou
   if (!bu) {
     u64 len = 0;
     char *heap = io_cstr(e, s, &len);
+    if (!heap) {
+      /* Empty source may omit an allocation; nonzero len without bytes is OOM. */
+      return len == 0;
+    }
+    if (len > (u64)SIZE_MAX) {
+      free(heap);
+      return 0;
+    }
     *owned = heap;
-    *out = heap ? heap : "";
+    *out = heap;
     *out_n = (size_t)len;
-    return heap != NULL || len == 0;
+    return 1;
   }
   aux = term_aux(s);
   if (CID_SCON != 0u && (aux == CID_SCON || aux == CID_SNIL)) {
@@ -684,6 +695,8 @@ static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *ou
         next = (char *)realloc(bu->paint_buf, need);
         if (!next) {
           spare_free(e, cls_fit(2), sp);
+          *out = "";
+          *out_n = 0;
           return 0;
         }
         bu->paint_buf = next;
@@ -696,7 +709,11 @@ static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *ou
     }
     if (bu->paint_cap == 0) {
       bu->paint_buf = (char *)malloc(1);
-      if (!bu->paint_buf) return 0;
+      if (!bu->paint_buf) {
+        *out = "";
+        *out_n = 0;
+        return 0;
+      }
       bu->paint_cap = 1;
     }
     bu->paint_buf[n] = '\0';
@@ -707,8 +724,21 @@ static int birc_draw_str(Env e, Term s, BircUi *bu, const char **out, size_t *ou
   {
     u64 len = 0;
     char *heap = io_cstr(e, s, &len);
+    if (!heap) {
+      *owned = NULL;
+      *out = "";
+      *out_n = 0;
+      return len == 0;
+    }
+    if (len > (u64)SIZE_MAX) {
+      free(heap);
+      *owned = NULL;
+      *out = "";
+      *out_n = 0;
+      return 0;
+    }
     *owned = heap;
-    *out = heap ? heap : "";
+    *out = heap;
     *out_n = (size_t)len;
     return 1;
   }

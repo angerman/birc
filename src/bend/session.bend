@@ -3160,13 +3160,8 @@ def dir_down(dir: HistDir) -> Bool:
 
 # Wire/history keep raw shortcodes. Explicit Tab/Right accept commits glyphs
 # via compose_accept; ordinary typed frames must not auto-rewrite the draft.
-def finish_keys.typed(dir: HistDir, +draft: String) -> String:
-  match dir:
-    case HistStay{}: draft
-    case _: draft
-
 def finish_keys.plain(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
-  finish_keys.shown(hist_move(hist, finish_keys.typed(hdir, draft), hdir), st, cl, cmd, halt_of(enter, typed), seed_of(hdir), comp, split, prev)
+  finish_keys.shown(hist_move(hist, draft, hdir), st, cl, cmd, halt_of(enter, typed), seed_of(hdir), comp, split, prev)
 
 def pick_len.on(slash: Bool, +draft: String) -> Nat:
   match slash:

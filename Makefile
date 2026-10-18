@@ -584,6 +584,8 @@ test-upload-session: $(BLDDIR)/upload_session ## Session consent, ordinary draft
 test-composer-help: $(BLDDIR)/composer_help ## Composer ghost/menu; typed shortcodes stay raw; Tab/Right accept glyphs.
 	$(NIXRUN) sh scripts/check-golden.sh composer_help=ok timeout 30 ./$(BLDDIR)/composer_help
 
+test-review-pure: test-composer-help
+
 .PHONY: test-upload-dispatch
 test-upload-dispatch: $(BLDDIR)/upload_dispatch ## Unknown slash commands keep priority over ambiguous local drops.
 	$(NIXRUN) sh scripts/check-golden.sh upload_dispatch=ok timeout 15 ./$(BLDDIR)/upload_dispatch
@@ -636,6 +638,10 @@ test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagn
 
 test-history-save-errors: $(BLDDIR)/history_save_errors ## Surface failed history saves; preserve successful, empty, and disabled writes.
 	$(NIXRUN) timeout 30 python3 tests/history_save_errors.py ./$(BLDDIR)/history_save_errors
+
+.PHONY: test-ws-history-enqueue
+test-ws-history-enqueue: $(BLDDIR)/ws_history_enqueue ## Full HistJob channel sync-appends; accepted offers never drop.
+	$(NIXRUN) timeout 60 python3 tests/ws_history_enqueue.py ./$(BLDDIR)/ws_history_enqueue
 
 test-reader-errors: $(BLDDIR)/reader_errors ## Socket-read failure, orderly EOF, and no-data branch controls.
 	$(NIXRUN) sh scripts/check-golden.sh reader_errors=ok timeout 15 ./$(BLDDIR)/reader_errors
@@ -804,11 +810,11 @@ test-m20-media: $(BLDDIR)/m20_media ## Bend retained image tokens for refresh, c
 
 test-m20-native: ## Complete large selection and native payload ownership follow Bend policy.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache; do timeout 60 $$CC -std=c11 -O0 -Werror=vla -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$$guard; sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$$guard; done'
+	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache ghost_width; do timeout 60 $$CC -std=c11 -O0 -Werror=vla -Wall -Wextra -Werror -pthread -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$$guard; sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$$guard; done'
 
 test-m20-native-ubsan: ## UBSan: large-cluster selection and payload-retention boundaries.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Werror=vla -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
+	$(NIXRUN) sh -c 'set -eu; for guard in m20_selection m20_media_cache ghost_width; do timeout 60 $$CC -std=c11 -O0 -g -fno-omit-frame-pointer -Werror=vla -Wall -Wextra -Werror -pthread -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc/ui -Isrc/ffi tests/$$guard.c -o $(BLDDIR)/$${guard}_ubsan; UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh $$guard=ok timeout 15 ./$(BLDDIR)/$${guard}_ubsan; done'
 
 test-m20: test-build-deadlines test-m20-state test-m20-media test-m20-native ## Fresh deep-review correctness and cleanup gates.
 test-m20: test-dns-validation test-cli-diagnostics test-ui-review-columns test-ui-review-widgets test-png-16bit-oom
@@ -991,6 +997,12 @@ test: test-pty-auth
 
 test-state: $(BLDDIR)/state_demo ## Bounded logging and structural state regressions.
 	$(NIXRUN) sh scripts/check-golden.sh state_demo=ok ./$(BLDDIR)/state_demo
+
+.PHONY: test-buffer-spines
+test-buffer-spines: $(BLDDIR)/buffer_spines ## Dual-spine Buffer invariant and structural view_same.
+	$(NIXRUN) sh scripts/check-golden.sh buffer_spines=ok timeout 15 ./$(BLDDIR)/buffer_spines
+
+test-review-pure: test-buffer-spines
 
 .PHONY: test-state-review test-state-review-identity test-state-review-send test-state-review-history
 test-state-review: test-state-review-identity test-state-review-send test-state-review-history ## Canonical targets, exact outgoing echoes, recent restores, and close/focus transitions.
@@ -1392,7 +1404,7 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 .PHONY: test-png-bounds test-png-bounds-ubsan
 
 test-review-pure: test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-errors test-links test-link-commands test-session-links test-wrap test-columns-width test-scroll test-scroll-edits test-dns-tcp test-socket-deadline test-actor test-actor-queue test-startup-actor test-ui-input-queue test-demo-identity test-output-utf8 test-output-shutdown test-output-progress test-png-bounds test-mute-scope test-action-budget test-richtext-model test-split-rename test-formatting test-theme test-media-image ## Adversarial review regression gates.
-test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
+test-review-pure: test-media-policy test-media-view test-media-anchor test-media-branches test-viewport-tail test-media-native test-media-portable test-diagnostic test-server-time test-history-save-errors test-ws-history-enqueue test-reader-errors test-clipboard-errors test-pty-deadlines test-view-profile test-input-wake
 test-review-pure: test-state-review test-runtime-review test-ui-review-native test-ui-review-view test-ui-review-output test-wire-style
 test-review-pure: test-m20
 

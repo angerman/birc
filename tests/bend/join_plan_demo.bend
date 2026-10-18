@@ -46,13 +46,18 @@ def auth_controls() -> IO(Unit):
   +cl = Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6667, "", "", "account", "secret")
   +waiting = P.received(P.reset(P.initial("#start"), cl), cl, ":irc.example 001 me :welcome")
   +held = flushed(P.flush(waiting, cl))
+  +failed_cl = Cl.set_auth(cl, Cl.AuthDone{})
+  +ok_cl = Cl.advance_auth_success(Cl.set_auth(cl, Cl.AuthDone{}))
   do IO<Unit>:
     Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
     Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
-    Unit <- E.must_eq("repeat wait is silent", notice(P.flush(held, cl)), "quiet")
-    Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), "failed")
-    Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), "")
-    Unit <- E.must_eq("repeat auth failure is silent", notice(P.flush(flushed(P.flush(held, Cl.set_auth(cl, Cl.AuthDone{}))), Cl.set_auth(cl, Cl.AuthDone{}))), "quiet")
+    Unit <- E.must_eq("bare 001 stays held not failed", notice(P.flush(held, cl)), "quiet")
+    Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, failed_cl)), "failed")
+    Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, failed_cl)), "")
+    Unit <- E.must_eq("repeat auth failure is silent", notice(P.flush(flushed(P.flush(held, failed_cl)), failed_cl)), "quiet")
+    Unit <- E.must_eq("auth success releases joins", lines(P.flush(held, ok_cl)), "JOIN #start")
+    Unit <- E.must_eq("auth success is quiet", notice(P.flush(held, ok_cl)), "quiet")
+    Unit <- E.must_eq("AuthDone with success_seq is not failure", notice(P.flush(held, ok_cl)), "quiet")
     IO.pure(Unit, Unit{})
 
 def key_controls() -> IO(Unit):

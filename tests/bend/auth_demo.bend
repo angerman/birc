@@ -4,6 +4,9 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/irc.bend as Irc
+import ../../src/bend/auth.bend as Auth
+import ../../src/bend/cap_notify.bend as CapNotify
+import ../../src/bend/endpoint.bend as Ep
 
 def credentials() -> Cl.Client:
   Cl.client_set_sasl(Cl.init("me", "s"), "user", "pass")
@@ -51,4 +54,10 @@ def main() -> IO(Unit):
     Unit <- E.must("reconnected_no_credentials", String.is_empty(reconnect_exchange(Sess.fold_lines(Cl.init("me", "s"), ":s 001 me :welcome" <> Nil{}), True{})))
     Unit <- E.must("valid_rejection", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me NAK :sasl" <> Nil{})), "CAP END"))
     Unit <- E.must("valid_failure", String.eq(outs(Sess.fold_lines(credentials(), ":s CAP me ACK :sasl" <> ":s 904 me :failed" <> Nil{})), "AUTHENTICATE PLAINCAP END"))
+    Unit <- E.must("empty_prefix_auth_fail_closed", Bool.not(Auth.server_source("")))
+    Unit <- E.must("empty_prefix_cap_fail_closed", Bool.not(CapNotify.server_source("")))
+    Unit <- E.must("empty_prefix_endpoint_fail_closed", Bool.not(Ep.server_source("")))
+    Unit <- E.must("empty_prefix_auth_cap_agree", Bool.and(Bool.not(Auth.server_source("")), Bool.not(CapNotify.server_source(""))))
+    Unit <- E.must("host_prefix_auth_cap_agree", Bool.and(Auth.server_source("irc.example"), CapNotify.server_source("irc.example")))
+    Unit <- E.must("empty_cap_ack_rejected", String.is_empty(outs(Sess.fold_lines(credentials(), "CAP me ACK :sasl" <> Nil{}))))
     IO.print("auth_demo=ok")

@@ -5558,6 +5558,10 @@ TIMUI_API void timui_full_redraw(Timui *ui) {
   if (!ui)
     return;
   timui_invalidate(ui);
+  /* iTerm2/Sixel images are cell pixels. A forced cell rewrite must not keep a
+   * stale placement snapshot that could withhold re-emission. */
+  ui->img_last_count = 0;
+  ui->img_last_protocol = TIMUI_IMAGE_PROTOCOL_NONE;
   if (!ui->have_buffers || !ui->prev.cells || ui->prev.w <= 0 ||
       ui->prev.h <= 0)
     return;
@@ -28306,7 +28310,9 @@ static int image_rect_same_(TimuiRect a, TimuiRect b);
 
 /* True when this frame's placements match the last completed emit and no
  * image still needs a protocol transmit. Kitty animation stays terminal-side
- * (a=a / a=f); unchanged warm frames skip delete/transmit/place entirely. */
+ * (a=a / a=f); unchanged Kitty warm frames skip delete/transmit/place.
+ * iTerm2/Sixel paint into cells, so this helper never reports unchanged for
+ * those protocols — a later cell rewrite would leave them erased. */
 static int image_placement_needs_tx_(TimuiImage *img, Timui *ui,
                                      TimuiImageProtocol protocol) {
   int slot;
@@ -28324,7 +28330,10 @@ static int image_placement_needs_tx_(TimuiImage *img, Timui *ui,
 
 static int image_placements_unchanged_(Timui *ui, TimuiImageProtocol protocol) {
   int i;
-  if (!ui || protocol != ui->img_last_protocol)
+  /* Only Kitty retains a compositor layer independent of cell writes. */
+  if (!ui || protocol != TIMUI_IMAGE_PROTOCOL_KITTY)
+    return 0;
+  if (protocol != ui->img_last_protocol)
     return 0;
   if (ui->img_place_count != ui->img_last_count)
     return 0;
@@ -28357,9 +28366,9 @@ static void image_placements_remember_(Timui *ui, TimuiImageProtocol protocol,
 }
 
 /* Transmit/place or emit every image recorded this frame, on top of the cell
- * diff. Kitty gets explicit placement lifecycle management; iTerm2 is a direct
- * inline image write with no placement ids or delete escape. Returns 1 when
- * any image bytes were accepted (cursor invalidate), 0 when skipped/idle. */
+ * diff. Kitty gets explicit placement lifecycle management and may skip an
+ * identical warm frame; iTerm2/Sixel always re-emit (cell content). Returns 1
+ * when any image bytes were accepted (cursor invalidate), 0 when skipped/idle. */
 static int timui_images_flush_(Timui *ui) {
   int i;
   int emitted = 0;
@@ -28372,7 +28381,7 @@ static int timui_images_flush_(Timui *ui) {
   scratch = image_allocator_(ui);
   protocol = timui_image_protocol(ui);
   if (image_placements_unchanged_(ui, protocol))
-    return 0; /* same protocol, ptrs, rects, and clean payloads */
+    return 0; /* Kitty only: same ptrs, rects, and clean payloads */
   if (ui->img_last_count > 0 &&
       ui->img_last_protocol == TIMUI_IMAGE_PROTOCOL_KITTY) {
     TimuiFrameOutcome_ deleted = kitty_delete_all_placements(&ui->transport);
@@ -28502,7 +28511,7 @@ static int timui_images_flush_(Timui *ui) {
         continue;
       rc = iterm2_emit_(&ui->transport, scratch, img, ui->img_place[i].rect);
       if (rc == TIMUI_FRAME_DONE) {
-        img->kitty_dirty = 0; /* content accepted; warm frames may skip */
+        img->kitty_dirty = 0; /* content accepted; next identical still re-emits */
         emitted++;
         wrote = 1;
         continue;

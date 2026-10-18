@@ -1598,8 +1598,28 @@ def rev_new(lines: List<&2, Cl.Line>, +acc: List<&2, Cl.Line>) -> List<&2, Cl.Li
 type Next is Data:
   Next{after: Nat, budget: Nat}
 
+# Newer walk result: painted rows plus whether the walk reached logical after=0,
+# even when that newest line emitted no rows (filtered JOIN/QUIT/mute).
+type NewerWalk is Data:
+  NewerWalk{rows: List<&2, AnchoredRow>, reached_newest: Bool}
+
+def newer_rows(walk: NewerWalk) -> List<&2, AnchoredRow>:
+  match walk:
+    case NewerWalk{+rows, _}: rows
+
+def newer_from.join(walk: NewerWalk, +head: List<&2, AnchoredRow>) -> NewerWalk:
+  match walk:
+    case NewerWalk{+more, +reached}:
+      NewerWalk{List.append(&2, AnchoredRow, head, more), reached}
+
+# Stop at the newest logical line once visited; otherwise continue for more rows.
+def newer_from.rest(at_newest: Bool, +head: List<&2, AnchoredRow>, +next: Next, k: Next -> NewerWalk) -> NewerWalk:
+  match at_newest:
+    case True{}: NewerWalk{head, True{}}
+    case False{}: newer_from.join(k(next), head)
+
 # `lines` is oldest-first, starting at the line just newer than the anchor.
-# Stop after `height` rows; a short buffer includes every newer line.
+# Stop after `height` rows or once the newest logical line is visited.
 def newer_from(
   stop: Bool,
   +h: Cl.Line,
@@ -1613,15 +1633,15 @@ def newer_from(
   +nicks: Bool,
   +server: String,
   +boxed: List<&2, PaintOpts>,
-  k: Next -> List<&2, AnchoredRow>
-) -> List<&2, AnchoredRow>:
+  k: Next -> NewerWalk
+) -> NewerWalk:
   match stop:
-    case True{}: Nil{}
+    case True{}: NewerWalk{Nil{}, False{}}
     case False{}:
       +body = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
       +n = List.length(&2, BodyRow, body)
-      List.append(&2, AnchoredRow, anchored_line(body, after, h),
-        k(Next{Nat.sub(after, 1n), Nat.sub(budget, Nat.min(budget, n))}))
+      newer_from.rest(Nat.is_eq(after, 0n), anchored_line(body, after, h),
+        Next{Nat.sub(after, 1n), Nat.sub(budget, Nat.min(budget, n))}, k)
 
 def newer_open(
   step: Next,
@@ -1634,8 +1654,8 @@ def newer_open(
   +nicks: Bool,
   +server: String,
   +boxed: List<&2, PaintOpts>,
-  k: Next -> List<&2, AnchoredRow>
-) -> List<&2, AnchoredRow>:
+  k: Next -> NewerWalk
+) -> NewerWalk:
   match step:
     case Next{+after, +budget}:
       newer_from(Nat.is_eq(budget, 0n), h, after, budget, name, w, show_ts, mutes, joins, nicks, server, boxed, k)
@@ -1652,18 +1672,19 @@ def newer_go(
   +nicks: Bool,
   +server: String,
   +boxed: List<&2, PaintOpts>
-) -> List<&2, AnchoredRow>:
+) -> NewerWalk:
   match fuel:
-    case 0n: Nil{}
+    case 0n: NewerWalk{Nil{}, False{}}
     case 1n+p:
       match lines:
-        case Nil{}: Nil{}
+        case Nil{}: NewerWalk{Nil{}, True{}}
         case Con{+h, t}:
           newer_open(step, h, name, w, show_ts, mutes, joins, nicks, server, boxed,
             next => newer_go(p, t, next, name, w, show_ts, mutes, joins, nicks, server, boxed))
 
-# Drop the newer prefix in place, then reverse only the screenful that can
-# affect this page. `height` here is a line budget, not a row budget.
+# Drop the newer prefix in place, then reverse the span the walk may visit.
+# Callers pass a line budget for paint windows; scroll passes `after` so the
+# walk can skip long hidden runs until `dn` rows or the newest line.
 def newer_start(wide: Bool, +after: Nat, +take: Nat) -> Nat:
   match wide:
     case True{}: Nat.sub(after, take)
@@ -1684,7 +1705,7 @@ def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2
     case False{}: older
     case True{}:
       List.append(&2, AnchoredRow, older,
-        newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height}, name, w, show_ts, mutes, joins, nicks, server, boxed))
+        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height}, name, w, show_ts, mutes, joins, nicks, server, boxed)))
 
 def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
   match past:
@@ -1855,21 +1876,33 @@ def shift_pick(snap: Bool, +at_top: Bool, +rows: List<&2, AnchoredRow>, +target:
     case False{}: shift_pick.zero(Nat.is_eq(target, 0n), at_top, rows, count, height, target)
 
 # Move by whole rows inside a window that contains the anchor line, `up`
-# older rows, and `dn` newer rows. Snap to the live tail only when that
-# window includes the newest line.
-def shift_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll, +up: Nat, +dn: Nat, +lines_n: Nat) -> Cl.Scroll:
+# older rows, and `dn` newer rows. Snap to the live tail when the newer walk
+# reached logical after=0, even if that line painted no rows.
+def shift_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll, +up: Nat, +dn: Nat, +lines_n: Nat, +reached_newest: Bool) -> Cl.Scroll:
   +count = List.length(&2, AnchoredRow, rows)
   +index = shift_len_of(rows, want)
   +target = Cl.clamp_nat(Nat.sub(Nat.add(index, dn), up), count)
-  shift_pick(Bool.and(shift_at_bottom(rows), Nat.is_eq(target, count)), shift_at_top(rows, lines_n), rows, target, count, height)
+  shift_pick(Bool.and(reached_newest, Nat.is_eq(target, count)), shift_at_top(rows, lines_n), rows, target, count, height)
 
-def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
-  List.append(&2, AnchoredRow,
-    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed),
-    newer_go(rev_tail_fuel(), newer_lines(newest, after, Nat.add(dn, 32n)), Next{newer_after(Nat.is_eq(after, 0n), after), dn}, name, w, show_ts, mutes, joins, nicks, server, boxed))
+def shift_anchor_of(walk: NewerWalk, +height: Nat, want: Cl.Scroll, +up: Nat, +dn: Nat, +lines_n: Nat) -> Cl.Scroll:
+  match walk:
+    case NewerWalk{+rows, +reached}:
+      shift_anchor(rows, height, want, up, dn, lines_n, reached)
+
+def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWalk:
+  match walk:
+    case NewerWalk{+newer, +reached}:
+      NewerWalk{List.append(&2, AnchoredRow, older, newer), reached}
+
+# Older `up` rows from the anchor, then newer rows until `dn` visible rows or
+# the newest logical line — fuel-bounded, not a hard dn+32 line cap.
+def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
+  scroll_rows.join(
+    newer_go(rev_tail_fuel(), newer_lines(newest, after, after), Next{newer_after(Nat.is_eq(after, 0n), after), dn}, name, w, show_ts, mutes, joins, nicks, server, boxed),
+    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed))
 
 def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
-  Cl.set_buf_anchor(b, shift_anchor(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll, up, dn, count))
+  Cl.set_buf_anchor(b, shift_anchor_of(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll, up, dn, count))
 
 def scroll_buf_media.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> Cl.Buffer:
   +lines = media_display_lines(name, topic, raw, media)

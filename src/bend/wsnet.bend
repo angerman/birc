@@ -1161,22 +1161,47 @@ def hist_worker(+jobs: Chan(HistJob), +main: Chan(WsMsg)) -> IO(Unit):
     g : Maybe<&1, HistJob> <- Chan.recv(HistJob, jobs)
     hist_worker.recv(g, main, job => hist_worker.got(job, main, _ => hist_worker(jobs, main)))
 
-def ws_history.enqueue_poll(p: Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob>) -> Unit:
-  match p:
-    case Ready{_}: Unit{}
-    case Wait{_}: Unit{}
+# try_send Ready means the channel owns the bytes; Wait/Fail means not accepted.
+def ws_history.enqueue_ready(r: Result<&1, &1, HistJob, Unit>) -> Bool:
+  match r:
+    case Done{_}: True{}
+    case Fail{_}: False{}
 
-# Coalesce: try_send 0ms; Wait (full/timeout) drops the job so the UI never parks.
-def ws_history.enqueue(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Unit):
+def ws_history.enqueue_poll(p: Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob>) -> Bool:
+  match p:
+    case Ready{r}: ws_history.enqueue_ready(r)
+    case Wait{_}: False{}
+
+# Non-blocking offer. True = worker channel accepted the job. False = full,
+# closed, or missing channel — caller must sync-append or report failure.
+# Never treat Wait as success: that permanently advances the save baseline
+# while discarding the HistJob (BIRC2 gaps).
+def ws_history.enqueue(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Bool):
   match have:
-    case False{}: IO.pure(Unit, Unit{})
+    case False{}: IO.pure(Bool, True{})
     case True{}:
       match jobs:
-        case None{}: IO.pure(Unit, Unit{})
+        case None{}: IO.pure(Bool, False{})
         case Some{+ch}:
-          do IO<Unit>:
+          do IO<Bool>:
             p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, data}, 0)
             return ws_history.enqueue_poll(p)
+
+# Enqueue when the worker has capacity; otherwise append on the UI task so
+# unaccepted bytes are never dropped. A channel-accepted job yields None
+# here; the worker posts WsHistDiag only if its later write fails.
+def ws_history.write_accepted(accepted: Bool, +path: String, +data: String) -> IO(Maybe<&2, String>):
+  match accepted:
+    case True{}: IO.pure(Maybe<&2, String>, None{})
+    case False{}: HistIO.history_append_file(path, data)
+
+def ws_history.write(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String) -> IO(Maybe<&2, String>):
+  match have:
+    case False{}: IO.pure(Maybe<&2, String>, None{})
+    case True{}:
+      do IO<Maybe<&2, String>>:
+        accepted : Bool <- ws_history.enqueue(True{}, jobs, path, data)
+        ws_history.write_accepted(accepted, path, data)
 
 def ws_history.have_jobs(jobs: Maybe<&2, Chan(HistJob)>) -> Bool:
   match jobs:
@@ -1195,8 +1220,8 @@ def ws_history.async_go(queued: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: St
   match queued:
     case True{}:
       do IO<W.Workspace & Bool & WsHot>:
-        Unit <- ws_history.enqueue(Bool.not(String.is_empty(data)), jobs, path, data)
-        return (new_ws, (False{}, hot))
+        notice : Maybe<&2, String> <- ws_history.write(Bool.not(String.is_empty(data)), jobs, path, data)
+        return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), hot)
     case False{}:
       do IO<W.Workspace & Bool & WsHot>:
         notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
@@ -1226,14 +1251,15 @@ def ws_history.reload_pending(load: Bool, +ticket: Nat) -> Maybe<&2, Nat>:
     case True{}: Some{ticket}
     case False{}: None{}
 
-# Mid-session endpoint change: enqueue the append, spawn Archive (history_startup_io)
-# for HistoryLoaded, and return without File.open on the UI task.
-def ws_history.changed_async(queued: Bool, +load: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+# Mid-session endpoint change: sync append (save-before-load), then spawn
+# Archive for HistoryLoaded. Async enqueue raced the archive reader and
+# could drop the final old-endpoint rows when the worker queue was full.
+def ws_history.changed_async(queued: Bool, +load: Bool, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   +ticket = ws_history.reload_ticket(cl)
   do IO<W.Workspace & Bool & WsHot>:
-    Unit <- ws_history.enqueue(Bool.and(queued, Bool.not(String.is_empty(data))), jobs, path, data)
+    notice : Maybe<&2, String> <- HistIO.history_append_file.check(Bool.not(queued) || String.is_empty(path) || String.is_empty(data), path, data)
     Unit <- ws_history.reload_spawn(load, ticket, gen, path, new_ep, cap, cl, evt)
-    return (new_ws, (False{}, ws_hot.with_reload(hot, ws_history.reload_pending(load, ticket))))
+    return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected), ws_hot.with_reload(hot, ws_history.reload_pending(load, ticket)))
 
 def ws_history.changed_sync(+path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
   do IO<W.Workspace & Bool & WsHot>:
@@ -1241,17 +1267,17 @@ def ws_history.changed_sync(+path: String, +data: String, +new_ws: W.Workspace, 
     got : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), new_ws, affected, path, old_ep, new_ep, cap, allowed)
     return ws_history.async_noted(got, hot)
 
-def ws_history_save.branch.changed(have: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
+def ws_history_save.branch.changed(have: Bool, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match have:
     case True{}:
-      ws_history.changed_async(enabled, allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(cl)), jobs, path, data, new_ws, affected, cap, new_ep, gen, evt, hot, cl)
+      ws_history.changed_async(enabled, allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(cl)), path, data, new_ws, affected, cap, new_ep, gen, evt, hot, cl)
     case False{}:
       ws_history.changed_sync(path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, hot)
 
 def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match changed:
     case True{}:
-      ws_history_save.branch.changed(ws_history.have_jobs(jobs), jobs, path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
+      ws_history_save.branch.changed(ws_history.have_jobs(jobs), path, data, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
     case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), jobs, path, data, new_ws, affected, hot)
 
 def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +new_st: Sess.Session, +old_ep: String, +new_ep: String, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):

@@ -180,6 +180,32 @@ def buf_indexed(+name: String, +is_channel: Bool, +topic: String, +lines: List<&
 def buf_with_scroll(+name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>, +count: Nat) -> Buffer:
   Buffer{name, ch, topic, lines, nicks, scroll, newest, count}
 
+# Nick/topic/name edits keep both line spines and count untouched.
+def buf_with_meta(+b: Buffer, +name: String, +ch: Bool, +topic: String, +nicks: List<&2, String>) -> Buffer:
+  match b:
+    case Buffer{_, _, _, +lines, _, +scroll, +newest, +count}:
+      Buffer{name, ch, topic, lines, nicks, scroll, newest, count}
+
+def spine_ids_eq(+a: List<&2, Line>, +b: List<&2, Line>) -> Bool:
+  match a:
+    case Nil{}:
+      match b:
+        case Nil{}: True{}
+        case _: False{}
+    case Con{Line{_, _, _, _, id_a}, ta}:
+      match b:
+        case Nil{}: False{}
+        case Con{Line{_, _, _, _, id_b}, tb}:
+          Nat.is_eq(id_a, id_b) && spine_ids_eq(ta, tb)
+
+# newest must be reverse(lines) and count must be their length.
+def buf_spines_ok(+b: Buffer) -> Bool:
+  match b:
+    case Buffer{_, _, _, +lines, _, _, +newest, +count}:
+      Nat.is_eq(count, List.length(&2, Line, lines))
+        && Nat.is_eq(count, List.length(&2, Line, newest))
+        && spine_ids_eq(newest, List.reverse(&2, Line, lines))
+
 type AlertLevel is Data:
   Activity{}
   Mention{}
@@ -1576,12 +1602,11 @@ def nick_has(+b: Buffer, +nick: String) -> Bool:
 
 def nick_add.keep(+b: Buffer, skip: Bool, +nick: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+    case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
       match skip:
-        case True{}:
-          buf_indexed(name, ch, topic, lines, nicks, scroll)
+        case True{}: b
         case False{}:
-          buf_indexed(name, ch, topic, lines, List.append(&2, String, nicks, nick <> Nil{}), scroll)
+          buf_with_meta(b, name, ch, topic, List.append(&2, String, nicks, nick <> Nil{}))
 
 def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
   match xs:
@@ -1592,8 +1617,8 @@ def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
 
 def nick_del(+b: Buffer, +raw: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
-      buf_indexed(name, ch, topic, lines, nick_del.go(nicks, nick_strip(raw)), scroll)
+    case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
+      buf_with_meta(b, name, ch, topic, nick_del.go(nicks, nick_strip(raw)))
 
 def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
   match xs:
@@ -1604,8 +1629,8 @@ def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2,
 
 def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
-      buf_indexed(name, ch, topic, lines, nick_rename.go(nicks, nick_strip(from), nick_strip(to)), scroll)
+    case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
+      buf_with_meta(b, name, ch, topic, nick_rename.go(nicks, nick_strip(from), nick_strip(to)))
 
 def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
   match xs:
@@ -1616,8 +1641,8 @@ def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2,
 
 def nick_del_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
-      buf_indexed(name, ch, topic, lines, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)), scroll)
+    case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
+      buf_with_meta(b, name, ch, topic, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)))
 
 def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
   match xs:
@@ -1628,20 +1653,16 @@ def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: Str
 
 def nick_rename_cm(+b: Buffer, +cm: String, +sigils: String, +from: String, +to: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
-      buf_indexed(name, ch, topic, lines, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)), scroll)
+    case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
+      buf_with_meta(b, name, ch, topic, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)))
 
 def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buffer:
   match b:
-    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+    case Buffer{_, _, _, _, +nicks, _, _, _}:
       match empty:
-        case True{}:
-          buf_indexed(name, ch, topic, lines, nicks, scroll)
+        case True{}: b
         case False{}:
-          nick_add.keep(
-            buf_indexed(name, ch, topic, lines, nicks, scroll),
-            nick_has_cm(buf_indexed(name, ch, topic, lines, nicks, scroll), cm, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()),
-            nick)
+          nick_add.keep(b, nick_has_cm(b, cm, nick) || Nat.is_ge(List.length(&2, String, nicks), MAX_NICKS()), nick)
 
 def nick_add_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
   +n = nick_strip_set(sigils, raw)
@@ -1677,8 +1698,8 @@ def nick_add_all(+b: Buffer, +ns: List<&2, String>) -> Buffer:
 
 def set_topic(+b: Buffer, +topic: String) -> Buffer:
   match b:
-    case Buffer{+name, +ch, _, +lines, +nicks, +scroll, _, _}:
-      buf_indexed(name, ch, topic, lines, nicks, scroll)
+    case Buffer{+name, +ch, _, _, +nicks, _, _, _}:
+      buf_with_meta(b, name, ch, topic, nicks)
 
 def set_topic_fn(topic: String, b: Buffer) -> Buffer:
   set_topic(b, topic)
@@ -1943,11 +1964,27 @@ def active_scroll(+cl: Client) -> Scroll:
     case Client{_, _, +bufs, +active, _, _, _, _}:
       active_scroll.got(nth_buf(bufs, active))
 
+def view_name.on(got: Maybe<&2, Buffer>) -> String:
+  match got:
+    case None{}: "server"
+    case Some{Buffer{+name, _, _, _, _, _, _, _}}: name
+
 # Composer edits leave the visible history alone. Callers use this to skip
-# image and card admission on those keys.
+# image and card admission on those keys. Buffer count and active name catch
+# structural tab changes (e.g. closing a query to the right of the active tab)
+# that leave log_seq, active index, and scroll unchanged.
 def view_same(+a: Client, +b: Client) -> Bool:
-  Bool.and(Bool.and(Nat.is_eq(log_seq_of(a), log_seq_of(b)), Nat.is_eq(active_of(a), active_of(b))),
-    scroll_eq(active_scroll(a), active_scroll(b)))
+  match a:
+    case Client{_, _, +abufs, +aact, _, _, _, +aseq}:
+      match b:
+        case Client{_, _, +bbufs, +bact, _, _, _, +bseq}:
+          Bool.and(
+            Bool.and(
+              Bool.and(Nat.is_eq(aseq, bseq), Nat.is_eq(aact, bact)),
+              scroll_eq(active_scroll.got(nth_buf(abufs, aact)), active_scroll.got(nth_buf(bbufs, bact)))),
+            Bool.and(
+              Nat.is_eq(buf_count(abufs), buf_count(bbufs)),
+              String.eq(view_name.on(nth_buf(abufs, aact)), view_name.on(nth_buf(bbufs, bact)))))
 
 def cycle_next.i.on(wrap: Bool, +active: Nat) -> Nat:
   match wrap:

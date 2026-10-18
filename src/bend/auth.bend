@@ -132,11 +132,11 @@ def nick_start(+cl: Cl.Client) -> Reply:
   +line = identify_line(cl)
   nick_start.fits(word_clean(Cl.client_sasl_user(cl)) && word_clean(Cl.client_sasl_pass(cl)) && Irc.line_ok(line), line)
 
+# Shared with CapNotify through Endpoint.server_source: empty prefixes fail
+# closed. TLS/endpoint scope verifies the peer, not this name. A user prefix,
+# URL, or another recipient still cannot advance control state.
 def server_source(+prefix: String) -> Bool:
-  # RFC 2812 permits single-label server names and a missing prefix (the
-  # connection's origin). TLS/endpoint scope verifies the peer, not this name.
-  # A user prefix, URL, or another recipient still cannot advance control state.
-  String.is_empty(prefix) || Endpoint.host_ok(prefix)
+  Endpoint.server_source(prefix)
 
 def server_control(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   server_source(prefix) && Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl))
@@ -178,11 +178,12 @@ def nick_probed(ok: Bool, +cl: Cl.Client) -> Reply:
     case True{}: nick_start(cl)
     case False{}: unchanged(Cl.AuthNickProbe{})
 
-# Server controls may omit their prefix. Numerics must name our current
-# nickname; CAP also allows its established broadcast recipient '*'.
+# AUTHENTICATE + commonly omits a prefix (connection origin). Other SASL
+# controls use the shared fail-closed server_source. Numerics must name our
+# current nickname; CAP also allows its established broadcast recipient '*'.
 def sasl_trusted(event: Irc.SaslEvent, +cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Bool:
   match event:
-    case Irc.SaslPlus{}: server_source(prefix)
+    case Irc.SaslPlus{}: String.is_empty(prefix) || server_source(prefix)
     case Irc.SaslAck{}: server_source(prefix) && (Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl)) || String.eq(Irc.proto_atom(Irc.msg_param(m, 0n)), "*"))
     case Irc.SaslNak{}: server_source(prefix) && (Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl)) || String.eq(Irc.proto_atom(Irc.msg_param(m, 0n)), "*"))
     case Irc.SaslOther{}: False{}

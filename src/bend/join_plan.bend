@@ -368,9 +368,12 @@ def lines(desired: List<&2, Channel>) -> List<&2, String>:
     case Nil{}: Nil{}
     case Con{Channel{name, key}, rest}: channel_line(name, key) <> lines(rest)
 
-def failed(phase: Cl.AuthPhase) -> Bool:
+# AuthDone alone is not failure: SASL success, CAP rejection, and bare 001
+# all land there. Failure is a terminal AuthDone whose success_seq never
+# advanced past this connection's barrier baseline.
+def failed(phase: Cl.AuthPhase, +baseline: Nat, +seq: Nat) -> Bool:
   match phase:
-    case Cl.AuthDone{}: True{}
+    case Cl.AuthDone{}: Bool.not(Nat.is_gt(seq, baseline))
     case _: False{}
 
 def hold.report(report: Report, failed: Bool) -> Report & Notice:
@@ -384,12 +387,13 @@ def hold.done(pair: Report & Notice, desired: List<&2, Channel>, welcome: Bool, 
   match pair:
     case (report, notice): Flush{State{desired, welcome, False{}, NeedAuth{baseline, report}, held, revision}, Nil{}, notice}
 
-def hold(state: State, cl: Cl.Client) -> Flush:
+def hold(state: State, +cl: Cl.Client) -> Flush:
   match state:
     case State{+desired, welcome, sent, barrier, held, revision}:
       match barrier:
         case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision}, Nil{}, Quiet{}}
-        case NeedAuth{baseline, report}: hold.done(hold.report(report, failed(Cl.get_auth(cl))), desired, welcome, baseline, held, revision)
+        case NeedAuth{+baseline, report}:
+          hold.done(hold.report(report, failed(Cl.get_auth(cl), baseline, Cl.auth_success_seq(cl))), desired, welcome, baseline, held, revision)
 
 # Recovery flush drops desired channels the negotiated 005 bounds refuse
 # (narrowed CHANTYPES/CHANNELLEN); the rest emit exactly as before. With
@@ -408,7 +412,7 @@ def admitted.go(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channe
 def admitted(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
   admitted.go(xs, iso)
 
-def flush_iso.ready(ready: Bool, state: State, cl: Cl.Client, +iso: Isupport.State) -> Flush:
+def flush_iso.ready(ready: Bool, state: State, +cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match ready:
     case False{}: hold(state, cl)
     case True{}:
