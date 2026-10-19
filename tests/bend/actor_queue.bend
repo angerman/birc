@@ -155,6 +155,76 @@ def run_boot(+port: U32, +drop: Bool, +tls: Bool) -> IO(Unit):
     Unit <- wait_eof(evt)
     IO.print("closed")
 
+def after_finished(ready: Act.DialReady, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match ready:
+    case Act.DialReady{(sock, _, _), _}:
+      do IO<Unit>:
+        Unit <- Act.close_socket(sock)
+        Unit <- Chan.close(Sess.NetCmd, cmd)
+        Unit <- IO.print("held")
+        IO.print("closed")
+
+def after_queue(+mode: String, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match mode:
+    case "bootlsdrop":
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        return Unit{}
+    case "bootlsclose": Chan.close(Sess.NetCmd, cmd)
+    case _: IO.pure(Unit, Unit{})
+
+def run_after(sock: Socket, +mode: String) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- after_queue(mode, cmd)
+    Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, False{},
+      Act.AuthScope{"127.0.0.1", 0, False{}},
+      Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
+      pair => after_finished(pair, cmd),
+      _ => _ => g2 => _ => scope2 => k2 => k2(Act.DialReady{(None{}, g2, Nil{}), scope2}))
+
+def after_connected(r: Result<&1, &1, U32 & String, Socket>, mode: String) -> IO(Unit):
+  match r:
+    case Fail{_}: IO.die(Unit, 1, "connect failed")
+    case Done{sock}: run_after(sock, mode)
+
+def after_port(p: Maybe<&2, U32>, +mode: String) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}:
+      do IO<Unit>:
+        r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
+        after_connected(r, mode)
+
+def auth_target(same: Bool, port: U32, other: U32) -> U32:
+  match same:
+    case True{}: port
+    case False{}: other
+
+def run_auth_scope(+port: U32, +other: U32, +same: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- IO.spawn(Unit, Act.actor_boot("127.0.0.1", port, "probe", 1, evt, cmd, boot, True{}, 0))
+    Unit <- IO.sleep(100)
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", auth_target(same, port, other), 2, "probe"})
+    Unit <- IO.print("held")
+    Unit <- IO.sleep(700)
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- wait_eof(evt)
+    IO.print("closed")
+
+def auth_port(p: Maybe<&2, U32>, other: Maybe<&2, U32>, same: Bool) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}:
+      match other:
+        case None{}: IO.die(Unit, 1, "invalid target port")
+        case Some{target}: run_auth_scope(port, target, same)
+
 def setup_port(p: Maybe<&2, U32>, drop: Bool, tls: Bool) -> IO(Unit):
   match p:
     case None{}: IO.die(Unit, 1, "invalid port")
@@ -190,6 +260,16 @@ def args(xs: List<&1, String>) -> IO(Unit):
       close_port(U32.read(p), False{}, True{})
     case Con{_, Con{p, Con{_, Con{_, Con{"bootclose", Nil{}}}}}}:
       close_port(U32.read(p), True{}, False{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsdrop", Nil{}}}}}}:
+      after_port(U32.read(p), "bootlsdrop")
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsclose", Nil{}}}}}}:
+      after_port(U32.read(p), "bootlsclose")
+    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsregister", Nil{}}}}}}:
+      after_port(U32.read(p), "bootlsregister")
+    case Con{_, Con{p, Con{_, Con{n, Con{"dialauthscope", Nil{}}}}}}:
+      auth_port(U32.read(p), U32.read(n), False{})
+    case Con{_, Con{p, Con{_, Con{n, Con{"dialauthsame", Nil{}}}}}}:
+      auth_port(U32.read(p), U32.read(n), True{})
     case Con{_, Con{p, Con{f, Con{n, Con{+mode, Nil{}}}}}}: parsed(U32.read(p), U32.read(f), U32.read(n), mode)
     case _: IO.die(Unit, 1, "expected port frames count mode")
 

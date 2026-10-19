@@ -264,9 +264,9 @@ slowest artifact.
 
 ---
 
-## Proof cannot be sharded — measured, not assumed
+## Proof: monolithic book does not finish; one-law shards do
 
-`make proof` **fails at its default `PROOF_TIMEOUT=180` even on a quiet host.**
+`bend PROOF.bend` **fails at its default timeout even on a quiet host.**
 Measured on `aarch64-darwin-1.lan` at load 0.98, master `c33a3d2`:
 
 ```
@@ -275,13 +275,12 @@ make: *** [proof] Error 124
 MAKEFLAGS=-j1 make proof  208.99s user 138.04s system 181% cpu 3:11.61 total
 ```
 
-Error 124 is `timeout` expiring. This is pre-existing, not a regression — it is why
-`74d344a` is titled *"docs: record proof-600 timeout, C8/G6 unqualified"* and why
-`TODO.md:53` still reads *"Locate the remaining full-book cost; the bounded 535-law
-run has no verdict."* **`make check` includes `proof`, so `make check` is red on
-master today.**
+Error 124 is `timeout` expiring. This is pre-existing for the monolithic book —
+it is why `74d344a` is titled *"docs: record proof-600 timeout, C8/G6 unqualified"*
+and why `TODO.md:53` still reads *"Locate the remaining full-book cost; the
+bounded 535-law run has no verdict."*
 
-**Measured ceiling: it does not finish in 40 minutes either.** On
+**Measured ceiling: the one-book check does not finish in 40 minutes either.** On
 `aarch64-darwin-1.lan` (8 cores, otherwise idle) with the override raised 13×:
 
 ```
@@ -293,19 +292,16 @@ make proof PROOF_TIMEOUT=2400  2667.90s user 4194.05s system 284% cpu 40:13.21 t
 The CPU split is the diagnostic: **4,194 s system versus 2,668 s user**, at only
 284% CPU. More kernel time than user time means allocation, GC and page-fault
 pressure in the Bun runtime — not raw compute. So the cost is in how the checker
-handles 535 `{==}` definitional-equality obligations across a 37,389-line closure,
-not in the mathematical content of the laws. `PROOF_TIMEOUT=180` is not merely
-tight, it is wrong by more than an order of magnitude, and any claim that a change
-"passes `make proof`" is unverifiable on this hardware within the configured bound.
+handles hundreds of `{==}` definitional-equality obligations across a ~37k-line
+closure, not in the mathematical content of the laws. Raising `PROOF_TIMEOUT` on
+`bend PROOF.bend` does not make that book green.
 
 **This is the answer to `TODO.md:53`.** The remaining full-book cost is
-runtime/GC-bound in the checker, and the levers are: shrink what `LAWS.bend`
-imports (49 modules today), reduce the number of concrete-example laws (506 of 535
-are concrete examples the golden fixtures already check in milliseconds), or fix
-the checker's allocation behaviour. None of those is a Makefile change.
+runtime/GC-bound in the checker.
 
-#### DEFINITIVE: the book does not complete in three hours
-`make proof PROOF_TIMEOUT=10800` on `aarch64-darwin-4.lan`, run to the bound:
+#### DEFINITIVE: the one-book check does not complete in three hours
+`make proof PROOF_TIMEOUT=10800` on `aarch64-darwin-4.lan`, run to the bound
+(historical: when `make proof` still meant `bend PROOF.bend`):
 
 ```
 Fri 16 Oct 2026 04:25:54 PDT   (start)
@@ -315,64 +311,36 @@ make: *** [proof] Error 124
 make proof PROOF_TIMEOUT=10800  9374.16s user 21901.30s system 289% cpu 3:00:05.55 total
 ```
 
-~31,275 CPU-seconds, no verdict. **System time is 2.3× user time**, which is the
-diagnostic: this is allocation, GC and page-fault pressure in the Bun runtime while
-discharging 535 `{==}` definitional-equality obligations over a 37,389-line
-closure — not expensive mathematics.
+~31,275 CPU-seconds, no verdict. **System time is 2.3× user time**.
 
-Consequences, stated plainly because they change what "verified" can mean here:
+#### Correction (2026-10-19): sharding works if each book owns its laws
 
-1. **`PROOF_TIMEOUT=180` is wrong by more than 60×**, and no timeout value makes
-   `make proof` pass on this hardware. Do not raise it in the hope of green.
-2. **`make check` cannot pass**, and has not been able to since the 535-law corpus
-   merged on 2026-10-08 (`03cb8c2`), because `check: proof test lint-ffi
-   test-paste-harness`. Any claim that a change "passes `make check`" is false
-   today and was false before this work began.
-3. **No wave of this effort can be gated on `proof`.** The available proxies are the
-   law *count* (`grep -c '^law ' LAWS.bend` = 535, `grep -c '^def Laws\.' PROOF.bend`
-   = 535, zero orphans either direction) and `bend --check-only` on individual
-   programs, which reports `ALL PROOFS CHECK` for that program's own laws in
-   seconds. Both were used throughout; neither is a discharge of the full book.
-4. The three real levers, in order of leverage: **shrink `LAWS.bend`'s 49-module
-   import closure**; **cut the 506 concrete-example laws** that the 196 golden
-   fixtures already check in milliseconds, keeping the 29 universally quantified
-   ones that buy something tests cannot; or **fix the checker's allocation
-   behaviour** upstream. The first two are project decisions, not build changes.
+An earlier probe discharged 25 of the `def Laws.*` blocks into a file that still
+`import`ed full `LAWS.bend`. Bend reported `510 TODOs` for the undischarged laws
+in that import. That probe proved **importing the whole law book and proving a
+subset** fails — not that sharding is impossible.
 
+**Working approach:** `scripts/split-proof.py` copies each law (and only the
+helpers it reaches) into `build/proof/laws-*.bend` / `proof-*.bend`, one law per
+process. `make proof` runs `scripts/run-proof-shards.sh`. Measured on
+`aarch64-darwin-1.lan`: the full one-law set finishes with `ALL PROOFS CHECK` on
+every shard. Do not commit `build/proof`. Do not go back to `bend PROOF.bend` as
+the gate.
 
+A few Workspace/Session scenario terms still blow Bun GC even alone when they
+nest large fixtures or reuse them in one `&&` chain. Those oracles stay in Bend
+demos (`tests/bend/sessws_s1s5_demo.bend`); see the header of `PROOF.bend` for
+design rules.
 
-**Sharding is impossible.** A probe discharged 25 of the 535 `def Laws.*` blocks
-into a standalone file with `PROOF.bend`'s own 19-line import header, and Bend
-rejected it:
+**Consequences:**
 
-```
-shard_rc=1
-SOME PROOFS FAIL
-Error: 510 TODOs found.
-The code is incomplete, and not a valid proof yet.
-```
-
-535 − 25 = 510: **every undischarged law in the imported `LAWS.bend` counts as a
-TODO**, so the checker requires the whole book in one compilation unit. This
-answers the question `724de4d` left open (*"Wiring into make proof pending
-calm-host runs"*) — wiring was never possible, which is presumably why it never
-happened. Wave 0's deletion of the eight shards was correct, and there is no
-`scripts/split-proof.sh` worth writing.
-
-**Consequences for every remaining wave:**
-
-1. `make proof` is a **monolithic ~37,389-line closure compile** (`LAWS.bend`
-   imports 49 modules). It cannot be scoped to a diff.
-2. A task reporting a proof **timeout** has not necessarily broken anything.
-   Re-run serially on the quiet lane before believing either outcome.
-3. Use the documented override `make proof PROOF_TIMEOUT=<n>`; **never edit the
-   Makefile default** without a measured calm-host number to justify it.
-4. Gate waves on the **golden suites** (`test-goldens-proto` / `-view` / `-io`,
-   which do scope to the diff) and treat `proof` as a separate, serial,
-   lane-only check run once per wave rather than once per task.
-5. The only durable ways to make proof cheaper are to shrink what `LAWS.bend`
-   imports or to make the checker faster — neither is in scope here. Record this
-   as the answer to `TODO.md:53`.
+1. Gate on `make proof` (the shard runner), not on `bend PROOF.bend`.
+2. A timeout on a **single** shard is a real signal: fix the fixture, split the
+   law, or move a non-normalizing scenario to a demo — never weaken the law.
+3. Per-shard `PROOF_TIMEOUT` (default 900 in the runner) is not a substitute for
+   small terms; do not raise the Makefile hoping the monolithic book will pass.
+4. Keep `LAWS.bend` / `PROOF.bend` 1:1; the runner asserts the discharged count
+   matches `grep -c '^law ' LAWS.bend`.
 
 
 

@@ -1606,12 +1606,33 @@ def replay_lines(+text: String) -> List<&2, String>:
 def is_sigil_set(+sigils: String, +c: Char) -> Bool:
   has_ch(sigils, c)
 
-def nick_strip_set(+sigils: String, +s: String) -> String:
-  match s:
-    case SNil{}:
+# Two fuel steps per character: read the head, then act on the sigil test.
+# Bool.pick would evaluate both arms eagerly; match on the test result only.
+type NickStripPh is Data:
+  NickStripStr{}
+  NickStripHit{h: Char, is_sig: Bool}
+
+def nick_strip_set.go(fuel: Nat, ph: NickStripPh, +sigils: String, s: String) -> String:
+  match fuel:
+    case 0n:
       SNil{}
-    case SCon{+h, +t}:
-      Bool.pick(String, is_sigil_set(sigils, h), nick_strip_set(sigils, t), SCon{h, t})
+    case 1n+p:
+      match ph:
+        case NickStripStr{}:
+          match s:
+            case SNil{}:
+              SNil{}
+            case SCon{+h, +t}:
+              nick_strip_set.go(p, NickStripHit{h, is_sigil_set(sigils, h)}, sigils, t)
+        case NickStripHit{h, is_sig}:
+          match is_sig:
+            case True{}:
+              nick_strip_set.go(p, NickStripStr{}, sigils, s)
+            case False{}:
+              SCon{h, s}
+
+def nick_strip_set(+sigils: String, +s: String) -> String:
+  nick_strip_set.go(Nat.add(1n, Nat.mul(2n, String.length(s))), NickStripStr{}, sigils, s)
 
 def nick_strip(+s: String) -> String:
   nick_strip_set(dflt_strip(), s)
@@ -1645,53 +1666,103 @@ def nick_add.keep(+b: Buffer, skip: Bool, +nick: String) -> Buffer:
         case False{}:
           buf_with_meta(b, name, ch, topic, List.append(&2, String, nicks, nick <> Nil{}))
 
-def nick_del.go(xs: List<&2, String>, +nick: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
+def nick_del.on_head(+h: String, +t: List<&2, String>, +nick: String, drop: Bool, cont: List<&2, String> -> List<&2, String>) -> List<&2, String>:
+  match drop:
+    case True{}:
+      t
+    case False{}:
+      h <> cont(t)
+
+def nick_del.go(fuel: Nat, xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
       Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, nick), t, h <> nick_del.go(t, nick))
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{+h, +t}:
+          nick_del.on_head(h, t, nick, buf_eq_cm(dflt_cm(), h, nick), tail => nick_del.go(p, tail, nick))
 
 def nick_del(+b: Buffer, +raw: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
-      buf_with_meta(b, name, ch, topic, nick_del.go(nicks, nick_strip(raw)))
+      +stripped = nick_strip(raw)
+      buf_with_meta(b, name, ch, topic, nick_del.go(Nat.add(1n, List.length(&2, String, nicks)), nicks, stripped))
 
-def nick_rename.go(xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
+def nick_rename.on_head(+h: String, +t: List<&2, String>, +from: String, +to: String, hit: Bool, cont: List<&2, String> -> List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}:
+      to <> t
+    case False{}:
+      h <> cont(t)
+
+def nick_rename.go(fuel: Nat, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
       Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(dflt_cm(), h, from), to <> t, h <> nick_rename.go(t, from, to))
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{+h, +t}:
+          nick_rename.on_head(h, t, from, to, buf_eq_cm(dflt_cm(), h, from), tail => nick_rename.go(p, tail, from, to))
 
 def nick_rename(+b: Buffer, +from: String, +to: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
-      buf_with_meta(b, name, ch, topic, nick_rename.go(nicks, nick_strip(from), nick_strip(to)))
+      +from_s = nick_strip(from)
+      +to_s = nick_strip(to)
+      buf_with_meta(b, name, ch, topic, nick_rename.go(Nat.add(1n, List.length(&2, String, nicks)), nicks, from_s, to_s))
 
-def nick_del_cm.go(+cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
+def nick_del_cm.on_head(+h: String, +t: List<&2, String>, +cm: String, +nick: String, drop: Bool, cont: List<&2, String> -> List<&2, String>) -> List<&2, String>:
+  match drop:
+    case True{}:
+      t
+    case False{}:
+      h <> cont(t)
+
+def nick_del_cm.go(fuel: Nat, +cm: String, xs: List<&2, String>, +nick: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
       Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, nick), t, h <> nick_del_cm.go(cm, t, nick))
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{+h, +t}:
+          nick_del_cm.on_head(h, t, cm, nick, buf_eq_cm(cm, h, nick), tail => nick_del_cm.go(p, cm, tail, nick))
 
 def nick_del_cm(+b: Buffer, +cm: String, +sigils: String, +raw: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
-      buf_with_meta(b, name, ch, topic, nick_del_cm.go(cm, nicks, nick_strip_set(sigils, raw)))
+      +stripped = nick_strip_set(sigils, raw)
+      buf_with_meta(b, name, ch, topic, nick_del_cm.go(Nat.add(1n, List.length(&2, String, nicks)), cm, nicks, stripped))
 
-def nick_rename_cm.go(+cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
-  match xs:
-    case Nil{}:
+def nick_rename_cm.on_head(+h: String, +t: List<&2, String>, +cm: String, +from: String, +to: String, hit: Bool, cont: List<&2, String> -> List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}:
+      to <> t
+    case False{}:
+      h <> cont(t)
+
+def nick_rename_cm.go(fuel: Nat, +cm: String, xs: List<&2, String>, +from: String, +to: String) -> List<&2, String>:
+  match fuel:
+    case 0n:
       Nil{}
-    case Con{+h, +t}:
-      Bool.pick(List<&2, String>, buf_eq_cm(cm, h, from), to <> t, h <> nick_rename_cm.go(cm, t, from, to))
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          Nil{}
+        case Con{+h, +t}:
+          nick_rename_cm.on_head(h, t, cm, from, to, buf_eq_cm(cm, h, from), tail => nick_rename_cm.go(p, cm, tail, from, to))
 
 def nick_rename_cm(+b: Buffer, +cm: String, +sigils: String, +from: String, +to: String) -> Buffer:
   match b:
     case Buffer{+name, +ch, +topic, _, +nicks, _, _, _}:
-      buf_with_meta(b, name, ch, topic, nick_rename_cm.go(cm, nicks, nick_strip_set(sigils, from), nick_strip_set(sigils, to)))
+      +from_s = nick_strip_set(sigils, from)
+      +to_s = nick_strip_set(sigils, to)
+      buf_with_meta(b, name, ch, topic, nick_rename_cm.go(Nat.add(1n, List.length(&2, String, nicks)), cm, nicks, from_s, to_s))
 
 def nick_add_cm.body(+cm: String, +b: Buffer, +nick: String, empty: Bool) -> Buffer:
   match b:

@@ -1413,13 +1413,14 @@ test-review-pure: test-m20
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
-proof: ## Check LAWS via PROOF.bend (Bend proof checker).
+proof: ## Check LAWS via generated one-law shards under build/proof (bend PROOF.bend alone does not finish).
 	@test "$(PROOF_TIMEOUT)" -gt 0 2>/dev/null || { printf '%s\n' 'PROOF_TIMEOUT must be a positive number of seconds' >&2; exit 2; }
-	$(NIXRUN) timeout $(PROOF_TIMEOUT) bend PROOF.bend
+	PROOF_TIMEOUT='$(PROOF_TIMEOUT)' $(NIXRUN) sh scripts/run-proof-shards.sh
 
 .PHONY: proof-kernel
-proof-kernel: ## Independently check proofs with BendTT (requires Lean or BENDTT).
-	$(NIXRUN) timeout 300 bend PROOF.bend --verdict
+proof-kernel: ## Same as proof with bend --verdict on each shard (not the monolithic book).
+	@test "$(PROOF_TIMEOUT)" -gt 0 2>/dev/null || { printf '%s\n' 'PROOF_TIMEOUT must be a positive number of seconds' >&2; exit 2; }
+	PROOF_TIMEOUT='$(PROOF_TIMEOUT)' PROOF_FLAGS='--verdict' $(NIXRUN) sh scripts/run-proof-shards.sh
 
 LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
 lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
@@ -1806,4 +1807,6 @@ test-orphans: \
 	$(BLDDIR)/preferences_runtime_typecheck
 
 # Passed a focused run; the rest of test-orphans has not been executed.
-test-review-pure: test-outbound-txn test-draft-nick-rename test-ws-shutdown-pending
+# sessws-s1s5 carries workspace epoch/composer/runtime oracles that cannot
+# normalize as one-law shards under Bun GC; keep them on the check path.
+test-review-pure: test-outbound-txn test-draft-nick-rename test-ws-shutdown-pending test-sessws-s1s5

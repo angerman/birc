@@ -1,4 +1,23 @@
 # Protocol proofs. Each law is discharged by a same-named def.
+#
+# make proof does not check this file as one book. scripts/split-proof.py
+# copies each law into build/proof/proof-<hash>.bend (one law per process).
+# bend PROOF.bend alone imports the whole LAWS closure and does not finish
+# under Bun GC: measured multi-hour runs show system time ≫ user time.
+# Do not raise PROOF_TIMEOUT hoping the monolithic book will turn green.
+#
+# Proof design (keep each shard small enough to finish):
+# - Prefer {==} when the term is small and definitional.
+# - One observation per law when the fixture walks Session or Workspace.
+# - Do not nest large Session/Workspace terms in one Bool.and chain; each
+#   extra use can explode Bun GC even in a one-law book.
+# - Helpers live in this module and must import the aliases they name
+#   (Media, Irc, Fr, …). The splitter copies only helpers a shard reaches,
+#   in source order.
+# - Never weaken a law to force green: fix the fixture or split the oracle.
+#   Multi-step scenarios that will not normalize stay in Bend demos
+#   (e.g. tests/bend/sessws_s1s5_demo.bend), not as one mega-{==}.
+# - LAWS.bend must never import the IO/effect row (AGENTS.md).
 import Base
 import ./src/bend/irc.bend as Irc
 import ./src/bend/buffer.bend as Cl
@@ -24,7 +43,7 @@ def Laws.first_server_welcome_assigns_nickname():
 def Laws.later_welcome_cannot_replace_nickname():
   {==}
 
-def Laws.rejected_welcome_preserves_live_state(acc, line, stamp, welcomed):
+def Laws.rejected_welcome_preserves_live_state(acc, line, stamp, welcomed, port):
   {==}
 
 def Laws.refused_startup_archive_keeps_current_client(current, snapshot):
@@ -1258,16 +1277,19 @@ def Laws.draft_session_multiline_negotiated_mode_privacy():
 def Laws.draft_session_multiline_negotiated_implicit_privacy():
   {==}
 
-def Laws.workspace_epoch_reuse_rejects_stale():
-  {==}
-
-def Laws.workspace_composer_reset_on_replace():
+def Laws.workspace_readd_rejects_stale_generation():
   {==}
 
 def Laws.session_supplied_submit_completes_once():
   {==}
 
-def Laws.workspace_runtime_applies_routed_inbound():
+def Laws.workspace_runtime_up_marks_peer_online():
+  {==}
+
+def Laws.workspace_runtime_up_leaves_other_connecting():
+  {==}
+
+def Laws.workspace_runtime_up_keeps_other_buffers():
   {==}
 
 def Laws.workspace_redial_emits_scoped_dial():
@@ -1378,7 +1400,7 @@ def Laws.theme_nick_default_preserved():
 def Laws.theme_light_status_ok():
   {==}
 
-def Laws.emoji_table_has_seventy():
+def Laws.emoji_table_has_seventy_two():
   {==}
 
 def Laws.emoji_new_alias_resolves():

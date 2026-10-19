@@ -155,26 +155,17 @@
   prefix` entry above ("Bend always paints the `<nick>` prefix in that
   same pane"). Green on a quiet lane at `4f75027`. No product change was
   needed and none was made; the assertion was not relaxed.
-- proof: **NOT a host-load problem — it does not complete anywhere.** This
-  supersedes the earlier "environmental, rerun on a calm host" reading, which
-  was wrong. On an *idle* 8-core lane with `PROOF_TIMEOUT=10800`:
-  `9374.16s user 21901.30s system 289% cpu 3:00:05.55 total`, then `Error 124`,
-  no verdict. System time is 2.3x user time, so the run is GC/allocation-bound
-  inside Bun rather than doing proof math. At `PROOF_TIMEOUT=2400` it reaches
-  `Error 124` after 40:13; at the default 180 on a quiet lane, after 3:11.
-  It is also **unshardable**: a partial book holding 25 of the 535 laws fails
-  with `Error: 510 TODOs found`, because Bend checks the whole book at once, so
-  the corpus cannot be split across lanes or cores.
-  Consequence: `check: proof test lint-ffi test-paste-harness`
-  (`Makefile:1601`) has been unpassable since `03cb8c2` (2026-10-08) took
-  `LAWS.bend` from 425 to 535 laws. That bears on three open boxes —
-  `TODO.md:44` (obtain a stock `bend PROOF.bend` pass), `TODO.md:45` (pass the
-  complete `make check`) and `TODO.md:60` (locate the remaining full-book cost:
-  it is allocator-bound, and the book is indivisible). A fix needs a Bend/Bun
-  allocator or proof-engine change, or a per-law check mode; it is not reachable
-  from this repo's sources. **Stop re-running it on calmer hosts.** The
-  535 `law` / 535 `def Laws.X` counts are still asserted at every merge, so the
-  corpus stays structurally complete and orphan-free even while uncheckable.
+- proof: **`bend PROOF.bend` as one book does not finish** (Bun GC; system ≫
+  user; measured 3h timeout). That is not a host-load problem — do not rerun
+  the monolithic book on a calmer host hoping for green. An earlier "510 TODOs"
+  probe was misread as unshardable; the working gate is one law per book under
+  `build/proof` (`scripts/split-proof.py`, `make proof`). See `PROOF.bend`
+  header and `docs/plan-2026-10-16-simplification.md`. Keep `law` ↔ `def Laws.X`
+  1:1. Never weaken a law to force a shard green.
+- workspace GC oracles: `epoch_redial_*`, `composer_*_ok`, and most
+  `runtime_*_ok` conjunctions still explode Bun GC as one-law shards. They stay
+  in `tests/bend/sessws_s1s5_demo.bend`, now wired into `test-review-pure` /
+  `make check`. Prefer more one-observation laws when a shard normalizes alone.
 - test-media-anchor and the native `build/session_cards_demo`: both were
   FAILING with `Error: an arity over 247`, the C-backend flattened-capture-word
   cap. Verified identical on the pre-review baseline `208f7c9` and on

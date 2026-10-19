@@ -228,49 +228,6 @@ def fold_typing_step(st: FoldAcc & Ty.State, line: String) -> FoldAcc & Ty.State
     case (FoldAcc{+cl, pongs, +now_ms}, typing):
       fold_typing_step.line(cl, pongs, now_ms, typing, line)
 
-def is_001_msg(+m: Irc.Message) -> Bool:
-  match m:
-    case Irc.Message{_, _, _, +num, _}:
-      U32.is_eq(num, 1)
-
-def is_001_on(m: Maybe<&2, Irc.Message>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{msg}:
-      is_001_msg(msg)
-
-def is_001_line(+line: String) -> Bool:
-  is_001_on(Irc.parse(line))
-
-def hit_step(hit: Bool, h: String) -> Bool:
-  match hit:
-    case True{}:
-      True{}
-    case False{}:
-      is_001_line(h)
-
-def lines_have_001(+xs: List<&2, String>) -> Bool:
-  List.foldl(~&2, ~String, ~Bool, ~hit_step, xs, False{})
-
-def join_outs.on(+chan: String, +pongs: List<&2, String>, joined: Bool, welcome: Bool) -> List<&2, String> & Bool:
-  match joined:
-    case True{}:
-      (pongs, True{})
-    case False{}:
-      match welcome:
-        case True{}:
-          (List.append(&2, String, pongs, Irc.format_join(chan) <> Nil{}), True{})
-        case False{}:
-          (pongs, False{})
-
-def join_outs(+joined: Bool, +chan: String, +xs: List<&2, String>, +pongs: List<&2, String>) -> List<&2, String> & Bool:
-  match joined:
-    case True{}:
-      (pongs, True{})
-    case False{}:
-      join_outs.on(chan, pongs, False{}, lines_have_001(xs))
-
 def live_fuel(+frames: U32) -> Nat:
   U32.to_nat(frames)
 
@@ -284,75 +241,6 @@ def body_h(+rows: U32) -> Nat:
 # from the frame's row count (Sess.key_pol); C does not take a page.
 def body_h_ok() -> Bool:
   Nat.is_eq(body_h(24), 20n) && Nat.is_eq(body_h(16), 12n) && Nat.is_eq(body_h(6), 2n) && Nat.is_eq(body_h(7), 3n)
-
-
-def push_pure_join2(
-  +cl2: Cl.Client,
-  rem2: List<&2, U32>,
-  drop2: Bool,
-  pair: List<&2, String> & Bool
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  match pair:
-    case (outs, joined2):
-      (cl2, rem2, drop2, outs, joined2)
-
-def push_pure_join(
-  cl_pongs: Cl.Client & List<&2, String>,
-  rem2: List<&2, U32>,
-  drop2: Bool,
-  +joined: Bool,
-  +chan: String,
-  +xs: List<&2, String>
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  match cl_pongs:
-    case (cl2, pongs):
-      push_pure_join2(cl2, rem2, drop2, join_outs(joined, chan, xs, pongs))
-
-def push_pure_pair_ms.r1(rest: List<&2, U32> & Bool, +cl: Cl.Client, +joined: Bool, +chan: String, +now_ms: U32, +lines: List<&2, String>) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  match rest:
-    case (+rem2, +drop2): push_pure_join(fold_lines_ms(cl, lines, now_ms), rem2, drop2, joined, chan, lines)
-
-def push_pure_pair_ms(
-  +cl: Cl.Client,
-  got: List<&2, String> & List<&2, U32> & Bool,
-  +joined: Bool,
-  +chan: String,
-  +now_ms: U32
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  match got:
-    case (+lines, rest): push_pure_pair_ms.r1(rest, cl, joined, chan, now_ms, lines)
-
-def push_pure_ms(
-  +cl: Cl.Client,
-  drop: Bool,
-  rem: List<&2, U32>,
-  chunk: List<&2, U32>,
-  +joined: Bool,
-  +chan: String,
-  +now_ms: U32
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure_pair_ms(cl, Fr.push_ex(drop, rem, chunk), joined, chan, now_ms)
-
-def step_chunk_ms(
-  +cl: Cl.Client,
-  drop: Bool,
-  rem: List<&2, U32>,
-  chunk: List<&2, U32>,
-  +joined: Bool,
-  +chan: String,
-  +now_ms: U32
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  push_pure_ms(cl, drop, rem, chunk, joined, chan, now_ms)
-
-def step_chunk(
-  +cl: Cl.Client,
-  drop: Bool,
-  rem: List<&2, U32>,
-  chunk: List<&2, U32>,
-  +joined: Bool,
-  +chan: String
-) -> Cl.Client & List<&2, U32> & Bool & List<&2, String> & Bool:
-  step_chunk_ms(cl, drop, rem, chunk, joined, chan, 0)
 
 # Constructors stay in this file so Sess.UiMsg / Sess.NetCmd remain the
 # types net.bend, wsnet.bend, and actor.bend already match. A narrowed
@@ -5003,7 +4891,7 @@ def live_chunk_outs(+st: Session, +text: String) -> List<&2, String>:
 # SASL exchange, none from a chathistory ACK).
 def live_merge_ok() -> Bool:
   +line: String = "@+typing=active TAGMSG #a"
-  +sasl = session_online(session_with_client(Cl.client_set_sasl(Cl.init("me", "s"), "user", "pass"), "#a"))
+  +sasl = session_online(session_with_client_at(Cl.client_set_sasl(Cl.init("me", "s"), "user", "pass"), "#a", Transport.PLAIN_PORT()))
   +outs = live_chunk_outs(sasl, ":s CAP me LS :sasl message-tags\r\n:s CAP me ACK :sasl\r\nAUTHENTICATE +\r\n:s 903 me :ok\r\n")
   String.eq(live_cont_text(merge_typing_outs(Cont{"PRIVMSG #a :hi" <> Nil{}}, line <> Nil{})), "PRIVMSG #a :hi|@+typing=active TAGMSG #a")
     && String.eq(show_netcmd(merge_typing_outs(Dial{"h", 6697, 0, "me"}, line <> Nil{})), "dial:h:6697")

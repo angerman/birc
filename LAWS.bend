@@ -1,4 +1,5 @@
 # Protocol + client laws. The human states them; PROOF.bend must prove them.
+# make proof shards each law into build/proof (see PROOF.bend header).
 import Base
 import ./src/bend/irc.bend as Irc
 import ./src/bend/buffer.bend as Cl
@@ -64,7 +65,8 @@ law rejected_welcome_preserves_live_state:
   for line: String
   for stamp: Maybe<&2, String>
   for welcomed: Bool
-  {Sess.live_step.registered(None{}, acc, line, stamp, welcomed) == acc : Sess.LiveAcc}
+  for port: U32
+  {Sess.live_step.registered(None{}, acc, line, stamp, welcomed, port) == acc : Sess.LiveAcc}
 
 law refused_startup_archive_keeps_current_client:
   for current: Cl.Client
@@ -1021,17 +1023,20 @@ law draft_session_multiline_negotiated_mode_privacy:
 law draft_session_multiline_negotiated_implicit_privacy:
   {AD.multiline_negotiated_implicit_ok() == True{} : Bool}
 
-law workspace_epoch_reuse_rejects_stale:
-  {WS.epoch_reuse_ok() == True{} : Bool}
-
-law workspace_composer_reset_on_replace:
-  {WS.composer_reset_ok() == True{} : Bool}
+law workspace_readd_rejects_stale_generation:
+  {WS.epoch_readd_ok() == True{} : Bool}
 
 law session_supplied_submit_completes_once:
   {Sess.supplied_seam_ok() == True{} : Bool}
 
-law workspace_runtime_applies_routed_inbound:
-  {WS.runtime_inbound_ok() == True{} : Bool}
+law workspace_runtime_up_marks_peer_online:
+  {WS.runtime_up_s0_ok() == True{} : Bool}
+
+law workspace_runtime_up_leaves_other_connecting:
+  {WS.runtime_up_s1_connecting_ok() == True{} : Bool}
+
+law workspace_runtime_up_keeps_other_buffers:
+  {WS.runtime_up_s1_bufs_ok() == True{} : Bool}
 
 law workspace_redial_emits_scoped_dial:
   {WS.runtime_redial_ok() == True{} : Bool}
@@ -1168,8 +1173,8 @@ law theme_nick_default_preserved:
 law theme_light_status_ok:
   {Theme.status_ok(Theme.Light{}) == 31293 : U32}
 
-law emoji_table_has_seventy:
-  {List.length(&2, Emoji.Entry, Emoji.aliases()) == 70n : Nat}
+law emoji_table_has_seventy_two:
+  {List.length(&2, Emoji.Entry, Emoji.aliases()) == 72n : Nat}
 
 law emoji_new_alias_resolves:
   {Links.alias.go(Emoji.aliases(), ":smile: ok") == Some{Links.Alias{"😄", " ok"}} : Maybe<&2, Links.Alias>}

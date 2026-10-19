@@ -17,10 +17,11 @@ These wins keep BUILD-mode iteration fast.
 3. **Keep the Bun cache warm.** Do not clear Bun caches between runs;
    proof and Bend builds reuse them across invocations in the same
    shell.
-4. **Gate the proof, don't rerun it.** No selective law-check target
-   exists. Run the full `proof` target with the integrated batch gate
-   (`make check`). Do not commit proof shards; generate any future
-   split into `build/` from `PROOF.bend`.
+4. **Gate the proof via shards.** `make proof` runs
+   `scripts/run-proof-shards.sh` (one law per book under `build/proof`).
+   Do not check `PROOF.bend` as one file — that closure does not finish
+   under Bun GC. Do not commit generated shards. Design notes live in
+   the `PROOF.bend` header.
 5. **Cheap LAWS IO import-closure gate.** Before paying for `make proof`,
    run `make lint-laws-io` (or `sh scripts/check-laws-io.sh`). It walks
    the `LAWS.bend` / `PROOF.bend` import closures and fails if any

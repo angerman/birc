@@ -400,19 +400,17 @@ prerequisite does not complete in bounded time **on any host**:
 System time is **2.3× user time**, so the run is GC/allocation-bound inside Bun, not
 doing proof math. Longer budgets do not converge.
 
-It is also **unshardable**: a partial book holding 25 of the 535 laws fails with
-`Error: 510 TODOs found`, because Bend checks the whole book at once. The corpus
-cannot be split across lanes or cores.
+An earlier probe that imported full `LAWS.bend` and discharged only 25 proofs
+failed with `Error: 510 TODOs found`. That was misread as “unshardable.” The
+fix (2026-10-19) is to **copy each law into its own book** under `build/proof`
+(`scripts/split-proof.py`); `make proof` runs those shards and finishes. Checking
+`PROOF.bend` as one file still does not finish under Bun GC — do not use that as
+the gate. See `PROOF.bend` header and `docs/plan-2026-10-16-simplification.md`
+§ “Proof: monolithic book does not finish; one-law shards do”.
 
-`03cb8c2` (2026-10-08) took `LAWS.bend` from 425 to 535 laws; `make check` has been
-unpassable since. This closes `TODO.md:60` ("locate the remaining full-book cost") and
-bears on `TODO.md:44` and `:45`. A fix needs a Bend/Bun allocator or proof-engine
-change, or a per-law check mode — **it is not reachable from this repository's
-sources**. `BACKLOG.md` previously advised "rerun `make proof` on a calm host"; that
-advice was wrong and has been corrected, because acting on it wastes hours.
-
-The proof corpus is nonetheless kept structurally sound: `535 law` ↔ `535 def Laws.X`
-is asserted at every merge, with zero orphans, and the pure/IO split holds (no `_io`,
+`03cb8c2` (2026-10-08) took `LAWS.bend` from 425 to 535 laws; until the shard
+runner landed, `make check` could not pass because `proof` timed out. The
+corpus stays 1:1 (`law` ↔ `def Laws.X`), and the pure/IO split holds (no `_io`,
 `_worker`, `_live` or `_runtime` module appears in any proof file).
 
 ### 8.2 The 247-word C continuation cap

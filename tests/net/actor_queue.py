@@ -106,6 +106,15 @@ def main() -> None:
     held_setup(binary, drop=False, tls=False, mode="closesetup")
     held_setup(binary, drop=False, tls=True, mode="closels")
     held_setup(binary, drop=False, tls=False, mode="bootclose")
+    # − Successful upgrade still admits Drop/cmd-close before registration.
+    # + The same upgraded connection registers when neither is present.
+    post_upgrade(binary, "bootlsdrop")
+    post_upgrade(binary, "bootlsclose")
+    post_upgrade(binary, "bootlsregister")
+    # − A held launch superseded to another endpoint loses SASL scope.
+    # + Superseding to the exact launch endpoint retains it.
+    dial_auth_scope(binary, same=False)
+    dial_auth_scope(binary, same=True)
 
 
 def redial(binary: str) -> None:
@@ -197,6 +206,129 @@ HANDSHAKE = [
     "CAP REQ :labeled-response", "CAP REQ :cap-notify",
     "CAP END", "NICK probe", "USER probe 0 * :probe",
 ]
+
+HANDSHAKE_SASL = [
+    "CAP LS 302", "CAP REQ :sasl", "CAP REQ :server-time",
+    "CAP REQ :message-tags", "CAP REQ :account-notify",
+    "CAP REQ :away-notify", "CAP REQ :draft/chathistory",
+    "CAP REQ :echo-message", "CAP REQ :extended-join",
+    "CAP REQ :account-tag", "CAP REQ :labeled-response",
+    "CAP REQ :cap-notify", "NICK probe", "USER probe 0 * :probe",
+]
+
+
+def collect_child(child: subprocess.Popen, peer: socket.socket) -> tuple[bytes, bytes, bytes]:
+    wire = bytearray()
+    peer.setblocking(False)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and child.poll() is None:
+        ready, _, _ = select.select([child.stdout, peer], [], [], 0.05)
+        if peer in ready:
+            data = peer.recv(65536)
+            if data:
+                wire.extend(data)
+        if child.stdout in ready:
+            line = child.stdout.readline().strip()
+            if line == b"closed":
+                break
+    stdout, stderr = child.communicate(timeout=2)
+    while True:
+        ready, _, _ = select.select([peer], [], [], 0.1)
+        if not ready:
+            break
+        data = peer.recv(65536)
+        if not data:
+            break
+        wire.extend(data)
+    return bytes(wire), stdout, stderr
+
+
+def post_upgrade(binary: str, mode: str) -> None:
+    """Drive after_conn with an owned successful plain upgrade result."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        child = subprocess.Popen(
+            [binary, str(server.getsockname()[1]), "1", "0", mode],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            peer, _ = server.accept()
+            with peer:
+                wire, stdout, stderr = collect_child(child, peer)
+            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+            actual = wire.decode().splitlines()
+            want = HANDSHAKE if mode == "bootlsregister" else []
+            assert actual == want, (mode, actual, want)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    print(f"actor queue {mode} post-upgrade admission: PASS")
+
+
+def accept_nonblocking(server: socket.socket, label: str) -> socket.socket:
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            peer, _ = server.accept()
+            return peer
+        except BlockingIOError:
+            time.sleep(0.02)
+    raise AssertionError(f"{label} was never connected")
+
+
+def dial_auth_scope(binary: str, *, same: bool) -> None:
+    """Supersede a held launch Dial and inspect the winner's registration."""
+    with socket.socket() as initial, socket.socket() as other:
+        initial.bind(("127.0.0.1", 0))
+        initial.listen(1)
+        initial.setblocking(False)
+        other.bind(("127.0.0.1", 0))
+        other.listen(1)
+        other.setblocking(False)
+        filler = socket.create_connection(initial.getsockname(), timeout=2)
+        target = initial if same else other
+        mode = "dialauthsame" if same else "dialauthscope"
+        child = subprocess.Popen(
+            [
+                binary, str(initial.getsockname()[1]), "1",
+                str(target.getsockname()[1]), mode,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        first = winner = None
+        try:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([child.stdout], [], [], 0.05)
+                if ready and child.stdout.readline().strip() == b"held":
+                    break
+            else:
+                raise AssertionError((mode, "no held checkpoint"))
+
+            stuck, _ = initial.accept()
+            stuck.close()
+            first = accept_nonblocking(initial, f"{mode} initial dial")
+            first.close()
+            first = None
+            winner = accept_nonblocking(target, f"{mode} winner")
+            wire, stdout, stderr = collect_child(child, winner)
+            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+            actual = wire.decode().splitlines()
+            want = HANDSHAKE_SASL if same else HANDSHAKE
+            assert actual == want, (mode, actual, want)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            if first is not None:
+                first.close()
+            if winner is not None:
+                winner.close()
+            filler.close()
+    label = "same endpoint retains SASL" if same else "changed endpoint drops SASL"
+    print(f"actor queue held Dial auth scope: {label}: PASS")
 
 
 def held_setup(binary: str, *, drop: bool, tls: bool = False, mode: str | None = None) -> None:

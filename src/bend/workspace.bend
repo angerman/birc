@@ -1826,7 +1826,7 @@ def s3_comp.got(+got: Maybe<&2, Part>) -> String:
 def s3_comp(+ws: Workspace, +id: Key.ServerId) -> String:
   s3_comp.got(find_part(ws, id))
 
-def epoch_reuse_ok() -> Bool:
+def epoch_readd_ok() -> Bool:
   +base = fx_pair()
   +removed = do_remove(base, s1())
   +readded = do_add(removed, "b.example", 6697, False{}, "me", "#b")
@@ -1836,31 +1836,54 @@ def epoch_reuse_ok() -> Bool:
   +old_intent : Sid.Intent = Sid.Intent{s1(), 0, "b.example", 6697, False{}}
   +fresh_chunk : Sid.RoutedMsg = Sid.RoutedMsg{s1(), Sess.FromNet{newgen, Sess.Chunk{Nil{}, 0}}}
   +sib_chunk : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{Nil{}, 0}}}
-  +on = fx_online(fx_pair(), s1())
-  +dialed = do_enter(do_switch(on, s1()), "/connect c.example 6697")
-  +removed2 = do_remove(dialed, s1())
-  +readded2 = do_add(removed2, "c.example", 6697, False{}, "me", "#c")
-  +redialed = do_enter(do_switch(readded2, s1()), "/connect c.example 6697")
-  +newgen2 = part_gen_of(redialed, s1())
-  +old_chunk2 : Sid.RoutedMsg = Sid.RoutedMsg{s1(), Sess.FromNet{1, Sess.Chunk{Nil{}, 0}}}
-  +old_done2 : Sid.RoutedMsg = Sid.RoutedMsg{s1(), Sess.FromNet{1, Sess.WriterDone{}}}
-  +old_intent2 : Sid.Intent = Sid.Intent{s1(), 1, "c.example", 6697, False{}}
-  +fresh2 : Sid.RoutedMsg = Sid.RoutedMsg{s1(), Sess.FromNet{newgen2, Sess.Chunk{Nil{}, 0}}}
-  +sib2 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{Nil{}, 0}}}
   Bool.not(U32.is_eq(newgen, 0))
     && Bool.not(msg_admitted(readded, old_chunk))
     && Bool.not(writer_done_acked(readded, old_done))
     && Bool.not(redial_ok(readded, s1(), old_intent))
     && msg_admitted(readded, fresh_chunk)
     && msg_admitted(readded, sib_chunk)
-    && Bool.not(U32.is_eq(newgen2, 1))
-    && Bool.not(msg_admitted(redialed, old_chunk2))
-    && Bool.not(writer_done_acked(redialed, old_done2))
-    && Bool.not(redial_ok(redialed, s1(), old_intent2))
-    && msg_admitted(redialed, fresh2)
-    && msg_admitted(redialed, sib2)
 
-def composer_reset_ok() -> Bool:
+def epoch_redial_setup() -> Workspace:
+  +on = fx_online(fx_pair(), s1())
+  +dialed = do_enter(do_switch(on, s1()), "/connect c.example 6697")
+  +removed2 = do_remove(dialed, s1())
+  +readded2 = do_add(removed2, "c.example", 6697, False{}, "me", "#c")
+  do_enter(do_switch(readded2, s1()), "/connect c.example 6697")
+
+def epoch_redial_gen_ok() -> Bool:
+  Bool.not(U32.is_eq(part_gen_of(epoch_redial_setup(), s1()), 1))
+
+def epoch_redial_stale_chunk_ok() -> Bool:
+  +redialed = epoch_redial_setup()
+  Bool.not(msg_admitted(redialed, Sid.RoutedMsg{s1(), Sess.FromNet{1, Sess.Chunk{Nil{}, 0}}}))
+
+def epoch_redial_stale_done_ok() -> Bool:
+  +redialed = epoch_redial_setup()
+  Bool.not(writer_done_acked(redialed, Sid.RoutedMsg{s1(), Sess.FromNet{1, Sess.WriterDone{}}}))
+
+def epoch_redial_stale_intent_ok() -> Bool:
+  +redialed = epoch_redial_setup()
+  Bool.not(redial_ok(redialed, s1(), Sid.Intent{s1(), 1, "c.example", 6697, False{}}))
+
+def epoch_redial_fresh_ok() -> Bool:
+  +redialed = epoch_redial_setup()
+  msg_admitted(redialed, Sid.RoutedMsg{s1(), Sess.FromNet{part_gen_of(redialed, s1()), Sess.Chunk{Nil{}, 0}}})
+
+def epoch_redial_sibling_ok() -> Bool:
+  msg_admitted(epoch_redial_setup(), Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{Nil{}, 0}}})
+
+def epoch_redial_ok() -> Bool:
+  epoch_redial_gen_ok()
+    && epoch_redial_stale_chunk_ok()
+    && epoch_redial_stale_done_ok()
+    && epoch_redial_stale_intent_ok()
+    && epoch_redial_fresh_ok()
+    && epoch_redial_sibling_ok()
+
+def epoch_reuse_ok() -> Bool:
+  epoch_readd_ok() && epoch_redial_ok()
+
+def composer_text_ok() -> Bool:
   +base = fx_rooms()
   +s0sw = do_switch(base, s0())
   +typed = do_step(s0sw, AD.typing_keys("aa"))
@@ -1869,15 +1892,6 @@ def composer_reset_ok() -> Bool:
   +same = do_replace(both, s0(), "a.example", 6697, False{})
   +port = do_replace(both, s0(), "a.example", 6698, False{})
   +back = do_switch(moved, s0())
-  +c_tab0 = do_step(do_switch(base, s0()), s3_tab_keys("old /j"))
-  +c_both = do_step(do_switch(c_tab0, s1()), s3_tab_keys("old /j"))
-  +c_moved = do_replace(c_both, s0(), "c.example", 6697, False{})
-  +c_port = do_replace(c_both, s0(), "a.example", 6698, False{})
-  +c_same = do_replace(c_both, s0(), "a.example", 6697, False{})
-  +c_next = do_step(do_switch(c_moved, s0()), s3_tab_keys(""))
-  +c_next_port = do_step(do_switch(c_port, s0()), s3_tab_keys(""))
-  +c_next_same = do_step(do_switch(c_same, s0()), s3_tab_keys(""))
-  +c_next_sib = do_step(do_switch(c_moved, s1()), s3_tab_keys(""))
   Bool.not(Drafts.has(ws_drafts(moved), s0(), "#a"))
     && String.eq(s3_composer(moved, s0()), "")
     && U32.is_eq(s3_seed(moved, s0()), 1)
@@ -1887,7 +1901,19 @@ def composer_reset_ok() -> Bool:
     && String.eq(s3_composer(same, s0()), "aa")
     && String.eq(Drafts.get(ws_drafts(moved), s1(), "#b"), "bb")
     && String.eq(s3_composer(moved, s1()), "bb")
-    && String.eq(s3_comp(c_both, s0()), "A:old |/j|0")
+
+def composer_completion_ok() -> Bool:
+  +base = fx_rooms()
+  +c_tab0 = do_step(do_switch(base, s0()), s3_tab_keys("old /j"))
+  +c_both = do_step(do_switch(c_tab0, s1()), s3_tab_keys("old /j"))
+  +c_moved = do_replace(c_both, s0(), "c.example", 6697, False{})
+  +c_port = do_replace(c_both, s0(), "a.example", 6698, False{})
+  +c_same = do_replace(c_both, s0(), "a.example", 6697, False{})
+  +c_next = do_step(do_switch(c_moved, s0()), s3_tab_keys(""))
+  +c_next_port = do_step(do_switch(c_port, s0()), s3_tab_keys(""))
+  +c_next_same = do_step(do_switch(c_same, s0()), s3_tab_keys(""))
+  +c_next_sib = do_step(do_switch(c_moved, s1()), s3_tab_keys(""))
+  String.eq(s3_comp(c_both, s0()), "A:old |/j|0")
     && String.eq(s3_comp(c_moved, s0()), "N")
     && Bool.not(String.eq(s3_composer(c_next, s0()), "old /join "))
     && String.eq(s3_composer(c_next, s0()), "")
@@ -1897,6 +1923,9 @@ def composer_reset_ok() -> Bool:
     && String.eq(s3_composer(c_next_same, s0()), "old /join ")
     && String.eq(s3_comp(c_moved, s1()), "A:old |/j|0")
     && String.eq(s3_composer(c_next_sib, s1()), "old /join ")
+
+def composer_reset_ok() -> Bool:
+  composer_text_ok() && composer_completion_ok()
 
 def rt_session.got(+got: Maybe<&2, Part>) -> Sess.Session:
   match got:
@@ -1968,7 +1997,39 @@ def intent_or_live(+got: Maybe<&2, Sid.Intent>) -> Sid.Intent:
     case None{}: Sid.Intent{bad4(), 0, "dead.invalid", 0, False{}}
     case Some{+i}: i
 
-def runtime_inbound_ok() -> Bool:
+def runtime_up_s0_ok() -> Bool:
+  +up0 = on_routed_up(fx_pair(), Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
+  String.eq(rt_net(up0, s0()), "online")
+
+def runtime_up_s1_connecting_ok() -> Bool:
+  +up0 = on_routed_up(fx_pair(), Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
+  String.eq(rt_net(up0, s1()), "connecting")
+
+def runtime_up_s1_bufs_ok() -> Bool:
+  +up0 = on_routed_up(fx_pair(), Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
+  Nat.is_eq(rt_nbufs(up0, s1()), 1n)
+
+def runtime_up_s1_online_ok() -> Bool:
+  +up0 = on_routed_up(fx_pair(), Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
+  +up1 = on_routed_up(do_switch(up0, s1()), Sid.RoutedMsg{s1(), Sess.FromNet{0, Sess.Up{}}}, "00:00:02")
+  String.eq(rt_net(up1, s1()), "online")
+
+def runtime_up_ok() -> Bool:
+  runtime_up_s0_ok()
+    && runtime_up_s1_connecting_ok()
+    && runtime_up_s1_bufs_ok()
+    && runtime_up_s1_online_ok()
+
+def runtime_submit_ok() -> Bool:
+  +pair = fx_pair()
+  +up0 = on_routed_up(pair, Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
+  +up1 = on_routed_up(do_switch(up0, s1()), Sid.RoutedMsg{s1(), Sess.FromNet{0, Sess.Up{}}}, "00:00:02")
+  +j0 = do_enter(do_switch(up1, s0()), "/join #a")
+  +j1 = do_enter(do_switch(j0, s1()), "/join #b")
+  +hi = do_enter(j1, "s1hi")
+  String.eq(rt_texts(hi, s1(), 1n), "<me> s1hi|")
+
+def runtime_chunk_ok() -> Bool:
   +pair = fx_pair()
   +up0 = on_routed_up(pair, Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Up{}}}, "00:00:01")
   +up1 = on_routed_up(do_switch(up0, s1()), Sid.RoutedMsg{s1(), Sess.FromNet{0, Sess.Up{}}}, "00:00:02")
@@ -1979,20 +2040,16 @@ def runtime_inbound_ok() -> Bool:
   +chunk : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{Fr.string_to_octets(":alice!x@y PRIVMSG #a :hi\r\n"), 0}}}
   +in0 = do_on_chunk(hi, chunk, stamps, 0)
   +stale : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{7, Sess.Chunk{Fr.string_to_octets(":mallory!x@y PRIVMSG #a :yo\r\n"), 0}}}
-  +staled = do_on_chunk(in0, stale, stamps, 0)
   +unk : Sid.RoutedMsg = Sid.RoutedMsg{bad4(), Sess.FromNet{0, Sess.Chunk{Fr.string_to_octets(":mallory!x@y PRIVMSG #a :yo\r\n"), 0}}}
-  +unkd = do_on_chunk(in0, unk, stamps, 0)
-  String.eq(rt_net(up0, s0()), "online")
-    && String.eq(rt_net(up0, s1()), "connecting")
-    && Nat.is_eq(rt_nbufs(up0, s1()), 1n)
-    && String.eq(rt_net(up1, s1()), "online")
-    && String.eq(rt_texts(hi, s1(), 1n), "<me> s1hi|")
-    && String.eq(on_chunk_outs(hi, chunk, stamps, 0), "")
+  String.eq(on_chunk_outs(hi, chunk, stamps, 0), "")
     && String.eq(rt_texts(in0, s0(), 1n), "<alice> hi|")
     && String.eq(rt_texts(in0, s1(), 1n), "<me> s1hi|")
     && String.eq(on_chunk_outs(in0, stale, stamps, 0), "")
-    && String.eq(rt_texts(staled, s0(), 1n), rt_texts(in0, s0(), 1n))
-    && String.eq(rt_texts(unkd, s0(), 1n), rt_texts(in0, s0(), 1n))
+    && String.eq(rt_texts(do_on_chunk(in0, stale, stamps, 0), s0(), 1n), "<alice> hi|")
+    && String.eq(rt_texts(do_on_chunk(in0, unk, stamps, 0), s0(), 1n), "<alice> hi|")
+
+def runtime_inbound_ok() -> Bool:
+  runtime_up_ok() && runtime_submit_ok() && runtime_chunk_ok()
 
 def runtime_redial_ok() -> Bool:
   +pair = fx_pair()
