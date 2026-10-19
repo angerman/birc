@@ -199,10 +199,46 @@ def run_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
       h2 => p2 => g2 => n2 => scope2 => carry2 => k2 =>
         Act.dial_begin.go(8n, h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
 
+def writer_after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  do IO<Unit>:
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
+    Unit <- setup_drop(String.eq(mode, "writerdialdrop"), cmd)
+    return Unit{}
+
+def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match pair:
+    case (Act.Writer{sock, _, _, _, _, _, _}, _):
+      do IO<Unit>:
+        Unit <- Act.close_socket(sock)
+        Unit <- Chan.close(Sess.NetCmd, cmd)
+        Unit <- IO.print("held")
+        IO.print("closed")
+
+# Exercise writer_admit's recursive winner, independently of dial_begin:
+# Dial B followed by Drop must connect B but send zero registration bytes.
+def run_writer_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- writer_after_queue(mode, target, cmd)
+    Act.writer_admit_conn(Done{Tr.Plain{sock}}, "probe", 1, False{}, evt, boot, cmd,
+      Act.AuthScope{"127.0.0.1", 0, False{}}, Out.budget_frames(1), 1,
+      Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
+      pair => writer_after_finished(pair, cmd),
+      h2 => p2 => g2 => n2 => scope2 => kept2 => closed2 => dropped2 => k2 =>
+        Act.writer_admit_begin(h2, p2, False{}, n2, g2, evt, boot, cmd, scope2,
+          Out.budget_frames(1), 1, kept2, closed2, dropped2, k2))
+
 def after_connected(r: Result<&1, &1, U32 & String, Socket>, target: U32, mode: String) -> IO(Unit):
   match r:
     case Fail{_}: IO.die(Unit, 1, "connect failed")
     case Done{sock}: run_after(sock, target, mode)
+
+def writer_after_connected(r: Result<&1, &1, U32 & String, Socket>, target: U32, mode: String) -> IO(Unit):
+  match r:
+    case Fail{_}: IO.die(Unit, 1, "connect failed")
+    case Done{sock}: run_writer_after(sock, target, mode)
 
 def after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(Unit):
   match p:
@@ -214,6 +250,17 @@ def after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(U
           do IO<Unit>:
             r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
             after_connected(r, other, mode)
+
+def writer_after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}:
+      match target:
+        case None{}: IO.die(Unit, 1, "invalid target port")
+        case Some{other}:
+          do IO<Unit>:
+            r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
+            writer_after_connected(r, other, mode)
 
 def auth_target(same: Bool, port: U32, other: U32) -> U32:
   match same:
@@ -289,6 +336,10 @@ def args(xs: List<&1, String>) -> IO(Unit):
       after_port(U32.read(p), U32.read(n), "afterdialdrop")
     case Con{_, Con{p, Con{_, Con{n, Con{"afterdialclose", Nil{}}}}}}:
       after_port(U32.read(p), U32.read(n), "afterdialclose")
+    case Con{_, Con{p, Con{_, Con{n, Con{"writerdialdrop", Nil{}}}}}}:
+      writer_after_port(U32.read(p), U32.read(n), "writerdialdrop")
+    case Con{_, Con{p, Con{_, Con{n, Con{"writerdialregister", Nil{}}}}}}:
+      writer_after_port(U32.read(p), U32.read(n), "writerdialregister")
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthscope", Nil{}}}}}}:
       auth_port(U32.read(p), U32.read(n), False{})
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthsame", Nil{}}}}}}:

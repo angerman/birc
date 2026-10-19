@@ -882,6 +882,12 @@ test-feed-bench: $(BLDDIR)/feed_bench ## Run the existing feed bound independent
 test-submit: $(BLDDIR)/submit_demo ## M2 submit goldens.
 	$(NIXRUN) sh scripts/check-golden.sh submit_demo=ok ./$(BLDDIR)/submit_demo
 
+.PHONY: test-session-isupport-submit
+test-session-isupport-submit: $(BLDDIR)/session_isupport_submit.js ## Negotiated channel commands reach the production Session Enter seam.
+	$(NIXRUN) sh scripts/check-golden.sh session_isupport_submit=ok timeout 30 bun $(BLDDIR)/session_isupport_submit.js
+
+test-review-pure: test-session-isupport-submit
+
 test-pend: $(BLDDIR)/pend_demo ## Optimistic-send record/overlay/confirm/timeout/fail goldens.
 	$(NIXRUN) sh scripts/check-golden.sh pend_demo=ok ./$(BLDDIR)/pend_demo
 

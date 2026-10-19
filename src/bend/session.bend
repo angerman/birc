@@ -3099,6 +3099,24 @@ def session_submit_needs_dynamic.some(+st: Session, got: Maybe<&2, String>) -> B
 def session_submit_needs_dynamic(+st: Session, +typed: String) -> Bool:
   session_submit_needs_dynamic.some(st, session_submit_target(typed))
 
+def session_submit_command_iso.cmd(cmd: Sub.Slash) -> Bool:
+  match cmd:
+    case Sub.Join{}: True{}
+    case Sub.Part{}: True{}
+    case Sub.CloseCmd{}: True{}
+    case Sub.Msg{}: True{}
+    case Sub.QueryCmd{}: True{}
+    case Sub.MuteCmd{}: True{}
+    case Sub.NoticeCmd{}: True{}
+    case _: False{}
+
+def step_keys.base.dyn.input(+st: Session, input: Sub.Input) -> Bool:
+  match input:
+    case Sub.CommandInput{+cmd, _, +rest}:
+      session_submit_command_iso.cmd(cmd)
+        || session_submit_needs_dynamic.some(st, session_submit_target.cmd(cmd, rest))
+    case _: False{}
+
 def step_keys.parsed(enter: Bool, +typed: String) -> Sub.Input:
   match enter:
     case False{}: Sub.EmptyInput{}
@@ -3117,7 +3135,7 @@ def step_keys.base.keep(enter: Bool, +iso: Isupport.State, +cl: Cl.Client, input
 def step_keys.base.dyn(enter: Bool, +st: Session, input: Sub.Input) -> Bool:
   match enter:
     case False{}: False{}
-    case True{}: session_submit_needs_dynamic.some(st, session_submit_target.parsed(input))
+    case True{}: step_keys.base.dyn.input(st, input)
 
 def step_keys.base.submit(+st: Session, +keys: Keys, +hist2: Hist, dyn: Bool, input: Sub.Input) -> Session & NetCmd & Bool:
   match keys:

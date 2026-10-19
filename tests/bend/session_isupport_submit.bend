@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+# Negotiated channel policy must reach the production Session Enter seam.
+import Base
+import ./expect.bend as E
+import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/isupport.bend as Is
+import ../../src/bend/session.bend as Sess
+import ../../src/bend/submit.bend as Sub
+
+def base() -> Cl.Client:
+  Cl.init("me", "irc")
+
+def dollar_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=$ :are supported")
+
+def submit_client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
+  match pair:
+    case (cl, _): cl
+
+def dollar_channel() -> Cl.Client:
+  submit_client(Sub.submit_with(dollar_server(), base(), "/join $room"))
+
+def live(+iso: Is.State, +cl: Cl.Client, +chan: String) -> Sess.Session:
+  Sess.session_set_iso(Sess.session_set_net(Sess.session_demo(cl, chan), Sess.Online{}), iso)
+
+def wire(trip: Sess.Session & Sess.NetCmd & Bool) -> String:
+  match trip:
+    case (_, Sess.Cont{xs}, _): String.join(xs, "|")
+    case _: ""
+
+def result_client(trip: Sess.Session & Sess.NetCmd & Bool) -> Cl.Client:
+  match trip:
+    case (st, _, _): Sess.session_cl(st)
+
+def mute_pattern(trip: Sess.Session & Sess.NetCmd & Bool) -> String:
+  String.join(Cl.settings_mutes(Cl.get_settings(result_client(trip))), "|")
+
+def main() -> IO(Unit):
+  +iso = dollar_server()
+  +cl = base()
+  +dollar = dollar_channel()
+  do IO<Unit>:
+    # −/+ pairs use step_keys/Enter, not Submit's lower-level negotiated seam.
+    Unit <- E.must_eq("fixed Session JOIN rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/join $room"))), "")
+    Unit <- E.must_eq("negotiated Session JOIN accepts advertised type", wire(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/join $room"))), "JOIN $room")
+    Unit <- E.must_eq("fixed Session PART rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/part $room"))), "")
+    Unit <- E.must_eq("negotiated Session PART accepts advertised type", wire(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/part $room"))), "PART $room")
+    Unit <- E.must_eq("fixed Session CLOSE rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/close $room"))), "")
+    Unit <- E.must_eq("negotiated Session CLOSE accepts advertised type", wire(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/close $room"))), "PART $room")
+    Unit <- E.must_eq("fixed Session MUTE leaves advertised-only active target unscoped", mute_pattern(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/mute alice"))), "alice*@irc")
+    Unit <- E.must_eq("negotiated Session MUTE scopes advertised active target", mute_pattern(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mute alice"))), "alice$room@irc")
+    IO.print("session_isupport_submit=ok")

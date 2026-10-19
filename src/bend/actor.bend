@@ -863,19 +863,21 @@ def writer_admit_single(+kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bo
 def writer_admit_won(pair: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt(pair, budget, next_txn), evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
 
-def writer_admit_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: AuthScope, +kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Tr.Conn, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: AuthScope, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +dropped: Bool, sock: Tr.Conn, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Tr.close(sock)
-    retry(h2, p2, g2, n2, scope, kept, closed, k)
+    # Carry Drop explicitly so the recursive winner is canceled before
+    # transport upgrade or registration, matching dial_begin's DialCarry.
+    retry(h2, p2, g2, n2, scope, kept, closed, dropped, k)
 
-def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case None{}:
       writer_admit_single(kept, closed, dropped, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      writer_admit_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, closed, sock, k, retry)
+      writer_admit_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, closed, dropped, sock, k, retry)
 
-def writer_admit_decide(+acc: AdmitAcc, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_decide(+acc: AdmitAcc, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match acc:
     case AdmitAcc{+latest, +dials, +kept, +closed, +dropped}:
       writer_admit_latest(latest, dials, kept, closed, dropped, sock, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
@@ -1037,7 +1039,7 @@ def dial_begin(+host: String, +port: U32, force_tls: Bool, +nick: String, +gen: 
   dial_begin.go(8n, host, port, force_tls, nick, gen, evt, boot, cmd, live, scope,
     DialCarry{Nil{}, False{}, False{}}, k)
 
-def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +acc0: AdmitAcc, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +acc0: AdmitAcc, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match r:
     case Fail{e}:
       writer_admit_failed(e, gen, evt, scope, budget, next_txn, k)
@@ -1052,12 +1054,12 @@ def writer_admit_raw_drop(+kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Soc
     Unit <- Socket.close(sock)
     writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}}, evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
 
-def writer_admit_raw_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: AuthScope, +kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Socket, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_raw_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: AuthScope, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +dropped: Bool, sock: Socket, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(sock)
-    retry(h2, p2, g2, n2, scope, kept, closed, k)
+    retry(h2, p2, g2, n2, scope, kept, closed, dropped, k)
 
-def writer_admit_sock.open(closed: Bool, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_sock.open(closed: Bool, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
     case True{}: writer_admit_raw_drop(kept, True{}, sock, gen, evt, cmd, scope, budget, next_txn, k)
     case False{}:
@@ -1065,36 +1067,36 @@ def writer_admit_sock.open(closed: Bool, sock: Socket, +host: String, +nick: Str
         cr : Result<&1, &1, (U32 & String), Tr.Conn> <- Tr.upgrade(sock, host, force_tls)
         writer_admit_conn(cr, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, AdmitAcc{None{}, Nil{}, kept, False{}, False{}}, k, retry)
 
-def writer_admit_sock.plain(dropped: Bool, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, +closed: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_sock.plain(dropped: Bool, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, +closed: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match dropped:
     case True{}: writer_admit_raw_drop(kept, closed, sock, gen, evt, cmd, scope, budget, next_txn, k)
     case False{}: writer_admit_sock.open(closed, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, k, retry)
 
-def writer_admit_sock.latest(latest: Maybe<&2, QueuedDial>, dropped: Bool, +dials: List<&2, QueuedDial>, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, +closed: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_sock.latest(latest: Maybe<&2, QueuedDial>, dropped: Bool, +dials: List<&2, QueuedDial>, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, +closed: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      writer_admit_raw_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, closed, sock, k, retry)
+      writer_admit_raw_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, closed, dropped, sock, k, retry)
     case None{}:
       writer_admit_sock.plain(dropped, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, closed, k, retry)
 
-def writer_admit_sock.acc(+acc: AdmitAcc, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_sock.acc(+acc: AdmitAcc, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match acc:
     case AdmitAcc{+latest, +dials, +kept, +closed, +dropped}:
       writer_admit_sock.latest(latest, dropped, dials, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, closed, k, retry)
 
-def writer_admit_sock(pair: Socket & String, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_sock(pair: Socket & String, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, +dropped0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match pair:
     case (sock, _):
       do IO<Unit>:
-        acc : AdmitAcc <- writer_peek(65n, cmd, gen, AdmitAcc{None{}, Nil{}, kept0, closed0, False{}})
+        acc : AdmitAcc <- writer_peek(65n, cmd, gen, AdmitAcc{None{}, Nil{}, kept0, closed0, dropped0})
         writer_admit_sock.acc(acc, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
 
-def writer_admit_dual(r: Result<&1, &1, U32 & String, Socket & String>, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
+def writer_admit_dual(r: Result<&1, &1, U32 & String, Socket & String>, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, +dropped0: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match r:
     case Fail{e}:
       writer_admit_failed(e, gen, evt, scope, budget, next_txn, k)
     case Done{pair}:
-      writer_admit_sock(pair, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept0, closed0, k, retry)
+      writer_admit_sock(pair, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept0, closed0, dropped0, k, retry)
 
 # The winner re-enters through the retry continuation (leaves-up: Bend
 # forbids the winner forward-calling begin). Begin passes itself as that
@@ -1103,10 +1105,10 @@ def writer_admit_dual(r: Result<&1, &1, U32 & String, Socket & String>, +host: S
 # the drain finds no newer Dial (data-dependent, hence @unsafe like the
 # other actor loops).
 @unsafe
-def writer_admit_begin(+host: String, +port: U32, +force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, +budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+def writer_admit_begin(+host: String, +port: U32, +force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, +budget: Out.Budget, +next_txn: U32, +kept0: List<&2, Sess.NetCmd>, +closed0: Bool, +dropped0: Bool, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     r : Result<&1, &1, U32 & String, Socket & String> <- Dns.dial_dual(host, port, 1000)
-    writer_admit_dual(r, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept0, closed0, k, h2 => p2 => g2 => n2 => scope2 => kept2 => closed2 => k2 => writer_admit_begin(h2, p2, force_tls, n2, g2, evt, boot, cmd, scope2, budget, next_txn, kept2, closed2, k2))
+    writer_admit_dual(r, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept0, closed0, dropped0, k, h2 => p2 => g2 => n2 => scope2 => kept2 => closed2 => dropped2 => k2 => writer_admit_begin(h2, p2, force_tls, n2, g2, evt, boot, cmd, scope2, budget, next_txn, kept2, closed2, dropped2, k2))
 
 # Pre-setup supersede guard (L1-src3 GATE 2, kept): a Dial for the generation
 # the writer is already on is superseded by the live connection while
@@ -1142,7 +1144,7 @@ def writer_dial_flushed(
 ) -> IO(Unit):
   do IO<Unit>:
     Unit <- writer_dial_flush_drop(pair)
-    writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, k)
+    writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, False{}, k)
 
 def writer_dial_flush(
   sock: Maybe<&1, Tr.Conn>,
@@ -1163,7 +1165,7 @@ def writer_dial_flush(
 ) -> IO(Unit):
   match sock:
     case None{}:
-      writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, k)
+      writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, False{}, k)
     case Some{s}:
       do IO<Unit>:
         pair : Tr.Conn & Sent <- send_batch(s, pending, pending_txn)
