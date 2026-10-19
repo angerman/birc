@@ -54,6 +54,21 @@ def reset_join_wire(+st: Sess.Session, +iso: Is.State) -> String:
 def mute_pattern(trip: Sess.Session & Sess.NetCmd & Bool) -> String:
   String.join(Cl.settings_mutes(Cl.get_settings(result_client(trip))), "|")
 
+def muted_old_count(trip: Sess.Session & Sess.NetCmd & Bool, +iso: Is.State) -> Nat:
+  +cl = result_client(trip)
+  +line = {Cl.Line{Cl.Msg{}, "", "<Alice> old", "Alice", 1n} : Cl.Line}
+  List.length(&2, Cl.Line, Cl.filter_muted_lines_iso(Is.as_iso(iso), line <> Nil{},
+    Cl.settings_mutes(Cl.get_settings(cl)), "$room", "irc"))
+
+def session_mute_pattern(+st: Sess.Session) -> String:
+  String.join(Cl.settings_mutes(Cl.get_settings(Sess.session_cl(st))), "|")
+
+def session_muted_old_count(+st: Sess.Session, +iso: Is.State) -> Nat:
+  +cl = Sess.session_cl(st)
+  +line = {Cl.Line{Cl.Msg{}, "", "<Alice> old", "Alice", 1n} : Cl.Line}
+  List.length(&2, Cl.Line, Cl.filter_muted_lines_iso(Is.as_iso(iso), line <> Nil{},
+    Cl.settings_mutes(Cl.get_settings(cl)), "$room", "irc"))
+
 def main() -> IO(Unit):
   +iso = dollar_server()
   +cl = base()
@@ -61,6 +76,8 @@ def main() -> IO(Unit):
   +joined = result_session(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/join $room")))
   +offline_joined = Sess.session_set_net(joined, Sess.Offline{})
   +reconnecting_joined = Sess.session_set_net(result_session(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/join $room"))), Sess.Reconnecting{})
+  +muted = result_session(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mute alice")))
+  +unmuted = result_session(Sess.step_keys(muted, Sess.keys_enter("/unmute alice")))
   do IO<Unit>:
     # −/+ pairs use step_keys/Enter, not Submit's lower-level negotiated seam.
     Unit <- E.must_eq("fixed Session JOIN rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/join $room"))), "")
@@ -77,4 +94,21 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("reconnecting CLOSE uses retained negotiated type", desired(Sess.step_keys(reconnecting_joined, Sess.keys_enter("/close $room"))), "")
     Unit <- E.must_eq("fixed Session MUTE leaves advertised-only active target unscoped", mute_pattern(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/mute alice"))), "alice*@irc")
     Unit <- E.must_eq("negotiated Session MUTE scopes advertised active target", mute_pattern(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mute alice"))), "alice$room@irc")
+    # Fixed wrappers keep their default policy; negotiated Session dispatch
+    # classifies both the active target and explicit command targets.
+    Unit <- E.must_eq("fixed WHO broadens advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/who"))), "WHO *")
+    Unit <- E.must_eq("negotiated WHO targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/who"))), "WHO $room")
+    Unit <- E.must_eq("fixed NAMES stays bare for advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/names"))), "NAMES")
+    Unit <- E.must_eq("negotiated NAMES targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/names"))), "NAMES $room")
+    Unit <- E.must_eq("fixed TOPIC rejects advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/topic :new"))), "")
+    Unit <- E.must_eq("negotiated TOPIC targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/topic :new"))), "TOPIC $room :new")
+    Unit <- E.must_eq("fixed MODE falls back to nick for advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/mode"))), "MODE me")
+    Unit <- E.must_eq("negotiated MODE targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mode"))), "MODE $room")
+    Unit <- E.must_eq("fixed KICK rejects advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/kick bob"))), "")
+    Unit <- E.must_eq("negotiated KICK targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/kick bob"))), "KICK $room bob")
+    Unit <- E.must_eq("fixed INVITE rejects advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/invite bob"))), "")
+    Unit <- E.must_eq("negotiated INVITE targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/invite bob"))), "INVITE bob $room")
+    Unit <- E.must("negotiated scoped mute filters existing Alice line", Nat.is_eq(session_muted_old_count(muted, iso), 0n))
+    Unit <- E.must_eq("negotiated unmute removes scoped advertised-channel rule", session_mute_pattern(unmuted), "")
+    Unit <- E.must("negotiated unmute restores existing Alice line", Nat.is_eq(session_muted_old_count(unmuted, iso), 1n))
     IO.print("session_isupport_submit=ok")

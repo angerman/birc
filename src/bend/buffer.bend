@@ -430,19 +430,25 @@ def add_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
 
 # Scoped patterns use the same channel types as IRC routing. Extract the nick
 # once so restored-line filtering and /unmute agree on every supported scope.
+def is_mute_sep_with(+types: String, +c: Char) -> Bool:
+  has_ch(types, c) || Char.is_eq(c, '*') || Char.is_eq(c, '@')
+
 def is_mute_sep(+c: Char) -> Bool:
-  Irc.is_chan_type(c) || Char.is_eq(c, '*') || Char.is_eq(c, '@')
+  is_mute_sep_with(dflt_types(), c)
 
 def mute_pat_nick.fin(+h: Char, r: String, is_sep: Bool) -> String:
   match is_sep:
     case True{}: ""
     case False{}: SCon{h, r}
 
-def mute_pat_nick(s: String) -> String:
+def mute_pat_nick_with(+types: String, s: String) -> String:
   match s:
     case SNil{}: ""
     case SCon{+h, +t}:
-      mute_pat_nick.fin(h, mute_pat_nick(t), is_mute_sep(h))
+      mute_pat_nick.fin(h, mute_pat_nick_with(types, t), is_mute_sep_with(types, h))
+
+def mute_pat_nick(s: String) -> String:
+  mute_pat_nick_with(dflt_types(), s)
 
 def del_mute_list.rest(tail: List<&2, String>, +m: String, hit: Bool) -> List<&2, String>:
   match hit:
@@ -451,12 +457,15 @@ def del_mute_list.rest(tail: List<&2, String>, +m: String, hit: Bool) -> List<&2
     case False{}:
       m <> tail
 
-def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+def del_mute_list_with(+types: String, mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   match mutes:
     case Nil{}: Nil{}
     case Con{+m, t}:
-      +hit = Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick(m), pat)
-      del_mute_list.rest(del_mute_list(t, pat), m, hit)
+      +hit = Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick_with(types, m), pat)
+      del_mute_list.rest(del_mute_list_with(types, t, pat), m, hit)
+
+def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+  del_mute_list_with(dflt_types(), mutes, pat)
 
 # Render filtering sole owner (I2-DRY): view mute checks fold the pattern,
 # author, and channel under the given CASEMAPPING; fixed wrappers delegate
@@ -476,15 +485,21 @@ def line_from_nick_cm(+cm: String, +ln: Line, +nick: String) -> Bool:
     case Line{kind, _, _, +author, _}:
       line_from_nick_kind_cm(cm, kind, author, nick)
 
-def is_line_muted_pat_cm(+cm: String, +m: String, +ln: Line, +chan: String, +server: String) -> Bool:
-  +nick = mute_pat_nick(m)
+def is_line_muted_pat_with(+cm: String, +types: String, +m: String, +ln: Line, +chan: String, +server: String) -> Bool:
+  +nick = mute_pat_nick_with(types, m)
   mute_match_cm(cm, m, nick, chan, server) && line_from_nick_cm(cm, ln, nick)
 
-def is_line_muted_cm(+cm: String, mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
+def is_line_muted_with(+cm: String, +types: String, mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
   match mutes:
     case Nil{}: False{}
     case Con{+m, t}:
-      is_line_muted_pat_cm(cm, m, ln, chan, server) || is_line_muted_cm(cm, t, ln, chan, server)
+      is_line_muted_pat_with(cm, types, m, ln, chan, server) || is_line_muted_with(cm, types, t, ln, chan, server)
+
+def is_line_muted_pat_cm(+cm: String, +m: String, +ln: Line, +chan: String, +server: String) -> Bool:
+  is_line_muted_pat_with(cm, dflt_types(), m, ln, chan, server)
+
+def is_line_muted_cm(+cm: String, mutes: List<&2, String>, +ln: Line, +chan: String, +server: String) -> Bool:
+  is_line_muted_with(cm, dflt_types(), mutes, ln, chan, server)
 
 def line_from_nick(+ln: Line, +nick: String) -> Bool:
   line_from_nick_cm(dflt_cm(), ln, nick)
@@ -500,11 +515,17 @@ def filter_muted_lines.rest(tail: List<&2, Line>, +ln: Line, muted: Bool) -> Lis
     case True{}: tail
     case False{}: ln <> tail
 
-def filter_muted_lines_cm(+cm: String, lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+def filter_muted_lines_with(+cm: String, +types: String, lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
   match lines:
     case Nil{}: Nil{}
     case Con{+ln, t}:
-      filter_muted_lines.rest(filter_muted_lines_cm(cm, t, mutes, chan, server), ln, is_line_muted_cm(cm, mutes, ln, chan, server))
+      filter_muted_lines.rest(filter_muted_lines_with(cm, types, t, mutes, chan, server), ln, is_line_muted_with(cm, types, mutes, ln, chan, server))
+
+def filter_muted_lines_iso(+isc: Iso, lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+  filter_muted_lines_with(iso_cm(isc), iso_types(isc), lines, mutes, chan, server)
+
+def filter_muted_lines_cm(+cm: String, lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
+  filter_muted_lines_with(cm, dflt_types(), lines, mutes, chan, server)
 
 def filter_muted_lines(lines: List<&2, Line>, +mutes: List<&2, String>, +chan: String, +server: String) -> List<&2, Line>:
   filter_muted_lines_cm(dflt_cm(), lines, mutes, chan, server)
@@ -852,6 +873,11 @@ def del_mute_client(+cl: Client, +pat: String) -> Client:
   match cl:
     case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq}:
       Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list(settings_mutes(stg), pat)), auth, log_seq}
+
+def del_mute_client_iso(+cl: Client, +isc: Iso, +pat: String) -> Client:
+  match cl:
+    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list_with(iso_types(isc), settings_mutes(stg), pat)), auth, log_seq}
 
 # ---- init ---------------------------------------------------------------
 

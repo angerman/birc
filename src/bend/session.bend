@@ -2987,7 +2987,7 @@ def nav_after(
     case Size{rows, cols}:
       +cl2 = apply_click(Cl.cycle_tab(cl, tab), click)
       +split2 = Sp.follow_active(cl2, split)
-      +cl3 = snap_if(enter, View.scroll_active_media_cards_cm(Isupport.casemapping(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends))
+      +cl3 = snap_if(enter, View.scroll_active_media_cards_iso(Isupport.as_iso(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends))
       focus_after(U32.is_eq(focus, 1), cl3, split2)
 
 def panel_keep(comp: Comp, +typed: String, +draft: String) -> Comp:
@@ -3124,6 +3124,13 @@ def session_submit_command_iso.cmd(cmd: Sub.Slash) -> Bool:
     case Sub.Msg{}: True{}
     case Sub.QueryCmd{}: True{}
     case Sub.MuteCmd{}: True{}
+    case Sub.UnmuteCmd{}: True{}
+    case Sub.WhoCmd{}: True{}
+    case Sub.NamesCmd{}: True{}
+    case Sub.TopicCmd{}: True{}
+    case Sub.ModeCmd{}: True{}
+    case Sub.KickCmd{}: True{}
+    case Sub.InviteCmd{}: True{}
     case Sub.NoticeCmd{}: True{}
     case _: False{}
 
@@ -3217,13 +3224,13 @@ def session_observe_visible_share_cards(do_cards: Bool, +st: Session, +kept: C.S
     case False{}: st
     case True{}: session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
 
-def session_observe_visible_media.gated(+cm: String, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
+def session_observe_visible_media.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
   match open:
     case True{}: st
     case False{}:
       +current = M.maintain(media, cl)
       +kept = C.maintain(cards, cl)
-      +anchored = View.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, current, C.paint_entries(kept))
+      +anchored = View.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, current, C.paint_entries(kept))
       +st1 = session_set_media(st, M.enqueue_candidates(View.visible_media_candidates_from_rows(anchored, current), current))
       session_observe_visible_share_cards(C.enabled(kept), st1, kept, anchored)
 
@@ -3235,7 +3242,7 @@ def session_observe_visible_media.allowed(allowed: Bool, +st: Session) -> Sessio
         case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
           +full_kept = C.maintain_full(unbox_full(cf), unbox_media(media), cl)
           +st1 = session_set_full(st, full_kept)
-          session_observe_visible_media.gated(Isupport.casemapping(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
+          session_observe_visible_media.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
 
 def session_observe_visible_media(+st: Session) -> Session:
   session_observe_visible_media.allowed(visible_media_net(session_net(st)) && M.enabled(session_media(st)), st)
@@ -3244,7 +3251,7 @@ def session_accept_media_result(+st: Session, +generation: Nat, +ticket: Nat, +u
   match st:
     case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
       M.accept(unbox_media(media), cl, generation, ticket, url)
-        && M.visible_result_allowed(unbox_media(media), View.visible_media_candidates_cards_cm(Isupport.casemapping(unbox_iso(iso)), cl, rows, cols, split, unbox_media(media), C.paint_entries(C.maintain(unbox_cards(cf), cl))))
+        && M.visible_result_allowed(unbox_media(media), View.visible_media_candidates_cards_iso(Isupport.as_iso(unbox_iso(iso)), cl, rows, cols, split, unbox_media(media), C.paint_entries(C.maintain(unbox_cards(cf), cl))))
 
 def media_job_net(net: NetState) -> Bool:
   match net:
@@ -3270,12 +3277,12 @@ def session_observe_media(+st: Session, +after: Nat) -> Session:
 # step paths only settle dead state (never schedule). The physical cards
 # worker stays owned until its exact completion, even across disable/reset.
 
-def session_observe_visible_cards.gated(+cm: String, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
+def session_observe_visible_cards.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
   match open:
     case True{}: st
     case False{}:
       +kept = C.maintain(cards, cl)
-      +anchored = View.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, media, C.paint_entries(kept))
+      +anchored = View.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, media, C.paint_entries(kept))
       session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
 
 def session_observe_visible_cards.allowed(allowed: Bool, +st: Session) -> Session:
@@ -3286,7 +3293,7 @@ def session_observe_visible_cards.allowed(allowed: Bool, +st: Session) -> Sessio
         case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
           +full_kept = C.maintain_full(unbox_full(cf), unbox_media(media), cl)
           +st1 = session_set_full(st, full_kept)
-          session_observe_visible_cards.gated(Isupport.casemapping(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
+          session_observe_visible_cards.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
 
 def session_observe_visible_cards(+st: Session) -> Session:
   session_observe_visible_cards.allowed(visible_media_net(session_net(st)) && C.enabled(session_cards(st)), st)
@@ -3399,8 +3406,8 @@ def theme_session(enter: Bool, +st: Session, input: Sub.Input) -> Session:
 
 def session_paint_vm(+st: Session) -> View.ViewModel:
   match st:
-    case Session{+cl, _, _, +draft, _, _, +net, _, Size{+rows, +cols}, _, _, split, +typing, _, +media, _, _, _, _, _, _, +theme, labelsbox, +pends}:
-      View.view_draft.state_typing_media_themed(cl, rows, cols, draft, net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), Ty.names(typing, Cl.active_buf_name(cl)), split, unbox_media(media), theme, pends)
+    case Session{+cl, _, _, +draft, _, _, +net, _, Size{+rows, +cols}, _, _, split, +typing, _, +media, _, _, +iso, _, _, _, +theme, labelsbox, +pends}:
+      View.view_draft.state_typing_media_iso_themed(Isupport.as_iso(unbox_iso(iso)), cl, rows, cols, draft, net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), Ty.names(typing, Cl.active_buf_name(cl)), split, unbox_media(media), theme, pends)
 
 def step_keys.intent(keys: Keys, +after: Nat, +input: Sub.Input, trip: Session & NetCmd & Bool) -> Session & NetCmd & Bool:
   match keys:
@@ -4070,7 +4077,7 @@ def live_split_step.pair(+live: LiveAcc, split: Sp.State, +item: StampedLine, +p
     case LiveAcc{FoldAcc{+cl, reversed, now_ms}, typing, +plan, +iso, +hl, +lreg, +renames}:
       match item:
         case StampedLine{+line, stamp}:
-          live_split_step.hist(Hs.hist_live_step(hl, Cl.nick_of(cl), Cl.server_of(cl), line, JoinPlan.welcomed(plan)),
+          live_split_step.hist(Hs.hist_live_step(hl, Isupport.as_iso(iso), Cl.nick_of(cl), Cl.server_of(cl), line, JoinPlan.welcomed(plan)),
             iso, cl, reversed, now_ms, typing, plan, split, line, stamp, lreg, renames, port)
 
 def live_split_step(+port: U32, acc: LiveAcc & Sp.State, item: StampedLine) -> LiveAcc & Sp.State:

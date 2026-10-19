@@ -110,6 +110,19 @@ def feed_many(n: Nat, +i: Nat, batch: Hs.ChatBatch) -> Hs.ChatBatch:
     case 0n: batch
     case 1n+p: feed_many(p, 1n+i, Hs.batch_line(batch, "me", batch_msg(i)))
 
+def live_state(pair: Hs.HistLive & Bool) -> Hs.HistLive:
+  match pair:
+    case (+hl, _): hl
+
+def live_batch_count(+isc: Cl.Iso, +target: String, +line: String) -> Nat:
+  +opened = live_state(Hs.hist_live_step(Hs.hist_live0(), isc, "me", "irc.test",
+    ":irc.test BATCH +live chathistory " ++ target, True{}))
+  +collected = live_state(Hs.hist_live_step(opened, isc, "me", "irc.test", line, True{}))
+  batch_count(Hs.hist_live_batch(collected))
+
+def dollar_iso() -> Cl.Iso:
+  Cl.Iso{"rfc1459", "$", "@+", "@+", "@+~&%"}
+
 def open_chan_batch() -> Hs.ChatBatch:
   or_idle(Hs.batch_open(":irc.test BATCH +abc chathistory #chan", "irc.test"))
 
@@ -347,6 +360,13 @@ def main() -> IO(Unit):
       Hs.batch_line(open_query_batch(), "me", "@batch=q;msgid=m9 :charlie!u@h PRIVMSG me :hi")), 0n))
     Unit <- E.must("batch_query_misdirected", Nat.is_eq(batch_count(
       Hs.batch_line(open_query_batch(), "me", "@batch=q;msgid=m9 :bob!u@h PRIVMSG charlie :hi")), 0n))
+    # Production live history step uses endpoint CHANTYPES for batch shape.
+    Unit <- E.must("live negotiated dollar batch collects channel sender", Nat.is_eq(live_batch_count(dollar_iso(), "$room",
+      "@batch=live;msgid=d1 :alice!u@h PRIVMSG $room :hello"), 1n))
+    Unit <- E.must("live negotiated private batch still rejects third party", Nat.is_eq(live_batch_count(dollar_iso(), "bob",
+      "@batch=live;msgid=d2 :charlie!u@h PRIVMSG me :nope"), 0n))
+    Unit <- E.must("live default policy does not classify dollar target as channel", Nat.is_eq(live_batch_count(Cl.Iso.defaults(), "$room",
+      "@batch=live;msgid=d3 :alice!u@h PRIVMSG $room :nope"), 0n))
     Unit <- E.must_eq("batch_idle_stable", batch_tag(Hs.batch_line(Hs.ChatIdle{}, "me", batch_msg(1n))), "idle")
     Unit <- E.must("batch_cap_count", Nat.is_eq(batch_count(flood), 100n))
     Unit <- E.must("batch_cap_overflow", Hs.batch_overflow(flood))

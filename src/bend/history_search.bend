@@ -836,31 +836,40 @@ def bare_ref(+ref: String) -> String:
     case SCon{+h, +t}: bare_ref.head(Char.is_eq(h, Chr{43}), t)
     case SNil{}: ""
 
-def batch_open.bare(ok: Bool, +bare: String, +target: String) -> Maybe<&2, ChatBatch>:
+def batch_open.bare_as(ok: Bool, +bare: String, +target: String, channel: Bool) -> Maybe<&2, ChatBatch>:
   match ok:
     case False{}: None{}
-    case True{}: Some{ChatCollect{bare, target, Irc.starts_channel(target), Nil{}, False{}}}
+    case True{}: Some{ChatCollect{bare, target, channel, Nil{}, False{}}}
 
-def batch_open.kind(ok: Bool, +ref: String, +target: String) -> Maybe<&2, ChatBatch>:
+def batch_open.kind_as(ok: Bool, +ref: String, +target: String, channel: Bool) -> Maybe<&2, ChatBatch>:
   match ok:
     case False{}: None{}
     case True{}:
       +bare = bare_ref(ref)
-      batch_open.bare(Commands.word(bare) && Nat.is_le(String.length(bare), 64n), bare, target)
+      batch_open.bare_as(Commands.word(bare) && Nat.is_le(String.length(bare), 64n), bare, target, channel)
 
-def batch_open.arity(ok: Bool, +m: Irc.Message) -> Maybe<&2, ChatBatch>:
+def batch_open.arity_as(ok: Bool, +m: Irc.Message, channel: Bool) -> Maybe<&2, ChatBatch>:
   match ok:
     case False{}: None{}
     case True{}:
-      batch_open.kind(Irc.ieq(Irc.msg_param(m, 1n), "chathistory") && valid_target(Irc.msg_param(m, 2n)),
-        Irc.msg_param(m, 0n), Irc.msg_param(m, 2n))
+      batch_open.kind_as(Irc.ieq(Irc.msg_param(m, 1n), "chathistory") && valid_target(Irc.msg_param(m, 2n)),
+        Irc.msg_param(m, 0n), Irc.msg_param(m, 2n), channel)
+
+def batch_open.arity(+m: Irc.Message, ok: Bool) -> Maybe<&2, ChatBatch>:
+  batch_open.arity_as(ok, m, Irc.starts_channel(Irc.msg_param(m, 2n)))
 
 # Trust: only a server-shaped full source prefix opens a batch. A forged
 # user BATCH open must never start collection.
 def batch_open.msg(+m: Irc.Message, +line: String, +server: String) -> Maybe<&2, ChatBatch>:
-  batch_open.arity(Irc.ieq(Irc.msg_command(m), "BATCH")
+  batch_open.arity(m, Irc.ieq(Irc.msg_command(m), "BATCH")
     && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 3n)
-    && Irc.source_is_server(Irc.source_prefix(line), server), m)
+    && Irc.source_is_server(Irc.source_prefix(line), server))
+
+def batch_open.msg_iso(+isc: Cl.Iso, +m: Irc.Message, +line: String, +server: String) -> Maybe<&2, ChatBatch>:
+  batch_open.arity_as(Irc.ieq(Irc.msg_command(m), "BATCH")
+    && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 3n)
+    && Irc.source_is_server(Irc.source_prefix(line), server),
+    m, Irc.negotiated_channel(Cl.iso_types(isc), Cl.iso_status(isc), Cl.iso_sigils(isc), Irc.msg_param(m, 2n)))
 
 def batch_open.parsed(m: Maybe<&2, Irc.Message>, +line: String, +server: String) -> Maybe<&2, ChatBatch>:
   match m:
@@ -869,6 +878,14 @@ def batch_open.parsed(m: Maybe<&2, Irc.Message>, +line: String, +server: String)
 
 def batch_open(+line: String, +server: String) -> Maybe<&2, ChatBatch>:
   batch_open.parsed(Irc.parse(line), line, server)
+
+def batch_open_iso.parsed(+isc: Cl.Iso, m: Maybe<&2, Irc.Message>, +line: String, +server: String) -> Maybe<&2, ChatBatch>:
+  match m:
+    case None{}: None{}
+    case Some{+msg}: batch_open.msg_iso(isc, msg, line, server)
+
+def batch_open_iso(+isc: Cl.Iso, +line: String, +server: String) -> Maybe<&2, ChatBatch>:
+  batch_open_iso.parsed(isc, Irc.parse(line), line, server)
 
 # Channel batches accept any sender to the channel. Private batches pair one
 # subject with self: requested `bob` accepts bob->me and me->bob only, so a
@@ -1570,8 +1587,8 @@ def hist_idle_step.opened(opened: Maybe<&2, ChatBatch>, +batch: ChatBatch, +line
     case None{}: hist_idle_step.quiet(hist_collect_step.suppressed(batch_suppressed(line, server), batch))
     case Some{+fresh}: (fresh, True{}, Some{ticket})
 
-def hist_idle_step(+batch: ChatBatch, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
-  hist_idle_step.opened(batch_open(line, server), batch, line, ticket, server)
+def hist_idle_step(+isc: Cl.Iso, +batch: ChatBatch, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
+  hist_idle_step.opened(batch_open_iso(isc, line, server), batch, line, ticket, server)
 
 def hist_batch_step.collected(pair: ChatBatch & Bool) -> ChatBatch & Bool & Maybe<&2, Nat>:
   match pair:
@@ -1580,13 +1597,13 @@ def hist_batch_step.collected(pair: ChatBatch & Bool) -> ChatBatch & Bool & Mayb
 # A newly opened batch stamps the outstanding ticket so auto-completion
 # only ever completes a batch that arrived under the current request.
 # Unsolicited batches (stamped 0 or a stale ticket) never auto-complete.
-def hist_batch_step(batch: ChatBatch, +self: String, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
+def hist_batch_step(+isc: Cl.Iso, batch: ChatBatch, +self: String, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
   match batch:
     case ChatCollect{+ref, +target, +channel, +messages, +overflow}:
       hist_batch_step.collected(hist_collect_step(ChatCollect{ref, target, channel, messages, overflow}, self, server, line))
-    case ChatIdle{}: hist_idle_step(ChatIdle{}, server, line, ticket)
+    case ChatIdle{}: hist_idle_step(isc, ChatIdle{}, server, line, ticket)
     case ChatDone{+ref, +target, +messages, +overflow}:
-      hist_idle_step(ChatDone{ref, target, messages, overflow}, server, line, ticket)
+      hist_idle_step(isc, ChatDone{ref, target, messages, overflow}, server, line, ticket)
 
 def hist_live_step.claimed(claimed: Bool, +batch: ChatBatch, +caps: CapNotify.Caps, +want: HistStamp, +got: HistStamp, +cur: String, +lg: Nat, +le: String, +seen: List<&2, String>, +used: Nat, +archived: List<&2, Nat>, +bticket: Nat, +wkind: Nat, +wtarget: String, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
   match claimed:
@@ -1613,10 +1630,10 @@ def hist_live_step.ticket(+want: HistStamp) -> Nat:
   match want:
     case HistStamp{+ticket, _, _}: ticket
 
-def hist_live_step(+hl: HistLive, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
+def hist_live_step(+hl: HistLive, +isc: Cl.Iso, +self: String, +server: String, +line: String, registered: Bool) -> HistLive & Bool:
   match hl:
     case HistLive{+batch, +caps, +want, +got, +cur, +lg, +le, +seen, +used, +archived, +bticket, +wkind, +wtarget}:
-      hist_live_step.fields(hist_batch_step(batch, self, server, line, hist_live_step.ticket(want)),
+      hist_live_step.fields(hist_batch_step(isc, batch, self, server, line, hist_live_step.ticket(want)),
         caps, want, got, cur, lg, le, seen, used, archived, bticket, wkind, wtarget, self, server, line, registered)
 
 # ---- /history requests ----------------------------------------------------

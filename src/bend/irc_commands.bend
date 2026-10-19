@@ -52,24 +52,30 @@ def word_command(+verb: String, +args: String, lo: Nat, hi: Nat) -> Maybe<&2, St
 def whois(args: String) -> Maybe<&2, String>:
   word_command("WHOIS", args, 1n, 2n)
 
-def who.default(+active: String, empty: Bool, args: String) -> Maybe<&2, String>:
+def who.default_as(+active: String, active_chan: Bool, empty: Bool, args: String) -> Maybe<&2, String>:
   match empty:
-    case True{}: word_command("WHO", Bool.pick(String, channel(active), active, "*"), 1n, 1n)
+    case True{}: word_command("WHO", Bool.pick(String, active_chan, active, "*"), 1n, 1n)
     case False{}: word_command("WHO", args, 1n, 2n)
 
+def who_as(+active: String, +args: String, active_chan: Bool) -> Maybe<&2, String>:
+  who.default_as(active, active_chan, String.is_empty(args), args)
+
 def who(+active: String, +args: String) -> Maybe<&2, String>:
-  who.default(active, String.is_empty(args), args)
+  who_as(active, args, channel(active))
 
 def list(args: String) -> Maybe<&2, String>:
   word_command("LIST", args, 0n, 2n)
 
-def names.default(+active: String, empty: Bool, args: String) -> Maybe<&2, String>:
+def names.default_as(+active: String, active_chan: Bool, empty: Bool, args: String) -> Maybe<&2, String>:
   match empty:
-    case True{}: word_command("NAMES", Bool.pick(String, channel(active), active, ""), 0n, 1n)
+    case True{}: word_command("NAMES", Bool.pick(String, active_chan, active, ""), 0n, 1n)
     case False{}: word_command("NAMES", args, 1n, 2n)
 
+def names_as(+active: String, +args: String, active_chan: Bool) -> Maybe<&2, String>:
+  names.default_as(active, active_chan, String.is_empty(args), args)
+
 def names(+active: String, +args: String) -> Maybe<&2, String>:
-  names.default(active, String.is_empty(args), args)
+  names_as(active, args, channel(active))
 
 def trailing(s: String) -> String:
   match s:
@@ -77,23 +83,33 @@ def trailing(s: String) -> String:
     case SCon{Chr{58}, t}: t
     case SCon{h, t}: SCon{h, t}
 
-def topic.line(+target: String, +text: String, has_text: Bool) -> Maybe<&2, String>:
-  checked(channel(target), "TOPIC " ++ target ++ Bool.pick(String, has_text, " :" ++ trailing(text), ""))
+def topic.line_as(+target: String, +text: String, has_text: Bool, target_chan: Bool) -> Maybe<&2, String>:
+  checked(target_chan, "TOPIC " ++ target ++ Bool.pick(String, has_text, " :" ++ trailing(text), ""))
 
-def topic.named(named: Bool, +active: String, +first: String, +rest: String, +args: String) -> Maybe<&2, String>:
+def topic.named_as(named: Bool, +active: String, +first: String, +rest: String, +args: String, active_chan: Bool) -> Maybe<&2, String>:
   match named:
-    case True{}: topic.line(first, Irc.drop_spaces(rest), Bool.not(String.is_empty(Irc.drop_spaces(rest))))
-    case False{}: topic.line(active, args, Bool.not(String.is_empty(args)))
+    case True{}: topic.line_as(first, Irc.drop_spaces(rest), Bool.not(String.is_empty(Irc.drop_spaces(rest))), True{})
+    case False{}: topic.line_as(active, args, Bool.not(String.is_empty(args)), active_chan)
 
-def topic.words(+active: String, +args: String, pair: String & String) -> Maybe<&2, String>:
+def topic.words_as(+active: String, +args: String, pair: String & String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
   match pair:
-    case (+first, +rest): topic.named(channel(first), active, first, rest, args)
+    case (+first, +rest): topic.named_as(first_chan, active, first, rest, args, active_chan)
+
+def topic_as(+active: String, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
+  topic.words_as(active, args, Irc.take_until_space(args), active_chan, first_chan)
+
+def topic.fixed(+active: String, +args: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (+first, +rest): topic.named_as(channel(first), active, first, rest, args, channel(active))
 
 def topic(+active: String, +args: String) -> Maybe<&2, String>:
-  topic.words(active, args, Irc.take_until_space(args))
+  topic.fixed(active, args, Irc.take_until_space(args))
+
+def mode.target_as(+active: String, nick: String, active_chan: Bool) -> String:
+  Bool.pick(String, active_chan, active, nick)
 
 def mode.target(+active: String, nick: String) -> String:
-  Bool.pick(String, channel(active), active, nick)
+  mode.target_as(active, nick, channel(active))
 
 def mode.sign(+args: String) -> Bool:
   String.starts_with(args, "+") || String.starts_with(args, "-")
@@ -103,23 +119,38 @@ def mode.sign(+args: String) -> Bool:
 # while a bare flag-shaped "+else" stays implicit. Pinned by the contrast
 # pair "mode plus-prefixed channel query" (explicit "MODE +#other") and
 # "mode single unseen plus word stays implicit flags" ("MODE #room +else").
+def mode.explicit_as(pair: String & String, first_chan: Bool) -> Bool:
+  match pair:
+    case (+first, rest):
+      String.starts_with(first, "+#") || (first_chan && mode.sign(Irc.drop_spaces(rest)))
+
 def mode.explicit(pair: String & String) -> Bool:
   match pair:
     case (+first, rest):
-      String.starts_with(first, "+#") || (channel(first) && mode.sign(Irc.drop_spaces(rest)))
+      mode.explicit_as((first, rest), channel(first))
 
-def mode.flags(+active: String, +nick: String, +args: String, flags: Bool) -> Maybe<&2, String>:
+def mode.flags_as(+active: String, +nick: String, +args: String, active_chan: Bool, flags: Bool) -> Maybe<&2, String>:
   match flags:
-    case True{}: word_command("MODE", mode.target(active, nick) ++ " " ++ args, 1n, 14n)
+    case True{}: word_command("MODE", mode.target_as(active, nick, active_chan) ++ " " ++ args, 1n, 14n)
     case False{}: word_command("MODE", args, 1n, 14n)
 
-def mode.empty(+active: String, +nick: String, +args: String, empty: Bool) -> Maybe<&2, String>:
+def mode.empty_as(+active: String, +nick: String, +args: String, active_chan: Bool, first_chan: Bool, empty: Bool) -> Maybe<&2, String>:
   match empty:
-    case True{}: word_command("MODE", mode.target(active, nick), 1n, 1n)
-    case False{}: mode.flags(active, nick, args, mode.sign(args) && Bool.not(mode.explicit(Irc.take_until_space(args))))
+    case True{}: word_command("MODE", mode.target_as(active, nick, active_chan), 1n, 1n)
+    case False{}: mode.flags_as(active, nick, args, active_chan, mode.sign(args) && Bool.not(mode.explicit_as(Irc.take_until_space(args), first_chan)))
+
+def mode_as(+active: String, +nick: String, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
+  mode.empty_as(active, nick, args, active_chan, first_chan, String.is_empty(args))
+
+def mode_first_channel.pair(pair: String & String) -> Bool:
+  match pair:
+    case (+first, _): channel(first)
+
+def mode_first_channel(+args: String) -> Bool:
+  mode_first_channel.pair(Irc.take_until_space(args))
 
 def mode(+active: String, +nick: String, +args: String) -> Maybe<&2, String>:
-  mode.empty(active, nick, args, String.is_empty(args))
+  mode_as(active, nick, args, channel(active), mode_first_channel(args))
 
 def mode.flag_chars(s: String) -> Bool:
   match s:
@@ -206,36 +237,51 @@ def mode_has_key.parsed(m: Maybe<&2, Irc.Message>) -> Bool:
 def mode_has_key.line(wire: String) -> Bool:
   mode_has_key.parsed(Irc.parse(wire))
 
-def kick.line(+target: String, +victim: String, +reason: String) -> Maybe<&2, String>:
-  checked(channel(target) && word(victim) && Bool.not(Irc.starts_channel(victim)),
+def kick.line_as(+target: String, +victim: String, +reason: String, target_chan: Bool) -> Maybe<&2, String>:
+  checked(target_chan && word(victim) && Bool.not(Irc.starts_channel(victim)),
     "KICK " ++ target ++ " " ++ victim ++ Bool.pick(String, String.is_empty(reason), "", " :" ++ trailing(reason)))
 
-def kick.victim(+target: String, pair: String & String) -> Maybe<&2, String>:
+def kick.victim_as(+target: String, pair: String & String) -> Maybe<&2, String>:
   match pair:
-    case (victim, reason): kick.line(target, victim, Irc.drop_spaces(reason))
+    case (victim, reason): kick.line_as(target, victim, Irc.drop_spaces(reason), True{})
 
-def kick.named(named: Bool, +active: String, +first: String, +rest: String) -> Maybe<&2, String>:
+def kick.named_as(named: Bool, +active: String, +first: String, +rest: String, active_chan: Bool) -> Maybe<&2, String>:
   match named:
-    case True{}: kick.victim(first, Irc.take_until_space(Irc.drop_spaces(rest)))
-    case False{}: kick.line(active, first, Irc.drop_spaces(rest))
+    case True{}: kick.victim_as(first, Irc.take_until_space(Irc.drop_spaces(rest)))
+    case False{}: kick.line_as(active, first, Irc.drop_spaces(rest), active_chan)
 
-def kick.words(+active: String, pair: String & String) -> Maybe<&2, String>:
+def kick.words_as(+active: String, pair: String & String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
   match pair:
-    case (+first, rest): kick.named(channel(first), active, first, rest)
+    case (+first, rest): kick.named_as(first_chan, active, first, rest, active_chan)
+
+def kick_as(+active: String, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
+  kick.words_as(active, Irc.take_until_space(args), active_chan, first_chan)
+
+def kick.fixed(+active: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (+first, rest): kick.named_as(channel(first), active, first, rest, channel(active))
 
 def kick(active: String, args: String) -> Maybe<&2, String>:
-  kick.words(active, Irc.take_until_space(args))
+  kick.fixed(active, Irc.take_until_space(args))
 
-def invite.words(+active: String, xs: List<&2, String>) -> Maybe<&2, String>:
+def invite.words_as(+active: String, xs: List<&2, String>, active_chan: Bool, target_chan: Bool) -> Maybe<&2, String>:
   match xs:
     case Con{+nick, Nil{}}:
-      checked(word(nick) && channel(active) && Bool.not(Irc.starts_channel(nick)), "INVITE " ++ nick ++ " " ++ active)
+      checked(word(nick) && active_chan && Bool.not(Irc.starts_channel(nick)), "INVITE " ++ nick ++ " " ++ active)
     case Con{+nick, Con{+target, Nil{}}}:
-      checked(word(nick) && channel(target) && Bool.not(Irc.starts_channel(nick)), "INVITE " ++ nick ++ " " ++ target)
+      checked(word(nick) && target_chan && Bool.not(Irc.starts_channel(nick)), "INVITE " ++ nick ++ " " ++ target)
     case _: None{}
 
-def invite(active: String, args: String) -> Maybe<&2, String>:
-  invite.words(active, words(args))
+def invite_target_channel(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Con{_, Con{+target, Nil{}}}: channel(target)
+    case _: False{}
+
+def invite_as(+active: String, +args: String, active_chan: Bool, target_chan: Bool) -> Maybe<&2, String>:
+  invite.words_as(active, words(args), active_chan, target_chan)
+
+def invite(+active: String, +args: String) -> Maybe<&2, String>:
+  invite_as(active, args, channel(active), invite_target_channel(words(args)))
 
 def away(+args: String) -> Maybe<&2, String>:
   checked(True{}, "AWAY" ++ Bool.pick(String, String.is_empty(args), "", " :" ++ trailing(args)))

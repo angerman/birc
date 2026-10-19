@@ -988,7 +988,7 @@ def line_spans_for_themed(k: Cl.LineKind, text: String, +th: Theme.Id) -> List<&
 type PaintOpts is Data:
   PaintOpts{
     theme: Maybe<&2, Theme.Id>,
-    cm: Maybe<&2, String>,
+    iso: Maybe<&2, Cl.Iso>,
     media: M.State,
     cards: Maybe<&2, List<&2, CardEntry>>,
     legacy: Bool,
@@ -996,8 +996,11 @@ type PaintOpts is Data:
     inline: Bool
   }
 
-def paint_box(theme: Maybe<&2, Theme.Id>, cm: Maybe<&2, String>, +media: M.State, cards: Maybe<&2, List<&2, CardEntry>>, legacy: Bool, +pends: List<&2, Cl.PendSend>, inline: Bool) -> List<&2, PaintOpts>:
-  PaintOpts{theme, cm, media, cards, legacy, pends, inline} <> Nil{}
+def paint_box(theme: Maybe<&2, Theme.Id>, iso: Maybe<&2, Cl.Iso>, +media: M.State, cards: Maybe<&2, List<&2, CardEntry>>, legacy: Bool, +pends: List<&2, Cl.PendSend>, inline: Bool) -> List<&2, PaintOpts>:
+  PaintOpts{theme, iso, media, cards, legacy, pends, inline} <> Nil{}
+
+def paint_iso_cm(+cm: String) -> Cl.Iso:
+  Cl.Iso{cm, Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip()}
 
 def paint_text() -> List<&2, PaintOpts>:
   paint_box(None{}, None{}, M.empty(), None{}, False{}, Nil{}, False{})
@@ -1009,13 +1012,22 @@ def paint_media_cards(+media: M.State, +cards: List<&2, CardEntry>) -> List<&2, 
   paint_box(None{}, None{}, media, Some{cards}, False{}, Nil{}, True{})
 
 def paint_media_cards_cm(+cm: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, PaintOpts>:
-  paint_box(None{}, Some{cm}, media, Some{cards}, False{}, Nil{}, True{})
+  paint_box(None{}, Some{paint_iso_cm(cm)}, media, Some{cards}, False{}, Nil{}, True{})
+
+def paint_media_cards_iso(+isc: Cl.Iso, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, PaintOpts>:
+  paint_box(None{}, Some{isc}, media, Some{cards}, False{}, Nil{}, True{})
 
 def paint_media_theme(+media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
   paint_box(Some{th}, None{}, media, None{}, False{}, pends, True{})
 
 def paint_media_cards_cm_theme(+cm: String, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
-  paint_box(Some{th}, Some{cm}, media, Some{cards}, False{}, pends, True{})
+  paint_box(Some{th}, Some{paint_iso_cm(cm)}, media, Some{cards}, False{}, pends, True{})
+
+def paint_media_iso_theme(+isc: Cl.Iso, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
+  paint_box(Some{th}, Some{isc}, media, None{}, False{}, pends, True{})
+
+def paint_media_cards_iso_theme(+isc: Cl.Iso, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> List<&2, PaintOpts>:
+  paint_box(Some{th}, Some{isc}, media, Some{cards}, False{}, pends, True{})
 
 def paint_legacy_empty() -> List<&2, PaintOpts>:
   paint_box(None{}, None{}, M.empty(), None{}, True{}, Nil{}, True{})
@@ -1025,10 +1037,18 @@ def opt_theme(boxed: List<&2, PaintOpts>) -> Maybe<&2, Theme.Id>:
     case Nil{}: None{}
     case Con{PaintOpts{theme, _, _, _, _, _, _}, _}: theme
 
-def opt_cm(boxed: List<&2, PaintOpts>) -> Maybe<&2, String>:
+def opt_iso(boxed: List<&2, PaintOpts>) -> Maybe<&2, Cl.Iso>:
   match boxed:
     case Nil{}: None{}
-    case Con{PaintOpts{_, cm, _, _, _, _, _}, _}: cm
+    case Con{PaintOpts{_, iso, _, _, _, _, _}, _}: iso
+
+def opt_cm.got(iso: Maybe<&2, Cl.Iso>) -> Maybe<&2, String>:
+  match iso:
+    case None{}: None{}
+    case Some{+isc}: Some{Cl.iso_cm(isc)}
+
+def opt_cm(boxed: List<&2, PaintOpts>) -> Maybe<&2, String>:
+  opt_cm.got(opt_iso(boxed))
 
 def opt_media(boxed: List<&2, PaintOpts>) -> M.State:
   match boxed:
@@ -1316,10 +1336,13 @@ def body_of.lines(lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Boo
 
 # Negotiated render filtering (I2-dynamic2 F4): mute checks fold under the
 # Session CASEMAPPING supplied by the painter (Net/Session hold the iso).
-def body_of.lines_cm(+cm: String, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
+def body_of.lines_iso(+isc: Cl.Iso, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
   match mutes:
     case Nil{}: Cl.filter_kinds(lines, joins, nicks)
-    case Con{_, _}: Cl.filter_kinds(Cl.filter_muted_lines_cm(cm, lines, mutes, chan, server), joins, nicks)
+    case Con{_, _}: Cl.filter_kinds(Cl.filter_muted_lines_iso(isc, lines, mutes, chan, server), joins, nicks)
+
+def body_of.lines_cm(+cm: String, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
+  body_of.lines_iso(paint_iso_cm(cm), lines, mutes, joins, nicks, chan, server)
 
 type AnchoredRow is Data:
   AnchoredRow{body: BodyRow, anchor: Cl.Scroll, line: Cl.Line}
@@ -1345,13 +1368,13 @@ def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +line: Cl.L
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_chars(rows), line)
 
-def paint_filter_cm(cm: Maybe<&2, String>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
-  match cm:
+def paint_filter_iso(iso: Maybe<&2, Cl.Iso>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
+  match iso:
     case None{}: body_of.lines(lines, mutes, joins, nicks, chan, server)
-    case Some{name}: body_of.lines_cm(name, lines, mutes, joins, nicks, chan, server)
+    case Some{+isc}: body_of.lines_iso(isc, lines, mutes, joins, nicks, chan, server)
 
 def paint_filter(+boxed: List<&2, PaintOpts>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
-  paint_filter_cm(opt_cm(boxed), lines, mutes, joins, nicks, chan, server)
+  paint_filter_iso(opt_iso(boxed), lines, mutes, joins, nicks, chan, server)
 
 def paint_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, +boxed: List<&2, PaintOpts>) -> List<&2, Cl.Line>:
   pending_display_lines(name, opt_pends(boxed), media_display_lines(name, topic, lines, opt_media(boxed)))
@@ -1725,10 +1748,18 @@ def window_anchored(+newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +heigh
 def window_media_cards_cm(+cm: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
   window_anchored(newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, paint_media_cards_cm(cm, media, cards))
 
+def window_media_cards_iso(+isc: Cl.Iso, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  window_anchored(newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, paint_media_cards_iso(isc, media, cards))
+
 def window_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
   match b:
     case Cl.Buffer{+name, _, _, _, _, Cl.ScrollAt{+after, _}, +newest, +count}:
       window_media_cards_cm(cm, newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, media, cards)
+
+def window_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match b:
+    case Cl.Buffer{+name, _, _, _, _, Cl.ScrollAt{+after, _}, +newest, +count}:
+      window_media_cards_iso(isc, newest, after, count, height, name, w, show_ts, mutes, joins, nicks, server, media, cards)
 
 # Viewport slice of an anchored window (AnchoredRow units; preserves ScrollAt).
 def visible_anchored_crop(+rows: List<&2, AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, AnchoredRow>:
@@ -1747,6 +1778,20 @@ def visible_anchored_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat
   match b:
     case Cl.Buffer{name, _, _, _, _, _, _, _}:
       visible_anchored_buf_media_cards_cm.allowed(cm, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
+        b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
+
+def visible_anchored_buf_media_cards_iso.allowed(+isc: Cl.Iso, allowed: Bool, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match allowed:
+    case False{}: Nil{}
+    case True{}:
+      match b:
+        case Cl.Buffer{_, _, _, _, _, +scroll, _, _}:
+          visible_anchored_crop(window_buf_media_cards_iso(isc, b, height, w, show_ts, mutes, joins, nicks, server, media, cards), height, scroll)
+
+def visible_anchored_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match b:
+    case Cl.Buffer{name, _, _, _, _, _, _, _}:
+      visible_anchored_buf_media_cards_iso.allowed(isc, Bool.not(Cl.target_is_synthetic(name)) && Nat.is_gt(height, 0n) && Bool.not(U32.is_zero(w)),
         b, height, w, show_ts, mutes, joins, nicks, server, media, cards)
 
 def paint_preview_row(show: Bool, +rows: List<&2, BodyRow>, +topic: String, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
@@ -1927,24 +1972,27 @@ def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mute
 def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
   scroll_buf_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
 
-def scroll_buf_media_cards_cm.full(+cm: String, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
+def scroll_buf_media_cards_iso.full(+isc: Cl.Iso, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
   +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw, media))
-  +rows = anchored_lines_media_cards_cm(cm, lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media, cards)
+  +rows = paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), paint_media_cards_iso(isc, media, cards))
   Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
 
-def scroll_buf_media_cards_cm.go(+cm: String, live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
+def scroll_buf_media_cards_iso.go(+isc: Cl.Iso, live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
   match live:
-    case False{}: scroll_buf_media_cards_cm.full(cm, b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+    case False{}: scroll_buf_media_cards_iso.full(isc, b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
     case True{}:
       match scroll:
         case Cl.ScrollAt{+after, _}:
-          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_cards_cm(cm, media, cards), scroll)
+          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_cards_iso(isc, media, cards), scroll)
 
-def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
+def scroll_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
   match b:
     case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
-      +boxed = paint_media_cards_cm(cm, media, cards)
-      scroll_buf_media_cards_cm.go(cm, Bool.and(spine_live(name, boxed), List.is_empty(&2, Cl.PendSend, pends)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+      +boxed = paint_media_cards_iso(isc, media, cards)
+      scroll_buf_media_cards_iso.go(isc, Bool.and(spine_live(name, boxed), List.is_empty(&2, Cl.PendSend, pends)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+
+def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
+  scroll_buf_media_cards_iso(paint_iso_cm(cm), b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends)
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -2509,6 +2557,29 @@ def visible_anchored_panes_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U3
     case Sp.On{axis, first, second, _}:
       visible_anchored_split_media_cards_cm(cm, split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media, cards)
 
+def visible_anchored_split_media_cards_iso(+isc: Cl.Iso, pair: Rect & Rect, +cl: Cl.Client, +first: String, +second: String, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match pair:
+    case (+r1, +r2):
+      match cl:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+          List.append(&2, AnchoredRow,
+            visible_anchored_buf_media_cards_iso(isc, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
+              rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
+            visible_anchored_buf_media_cards_iso(isc, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active))),
+              rect_vis_h(r2), rect_vis_w(r2), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards))
+
+def visible_anchored_single_media_cards_iso(+isc: Cl.Iso, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match cl:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+      visible_anchored_buf_media_cards_iso(isc, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
+        rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
+
+def visible_anchored_panes_media_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  match split:
+    case Sp.Off{}: visible_anchored_single_media_cards_iso(isc, cl, rows, cols, media, cards)
+    case Sp.On{axis, first, second, _}:
+      visible_anchored_split_media_cards_iso(isc, split_rects(axis, lay_body_rect(lay(rows, cols, 0))), cl, first, second, media, cards)
+
 def focused_rect.pair(pair: Rect & Rect, focus: U32) -> Rect:
   match pair:
     case (+first, +second): Bool.pick(Rect, U32.is_zero(focus), first, second)
@@ -2685,6 +2756,9 @@ def visible_media_cards.panes_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols:
 def visible_media_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media_cards.panes_cm(cm, cl, rows, cols, split, media, cards), media)
 
+def visible_media_candidates_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, M.Candidate>:
+  M.newest_candidates(visible_media_cards.from_rows(visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, media, cards)), media)
+
 # Prefer when the caller already holds visible_anchored_panes_media_cards_cm.
 def visible_media_candidates_from_rows(+rows: List<&2, AnchoredRow>, +media: M.State) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media_cards.from_rows(rows), media)
@@ -2711,6 +2785,18 @@ def scroll_active_media_cards_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +ro
 
 def scroll_active_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
   scroll_active_media_cards_cm.on(cm, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends)
+
+def scroll_active_media_cards_iso.on(+isc: Cl.Iso, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
+  match move:
+    case False{}: cl
+    case True{}:
+      match cl:
+        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
+          +rect = focused_rect(rows, cols, split)
+          Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards_iso(isc, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends))
+
+def scroll_active_media_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
+  scroll_active_media_cards_iso.on(isc, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends)
 
 def split_axis_tag(axis: Sp.Axis) -> U32:
   match axis:
@@ -3015,6 +3101,9 @@ def view_draft_split(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +ne
 # these entries; the unthemed painters above keep the historic dark values.
 def view_draft.state_typing_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
   paint_view_state(paint_media_theme(media, th, pends), cl, rows, cols, draft, net, typers, split)
+
+def view_draft.state_typing_media_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
+  paint_view_state(paint_media_iso_theme(isc, media, th, pends), cl, rows, cols, draft, net, typers, split)
 
 def view_draft.state_typing_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
   paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)

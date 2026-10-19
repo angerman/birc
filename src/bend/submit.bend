@@ -644,22 +644,43 @@ def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
     case Con{Cl.Buffer{+name, +channel, _, _, _, _, _, _}, rest}:
       (channel && Irc.ieq(name, target)) || mode_resident(rest, target)
 
-def mode_command.named(named: Bool, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
+def mode_command.named_as(named: Bool, +cl: Cl.Client, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
   match named:
     case True{}: Commands.word_command("MODE", args, 1n, 14n)
-    case False{}: Commands.mode(Cl.active_buf_name(cl), Cl.nick_of(cl), args)
+    case False{}: Commands.mode_as(Cl.active_buf_name(cl), Cl.nick_of(cl), args, active_chan, first_chan)
 
 # Existing +channels win over implicit flags. An unseen ambiguous +local
 # query remains expressible as /raw MODE +local; +i stays an implicit flag.
-def mode_command.words(+cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
+def mode_command.words_as(+cl: Cl.Client, +args: String, pair: String & String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
   match pair:
-    case (first, _): mode_command.named(mode_resident(Cl.client_bufs(cl), first), cl, args)
+    case (first, _): mode_command.named_as(mode_resident(Cl.client_bufs(cl), first), cl, args, active_chan, first_chan)
+
+def mode_command_as(+cl: Cl.Client, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
+  mode_command.words_as(cl, args, Irc.take_until_space(args), active_chan, first_chan)
+
+def mode_command.fixed(+cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (+first, _):
+      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first), cl, args,
+        Commands.channel(Cl.active_buf_name(cl)), Commands.channel(first))
 
 def mode_command(+cl: Cl.Client, +args: String) -> Maybe<&2, String>:
-  mode_command.words(cl, args, Irc.take_until_space(args))
+  mode_command.fixed(cl, args, Irc.take_until_space(args))
+
+def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (+first, _):
+      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first), cl, args,
+        Is.is_channel(iso, Cl.active_buf_name(cl)), Is.is_channel(iso, first))
+
+def mode_command_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
+  mode_command_iso.words(iso, cl, args, Irc.take_until_space(args))
 
 def submit_mode(+cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
   submit_wire(cl, mode_command(cl, args), "usage: /mode [target] [modes [args]]")
+
+def submit_mode_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
+  submit_wire(cl, mode_command_iso(iso, cl, args), "usage: /mode [target] [modes [args]]")
 
 def submit_notice_echo.got(pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
@@ -1160,6 +1181,11 @@ def submit_unmute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, St
   +cl3 = refresh_settings_if_open(cl2)
   (echo_info(cl3, "unmuted " ++ nick), empty_out())
 
+def submit_unmute.nick_iso(+iso: Is.State, +cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
+  +cl2 = Cl.del_mute_client_iso(cl, Is.as_iso(iso), nick)
+  +cl3 = refresh_settings_if_open(cl2)
+  (echo_info(cl3, "unmuted " ++ nick), empty_out())
+
 def submit_unmute.word(+cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
@@ -1174,6 +1200,21 @@ def submit_unmute.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & Li
 
 def submit_unmute(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_unmute.words(cl, take_word(Irc.drop_spaces(rest)))
+
+def submit_unmute_iso.word(+iso: Is.State, +cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      (echo_err(cl, "usage: /unmute <nick>"), empty_out())
+    case False{}:
+      submit_unmute.nick_iso(iso, cl, nick)
+
+def submit_unmute_iso.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+nick, _):
+      submit_unmute_iso.word(iso, cl, nick, String.is_empty(nick))
+
+def submit_unmute_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_unmute_iso.words(iso, cl, take_word(Irc.drop_spaces(rest)))
 
 def submit_mutes.go(+cl: Cl.Client, mutes: List<&2, String>) -> Cl.Client & List<&2, String>:
   match mutes:
@@ -1696,7 +1737,7 @@ def input_sensitive.mode_raw_iso(+iso: Is.State, +cl: Cl.Client, +args: String) 
   input_sensitive.mode_raw_iso.words(iso, cl, Commands.words(args))
 
 def input_sensitive.mode_negotiated(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Bool:
-  input_sensitive.mode_wire_iso(iso, mode_command(cl, rest)) || input_sensitive.mode_raw_iso(iso, cl, rest)
+  input_sensitive.mode_wire_iso(iso, mode_command_iso(iso, cl, rest)) || input_sensitive.mode_raw_iso(iso, cl, rest)
 
 def input_sensitive.negotiated_mode(+iso: Is.State, +cl: Cl.Client, input: Input) -> Bool:
   match input:
@@ -1908,7 +1949,31 @@ def submit_cmd.mute_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String)
     case None{}: submit_mute(cl, rest)
     case Some{+s}: submit_mute_iso(s, cl, rest)
 
-def submit_cmd.go.with(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+def submit_cmd.unmute_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_unmute(cl, rest)
+    case Some{+s}: submit_unmute_iso(s, cl, rest)
+
+def submit_cmd.is_channel(iso: Maybe<&2, Is.State>, +name: String) -> Bool:
+  match iso:
+    case None{}: Commands.channel(name)
+    case Some{+s}: Is.is_channel(s, name)
+
+def submit_cmd.first_channel(iso: Maybe<&2, Is.State>, pair: String & String) -> Bool:
+  match pair:
+    case (+first, _): submit_cmd.is_channel(iso, first)
+
+def submit_cmd.invite_target(iso: Maybe<&2, Is.State>, xs: List<&2, String>) -> Bool:
+  match xs:
+    case Con{_, Con{+target, Nil{}}}: submit_cmd.is_channel(iso, target)
+    case _: False{}
+
+def submit_cmd.mode_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_mode(cl, rest)
+    case Some{+s}: submit_mode_iso(s, cl, rest)
+
+def submit_cmd.go.with(+iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:
     case Join{}:
       submit_cmd.join_iso(iso, cl, rest)
@@ -1935,7 +2000,7 @@ def submit_cmd.go.with(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client,
     case MuteCmd{}:
       submit_cmd.mute_iso(iso, cl, rest)
     case UnmuteCmd{}:
-      submit_unmute(cl, rest)
+      submit_cmd.unmute_iso(iso, cl, rest)
     case MutesCmd{}:
       submit_mutes(cl)
     case LinksCmd{}:
@@ -1957,19 +2022,25 @@ def submit_cmd.go.with(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client,
     case WhoisCmd{}:
       submit_wire(cl, Commands.whois(rest), "usage: /whois [server] nick[,nick]")
     case WhoCmd{}:
-      submit_wire(cl, Commands.who(Cl.active_buf_name(cl), rest), "usage: /who [mask [o]]")
+      submit_wire(cl, Commands.who_as(Cl.active_buf_name(cl), rest, submit_cmd.is_channel(iso, Cl.active_buf_name(cl))), "usage: /who [mask [o]]")
     case ListCmd{}:
       submit_wire(cl, Commands.list(rest), "usage: /list [channels [server]]")
     case NamesCmd{}:
-      submit_wire(cl, Commands.names(Cl.active_buf_name(cl), rest), "usage: /names [channels [server]]")
+      submit_wire(cl, Commands.names_as(Cl.active_buf_name(cl), rest, submit_cmd.is_channel(iso, Cl.active_buf_name(cl))), "usage: /names [channels [server]]")
     case TopicCmd{}:
-      submit_wire(cl, Commands.topic(Cl.active_buf_name(cl), rest), "usage: /topic [#channel] [:text]")
+      submit_wire(cl, Commands.topic_as(Cl.active_buf_name(cl), rest,
+        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest))),
+        "usage: /topic [#channel] [:text]")
     case ModeCmd{}:
-      submit_mode(cl, rest)
+      submit_cmd.mode_iso(iso, cl, rest)
     case KickCmd{}:
-      submit_wire(cl, Commands.kick(Cl.active_buf_name(cl), rest), "usage: /kick [#channel] nick [reason]")
+      submit_wire(cl, Commands.kick_as(Cl.active_buf_name(cl), rest,
+        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest))),
+        "usage: /kick [#channel] nick [reason]")
     case InviteCmd{}:
-      submit_wire(cl, Commands.invite(Cl.active_buf_name(cl), rest), "usage: /invite nick [#channel]")
+      submit_wire(cl, Commands.invite_as(Cl.active_buf_name(cl), rest,
+        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.invite_target(iso, Commands.words(rest))),
+        "usage: /invite nick [#channel]")
     case AwayCmd{}:
       submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
     case NoticeCmd{}:
