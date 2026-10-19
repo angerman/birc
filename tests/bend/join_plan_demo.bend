@@ -74,6 +74,7 @@ def auth_is(want: Cl.AuthPhase, phase: Cl.AuthPhase) -> Bool:
 def auth_controls() -> IO(Unit):
   +cl = Cl.client_set_auth(Cl.init("me", "irc.example"), Cl.SaslOnly{}, "irc.example", 6667, "", "", "account", "secret")
   +welcome: String = ":irc.example 001 me :welcome"
+  +motd: String = ":irc.example 376 me :end of MOTD"
   +waiting = P.received(P.reset(P.initial("#start"), cl, 6667), cl, welcome)
   +held = flushed(P.flush(waiting, cl))
   +failed_cl = Cl.set_auth(cl, Cl.AuthDone{})
@@ -90,7 +91,8 @@ def auth_controls() -> IO(Unit):
     Unit <- E.must("same host live port match requires auth", Auth.join_required(cl, 6667))
     Unit <- E.must("same host different live port skips auth barrier", Bool.not(Auth.join_required(cl, 6697)))
     Unit <- E.must_eq("mismatched live port resets without NeedAuth", notice(P.flush(P.received(wrong_port, cl, welcome), cl)), "quiet")
-    Unit <- E.must_eq("mismatched port flushes joins without auth wait", lines(P.flush(P.received(wrong_port, cl, welcome), cl)), "JOIN #start")
+    Unit <- E.must_eq("mismatched port still waits for MOTD", lines(P.flush(P.received(wrong_port, cl, welcome), cl)), "")
+    Unit <- E.must_eq("mismatched port flushes at MOTD without auth wait", lines(P.flush(P.received(P.received(wrong_port, cl, welcome), cl, motd), cl)), "JOIN #start")
     Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
     Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
     Unit <- E.must_eq("bare 001 stays held not failed", notice(P.flush(held, cl)), "quiet")
@@ -108,8 +110,9 @@ def auth_controls() -> IO(Unit):
     Unit <- E.must_eq("auth failure is reported despite previous wait", notice(P.flush(held, failed_cl)), "failed")
     Unit <- E.must_eq("auth failure cannot release joins", lines(P.flush(held, failed_cl)), "")
     Unit <- E.must_eq("repeat auth failure is silent", notice(P.flush(flushed(P.flush(held, failed_cl)), failed_cl)), "quiet")
-    Unit <- E.must_eq("auth success releases joins", lines(P.flush(held, ok_cl)), "JOIN #start")
-    Unit <- E.must_eq("auth success is quiet", notice(P.flush(held, ok_cl)), "quiet")
+    Unit <- E.must_eq("auth success alone still waits for MOTD", lines(P.flush(held, ok_cl)), "")
+    Unit <- E.must_eq("MOTD wait after auth success is quiet", notice(P.flush(held, ok_cl)), "quiet")
+    Unit <- E.must_eq("auth success releases joins at MOTD", lines(P.flush(P.received(held, ok_cl, motd), ok_cl)), "JOIN #start")
     Unit <- E.must_eq("AuthDone with success_seq is not failure", notice(P.flush(held, ok_cl)), "quiet")
     IO.pure(Unit, Unit{})
 

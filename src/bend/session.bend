@@ -3944,7 +3944,7 @@ def live_is_dynamic.cmd(c: Irc.Cmd, +m: Irc.Message) -> Bool:
     case Irc.Privmsg{}: True{}
     case Irc.Notice{}: True{}
     case Irc.Tagmsg{}: True{}
-    case Irc.Numeric{_}: U32.is_eq(Irc.msg_num(m), 353)
+    case Irc.Numeric{_}: U32.is_eq(Irc.msg_num(m), 353) || JoinPlan.motd_num(Irc.msg_num(m))
     case _: False{}
 
 def live_is_dynamic.parsed(parsed: Maybe<&2, Irc.Message>) -> Bool:

@@ -20,7 +20,7 @@ type Barrier is Data:
   NeedAuth{baseline: Nat, report: Report}
 
 type State is Data:
-  State{desired: List<&2, Channel>, welcome: Bool, sent: Bool, barrier: Barrier, held: Bool, revision: Nat, await_iso: Bool}
+  State{desired: List<&2, Channel>, welcome: Bool, sent: Bool, barrier: Barrier, held: Bool, revision: Nat, motd_done: Bool}
 
 type Notice is Data:
   Quiet{}
@@ -72,7 +72,7 @@ def remember.allowed_cm(allowed: Bool, state: State, +name: String, +key: String
     case False{}: state
     case True{}:
       match state:
-        case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision, await_iso}
+        case State{desired, welcome, sent, barrier, held, revision, motd_done}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision, motd_done}
 
 def remember.allowed(allowed: Bool, state: State, +name: String, +key: String, replace: Bool) -> State:
   remember.allowed_cm(allowed, state, name, key, replace, Cl.dflt_cm())
@@ -101,15 +101,15 @@ def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
 
 def forget(state: State, name: String) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{remove(desired, name), welcome, sent, barrier, held, revision, await_iso}
+    case State{desired, welcome, sent, barrier, held, revision, motd_done}: State{remove(desired, name), welcome, sent, barrier, held, revision, motd_done}
 
 def forget_cm(state: State, name: String, +cm: String) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{remove_cm(desired, name, cm), welcome, sent, barrier, held, revision, await_iso}
+    case State{desired, welcome, sent, barrier, held, revision, motd_done}: State{remove_cm(desired, name, cm), welcome, sent, barrier, held, revision, motd_done}
 
 def forget_all(state: State) -> State:
   match state:
-    case State{_, welcome, sent, barrier, held, revision, await_iso}: State{Nil{}, welcome, sent, barrier, held, revision, await_iso}
+    case State{_, welcome, sent, barrier, held, revision, motd_done}: State{Nil{}, welcome, sent, barrier, held, revision, motd_done}
 
 def initial_iso.names(names: List<&2, String>, state: State, +iso: Isupport.State) -> State:
   match names:
@@ -129,7 +129,7 @@ def initial(chan: String) -> State:
 
 def compat.state(+joined: Bool, state: State) -> State:
   match state:
-    case State{desired, _, _, _, held, revision, await_iso}: State{desired, joined, joined, NoAuth{}, held, revision, await_iso}
+    case State{desired, _, _, _, held, revision, motd_done}: State{desired, joined, joined, NoAuth{}, held, revision, motd_done}
 
 def compat(+chan: String, joined: Bool) -> State:
   compat.state(joined, initial(chan))
@@ -152,8 +152,8 @@ def reset.barrier(required: Bool, baseline: Nat) -> Barrier:
 
 def reset(state: State, +cl: Cl.Client, +live_port: U32) -> State:
   match state:
-    case State{desired, _, _, _, held, revision, await_iso}:
-      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl, live_port), Cl.auth_success_seq(cl)), held, revision, await_iso}
+    case State{desired, _, _, _, held, revision, _}:
+      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl, live_port), Cl.auth_success_seq(cl)), held, revision, False{}}
 
 def revision(state: State) -> Nat:
   match state:
@@ -161,8 +161,8 @@ def revision(state: State) -> Nat:
 
 def bump(state: State) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision, await_iso}:
-      State{desired, welcome, sent, barrier, held, Nat.add(revision, 1n), await_iso}
+    case State{desired, welcome, sent, barrier, held, revision, motd_done}:
+      State{desired, welcome, sent, barrier, held, Nat.add(revision, 1n), motd_done}
 
 def endpoint.fresh(state: State, chan: String, cl: Cl.Client, +live_port: U32) -> State:
   match state:
@@ -185,7 +185,7 @@ def desired_names(state: State) -> List<&2, String>:
 
 def set_held(state: State, held: Bool) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, _, revision, await_iso}: State{desired, welcome, sent, barrier, held, revision, await_iso}
+    case State{desired, welcome, sent, barrier, _, revision, motd_done}: State{desired, welcome, sent, barrier, held, revision, motd_done}
 
 # Preserve overlapping keys when a names-only startup snapshot is installed.
 # Revision is checked by Session; configuration never receives these keys.
@@ -220,8 +220,8 @@ def seed_candidate.allowed(allowed: Bool, state: State, +name: String, +key: Str
     case False{}: state
     case True{}:
       match state:
-        case State{desired, welcome, sent, barrier, held, revision, await_iso}:
-          State{put_exact(desired, name, key), welcome, sent, barrier, held, revision, await_iso}
+        case State{desired, welcome, sent, barrier, held, revision, motd_done}:
+          State{put_exact(desired, name, key), welcome, sent, barrier, held, revision, motd_done}
 
 def seed_candidate.head(+h: Char, +tail: String, +name: String, +key: String) -> Bool:
   +c = Char.to_u32(h)
@@ -250,13 +250,13 @@ def seed_channels_iso(names: List<&2, String>, +prior: List<&2, Channel>, state:
     case Con{+name, rest}:
       seed_channels_iso(rest, prior, seed_candidate(state, name, key_exact(prior, name)), iso)
 
-def seed_iso.ready(+state: State, names: List<&2, String>, +iso: Isupport.State, await_iso: Bool) -> State:
+def seed_iso.ready(+state: State, names: List<&2, String>, +iso: Isupport.State) -> State:
   match state:
-    case State{+desired, welcome, sent, barrier, held, revision, _}:
-      seed_channels_iso(names, desired, State{Nil{}, welcome, sent, barrier, held, revision, await_iso}, iso)
+    case State{+desired, welcome, sent, barrier, held, revision, motd_done}:
+      seed_channels_iso(names, desired, State{Nil{}, welcome, sent, barrier, held, revision, motd_done}, iso)
 
 def seed_iso(+state: State, names: List<&2, String>, +iso: Isupport.State) -> State:
-  seed_iso.ready(state, names, iso, Bool.not(Isupport.updated(iso)))
+  seed_iso.ready(state, names, iso)
 
 def seed(+state: State, names: List<&2, String>) -> State:
   seed_iso(state, names, Isupport.defaults())
@@ -495,17 +495,30 @@ def received.command(+state: State, +cl: Cl.Client, +m: Irc.Message, cmd: Irc.Cm
     case Irc.Kick{}: received.kick(Irc.ieq(Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)))
     case _: state
 
-def received.welcome(welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:
-  match welcome:
-    case False{}: received.command(state, cl, m, Irc.classify(m))
-    case True{}:
+def motd_num(+num: U32) -> Bool:
+  U32.is_eq(num, 376) || U32.is_eq(num, 422)
+
+def motd_control_with(+cm: String, +cl: Cl.Client, +line: String, +m: Irc.Message) -> Bool:
+  motd_num(Irc.msg_num(m))
+    && Irc.source_is_server(Irc.source_prefix(line), Cl.server_of(cl))
+    && Cl.buf_eq_cm(cm, Irc.proto_atom(Irc.msg_param(m, 0n)), Cl.nick_of(cl))
+
+def received.control(welcome: Bool, motd: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:
+  match welcome motd:
+    case True{} _:
       match state:
-        case State{desired, _, sent, barrier, held, revision, await_iso}: State{desired, True{}, sent, barrier, held, revision, await_iso}
+        case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
+    case False{} True{}:
+      match state:
+        case State{desired, +was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, was_welcome}
+    case False{} False{}: received.command(state, cl, m, Irc.classify(m))
 
 def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
   match parsed:
     case None{}: state
-    case Some{+m}: received.welcome(U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m), state, cl, m)
+    case Some{+m}:
+      received.control(U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m),
+        motd_control_with(Cl.dflt_cm(), cl, line, m), state, cl, m)
 
 def received(state: State, +cl: Cl.Client, +line: String) -> State:
   received.parsed(state, cl, line, Irc.parse(line))
@@ -523,17 +536,22 @@ def received.command_with(+cm: String, +state: State, +cl: Cl.Client, +m: Irc.Me
     case Irc.Kick{}: received.kick_with(Cl.buf_eq_cm(cm, Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)), cm)
     case _: state
 
-def received.welcome_with(+cm: String, welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:
-  match welcome:
-    case False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
-    case True{}:
+def received.control_with(+cm: String, welcome: Bool, motd: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:
+  match welcome motd:
+    case True{} _:
       match state:
-        case State{desired, _, sent, barrier, held, revision, await_iso}: State{desired, True{}, sent, barrier, held, revision, await_iso}
+        case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
+    case False{} True{}:
+      match state:
+        case State{desired, +was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, was_welcome}
+    case False{} False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
 
 def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
   match parsed:
     case None{}: state
-    case Some{+m}: received.welcome_with(cm, U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m), state, cl, m)
+    case Some{+m}:
+      received.control_with(cm, U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m),
+        motd_control_with(cm, cl, line, m), state, cl, m)
 
 def received_with(+cm: String, state: State, +cl: Cl.Client, +line: String) -> State:
   received.parsed_with(cm, state, cl, line, Irc.parse(line))
@@ -564,21 +582,21 @@ def hold.report(report: Report, failed: Bool) -> Report & Notice:
     case Unreported{} False{}: (WaitingReported{}, Held{})
     case WaitingReported{} False{}: (WaitingReported{}, Quiet{})
 
-def hold.done(pair: Report & Notice, desired: List<&2, Channel>, welcome: Bool, baseline: Nat, held: Bool, revision: Nat, await_iso: Bool) -> Flush:
+def hold.done(pair: Report & Notice, desired: List<&2, Channel>, welcome: Bool, baseline: Nat, held: Bool, revision: Nat, motd_done: Bool) -> Flush:
   match pair:
-    case (report, notice): Flush{State{desired, welcome, False{}, NeedAuth{baseline, report}, held, revision, await_iso}, Nil{}, notice}
+    case (report, notice): Flush{State{desired, welcome, False{}, NeedAuth{baseline, report}, held, revision, motd_done}, Nil{}, notice}
 
 def hold(state: State, +cl: Cl.Client) -> Flush:
   match state:
-    case State{+desired, welcome, sent, barrier, held, revision, await_iso}:
+    case State{+desired, welcome, sent, barrier, held, revision, motd_done}:
       match barrier:
-        case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision, await_iso}, Nil{}, Quiet{}}
+        case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision, motd_done}, Nil{}, Quiet{}}
         case NeedAuth{+baseline, report}:
-          hold.done(hold.report(report, failed(Cl.get_auth(cl), baseline, Cl.auth_success_seq(cl))), desired, welcome, baseline, held, revision, await_iso)
+          hold.done(hold.report(report, failed(Cl.get_auth(cl), baseline, Cl.auth_success_seq(cl))), desired, welcome, baseline, held, revision, motd_done)
 
-# Recovery flush applies the trusted 005 bounds and casemap exactly once.
-# Preference candidates stay exact until this point, so provisional defaults
-# neither drop negotiated-only names nor fold distinct ASCII identities.
+# Recovery flush applies every trusted pre-MOTD 005 bound and casemap exactly
+# once. Preference candidates stay exact until 376/422, so provisional or
+# partial bursts neither drop negotiated-only names nor fold ASCII identities.
 def admitted.keep(keep: Bool, kept: List<&2, Channel>, +name: String, +key: String) -> List<&2, Channel>:
   match keep:
     case True{}: List.append(&2, Channel, kept, Channel{name, key} <> Nil{})
@@ -588,7 +606,7 @@ def admitted.go(+xs: List<&2, Channel>, +kept: List<&2, Channel>, +cm: String, +
   match xs:
     case Nil{}: kept
     case Con{Channel{+name, +key}, +rest}:
-      admitted.go(rest, admitted.keep(Isupport.join_admit(iso, name, key) && Bool.not(has_cm(kept, name, cm)), kept, name, key), cm, iso)
+      admitted.go(rest, admitted.keep(Isupport.saved_join_admit(iso, name, key) && Bool.not(has_cm(kept, name, cm)), kept, name, key), cm, iso)
 
 def admitted(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
   admitted.go(xs, Nil{}, Isupport.casemapping(iso), iso)
@@ -598,16 +616,19 @@ def flush_iso.ready(ready: Bool, state: State, +cl: Cl.Client, +iso: Isupport.St
     case False{}: hold(state, cl)
     case True{}:
       match state:
-        case State{+desired, welcome, _, barrier, held, revision, _}:
-          +kept = admitted(desired, iso)
-          Flush{State{kept, welcome, True{}, barrier, held, revision, False{}}, lines(kept), Quiet{}}
+        case State{+desired, welcome, sent, barrier, held, revision, motd_done}:
+          match motd_done:
+            case False{}: Flush{State{desired, welcome, sent, barrier, held, revision, False{}}, Nil{}, Quiet{}}
+            case True{}:
+              +kept = admitted(desired, iso)
+              Flush{State{kept, welcome, True{}, barrier, held, revision, True{}}, lines(kept), Quiet{}}
 
 def flush_iso(+state: State, +cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match state:
-    case State{_, welcome, sent, +barrier, held, _, await_iso}:
+    case State{_, welcome, sent, +barrier, held, _, _}:
       match welcome sent held:
         case True{} False{} False{}:
-          flush_iso.ready(ready(barrier, cl) && (Bool.not(await_iso) || Isupport.updated(iso)), state, cl, iso)
+          flush_iso.ready(ready(barrier, cl), state, cl, iso)
         case _ _ _: Flush{state, Nil{}, Quiet{}}
 
 def flush(+state: State, +cl: Cl.Client) -> Flush:

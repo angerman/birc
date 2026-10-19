@@ -8,7 +8,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/session.bend as Sess
 
 def rejoined(command: String) -> String:
-  R.wire(R.chunk(R.enter(R.channels(), command), ":irc.example 001 me :welcome\r\n"))
+  R.wire(R.chunk(R.enter(R.channels(), command), ":irc.example 001 me :welcome\r\n:irc.example 376 me :end of MOTD\r\n"))
 
 def present(found: Maybe<&2, Nat>) -> Bool:
   match found:

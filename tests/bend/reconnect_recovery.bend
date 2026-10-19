@@ -25,7 +25,7 @@ def chunk(st: Sess.Session, text: String) -> Sess.Session & List<&2, String>:
   Sess.step_on_chunk(st, Fr.string_to_octets(text))
 
 def welcome() -> String:
-  ":irc.example 001 me :welcome\r\n"
+  ":irc.example 001 me :welcome\r\n:irc.example 376 me :end of MOTD\r\n"
 
 def online() -> Sess.Session:
   state(chunk(Sess.session_reconnected(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), "12:00:00"), welcome()))
@@ -56,7 +56,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("another nick KICK preserves our channel intent", wire(manual(state(chunk(base, ":op!u@h KICK #other someone :removed\r\n")))), "JOIN #start|JOIN #other secret-key|JOIN +#third")
     Unit <- E.must_eq("explicit JOIN restores removed intent", wire(manual(enter(state(chunk(base, ":op!u@h KICK #other me :removed\r\n")), "/join #other new-key"))), "JOIN #start|JOIN +#third|JOIN #other new-key")
     Unit <- E.must_eq("repeated welcome does not repeat JOIN", wire(chunk(state(manual(base)), welcome())), "")
-    Unit <- E.must_eq("new endpoint does not inherit channel additions or keys", wire(chunk(Sess.session_reconnected(enter(base, "/connect other.example 6667"), "12:02:00"), ":other.example 001 me :welcome\r\n")), "JOIN #start")
+    Unit <- E.must_eq("new endpoint does not inherit channel additions or keys", wire(chunk(Sess.session_reconnected(enter(base, "/connect other.example 6667"), "12:02:00"), ":other.example 001 me :welcome\r\n:other.example 376 me :end of MOTD\r\n")), "JOIN #start")
     Unit <- E.must_eq("peer-prefixed welcome cannot trigger JOIN", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":peer!u@h 001 me :fake\r\n")), "")
-    Unit <- E.must_eq("first server welcome can assign another nick and trigger JOIN", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":irc.example 001 someone :fake\r\n")), "JOIN #start")
+    Unit <- E.must_eq("first server welcome assigns another nick but does not trigger JOIN before MOTD", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":irc.example 001 someone :welcome\r\n")), "")
+    Unit <- E.must_eq("assigned nick receives JOIN at MOTD completion", wire(chunk(Sess.session_with_client_at(Cl.init("me", "irc.example"), "#start", 6667), ":irc.example 001 someone :welcome\r\n:irc.example 376 someone :end of MOTD\r\n")), "JOIN #start")
     IO.print("reconnect_recovery=ok")

@@ -79,7 +79,7 @@ law absent_startup_target_keeps_current_client:
   {StartupHistory.restore.at(None{}, current, line) == current : Cl.Client}
 
 law held_recovery_has_no_wire_output:
-  {JoinPlan.flush(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, False{}}, Cl.init("me", "s")) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, False{}}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
+  {JoinPlan.flush(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, True{}}, Cl.init("me", "s")) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, True{}}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
 
 law completed_recovery_does_not_repeat:
   {JoinPlan.flush(JoinPlan.demo("#room"), Cl.init("me", "s")) == JoinPlan.Flush{JoinPlan.demo("#room"), Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
@@ -88,13 +88,13 @@ law old_authentication_cannot_release_recovery:
   {JoinPlan.ready(JoinPlan.NeedAuth{0n, JoinPlan.Unreported{}}, Cl.init("me", "s")) == False{} : Bool}
 
 law reset_keeps_key_revision_and_hold:
-  {JoinPlan.reset(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, True{}, JoinPlan.NoAuth{}, True{}, 3n, False{}}, Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], False{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, False{}} : JoinPlan.State}
+  {JoinPlan.reset(JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], True{}, True{}, JoinPlan.NoAuth{}, True{}, 3n, True{}}, Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#room", "key"}], False{}, False{}, JoinPlan.NoAuth{}, True{}, 3n, False{}} : JoinPlan.State}
 
 law new_endpoint_discards_previous_channel_keys:
-  {JoinPlan.endpoint(False{}, JoinPlan.State{[JoinPlan.Channel{"#old", "key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, False{}}, "#new", Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#new", ""}], False{}, False{}, JoinPlan.NoAuth{}, False{}, 3n, False{}} : JoinPlan.State}
+  {JoinPlan.endpoint(False{}, JoinPlan.State{[JoinPlan.Channel{"#old", "key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, True{}}, "#new", Cl.init("me", "s"), 6697) == JoinPlan.State{[JoinPlan.Channel{"#new", ""}], False{}, False{}, JoinPlan.NoAuth{}, False{}, 3n, False{}} : JoinPlan.State}
 
 law delayed_membership_echo_cannot_erase_intent:
-  {JoinPlan.received(JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, False{}}, Cl.init("me", "s"), ":me!u@h PART #room :old departure") == JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, False{}} : JoinPlan.State}
+  {JoinPlan.received(JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, True{}}, Cl.init("me", "s"), ":me!u@h PART #room :old departure") == JoinPlan.State{[JoinPlan.Channel{"#room", "new-key"}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 3n, True{}} : JoinPlan.State}
 
 law server_time_invalid_calendar_is_rejected:
   {Utc.parse("2023-02-29T00:00:00Z") == None{} : Maybe<&2, Utc.Utc>}
@@ -1499,11 +1499,11 @@ law session_redact_wire_keeps_ordinary:
 
 # Recovery flush drops channels the negotiated bounds refuse.
 law flush_iso_drops_refused:
-  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"&local", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n, False{}}, Cl.init("me", "s"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# :are supported")) == JoinPlan.Flush{JoinPlan.State{Nil{}, True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n, False{}}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
+  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"&local", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n, True{}}, Cl.init("me", "s"), Isupport.apply_line(Isupport.defaults(), ":s 005 me CHANTYPES=# :are supported")) == JoinPlan.Flush{JoinPlan.State{Nil{}, True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n, True{}}, Nil{}, JoinPlan.Quiet{}} : JoinPlan.Flush}
 
 # Recovery flush keeps admitted channels exactly as before.
 law flush_iso_keeps_admitted:
-  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n, False{}}, Cl.init("me", "s"), Isupport.defaults()) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n, False{}}, ["JOIN #t"], JoinPlan.Quiet{}} : JoinPlan.Flush}
+  {JoinPlan.flush_iso(JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, False{}, JoinPlan.NoAuth{}, False{}, 0n, True{}}, Cl.init("me", "s"), Isupport.defaults()) == JoinPlan.Flush{JoinPlan.State{[JoinPlan.Channel{"#t", ""}], True{}, True{}, JoinPlan.NoAuth{}, False{}, 0n, True{}}, ["JOIN #t"], JoinPlan.Quiet{}} : JoinPlan.Flush}
 
 # Live outbound admission refuses server-narrowed joins.
 law session_outs_refuse_foreign:

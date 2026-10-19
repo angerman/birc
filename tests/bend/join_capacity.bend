@@ -90,7 +90,8 @@ def plan_key_cm(state: P.State, name: String, cm: String) -> String:
 def pair_flush(+iso: Is.State, +state: P.State) -> String:
   +cl = Cl.init("me", "irc")
   +reset = P.reset(state, cl, 6697)
-  flush_wire(P.flush_iso(P.received_with(Is.casemapping(iso), reset, cl, ":irc 001 me :welcome"), cl, iso))
+  +welcome = P.received_with(Is.casemapping(iso), reset, cl, ":irc 001 me :welcome")
+  flush_wire(P.flush_iso(P.received_with(Is.casemapping(iso), welcome, cl, ":irc 376 me :end of MOTD"), cl, iso))
 
 def ascii_pair_distinct() -> Bool:
   +iso = ascii_iso()

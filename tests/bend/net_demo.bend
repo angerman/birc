@@ -195,10 +195,10 @@ def nick433_fold_same() -> Bool:
   )
 
 def welcome_octets() -> List<&2, U32>:
-  Fr.string_to_octets(":irc.example.net 001 probe :Welcome\r\nPING :xyz\r\n")
+  Fr.string_to_octets(":irc.example.net 001 probe :Welcome\r\n:irc.example.net 376 probe :end of MOTD\r\nPING :xyz\r\n")
 
 # Fixed chunk path emits no PONG out (actor owns the live reply; see
-# fold_ok): 001 flushes JOIN, PING answers nothing here.
+# fold_ok): 376 flushes JOIN, PING answers nothing here.
 def chunk_join_pong.on(got: Sess.Session & List<&2, String>) -> Bool:
   match got:
     case (_, outs):

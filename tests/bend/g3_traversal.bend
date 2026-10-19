@@ -221,8 +221,9 @@ def flush_outs_of(f: JP.Flush) -> List<&2, String>:
 
 def flush_outs(+st: S.Session) -> List<&2, String>:
   +cl = S.session_cl(st)
-  +re = JP.received(JP.reset(S.session_plan(st), cl), cl, ":irc 001 me :welcome")
-  flush_outs_of(JP.flush(re, cl))
+  +re = JP.received(JP.reset(S.session_plan(st), cl, S.session_port(st)), cl, ":s 001 me :welcome")
+  +done = JP.received(re, cl, ":s 376 me :end of MOTD")
+  flush_outs_of(JP.flush(done, cl))
 
 def outs_has(+xs: List<&2, String>, +want: String) -> Bool:
   match xs:
