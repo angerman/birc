@@ -651,10 +651,20 @@ def plus_negotiated_channel(+iso: Is.State, +name: String) -> Bool:
 def mode_channel_word(+iso: Is.State, +name: String) -> Bool:
   negotiated_channel_word(iso, name) || plus_negotiated_channel(iso, name)
 
-# A fixed leading `+` is also the MODE sign and valid topic text. Once 005
-# removes `+` from CHANTYPES, the ambiguity gate must leave it to the command
-# parser unless its tail is itself a negotiated channel. The other fixed
-# prefixes remain fail-closed.
+# A signed word made entirely from mode-sign/letter characters is flags even
+# when `+` is itself a CHANTYPE. Unknown letters are valid server extensions.
+# Explicit `+#room` / `+$room` targets contain a channel head and therefore
+# fail the flag shape.
+def mode_flag_word(+name: String) -> Bool:
+  Commands.mode.sign(name) && Nat.is_gt(String.length(name), 1n) && Commands.mode.flag_chars(name)
+
+def mode_explicit_word(+iso: Is.State, +name: String) -> Bool:
+  mode_channel_word(iso, name) && Bool.not(mode_flag_word(name))
+
+# A leading `+` is both a MODE sign and, on some servers, a CHANTYPE. Leave
+# signed words to the MODE resolver above: sign/letter words are flags while a
+# following channel head (`+#`, `+$`) makes an explicit target. Other
+# channel-shaped words remain fail-closed unless negotiated admission accepts.
 def negotiated_channel_shape(+iso: Is.State, +name: String) -> Bool:
   Bool.not(String.starts_with(name, "+")) && (Irc.starts_channel(name) || Is.is_channel(iso, name))
 
@@ -691,8 +701,8 @@ def mode_command_iso.allowed(ok: Bool, +iso: Is.State, +cl: Cl.Client, +args: St
   match ok:
     case False{}: None{}
     case True{}:
-      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first) || plus_negotiated_channel(iso, first), cl, args,
-        negotiated_channel_word(iso, Cl.active_buf_name(cl)), mode_channel_word(iso, first))
+      mode_command.named_as((mode_resident(Cl.client_bufs(cl), first) || plus_negotiated_channel(iso, first)) && Bool.not(mode_flag_word(first)), cl, args,
+        negotiated_channel_word(iso, Cl.active_buf_name(cl)), mode_explicit_word(iso, first))
 
 def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
   match pair:

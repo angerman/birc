@@ -1140,31 +1140,6 @@ def join_admit.base(+st: State, +name: String, +key: String, base: Bool) -> Bool
 def join_admit(+st: State, +name: String, +key: String) -> Bool:
   join_admit.base(st, name, key, Channels.valid(name, key))
 
-# Saved ordinary `#` channels remain recovery candidates when a server swaps
-# CHANTYPES to a negotiated-only prefix. Keep every other negotiated bound:
-# canonical wire shape, key validity, and CHANNELLEN still apply.
-def join_len.saved.state(updated: Bool, +lim: Limits, +name: String) -> Bool:
-  match updated lim:
-    case False{} _: True{}
-    case True{} Limits{_, +maxlen, _, _}: Nat.is_le(Irc.utf8_len(name), U32.to_nat(maxlen))
-
-def join_len.saved(+st: State, +name: String) -> Bool:
-  match st:
-    case State{_, _, +lim, _, _, updated}: join_len.saved.state(updated, lim, name)
-
-def saved_hash.head(+st: State, +name: String, +key: String, +h: Char) -> Bool:
-  U32.is_eq(Char.to_u32(h), 35)
-    && Cl.target_wire(name) && String.eq(name, Cl.target_name(name))
-    && Channels.valid(name, key) && join_len.saved(st, name)
-
-def saved_hash(+st: State, +name: String, +key: String) -> Bool:
-  match name:
-    case SNil{}: False{}
-    case SCon{+h, _}: saved_hash.head(st, name, key, h)
-
-def saved_join_admit(+st: State, +name: String, +key: String) -> Bool:
-  join_admit(st, name, key) || saved_hash(st, name, key)
-
 # ---- accessors ------------------------------------------------------------
 
 def limits.nick(+lim: Limits) -> U32:

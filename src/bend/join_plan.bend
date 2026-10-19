@@ -606,7 +606,7 @@ def admitted.go(+xs: List<&2, Channel>, +kept: List<&2, Channel>, +cm: String, +
   match xs:
     case Nil{}: kept
     case Con{Channel{+name, +key}, +rest}:
-      admitted.go(rest, admitted.keep(Isupport.saved_join_admit(iso, name, key) && Bool.not(has_cm(kept, name, cm)), kept, name, key), cm, iso)
+      admitted.go(rest, admitted.keep(Isupport.join_admit(iso, name, key) && Bool.not(has_cm(kept, name, cm)), kept, name, key), cm, iso)
 
 def admitted(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
   admitted.go(xs, Nil{}, Isupport.casemapping(iso), iso)
