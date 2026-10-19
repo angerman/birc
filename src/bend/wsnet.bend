@@ -74,6 +74,7 @@ import ./notify.bend as N
 import ./notify_io.bend as NIO
 import ./split.bend as Sp
 import ./view.bend as V
+import ./isupport.bend as Isupport
 import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
 import ./preferences_live.bend as LoadedPrefs
@@ -1893,9 +1894,9 @@ def ws_upload.restored(+ws: W.Workspace, +typed: String, +restore: Bool) -> W.Wo
 # rows (union C policy) through the ONE global physical lease. Completions
 # route back per part; inline rows and the fullscreen overlay paint from
 # the same sidecar over the same row set.
-def ws_cards.sized(+cm: String, +size: Sess.Size, +cl: Cl.Client, +split: Sp.State, +media: M.State, +painted: List<&2, V.CardEntry>) -> List<&2, C.Candidate>:
+def ws_cards.sized(+isc: Cl.Iso, +size: Sess.Size, +cl: Cl.Client, +split: Sp.State, +media: M.State, +painted: List<&2, V.CardEntry>) -> List<&2, C.Candidate>:
   match size:
-    case Sess.Size{+rows, +cols}: C.visible_candidates_cards_cm(cm, cl, rows, cols, split, media, painted)
+    case Sess.Size{+rows, +cols}: C.visible_candidates_cards_iso(isc, cl, rows, cols, split, media, painted)
 
 # (A) a spawn takes the global lease with its captured request envelope;
 # a quiet stage keeps the lease untouched. Only the exact completion
@@ -1918,9 +1919,9 @@ def ws_cards.staged(found: C.State & C.Fullscreen, +ws: W.Workspace, +id: Key.Se
     case (+cs, +fl):
       +kept = C.maintain(cs, Sess.session_cl(st))
       +full = C.maintain_full(fl, Sess.session_media(st), Sess.session_cl(st))
-      +cm = Sess.session_cm(st)
+      +isc = Isupport.as_iso(Sess.session_iso(st))
       +open = C.is_open(full)
-      +cands = ws_cards.cands_open(open, ws_cards.sized(cm, Sess.session_size(st), Sess.session_cl(st), Sess.session_split(st), Sess.session_media(st), C.paint_entries(kept)))
+      +cands = ws_cards.cands_open(open, ws_cards.sized(isc, Sess.session_size(st), Sess.session_cl(st), Sess.session_split(st), Sess.session_media(st), C.paint_entries(kept)))
       ws_cards.jobs(C.take_job_allowed(ws_cards.spawn_ok(on, kept, Sess.session_net(st), open, ws_cards_all.lease(cards)), C.enqueue_candidates(cands, kept)), ws, id, gen, full, cards, evts)
 
 def ws_cards_stage(+ws: W.Workspace, +evts: WsEvts, +cards: WsCardsAll) -> IO(W.Workspace & WsCardsAll):

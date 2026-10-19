@@ -638,6 +638,9 @@ def submit_wire(+cl: Cl.Client, line: Maybe<&2, String>, usage: String) -> Cl.Cl
     case None{}: (echo_err(cl, usage), Nil{})
     case Some{wire}: (cl, wire <> Nil{})
 
+def negotiated_channel_word(+iso: Is.State, +name: String) -> Bool:
+  Commands.word(name) && Is.join_admit(iso, name, "")
+
 def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
   match bufs:
     case Nil{}: False{}
@@ -667,11 +670,17 @@ def mode_command.fixed(+cl: Cl.Client, +args: String, pair: String & String) -> 
 def mode_command(+cl: Cl.Client, +args: String) -> Maybe<&2, String>:
   mode_command.fixed(cl, args, Irc.take_until_space(args))
 
+def mode_command_iso.allowed(ok: Bool, +iso: Is.State, +cl: Cl.Client, +args: String, +first: String) -> Maybe<&2, String>:
+  match ok:
+    case False{}: None{}
+    case True{}:
+      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first), cl, args,
+        negotiated_channel_word(iso, Cl.active_buf_name(cl)), negotiated_channel_word(iso, first))
+
 def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
   match pair:
     case (+first, _):
-      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first), cl, args,
-        Is.is_channel(iso, Cl.active_buf_name(cl)), Is.is_channel(iso, first))
+      mode_command_iso.allowed(Bool.not(Irc.starts_channel(first) || Is.is_channel(iso, first)) || negotiated_channel_word(iso, first), iso, cl, args, first)
 
 def mode_command_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
   mode_command_iso.words(iso, cl, args, Irc.take_until_space(args))
@@ -1959,14 +1968,36 @@ def submit_cmd.is_channel(iso: Maybe<&2, Is.State>, +name: String) -> Bool:
     case None{}: Commands.channel(name)
     case Some{+s}: Is.is_channel(s, name)
 
+def submit_cmd.explicit_channel(iso: Maybe<&2, Is.State>, +name: String) -> Bool:
+  match iso:
+    case None{}: Commands.channel(name)
+    case Some{+s}: negotiated_channel_word(s, name)
+
+def submit_cmd.channel_shape(iso: Maybe<&2, Is.State>, +name: String) -> Bool:
+  match iso:
+    case None{}: Irc.starts_channel(name)
+    case Some{+s}: Irc.starts_channel(name) || Is.is_channel(s, name)
+
 def submit_cmd.first_channel(iso: Maybe<&2, Is.State>, pair: String & String) -> Bool:
   match pair:
-    case (+first, _): submit_cmd.is_channel(iso, first)
+    case (+first, _): submit_cmd.explicit_channel(iso, first)
 
 def submit_cmd.invite_target(iso: Maybe<&2, Is.State>, xs: List<&2, String>) -> Bool:
   match xs:
-    case Con{_, Con{+target, Nil{}}}: submit_cmd.is_channel(iso, target)
+    case Con{_, Con{+target, Nil{}}}: submit_cmd.explicit_channel(iso, target)
     case _: False{}
+
+def submit_cmd.topic_checked(ok: Bool, +iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Maybe<&2, String>:
+  match ok:
+    case False{}: None{}
+    case True{}:
+      Commands.topic_as(Cl.active_buf_name(cl), rest,
+        submit_cmd.explicit_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest)))
+
+def submit_cmd.topic(+iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String, pair: String & String) -> Maybe<&2, String>:
+  match pair:
+    case (+first, _):
+      submit_cmd.topic_checked(Bool.not(submit_cmd.channel_shape(iso, first)) || submit_cmd.explicit_channel(iso, first), iso, cl, rest)
 
 def submit_cmd.mode_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   match iso:
@@ -2028,18 +2059,17 @@ def submit_cmd.go.with(+iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client
     case NamesCmd{}:
       submit_wire(cl, Commands.names_as(Cl.active_buf_name(cl), rest, submit_cmd.is_channel(iso, Cl.active_buf_name(cl))), "usage: /names [channels [server]]")
     case TopicCmd{}:
-      submit_wire(cl, Commands.topic_as(Cl.active_buf_name(cl), rest,
-        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest))),
+      submit_wire(cl, submit_cmd.topic(iso, cl, rest, Irc.take_until_space(rest)),
         "usage: /topic [#channel] [:text]")
     case ModeCmd{}:
       submit_cmd.mode_iso(iso, cl, rest)
     case KickCmd{}:
       submit_wire(cl, Commands.kick_as(Cl.active_buf_name(cl), rest,
-        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest))),
+        submit_cmd.explicit_channel(iso, Cl.active_buf_name(cl)), submit_cmd.first_channel(iso, Irc.take_until_space(rest))),
         "usage: /kick [#channel] nick [reason]")
     case InviteCmd{}:
       submit_wire(cl, Commands.invite_as(Cl.active_buf_name(cl), rest,
-        submit_cmd.is_channel(iso, Cl.active_buf_name(cl)), submit_cmd.invite_target(iso, Commands.words(rest))),
+        submit_cmd.explicit_channel(iso, Cl.active_buf_name(cl)), submit_cmd.invite_target(iso, Commands.words(rest))),
         "usage: /invite nick [#channel]")
     case AwayCmd{}:
       submit_wire(cl, Commands.away(rest), "usage: /away [reason]")

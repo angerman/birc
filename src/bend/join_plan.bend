@@ -39,29 +39,38 @@ def MAX_CHANNELS() -> Nat:
 def valid_channel(+name: String, +key: String) -> Bool:
   Channels.valid(name, key)
 
-def has(xs: List<&2, Channel>, +name: String) -> Bool:
+def has_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> Bool:
   match xs:
     case Nil{}: False{}
-    case Con{Channel{stored, _}, rest}: Irc.ieq(stored, name) || has(rest, name)
+    case Con{Channel{stored, _}, rest}: Cl.buf_eq_cm(cm, stored, name) || has_cm(rest, name, cm)
+
+def has(xs: List<&2, Channel>, +name: String) -> Bool:
+  has_cm(xs, name, Cl.dflt_cm())
 
 def choose(on: Bool, yes: List<&2, Channel>, no: Unit -> List<&2, Channel>) -> List<&2, Channel>:
   match on:
     case True{}: yes
     case False{}: no(Unit{})
 
-def put(xs: List<&2, Channel>, +name: String, +key: String, +replace: Bool) -> List<&2, Channel>:
+def put_cm(xs: List<&2, Channel>, +name: String, +key: String, +replace: Bool, +cm: String) -> List<&2, Channel>:
   match xs:
     case Nil{}: Channel{name, key} <> Nil{}
     case Con{Channel{+stored, +old_key}, +rest}:
-      choose(Irc.ieq(stored, name), Channel{stored, Bool.pick(String, replace, key, old_key)} <> rest,
-        _ => Channel{stored, old_key} <> put(rest, name, key, replace))
+      choose(Cl.buf_eq_cm(cm, stored, name), Channel{stored, Bool.pick(String, replace, key, old_key)} <> rest,
+        _ => Channel{stored, old_key} <> put_cm(rest, name, key, replace, cm))
 
-def remember.allowed(allowed: Bool, state: State, +name: String, +key: String, replace: Bool) -> State:
+def put(xs: List<&2, Channel>, +name: String, +key: String, +replace: Bool) -> List<&2, Channel>:
+  put_cm(xs, name, key, replace, Cl.dflt_cm())
+
+def remember.allowed_cm(allowed: Bool, state: State, +name: String, +key: String, replace: Bool, +cm: String) -> State:
   match allowed:
     case False{}: state
     case True{}:
       match state:
-        case State{desired, welcome, sent, barrier, held, revision}: State{put(desired, name, key, replace), welcome, sent, barrier, held, revision}
+        case State{desired, welcome, sent, barrier, held, revision}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision}
+
+def remember.allowed(allowed: Bool, state: State, +name: String, +key: String, replace: Bool) -> State:
+  remember.allowed_cm(allowed, state, name, key, replace, Cl.dflt_cm())
 
 def remember(+state: State, +name: String, +key: String, replace: Bool) -> State:
   match state:
@@ -72,18 +81,26 @@ def remember(+state: State, +name: String, +key: String, replace: Bool) -> State
 def remember_iso(+state: State, +name: String, +key: String, replace: Bool, +iso: Isupport.State) -> State:
   match state:
     case State{+desired, _, _, _, _, _}:
-      remember.allowed(Isupport.join_admit(iso, name, key)
-        && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
+      +cm = Isupport.casemapping(iso)
+      remember.allowed_cm(Isupport.join_admit(iso, name, key)
+        && (has_cm(desired, name, cm) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace, cm)
 
-def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
+def remove_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> List<&2, Channel>:
   match xs:
     case Nil{}: Nil{}
     case Con{Channel{+stored, key}, +rest}:
-      choose(Irc.ieq(stored, name), rest, _ => Channel{stored, key} <> remove(rest, name))
+      choose(Cl.buf_eq_cm(cm, stored, name), rest, _ => Channel{stored, key} <> remove_cm(rest, name, cm))
+
+def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
+  remove_cm(xs, name, Cl.dflt_cm())
 
 def forget(state: State, name: String) -> State:
   match state:
     case State{desired, welcome, sent, barrier, held, revision}: State{remove(desired, name), welcome, sent, barrier, held, revision}
+
+def forget_cm(state: State, name: String, +cm: String) -> State:
+  match state:
+    case State{desired, welcome, sent, barrier, held, revision}: State{remove_cm(desired, name, cm), welcome, sent, barrier, held, revision}
 
 def forget_all(state: State) -> State:
   match state:
@@ -172,19 +189,56 @@ def choose_key(found: Bool, secret: String, otherwise: Unit -> String) -> String
     case True{}: secret
     case False{}: otherwise(Unit{})
 
-def key(xs: List<&2, Channel>, +name: String) -> String:
+def key_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> String:
   match xs:
     case Nil{}: ""
-    case Con{Channel{+stored, secret}, rest}: choose_key(Irc.ieq(stored, name), secret, _ => key(rest, name))
+    case Con{Channel{+stored, secret}, rest}: choose_key(Cl.buf_eq_cm(cm, stored, name), secret, _ => key_cm(rest, name, cm))
 
-def seed_channels(names: List<&2, String>, +prior: List<&2, Channel>, state: State) -> State:
+def key(xs: List<&2, Channel>, +name: String) -> String:
+  key_cm(xs, name, Cl.dflt_cm())
+
+def seed_candidate.allowed(allowed: Bool, state: State, +name: String, +key: String, +cm: String) -> State:
+  match allowed:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{desired, welcome, sent, barrier, held, revision}:
+          State{put_cm(desired, name, key, True{}, cm), welcome, sent, barrier, held, revision}
+
+def seed_candidate.head(+h: Char, +tail: String, +name: String, +key: String) -> Bool:
+  +c = Char.to_u32(h)
+  U32.is_ge(c, 33) && U32.is_le(c, 126)
+    && Bool.not((U32.is_ge(c, 48) && U32.is_le(c, 57))
+      || (U32.is_ge(c, 65) && U32.is_le(c, 90))
+      || (U32.is_ge(c, 97) && U32.is_le(c, 122)))
+    && Bool.not(U32.is_eq(c, 44) || U32.is_eq(c, 58))
+    && Cl.target_wire(name) && String.eq(name, Cl.target_name(name))
+    && Channels.valid("#" ++ tail, key)
+
+def seed_candidate.valid(+name: String, +key: String) -> Bool:
+  match name:
+    case SNil{}: False{}
+    case SCon{+h, +tail}: seed_candidate.head(h, tail, name, key)
+
+def seed_candidate(+state: State, +name: String, +key: String, +cm: String) -> State:
+  match state:
+    case State{+desired, _, _, _, _, _}:
+      seed_candidate.allowed((has_cm(desired, name, cm) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()))
+        && seed_candidate.valid(name, key), state, name, key, cm)
+
+def seed_channels_iso(names: List<&2, String>, +prior: List<&2, Channel>, state: State, +iso: Isupport.State) -> State:
   match names:
     case Nil{}: state
-    case Con{+name, rest}: seed_channels(rest, prior, remember(state, name, key(prior, name), True{}))
+    case Con{+name, rest}:
+      +cm = Isupport.casemapping(iso)
+      seed_channels_iso(rest, prior, seed_candidate(state, name, key_cm(prior, name, cm), cm), iso)
+
+def seed_iso(+state: State, names: List<&2, String>, +iso: Isupport.State) -> State:
+  match state:
+    case State{+desired, _, _, _, _, _}: seed_channels_iso(names, desired, forget_all(state), iso)
 
 def seed(+state: State, names: List<&2, String>) -> State:
-  match state:
-    case State{+desired, _, _, _, _, _}: seed_channels(names, desired, forget_all(state))
+  seed_iso(state, names, Isupport.defaults())
 
 def editing_open(state: State) -> Bool:
   match state:
@@ -211,6 +265,11 @@ def part_targets(targets: List<&2, String>, state: State) -> State:
     case Nil{}: state
     case Con{target, rest}: part_targets(rest, forget(state, target))
 
+def part_targets_cm(targets: List<&2, String>, state: State, +cm: String) -> State:
+  match targets:
+    case Nil{}: state
+    case Con{target, rest}: part_targets_cm(rest, forget_cm(state, target, cm), cm)
+
 def outbound_join(zero: Bool, +state: State, +m: Irc.Message) -> State:
   match zero:
     case True{}: forget_all(state)
@@ -224,13 +283,16 @@ def outbound_join_iso(zero: Bool, +state: State, +m: Irc.Message, +iso: Isupport
 # Count the complete distinct union before changing any key or membership.
 # An existing channel consumes no new slot; malformed raw targets remain the
 # server's concern and cannot create desired channel intent.
-def join_capacity.add(new: Bool, room: Bool, +desired: List<&2, Channel>, name: String, k: List<&2, Channel> -> Bool) -> Bool:
+def join_capacity.add_cm(new: Bool, room: Bool, +desired: List<&2, Channel>, name: String, +cm: String, k: List<&2, Channel> -> Bool) -> Bool:
   match new:
     case False{}: k(desired)
     case True{}:
       match room:
         case False{}: False{}
-        case True{}: k(put(desired, name, "", False{}))
+        case True{}: k(put_cm(desired, name, "", False{}, cm))
+
+def join_capacity.add(new: Bool, room: Bool, +desired: List<&2, Channel>, name: String, k: List<&2, Channel> -> Bool) -> Bool:
+  join_capacity.add_cm(new, room, desired, name, Cl.dflt_cm(), k)
 
 def join_capacity.targets(targets: List<&2, String>, +desired: List<&2, Channel>) -> Bool:
   match targets:
@@ -249,8 +311,9 @@ def join_capacity.targets_iso(targets: List<&2, String>, +desired: List<&2, Chan
   match targets:
     case Nil{}: True{}
     case Con{+name, rest}:
-      join_capacity.add(Isupport.join_admit(iso, name, "") && Bool.not(has(desired, name)),
-        Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()), desired, name,
+      +cm = Isupport.casemapping(iso)
+      join_capacity.add_cm(Isupport.join_admit(iso, name, "") && Bool.not(has_cm(desired, name, cm)),
+        Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()), desired, name, cm,
         next => join_capacity.targets_iso(rest, next, iso))
 
 def join_capacity_iso(state: State, m: Irc.Message, +iso: Isupport.State) -> Bool:
@@ -286,7 +349,7 @@ def capacity_ok(outs: List<&2, String>, state: State) -> Bool:
 def capacity_command_iso(state: State, +m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State) -> State:
   match cmd:
     case Irc.Join{}: outbound_join_iso(String.eq(Irc.msg_param(m, 0n), "0"), state, m, iso)
-    case Irc.Part{}: part_targets(String.split(Irc.msg_param(m, 0n), Chr{44}), state)
+    case Irc.Part{}: part_targets_cm(String.split(Irc.msg_param(m, 0n), Chr{44}), state, Isupport.casemapping(iso))
     case _: state
 
 def capacity_line_iso.step(allowed: Bool, state: State, m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State, k: State -> Bool) -> Bool:
@@ -357,7 +420,7 @@ def outbound.command_iso(+state: State, reversed: List<&2, String>, +line: Strin
   match cmd:
     case Irc.Join{}:
       outbound.join_iso(join_capacity_iso(state, m, iso), state, reversed, line, m, iso)
-    case Irc.Part{}: OutAcc{bump(part_targets(String.split(Irc.msg_param(m, 0n), Chr{44}), state)), line <> reversed}
+    case Irc.Part{}: OutAcc{bump(part_targets_cm(String.split(Irc.msg_param(m, 0n), Chr{44}), state, Isupport.casemapping(iso))), line <> reversed}
     case _: OutAcc{state, line <> reversed}
 
 def outbound.parsed_iso(+state: State, reversed: List<&2, String>, +line: String, parsed: Maybe<&2, Irc.Message>, +iso: Isupport.State) -> OutAcc:
@@ -387,6 +450,15 @@ def forget_present.on(present: Bool, state: State, name: String) -> State:
 def forget_present(+state: State, +name: String) -> State:
   match state:
     case State{+desired, _, _, _, _, _}: forget_present.on(has(desired, name), state, name)
+
+def forget_present_cm.on(present: Bool, state: State, name: String, cm: String) -> State:
+  match present:
+    case False{}: state
+    case True{}: bump(forget_cm(state, name, cm))
+
+def forget_present_cm(+state: State, +name: String, +cm: String) -> State:
+  match state:
+    case State{+desired, _, _, _, _, _}: forget_present_cm.on(has_cm(desired, name, cm), state, name, cm)
 
 def received.kick(self: Bool, state: State, name: String) -> State:
   match self:
@@ -420,9 +492,14 @@ def received(state: State, +cl: Cl.Client, +line: String) -> State:
 # Negotiated KICK victim (I2-dynamic2 F1): the self-KICK refusal that cancels
 # desired membership compares the victim under the Session CASEMAPPING.
 # Welcome detection keeps the fixed auth control (never forked).
+def received.kick_with(self: Bool, state: State, name: String, cm: String) -> State:
+  match self:
+    case False{}: state
+    case True{}: forget_present_cm(state, name, cm)
+
 def received.command_with(+cm: String, +state: State, +cl: Cl.Client, +m: Irc.Message, cmd: Irc.Cmd) -> State:
   match cmd:
-    case Irc.Kick{}: received.kick(Cl.buf_eq_cm(cm, Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)))
+    case Irc.Kick{}: received.kick_with(Cl.buf_eq_cm(cm, Irc.proto_atom(Irc.msg_param(m, 1n)), Cl.nick_of(cl)), state, Irc.proto_atom(Irc.msg_param(m, 0n)), cm)
     case _: state
 
 def received.welcome_with(+cm: String, welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message) -> State:

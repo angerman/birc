@@ -396,6 +396,23 @@ def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat
   +canonical = history_key(target)
   history_target.allowed(Cl.target_wire(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical)
 
+def history_target_iso.found(found: Maybe<&2, Nat>, +cl: Cl.Client, +target: String, +isc: Cl.Iso) -> Cl.Client & Maybe<&2, Nat>:
+  match found:
+    case Some{index}: (cl, Some{index})
+    case None{}:
+      +bufs = Cl.client_bufs(cl)
+      Cl.buf_get_with(evict_target(Nat.is_ge(Cl.buf_count(bufs), Cl.MAX_BUFFERS()) || Nat.is_ge(Cl.normal_buffer_count(bufs), Cl.NORMAL_BUFFERS()), cl),
+        isc, target, Cl.target_channel_with(Cl.iso_types(isc), Cl.iso_status(isc), Cl.iso_sigils(isc), target), True{})
+
+def history_target_iso.allowed(allowed: Bool, +cl: Cl.Client, +target: String, +isc: Cl.Iso) -> Cl.Client & Maybe<&2, Nat>:
+  match allowed:
+    case False{}: (cl, None{})
+    case True{}: history_target_iso.found(Cl.buf_find_cm(cl, Cl.iso_cm(isc), target), cl, target, isc)
+
+def history_target_iso(+cl: Cl.Client, +target: String, +isc: Cl.Iso) -> Cl.Client & Maybe<&2, Nat>:
+  +canonical = history_key(target)
+  history_target_iso.allowed(Cl.target_wire(canonical) && Bool.not(String.is_empty(canonical)), cl, canonical, isc)
+
 def apply_entry.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line) -> Cl.Client:
   match ln:
     case Cl.Line{kind, +ts, +text, +author, _}:
@@ -423,11 +440,21 @@ def apply_hist_entry(entry: HistEntry, cl: Cl.Client) -> Cl.Client:
     case ServerEntry{line}: apply_entry.bi(cl, 0n, line)
     case Entry{+target, line}: apply_entry.got(history_target(cl, target), line)
 
+def apply_hist_entry_iso(entry: HistEntry, cl: Cl.Client, +isc: Cl.Iso) -> Cl.Client:
+  match entry:
+    case ServerEntry{line}: apply_entry.bi(cl, 0n, line)
+    case Entry{+target, line}: apply_entry.got(history_target_iso(cl, target, isc), line)
+
 def apply_entries(entries: List<&2, HistEntry>, cl: Cl.Client) -> Cl.Client:
   match entries:
     case Nil{}: cl
     case Con{+e, t}:
       apply_entries(t, apply_hist_entry(e, cl))
+
+def apply_entries_iso(entries: List<&2, HistEntry>, cl: Cl.Client, +isc: Cl.Iso) -> Cl.Client:
+  match entries:
+    case Nil{}: cl
+    case Con{+e, t}: apply_entries_iso(t, apply_hist_entry_iso(e, cl, isc), isc)
 
 def add_markers_cl(+cl: Cl.Client, +now: String) -> Cl.Client:
   Cl.reconnect_markers(cl, now)
@@ -455,6 +482,14 @@ def apply_history.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>
 
 def apply_history(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32) -> Cl.Client:
   apply_history.capped(U32.is_eq(cap, 0), cl, entries, now, cap)
+
+def apply_history_iso.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>, now: String, cap: U32, +isc: Cl.Iso) -> Cl.Client:
+  match zero:
+    case True{}: apply_history.cap(cl, now, cap)
+    case False{}: apply_history.cap(apply_entries_iso(entries, cl, isc), now, cap)
+
+def apply_history_iso(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32, +isc: Cl.Iso) -> Cl.Client:
+  apply_history_iso.capped(U32.is_eq(cap, 0), cl, entries, now, cap, isc)
 
 # ---- file IO --------------------------------------------------------------
 

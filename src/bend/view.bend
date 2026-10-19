@@ -3108,3 +3108,6 @@ def view_draft.state_typing_media_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows
 def view_draft.state_typing_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
   paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)
 
+def view_draft.state_typing_media_cards_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
+  paint_view_state(paint_media_cards_iso_theme(isc, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)
+

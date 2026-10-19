@@ -8,6 +8,7 @@ import ../../src/bend/view.bend as V
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/frame.bend as Fr
+import ../../src/bend/isupport.bend as Is
 
 def fill(n: Nat, cl: Cl.Client) -> Cl.Client:
   match n:
@@ -134,6 +135,28 @@ def interleaved_history_ok() -> Bool:
   interleaved.restored(H.read_chunk(Fr.string_to_octets(H.extract_new_history_for("a:6667", old, new)),
     H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}, "a:6667", 100))
 
+def casemap_entries() -> List<&2, H.HistEntry>:
+  H.Entry{"#a[", Cl.Line{Cl.Msg{}, "", "left", "a", 1n}}
+    <> H.Entry{"#a{", Cl.Line{Cl.Msg{}, "", "right", "b", 2n}}
+    <> Nil{}
+
+def buf_texts_cm.got(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case None{}: ""
+    case Some{index}: CL.buf_texts(cl, index)
+
+def buf_texts_cm(+cl: Cl.Client, +cm: String, +name: String) -> String:
+  buf_texts_cm.got(cl, Cl.buf_find_cm(cl, cm, name))
+
+def casemap_history_report() -> String:
+  +ascii = Is.apply_line(Is.defaults(), ":a 005 me CASEMAPPING=ascii :are supported")
+  +separate = H.apply_history_iso(Cl.init("me", "a"), casemap_entries(), "", 100, Is.as_iso(ascii))
+  +folded = H.apply_history(Cl.init("me", "a"), casemap_entries(), "", 100)
+  Nat.show(Cl.normal_buffer_count(Cl.client_bufs(separate))) ++ ":"
+    ++ buf_texts_cm(separate, "ascii", "#a[") ++ ":" ++ buf_texts_cm(separate, "ascii", "#a{")
+    ++ "/" ++ Nat.show(Cl.normal_buffer_count(Cl.client_bufs(folded))) ++ ":"
+    ++ buf_texts_cm(folded, Cl.dflt_cm(), "#a[")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("no_op", no_op_ok())
@@ -151,4 +174,5 @@ def main() -> IO(Unit):
     Unit <- E.must("utf8_chunk", utf8_chunk_ok())
     Unit <- E.must("server_roles", server_roles_ok())
     Unit <- E.must("interleaved_history_order", interleaved_history_ok())
+    Unit <- E.must_eq("history import follows negotiated ascii while default RFC1459 still merges", casemap_history_report(), "3:left||:right||/2:left|right||")
     IO.print("history_demo=ok")

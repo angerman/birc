@@ -574,6 +574,15 @@ def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, 
 def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   newest(visible_panes_cards_cm(cm, cl, rows, cols, split, media, cards))
 
+def visible_buffer_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_rows(V.visible_anchored_buf_media_cards_iso(isc, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
+
+def visible_panes_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  visible_rows(V.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, media, cards))
+
+def visible_candidates_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
+  newest(visible_panes_cards_iso(isc, cl, rows, cols, split, media, cards))
+
 # Fixed-default APIs: one-line delegates to the cm-aware owner.
 def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, Candidate>:
   visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, joins, nicks, server, media, Nil{})

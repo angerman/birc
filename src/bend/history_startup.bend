@@ -170,6 +170,7 @@ def install.allowed(ok: Bool, +current: Cl.Client, +snapshot: Cl.Client) -> Cl.C
 # The outer startup gate owns endpoint/port/ticket checks and the checkpoint.
 # This defense also rejects a changed host or a newly disabled history setting.
 # Never cap current rows or evict current targets to make room for an archive.
+# Startup-before-005 still imports with the default RFC1459 map; negotiated live imports use History.apply_history_iso.
 def install(+current: Cl.Client, +snapshot: Cl.Client) -> Cl.Client:
   +settings = Cl.get_settings(current)
   install.allowed(String.eq(Cl.server_of(current), Cl.server_of(snapshot))

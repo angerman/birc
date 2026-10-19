@@ -1530,7 +1530,7 @@ def session_desired_channels(st: Session) -> List<&2, String>:
   JoinPlan.desired_names(session_plan(st))
 
 def session_seed_channels(+st: Session, names: List<&2, String>) -> Session:
-  session_set_plan(st, JoinPlan.seed(session_plan(st), names))
+  session_set_plan(st, JoinPlan.seed_iso(session_plan(st), names, session_iso(st)))
 
 def session_seed_channels_if.on(same: Bool, st: Session, names: List<&2, String>) -> Session:
   match same:

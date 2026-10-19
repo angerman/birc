@@ -13,6 +13,9 @@ def legacy() -> String:
 def nicks_off() -> String:
   "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t0\nmute\talice*#room@irc.example\nchannel\t+#room\nchannel\t#日本語\n"
 
+def dollar() -> String:
+  "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\nmute\talice*#room@irc.example\nchannel\t$room\n"
+
 def repeat(n: Nat) -> String:
   match n:
     case 0n: ""
@@ -58,6 +61,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("preferences exact roundtrip including channel spelling/Unicode", roundtrip(P.parse(source())), source())
     Unit <- E.must_eq("legacy nine-field settings default nicks on and rewrite ten-field", roundtrip(P.parse(legacy())), source())
     Unit <- E.must_eq("nicks off round-trips exactly", roundtrip(P.parse(nicks_off())), nicks_off())
+    Unit <- E.must_eq("negotiated-only channel candidate round-trips without dropping settings", roundtrip(P.parse(dollar())), dollar())
     Unit <- E.must("invalid nicks bit rejected", Bool.not(accepted(P.parse("BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t2\n"))))
     Unit <- E.must("preferences preserve credentials and runtime settings", apply_ok(P.parse(source())))
     Unit <- E.must("missing optional prefs has no snapshot", Bool.not(accepted(P.parse(""))))

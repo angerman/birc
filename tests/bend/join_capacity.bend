@@ -5,6 +5,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/join_plan.bend as P
+import ../../src/bend/isupport.bend as Is
 import ../../src/bend/session.bend as S
 
 def names(+n: Nat) -> List<&2, String>:
@@ -72,6 +73,58 @@ def ordered_capacity() -> Bool:
   P.capacity_ok(["PART #r0", "JOIN #extra"], base)
     && Bool.not(P.capacity_ok(["JOIN #extra", "PART #r0"], base))
 
+def ascii_iso() -> Is.State:
+  Is.apply_line(Is.defaults(), ":irc 005 me CASEMAPPING=ascii :are supported")
+
+def pair_state(+iso: Is.State) -> P.State:
+  plan_state(P.outbound_iso(P.demo(""), ["JOIN #a[ one", "JOIN #a{ two"], iso))
+
+def flush_wire(got: P.Flush) -> String:
+  match got:
+    case P.Flush{_, outs, _}: String.join(outs, "|")
+
+def plan_key_cm(state: P.State, name: String, cm: String) -> String:
+  match state:
+    case P.State{desired, _, _, _, _, _}: P.key_cm(desired, name, cm)
+
+def pair_flush(+iso: Is.State, +state: P.State) -> String:
+  +cl = Cl.init("me", "irc")
+  +reset = P.reset(state, cl, 6697)
+  flush_wire(P.flush_iso(P.received_with(Is.casemapping(iso), reset, cl, ":irc 001 me :welcome"), cl, iso))
+
+def ascii_pair_distinct() -> Bool:
+  +iso = ascii_iso()
+  +state = pair_state(iso)
+  Nat.is_eq(List.length(&2, String, P.desired_names(state)), 2n)
+    && String.eq(plan_key_cm(state, "#a[", "ascii"), "one")
+    && String.eq(plan_key_cm(state, "#a{", "ascii"), "two")
+    && String.eq(pair_flush(iso, state), "JOIN #a[ one|JOIN #a{ two")
+
+def ascii_part_keeps_sibling() -> Bool:
+  +iso = ascii_iso()
+  +next = plan_state(P.outbound_iso(pair_state(iso), ["PART #a["], iso))
+  String.eq(String.join(P.desired_names(next), "|"), "#a{")
+    && String.eq(plan_key_cm(next, "#a{", "ascii"), "two")
+
+def ascii_kick_keeps_sibling() -> Bool:
+  +iso = ascii_iso()
+  +next = P.received_with("ascii", pair_state(iso), Cl.init("me", "irc"), ":irc KICK #a[ me")
+  String.eq(String.join(P.desired_names(next), "|"), "#a{")
+    && String.eq(plan_key_cm(next, "#a{", "ascii"), "two")
+
+def rfc_pair_folds() -> Bool:
+  +state = pair_state(Is.defaults())
+  Nat.is_eq(List.length(&2, String, P.desired_names(state)), 1n)
+    && String.eq(plan_key(state, "#a["), "two")
+
+def ascii_capacity_counts_distinct() -> Bool:
+  +base = P.demo(csv(13n))
+  plan_rejected(P.outbound_iso(base, ["JOIN #a[,#a{ one,two"], ascii_iso()), base)
+
+def rfc_capacity_folds_pair() -> Bool:
+  plan_exact(P.outbound_iso(P.demo(csv(13n)), ["JOIN #a[,#a{ one,two"], Is.defaults()),
+    "JOIN #a[,#a{ one,two", List.append(&2, String, names(13n), ["#a["]))
+
 def online(n: Nat) -> S.Session:
   S.session_online(S.session_demo_at(Cl.init("me", "irc.example"), csv(n), 6667))
 
@@ -118,6 +171,12 @@ def main() -> IO(Unit):
     Unit <- E.must("mixed existing/new overflow cannot partially update a key", plan_mixed_rejected())
     Unit <- E.must("case-folded duplicate channels consume no new slot", plan_duplicate_exact())
     Unit <- E.must("preflight respects ordered PART capacity release", ordered_capacity())
+    Unit <- E.must("ascii desired identities and keys remain distinct through reconnect", ascii_pair_distinct())
+    Unit <- E.must("ascii PART removes only the exact desired identity", ascii_part_keeps_sibling())
+    Unit <- E.must("ascii self-KICK removes only the exact desired identity", ascii_kick_keeps_sibling())
+    Unit <- E.must("default RFC1459 still folds bracket and brace identities", rfc_pair_folds())
+    Unit <- E.must("ascii capacity counts bracket and brace as two identities", ascii_capacity_counts_distinct())
+    Unit <- E.must("default RFC1459 capacity folds bracket and brace", rfc_capacity_folds_pair())
     Unit <- E.must("Session reports rejected raw extra without changing intent", session_full_raw_rejected())
     Unit <- E.must("Session rejects staged JOIN without a ghost buffer", session_full_join_rejected())
     Unit <- E.must("Session reports rejected fifteen-channel list", session_list15_rejected())

@@ -64,6 +64,7 @@ import ./server_key.bend as Key
 import ./server_id.bend as Sid
 import ./history.bend as Hist
 import ./history_search.bend as Hs
+import ./isupport.bend as Isupport
 
 type Part is Data:
   Part{id: Key.ServerId, gen: U32, scope: Sid.Scope, st: Sess.Session}
@@ -258,7 +259,7 @@ def bind_history.pick(overflows: Bool, +parts: List<&2, Part>, +cur: Key.ServerI
 def bind_history.part(+parts: List<&2, Part>, +cur: Key.ServerId, +ds: Drafts.Drafts, +rt: List<&2, SlotEpoch>, +id: Key.ServerId, +p: Part, entries: List<&2, Hist.HistEntry>, +now: String, +cap: U32) -> Workspace:
   match p:
     case Part{_, +gen, +scope, +st}:
-      +bound = Hist.apply_history(Sess.session_cl(st), entries, now, cap)
+      +bound = Hist.apply_history_iso(Sess.session_cl(st), entries, now, cap, Isupport.as_iso(Sess.session_iso(st)))
       +st2 = Sess.session_set_client(st, bound)
       bind_history.pick(part_overflows(st2, id), parts, cur, ds, rt, id, gen, scope, st2)
 

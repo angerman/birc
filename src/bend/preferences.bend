@@ -89,8 +89,20 @@ def channel_chars(s: String) -> Bool:
     case SCon{Chr{+c}, t}:
       Bool.not(U32.is_eq(c, 44)) && channel_chars(t)
 
+def channel_head_ok(+s: String) -> Bool:
+  match s:
+    case SNil{}: False{}
+    case SCon{Chr{+c}, _}:
+      U32.is_ge(c, 33) && U32.is_le(c, 126)
+        && Bool.not((U32.is_ge(c, 48) && U32.is_le(c, 57))
+          || (U32.is_ge(c, 65) && U32.is_le(c, 90))
+          || (U32.is_ge(c, 97) && U32.is_le(c, 122)))
+        && Bool.not(U32.is_eq(c, 44) || U32.is_eq(c, 58))
+
+# Persist bounded channel candidates even when their sigil needs a trusted
+# CHANTYPES advertisement. JoinPlan.join_admit remains the wire gate.
 def channel_ok(+s: String) -> Bool:
-  Nat.is_gt(String.length(s), 1n) && text_ok(s, 505) && Irc.starts_channel(s) && channel_chars(s)
+  Nat.is_gt(String.length(s), 1n) && text_ok(s, 505) && channel_head_ok(s) && channel_chars(s)
 
 def exact_eq(a: String, b: String) -> Bool:
   String.eq(a, b)
