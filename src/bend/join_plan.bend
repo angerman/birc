@@ -20,7 +20,7 @@ type Barrier is Data:
   NeedAuth{baseline: Nat, report: Report}
 
 type State is Data:
-  State{desired: List<&2, Channel>, welcome: Bool, sent: Bool, barrier: Barrier, held: Bool, revision: Nat}
+  State{desired: List<&2, Channel>, welcome: Bool, sent: Bool, barrier: Barrier, held: Bool, revision: Nat, await_iso: Bool}
 
 type Notice is Data:
   Quiet{}
@@ -47,6 +47,11 @@ def has_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> Bool:
 def has(xs: List<&2, Channel>, +name: String) -> Bool:
   has_cm(xs, name, Cl.dflt_cm())
 
+def has_exact(xs: List<&2, Channel>, +name: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{Channel{stored, _}, rest}: String.eq(stored, name) || has_exact(rest, name)
+
 def choose(on: Bool, yes: List<&2, Channel>, no: Unit -> List<&2, Channel>) -> List<&2, Channel>:
   match on:
     case True{}: yes
@@ -67,20 +72,20 @@ def remember.allowed_cm(allowed: Bool, state: State, +name: String, +key: String
     case False{}: state
     case True{}:
       match state:
-        case State{desired, welcome, sent, barrier, held, revision}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision}
+        case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision, await_iso}
 
 def remember.allowed(allowed: Bool, state: State, +name: String, +key: String, replace: Bool) -> State:
   remember.allowed_cm(allowed, state, name, key, replace, Cl.dflt_cm())
 
 def remember(+state: State, +name: String, +key: String, replace: Bool) -> State:
   match state:
-    case State{+desired, _, _, _, _, _}:
+    case State{+desired, _, _, _, _, _, _}:
       remember.allowed(valid_channel(name, key)
         && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
 
 def remember_iso(+state: State, +name: String, +key: String, replace: Bool, +iso: Isupport.State) -> State:
   match state:
-    case State{+desired, _, _, _, _, _}:
+    case State{+desired, _, _, _, _, _, _}:
       +cm = Isupport.casemapping(iso)
       remember.allowed_cm(Isupport.join_admit(iso, name, key)
         && (has_cm(desired, name, cm) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace, cm)
@@ -96,15 +101,15 @@ def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
 
 def forget(state: State, name: String) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision}: State{remove(desired, name), welcome, sent, barrier, held, revision}
+    case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{remove(desired, name), welcome, sent, barrier, held, revision, await_iso}
 
 def forget_cm(state: State, name: String, +cm: String) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision}: State{remove_cm(desired, name, cm), welcome, sent, barrier, held, revision}
+    case State{desired, welcome, sent, barrier, held, revision, await_iso}: State{remove_cm(desired, name, cm), welcome, sent, barrier, held, revision, await_iso}
 
 def forget_all(state: State) -> State:
   match state:
-    case State{_, welcome, sent, barrier, held, revision}: State{Nil{}, welcome, sent, barrier, held, revision}
+    case State{_, welcome, sent, barrier, held, revision, await_iso}: State{Nil{}, welcome, sent, barrier, held, revision, await_iso}
 
 def initial_iso.names(names: List<&2, String>, state: State, +iso: Isupport.State) -> State:
   match names:
@@ -117,14 +122,14 @@ def initial_iso.parsed(parsed: Maybe<&2, List<&2, String>>, state: State, +iso: 
     case Some{names}: initial_iso.names(names, state, iso)
 
 def initial_iso(chan: String, +iso: Isupport.State) -> State:
-  initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, False{}, 0n}, iso)
+  initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, False{}, 0n, False{}}, iso)
 
 def initial(chan: String) -> State:
   initial_iso(chan, Isupport.defaults())
 
 def compat.state(+joined: Bool, state: State) -> State:
   match state:
-    case State{desired, _, _, _, held, revision}: State{desired, joined, joined, NoAuth{}, held, revision}
+    case State{desired, _, _, _, held, revision, await_iso}: State{desired, joined, joined, NoAuth{}, held, revision, await_iso}
 
 def compat(+chan: String, joined: Bool) -> State:
   compat.state(joined, initial(chan))
@@ -134,11 +139,11 @@ def demo(chan: String) -> State:
 
 def sent(state: State) -> Bool:
   match state:
-    case State{_, _, sent, _, _, _}: sent
+    case State{_, _, sent, _, _, _, _}: sent
 
 def welcomed(state: State) -> Bool:
   match state:
-    case State{_, welcome, _, _, _, _}: welcome
+    case State{_, welcome, _, _, _, _, _}: welcome
 
 def reset.barrier(required: Bool, baseline: Nat) -> Barrier:
   match required:
@@ -147,22 +152,22 @@ def reset.barrier(required: Bool, baseline: Nat) -> Barrier:
 
 def reset(state: State, +cl: Cl.Client, +live_port: U32) -> State:
   match state:
-    case State{desired, _, _, _, held, revision}:
-      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl, live_port), Cl.auth_success_seq(cl)), held, revision}
+    case State{desired, _, _, _, held, revision, await_iso}:
+      State{desired, False{}, False{}, reset.barrier(Auth.join_required(cl, live_port), Cl.auth_success_seq(cl)), held, revision, await_iso}
 
 def revision(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, _, revision}: revision
+    case State{_, _, _, _, _, revision, _}: revision
 
 def bump(state: State) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, held, revision}:
-      State{desired, welcome, sent, barrier, held, Nat.add(revision, 1n)}
+    case State{desired, welcome, sent, barrier, held, revision, await_iso}:
+      State{desired, welcome, sent, barrier, held, Nat.add(revision, 1n), await_iso}
 
 def endpoint.fresh(state: State, chan: String, cl: Cl.Client, +live_port: U32) -> State:
   match state:
-    case State{_, _, _, _, held, revision}:
-      reset(initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision}, Isupport.defaults()), cl, live_port)
+    case State{_, _, _, _, held, revision, _}:
+      reset(initial_iso.parsed(Channels.launch_names(chan), State{Nil{}, False{}, False{}, NoAuth{}, held, revision, False{}}, Isupport.defaults()), cl, live_port)
 
 def endpoint(same: Bool, state: State, chan: String, cl: Cl.Client, +live_port: U32) -> State:
   match same:
@@ -176,11 +181,11 @@ def desired_names.go(xs: List<&2, Channel>) -> List<&2, String>:
 
 def desired_names(state: State) -> List<&2, String>:
   match state:
-    case State{desired, _, _, _, _, _}: desired_names.go(desired)
+    case State{desired, _, _, _, _, _, _}: desired_names.go(desired)
 
 def set_held(state: State, held: Bool) -> State:
   match state:
-    case State{desired, welcome, sent, barrier, _, revision}: State{desired, welcome, sent, barrier, held, revision}
+    case State{desired, welcome, sent, barrier, _, revision, await_iso}: State{desired, welcome, sent, barrier, held, revision, await_iso}
 
 # Preserve overlapping keys when a names-only startup snapshot is installed.
 # Revision is checked by Session; configuration never receives these keys.
@@ -197,13 +202,26 @@ def key_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> String:
 def key(xs: List<&2, Channel>, +name: String) -> String:
   key_cm(xs, name, Cl.dflt_cm())
 
-def seed_candidate.allowed(allowed: Bool, state: State, +name: String, +key: String, +cm: String) -> State:
+def key_exact(xs: List<&2, Channel>, +name: String) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{Channel{stored, secret}, rest}:
+      choose_key(String.eq(stored, name), secret, _ => key_exact(rest, name))
+
+def put_exact(xs: List<&2, Channel>, +name: String, +key: String) -> List<&2, Channel>:
+  match xs:
+    case Nil{}: Channel{name, key} <> Nil{}
+    case Con{Channel{+stored, +old_key}, +rest}:
+      choose(String.eq(stored, name), Channel{stored, key} <> rest,
+        _ => Channel{stored, old_key} <> put_exact(rest, name, key))
+
+def seed_candidate.allowed(allowed: Bool, state: State, +name: String, +key: String) -> State:
   match allowed:
     case False{}: state
     case True{}:
       match state:
-        case State{desired, welcome, sent, barrier, held, revision}:
-          State{put_cm(desired, name, key, True{}, cm), welcome, sent, barrier, held, revision}
+        case State{desired, welcome, sent, barrier, held, revision, await_iso}:
+          State{put_exact(desired, name, key), welcome, sent, barrier, held, revision, await_iso}
 
 def seed_candidate.head(+h: Char, +tail: String, +name: String, +key: String) -> Bool:
   +c = Char.to_u32(h)
@@ -220,29 +238,32 @@ def seed_candidate.valid(+name: String, +key: String) -> Bool:
     case SNil{}: False{}
     case SCon{+h, +tail}: seed_candidate.head(h, tail, name, key)
 
-def seed_candidate(+state: State, +name: String, +key: String, +cm: String) -> State:
+def seed_candidate(+state: State, +name: String, +key: String) -> State:
   match state:
-    case State{+desired, _, _, _, _, _}:
-      seed_candidate.allowed((has_cm(desired, name, cm) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()))
-        && seed_candidate.valid(name, key), state, name, key, cm)
+    case State{+desired, _, _, _, _, _, _}:
+      seed_candidate.allowed((has_exact(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()))
+        && seed_candidate.valid(name, key), state, name, key)
 
 def seed_channels_iso(names: List<&2, String>, +prior: List<&2, Channel>, state: State, +iso: Isupport.State) -> State:
   match names:
     case Nil{}: state
     case Con{+name, rest}:
-      +cm = Isupport.casemapping(iso)
-      seed_channels_iso(rest, prior, seed_candidate(state, name, key_cm(prior, name, cm), cm), iso)
+      seed_channels_iso(rest, prior, seed_candidate(state, name, key_exact(prior, name)), iso)
+
+def seed_iso.ready(+state: State, names: List<&2, String>, +iso: Isupport.State, await_iso: Bool) -> State:
+  match state:
+    case State{+desired, welcome, sent, barrier, held, revision, _}:
+      seed_channels_iso(names, desired, State{Nil{}, welcome, sent, barrier, held, revision, await_iso}, iso)
 
 def seed_iso(+state: State, names: List<&2, String>, +iso: Isupport.State) -> State:
-  match state:
-    case State{+desired, _, _, _, _, _}: seed_channels_iso(names, desired, forget_all(state), iso)
+  seed_iso.ready(state, names, iso, Bool.not(Isupport.updated(iso)))
 
 def seed(+state: State, names: List<&2, String>) -> State:
   seed_iso(state, names, Isupport.defaults())
 
 def editing_open(state: State) -> Bool:
   match state:
-    case State{_, _, sent, _, held, _}: sent && Bool.not(held)
+    case State{_, _, sent, _, held, _, _}: sent && Bool.not(held)
 
 def join_targets(targets: List<&2, String>, keys: List<&2, String>, state: State) -> State:
   match targets:
@@ -304,7 +325,7 @@ def join_capacity.targets(targets: List<&2, String>, +desired: List<&2, Channel>
 
 def join_capacity(state: State, m: Irc.Message) -> Bool:
   match state:
-    case State{desired, _, _, _, _, _}:
+    case State{desired, _, _, _, _, _, _}:
       join_capacity.targets(String.split(Irc.msg_param(m, 0n), Chr{44}), desired)
 
 def join_capacity.targets_iso(targets: List<&2, String>, +desired: List<&2, Channel>, +iso: Isupport.State) -> Bool:
@@ -318,7 +339,7 @@ def join_capacity.targets_iso(targets: List<&2, String>, +desired: List<&2, Chan
 
 def join_capacity_iso(state: State, m: Irc.Message, +iso: Isupport.State) -> Bool:
   match state:
-    case State{desired, _, _, _, _, _}:
+    case State{desired, _, _, _, _, _, _}:
       join_capacity.targets_iso(String.split(Irc.msg_param(m, 0n), Chr{44}), desired, iso)
 
 def capacity_command(state: State, +m: Irc.Message, cmd: Irc.Cmd) -> State:
@@ -449,7 +470,7 @@ def forget_present.on(present: Bool, state: State, name: String) -> State:
 
 def forget_present(+state: State, +name: String) -> State:
   match state:
-    case State{+desired, _, _, _, _, _}: forget_present.on(has(desired, name), state, name)
+    case State{+desired, _, _, _, _, _, _}: forget_present.on(has(desired, name), state, name)
 
 def forget_present_cm.on(present: Bool, state: State, name: String, cm: String) -> State:
   match present:
@@ -458,7 +479,7 @@ def forget_present_cm.on(present: Bool, state: State, name: String, cm: String) 
 
 def forget_present_cm(+state: State, +name: String, +cm: String) -> State:
   match state:
-    case State{+desired, _, _, _, _, _}: forget_present_cm.on(has_cm(desired, name, cm), state, name, cm)
+    case State{+desired, _, _, _, _, _, _}: forget_present_cm.on(has_cm(desired, name, cm), state, name, cm)
 
 def received.kick(self: Bool, state: State, name: String) -> State:
   match self:
@@ -479,7 +500,7 @@ def received.welcome(welcome: Bool, state: State, cl: Cl.Client, +m: Irc.Message
     case False{}: received.command(state, cl, m, Irc.classify(m))
     case True{}:
       match state:
-        case State{desired, _, sent, barrier, held, revision}: State{desired, True{}, sent, barrier, held, revision}
+        case State{desired, _, sent, barrier, held, revision, await_iso}: State{desired, True{}, sent, barrier, held, revision, await_iso}
 
 def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
   match parsed:
@@ -507,7 +528,7 @@ def received.welcome_with(+cm: String, welcome: Bool, state: State, cl: Cl.Clien
     case False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
     case True{}:
       match state:
-        case State{desired, _, sent, barrier, held, revision}: State{desired, True{}, sent, barrier, held, revision}
+        case State{desired, _, sent, barrier, held, revision, await_iso}: State{desired, True{}, sent, barrier, held, revision, await_iso}
 
 def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
   match parsed:
@@ -543,49 +564,50 @@ def hold.report(report: Report, failed: Bool) -> Report & Notice:
     case Unreported{} False{}: (WaitingReported{}, Held{})
     case WaitingReported{} False{}: (WaitingReported{}, Quiet{})
 
-def hold.done(pair: Report & Notice, desired: List<&2, Channel>, welcome: Bool, baseline: Nat, held: Bool, revision: Nat) -> Flush:
+def hold.done(pair: Report & Notice, desired: List<&2, Channel>, welcome: Bool, baseline: Nat, held: Bool, revision: Nat, await_iso: Bool) -> Flush:
   match pair:
-    case (report, notice): Flush{State{desired, welcome, False{}, NeedAuth{baseline, report}, held, revision}, Nil{}, notice}
+    case (report, notice): Flush{State{desired, welcome, False{}, NeedAuth{baseline, report}, held, revision, await_iso}, Nil{}, notice}
 
 def hold(state: State, +cl: Cl.Client) -> Flush:
   match state:
-    case State{+desired, welcome, sent, barrier, held, revision}:
+    case State{+desired, welcome, sent, barrier, held, revision, await_iso}:
       match barrier:
-        case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision}, Nil{}, Quiet{}}
+        case NoAuth{}: Flush{State{desired, welcome, sent, NoAuth{}, held, revision, await_iso}, Nil{}, Quiet{}}
         case NeedAuth{+baseline, report}:
-          hold.done(hold.report(report, failed(Cl.get_auth(cl), baseline, Cl.auth_success_seq(cl))), desired, welcome, baseline, held, revision)
+          hold.done(hold.report(report, failed(Cl.get_auth(cl), baseline, Cl.auth_success_seq(cl))), desired, welcome, baseline, held, revision, await_iso)
 
-# Recovery flush drops desired channels the negotiated 005 bounds refuse
-# (narrowed CHANTYPES/CHANNELLEN); the rest emit exactly as before. With
-# defaults (no burst yet) admission equals base validity, so every
-# remembered channel is kept and flush behaves exactly as before.
-def admitted.keep(keep: Bool, +name: String, +key: String, rest: List<&2, Channel>) -> List<&2, Channel>:
+# Recovery flush applies the trusted 005 bounds and casemap exactly once.
+# Preference candidates stay exact until this point, so provisional defaults
+# neither drop negotiated-only names nor fold distinct ASCII identities.
+def admitted.keep(keep: Bool, kept: List<&2, Channel>, +name: String, +key: String) -> List<&2, Channel>:
   match keep:
-    case True{}: Channel{name, key} <> rest
-    case False{}: rest
+    case True{}: List.append(&2, Channel, kept, Channel{name, key} <> Nil{})
+    case False{}: kept
 
-def admitted.go(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
+def admitted.go(+xs: List<&2, Channel>, +kept: List<&2, Channel>, +cm: String, +iso: Isupport.State) -> List<&2, Channel>:
   match xs:
-    case Nil{}: Nil{}
-    case Con{Channel{+name, +key}, +rest}: admitted.keep(Isupport.join_admit(iso, name, key), name, key, admitted.go(rest, iso))
+    case Nil{}: kept
+    case Con{Channel{+name, +key}, +rest}:
+      admitted.go(rest, admitted.keep(Isupport.join_admit(iso, name, key) && Bool.not(has_cm(kept, name, cm)), kept, name, key), cm, iso)
 
 def admitted(+xs: List<&2, Channel>, +iso: Isupport.State) -> List<&2, Channel>:
-  admitted.go(xs, iso)
+  admitted.go(xs, Nil{}, Isupport.casemapping(iso), iso)
 
 def flush_iso.ready(ready: Bool, state: State, +cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match ready:
     case False{}: hold(state, cl)
     case True{}:
       match state:
-        case State{+desired, welcome, _, barrier, held, revision}:
+        case State{+desired, welcome, _, barrier, held, revision, _}:
           +kept = admitted(desired, iso)
-          Flush{State{kept, welcome, True{}, barrier, held, revision}, lines(kept), Quiet{}}
+          Flush{State{kept, welcome, True{}, barrier, held, revision, False{}}, lines(kept), Quiet{}}
 
 def flush_iso(+state: State, +cl: Cl.Client, +iso: Isupport.State) -> Flush:
   match state:
-    case State{_, welcome, sent, +barrier, held, revision}:
+    case State{_, welcome, sent, +barrier, held, _, await_iso}:
       match welcome sent held:
-        case True{} False{} False{}: flush_iso.ready(ready(barrier, cl), state, cl, iso)
+        case True{} False{} False{}:
+          flush_iso.ready(ready(barrier, cl) && (Bool.not(await_iso) || Isupport.updated(iso)), state, cl, iso)
         case _ _ _: Flush{state, Nil{}, Quiet{}}
 
 def flush(+state: State, +cl: Cl.Client) -> Flush:

@@ -43,7 +43,7 @@ def plan_list14_exact() -> Bool:
 
 def plan_key(state: P.State, name: String) -> String:
   match state:
-    case P.State{desired, _, _, _, _, _}: P.key(desired, name)
+    case P.State{desired, _, _, _, _, _, _}: P.key(desired, name)
 
 def plan_existing_key.got(pair: P.State & List<&2, String>) -> Bool:
   match pair:
@@ -85,7 +85,7 @@ def flush_wire(got: P.Flush) -> String:
 
 def plan_key_cm(state: P.State, name: String, cm: String) -> String:
   match state:
-    case P.State{desired, _, _, _, _, _}: P.key_cm(desired, name, cm)
+    case P.State{desired, _, _, _, _, _, _}: P.key_cm(desired, name, cm)
 
 def pair_flush(+iso: Is.State, +state: P.State) -> String:
   +cl = Cl.init("me", "irc")
@@ -116,6 +116,14 @@ def rfc_pair_folds() -> Bool:
   +state = pair_state(Is.defaults())
   Nat.is_eq(List.length(&2, String, P.desired_names(state)), 1n)
     && String.eq(plan_key(state, "#a["), "two")
+
+def seeded_keys_stay_exact() -> Bool:
+  +iso = ascii_iso()
+  +seeded = P.seed_iso(pair_state(iso), ["#a{", "#a["], Is.defaults())
+  String.eq(String.join(P.desired_names(seeded), "|"), "#a{|#a[")
+    && String.eq(plan_key_cm(seeded, "#a{", "ascii"), "two")
+    && String.eq(plan_key_cm(seeded, "#a[", "ascii"), "one")
+    && String.eq(pair_flush(iso, seeded), "JOIN #a{ two|JOIN #a[ one")
 
 def ascii_capacity_counts_distinct() -> Bool:
   +base = P.demo(csv(13n))
@@ -175,6 +183,7 @@ def main() -> IO(Unit):
     Unit <- E.must("ascii PART removes only the exact desired identity", ascii_part_keeps_sibling())
     Unit <- E.must("ascii self-KICK removes only the exact desired identity", ascii_kick_keeps_sibling())
     Unit <- E.must("default RFC1459 still folds bracket and brace identities", rfc_pair_folds())
+    Unit <- E.must("saved exact channel names retain only their own runtime keys", seeded_keys_stay_exact())
     Unit <- E.must("ascii capacity counts bracket and brace as two identities", ascii_capacity_counts_distinct())
     Unit <- E.must("default RFC1459 capacity folds bracket and brace", rfc_capacity_folds_pair())
     Unit <- E.must("Session reports rejected raw extra without changing intent", session_full_raw_rejected())

@@ -641,6 +641,12 @@ def submit_wire(+cl: Cl.Client, line: Maybe<&2, String>, usage: String) -> Cl.Cl
 def negotiated_channel_word(+iso: Is.State, +name: String) -> Bool:
   Commands.word(name) && Is.join_admit(iso, name, "")
 
+# A fixed leading `+` is also the MODE sign and valid topic text. Once 005
+# removes `+` from CHANTYPES, the ambiguity gate must leave it to the command
+# parser; the other fixed prefixes remain fail-closed.
+def negotiated_channel_shape(+iso: Is.State, +name: String) -> Bool:
+  Bool.not(String.starts_with(name, "+")) && (Irc.starts_channel(name) || Is.is_channel(iso, name))
+
 def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
   match bufs:
     case Nil{}: False{}
@@ -680,7 +686,7 @@ def mode_command_iso.allowed(ok: Bool, +iso: Is.State, +cl: Cl.Client, +args: St
 def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
   match pair:
     case (+first, _):
-      mode_command_iso.allowed(Bool.not(Irc.starts_channel(first) || Is.is_channel(iso, first)) || negotiated_channel_word(iso, first), iso, cl, args, first)
+      mode_command_iso.allowed(Bool.not(negotiated_channel_shape(iso, first)) || negotiated_channel_word(iso, first), iso, cl, args, first)
 
 def mode_command_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Maybe<&2, String>:
   mode_command_iso.words(iso, cl, args, Irc.take_until_space(args))
@@ -1976,7 +1982,7 @@ def submit_cmd.explicit_channel(iso: Maybe<&2, Is.State>, +name: String) -> Bool
 def submit_cmd.channel_shape(iso: Maybe<&2, Is.State>, +name: String) -> Bool:
   match iso:
     case None{}: Irc.starts_channel(name)
-    case Some{+s}: Irc.starts_channel(name) || Is.is_channel(s, name)
+    case Some{+s}: negotiated_channel_shape(s, name)
 
 def submit_cmd.first_channel(iso: Maybe<&2, Is.State>, pair: String & String) -> Bool:
   match pair:

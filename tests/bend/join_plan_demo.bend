@@ -13,7 +13,7 @@ def plan(pair: P.State & List<&2, String>) -> P.State:
 
 def wire(state: P.State) -> String:
   match state:
-    case P.State{desired, _, _, _, _, _}: String.join(P.lines(desired), "|")
+    case P.State{desired, _, _, _, _, _, _}: String.join(P.lines(desired), "|")
 
 def lines(got: P.Flush) -> String:
   match got:

@@ -398,7 +398,9 @@ def history_target(+cl: Cl.Client, +target: String) -> Cl.Client & Maybe<&2, Nat
 
 def history_target_iso.found(found: Maybe<&2, Nat>, +cl: Cl.Client, +target: String, +isc: Cl.Iso) -> Cl.Client & Maybe<&2, Nat>:
   match found:
-    case Some{index}: (cl, Some{index})
+    case Some{_}:
+      Cl.buf_get_with(cl, isc, target,
+        Cl.target_channel_with(Cl.iso_types(isc), Cl.iso_status(isc), Cl.iso_sigils(isc), target), True{})
     case None{}:
       +bufs = Cl.client_bufs(cl)
       Cl.buf_get_with(evict_target(Nat.is_ge(Cl.buf_count(bufs), Cl.MAX_BUFFERS()) || Nat.is_ge(Cl.normal_buffer_count(bufs), Cl.NORMAL_BUFFERS()), cl),

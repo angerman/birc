@@ -3,6 +3,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/frame.bend as Fr
 import ../../src/bend/isupport.bend as Is
 import ../../src/bend/join_plan.bend as P
 import ../../src/bend/media.bend as M
@@ -18,12 +19,18 @@ def base() -> Cl.Client:
 def dollar_server() -> Is.State:
   Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=$ :are supported")
 
+def hash_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# :are supported")
+
 def submit_client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
     case (cl, _): cl
 
 def dollar_channel() -> Cl.Client:
   submit_client(Sub.submit_with(dollar_server(), base(), "/join $room"))
+
+def hash_channel() -> Cl.Client:
+  submit_client(Sub.submit_with(hash_server(), base(), "/join #room"))
 
 def live(+iso: Is.State, +cl: Cl.Client, +chan: String) -> Sess.Session:
   Sess.session_set_iso(Sess.session_set_net(Sess.session_demo(cl, chan), Sess.Online{}), iso)
@@ -54,6 +61,23 @@ def reset_join_wire(+st: Sess.Session, +iso: Is.State) -> String:
   +reset = P.reset(Sess.session_plan(st), cl, 6697)
   +welcomed = P.received(reset, cl, ":irc 001 me :welcome")
   flush_wire(P.flush_iso(welcomed, cl, iso))
+
+def chunk_state(pair: Sess.Session & List<&2, String>) -> Sess.Session:
+  match pair:
+    case (st, _): st
+
+def chunk_wire(pair: Sess.Session & List<&2, String>) -> String:
+  match pair:
+    case (_, outs): String.join(outs, "|")
+
+def receive(+st: Sess.Session, +line: String) -> Sess.Session & List<&2, String>:
+  Sess.step_on_chunk(st, Fr.string_to_octets(line ++ "\r\n"))
+
+def trusted(+st: Sess.Session, +line: String) -> Sess.Session:
+  chunk_state(receive(st, line))
+
+def saved(+names: List<&2, String>) -> Sess.Session:
+  Sess.session_seed_channels(Sess.session_online(Sess.session_with_client_at(base(), "", 6697)), names)
 
 def mute_pattern(trip: Sess.Session & Sess.NetCmd & Bool) -> String:
   String.join(Cl.settings_mutes(Cl.get_settings(result_client(trip))), "|")
@@ -111,6 +135,7 @@ def main() -> IO(Unit):
   +iso = dollar_server()
   +cl = base()
   +dollar = dollar_channel()
+  +hash = hash_channel()
   +joined = result_session(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/join $room")))
   +offline_joined = Sess.session_set_net(joined, Sess.Offline{})
   +reconnecting_joined = Sess.session_set_net(result_session(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/join $room"))), Sess.Reconnecting{})
@@ -128,6 +153,13 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("pre-005 desired candidate is retained", String.join(Sess.session_desired_channels(seeded), "|"), "$room")
     Unit <- E.must_eq("default policy does not wire saved negotiated-only candidate", reset_join_wire(seeded, Is.defaults()), "")
     Unit <- E.must_eq("trusted CHANTYPES admits saved negotiated-only candidate", reset_join_wire(seeded, iso), "JOIN $room")
+    Unit <- E.must_eq("saved negotiated-only candidate survives 001", String.join(Sess.session_desired_channels(chunk_state(receive(saved(["$room"]), ":irc 001 me :welcome"))), "|"), "$room")
+    Unit <- E.must_eq("saved negotiated-only candidate waits for trusted 005", chunk_wire(receive(saved(["$room"]), ":irc 001 me :welcome")), "")
+    Unit <- E.must_eq("trusted post-001 CHANTYPES releases saved candidate", chunk_wire(receive(chunk_state(receive(saved(["$room"]), ":irc 001 me :welcome")), ":irc 005 me CHANTYPES=$ :are supported")), "JOIN $room")
+    Unit <- E.must_eq("saved ordinary channel also waits when no 005 arrives", chunk_wire(receive(saved(["#room"]), ":irc 001 me :welcome")), "")
+    Unit <- E.must_eq("provisional RFC1459 does not fold dormant candidates", String.join(Sess.session_desired_channels(chunk_state(receive(saved(["#a[", "#a{"]), ":irc 001 me :welcome"))), "|"), "#a[|#a{")
+    Unit <- E.must_eq("post-001 ascii emits both exact saved channels", chunk_wire(receive(chunk_state(receive(saved(["#a[", "#a{"]), ":irc 001 me :welcome")), ":irc 005 me CASEMAPPING=ascii :are supported")), "JOIN #a[|JOIN #a{")
+    Unit <- E.must_eq("post-001 RFC1459 emits one folded membership", chunk_wire(receive(chunk_state(receive(saved(["#a[", "#a{"]), ":irc 001 me :welcome")), ":irc 005 me CASEMAPPING=rfc1459 :are supported")), "JOIN #a[")
     Unit <- E.must_eq("fixed Session PART rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/part $room"))), "")
     Unit <- E.must_eq("negotiated Session PART accepts advertised type", wire(Sess.step_keys(live(iso, cl, ""), Sess.keys_enter("/part $room"))), "PART $room")
     Unit <- E.must_eq("fixed Session CLOSE rejects advertised-only type", wire(Sess.step_keys(live(Is.defaults(), cl, ""), Sess.keys_enter("/close $room"))), "")
@@ -146,6 +178,12 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("negotiated TOPIC targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/topic :new"))), "TOPIC $room :new")
     Unit <- E.must_eq("fixed MODE falls back to nick for advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/mode"))), "MODE me")
     Unit <- E.must_eq("negotiated MODE targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mode"))), "MODE $room")
+    Unit <- E.must_eq("MODE plus flag targets active hash channel after trusted plus CHANTYPE withdrawal", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/mode +i"))), "MODE #room +i")
+    Unit <- E.must_eq("MODE plus argument targets active hash channel", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/mode +o alice"))), "MODE #room +o alice")
+    Unit <- E.must_eq("MODE plus-prefixed channel query remains explicit", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/mode +#other"))), "MODE +#other")
+    Unit <- E.must_eq("MODE plus flag targets active negotiated dollar channel", wire(Sess.step_keys(trusted(live(Is.defaults(), dollar, "$room"), ":irc 005 me CHANTYPES=$ :are supported"), Sess.keys_enter("/mode +i"))), "MODE $room +i")
+    Unit <- E.must_eq("TOPIC plus text stays active-channel text", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/topic +hello"))), "TOPIC #room :+hello")
+    Unit <- E.must_eq("MODE still rejects non-word arguments", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/mode :bad"))), "")
     Unit <- E.must_eq("fixed KICK rejects advertised-only active target", wire(Sess.step_keys(live(Is.defaults(), dollar, "$room"), Sess.keys_enter("/kick bob"))), "")
     Unit <- E.must_eq("negotiated KICK targets advertised active channel", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/kick bob"))), "KICK $room bob")
     Unit <- E.must_eq("STATUSMSG-only KICK target is rejected", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/kick @#room bob"))), "")

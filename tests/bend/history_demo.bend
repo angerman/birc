@@ -157,6 +157,36 @@ def casemap_history_report() -> String:
     ++ "/" ++ Nat.show(Cl.normal_buffer_count(Cl.client_bufs(folded))) ++ ":"
     ++ buf_texts_cm(folded, Cl.dflt_cm(), "#a[")
 
+def pair_client(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
+  match pair:
+    case (cl, _): cl
+
+def buffer_shape.got(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: "missing"
+    case Some{Cl.Buffer{_, channel, _, _, nicks, _, _, _}}:
+      Bool.pick(String, channel, "channel:", "query:") ++ String.join(nicks, "|")
+
+def buffer_shape.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case None{}: "missing"
+    case Some{index}: buffer_shape.got(Cl.nth_buf(Cl.client_bufs(cl), index))
+
+def buffer_shape(+cl: Cl.Client, +cm: String, +name: String) -> String:
+  buffer_shape.found(cl, Cl.buf_find_cm(cl, cm, name))
+
+def dollar_history_report() -> String:
+  +iso = Is.apply_line(Is.defaults(), ":a 005 me CHANTYPES=$ :are supported")
+  +isc = Is.as_iso(iso)
+  +query = pair_client(Cl.buf_get(Cl.init("me", "a"), "$room", False{}, True{}))
+  +entry: H.HistEntry = H.Entry{"$room", Cl.Line{Cl.Msg{}, "", "saved", "alice", 1n}}
+  +promoted = H.apply_history_iso(query, entry <> Nil{}, "", 100, isc)
+  +channel = pair_client(Cl.buf_get_with(Cl.init("me", "a"), isc, "$room", True{}, True{}))
+  +stays = H.apply_history_iso(channel, entry <> Nil{}, "", 100, isc)
+  buffer_shape(query, Is.casemapping(iso), "$room") ++ "/"
+    ++ buffer_shape(promoted, Is.casemapping(iso), "$room") ++ "/"
+    ++ buffer_shape(stays, Is.casemapping(iso), "$room")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("no_op", no_op_ok())
@@ -175,4 +205,5 @@ def main() -> IO(Unit):
     Unit <- E.must("server_roles", server_roles_ok())
     Unit <- E.must("interleaved_history_order", interleaved_history_ok())
     Unit <- E.must_eq("history import follows negotiated ascii while default RFC1459 still merges", casemap_history_report(), "3:left||:right||/2:left|right||")
+    Unit <- E.must_eq("negotiated history hit promotes query and leaves channels clean", dollar_history_report(), "query:$room/channel:/channel:")
     IO.print("history_demo=ok")

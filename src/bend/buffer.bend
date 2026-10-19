@@ -1504,18 +1504,26 @@ def buf_get.miss(+nick: String, +server: String, +bufs: List<&2, Buffer>, +activ
     case True{}:
       buf_get.create(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel)
 
-# Older query-created channels may retain their own name as a nick. A channel
-# name cannot be a member nick; remove that seed when promoting the buffer.
-def channel_nick(name: String) -> Bool:
-  Bool.not(target_channel(name))
+# Older query-created channels retain their own name as the seed nick. Remove
+# that exact seed when negotiated policy later promotes the existing buffer.
+def drop_self_nicks.keep(keep: Bool, +nick: String, rest: List<&2, String>) -> List<&2, String>:
+  match keep:
+    case True{}: nick <> rest
+    case False{}: rest
+
+def drop_self_nicks(xs: List<&2, String>, +name: String) -> List<&2, String>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+nick, rest}:
+      drop_self_nicks.keep(Bool.not(String.eq(nick, name)), nick, drop_self_nicks(rest, name))
 
 def promote_channel.on(promote: Bool, b: Buffer) -> Buffer:
   match promote:
     case False{}: b
     case True{}:
       match b:
-        case Buffer{name, _, topic, lines, nicks, scroll, _, _}:
-          buf_indexed(name, True{}, topic, lines, List.filter(~String, ~channel_nick, nicks), scroll)
+        case Buffer{+name, _, topic, lines, nicks, scroll, _, _}:
+          buf_indexed(name, True{}, topic, lines, drop_self_nicks(nicks, name), scroll)
 
 def promote_channel(channel: Bool, b: Buffer) -> Buffer:
   match b:
