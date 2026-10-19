@@ -111,6 +111,9 @@ def main() -> None:
     post_upgrade(binary, "bootlsdrop")
     post_upgrade(binary, "bootlsclose")
     post_upgrade(binary, "bootlsregister")
+    post_upgrade(binary, "bootlskept")
+    post_upgrade_winner(binary, "afterdialdrop")
+    post_upgrade_winner(binary, "afterdialclose")
     # − A held launch superseded to another endpoint loses SASL scope.
     # + Superseding to the exact launch endpoint retains it.
     dial_auth_scope(binary, same=False)
@@ -258,13 +261,63 @@ def post_upgrade(binary: str, mode: str) -> None:
                 wire, stdout, stderr = collect_child(child, peer)
             assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
             actual = wire.decode().splitlines()
-            want = HANDSHAKE if mode == "bootlsregister" else []
+            want = {
+                "bootlsregister": HANDSHAKE,
+                "bootlskept": HANDSHAKE + ["PING :queued"],
+            }.get(mode, [])
             assert actual == want, (mode, actual, want)
         finally:
             if child.poll() is None:
                 child.kill()
                 child.wait()
     print(f"actor queue {mode} post-upgrade admission: PASS")
+
+
+def post_upgrade_winner(binary: str, mode: str) -> None:
+    """Dial B after A's upgrade, then Drop or close the command channel."""
+    with socket.socket() as first_server, socket.socket() as winner_server:
+        first_server.bind(("127.0.0.1", 0))
+        first_server.listen(1)
+        winner_server.bind(("127.0.0.1", 0))
+        winner_server.listen(1)
+        winner_server.settimeout(2)
+        child = subprocess.Popen(
+            [
+                binary, str(first_server.getsockname()[1]), "1",
+                str(winner_server.getsockname()[1]), mode,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        first = winner = None
+        try:
+            first, _ = first_server.accept()
+            if mode == "afterdialdrop":
+                winner, _ = winner_server.accept()
+                winner_wire, stdout, stderr = collect_child(child, winner)
+                first.settimeout(1)
+                first_wire = first.recv(65536)
+                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+                assert first_wire == b"", (mode, "abandoned A wrote bytes", first_wire)
+                assert winner_wire == b"", (mode, "dropped B wrote bytes", winner_wire)
+            else:
+                first_wire, stdout, stderr = collect_child(child, first)
+                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+                assert first_wire == b"", (mode, "closed A wrote bytes", first_wire)
+                try:
+                    winner, _ = winner_server.accept()
+                except TimeoutError:
+                    winner = None
+                else:
+                    raise AssertionError((mode, "closed command retried Dial B"))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            if first is not None:
+                first.close()
+            if winner is not None:
+                winner.close()
+    print(f"actor queue {mode} winner cancellation: PASS")
 
 
 def accept_nonblocking(server: socket.socket, label: str) -> socket.socket:

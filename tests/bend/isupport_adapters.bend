@@ -7,6 +7,7 @@ import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/channel_policy.bend as Channels
 import ../../src/bend/isupport.bend as Is
+import ../../src/bend/submit.bend as Sub
 
 def base() -> Cl.Client:
   Cl.init("me", "irc")
@@ -44,6 +45,55 @@ def joins() -> IO(Unit):
     Unit <- E.must("server rejects overlong names", Bool.not(Is.join_admit(server(), "#0123456789012345678901234567890123456789", "")))
     Unit <- E.must("server accepts names at the bound", Is.join_admit(server(), "#0123456789abcdef0", ""))
     Unit <- E.must("server still rejects non-channels", Bool.not(Is.join_admit(server(), "alice", "")))
+    IO.pure(Unit, Unit{})
+
+def submit_no_wire(pair: Cl.Client & List<&2, String>) -> Bool:
+  match pair:
+    case (_, xs): Nat.is_eq(List.length(&2, String, xs), 0n)
+
+def submit_wire(pair: Cl.Client & List<&2, String>) -> String:
+  match pair:
+    case (_, xs): String.join(xs, "|")
+
+def submit_client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
+  match pair:
+    case (cl, _): cl
+
+def dollar_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=$ :are supported")
+
+def dollar_channel() -> Cl.Client:
+  submit_client(Sub.submit_with(dollar_server(), base(), "/join $room"))
+
+def amp_channel() -> Cl.Client:
+  submit_client(Sub.submit(base(), "/join &room"))
+
+def mute_pattern(pair: Cl.Client & List<&2, String>) -> String:
+  String.join(Cl.settings_mutes(Cl.get_settings(submit_client(pair))), "|")
+
+def negotiated_commands() -> IO(Unit):
+  +iso = dollar_server()
+  +cl = base()
+  +dollar = dollar_channel()
+  +amp = amp_channel()
+  do IO<Unit>:
+    Unit <- E.must_eq("negotiated JOIN accepts advertised type", submit_wire(Sub.submit_with(iso, cl, "/join $room")), "JOIN $room")
+    Unit <- E.must("negotiated JOIN rejects withdrawn fixed type", submit_no_wire(Sub.submit_with(iso, cl, "/join &room")))
+    Unit <- E.must("fixed JOIN still rejects negotiated-only type", submit_no_wire(Sub.submit(cl, "/join $room")))
+    Unit <- E.must_eq("fixed JOIN still accepts fixed type", submit_wire(Sub.submit(cl, "/join &room")), "JOIN &room")
+    Unit <- E.must_eq("negotiated explicit PART accepts advertised type", submit_wire(Sub.submit_with(iso, cl, "/part $room")), "PART $room")
+    Unit <- E.must("negotiated explicit PART rejects withdrawn fixed type", submit_no_wire(Sub.submit_with(iso, cl, "/part &room")))
+    Unit <- E.must_eq("negotiated PART recognizes advertised type", submit_wire(Sub.submit_with(iso, dollar, "/part")), "PART $room")
+    Unit <- E.must("negotiated PART rejects withdrawn fixed type", submit_no_wire(Sub.submit_with(iso, amp, "/part")))
+    Unit <- E.must("fixed PART keeps context-free classification", submit_no_wire(Sub.submit(dollar, "/part")))
+    Unit <- E.must_eq("negotiated missing CLOSE accepts advertised type", submit_wire(Sub.submit_with(iso, cl, "/close $room")), "PART $room")
+    Unit <- E.must("negotiated missing CLOSE rejects withdrawn fixed type", submit_no_wire(Sub.submit_with(iso, cl, "/close &room")))
+    Unit <- E.must_eq("negotiated CLOSE recognizes advertised type", submit_wire(Sub.submit_with(iso, dollar, "/close")), "PART $room")
+    Unit <- E.must("negotiated CLOSE treats withdrawn fixed type as non-channel", submit_no_wire(Sub.submit_with(iso, amp, "/close")))
+    Unit <- E.must("fixed CLOSE keeps context-free classification", submit_no_wire(Sub.submit(dollar, "/close")))
+    Unit <- E.must_eq("negotiated MUTE scopes advertised type", mute_pattern(Sub.submit_with(iso, dollar, "/mute alice")), "alice$room@irc")
+    Unit <- E.must_eq("negotiated MUTE does not scope withdrawn fixed type", mute_pattern(Sub.submit_with(iso, amp, "/mute alice")), "alice*@irc")
+    Unit <- E.must_eq("fixed MUTE keeps context-free classification", mute_pattern(Sub.submit(dollar, "/mute alice")), "alice*@irc")
     IO.pure(Unit, Unit{})
 
 def plusroom() -> Cl.Client:
@@ -138,6 +188,7 @@ def main() -> IO(Unit):
     Unit <- feed()
     Unit <- audience()
     Unit <- joins()
+    Unit <- negotiated_commands()
     Unit <- redact()
     Unit <- third_review()
     IO.print("isupport_adapters=ok")

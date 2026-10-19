@@ -164,39 +164,56 @@ def after_finished(ready: Act.DialReady, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
         Unit <- IO.print("held")
         IO.print("closed")
 
-def after_queue(+mode: String, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+def after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match mode:
     case "bootlsdrop":
       do IO<Unit>:
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
         return Unit{}
     case "bootlsclose": Chan.close(Sess.NetCmd, cmd)
+    case "bootlskept":
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"PING :queued" <> Nil{}})
+        return Unit{}
+    case "afterdialdrop":
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        return Unit{}
+    case "afterdialclose":
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
+        Chan.close(Sess.NetCmd, cmd)
     case _: IO.pure(Unit, Unit{})
 
-def run_after(sock: Socket, +mode: String) -> IO(Unit):
+def run_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
-    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
-    Unit <- after_queue(mode, cmd)
+    Unit <- after_queue(mode, target, cmd)
     Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, False{},
       Act.AuthScope{"127.0.0.1", 0, False{}},
       Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
       pair => after_finished(pair, cmd),
-      _ => _ => g2 => _ => scope2 => k2 => k2(Act.DialReady{(None{}, g2, Nil{}), scope2}))
+      h2 => p2 => g2 => n2 => scope2 => carry2 => k2 =>
+        Act.dial_begin.go(8n, h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
 
-def after_connected(r: Result<&1, &1, U32 & String, Socket>, mode: String) -> IO(Unit):
+def after_connected(r: Result<&1, &1, U32 & String, Socket>, target: U32, mode: String) -> IO(Unit):
   match r:
     case Fail{_}: IO.die(Unit, 1, "connect failed")
-    case Done{sock}: run_after(sock, mode)
+    case Done{sock}: run_after(sock, target, mode)
 
-def after_port(p: Maybe<&2, U32>, +mode: String) -> IO(Unit):
+def after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(Unit):
   match p:
     case None{}: IO.die(Unit, 1, "invalid port")
     case Some{port}:
-      do IO<Unit>:
-        r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
-        after_connected(r, mode)
+      match target:
+        case None{}: IO.die(Unit, 1, "invalid target port")
+        case Some{other}:
+          do IO<Unit>:
+            r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
+            after_connected(r, other, mode)
 
 def auth_target(same: Bool, port: U32, other: U32) -> U32:
   match same:
@@ -260,12 +277,18 @@ def args(xs: List<&1, String>) -> IO(Unit):
       close_port(U32.read(p), False{}, True{})
     case Con{_, Con{p, Con{_, Con{_, Con{"bootclose", Nil{}}}}}}:
       close_port(U32.read(p), True{}, False{})
-    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsdrop", Nil{}}}}}}:
-      after_port(U32.read(p), "bootlsdrop")
-    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsclose", Nil{}}}}}}:
-      after_port(U32.read(p), "bootlsclose")
-    case Con{_, Con{p, Con{_, Con{_, Con{"bootlsregister", Nil{}}}}}}:
-      after_port(U32.read(p), "bootlsregister")
+    case Con{_, Con{p, Con{_, Con{n, Con{"bootlsdrop", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "bootlsdrop")
+    case Con{_, Con{p, Con{_, Con{n, Con{"bootlsclose", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "bootlsclose")
+    case Con{_, Con{p, Con{_, Con{n, Con{"bootlsregister", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "bootlsregister")
+    case Con{_, Con{p, Con{_, Con{n, Con{"bootlskept", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "bootlskept")
+    case Con{_, Con{p, Con{_, Con{n, Con{"afterdialdrop", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "afterdialdrop")
+    case Con{_, Con{p, Con{_, Con{n, Con{"afterdialclose", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(n), "afterdialclose")
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthscope", Nil{}}}}}}:
       auth_port(U32.read(p), U32.read(n), False{})
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthsame", Nil{}}}}}}:

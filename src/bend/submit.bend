@@ -363,6 +363,14 @@ def join_channels(targets: List<&2, String>) -> Bool:
     case Nil{}: True{}
     case Con{+h, t}: join_channel(h) && join_channels(t)
 
+def join_channels_iso(targets: List<&2, String>, keys: List<&2, String>, +iso: Is.State) -> Bool:
+  match targets:
+    case Nil{}: True{}
+    case Con{+target, target_rest}:
+      match keys:
+        case Nil{}: Is.join_admit(iso, target, "") && join_channels_iso(target_rest, Nil{}, iso)
+        case Con{+key, key_rest}: Is.join_admit(iso, target, key) && join_channels_iso(target_rest, key_rest, iso)
+
 def join_staged.got(pair: Cl.Client & Maybe<&2, Nat>) -> Maybe<&2, Cl.Client>:
   match pair:
     case (_, None{}): None{}
@@ -400,6 +408,22 @@ def submit_join.words(cl: Cl.Client, pair: String & String) -> Cl.Client & List<
 
 def submit_join(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_join.words(cl, Irc.take_until_space(Irc.drop_spaces(rest)))
+
+def submit_join_iso.words(+iso: Is.State, cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+channel, rest):
+      +target = Cl.target_name(channel)
+      +key = Irc.drop_spaces(rest)
+      +targets = String.split(target, Chr{44})
+      +keys = String.split(key, Chr{44})
+      +args = submit_join.args(target, key, Bool.not(String.is_empty(key)))
+      submit_join.valid(Bool.not(String.is_empty(target)) && join_channels_iso(targets, Bool.pick(List<&2, String>, String.is_empty(key), Nil{}, keys), iso)
+        && Bool.not(String.contains(key, " "))
+        && (String.is_empty(key) || Nat.is_le(List.length(&2, String, keys), List.length(&2, String, targets)))
+        && Nat.is_le(Irc.utf8_len(Irc.format_join(args)), Irc.LINE_MAX()), cl, targets, args)
+
+def submit_join_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_join_iso.words(iso, cl, Irc.take_until_space(Irc.drop_spaces(rest)))
 
 # ---- /part --------------------------------------------------------------
 
@@ -447,6 +471,24 @@ def submit_part.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client &
 def submit_part(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_part.empty(cl, rest, String.is_empty(rest))
 
+def submit_part_iso.empty.on(+iso: Is.State, +cl: Cl.Client, +rest: String, server: Bool) -> Cl.Client & List<&2, String>:
+  match server:
+    case True{}:
+      (echo_err(cl, "usage: /part #chan"), empty_out())
+    case False{}:
+      +chan = Cl.active_buf_name(cl)
+      submit_part.is_ch(cl, chan, Is.is_channel(iso, chan))
+
+def submit_part_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      submit_part_iso.empty.on(iso, cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
+    case False{}:
+      submit_part.is_ch(cl, rest, Is.is_channel(iso, rest))
+
+def submit_part_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_part_iso.empty(iso, cl, rest, String.is_empty(rest))
+
 # ---- /close -------------------------------------------------------------
 
 def submit_close.out(+tgt: String, is_chan: Bool) -> List<&2, String>:
@@ -459,12 +501,15 @@ def submit_close.out(+tgt: String, is_chan: Bool) -> List<&2, String>:
 def submit_close.fin(+cl: Cl.Client, +tgt: String, +bi: Nat, is_chan: Bool) -> Cl.Client & List<&2, String>:
   (Cl.drop_buf(cl, bi), submit_close.out(tgt, is_chan))
 
-def submit_close.drop(+cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+def submit_close.drop_as(+cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match is_server:
     case True{}:
       (echo_err(cl, "cannot close server buffer"), empty_out())
     case False{}:
-      submit_close.fin(cl, tgt, bi, Irc.starts_channel(tgt))
+      submit_close.fin(cl, tgt, bi, is_chan)
+
+def submit_close.drop(+cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+  submit_close.drop_as(cl, tgt, bi, is_server, Irc.starts_channel(tgt))
 
 def submit_close.miss(+cl: Cl.Client, +tgt: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match is_chan:
@@ -492,6 +537,24 @@ def submit_close.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client 
 
 def submit_close(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_close.empty(cl, rest, String.is_empty(rest))
+
+def submit_close_iso.on(+cl: Cl.Client, +tgt: String, found: Maybe<&2, Nat>, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  match found:
+    case None{}:
+      submit_close.miss(cl, tgt, is_chan)
+    case Some{+bi}:
+      submit_close.drop_as(cl, tgt, bi, Nat.is_eq(bi, 0n), is_chan)
+
+def submit_close_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  match empty:
+    case True{}:
+      +tgt = Cl.active_buf_name(cl)
+      submit_close.drop_as(cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.is_channel(iso, tgt))
+    case False{}:
+      submit_close_iso.on(cl, rest, Cl.buf_find(cl, rest), Is.is_channel(iso, rest))
+
+def submit_close_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_close_iso.empty(iso, cl, rest, String.is_empty(rest))
 
 # ---- /msg ---------------------------------------------------------------
 
@@ -1057,18 +1120,24 @@ def submit_mute.pat(+cl: Cl.Client, +nick: String, is_chan: Bool) -> String:
     case False{}:
       nick ++ "*@" ++ Cl.server_of(cl)
 
-def submit_mute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
-  +pat = submit_mute.pat(cl, nick, Irc.starts_channel(Cl.active_buf_name(cl)))
+def submit_mute.nick_as(+cl: Cl.Client, +nick: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  +pat = submit_mute.pat(cl, nick, is_chan)
   +cl2 = Cl.add_mute_client(cl, pat)
   +cl3 = refresh_settings_if_open(cl2)
   (echo_info(cl3, "muted " ++ nick ++ " (" ++ pat ++ ")"), empty_out())
 
-def submit_mute.word(+cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
+def submit_mute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
+  submit_mute.nick_as(cl, nick, Irc.starts_channel(Cl.active_buf_name(cl)))
+
+def submit_mute.word_as(+cl: Cl.Client, +nick: String, empty: Bool, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       (echo_err(cl, "usage: /mute <nick>"), empty_out())
     case False{}:
-      submit_mute.nick(cl, nick)
+      submit_mute.nick_as(cl, nick, is_chan)
+
+def submit_mute.word(+cl: Cl.Client, +nick: String, empty: Bool) -> Cl.Client & List<&2, String>:
+  submit_mute.word_as(cl, nick, empty, Irc.starts_channel(Cl.active_buf_name(cl)))
 
 def submit_mute.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -1077,6 +1146,14 @@ def submit_mute.words(+cl: Cl.Client, pair: String & String) -> Cl.Client & List
 
 def submit_mute(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_mute.words(cl, take_word(Irc.drop_spaces(rest)))
+
+def submit_mute_iso.words(+iso: Is.State, +cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (+nick, _):
+      submit_mute.word_as(cl, nick, String.is_empty(nick), Is.is_channel(iso, Cl.active_buf_name(cl)))
+
+def submit_mute_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  submit_mute_iso.words(iso, cl, take_word(Irc.drop_spaces(rest)))
 
 def submit_unmute.nick(+cl: Cl.Client, +nick: String) -> Cl.Client & List<&2, String>:
   +cl2 = Cl.del_mute_client(cl, nick)
@@ -1811,22 +1888,42 @@ def submit_cmd.me(ctx: SubmitCtx, +cl: Cl.Client, +rest: String) -> Cl.Client & 
   match ctx:
     case SubmitCtx{_, +echo_ok}: submit_me_echo(cl, rest, echo_ok)
 
-def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+def submit_cmd.join_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_join(cl, rest)
+    case Some{+s}: submit_join_iso(s, cl, rest)
+
+def submit_cmd.part_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_part(cl, rest)
+    case Some{+s}: submit_part_iso(s, cl, rest)
+
+def submit_cmd.close_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_close(cl, rest)
+    case Some{+s}: submit_close_iso(s, cl, rest)
+
+def submit_cmd.mute_iso(iso: Maybe<&2, Is.State>, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
+  match iso:
+    case None{}: submit_mute(cl, rest)
+    case Some{+s}: submit_mute_iso(s, cl, rest)
+
+def submit_cmd.go.with(iso: Maybe<&2, Is.State>, +echo_ok: Bool, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   match cmd:
     case Join{}:
-      submit_join(cl, rest)
+      submit_cmd.join_iso(iso, cl, rest)
     case Part{}:
-      submit_part(cl, rest)
+      submit_cmd.part_iso(iso, cl, rest)
     case CloseCmd{}:
-      submit_close(cl, rest)
+      submit_cmd.close_iso(iso, cl, rest)
     case Msg{}:
-      submit_cmd.msg(ctx, cl, rest)
+      submit_cmd.msg_iso(iso, echo_ok, cl, rest)
     case QueryCmd{}:
-      submit_cmd.query(ctx, cl, rest)
+      submit_cmd.query_iso(iso, echo_ok, cl, rest)
     case Nick{}:
       submit_nick(cl, rest)
     case Me{}:
-      submit_cmd.me(ctx, cl, rest)
+      submit_me_echo(cl, rest, echo_ok)
     case Quit{}:
       submit_quit(cl, rest)
     case SettingsCmd{}:
@@ -1836,7 +1933,7 @@ def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, 
     case ToggleCmd{}:
       submit_toggle(cl, rest)
     case MuteCmd{}:
-      submit_mute(cl, rest)
+      submit_cmd.mute_iso(iso, cl, rest)
     case UnmuteCmd{}:
       submit_unmute(cl, rest)
     case MutesCmd{}:
@@ -1876,7 +1973,7 @@ def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, 
     case AwayCmd{}:
       submit_wire(cl, Commands.away(rest), "usage: /away [reason]")
     case NoticeCmd{}:
-      submit_cmd.notice(ctx, cl, rest)
+      submit_cmd.notice_iso(iso, echo_ok, cl, rest)
     case RawCmd{}:
       submit_wire(cl, Commands.raw(rest), "usage: /raw IRC-COMMAND [parameters] (one line, at most 510 bytes)")
     case Connect{}:
@@ -1899,6 +1996,10 @@ def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, 
       (cl, empty_out())
     case Unknown{}:
       submit_unknown(cl, verb)
+
+def submit_cmd.go(ctx: SubmitCtx, +cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
+  match ctx:
+    case SubmitCtx{iso, +echo_ok}: submit_cmd.go.with(iso, echo_ok, cl, verb, rest, cmd)
 
 def submit_cmd.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash) -> Cl.Client & List<&2, String>:
   submit_cmd.go(submit_ctx_plain(False{}), cl, verb, rest, cmd)
@@ -1962,9 +2063,8 @@ def submit_parsed_with(+iso: Is.State, +cl: Cl.Client, input: Input) -> Cl.Clien
 def submit_with(+iso: Is.State, +cl: Cl.Client, +input: String) -> Cl.Client & List<&2, String>:
   submit_parsed_with(iso, cl, parse_input(input))
 
-# echo-message entry points: only the message-sending verbs (plain chat,
-# /msg, /query, /me, /notice) consult the negotiated bit; every other
-# command delegates to the unnegotiated dispatch unchanged.
+# Echo-message entry points share the same negotiated command context.
+# The echo bit itself is consulted only by plain chat and the message verbs.
 def submit_cmd_echo.do(+cl: Cl.Client, +verb: String, +rest: String, cmd: Slash, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_cmd.go(submit_ctx_plain(echo_ok), cl, verb, rest, cmd)
 
