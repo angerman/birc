@@ -701,8 +701,8 @@ def mode_command_iso.allowed(ok: Bool, +iso: Is.State, +cl: Cl.Client, +args: St
   match ok:
     case False{}: None{}
     case True{}:
-      mode_command.named_as((mode_resident(Cl.client_bufs(cl), first) || plus_negotiated_channel(iso, first)) && Bool.not(mode_flag_word(first)), cl, args,
-        negotiated_channel_word(iso, Cl.active_buf_name(cl)), mode_explicit_word(iso, first))
+      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first) || (plus_negotiated_channel(iso, first) && Bool.not(mode_flag_word(first))), cl, args,
+        negotiated_channel_word(iso, Cl.active_buf_name(cl)), mode_channel_word(iso, first))
 
 def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:
   match pair:

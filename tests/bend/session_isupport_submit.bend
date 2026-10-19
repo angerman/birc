@@ -32,6 +32,10 @@ def dollar_channel() -> Cl.Client:
 def hash_channel() -> Cl.Client:
   submit_client(Sub.submit_with(hash_server(), base(), "/join #room"))
 
+def plus_resident() -> Cl.Client:
+  +with_plus = submit_client(Sub.submit_with(Is.defaults(), base(), "/join +local"))
+  submit_client(Sub.submit_with(Is.defaults(), with_plus, "/join #room"))
+
 def live(+iso: Is.State, +cl: Cl.Client, +chan: String) -> Sess.Session:
   Sess.session_set_iso(Sess.session_set_net(Sess.session_demo(cl, chan), Sess.Online{}), iso)
 
@@ -202,6 +206,9 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("MODE plus-prefixed channel query remains explicit while plus is a CHANTYPE", wire(Sess.step_keys(live(Is.defaults(), hash, "#room"), Sess.keys_enter("/mode +#other"))), "MODE +#other")
     Unit <- E.must_eq("MODE plus negotiated-dollar channel remains explicit", wire(Sess.step_keys(live(iso, dollar, "$room"), Sess.keys_enter("/mode +$other"))), "MODE +$other")
     Unit <- E.must_eq("MODE signed letter word stays flags while plus is a CHANTYPE", wire(Sess.step_keys(live(Is.defaults(), hash, "#room"), Sess.keys_enter("/mode +other"))), "MODE #room +other")
+    Unit <- E.must_eq("resident plus channel query is not active-channel flags", wire(Sess.step_keys(live(Is.defaults(), plus_resident(), "#room"), Sess.keys_enter("/mode +local"))), "MODE +local")
+    Unit <- E.must_eq("resident plus channel with modes is not active-channel flags", wire(Sess.step_keys(live(Is.defaults(), plus_resident(), "#room"), Sess.keys_enter("/mode +local +m"))), "MODE +local +m")
+    Unit <- E.must_eq("unseen plus word with a following mode is an explicit target", wire(Sess.step_keys(live(Is.defaults(), hash, "#room"), Sess.keys_enter("/mode +else +m"))), "MODE +else +m")
     Unit <- E.must_eq("MODE plus flag targets active negotiated dollar channel", wire(Sess.step_keys(trusted(live(Is.defaults(), dollar, "$room"), ":irc 005 me CHANTYPES=$ :are supported"), Sess.keys_enter("/mode +i"))), "MODE $room +i")
     Unit <- E.must_eq("TOPIC plus text stays active-channel text", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/topic +hello"))), "TOPIC #room :+hello")
     Unit <- E.must_eq("MODE still rejects non-word arguments", wire(Sess.step_keys(trusted(live(Is.defaults(), hash, "#room"), ":irc 005 me CHANTYPES=# :are supported"), Sess.keys_enter("/mode :bad"))), "")
