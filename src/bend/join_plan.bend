@@ -72,7 +72,7 @@ def remember(+state: State, +name: String, +key: String, replace: Bool) -> State
 def remember_iso(+state: State, +name: String, +key: String, replace: Bool, +iso: Isupport.State) -> State:
   match state:
     case State{+desired, _, _, _, _, _}:
-      remember.allowed(valid_channel(name, key) && Isupport.join_admit(iso, name, key)
+      remember.allowed(Isupport.join_admit(iso, name, key)
         && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
 
 def remove(xs: List<&2, Channel>, +name: String) -> List<&2, Channel>:
@@ -198,6 +198,14 @@ def join_targets(targets: List<&2, String>, keys: List<&2, String>, state: State
         case Nil{}: join_targets(rest, Nil{}, remember(state, target, "", True{}))
         case Con{key, key_rest}: join_targets(rest, key_rest, remember(state, target, key, True{}))
 
+def join_targets_iso(targets: List<&2, String>, keys: List<&2, String>, state: State, +iso: Isupport.State) -> State:
+  match targets:
+    case Nil{}: state
+    case Con{+target, rest}:
+      match keys:
+        case Nil{}: join_targets_iso(rest, Nil{}, remember_iso(state, target, "", True{}, iso), iso)
+        case Con{key, key_rest}: join_targets_iso(rest, key_rest, remember_iso(state, target, key, True{}, iso), iso)
+
 def part_targets(targets: List<&2, String>, state: State) -> State:
   match targets:
     case Nil{}: state
@@ -207,6 +215,11 @@ def outbound_join(zero: Bool, +state: State, +m: Irc.Message) -> State:
   match zero:
     case True{}: forget_all(state)
     case False{}: join_targets(String.split(Irc.msg_param(m, 0n), Chr{44}), String.split(Irc.msg_param(m, 1n), Chr{44}), state)
+
+def outbound_join_iso(zero: Bool, +state: State, +m: Irc.Message, +iso: Isupport.State) -> State:
+  match zero:
+    case True{}: forget_all(state)
+    case False{}: join_targets_iso(String.split(Irc.msg_param(m, 0n), Chr{44}), String.split(Irc.msg_param(m, 1n), Chr{44}), state, iso)
 
 # Count the complete distinct union before changing any key or membership.
 # An existing channel consumes no new slot; malformed raw targets remain the
@@ -232,6 +245,19 @@ def join_capacity(state: State, m: Irc.Message) -> Bool:
     case State{desired, _, _, _, _, _}:
       join_capacity.targets(String.split(Irc.msg_param(m, 0n), Chr{44}), desired)
 
+def join_capacity.targets_iso(targets: List<&2, String>, +desired: List<&2, Channel>, +iso: Isupport.State) -> Bool:
+  match targets:
+    case Nil{}: True{}
+    case Con{+name, rest}:
+      join_capacity.add(Isupport.join_admit(iso, name, "") && Bool.not(has(desired, name)),
+        Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS()), desired, name,
+        next => join_capacity.targets_iso(rest, next, iso))
+
+def join_capacity_iso(state: State, m: Irc.Message, +iso: Isupport.State) -> Bool:
+  match state:
+    case State{desired, _, _, _, _, _}:
+      join_capacity.targets_iso(String.split(Irc.msg_param(m, 0n), Chr{44}), desired, iso)
+
 def capacity_command(state: State, +m: Irc.Message, cmd: Irc.Cmd) -> State:
   match cmd:
     case Irc.Join{}: outbound_join(String.eq(Irc.msg_param(m, 0n), "0"), state, m)
@@ -256,6 +282,29 @@ def capacity_ok(outs: List<&2, String>, state: State) -> Bool:
   match outs:
     case Nil{}: True{}
     case Con{line, rest}: capacity_line(Irc.parse(line), state, next => capacity_ok(rest, next))
+
+def capacity_command_iso(state: State, +m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State) -> State:
+  match cmd:
+    case Irc.Join{}: outbound_join_iso(String.eq(Irc.msg_param(m, 0n), "0"), state, m, iso)
+    case Irc.Part{}: part_targets(String.split(Irc.msg_param(m, 0n), Chr{44}), state)
+    case _: state
+
+def capacity_line_iso.step(allowed: Bool, state: State, m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State, k: State -> Bool) -> Bool:
+  match allowed:
+    case False{}: False{}
+    case True{}: k(capacity_command_iso(state, m, cmd, iso))
+
+def capacity_line_iso(parsed: Maybe<&2, Irc.Message>, +state: State, +iso: Isupport.State, k: State -> Bool) -> Bool:
+  match parsed:
+    case None{}: k(state)
+    case Some{+m}:
+      capacity_line_iso.step(Bool.not(Irc.ieq(Irc.msg_command(m), "JOIN")) || join_capacity_iso(state, m, iso),
+        state, m, Irc.classify(m), iso, k)
+
+def capacity_ok_iso(outs: List<&2, String>, state: State, +iso: Isupport.State) -> Bool:
+  match outs:
+    case Nil{}: True{}
+    case Con{line, rest}: capacity_line_iso(Irc.parse(line), state, iso, next => capacity_ok_iso(rest, next, iso))
 
 type OutAcc is Data:
   OutAcc{state: State, reversed: List<&2, String>}
@@ -296,6 +345,39 @@ def outbound.finish(acc: OutAcc) -> State & List<&2, String>:
 
 def outbound(state: State, outs: List<&2, String>) -> State & List<&2, String>:
   outbound.finish(List.foldl(~&2, ~String, ~OutAcc, ~outbound.step, outs, OutAcc{state, Nil{}}))
+
+def outbound.join_iso(allowed: Bool, +state: State, reversed: List<&2, String>, +line: String, +m: Irc.Message, +iso: Isupport.State) -> OutAcc:
+  match allowed:
+    case False{}: OutAcc{state, reversed}
+    case True{}:
+      +zero = String.eq(Irc.msg_param(m, 0n), "0")
+      outbound.pass(editing_open(state) || zero, bump(outbound_join_iso(zero, state, m, iso)), reversed, line)
+
+def outbound.command_iso(+state: State, reversed: List<&2, String>, +line: String, +m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State) -> OutAcc:
+  match cmd:
+    case Irc.Join{}:
+      outbound.join_iso(join_capacity_iso(state, m, iso), state, reversed, line, m, iso)
+    case Irc.Part{}: OutAcc{bump(part_targets(String.split(Irc.msg_param(m, 0n), Chr{44}), state)), line <> reversed}
+    case _: OutAcc{state, line <> reversed}
+
+def outbound.parsed_iso(+state: State, reversed: List<&2, String>, +line: String, parsed: Maybe<&2, Irc.Message>, +iso: Isupport.State) -> OutAcc:
+  match parsed:
+    case None{}: OutAcc{state, line <> reversed}
+    case Some{+m}: outbound.command_iso(state, reversed, line, m, Irc.classify(m), iso)
+
+def outbound.step_iso(+iso: Isupport.State, acc: OutAcc, line: String) -> OutAcc:
+  match acc:
+    case OutAcc{state, reversed}:
+      +wire = line
+      outbound.parsed_iso(state, reversed, wire, Irc.parse(wire), iso)
+
+def outbound.go_iso(outs: List<&2, String>, acc: OutAcc, +iso: Isupport.State) -> OutAcc:
+  match outs:
+    case Nil{}: acc
+    case Con{line, rest}: outbound.go_iso(rest, outbound.step_iso(iso, acc, line), iso)
+
+def outbound_iso(state: State, outs: List<&2, String>, +iso: Isupport.State) -> State & List<&2, String>:
+  outbound.finish(outbound.go_iso(outs, OutAcc{state, Nil{}}, iso))
 
 def forget_present.on(present: Bool, state: State, name: String) -> State:
   match present:

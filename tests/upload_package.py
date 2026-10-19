@@ -39,6 +39,10 @@ def helper_provenance(helper):
     assert str(source).startswith("/nix/store/") and source.is_file(), "uploader source is not installed"
     expected = Path(__file__).resolve().parents[1] / "src/media/upload.py"
     assert source.read_bytes() == expected.read_bytes(), "installed uploader source is stale"
+    caches = re.findall(r"/nix/store/[^\s'\"{}]*_cache\.py", body)
+    assert len(set(caches)) == 1 and Path(caches[0]).is_file(), "uploader cache helper missing"
+    expected_cache = Path(__file__).resolve().parents[1] / "src/media/_cache.py"
+    assert Path(caches[0]).read_bytes() == expected_cache.read_bytes(), "installed uploader cache helper is stale"
     bundles = re.findall(r"/nix/store/[^\s'\"{}]+/etc/ssl/certs/ca-bundle\.crt", body)
     assert len(set(bundles)) == 1 and Path(bundles[0]).is_file(), "uploader CA bundle missing"
     return helper, python, Path(bundles[0])

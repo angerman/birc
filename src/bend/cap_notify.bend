@@ -275,7 +275,6 @@ def caps_clear_list(xs: List<&2, String>, +caps: Caps) -> Caps:
 def caps_apply.kind(+caps: Caps, +xs: List<&2, String>, kind: CapKind) -> Caps:
   match kind:
     case CapAck{}: caps_apply_list(xs, caps)
-    case CapNew{}: caps_apply_list(xs, caps)
     case CapDel{}: caps_clear_list(xs, caps)
     case _: caps
 
@@ -685,7 +684,7 @@ def caps_parse_ok() -> Bool:
     && Bool.not(tags_ok(lsed) || account_ok(lsed) || away_ok(lsed) || labeled_ok(lsed))
     && Bool.not(tags_ok(naked))
     && Bool.not(tags_ok(chat))
-    && notify_ok(newed) && Bool.not(notify_ok(new_other))
+    && Bool.not(notify_ok(newed)) && Bool.not(notify_ok(new_other))
     && echo_ok(echo)
     && extjoin_ok(ext) && acctag_ok(ext)
 
@@ -711,7 +710,8 @@ def caps_removal_ok() -> Bool:
   +reack = caps_apply_line(neg, "s", "me", ":s CAP me ACK :message-tags", True{})
   +direct = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapDel{}, "message-tags" <> Nil{}})
   +direct_neg = caps_apply(caps_apply(caps0(), CapEvent{CapAck{}, "message-tags" <> Nil{}}), CapEvent{CapAck{}, "-message-tags" <> Nil{}})
-  +new_on = caps_apply_line(caps0(), "s", "me", ":s CAP me NEW :cap-notify", True{})
+  +new_only = caps_apply_line(caps0(), "s", "me", ":s CAP me NEW :cap-notify", True{})
+  +new_on = caps_apply_line(new_only, "s", "me", ":s CAP me ACK :cap-notify", True{})
   +new_del = caps_apply_line(new_on, "s", "me", ":s CAP me DEL :cap-notify", True{})
   +direct_new = caps_apply(caps0(), CapEvent{CapNew{}, "cap-notify" <> Nil{}})
   +eon = caps_apply_line(caps0(), "s", "me", ":s CAP me ACK :echo-message message-tags", True{})
@@ -728,7 +728,7 @@ def caps_removal_ok() -> Bool:
     && Bool.not(tags_ok(direct)) && Bool.not(tags_ok(direct_neg))
     && Bool.not(labeled_ok(lab_neg)) && tags_ok(lab_neg)
     && Bool.not(labeled_ok(lab_del)) && tags_ok(lab_del)
-    && notify_ok(new_on) && Bool.not(notify_ok(new_del)) && notify_ok(direct_new)
+    && Bool.not(notify_ok(new_only)) && notify_ok(new_on) && Bool.not(notify_ok(new_del)) && Bool.not(notify_ok(direct_new))
     && echo_ok(eon) && Bool.not(echo_ok(eneg)) && tags_ok(eneg)
     && Bool.not(echo_ok(edel)) && tags_ok(edel)
     && extjoin_ok(ej_on) && acctag_ok(ej_on)
@@ -741,7 +741,7 @@ def caps_ack_only_ok() -> Bool:
     && account_ok(caps_apply(caps0(), CapEvent{CapAck{}, "account-notify" <> Nil{}}))
     && away_ok(caps_apply(caps0(), CapEvent{CapAck{}, "away-notify" <> Nil{}}))
     && notify_ok(caps_apply(caps0(), CapEvent{CapAck{}, "cap-notify" <> Nil{}}))
-    && notify_ok(caps_apply(caps0(), CapEvent{CapNew{}, "cap-notify" <> Nil{}}))
+    && Bool.not(notify_ok(caps_apply(caps0(), CapEvent{CapNew{}, "cap-notify" <> Nil{}})))
     && echo_ok(caps_apply(caps0(), CapEvent{CapAck{}, "echo-message" <> Nil{}}))
     && extjoin_ok(caps_apply(caps0(), CapEvent{CapAck{}, "extended-join" <> Nil{}}))
     && acctag_ok(caps_apply(caps0(), CapEvent{CapAck{}, "account-tag" <> Nil{}}))

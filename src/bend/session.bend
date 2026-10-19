@@ -520,6 +520,13 @@ def submit_local(input: Sub.Input, +cl: Cl.Client) -> Cl.Client & String & NetCm
     case _:
       wrap_local(Sub.submit_parsed(cl, input))
 
+def submit_local_with(+iso: Isupport.State, input: Sub.Input, +cl: Cl.Client) -> Cl.Client & String & NetCmd:
+  match input:
+    case Sub.CommandInput{Sub.Quit{}, +verb, +rest}:
+      wrap_outs(Sub.submit_cmd_with.do(iso, cl, verb, rest, Sub.Quit{}))
+    case _:
+      wrap_local(Sub.submit_parsed_with(iso, cl, input))
+
 def submit_offline.wire(+cl: Cl.Client, input: Sub.Input) -> Cl.Client & String & NetCmd:
   match input:
     # PART cancels desired membership even before registration or while offline.
@@ -532,6 +539,16 @@ def submit_offline(+cl: Cl.Client, +input: Sub.Input, needs_wire: Bool) -> Cl.Cl
     case True{}: submit_offline.wire(cl, input)
     case False{}: submit_local(input, cl)
 
+def submit_offline.wire_with(+iso: Isupport.State, +cl: Cl.Client, input: Sub.Input) -> Cl.Client & String & NetCmd:
+  match input:
+    case Sub.CommandInput{Sub.Part{}, verb, rest}: submit_local_with(iso, Sub.CommandInput{Sub.Part{}, verb, rest}, cl)
+    case _: hold_offline(cl)
+
+def submit_offline_with(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Input, needs_wire: Bool) -> Cl.Client & String & NetCmd:
+  match needs_wire:
+    case True{}: submit_offline.wire_with(iso, cl, input)
+    case False{}: submit_local_with(iso, input, cl)
+
 def submit_send_echo(+cl: Cl.Client, +input: Sub.Input, online: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
   match online:
     case True{}: wrap_outs(Sub.submit_parsed_echo(cl, input, echo_ok))
@@ -543,7 +560,7 @@ def submit_send(+cl: Cl.Client, +input: Sub.Input, online: Bool) -> Cl.Client & 
 def submit_send_with_echo(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Input, online: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd:
   match online:
     case True{}: wrap_outs(Sub.submit_parsed_with_echo(iso, cl, input, echo_ok))
-    case False{}: submit_offline(cl, input, Sub.needs_connection(input))
+    case False{}: submit_offline_with(iso, cl, input, Sub.needs_connection(input))
 
 def submit_send_with(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Input, online: Bool) -> Cl.Client & String & NetCmd:
   submit_send_with_echo(iso, cl, input, online, False{})
@@ -3403,12 +3420,12 @@ def local_plan.got(pair: JoinPlan.State & List<&2, String>, st: Session) -> Sess
 
 def local_plan.validated(pair: Cl.Client & List<&2, String>, +st: Session) -> Session:
   match pair:
-    case (_, outs): local_plan.got(JoinPlan.outbound(session_plan(st), outs), st)
+    case (_, outs): local_plan.got(JoinPlan.outbound_iso(session_plan(st), outs, session_iso(st)), st)
 
-def local_plan.input(input: Sub.Input, cl: Cl.Client, st: Session) -> Session:
+def local_plan.input(input: Sub.Input, cl: Cl.Client, +st: Session) -> Session:
   match input:
-    case Sub.CommandInput{Sub.Part{}, verb, rest}: local_plan.validated(Sub.submit_parsed(cl, Sub.CommandInput{Sub.Part{}, verb, rest}), st)
-    case Sub.CommandInput{Sub.CloseCmd{}, verb, rest}: local_plan.validated(Sub.submit_parsed(cl, Sub.CommandInput{Sub.CloseCmd{}, verb, rest}), st)
+    case Sub.CommandInput{Sub.Part{}, verb, rest}: local_plan.validated(Sub.submit_parsed_with(session_iso(st), cl, Sub.CommandInput{Sub.Part{}, verb, rest}), st)
+    case Sub.CommandInput{Sub.CloseCmd{}, verb, rest}: local_plan.validated(Sub.submit_parsed_with(session_iso(st), cl, Sub.CommandInput{Sub.CloseCmd{}, verb, rest}), st)
     case _: st
 
 # Local submission drops wire output. Reuse its validator against the prior
@@ -3425,7 +3442,7 @@ def local_plan.keys(keys: Keys, +before: Session, st: Session, input: Sub.Input)
 
 def step_keys.plan.admit(allowed: Bool, +before: Session, +st: Session, outs: List<&2, String>, halt: Bool) -> Session & NetCmd & Bool:
   match allowed:
-    case True{}: step_keys.plan.got(JoinPlan.outbound(session_plan(st), outs), st, halt)
+    case True{}: step_keys.plan.got(JoinPlan.outbound_iso(session_plan(st), outs, session_iso(st)), st, halt)
     case False{}:
       # The rejected JOIN has no accepted membership. Discard its staged
       # tab/roster changes as well as the wire and runtime-only key update.
@@ -3434,7 +3451,7 @@ def step_keys.plan.admit(allowed: Bool, +before: Session, +st: Session, outs: Li
 
 def step_keys.plan.admit_iso(iso_ok: Bool, +before: Session, +st: Session, outs: List<&2, String>, halt: Bool) -> Session & NetCmd & Bool:
   match iso_ok:
-    case True{}: step_keys.plan.got(JoinPlan.outbound(session_plan(st), outs), st, halt)
+    case True{}: step_keys.plan.got(JoinPlan.outbound_iso(session_plan(st), outs, session_iso(st)), st, halt)
     case False{}:
       # The server-narrowed JOIN has no accepted membership. Discard its
       # staged tab/roster changes as well as the wire and key update.
@@ -3452,7 +3469,7 @@ def step_keys.plan(+before: Session, keys: Keys, trip: Session & NetCmd & Bool, 
       match cmd:
         case Cont{+outs}:
           +next = local_plan.keys(keys, before, st, input)
-          step_keys.plan.gated(JoinPlan.capacity_ok(outs, session_plan(next)), before, next, outs, halt)
+          step_keys.plan.gated(JoinPlan.capacity_ok_iso(outs, session_plan(next), session_iso(next)), before, next, outs, halt)
         case _: (st, cmd, halt)
 
 def preference_enter(enter: Bool, st: Session, input: Sub.Input) -> Session:
