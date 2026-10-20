@@ -87,9 +87,18 @@ def chunk(st: S.Session) -> S.Session & List<&2, String>:
   S.step_on_chunk(st, Fr.string_to_octets(":alice!u@h PRIVMSG me :before " ++ url() ++ " after\r\nPING :unchanged\r\n"))
 
 # Live admission schedules only via visible candidates (ws paint path).
-# Chunk maintain settles dead state; mirror media_history's observe step.
-def seen(st: S.Session) -> S.Session:
-  S.session_observe_visible_media(st)
+# Chunk maintain settles dead state; PRIVMSG does not auto-focus the query,
+# so paint/observe the alice pane before enqueue (same as a user viewing it).
+def focus_query.got(+st: S.Session, got: Maybe<&2, Nat>) -> S.Session:
+  match got:
+    case None{}: st
+    case Some{i}: S.session_set_client(st, Cl.set_active(S.session_cl(st), i))
+
+def focus_query(+st: S.Session, name: String) -> S.Session:
+  focus_query.got(st, Cl.buf_find(S.session_cl(st), name))
+
+def seen(+st: S.Session) -> S.Session:
+  S.session_observe_visible_media(focus_query(st, "alice"))
 
 def automatic(supported: Bool, on: Bool) -> S.Session:
   seen(pair_state(chunk(initial(supported, on))))
