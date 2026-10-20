@@ -279,16 +279,16 @@ def after_queue(+mode: String, +target: U32, +count: U32, +cmd: Chan(Sess.NetCmd
         Chan.close(Sess.NetCmd, cmd)
     case _: IO.pure(Unit, Unit{})
 
-# Drop+Dial scope oracle starts SASL-enabled so the cancel path can prove
-# AuthScope follows dials (disabled when A≠B). Registration modes keep the
-# historical disabled scope so CAP END / no sasl REQ stay stable.
-def after_auth_scope.on(drop_scope: Bool, +port: U32) -> Act.AuthScope:
-  match drop_scope:
+# Dial-then-cancel scope oracles start SASL-enabled so Drop and cmd-close
+# both prove AuthScope follows dials (disabled when A≠B). Registration
+# modes keep the historical disabled scope so CAP END / no sasl REQ stay stable.
+def after_auth_scope.on(fold_scope: Bool, +port: U32) -> Act.AuthScope:
+  match fold_scope:
     case True{}: Act.AuthScope{"127.0.0.1", port, True{}}
     case False{}: Act.AuthScope{"127.0.0.1", 0, False{}}
 
 def after_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
-  after_auth_scope.on(String.eq(mode, "afterdialdrop"), port)
+  after_auth_scope.on(String.eq(mode, "afterdialdrop") || String.eq(mode, "afterdialclose"), port)
 
 # bootlskept runs live so Booted is posted after kept — encodes kept-before-Booted.
 def after_live(+mode: String) -> Bool:
@@ -334,13 +334,13 @@ def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetC
 
 # Exercise writer_admit's recursive winner, independently of dial_begin:
 # Dial B followed by Drop or cmd-close must cancel before dialing B at all.
-def writer_auth_scope.on(drop_scope: Bool, +port: U32) -> Act.AuthScope:
-  match drop_scope:
+def writer_auth_scope.on(fold_scope: Bool, +port: U32) -> Act.AuthScope:
+  match fold_scope:
     case True{}: Act.AuthScope{"127.0.0.1", port, True{}}
     case False{}: Act.AuthScope{"127.0.0.1", 0, False{}}
 
 def writer_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
-  writer_auth_scope.on(String.eq(mode, "writerdialdrop"), port)
+  writer_auth_scope.on(String.eq(mode, "writerdialdrop") || String.eq(mode, "writerdialclose"), port)
 
 def run_writer_after(sock: Socket, +port: U32, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:

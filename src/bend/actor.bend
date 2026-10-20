@@ -906,7 +906,11 @@ def writer_admit_latest.open(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, Qu
 def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
     case True{}:
-      writer_admit_single(kept, True{}, dropped, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
+      # Cmd-close after Dial B: fold AuthScope like Drop, and use Drop's
+      # closed=False cancel so k still observes the folded scope (writer_admit_done
+      # with closed=True finishes without calling k).
+      writer_admit_single(kept, False{}, True{}, sock, nick, gen, evt, boot, cmd,
+        writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), budget, next_txn, k)
     case False{}:
       writer_admit_latest.open(latest, dials, kept, dropped, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k, retry)
 
@@ -992,7 +996,9 @@ def after_conn_latest.open(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, Queu
 def after_conn_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, k: DialReady -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> DialCarry -> (DialReady -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
     case True{}:
-      after_conn_open(True{}, dropped, kept, sock, nick, gen, evt, boot, cmd, live, scope, k)
+      # Cmd-close after Dial B: AuthScope follows dials (parity with Drop).
+      after_conn_open(True{}, dropped, kept, sock, nick, gen, evt, boot, cmd, live,
+        writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), k)
     case False{}:
       after_conn_latest.open(latest, dials, kept, dropped, sock, nick, gen, evt, boot, cmd, live, scope, k, retry)
 
@@ -1045,7 +1051,10 @@ def dial_after_latest.open(latest: Maybe<&2, QueuedDial>, +dials: List<&2, Queue
 
 def dial_after_latest(latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, dropped: Bool, +closed: Bool, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, +acc0: AdmitAcc, k: DialReady -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> DialCarry -> (DialReady -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
-    case True{}: dial_cancel(live, boot, sock, gen, scope, k)
+    case True{}:
+      # Cmd-close after Dial B: AuthScope follows dials (parity with Drop).
+      dial_cancel(live, boot, sock, gen,
+        writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), k)
     case False{}:
       dial_after_latest.open(latest, dials, kept, dropped, sock, host, port, force_tls, nick, gen, evt, boot, cmd, live, scope, acc0, k, retry)
 
@@ -1136,7 +1145,10 @@ def writer_admit_sock.latest.open(latest: Maybe<&2, QueuedDial>, dropped: Bool, 
 def writer_admit_sock.latest(latest: Maybe<&2, QueuedDial>, dropped: Bool, +dials: List<&2, QueuedDial>, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, +closed: Bool, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
     case True{}:
-      writer_admit_raw_drop(kept, True{}, sock, gen, evt, cmd, scope, budget, next_txn, k)
+      # Cmd-close after Dial B: fold AuthScope like Drop; closed=False so k
+      # observes the fold (writer_admit_done True finishes without calling k).
+      writer_admit_raw_drop(kept, False{}, sock, gen, evt, cmd,
+        writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), budget, next_txn, k)
     case False{}:
       writer_admit_sock.latest.open(latest, dropped, dials, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, k, retry)
 

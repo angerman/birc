@@ -122,14 +122,14 @@ def main() -> None:
     post_upgrade(binary, "afterfueldrop")
     post_upgrade(binary, "afterfuelreg")
     # Dial B then Drop/cmd-close: both cancel before TCP to B (TimeoutError).
-    # Drop+Dial also returns B's AuthScope disabled when A≠B.
+    # AuthScope follows dials on both paths (disabled when A≠B).
     post_upgrade_winner(binary, "afterdialdrop", expect_scope=False)
-    post_upgrade_winner(binary, "afterdialclose")
+    post_upgrade_winner(binary, "afterdialclose", expect_scope=False)
     # writer_admit parity: post-Dial Drop or cmd-close must not dial B;
     # without Drop/close the same winner sends the full handshake.
     # Held-setup cases above still cover Drop during connect/DNS.
     writer_admit_winner(binary, "writerdialdrop", [], expect_scope=False)
-    writer_admit_winner(binary, "writerdialclose", [])
+    writer_admit_winner(binary, "writerdialclose", [], expect_scope=False)
     writer_admit_winner(binary, "writerdialregister", HANDSHAKE)
     # writer_admit_conn fuel-chunk parity with after_conn (−/+ above).
     writer_admit_direct(binary, "writerfueldrop", [])
