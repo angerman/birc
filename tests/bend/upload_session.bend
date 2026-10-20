@@ -235,6 +235,9 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("set_net Online retains Confirm consent", phase(Sess.session_upload(Sess.session_set_net(presented(), Sess.Online{}))), "confirm:/tmp/private file.txt")
     Unit <- E.must_eq("set_net Offline clears Confirm consent", phase(Sess.session_upload(Sess.session_set_net(presented(), Sess.Offline{}))), "idle")
     Unit <- E.must_eq("set_net Offline keeps Busy owner cancelled", phase(Sess.session_upload(Sess.session_set_net(busy(), Sess.Offline{}))), "busy:False")
+    # R7 remnant: marker True{} arm must use session_set_net (maintain), not raw Online{}.
+    Unit <- E.must_eq("marker reconnect.on retains Confirm on same scope", phase(Sess.session_upload(Sess.session_reconnected.on(True{}, offline_presented(), "12:00:00"))), "confirm:/tmp/private file.txt")
+    Unit <- E.must_eq("marker reconnect.on clears Confirm off scope", phase(Sess.session_upload(Sess.session_reconnected.on(True{}, switch_target(offline_presented()), "12:00:00"))), "idle")
     Unit <- E.must_eq("cancel reconnect clears Confirm consent", phase(Sess.session_upload(Sess.session_cancel_reconnect(presented()))), "idle")
     Unit <- E.must_eq("same-endpoint dial clears Confirm consent", phase(Sess.session_upload(after_dial(presented()))), "idle")
     Unit <- E.must("same-endpoint dial clears presentation", Bool.not(Sess.session_upload_presented(after_dial(presented()))))

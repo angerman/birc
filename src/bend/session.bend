@@ -1904,7 +1904,8 @@ def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session
     case True{}:
       match st:
         case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-          Session{Cl.reconnect_markers(cl, now), drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
+          # Markers + JoinPlan.sent then Online via session_set_net (same chokepoint as session_online).
+          session_set_net(Session{Cl.reconnect_markers(cl, now), drop, rem, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}, Online{})
 
 def session_reconnected(+st: Session, +now: String) -> Session:
   +reset = session_reset_auth(st)
