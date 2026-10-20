@@ -54,6 +54,14 @@ law local_civil:
 def local_civil():
   import "../ffi/clock_ffi.c"
 
+# One localtime snapshot: ymd, wday, seconds-of-day. stamp() must use this so
+# midnight cannot tear day and HMS across two FFI reads.
+law local_now:
+  IO(U32 & U32 & U32)
+
+def local_now():
+  import "../ffi/clock_ffi.c"
+
 def weekday.sat(sat: Bool) -> String:
   match sat:
     case True{}: "Saturday"
@@ -101,13 +109,25 @@ def day_label(parts: U32 & U32) -> String:
   match parts:
     case (+ymd, +w): day_label.parts(ymd, w)
 
+# Join one civil+sod snapshot. ymd 0 means localtime failed — empty stamp.
+def stamp_join.civil(zero: Bool, +ymd: U32, +w: U32, +sod: U32) -> String:
+  match zero:
+    case True{}: ""
+    case False{}: day_label.parts(ymd, w) ++ "|" ++ Fmt.fmt_sod(sod)
+
+def stamp_join(+ymd: U32, +w: U32, +sod: U32) -> String:
+  stamp_join.civil(U32.is_zero(ymd), ymd, w, sod)
+
+def stamp_join.parts(parts: U32 & U32 & U32) -> String:
+  match parts:
+    case (+ymd, w, s): stamp_join(ymd, w, s)
+
 # Live clock: day label, '|', HH:MM:SS. Paint shows the time half; '|' survives
 # Irc.sanitize_in and history's single-line records.
 def stamp() -> IO(String):
   do IO<String>:
-    hms : String <- hhmmss()
-    civil : U32 & U32 <- local_civil()
-    return day_label(civil) ++ "|" ++ hms
+    parts : U32 & U32 & U32 <- local_now()
+    return stamp_join.parts(parts)
 
 law utc_local_parts:
   U32 -> U32 -> U32 -> U32 -> U32 -> U32 -> IO(U32 & U32 & U32)

@@ -50,10 +50,12 @@ when an effect is added or removed.
 
 | CID | C file | Bend declaration |
 |---|---|---|
-| `CID_UTC_LOCAL_PARTS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend:49` (`law utc_local_parts`) |
-| `CID_LOCAL_SECS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend:18` (`law local_secs`) |
-| `CID_MILLIS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend:24` (`law millis`) |
-| `CID_NET_TRACE` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend:38` (`law net_trace`) |
+| `CID_UTC_LOCAL_PARTS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law utc_local_parts`) |
+| `CID_LOCAL_SECS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_secs`) |
+| `CID_LOCAL_CIVIL` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_civil`) |
+| `CID_LOCAL_NOW` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_now`) |
+| `CID_MILLIS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law millis`) |
+| `CID_NET_TRACE` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law net_trace`) |
 
 ### `src/ffi/dns_ffi.c`
 

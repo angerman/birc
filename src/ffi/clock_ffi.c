@@ -34,6 +34,9 @@
 #ifndef CID_LOCAL_CIVIL
 #define CID_LOCAL_CIVIL CID(local_civil)
 #endif
+#ifndef CID_LOCAL_NOW
+#define CID_LOCAL_NOW CID(local_now)
+#endif
 
 #if CID_UTC_LOCAL_PARTS
 struct birc_clock_parts {
@@ -87,18 +90,37 @@ static void __attribute__((constructor)) utc_local_parts_use(void) {
 }
 #endif
 
+/* One localtime_r snapshot: yyyymmdd, tm_wday (0 = Sunday), seconds-of-day.
+ * ymd 0 means localtime_r failed (fail closed). */
+struct birc_local_now {
+  uint32_t ymd;
+  uint32_t wday;
+  uint32_t sod;
+};
+
+static struct birc_local_now birc_local_now_read(void) {
+  struct birc_local_now out = {0u, 0u, 0u};
+  time_t t = time(NULL);
+  struct tm lt;
+  if (!localtime_r(&t, &lt))
+    return out;
+  {
+    uint32_t y = (uint32_t)lt.tm_year + 1900u;
+    out.ymd = y * 10000u + ((uint32_t)lt.tm_mon + 1u) * 100u + (uint32_t)lt.tm_mday;
+    out.wday = (uint32_t)lt.tm_wday;
+    out.sod = (uint32_t)lt.tm_hour * 3600u + (uint32_t)lt.tm_min * 60u
+              + (uint32_t)lt.tm_sec;
+  }
+  return out;
+}
+
 #if CID_LOCAL_CIVIL
 /* yyyymmdd and tm_wday (0 = Sunday). Bend formats the channel day bar. */
 Term local_civil_run(Env e, Term *f, IoWork *w) {
-  time_t t = time(NULL);
-  struct tm lt;
+  struct birc_local_now now = birc_local_now_read();
   (void)f;
   (void)w;
-  if (!localtime_r(&t, &lt))
-    return io_tup(e, (Term)0, (Term)0);
-  uint32_t y = (uint32_t)lt.tm_year + 1900u;
-  uint32_t ymd = y * 10000u + ((uint32_t)lt.tm_mon + 1u) * 100u + (uint32_t)lt.tm_mday;
-  return io_tup(e, (Term)ymd, (Term)lt.tm_wday);
+  return io_tup(e, (Term)now.ymd, (Term)now.wday);
 }
 static void __attribute__((constructor)) local_civil_use(void) {
   io_eff(CID_LOCAL_CIVIL, local_civil_run);
@@ -107,18 +129,28 @@ static void __attribute__((constructor)) local_civil_use(void) {
 
 #if CID_LOCAL_SECS
 Term local_secs_run(Env e, Term *f, IoWork *w) {
-  time_t t = time(NULL);
-  struct tm lt;
+  struct birc_local_now now = birc_local_now_read();
   (void)e;
   (void)f;
   (void)w;
-  if (!localtime_r(&t, &lt))
-    return (Term)0;
-  return (Term)((uint32_t)lt.tm_hour * 3600u + (uint32_t)lt.tm_min * 60u
-                + (uint32_t)lt.tm_sec);
+  return (Term)now.sod;
 }
 static void __attribute__((constructor)) local_secs_use(void) {
   io_eff(CID_LOCAL_SECS, local_secs_run);
+}
+#endif
+
+#if CID_LOCAL_NOW
+/* Atomic ymd, wday, seconds-of-day for Clock.stamp (no midnight tear). */
+Term local_now_run(Env e, Term *f, IoWork *w) {
+  struct birc_local_now now = birc_local_now_read();
+  (void)f;
+  (void)w;
+  return io_tup(e, (Term)now.ymd,
+                io_tup(e, (Term)now.wday, (Term)now.sod));
+}
+static void __attribute__((constructor)) local_now_use(void) {
+  io_eff(CID_LOCAL_NOW, local_now_run);
 }
 #endif
 #if CID_MILLIS

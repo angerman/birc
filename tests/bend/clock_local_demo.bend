@@ -44,4 +44,6 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("untagged unchanged", stamp(missing), "missing")
     leap : Maybe<&2, String> <- Clock.line_stamp("@time=2012-06-30T23:59:60.419Z :alice!u@h PRIVMSG me :hello")
     Unit <- E.must_eq("leap second", stamp(leap), "08:59:60")
+    Unit <- E.must_eq("stamp_join keeps one civil+sod snapshot", Clock.stamp_join(20261020, 2, 3661), "2026-10-20 (Tuesday)|01:01:01")
+    Unit <- E.must_eq("stamp_join fails closed on zero civil", Clock.stamp_join(0, 0, 1), "")
     IO.print("clock_local_demo=ok")
