@@ -509,8 +509,11 @@ def received.control(welcome: Bool, motd: Bool, state: State, cl: Cl.Client, +m:
       match state:
         case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
     case False{} True{}:
+      # MOTD marks registration complete even before 001; flush still waits for
+      # welcome (and auth). Coupling motd_done to was_welcome left early 376/422
+      # stuck with motd_done=False after a later welcome.
       match state:
-        case State{desired, +was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, was_welcome}
+        case State{desired, was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, True{}}
     case False{} False{}: received.command(state, cl, m, Irc.classify(m))
 
 def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
@@ -543,7 +546,7 @@ def received.control_with(+cm: String, welcome: Bool, motd: Bool, state: State, 
         case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
     case False{} True{}:
       match state:
-        case State{desired, +was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, was_welcome}
+        case State{desired, was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, True{}}
     case False{} False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
 
 def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:

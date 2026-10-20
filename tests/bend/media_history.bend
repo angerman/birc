@@ -55,12 +55,12 @@ def drain.count(pair: Drain) -> Drain:
   match pair:
     case Drain{st, count}: Drain{st, 1n+count}
 
-# Mirrors net/wsnet accept=false: reject_full records token-zero so ready_has
-# blocks relaunch. Plain M.reject only clears active (storm oracle below).
+# Mirrors net/wsnet accept=false: plain reject clears the worker. Sticky
+# reject_full is native CAP overflow only (ph_cache_admit + below).
 def finish(accepted: Bool, +st: S.Session, +gen: Nat, +ticket: Nat, +url: String) -> S.Session:
   match accepted:
     case True{}: S.session_set_media(st, M.complete(S.session_media(st), S.session_cl(st), gen, ticket, url, U32.from_nat(ticket)))
-    case False{}: S.session_set_media(st, M.reject_full(S.session_media(st), S.session_cl(st), gen, ticket, url))
+    case False{}: S.session_set_media(st, M.reject(S.session_media(st), gen, ticket, url))
 
 def drain.step(pair: M.State & Maybe<&2, M.Request>, +st: S.Session, k: S.Session -> Drain) -> Drain:
   match pair:
@@ -284,11 +284,14 @@ def ph_cache_admit() -> IO(Unit):
   +legacy : M.State = prospective(M.take_job(M.enqueue_candidates.go(wanted, cache)), client())
   +duplicate : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n), Cl.Line{Cl.Msg{}, "", url(1n), "alice", 2n}])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 2n, False{}}
   +hidden : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(8n, 1n), M.Supported{}}
+  +room : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(7n, 1n), M.Supported{}}
   +full = sbox(S.session_set_size(S.session_set_media(sunbox(single), hidden), 200, 200))
-  # − plain reject: clears exact worker, records nothing → enqueue relaunches.
+  # − plain reject / visible decline: clears exact worker, records nothing.
   +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))
-  # + reject_full / complete token 0: failed identity → ready_has blocks relaunch.
-  +declined_full : M.State = M.reject_full(hidden, client(), 1n, 100n, url(100n))
+  # − reject_full into CAP nonzero ready: must not drop a live retained token.
+  +declined_full_cap : M.State = M.reject_full(hidden, client(), 1n, 100n, url(100n))
+  # + reject_full with room: failed identity → ready_has blocks relaunch.
+  +declined_full : M.State = M.reject_full(room, client(), 1n, 100n, url(100n))
   do IO<Unit>:
     Unit <- E.must("prospective native set retains selected visible token", token_has(M.retained_tokens(protected), 8) && Bool.not(token_has(M.retained_tokens(protected), 1)))
     Unit <- E.must("control shows unchanged completion FIFO would evict visible token", token_has(M.retained_tokens(legacy), 1) && Bool.not(token_has(M.retained_tokens(legacy), 8)))
@@ -298,9 +301,14 @@ def ph_cache_admit() -> IO(Unit):
     Unit <- E.must("- reject clears worker without failed identity", Bool.not(Terminal.has_active(declined)) && Nat.is_eq(M.ready_count(declined), 8n)
       && token_has(M.retained_tokens(declined), 8) && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n}))
       && Nat.is_gt(M.pending_count(M.enqueue(declined, M.Inline{100n}, url(100n))), 0n))
+    Unit <- E.must("- reject_full at CAP nonzero keeps all retained tokens", Bool.not(Terminal.has_active(declined_full_cap))
+      && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full_cap)), 8n)
+      && token_has(M.retained_tokens(declined_full_cap), 8)
+      && List.is_empty(&2, String, M.known_urls(declined_full_cap, M.Inline{100n})))
     Unit <- E.must("+ reject_full records token-zero and blocks relaunch", Bool.not(Terminal.has_active(declined_full))
       && Bool.not(List.is_empty(&2, String, M.known_urls(declined_full, M.Inline{100n})))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full)), 7n)
+      && token_has(M.retained_tokens(declined_full), 7)
       && Nat.is_eq(M.pending_count(M.enqueue(declined_full, M.Inline{100n}, url(100n))), 0n))
     Unit <- E.must("wrong completion cannot release owned worker", Terminal.has_active(M.reject(hidden, 1n, 99n, url(100n)))
       && Terminal.has_active(M.reject(hidden, 2n, 100n, url(100n))) && Terminal.has_active(M.reject(hidden, 1n, 100n, url(101n))))

@@ -87,12 +87,21 @@ def auth_controls() -> IO(Unit):
   +challenge_held = auth_apply(challenge, welcome, 6667)
   +result = auth_apply(challenge, "AUTHENTICATE +", 6667)
   +result_held = auth_apply(result, welcome, 6667)
+  # − MOTD-before-welcome: early 376 used to leave motd_done=False so a later
+  # 001 never flushed. + sibling is ordinary welcome-then-MOTD.
+  +early_motd = P.received(wrong_port, cl, motd)
+  +early_then_welcome = P.received(early_motd, cl, welcome)
+  +early_auth_motd = P.received(P.reset(P.initial("#start"), cl, 6667), cl, motd)
   do IO<Unit>:
     Unit <- E.must("same host live port match requires auth", Auth.join_required(cl, 6667))
     Unit <- E.must("same host different live port skips auth barrier", Bool.not(Auth.join_required(cl, 6697)))
     Unit <- E.must_eq("mismatched live port resets without NeedAuth", notice(P.flush(P.received(wrong_port, cl, welcome), cl)), "quiet")
     Unit <- E.must_eq("mismatched port still waits for MOTD", lines(P.flush(P.received(wrong_port, cl, welcome), cl)), "")
     Unit <- E.must_eq("mismatched port flushes at MOTD without auth wait", lines(P.flush(P.received(P.received(wrong_port, cl, welcome), cl, motd), cl)), "JOIN #start")
+    Unit <- E.must_eq("MOTD before welcome does not flush (−)", lines(P.flush(early_motd, cl)), "")
+    Unit <- E.must_eq("MOTD then welcome flushes recovery JOINs (−)", lines(P.flush(early_then_welcome, cl)), "JOIN #start")
+    Unit <- E.must_eq("ordinary welcome then MOTD still flushes (+)", lines(P.flush(P.received(P.received(wrong_port, cl, welcome), cl, motd), cl)), "JOIN #start")
+    Unit <- E.must_eq("early MOTD still respects auth barrier", lines(P.flush(P.received(early_auth_motd, cl, welcome), cl)), "")
     Unit <- E.must_eq("configured auth holds joins", lines(P.flush(waiting, cl)), "")
     Unit <- E.must_eq("waiting is reported once", notice(P.flush(waiting, cl)), "held")
     Unit <- E.must_eq("bare 001 stays held not failed", notice(P.flush(held, cl)), "quiet")

@@ -457,13 +457,58 @@ def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
     case State{_, _, _, +active, _, _, _}:
       complete.on(exact(active, gen, ticket, url), False{}, state, 0)
 
-# Full-budget native rejection records a token-zero failed identity for the
+# Drop one newest token-zero ready slot so reject_full can record a failed
+# identity without List.take eviction of a live nonzero retained token.
+def ready_drop_zero(xs: List<&2, MediaReady>) -> List<&2, MediaReady>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{MediaReady{t, u, token}, rest}:
+      match token:
+        case 0: rest
+        case _: MediaReady{t, u, token} <> ready_drop_zero(rest)
+
+def reject_full.ready.insert(room: Bool, +target: Target, +url: String, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
+  match room:
+    case True{}: MediaReady{target, url, 0} <> ready
+    case False{}: ready
+
+# Sticky failed identity for native CAP overflow. Unlike complete(..., 0),
+# never FIFO-evicts a nonzero retained token: make room by dropping another
+# zero when needed; if ready is already CAP nonzero, clear active only.
+def reject_full.ready(+target: Target, +url: String, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
+  +base = ready_without(ready, target, url)
+  +fit = Bool.pick(List<&2, MediaReady>, Nat.is_lt(List.length(&2, MediaReady, base), CAP()),
+    base, ready_drop_zero(base))
+  reject_full.ready.insert(Nat.is_lt(List.length(&2, MediaReady, fit), CAP()), target, url, fit)
+
+def reject_full.on(hit: Bool, accepted: Bool, +state: State) -> State:
+  match hit:
+    case False{}: state
+    case True{}:
+      match accepted:
+        case False{}:
+          match state:
+            case State{on, gen, ticket, _, pending, ready, display}:
+              State{on, gen, ticket, None{}, pending, ready, display}
+            case _: state
+        case True{}:
+          match state:
+            case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
+              State{on, gen, ticket, None{}, pending, reject_full.ready(target, url, ready), display}
+            case _: state
+
+# Native CAP-overflow rejection records a token-zero failed identity for the
 # exact worker, so observe/enqueue/take does not immediately relaunch the
-# same automatic helper while every native slot stays owned. Wrong
-# ticket/generation/URL arrivals keep the owner untouched; disabled and
-# dead targets record nothing; manual intents still retry via enqueue.
+# same automatic helper while every native slot stays owned. Visible/policy
+# decline uses reject, not this path — temporary full visible cache must not
+# sticky-poison a URL. Wrong ticket/generation/URL arrivals keep the owner
+# untouched; disabled and dead targets record nothing; manual intents still
+# retry via enqueue.
 def reject_full(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> State:
-  complete(state, client, gen, ticket, url, 0)
+  match state:
+    case State{_, _, _, +active, _, _, _}:
+      reject_full.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state)
+    case _: state
 
 # Zero denotes a placeholder, never native payload ownership. Compute this on
 # the prospective completion with token zero before admitting its new payload.

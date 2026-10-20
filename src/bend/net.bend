@@ -1357,12 +1357,13 @@ def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticke
       +next = Sess.session_set_media(st, media)
       paint_input(ui, Bool.pick(Sess.Session, U32.is_zero(token), Sess.session_error(next, "image preview unavailable"), next), False{}, evt, cmd, ack, gen, k)
 
-# Exact-worker policy decline records token-zero via reject_full so ready_has
-# blocks relaunch. Plain M.reject only clears active and storms observe/take.
+# Exact-worker policy decline clears the worker only. Sticky reject_full is
+# for native CAP overflow after accept; temporary full visible cache must not
+# poison-pill an automatic URL after room returns.
 def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
   match accepted:
     case False{}:
-      k((ui, Sess.session_set_media(st, M.reject_full(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url)), gen, False{}))
+      k((ui, Sess.session_set_media(st, M.reject(Sess.session_media(st), generation, ticket, url)), gen, False{}))
     case True{}:
       do IO<Unit>:
         pair : T.Ui & U32 <- T.Timui.media_add(ui, payload,
