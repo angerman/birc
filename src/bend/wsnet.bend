@@ -1283,10 +1283,13 @@ def hist_worker.ack(send: Bool, +main: Chan(WsMsg), +sid: Nat, +seq: Nat) -> IO(
         _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsHistAck{sid, seq})
         return Unit{}
 
-def hist_worker.note(notice: Maybe<&2, String>, +main: Chan(WsMsg), +sid: Nat, +base: Nat, +seq: Nat, +data: String) -> IO(Unit):
-  match notice:
-    case None{}: hist_worker.ack(Bool.not(Nat.is_eq(seq, 0n)), main, sid, seq)
-    case Some{+msg}:
+# Only Ok advances the durable ack claim. Skip is no bytes written (no ack);
+# Err surfaces *log* via Diag and retries through on_fail.
+def hist_worker.claim(got: HistIO.Append, +main: Chan(WsMsg), +sid: Nat, +base: Nat, +seq: Nat, +data: String) -> IO(Unit):
+  match got:
+    case HistIO.Ok{}: hist_worker.ack(Bool.not(Nat.is_eq(seq, 0n)), main, sid, seq)
+    case HistIO.Skip{}: IO.pure(Unit, Unit{})
+    case HistIO.Err{+msg}:
       do IO<Unit>:
         _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsHistDiag{msg, sid, base, seq, data})
         return Unit{}
@@ -1305,8 +1308,8 @@ def hist_worker.got(job: HistJob, +main: Chan(WsMsg), k: Unit -> IO(Unit)) -> IO
         k(Unit{})
     case HistJob{+path, +data, +sid, +base, +seq}:
       do IO<Unit>:
-        notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
-        Unit <- hist_worker.note(notice, main, sid, base, seq, data)
+        got : HistIO.Append <- HistIO.history_append_file.claim(path, data)
+        Unit <- hist_worker.claim(got, main, sid, base, seq, data)
         k(Unit{})
 
 def hist_worker.recv(g: Maybe<&1, HistJob>, +main: Chan(WsMsg), k: HistJob -> IO(Unit)) -> IO(Unit):
@@ -1373,8 +1376,9 @@ def ws_history.write_held(accepted: Bool, +hot: WsHot, +pend: WsPend) -> WsHot:
     case False{}: ws_hot.with_pending(hot, pend)
 
 # Third component is durable: True only when this call's bytes are already
-# in the file. A channel accept is not durable — the worker still has to
-# append, and the extract baseline stays at `ckpt` until WsHistAck.
+# in the file (Append Ok). A channel accept is not durable — the worker still
+# has to append, and the extract baseline stays at `ckpt` until WsHistAck.
+# Skip must not count as durable success.
 def ws_history.notice_ok(notice: Maybe<&2, String>) -> Bool:
   match notice:
     case None{}: True{}
@@ -1398,13 +1402,16 @@ def ws_history.write_chan.go(empty: Bool, +ch: Chan(HistJob), +hot: WsHot, +path
 def ws_history.write_chan(+ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
   ws_history.write_chan.go(String.is_empty(ws_pend.bytes(pend)), ch, hot, path, pend)
 
+def ws_history.write_sync.got(+got: HistIO.Append, +hot: WsHot) -> (Maybe<&2, String> & WsHot) & Bool:
+  ((HistIO.append_notice(got), hot), HistIO.append_ok(got))
+
 def ws_history.write_sync.go(empty: Bool, +path: String, +data: String, +hot: WsHot) -> IO((Maybe<&2, String> & WsHot) & Bool):
   match empty:
     case True{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((None{}, hot), True{}))
     case False{}:
       do IO<(Maybe<&2, String> & WsHot) & Bool>:
-        +notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
-        return ((notice, hot), ws_history.notice_ok(notice))
+        got : HistIO.Append <- HistIO.history_append_file.claim(path, data)
+        return ws_history.write_sync.got(got, hot)
 
 def ws_history.write_sync(+path: String, +data: String, +hot: WsHot) -> IO((Maybe<&2, String> & WsHot) & Bool):
   ws_history.write_sync.go(String.is_empty(data), path, data, hot)
@@ -1551,8 +1558,8 @@ def ws_history.async_go(queued: Bool, +data: String, +ckpt: Sess.Session, +new_w
       match hot:
         case WsHot{_, +path, _, _, _, _, _, _, _, _}:
           do IO<W.Workspace & Bool & WsHot>:
-            notice : Maybe<&2, String> <- HistIO.history_append_file(path, data)
-            return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
+            got : HistIO.Append <- HistIO.history_append_file.claim(path, data)
+            return ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), HistIO.append_notice(got)), ckpt, new_ws, affected), hot)
 
 def ws_history.reload_nick(+cl: Cl.Client) -> String:
   Cl.nick_of(cl)
@@ -1666,8 +1673,8 @@ def ws_history.flush_sync(empty: Bool, +path: String, +pend: String, +hot: WsHot
     case True{}: IO.pure(WsHot & Bool, (hot, True{}))
     case False{}:
       do IO<WsHot & Bool>:
-        notice : Maybe<&2, String> <- HistIO.history_append_file(path, pend)
-        return ws_history.flush_sync_kept(ws_history.notice_ok(notice), hot)
+        got : HistIO.Append <- HistIO.history_append_file.claim(path, pend)
+        return ws_history.flush_sync_kept(HistIO.append_ok(got), hot)
 
 def ws_history.flush_chan.kept(ok: Bool, +hot: WsHot) -> WsHot:
   match ok:
@@ -1731,8 +1738,10 @@ def ws_history.changed_store(pair: WsHot & Nat, notice: Maybe<&2, String>, +ckpt
     case (+hot, _):
       ws_history.async_noted(ws_history.noted(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected), hot)
 
-def ws_history.changed_skip(enabled: Bool, +path: String, +data: String) -> Bool:
-  Bool.not(enabled) || String.is_empty(path) || String.is_empty(data)
+# Intentional skip: history disabled or nothing new to write. Empty path with
+# nonempty data is not a skip — claim attempts the write and fails closed.
+def ws_history.changed_skip(enabled: Bool, +data: String) -> Bool:
+  Bool.not(enabled) || String.is_empty(data)
 
 def ws_history.changed_append.armed(pair: WsHot & Nat, notice: Maybe<&2, String>, spawn: Bool, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +path: String, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cl: Cl.Client, +hold0: Nat) -> IO(W.Workspace & Bool & WsHot):
   match pair:
@@ -1741,14 +1750,17 @@ def ws_history.changed_append.armed(pair: WsHot & Nat, notice: Maybe<&2, String>
         Unit <- ws_history.reload_spawn(spawn, ticket, gen, path, new_ep, cap, cl, evt)
         return ws_history.changed_store((hot2, ticket), notice, ws_history.lift_ckpt(ckpt, ws_history.hold_in(hold0, affected)), new_ws, affected)
 
-def ws_history.changed_append.go(+notice: Maybe<&2, String>, +load: Bool, +path: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client, +hold0: Nat) -> IO(W.Workspace & Bool & WsHot):
-  +spawn = Bool.and(load, ws_history.notice_ok(notice))
+# Archive reload may proceed on Ok or intentional Skip; only Err blocks it.
+# Durable checkpoint advance still uses append_notice (Err → failed rewind).
+def ws_history.changed_append.go(+got: HistIO.Append, +load: Bool, +path: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client, +hold0: Nat) -> IO(W.Workspace & Bool & WsHot):
+  +spawn = Bool.and(load, Bool.not(HistIO.append_err(got)))
+  +notice = HistIO.append_notice(got)
   ws_history.changed_append.armed(ws_history.reload_arm(spawn, ws_hot.with_hold(hot, 0n), ws_id_nat(affected)), notice, spawn, ckpt, new_ws, affected, cap, path, new_ep, gen, evt, cl, hold0)
 
 def ws_history.changed_append(enabled: Bool, +load: Bool, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client, +hold0: Nat) -> IO(W.Workspace & Bool & WsHot):
   do IO<W.Workspace & Bool & WsHot>:
-    notice : Maybe<&2, String> <- HistIO.history_append_file.check(ws_history.changed_skip(enabled, path, data), path, data)
-    ws_history.changed_append.go(notice, load, path, ckpt, new_ws, affected, cap, new_ep, gen, evt, hot, cl, hold0)
+    got : HistIO.Append <- HistIO.history_append_file.outcome(ws_history.changed_skip(enabled, data), path, data)
+    ws_history.changed_append.go(got, load, path, ckpt, new_ws, affected, cap, new_ep, gen, evt, hot, cl, hold0)
 
 def ws_history.changed_flushed(ok: Bool, enabled: Bool, +load: Bool, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +new_ep: String, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client, +hold0: Nat) -> IO(W.Workspace & Bool & WsHot):
   match ok:
@@ -1770,9 +1782,9 @@ def ws_history.changed_async(enabled: Bool, +load: Bool, +path: String, +data: S
 
 def ws_history.changed_sync(+path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
   do IO<W.Workspace & Bool & WsHot>:
-    notice : Maybe<&2, String> <- HistIO.history_append_file.check(ws_history.changed_skip(enabled, path, data), path, data)
-    got : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), notice), ckpt, new_ws, affected, path, old_ep, new_ep, cap, allowed)
-    return ws_history.async_noted(got, hot)
+    got : HistIO.Append <- HistIO.history_append_file.outcome(ws_history.changed_skip(enabled, data), path, data)
+    saved : W.Workspace & Bool <- ws_history.got(ws_history.notice(ws_part.st(new_ws, affected), HistIO.append_notice(got)), ckpt, new_ws, affected, path, old_ep, new_ep, cap, allowed)
+    return ws_history.async_noted(saved, hot)
 
 def ws_history_save.branch.changed(have: Bool, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match have:

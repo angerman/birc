@@ -73,6 +73,11 @@ def append_is_ok(got: HistIO.Append) -> Bool:
     case HistIO.Ok{}: True{}
     case _: False{}
 
+def append_is_err(got: HistIO.Append) -> Bool:
+  match got:
+    case HistIO.Err{_}: True{}
+    case _: False{}
+
 def main() -> IO(Unit):
   +path: String = "build/history_io.fixture"
   +old = "BIRC2\ta:6667\t*server*\tMSG\t\ta\t" ++ repeat(300n, "x") ++ "\n"
@@ -105,6 +110,11 @@ def main() -> IO(Unit):
     Unit <- E.must("empty_path_is_skip", append_is_skip(skip_path))
     notice_skip : Maybe<&2, String> <- HistIO.history_append_file(path, "")
     Unit <- E.must("skip_notice_collapses", Maybe.is_none(&2, String, notice_skip))
+    # Durable claims must not treat empty path + nonempty data as Skip success.
+    claim_path : HistIO.Append <- HistIO.history_append_file.claim("", "fixture\n")
+    Unit <- E.must("claim_empty_path_is_err", append_is_err(claim_path))
+    claim_empty : HistIO.Append <- HistIO.history_append_file.claim(path, "")
+    Unit <- E.must("claim_empty_data_is_skip", append_is_skip(claim_empty))
     wrote : HistIO.Append <- HistIO.history_append_file.typed("build/history_io.append", "append-ok\n")
     Unit <- E.must("nonempty_append_is_ok", append_is_ok(wrote))
     IO.print("history_io=ok")

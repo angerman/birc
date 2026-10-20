@@ -235,13 +235,22 @@ def history_notice(got: Maybe<&2, String>, cl: Cl.Client) -> Cl.Client:
     case None{}: cl
     case Some{msg}: Cl.diagnostic(cl, Cl.Error{}, msg)
 
+# Match typed Append: Ok is a durable save; Skip is no durable claim (nothing
+# to write / disabled); Err is log-only via diagnostic. append_notice collapses
+# Ok/Skip for callers that only need the error string.
+def history.flush_got(got: Save.Append, +cl: Cl.Client) -> Cl.Client:
+  match got:
+    case Save.Ok{}: cl
+    case Save.Skip{}: cl
+    case Save.Err{+msg}: Cl.diagnostic(cl, Cl.Error{}, msg)
+
 def history.flush(on: Bool, +path: String, +ep: String, +cl: Cl.Client) -> IO(Cl.Client):
   match on:
     case False{}: IO.pure(Cl.Client, cl)
     case True{}:
       do IO<Cl.Client>:
-        notice : Maybe<&2, String> <- Save.maybe_save_history(path, ep, Cl.init(Cl.nick_of(cl), Cl.server_of(cl)), cl)
-        return history_notice(notice, cl)
+        got : Save.Append <- Save.maybe_save_history.typed(path, ep, Cl.init(Cl.nick_of(cl), Cl.server_of(cl)), cl)
+        return history.flush_got(got, cl)
 
 # Pure merge seam: current_ep from Session; snapshot_ep is the archive claim.
 # Callers must not pass the same string twice for both arguments.
