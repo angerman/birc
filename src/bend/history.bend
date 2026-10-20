@@ -69,12 +69,12 @@ def parse_kind(+s: String) -> Cl.LineKind:
 def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> String:
   match is_recon:
     case True{}: ""
-    case False{}: target ++ "\t" ++ serialize_kind(kind) ++ "\t" ++ ts ++ "\t" ++ text ++ "\n"
+    case False{}: target ++ "\t" ++ serialize_kind(kind) ++ "\t" ++ Cl.stamp_wire(ts) ++ "\t" ++ text ++ "\n"
 
 def serialize_line(+target: String, +ln: Cl.Line) -> String:
   match ln:
     case Cl.Line{+kind, +ts, +text, _, _}:
-      serialize_line.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind), target, kind, ts, text)
+      serialize_line.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind) || Cl.is_day(kind), target, kind, ts, text)
 
 def serialize_lines.go(+target: String, lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
@@ -93,13 +93,13 @@ def serialize_line_for.recon(marker: Bool, +endpoint: String, +target: String, k
     case True{}: ""
     case False{}:
       "BIRC2\t" ++ Irc.sanitize_in(endpoint) ++ "\t" ++ Irc.sanitize_in(target) ++ "\t"
-        ++ serialize_kind(kind) ++ "\t" ++ Irc.sanitize_in(ts) ++ "\t"
+        ++ serialize_kind(kind) ++ "\t" ++ Irc.sanitize_in(Cl.stamp_wire(ts)) ++ "\t"
         ++ Irc.sanitize_in(author) ++ "\t" ++ Irc.sanitize_keep_style(text) ++ "\n"
 
 def serialize_line_for(+endpoint: String, +target: String, line: Cl.Line) -> String:
   match line:
     case Cl.Line{+kind, +ts, +text, +author, _}:
-      serialize_line_for.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind), endpoint, target, kind, ts, text, author)
+      serialize_line_for.recon(Cl.is_reconnect(kind) || Cl.is_link_result(kind) || Cl.is_day(kind), endpoint, target, kind, ts, text, author)
 
 def serialize_lines_for(lines: List<&2, Cl.Line>, +endpoint: String, +target: String) -> String:
   match lines:
@@ -125,6 +125,11 @@ def parse_entry.control(control: Bool, target: String, line: Cl.Line) -> HistEnt
     case True{}: ServerEntry{line}
     case False{}: Entry{target, line}
 
+def parse_line.kind(day: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> Maybe<&2, HistEntry>:
+  match day:
+    case True{}: None{}
+    case False{}: Some{parse_entry.control(Irc.ieq(target, "server"), target, Cl.Line{kind, Cl.stamp_live(ts), text, "", 0n})}
+
 def parse_line_tokens(+tokens: List<&2, String>) -> Maybe<&2, HistEntry>:
   match tokens:
     case Con{+target, rest1}:
@@ -132,7 +137,8 @@ def parse_line_tokens(+tokens: List<&2, String>) -> Maybe<&2, HistEntry>:
         case Con{+kstr, rest2}:
           match rest2:
             case Con{+ts, rest3}:
-              Some{parse_entry.control(Irc.ieq(target, "server"), target, Cl.Line{parse_kind(kstr), ts, join_tokens(rest3), "", 0n})}
+              +kind = parse_kind(kstr)
+              parse_line.kind(Cl.is_day(kind), target, kind, ts, join_tokens(rest3))
             case Nil{}: None{}
         case Nil{}: None{}
     case Nil{}: None{}
@@ -156,7 +162,7 @@ def valid_kind(+kind: String) -> Bool:
 def parse_line_for.valid(ok: Bool, +target: String, +kind: String, +ts: String, +author: String, +text: String) -> Maybe<&2, HistEntry>:
   match ok:
     case False{}: None{}
-    case True{}: Some{parse_entry.control(String.eq(target, "*server*"), target, Cl.Line{parse_kind(kind), ts, text, author, 0n})}
+    case True{}: Some{parse_entry.control(String.eq(target, "*server*"), target, Cl.Line{parse_kind(kind), Cl.stamp_live(ts), text, author, 0n})}
 
 def parse_line_for.tokens(tokens: List<&2, String>, +endpoint: String) -> Maybe<&2, HistEntry>:
   match tokens:

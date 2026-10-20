@@ -101,12 +101,13 @@ def day_label(parts: U32 & U32) -> String:
   match parts:
     case (+ymd, +w): day_label.parts(ymd, w)
 
-# Live clock: day label, newline, HH:MM:SS. Line stamps keep the time half.
+# Live clock: day label, '|', HH:MM:SS. Paint shows the time half; '|' survives
+# Irc.sanitize_in and history's single-line records.
 def stamp() -> IO(String):
   do IO<String>:
     hms : String <- hhmmss()
     civil : U32 & U32 <- local_civil()
-    return day_label(civil) ++ "\n" ++ hms
+    return day_label(civil) ++ "|" ++ hms
 
 law utc_local_parts:
   U32 -> U32 -> U32 -> U32 -> U32 -> U32 -> IO(U32 & U32 & U32)

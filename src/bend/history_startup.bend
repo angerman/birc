@@ -183,7 +183,7 @@ def install_startup.mark(on: Bool, cl: Cl.Client, index: Nat, now: String) -> Cl
       match cl:
         case Cl.Client{nick, host, bufs, active, clock, settings, auth, seq}:
           +next: Nat = 1n+seq
-          +marker: Cl.Line = Cl.Line{Cl.Reconnect{}, "", now, "", next}
+          +marker: Cl.Line = Cl.Line{Cl.Reconnect{}, "", Cl.now_hms(now), "", next}
           Cl.Client{nick, host, Cl.buf_modify(bufs, index, b => Cl.buf_append_line(b, marker)), active, clock, settings, auth, next}
 
 def install_startup.buffers(bufs: List<&2, Cl.Buffer>, +index: Nat, +cutoff: Nat, cl: Cl.Client, +now: String) -> Cl.Client:

@@ -2855,7 +2855,7 @@ def session_label_cmd(+st: Session, +cmd: NetCmd) -> Session & NetCmd:
 
 def pend_now(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}: now
+    case Cl.Client{_, _, _, _, +now, _, _, _}: Cl.now_hms(now)
 
 def pend_record_cont(+st: Session, +outs: List<&2, String>, echo_ok: Bool) -> Session:
   match echo_ok:

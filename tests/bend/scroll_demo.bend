@@ -130,6 +130,24 @@ def long_hidden_run_progresses() -> Bool:
   +b1 = V.scroll_buf(long_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
   Nat.is_lt(scroll_after(buf_scroll(b1)), 61n)
 
+# −: 90 hidden QUITs exceed dn+64 (=67). Without frontier advance, PageDown sticks.
+def over_cap_hidden_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "",
+    List.reverse(&2, Cl.Line,
+      Cl.Line{Cl.Msg{}, "", "NEW", "a", 92n}
+        <> cons_quits(90n, 2n, Cl.Line{Cl.Msg{}, "", "OLD", "a", 1n} <> Nil{})),
+    Nil{}, Cl.ScrollAt{91n, 0n})
+
+def over_cap_hidden_run_progresses() -> Bool:
+  +b1 = V.scroll_buf(over_cap_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  Nat.is_lt(scroll_after(buf_scroll(b1)), 91n)
+
+def over_cap_hidden_run_reaches_live() -> Bool:
+  +b0 = over_cap_hidden_buf()
+  +b1 = V.scroll_buf(b0, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  +b2 = V.scroll_buf(b1, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  is_live(buf_scroll(V.scroll_buf(b2, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("first_row_of_one_wrapped_line", reaches_first())
@@ -143,4 +161,6 @@ def main() -> IO(Unit):
     Unit <- E.must("hidden_newest_page_down_not_stuck", hidden_newest_not_stuck())
     Unit <- E.must("hidden_newest_page_down_reaches_live", hidden_newest_reaches_live())
     Unit <- E.must("long_hidden_run_page_down_progresses", long_hidden_run_progresses())
+    Unit <- E.must("over_cap_hidden_run_page_down_progresses", over_cap_hidden_run_progresses())
+    Unit <- E.must("over_cap_hidden_run_reaches_live", over_cap_hidden_run_reaches_live())
     IO.print("scroll_demo=ok")
