@@ -94,6 +94,18 @@ def day_anchor_tails.buf(got: Maybe<&2, Cl.Buffer>) -> String:
 def day_anchor_tails(cl: Cl.Client) -> String:
   day_anchor_tails.buf(Cl.nth_buf(Cl.client_bufs(cl), 0n))
 
+# Deep older history beyond day_tag_cap must still seed the in-window day bar.
+def deep_monday.go(fuel: Nat, cl: Cl.Client) -> Cl.Client:
+  match fuel:
+    case 0n: cl
+    case 1n+p: deep_monday.go(p, Cl.client_log(cl, 0n, Cl.Msg{}, "<a> pad"))
+
+def deep_live_bars() -> String:
+  +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
+  +padded = deep_monday.go(200n, monday)
+  +tuesday = Cl.client_log(Cl.set_now(padded, "2026-10-20 (Tuesday)|00:01:00"), 0n, Cl.Msg{}, "<a> early")
+  bars_hide_joins(tuesday)
+
 def last_ts.go(lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
     case Nil{}: acc
@@ -132,6 +144,8 @@ def main() -> IO(Unit):
       "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
     Unit <- E.must_eq("scrolled hide-joins keeps the same day bars", bars_hide_joins_scrolled(after_hidden_day),
       "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
+    Unit <- E.must("live paint seeds day bars past a deep older spine",
+      String.contains(deep_live_bars(), "BAR @2026-10-20 (Tuesday)"))
     Unit <- E.must_eq("day bar ScrollAt.tail stays above the live-bottom zero sentinel", day_anchor_tails(tuesday), "9|10|")
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))
