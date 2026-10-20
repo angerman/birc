@@ -171,6 +171,26 @@ def over_cap_hidden_page_up_moves() -> Bool:
   +b1 = V.scroll_buf(over_cap_hidden_page_up_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 3n, 0n)
   Nat.is_gt(scroll_after(buf_scroll(b1)), 0n)
 
+# 40 single-row messages; oldest is after=39. PageUp at the top must stay there.
+def top_snap_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "",
+    List.reverse(&2, Cl.Line, cons_msgs(40n, 1n, Nil{})),
+    Nil{}, Cl.ScrollAt{39n, 0n})
+
+def page_up_at_top_stays() -> Bool:
+  +b1 = V.scroll_buf(top_snap_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 20n, 0n)
+  Nat.is_eq(scroll_after(buf_scroll(b1)), 39n)
+
+# Two live messages; one wheel/row up must land on the older line (after=1).
+def short_up_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "",
+    List.reverse(&2, Cl.Line, cons_msgs(2n, 1n, Nil{})),
+    Nil{}, Cl.ScrollAt{0n, 0n})
+
+def short_up_lands_on_older() -> Bool:
+  +b1 = V.scroll_buf(short_up_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  Nat.is_eq(scroll_after(buf_scroll(b1)), 1n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("first_row_of_one_wrapped_line", reaches_first())
@@ -188,4 +208,6 @@ def main() -> IO(Unit):
     Unit <- E.must("over_cap_hidden_run_reaches_live", over_cap_hidden_run_reaches_live())
     Unit <- E.must("over_cap_hidden_live_paint_shows_old", over_cap_hidden_live_shows_old())
     Unit <- E.must("over_cap_hidden_page_up_moves", over_cap_hidden_page_up_moves())
+    Unit <- E.must("page_up_at_oldest_stays", page_up_at_top_stays())
+    Unit <- E.must("short_up_from_live_lands_on_older", short_up_lands_on_older())
     IO.print("scroll_demo=ok")

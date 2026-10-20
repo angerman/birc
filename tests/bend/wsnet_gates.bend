@@ -388,45 +388,153 @@ def prefs_live_wrong(result: PrefLive.Context & Sess.Session & List<&2, String> 
 
 def prefs_shut_fields(+shut: WsNet.WsShut, wanted_active: Bool, wanted_done: Bool, wanted_owner: Bool) -> Bool:
   match shut:
-    case WsNet.WsShut{[Key.ServerId{0n}, Key.ServerId{1n}], +ctx, +st, Key.ServerId{1n}, owner, True{}, 1234, done}:
+    case WsNet.WsShut{[Key.ServerId{0n}, Key.ServerId{1n}], +ctx, +st, Key.ServerId{1n}, owner, True{}, 1234, done, _}:
       prefs_metadata(ctx) && String.eq(Sess.session_draft(st), "preserved draft") && U32.is_eq(Sess.session_seed(st), 19)
         && Bool.not(Bool.xor(PrefLive.active(ctx), wanted_active)) && Bool.not(Bool.xor(done, wanted_done))
         && Bool.not(Bool.xor(prefs_owner(owner), wanted_owner))
     case _: False{}
 
 def prefs_shut(m: Sess.UiMsg, ctx: PrefLive.Context, st: Sess.Session, owner: Maybe<&2, WsNet.WsLease>) -> WsNet.WsShut:
-  WsNet.ws_shut.reject(m, [s0(), s1()], ctx, st, s1(), owner, True{}, 1234, False{})
+  WsNet.ws_shut.reject(m, [s0(), s1()], ctx, st, s1(), owner, True{}, 1234, False{}, False{})
 
 def prefs_shut_no_owner(shut: WsNet.WsShut) -> Bool:
   match shut:
-    case WsNet.WsShut{_, _, _, _, None{}, _, _, _}: True{}
+    case WsNet.WsShut{_, _, _, _, None{}, _, _, _, _}: True{}
     case _: False{}
 
 def prefs_shut_failed(shut: WsNet.WsShut) -> Bool:
   match shut:
-    case WsNet.WsShut{[Key.ServerId{0n}, Key.ServerId{1n}], +ctx, st, Key.ServerId{1n}, None{}, False{}, 1234, True{}}:
+    case WsNet.WsShut{[Key.ServerId{0n}, Key.ServerId{1n}], +ctx, st, Key.ServerId{1n}, None{}, False{}, 1234, True{}, _}:
       prefs_metadata(ctx) && Bool.not(PrefLive.active(ctx)) && String.eq(Sess.session_draft(st), "preserved draft")
     case _: False{}
 
-def prefs_guards() -> IO(Unit):
-  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+def prefs_deadline_done(+shut: WsNet.WsShut) -> Bool:
+  match shut:
+    case WsNet.WsShut{_, _, _, _, _, _, _, +done, _}: done
+
+def prefs_deadline_hist(+shut: WsNet.WsShut, wanted: Bool) -> Bool:
+  Bool.not(Bool.xor(WsNet.ws_shut.deadline_kept(shut), wanted))
+
+# Singleton-list boxes: a live Session/Workspace flattens past the pinned
+# 247-word continuation cap after Client.welcomed growth. Boxing keeps bind
+# captures narrow (media_history / ws_shutdown_pending idiom); use sites
+# unbox transiently. Nil arms are unreachable by construction.
+type SBox is Data:
+  SBox{cell: List<&2, Sess.Session>}
+
+
+type WBox is Data:
+  WBox{cell: List<&2, W.Workspace>}
+
+
+type FBox is Data:
+  FBox{cell: List<&2, FirstOut>}
+
+
+type LBox is Data:
+  LBox{cell: List<&2, WsNet.WsLoop>}
+
+
+def sbox(+st: Sess.Session) -> SBox:
+  SBox{st <> Nil{}}
+
+
+def sunbox.cell(+cell: List<&2, Sess.Session>) -> Sess.Session:
+  match cell:
+    case Con{+st, _}: st
+    case Nil{}: Sess.session_with_client_at(Cl.init("me", "h.example"), "#a", 6697)
+
+
+def sunbox(+b: SBox) -> Sess.Session:
+  match b:
+    case SBox{+cell}: sunbox.cell(cell)
+
+
+def wbox(+ws: W.Workspace) -> WBox:
+  WBox{ws <> Nil{}}
+
+
+def wunbox.cell(+cell: List<&2, W.Workspace>) -> W.Workspace:
+  match cell:
+    case Con{+ws, _}: ws
+    case Nil{}: direct_ws0()
+
+
+def wunbox(+b: WBox) -> W.Workspace:
+  match b:
+    case WBox{+cell}: wunbox.cell(cell)
+
+
+def fbox(+trip: FirstOut) -> FBox:
+  FBox{trip <> Nil{}}
+
+
+def funbox.cell(+cell: List<&2, FirstOut>) -> FirstOut:
+  match cell:
+    case Con{+trip, _}: trip
+    case Nil{}: FirstOut{direct_ws0(), Sid.cont_for(s0(), Nil{}), False{}}
+
+
+def funbox(+b: FBox) -> FirstOut:
+  match b:
+    case FBox{+cell}: funbox.cell(cell)
+
+
+def lbox(+loop: WsNet.WsLoop) -> LBox:
+  LBox{loop <> Nil{}}
+
+
+def lunbox.cell(+cell: List<&2, WsNet.WsLoop>) -> List<&2, WsNet.WsLoop>:
+  cell
+
+
+def lunbox(+b: LBox) -> List<&2, WsNet.WsLoop>:
+  match b:
+    case LBox{+cell}: lunbox.cell(cell)
+
+
+def prefs_draft_st() -> Sess.Session:
+  Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "prefs.test"), "#a", 6697), "preserved draft", 19)
+
+# Preferences guards: one-Part/Session phases so mixed prefs sets never hold
+# many live fat binders in one flat environment (ws_shutdown_pending idiom).
+
+
+# Preferences guards: one-Part/Session phases so mixed prefs sets never hold
+# many live fat binders in one flat environment (ws_shutdown_pending idiom).
+def prefs_ph_lease() -> IO(Unit):
   +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
   +held : Maybe<&2, WsNet.WsLease> = Some{WsNet.WsLease{s0(), 3}}
-  +new_ws : W.Workspace = W.Workspace{[np_post()], s0(), W.ws_drafts(direct_ws0()), Nil{}}
-  +removed_ws : W.Workspace = W.Workspace{Nil{}, s1(), W.ws_drafts(direct_ws0()), Nil{}}
+  +new_ws = wbox(W.Workspace{[np_post()], s0(), W.ws_drafts(direct_ws0()), Nil{}})
+  +removed_ws = wbox(W.Workspace{Nil{}, s1(), W.ws_drafts(direct_ws0()), Nil{}})
+  do IO<Unit>:
+    Unit <- E.must("prefs physical lease survives reconnect", prefs_owner(WsNet.ws_prefs.owner(write, held, wunbox(new_ws))))
+    Unit <- E.must("prefs physical lease survives removed origin", prefs_owner(WsNet.ws_prefs.owner(write, held, wunbox(removed_ws))))
+    Unit <- E.must("inactive prefs clears physical owner", prefs_no_owner(WsNet.ws_prefs.owner(prefs_ctx(PR.Disabled{}), held, wunbox(new_ws))))
+    IO.pure(Unit, Unit{})
+
+
+def prefs_ph_stale() -> IO(Unit):
+  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
   +saved = prefs_cached(prefs_after_reconnect(Sess.PreferencesSaved{41n, 0}, write))
   +loaded = prefs_cached(prefs_after_reconnect(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read))
-  +wrong_write = prefs_cached(prefs_after_reconnect(Sess.PreferencesSaved{40n, 408}, write))
-  +wrong_read = prefs_cached(prefs_after_reconnect(Sess.PreferencesLoaded{40n, Some{stored_on()}, 408}, read))
-  +queued = prefs_ctx(prefs_state(False{}, "prefs.test", [PR.Write{0n, "prefs.test", 6697, prefs_snapshot()}]))
-  +st = Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "prefs.test"), "#a", 6697), "preserved draft", 19)
   do IO<Unit>:
-    Unit <- E.must("prefs physical lease survives reconnect", prefs_owner(WsNet.ws_prefs.owner(write, held, new_ws)))
-    Unit <- E.must("prefs physical lease survives removed origin", prefs_owner(WsNet.ws_prefs.owner(write, held, removed_ws)))
-    Unit <- E.must("inactive prefs clears physical owner", prefs_no_owner(WsNet.ws_prefs.owner(prefs_ctx(PR.Disabled{}), held, new_ws)))
     Unit <- E.must("stale exact Saved retires active ticket", Bool.not(PrefLive.active(prefs_result.ctx(prefs_pair(saved)))) && prefs_no_owner(prefs_result.owner(prefs_pair(saved))) && prefs_metadata(prefs_result.ctx(prefs_pair(saved))))
     Unit <- E.must("stale exact Loaded retires without accepting settings", prefs_read_retired(prefs_result.ctx(prefs_pair(loaded))) && prefs_no_owner(prefs_result.owner(prefs_pair(loaded))))
     Unit <- E.must("stale exact Loaded permits fresh current read", prefs_fresh_read(PR.take(prefs_runtime(prefs_result.ctx(prefs_pair(loaded))))))
+    Unit <- E.must("duplicate Saved failure cannot change settled clean state", PR.clean(prefs_runtime(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesSaved{41n, 408}, prefs_result.ctx(prefs_pair(saved)), None{})))))
+    IO.pure(Unit, Unit{})
+
+
+def prefs_ph_wrong() -> IO(Unit):
+  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
+  +held : Maybe<&2, WsNet.WsLease> = Some{WsNet.WsLease{s0(), 3}}
+  +wrong_write = prefs_cached(prefs_after_reconnect(Sess.PreferencesSaved{40n, 408}, write))
+  +wrong_read = prefs_cached(prefs_after_reconnect(Sess.PreferencesLoaded{40n, Some{stored_on()}, 408}, read))
+  +queued = prefs_ctx(prefs_state(False{}, "prefs.test", [PR.Write{0n, "prefs.test", 6697, prefs_snapshot()}]))
+  do IO<Unit>:
     Unit <- E.must("wrong Saved keeps exact physical owner", PrefLive.active(prefs_result.ctx(prefs_pair(wrong_write))) && prefs_owner(prefs_result.owner(prefs_pair(wrong_write))) && PR.clean(prefs_runtime(prefs_result.ctx(prefs_pair(wrong_write)))))
     Unit <- E.must("wrong Loaded keeps exact physical owner", PrefLive.active(prefs_result.ctx(prefs_pair(wrong_read))) && prefs_owner(prefs_result.owner(prefs_pair(wrong_read))) && PR.clean(prefs_runtime(prefs_result.ctx(prefs_pair(wrong_read)))))
     Unit <- E.must("wrong Saved cannot overlap fresh helper", PR.no_job(PR.take(prefs_runtime(prefs_result.ctx(prefs_pair(wrong_write))))))
@@ -440,24 +548,69 @@ def prefs_guards() -> IO(Unit):
     Unit <- E.must("disabled write completion stays inactive", Bool.not(PrefLive.busy(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesSaved{41n, 408}, prefs_ctx(PR.Disabled{}), None{})))))
     Unit <- E.must("disabled read completion stays inactive", Bool.not(PrefLive.busy(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesLoaded{41n, Some{stored_on()}, 408}, prefs_ctx(PR.Disabled{}), None{})))))
     Unit <- E.must("reset read completion cannot restore active job", Bool.not(PrefLive.active(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, prefs_ctx(PR.clear(prefs_state(True{}, "prefs.test", Nil{}))), None{})))))
-    Unit <- E.must("duplicate Saved failure cannot change settled clean state", PR.clean(prefs_runtime(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesSaved{41n, 408}, prefs_result.ctx(prefs_pair(saved)), None{})))))
     Unit <- E.must("exact stale Saved failure keeps lost-intent status", Bool.not(PR.clean(prefs_runtime(prefs_result.ctx(WsNet.ws_prefs.rejected(Sess.PreferencesSaved{41n, 408}, write, held))))))
-    Unit <- E.must("valid first read still applies distinct settings and channels", prefs_live_read(PrefLive.loaded(prefs_first_read(st), st, 7, 1n, Some{prefs_stored_changed()}, 0)))
-    Unit <- E.must("valid live write failure still retains notice paint", prefs_live_saved(PrefLive.saved(write, st, 41n, 408)))
-    Unit <- E.must("wrong live read ticket cannot apply or retire", prefs_live_wrong(PrefLive.loaded(read, st, 7, 40n, Some{stored_on()}, 408)))
-    Unit <- E.must("wrong live write ticket cannot log or retire", prefs_live_wrong(PrefLive.saved(write, st, 40n, 408)))
-    Unit <- E.must("shutdown foreign exact Saved retires without changing fields", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, st, held), False{}, True{}, False{}))
-    Unit <- E.must("shutdown no-owner exact Saved retires without changing fields", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, st, None{}), False{}, True{}, False{}))
-    Unit <- E.must("shutdown foreign wrong Saved keeps active job and wait", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{40n, 408}, write, st, held), True{}, False{}, True{}))
-    Unit <- E.must("shutdown foreign exact Loaded retires but keeps fresh-read drain", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, st, held), False{}, False{}, False{}))
-    Unit <- E.must("shutdown no-owner exact Loaded retires but keeps fresh-read drain", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, st, None{}), False{}, False{}, False{}))
-    Unit <- E.must("shutdown foreign wrong Loaded keeps active job and wait", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{40n, Some{stored_on()}, 408}, read, st, held), True{}, False{}, True{}))
-    Unit <- E.must("shutdown exact stale failure remains failed without Session effect", prefs_shut_failed(prefs_shut(Sess.PreferencesSaved{41n, 408}, write, st, held)))
-    Unit <- E.must("shutdown foreign exact Saved clears physical owner to None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, st, held)))
-    Unit <- E.must("shutdown no-owner exact Saved stays None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, st, None{})))
-    Unit <- E.must("shutdown foreign exact Loaded clears physical owner to None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, st, held)))
-    Unit <- E.must("shutdown no-owner exact Loaded stays None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, st, None{})))
     IO.pure(Unit, Unit{})
+
+
+def prefs_ph_live() -> IO(Unit):
+  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
+  +st = sbox(prefs_draft_st())
+  do IO<Unit>:
+    Unit <- E.must("valid first read still applies distinct settings and channels", prefs_live_read(PrefLive.loaded(prefs_first_read(sunbox(st)), sunbox(st), 7, 1n, Some{prefs_stored_changed()}, 0)))
+    Unit <- E.must("valid live write failure still retains notice paint", prefs_live_saved(PrefLive.saved(write, sunbox(st), 41n, 408)))
+    Unit <- E.must("wrong live read ticket cannot apply or retire", prefs_live_wrong(PrefLive.loaded(read, sunbox(st), 7, 40n, Some{stored_on()}, 408)))
+    Unit <- E.must("wrong live write ticket cannot log or retire", prefs_live_wrong(PrefLive.saved(write, sunbox(st), 40n, 408)))
+    IO.pure(Unit, Unit{})
+
+
+def prefs_ph_shut() -> IO(Unit):
+  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
+  +held : Maybe<&2, WsNet.WsLease> = Some{WsNet.WsLease{s0(), 3}}
+  +st = sbox(prefs_draft_st())
+  do IO<Unit>:
+    Unit <- E.must("shutdown foreign exact Saved retires without changing fields", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, sunbox(st), held), False{}, True{}, False{}))
+    Unit <- E.must("shutdown no-owner exact Saved retires without changing fields", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, sunbox(st), None{}), False{}, True{}, False{}))
+    Unit <- E.must("shutdown foreign wrong Saved keeps active job and wait", prefs_shut_fields(prefs_shut(Sess.PreferencesSaved{40n, 408}, write, sunbox(st), held), True{}, False{}, True{}))
+    Unit <- E.must("shutdown foreign exact Loaded retires but keeps fresh-read drain", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, sunbox(st), held), False{}, False{}, False{}))
+    Unit <- E.must("shutdown no-owner exact Loaded retires but keeps fresh-read drain", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, sunbox(st), None{}), False{}, False{}, False{}))
+    Unit <- E.must("shutdown foreign wrong Loaded keeps active job and wait", prefs_shut_fields(prefs_shut(Sess.PreferencesLoaded{40n, Some{stored_on()}, 408}, read, sunbox(st), held), True{}, False{}, True{}))
+    Unit <- E.must("shutdown exact stale failure remains failed without Session effect", prefs_shut_failed(prefs_shut(Sess.PreferencesSaved{41n, 408}, write, sunbox(st), held)))
+    Unit <- E.must("shutdown foreign exact Saved clears physical owner to None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, sunbox(st), held)))
+    Unit <- E.must("shutdown no-owner exact Saved stays None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesSaved{41n, 0}, write, sunbox(st), None{})))
+    Unit <- E.must("shutdown foreign exact Loaded clears physical owner to None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, sunbox(st), held)))
+    Unit <- E.must("shutdown no-owner exact Loaded stays None", prefs_shut_no_owner(prefs_shut(Sess.PreferencesLoaded{41n, Some{stored_on()}, 0}, read, sunbox(st), None{})))
+    IO.pure(Unit, Unit{})
+
+
+def prefs_ph_deadline() -> IO(Unit):
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
+  +st = sbox(prefs_draft_st())
+  do IO<Unit>:
+    Unit <- E.must("deadline while busy does not sticky-done", Bool.not(prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}))))
+    Unit <- E.must("deadline while idle settles prefs done", prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], prefs_ctx(PR.Disabled{}), sunbox(st), s1(), 1234, True{})))
+    Unit <- E.must("deadline keeps outstanding history", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}), True{}))
+    Unit <- E.must("deadline keeps cleared history false", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, False{}), False{}))
+    Unit <- E.must("settle tracks live busy not sticky latch", WsNet.ws_shut.settle(prefs_ctx(PR.Disabled{})) && Bool.not(WsNet.ws_shut.settle(write)))
+    IO.pure(Unit, Unit{})
+
+# Preferences guards: sequence phases only after each prefs_ph_* is defined
+# (Bend rejects unfilled forward names).
+
+
+# Preferences guards: sequence phases only after each prefs_ph_* is defined
+# (Bend rejects unfilled forward names).
+def prefs_guards() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- prefs_ph_lease()
+    Unit <- prefs_ph_stale()
+    Unit <- prefs_ph_wrong()
+    Unit <- prefs_ph_live()
+    Unit <- prefs_ph_shut()
+    Unit <- prefs_ph_deadline()
+    IO.pure(Unit, Unit{})
+
 
 def prefs_notice_quiet.got(result: PrefsCompletion, wanted_clean: Bool) -> Bool:
   match result:
@@ -467,8 +620,10 @@ def prefs_notice_quiet.got(result: PrefsCompletion, wanted_clean: Bool) -> Bool:
         && Bool.not(Bool.xor(PR.clean(prefs_runtime(ctx)), wanted_clean))
     case _: False{}
 
+
 def prefs_notice_quiet(result: PrefLive.Context & Sess.Session & List<&2, String> & Bool, wanted_clean: Bool) -> Bool:
   prefs_notice_quiet.got(prefs_completion(result), wanted_clean)
+
 
 def prefs_notice_logged.got(result: PrefsCompletion) -> Bool:
   match result:
@@ -477,31 +632,30 @@ def prefs_notice_logged.got(result: PrefsCompletion) -> Bool:
         && Nat.is_eq(List.length(&2, Cl.Buffer, Cl.log_buffers(Sess.session_cl(st))), 1n) && paint
     case _: False{}
 
+
 def prefs_notice_logged(result: PrefLive.Context & Sess.Session & List<&2, String> & Bool) -> Bool:
   prefs_notice_logged.got(prefs_completion(result))
+
 
 def prefs_global_state(+read: Bool, host: String, port: U32) -> PR.State:
   +snapshot = P.capture(Cl.init("me", "display.test"), True{}, Nil{})
   +job = Bool.pick(PR.Job, read, PR.Read{41n, "", 0, 0n, Nil{}}, PR.Write{41n, "", 0, snapshot})
   PR.State{host, port, 42n, Some{job}, PR.Queue{Nil{}, 0, False{}}, Bool.not(read), False{}, False{}, snapshot, prefs_mask(), 0n, False{}, False{}}
 
+
 def prefs_fresh_owner(owner: Maybe<&2, WsNet.WsLease>) -> Bool:
   match owner:
     case Some{WsNet.WsLease{Key.ServerId{1n}, 7}}: True{}
     case _: False{}
 
-def prefs_owner_guards() -> IO(Unit):
+
+def prefs_owner_ph_bind() -> IO(Unit):
   +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
   +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
   +held : Maybe<&2, WsNet.WsLease> = Some{WsNet.WsLease{s0(), 3}}
-  +st = Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "prefs.test"), "#a", 6697), "preserved draft", 19)
-  +other = Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "other.test"), "#a", 6697), "preserved draft", 19)
-  +wrong_port = Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "prefs.test"), "#a", 7000), "preserved draft", 19)
-  +global_read = prefs_ctx(prefs_global_state(True{}, "", 0))
-  +global_write = prefs_ctx(prefs_global_state(False{}, "", 0))
-  +shown_global = Sess.session_upload_draft(Sess.session_demo(Cl.init("me", "display.test"), "#a"), "preserved draft", 19)
+  +st = sbox(prefs_draft_st())
   do IO<Unit>:
-    Unit <- E.must("foreign prefs binding is neither the old owner nor None", Bool.not(prefs_owner(Some{WsNet.WsLease{s1(), 7}})) && Bool.not(prefs_shut_no_owner(WsNet.WsShut{[s0(), s1()], write, st, s1(), Some{WsNet.WsLease{s1(), 7}}, True{}, 1234, False{}})))
+    Unit <- E.must("foreign prefs binding is neither the old owner nor None", Bool.not(prefs_owner(Some{WsNet.WsLease{s1(), 7}})) && Bool.not(prefs_shut_no_owner(WsNet.WsShut{[s0(), s1()], write, sunbox(st), s1(), Some{WsNet.WsLease{s1(), 7}}, True{}, 1234, False{}, False{}})))
     Unit <- E.must("shutdown carried physical owner never retags to current", prefs_owner(WsNet.ws_shut.owner(True{}, write, held, s1(), 7)))
     Unit <- E.must("shutdown fresh physical job takes spawning origin", prefs_fresh_owner(WsNet.ws_shut.owner(False{}, write, held, s1(), 7)))
     Unit <- E.must("shutdown settled physical job clears old binding", prefs_no_owner(WsNet.ws_shut.owner(True{}, prefs_ctx(PR.Disabled{}), held, s1(), 7)))
@@ -509,68 +663,84 @@ def prefs_owner_guards() -> IO(Unit):
     Unit <- E.must("shutdown merely waiting state cannot claim unspawned owner", prefs_no_owner(WsNet.ws_shut.owner(False{}, prefs_ctx(PR.clear(prefs_state(True{}, "prefs.test", Nil{}))), held, s1(), 7)))
     Unit <- E.must("read current requires exact active ticket", PR.read_current(prefs_runtime(read), 41n) && Bool.not(PR.read_current(prefs_runtime(read), 40n)))
     Unit <- E.must("write actual scope requires exact ticket and endpoint", PR.write_at(prefs_runtime(write), 41n, "prefs.test", 6697) && Bool.not(PR.write_at(prefs_runtime(write), 40n, "prefs.test", 6697)) && Bool.not(PR.write_at(prefs_runtime(write), 41n, "other.test", 6697)))
-    Unit <- E.must("foreign Saved error retires without Session notice", prefs_notice_quiet(PrefLive.saved(write, other, 41n, 408), False{}))
-    Unit <- E.must("wrong-port Saved error retires without Session notice", prefs_notice_quiet(PrefLive.saved(write, wrong_port, 41n, 408), False{}))
-    Unit <- E.must("foreign Loaded error retires without Session notice", prefs_notice_quiet(PrefLive.loaded(read, other, 7, 41n, None{}, 408), True{}))
-    Unit <- E.must("wrong-port Loaded error retires without Session notice", prefs_notice_quiet(PrefLive.loaded(read, wrong_port, 7, 41n, None{}, 408), True{}))
-    Unit <- E.must("valid original Saved scope retains notice after focus moves", prefs_notice_logged(PrefLive.saved(prefs_ctx(prefs_state(False{}, "other.test", Nil{})), st, 41n, 408)))
-    Unit <- E.must("valid current Saved error still logs", prefs_notice_logged(PrefLive.saved(write, st, 41n, 408)))
-    Unit <- E.must("valid global Saved error still logs despite displayed host", prefs_notice_logged(PrefLive.saved(global_write, shown_global, 41n, 408)))
-    Unit <- E.must("valid gen-zero global Loaded error still logs", prefs_notice_logged(PrefLive.loaded(global_read, shown_global, 0, 41n, None{}, 408)))
-    Unit <- E.must("wrong global Saved ticket keeps active kind without notice", prefs_live_wrong(PrefLive.saved(global_write, shown_global, 40n, 408)))
-    Unit <- E.must("wrong global Loaded ticket keeps active kind without notice", prefs_live_wrong(PrefLive.loaded(global_read, shown_global, 0, 40n, None{}, 408)))
-    Unit <- E.must("wrong global completion kind cannot admit Saved notice", prefs_live_wrong(PrefLive.saved(global_read, shown_global, 41n, 408)))
-    Unit <- E.must("wrong global completion kind cannot admit Loaded notice", prefs_live_wrong(PrefLive.loaded(global_write, shown_global, 0, 41n, None{}, 408)))
-    Unit <- E.must("moved global Saved scope retires quietly but preserves loss", prefs_notice_quiet(PrefLive.saved(prefs_ctx(prefs_global_state(False{}, "prefs.test", 6697)), st, 41n, 408), False{}))
-    Unit <- E.must("moved global Loaded scope retires without current notice", prefs_notice_quiet(PrefLive.loaded(global_read, st, 7, 41n, None{}, 408), True{}))
     IO.pure(Unit, Unit{})
 
-def main() -> IO(Unit):
-  +ws2 = two_part_ws()
-  +ws_media = set_media(set_media(ws2, s0(), media_with(ready1("https://x.test/a.png", 11) <> ready1("https://x.test/b.png", 12) <> Nil{})), s1(), media_with(ready1("https://x.test/c.png", 21) <> Nil{}))
-  +parts = W.ws_parts(ws_media)
-  +st0 = st_with(ready1("https://x.test/a.png", 11) <> Nil{})
-  +big0 : List<&2, M.MediaReady> = ready1("u0", 1) <> ready1("u1", 2) <> ready1("u2", 3) <> ready1("u3", 4) <> ready1("u4", 5) <> Nil{}
-  +big1 : List<&2, M.MediaReady> = ready1("v0", 6) <> ready1("v1", 7) <> ready1("v2", 8) <> ready1("v3", 9) <> ready1("v4", 10) <> Nil{}
-  +ws_big = set_media(set_media(ws2, s0(), media_with(big0)), s1(), media_with(big1))
-  +st_big0 = st_with(big0)
-  +trip_images = FirstOut.from(WsNet.ws_first.act(ws2, "/images off", True{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{}))
-  +keyed = trip_ws(trip_images)
-  +kst = W.current_session(keyed)
-  +seed0 = Sess.session_set_media(kst, M.initial(WsNet.ws_load.images_on(kst, True{})))
-  +full8 : List<&2, M.MediaReady> = ready1("a0", 41) <> ready1("a1", 42) <> ready1("a2", 43) <> ready1("a3", 44) <> ready1("a4", 45) <> ready1("a5", 46) <> ready1("a6", 47) <> ready1("a7", 48) <> Nil{}
-  +ws_full = set_media(set_media(ws2, s0(), media_with(full8)), s1(), media_with(Nil{}))
-  +full7 : List<&2, M.MediaReady> = ready1("b0", 51) <> ready1("b1", 52) <> ready1("b2", 53) <> ready1("b3", 54) <> ready1("b4", 55) <> ready1("b5", 56) <> ready1("b6", 57) <> Nil{}
-  +ws_room7 = set_media(set_media(ws2, s0(), media_with(full7)), s1(), media_with(Nil{}))
-  +b_active = b_active_st()
-  +b_fresh = b_fresh_st()
-  +b_rejected = b_rejected_st()
-  +b_wrong = b_wrong_st()
-  +b_stale = b_stale_st()
-  +b_off_active = b_off_active_st()
-  +b_off_fresh = b_off_fresh_st()
-  +trip_connect = FirstOut.from(WsNet.ws_first.act(direct_ws0(), "/connect b.example 6697", True{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{}))
-  +keyed_b = trip_ws(trip_connect)
-  +rc_b = trip_rc(trip_connect)
-  +trip_type = FirstOut.from(WsNet.ws_first.act(direct_ws0(), "hi", False{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{}))
-  +keyed_type = trip_ws(trip_type)
-  +rc_type = trip_rc(trip_type)
+
+def prefs_owner_ph_notice() -> IO(Unit):
+  +read = prefs_ctx(prefs_state(True{}, "prefs.test", Nil{}))
+  +write = prefs_ctx(prefs_state(False{}, "prefs.test", Nil{}))
+  +st = sbox(prefs_draft_st())
+  +other = sbox(Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "other.test"), "#a", 6697), "preserved draft", 19))
+  +wrong_port = sbox(Sess.session_upload_draft(Sess.session_with_client_at(Cl.init("me", "prefs.test"), "#a", 7000), "preserved draft", 19))
   do IO<Unit>:
-    # Upload origin/generation +/- seam; no completion policy is reimplemented.
-    Unit <- E.must("upload lease exact origin admitted", WsNet.ws_lease.up_has(upload_lease_records(), s1(), W.part_gen_of(upload_lease_workspace(), s1())))
+    Unit <- E.must("foreign Saved error retires without Session notice", prefs_notice_quiet(PrefLive.saved(write, sunbox(other), 41n, 408), False{}))
+    Unit <- E.must("wrong-port Saved error retires without Session notice", prefs_notice_quiet(PrefLive.saved(write, sunbox(wrong_port), 41n, 408), False{}))
+    Unit <- E.must("foreign Loaded error retires without Session notice", prefs_notice_quiet(PrefLive.loaded(read, sunbox(other), 7, 41n, None{}, 408), True{}))
+    Unit <- E.must("wrong-port Loaded error retires without Session notice", prefs_notice_quiet(PrefLive.loaded(read, sunbox(wrong_port), 7, 41n, None{}, 408), True{}))
+    Unit <- E.must("valid original Saved scope retains notice after focus moves", prefs_notice_logged(PrefLive.saved(prefs_ctx(prefs_state(False{}, "other.test", Nil{})), sunbox(st), 41n, 408)))
+    Unit <- E.must("valid current Saved error still logs", prefs_notice_logged(PrefLive.saved(write, sunbox(st), 41n, 408)))
+    IO.pure(Unit, Unit{})
+
+
+def prefs_owner_ph_global() -> IO(Unit):
+  +global_read = prefs_ctx(prefs_global_state(True{}, "", 0))
+  +global_write = prefs_ctx(prefs_global_state(False{}, "", 0))
+  +st = sbox(prefs_draft_st())
+  +shown_global = sbox(Sess.session_upload_draft(Sess.session_demo(Cl.init("me", "display.test"), "#a"), "preserved draft", 19))
+  do IO<Unit>:
+    Unit <- E.must("valid global Saved error still logs despite displayed host", prefs_notice_logged(PrefLive.saved(global_write, sunbox(shown_global), 41n, 408)))
+    Unit <- E.must("valid gen-zero global Loaded error still logs", prefs_notice_logged(PrefLive.loaded(global_read, sunbox(shown_global), 0, 41n, None{}, 408)))
+    Unit <- E.must("wrong global Saved ticket keeps active kind without notice", prefs_live_wrong(PrefLive.saved(global_write, sunbox(shown_global), 40n, 408)))
+    Unit <- E.must("wrong global Loaded ticket keeps active kind without notice", prefs_live_wrong(PrefLive.loaded(global_read, sunbox(shown_global), 0, 40n, None{}, 408)))
+    Unit <- E.must("wrong global completion kind cannot admit Saved notice", prefs_live_wrong(PrefLive.saved(global_read, sunbox(shown_global), 41n, 408)))
+    Unit <- E.must("wrong global completion kind cannot admit Loaded notice", prefs_live_wrong(PrefLive.loaded(global_write, sunbox(shown_global), 0, 41n, None{}, 408)))
+    Unit <- E.must("moved global Saved scope retires quietly but preserves loss", prefs_notice_quiet(PrefLive.saved(prefs_ctx(prefs_global_state(False{}, "prefs.test", 6697)), sunbox(st), 41n, 408), False{}))
+    Unit <- E.must("moved global Loaded scope retires without current notice", prefs_notice_quiet(PrefLive.loaded(global_read, sunbox(st), 7, 41n, None{}, 408), True{}))
+    IO.pure(Unit, Unit{})
+
+# Owner guards: sequence after prefs_owner_ph_* defs.
+
+
+# Owner guards: sequence after prefs_owner_ph_* defs.
+def prefs_owner_guards() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- prefs_owner_ph_bind()
+    Unit <- prefs_owner_ph_notice()
+    Unit <- prefs_owner_ph_global()
+    IO.pure(Unit, Unit{})
+
+# The pinned native backend permits at most 247 flattened capture words
+# per continuation. One giant main holding many live Sessions/Workspaces
+# breaches it after Client.welcomed growth; each phase below boxes fat
+# captures and main only sequences phases (session_drafts_demo precedent).
+
+
+# The pinned native backend permits at most 247 flattened capture words
+# per continuation. One giant main holding many live Sessions/Workspaces
+# breaches it after Client.welcomed growth; each phase below boxes fat
+# captures and main only sequences phases (session_drafts_demo precedent).
+def ph_upload() -> IO(Unit):
+  +ws = wbox(upload_lease_workspace())
+  +stamped = sbox(upload_lease_stamped())
+  do IO<Unit>:
+    Unit <- E.must("upload lease exact origin admitted", WsNet.ws_lease.up_has(upload_lease_records(), s1(), W.part_gen_of(wunbox(ws), s1())))
     Unit <- E.must("upload lease wrong origin refused", Bool.not(WsNet.ws_lease.up_has(upload_lease_records(), s0(), 43)))
     Unit <- E.must("upload lease stale generation refused", Bool.not(WsNet.ws_lease.up_has(upload_lease_records(), s1(), 42)))
     Unit <- E.must("upload lease wrong generation refused", Bool.not(WsNet.ws_lease.up_has(upload_lease_records(), s1(), 44)))
     Unit <- E.must("upload lease missing record refused", Bool.not(WsNet.ws_lease.up_has(Nil{}, s1(), 43)))
-    Unit <- E.must("upload lease current decoy not admitted", Key.eq(W.ws_current(upload_lease_workspace()), s0()) && U32.is_eq(W.part_gen_of(upload_lease_workspace(), s1()), 43) && Bool.not(WsNet.ws_lease.up_has(upload_lease_records(), W.ws_current(upload_lease_workspace()), W.part_gen_of(upload_lease_workspace(), W.ws_current(upload_lease_workspace())))))
-    Unit <- E.must_eq("upload original timestamp nondefault", upload_lease_now(Sess.session_cl(WsNet.ws_part.st(upload_lease_workspace(), s1()))), "origin-old")
-    Unit <- E.must_eq("upload stamped Session timestamp exact", upload_lease_now(Sess.session_cl(upload_lease_stamped())), "10:20:30")
-    Unit <- E.must_eq("upload stamped Session draft retained", Sess.session_draft(upload_lease_stamped()), "keep upload draft")
-    Unit <- E.must_eq("upload stamped Session seed retained", U32.show(Sess.session_seed(upload_lease_stamped())), "17")
-    Unit <- E.must_eq("upload stamped Session origin retained", Cl.server_of(Sess.session_cl(upload_lease_stamped())), "upload.example")
-    Unit <- E.must_eq("upload current decoy draft is distinct", Sess.session_draft(W.current_session(upload_lease_workspace())), "decoy draft")
-    Unit <- E.must_eq("upload current decoy seed is distinct", U32.show(Sess.session_seed(W.current_session(upload_lease_workspace()))), "99")
-    # M2/G2 envelope: free, exactness, liveness.
+    Unit <- E.must("upload lease current decoy not admitted", Key.eq(W.ws_current(wunbox(ws)), s0()) && U32.is_eq(W.part_gen_of(wunbox(ws), s1()), 43) && Bool.not(WsNet.ws_lease.up_has(upload_lease_records(), W.ws_current(wunbox(ws)), W.part_gen_of(wunbox(ws), W.ws_current(wunbox(ws))))))
+    Unit <- E.must_eq("upload original timestamp nondefault", upload_lease_now(Sess.session_cl(WsNet.ws_part.st(wunbox(ws), s1()))), "origin-old")
+    Unit <- E.must_eq("upload stamped Session timestamp exact", upload_lease_now(Sess.session_cl(sunbox(stamped))), "10:20:30")
+    Unit <- E.must_eq("upload stamped Session draft retained", Sess.session_draft(sunbox(stamped)), "keep upload draft")
+    Unit <- E.must_eq("upload stamped Session seed retained", U32.show(Sess.session_seed(sunbox(stamped))), "17")
+    Unit <- E.must_eq("upload stamped Session origin retained", Cl.server_of(Sess.session_cl(sunbox(stamped))), "upload.example")
+    Unit <- E.must_eq("upload current decoy draft is distinct", Sess.session_draft(W.current_session(wunbox(ws))), "decoy draft")
+    Unit <- E.must_eq("upload current decoy seed is distinct", U32.show(Sess.session_seed(W.current_session(wunbox(ws)))), "99")
+    IO.pure(Unit, Unit{})
+
+
+def ph_mlease() -> IO(Unit):
+  do IO<Unit>:
     Unit <- E.must("mlease free none", WsNet.ws_mlease.free(None{}))
     Unit <- E.must("mlease free some", Bool.not(WsNet.ws_mlease.free(Some{lease_a0()})))
     Unit <- E.must("req exact", WsNet.ws_mlease.req_match(req_a(), 1n, 1n, "https://x.test/a.png"))
@@ -585,29 +755,51 @@ def main() -> IO(Unit):
     Unit <- E.must("live bumped gen stale", Bool.not(WsNet.ws_mlease.live(Some{lease_a0()}, s1(), 1)))
     Unit <- E.must("live wrong sid", Bool.not(WsNet.ws_mlease.live(Some{lease_a0()}, s0(), 0)))
     Unit <- E.must("live none", Bool.not(WsNet.ws_mlease.live(None{}, s1(), 0)))
-    # Prune+reuse: same media counters after re-add still match the
-    # envelope (retire) but fail liveness (no live effects).
     Unit <- E.must("reuse exact retires", WsNet.ws_mlease.exact(Some{lease_a0()}, s1(), 1n, 1n, "https://x.test/a.png"))
     Unit <- E.must("reuse stale no effects", Bool.not(WsNet.ws_mlease.live(Some{lease_a0()}, s1(), 1)))
-    # M3 union: every part's retained tokens, origin leads, native 8.
-    Unit <- E.must_eq("union skip s0 keeps s1", show_u32s(WsNet.ws_media.union_other(parts, s0(), Nil{})), "21,")
-    Unit <- E.must_eq("union skip s1 keeps s0", show_u32s(WsNet.ws_media.union_other(parts, s1(), Nil{})), "11,12,")
-    Unit <- E.must_eq("union tokens origin leads", show_u32s(WsNet.ws_media.union_tokens(ws_media, s0(), st0, 1n, 1n, "https://x.test/a.png")), "11,21,")
-    Unit <- E.must_eq("union full keeps every part", show_u32s(WsNet.ws_media.union_tokens(ws_big, s0(), st_big0, 1n, 1n, "https://x.test/a.png")), "1,2,3,4,5,6,7,8,9,10,")
-    Unit <- E.must("union over native8 has no room", Bool.not(WsNet.ws_media.union_room(ws_big, s0(), st_big0, 1n, 1n, "https://x.test/a.png")))
-    Unit <- E.must("full-native8-admission guard", Bool.not(WsNet.ws_media.union_room(ws_full, s1(), st_active_b(), 1n, 1n, "https://x.test/b.png")))
-    Unit <- E.must("seven owned leaves room", WsNet.ws_media.union_room(ws_room7, s1(), st_active_b(), 1n, 1n, "https://x.test/b.png"))
-    Unit <- E.must("room admits below native8", WsNet.ws_media.union_room(ws_media, s0(), st0, 1n, 1n, "https://x.test/a.png"))
-    # G4 first-frame keys: quit halts, F7 cycles, typing continues.
-    # Upload present/restore wired per Net.frame_result owner (restore False here).
-    Unit <- E.must("tripped quit halts", trip_halt(FirstOut.from(WsNet.ws_first.tripped((ws2, Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, False{}), ws2, 24, 80, 1, "", False{}))))
-    Unit <- E.must("tripped quiet continues", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.tripped((ws2, Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, False{}), ws2, 24, 80, 0, "", False{})))))
-    Unit <- E.must("tripped live halt sticks", trip_halt(FirstOut.from(WsNet.ws_first.tripped((ws2, Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, True{}), ws2, 24, 80, 0, "", False{}))))
-    Unit <- E.must("first f10 quits", trip_halt(FirstOut.from(WsNet.ws_first.act(ws2, "", False{}, 24, 80, 0, Sess.KEY_F10(), 0, 0, 0, False{}, False{}))))
-    Unit <- E.must("first f7 cycles", Key.eq(W.ws_current(trip_ws(FirstOut.from(WsNet.ws_first.act(ws2, "", False{}, 24, 80, 0, Sess.KEY_F7(), 0, 0, 0, True{}, False{})))), s1()))
-    Unit <- E.must("first f7 no halt", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.act(ws2, "", False{}, 24, 80, 0, Sess.KEY_F7(), 0, 0, 0, True{}, False{})))))
-    Unit <- E.must("first typing no halt", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.act(ws2, "hi", False{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{})))))
-    # Cards sidecars: find/drop/upsert plus slot-generation fencing.
+    IO.pure(Unit, Unit{})
+
+
+def ph_union() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  +ws_media = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(ready1("https://x.test/a.png", 11) <> ready1("https://x.test/b.png", 12) <> Nil{})), s1(), media_with(ready1("https://x.test/c.png", 21) <> Nil{})))
+  +st0 = sbox(st_with(ready1("https://x.test/a.png", 11) <> Nil{}))
+  +big0 : List<&2, M.MediaReady> = ready1("u0", 1) <> ready1("u1", 2) <> ready1("u2", 3) <> ready1("u3", 4) <> ready1("u4", 5) <> Nil{}
+  +big1 : List<&2, M.MediaReady> = ready1("v0", 6) <> ready1("v1", 7) <> ready1("v2", 8) <> ready1("v3", 9) <> ready1("v4", 10) <> Nil{}
+  +ws_big = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(big0)), s1(), media_with(big1)))
+  +st_big0 = sbox(st_with(big0))
+  +full8 : List<&2, M.MediaReady> = ready1("a0", 41) <> ready1("a1", 42) <> ready1("a2", 43) <> ready1("a3", 44) <> ready1("a4", 45) <> ready1("a5", 46) <> ready1("a6", 47) <> ready1("a7", 48) <> Nil{}
+  +ws_full = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(full8)), s1(), media_with(Nil{})))
+  +full7 : List<&2, M.MediaReady> = ready1("b0", 51) <> ready1("b1", 52) <> ready1("b2", 53) <> ready1("b3", 54) <> ready1("b4", 55) <> ready1("b5", 56) <> ready1("b6", 57) <> Nil{}
+  +ws_room7 = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(full7)), s1(), media_with(Nil{})))
+  +b_active = sbox(st_active_b())
+  do IO<Unit>:
+    Unit <- E.must_eq("union skip s0 keeps s1", show_u32s(WsNet.ws_media.union_other(W.ws_parts(wunbox(ws_media)), s0(), Nil{})), "21,")
+    Unit <- E.must_eq("union skip s1 keeps s0", show_u32s(WsNet.ws_media.union_other(W.ws_parts(wunbox(ws_media)), s1(), Nil{})), "11,12,")
+    Unit <- E.must_eq("union tokens origin leads", show_u32s(WsNet.ws_media.union_tokens(wunbox(ws_media), s0(), sunbox(st0), 1n, 1n, "https://x.test/a.png")), "11,21,")
+    Unit <- E.must_eq("union full keeps every part", show_u32s(WsNet.ws_media.union_tokens(wunbox(ws_big), s0(), sunbox(st_big0), 1n, 1n, "https://x.test/a.png")), "1,2,3,4,5,6,7,8,9,10,")
+    Unit <- E.must("union over native8 has no room", Bool.not(WsNet.ws_media.union_room(wunbox(ws_big), s0(), sunbox(st_big0), 1n, 1n, "https://x.test/a.png")))
+    Unit <- E.must("full-native8-admission guard", Bool.not(WsNet.ws_media.union_room(wunbox(ws_full), s1(), sunbox(b_active), 1n, 1n, "https://x.test/b.png")))
+    Unit <- E.must("seven owned leaves room", WsNet.ws_media.union_room(wunbox(ws_room7), s1(), sunbox(b_active), 1n, 1n, "https://x.test/b.png"))
+    Unit <- E.must("room admits below native8", WsNet.ws_media.union_room(wunbox(ws_media), s0(), sunbox(st0), 1n, 1n, "https://x.test/a.png"))
+    IO.pure(Unit, Unit{})
+
+
+def ph_first() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  do IO<Unit>:
+    Unit <- E.must("tripped quit halts", trip_halt(FirstOut.from(WsNet.ws_first.tripped((wunbox(ws2), Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, False{}), wunbox(ws2), 24, 80, 1, "", False{}))))
+    Unit <- E.must("tripped quiet continues", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.tripped((wunbox(ws2), Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, False{}), wunbox(ws2), 24, 80, 0, "", False{})))))
+    Unit <- E.must("tripped live halt sticks", trip_halt(FirstOut.from(WsNet.ws_first.tripped((wunbox(ws2), Sid.RoutedCmd{s0(), Sess.Cont{Nil{}}}, True{}), wunbox(ws2), 24, 80, 0, "", False{}))))
+    Unit <- E.must("first f10 quits", trip_halt(FirstOut.from(WsNet.ws_first.act(wunbox(ws2), "", False{}, 24, 80, 0, Sess.KEY_F10(), 0, 0, 0, False{}, False{}))))
+    Unit <- E.must("first f7 cycles", Key.eq(W.ws_current(trip_ws(FirstOut.from(WsNet.ws_first.act(wunbox(ws2), "", False{}, 24, 80, 0, Sess.KEY_F7(), 0, 0, 0, True{}, False{})))), s1()))
+    Unit <- E.must("first f7 no halt", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.act(wunbox(ws2), "", False{}, 24, 80, 0, Sess.KEY_F7(), 0, 0, 0, True{}, False{})))))
+    Unit <- E.must("first typing no halt", Bool.not(trip_halt(FirstOut.from(WsNet.ws_first.act(wunbox(ws2), "hi", False{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{})))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_cards() -> IO(Unit):
+  do IO<Unit>:
     Unit <- E.must("sidecar find hit", some_cards(WsNet.ws_cards.find(sidecar0() <> Nil{}, s0())))
     Unit <- E.must("sidecar find miss", Bool.not(some_cards(WsNet.ws_cards.find(sidecar0() <> Nil{}, s1()))))
     Unit <- E.must("sidecar drop", Bool.not(some_cards(WsNet.ws_cards.find(WsNet.ws_cards.drop(sidecar0() <> Nil{}, s0()), s0()))))
@@ -616,68 +808,121 @@ def main() -> IO(Unit):
     Unit <- E.must("sidecar stale reset", fenced_cards(WsNet.ws_cards.sidecar(sidecar_off() <> Nil{}, s0(), 1, True{})))
     Unit <- E.must("cards net stopping closed", Bool.not(WsNet.ws_cards.net_ok(Sess.Stopping{False{}})))
     Unit <- E.must("cards net demo open", WsNet.ws_cards.net_ok(Sess.Demo{}))
-    # Notify bundle: per-part NotifyLive entries seeded from each part history
-    # (restored rows silent at observe), one global lease, idle at start.
-    Unit <- E.must_eq("notify seeded silent", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(ws2), s0(), 0, WsNet.ws_part.st(ws2, s0()), True{}))), "0")
-    Unit <- E.must_eq("notify bundle queue empty", Nat.show(seed_queue0(WsNet.ws_notify.seed_all(ws2))), "0")
-    Unit <- E.must("notify bundle idle", WsNet.ws_nlease.free(WsNet.ws_notify.lease(WsNet.ws_notify.seed_all(ws2))))
-    Unit <- E.must_eq("notify nonempty restored alert notifies below its ID", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(notify_before_restore()), s0(), 0, W.current_session(notify_restored()), True{}))), "1")
-    Unit <- E.must_eq("notify restored seed retains exact high-water mark", Nat.show(Sess.notify_live_scanned(seed_nl0(WsNet.ws_notify.seed_all(notify_restored())))), "17")
-    Unit <- E.must_eq("notify nonempty restored alert stays silent after seeding", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(notify_restored()), s0(), 0, W.current_session(notify_restored()), True{}))), "0")
-    # 112-residual G4: a first-key /images edit wins over the load default.
-    Unit <- E.must("first-key images no halt", Bool.not(trip_halt(trip_images)))
-    Unit <- E.must("first-key images off applies", Bool.not(M.enabled(Sess.session_media(kst))))
-    Unit <- E.must("first-key images edit recorded", List.contains(~String, ~String.eq, Sess.session_preference_edits(kst), "images"))
-    Unit <- E.must("edited load keeps off over env on", Bool.not(WsNet.ws_load.images_on(kst, True{})))
-    Unit <- E.must("unedited load keeps env off", Bool.not(WsNet.ws_load.images_on(W.current_session(ws2), False{})))
-    Unit <- E.must("unedited load keeps env on", WsNet.ws_load.images_on(W.current_session(ws2), True{}))
-    Unit <- E.must("/images-off-survives-load", Bool.not(res_media_on(Headless.resolve(load_opts(), seed0, 0, (Some{stored_on()}, 0)))))
-    # 112-residual M2: a stale exact completion frees the surviving Part.
-    Unit <- E.must("stale active blocks take_job", Bool.not(job_hit(M.take_job(Sess.session_media(stale_st())))))
-    Unit <- E.must("stale-done-frees-Part", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(stale_st(), 1n, 1n, "https://x.test/a.png")))))
-    Unit <- E.must("stale release wrong ticket keeps block", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(stale_st(), 1n, 2n, "https://x.test/a.png"))))))
-    # 116-followup: full-8 visible-inline rejection records a failed identity
-    # at the shared owner, so observe/take does not relaunch the same helper.
-    Unit <- E.must("full8-inline-accepts-production", Sess.session_accept_media_result(b_active, 1n, 1n, b_url()))
-    Unit <- E.must("full8-inline-no-room", Bool.not(WsNet.ws_media.union_room(ws_full, s1(), b_active, 1n, 1n, b_url())))
-    Unit <- E.must_eq("full8-reject-records-failed-identity", Nat.show(M.ready_count(Sess.session_media(b_rejected))), "1")
-    Unit <- E.must_eq("full8-reject-holds-no-native-token", Nat.show(List.length(&2, U32, M.retained_tokens(Sess.session_media(b_rejected)))), "0")
-    Unit <- E.must_eq("full8-observe-suppresses-requeue", Nat.show(observed_pending(b_rejected)), "0")
-    Unit <- E.must("full8-take-no-relaunch", Bool.not(observed_job(b_rejected)))
-    Unit <- E.must_eq("full8-wrong-ticket-records-nothing", Nat.show(M.ready_count(Sess.session_media(b_wrong))), "0")
-    Unit <- E.must("full8-wrong-ticket-keeps-worker", M.accept(Sess.session_media(b_wrong), b_client(), 1n, 1n, b_url()))
-    Unit <- E.must("full8-exact-clears-worker", Bool.not(M.accept(Sess.session_media(b_rejected), b_client(), 1n, 1n, b_url())))
-    Unit <- E.must("full8-inline-stale-blocks", Bool.not(job_hit(M.take_job(Sess.session_media(b_stale)))))
-    Unit <- E.must("full8-inline-stale-frees", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(b_stale, 1n, 1n, b_url())))))
-    Unit <- E.must("full8-inline-stale-wrong-keeps", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(b_stale, 1n, 2n, b_url()))))))
-    Unit <- E.must("full8-images-off-rejects-production", Bool.not(Sess.session_accept_media_result(b_off_active, 1n, 1n, b_url())))
-    Unit <- E.must_eq("full8-images-off-no-queue", Nat.show(observed_pending(b_off_active)), "0")
-    Unit <- E.must("full8-images-off-no-launch", Bool.not(observed_job(b_off_active)))
-    # 116-followup positive: seventh-slot visible-inline work still launches.
-    Unit <- E.must("seven-inline-room", WsNet.ws_media.union_room(ws_room7, s1(), b_fresh, 1n, 1n, b_url()))
-    Unit <- E.must_eq("seven-observe-enqueues", Nat.show(observed_pending(b_fresh)), "1")
-    Unit <- E.must("seven-take-launches", observed_job(b_fresh))
-    Unit <- E.must("seven-inline-stale-frees", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(b_stale, 1n, 1n, b_url())))))
-    Unit <- E.must("seven-inline-stale-wrong-keeps", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(b_stale, 1n, 2n, b_url()))))))
-    Unit <- E.must_eq("seven-images-off-no-queue", Nat.show(observed_pending(b_off_fresh)), "0")
-    Unit <- E.must("seven-images-off-no-launch", Bool.not(observed_job(b_off_fresh)))
-    # Direct-boot single owner: first-frame /connect keys B/gen1 and the
-    # captured Dial is boot-equivalent, so the direct path drops it at the
-    # source (one attempt even when boot fails: no silent retry behind the
-    # Offline quarantine) while deferred still emits to update pending.
-    Unit <- E.must("direct connect no halt", Bool.not(trip_halt(trip_connect)))
+    IO.pure(Unit, Unit{})
+
+
+def ph_notify() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  +before = wbox(notify_before_restore())
+  +restored = wbox(notify_restored())
+  do IO<Unit>:
+    Unit <- E.must_eq("notify seeded silent", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(wunbox(ws2)), s0(), 0, WsNet.ws_part.st(wunbox(ws2), s0()), True{}))), "0")
+    Unit <- E.must_eq("notify bundle queue empty", Nat.show(seed_queue0(WsNet.ws_notify.seed_all(wunbox(ws2)))), "0")
+    Unit <- E.must("notify bundle idle", WsNet.ws_nlease.free(WsNet.ws_notify.lease(WsNet.ws_notify.seed_all(wunbox(ws2)))))
+    Unit <- E.must_eq("notify nonempty restored alert notifies below its ID", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(wunbox(before)), s0(), 0, W.current_session(wunbox(restored)), True{}))), "1")
+    Unit <- E.must_eq("notify restored seed retains exact high-water mark", Nat.show(Sess.notify_live_scanned(seed_nl0(WsNet.ws_notify.seed_all(wunbox(restored))))), "17")
+    Unit <- E.must_eq("notify nonempty restored alert stays silent after seeding", Nat.show(obs_jobs(WsNet.ws_notify.observed(WsNet.ws_notify.seed_all(wunbox(restored)), s0(), 0, W.current_session(wunbox(restored)), True{}))), "0")
+    IO.pure(Unit, Unit{})
+
+
+def ph_images_key() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  +trip_images = fbox(FirstOut.from(WsNet.ws_first.act(wunbox(ws2), "/images off", True{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{})))
+  +kst = sbox(W.current_session(trip_ws(funbox(trip_images))))
+  +seed0 = sbox(Sess.session_set_media(sunbox(kst), M.initial(WsNet.ws_load.images_on(sunbox(kst), True{}))))
+  do IO<Unit>:
+    Unit <- E.must("first-key images no halt", Bool.not(trip_halt(funbox(trip_images))))
+    Unit <- E.must("first-key images off applies", Bool.not(M.enabled(Sess.session_media(sunbox(kst)))))
+    Unit <- E.must("first-key images edit recorded", List.contains(~String, ~String.eq, Sess.session_preference_edits(sunbox(kst)), "images"))
+    Unit <- E.must("edited load keeps off over env on", Bool.not(WsNet.ws_load.images_on(sunbox(kst), True{})))
+    Unit <- E.must("unedited load keeps env off", Bool.not(WsNet.ws_load.images_on(W.current_session(wunbox(ws2)), False{})))
+    Unit <- E.must("unedited load keeps env on", WsNet.ws_load.images_on(W.current_session(wunbox(ws2)), True{}))
+    Unit <- E.must("/images-off-survives-load", Bool.not(res_media_on(Headless.resolve(load_opts(), sunbox(seed0), 0, (Some{stored_on()}, 0)))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_stale_m2() -> IO(Unit):
+  +stale = sbox(stale_st())
+  do IO<Unit>:
+    Unit <- E.must("stale active blocks take_job", Bool.not(job_hit(M.take_job(Sess.session_media(sunbox(stale))))))
+    Unit <- E.must("stale-done-frees-Part", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(stale), 1n, 1n, "https://x.test/a.png")))))
+    Unit <- E.must("stale release wrong ticket keeps block", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(stale), 1n, 2n, "https://x.test/a.png"))))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_full8() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  +full8 : List<&2, M.MediaReady> = ready1("a0", 41) <> ready1("a1", 42) <> ready1("a2", 43) <> ready1("a3", 44) <> ready1("a4", 45) <> ready1("a5", 46) <> ready1("a6", 47) <> ready1("a7", 48) <> Nil{}
+  +ws_full = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(full8)), s1(), media_with(Nil{})))
+  +b_active = sbox(b_active_st())
+  +b_rejected = sbox(b_rejected_st())
+  +b_wrong = sbox(b_wrong_st())
+  +b_stale = sbox(b_stale_st())
+  +b_off_active = sbox(b_off_active_st())
+  do IO<Unit>:
+    Unit <- E.must("full8-inline-accepts-production", Sess.session_accept_media_result(sunbox(b_active), 1n, 1n, b_url()))
+    Unit <- E.must("full8-inline-no-room", Bool.not(WsNet.ws_media.union_room(wunbox(ws_full), s1(), sunbox(b_active), 1n, 1n, b_url())))
+    Unit <- E.must_eq("full8-reject-records-failed-identity", Nat.show(M.ready_count(Sess.session_media(sunbox(b_rejected)))), "1")
+    Unit <- E.must_eq("full8-reject-holds-no-native-token", Nat.show(List.length(&2, U32, M.retained_tokens(Sess.session_media(sunbox(b_rejected))))), "0")
+    Unit <- E.must_eq("full8-observe-suppresses-requeue", Nat.show(observed_pending(sunbox(b_rejected))), "0")
+    Unit <- E.must("full8-take-no-relaunch", Bool.not(observed_job(sunbox(b_rejected))))
+    Unit <- E.must_eq("full8-wrong-ticket-records-nothing", Nat.show(M.ready_count(Sess.session_media(sunbox(b_wrong)))), "0")
+    Unit <- E.must("full8-wrong-ticket-keeps-worker", M.accept(Sess.session_media(sunbox(b_wrong)), b_client(), 1n, 1n, b_url()))
+    Unit <- E.must("full8-exact-clears-worker", Bool.not(M.accept(Sess.session_media(sunbox(b_rejected)), b_client(), 1n, 1n, b_url())))
+    Unit <- E.must("full8-inline-stale-blocks", Bool.not(job_hit(M.take_job(Sess.session_media(sunbox(b_stale))))))
+    Unit <- E.must("full8-inline-stale-frees", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(b_stale), 1n, 1n, b_url())))))
+    Unit <- E.must("full8-inline-stale-wrong-keeps", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(b_stale), 1n, 2n, b_url()))))))
+    Unit <- E.must("full8-images-off-rejects-production", Bool.not(Sess.session_accept_media_result(sunbox(b_off_active), 1n, 1n, b_url())))
+    Unit <- E.must_eq("full8-images-off-no-queue", Nat.show(observed_pending(sunbox(b_off_active))), "0")
+    Unit <- E.must("full8-images-off-no-launch", Bool.not(observed_job(sunbox(b_off_active))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_seven() -> IO(Unit):
+  +ws2 = wbox(two_part_ws())
+  +full7 : List<&2, M.MediaReady> = ready1("b0", 51) <> ready1("b1", 52) <> ready1("b2", 53) <> ready1("b3", 54) <> ready1("b4", 55) <> ready1("b5", 56) <> ready1("b6", 57) <> Nil{}
+  +ws_room7 = wbox(set_media(set_media(wunbox(ws2), s0(), media_with(full7)), s1(), media_with(Nil{})))
+  +b_fresh = sbox(b_fresh_st())
+  +b_stale = sbox(b_stale_st())
+  +b_off_fresh = sbox(b_off_fresh_st())
+  do IO<Unit>:
+    Unit <- E.must("seven-inline-room", WsNet.ws_media.union_room(wunbox(ws_room7), s1(), sunbox(b_fresh), 1n, 1n, b_url()))
+    Unit <- E.must_eq("seven-observe-enqueues", Nat.show(observed_pending(sunbox(b_fresh))), "1")
+    Unit <- E.must("seven-take-launches", observed_job(sunbox(b_fresh)))
+    Unit <- E.must("seven-inline-stale-frees", job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(b_stale), 1n, 1n, b_url())))))
+    Unit <- E.must("seven-inline-stale-wrong-keeps", Bool.not(job_hit(M.take_job(Sess.session_media(WsNet.ws_media.stale_released(sunbox(b_stale), 1n, 2n, b_url()))))))
+    Unit <- E.must_eq("seven-images-off-no-queue", Nat.show(observed_pending(sunbox(b_off_fresh))), "0")
+    Unit <- E.must("seven-images-off-no-launch", Bool.not(observed_job(sunbox(b_off_fresh))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_direct() -> IO(Unit):
+  +trip_connect = fbox(FirstOut.from(WsNet.ws_first.act(direct_ws0(), "/connect b.example 6697", True{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{})))
+  +keyed_b = wbox(trip_ws(funbox(trip_connect)))
+  +rc_b = trip_rc(funbox(trip_connect))
+  +trip_type = fbox(FirstOut.from(WsNet.ws_first.act(direct_ws0(), "hi", False{}, 24, 80, 0, 0, 0, 0, 0, False{}, False{})))
+  +keyed_type = wbox(trip_ws(funbox(trip_type)))
+  +rc_type = trip_rc(funbox(trip_type))
+  do IO<Unit>:
+    Unit <- E.must("direct connect no halt", Bool.not(trip_halt(funbox(trip_connect))))
     Unit <- E.must("direct connect emits B gen1", W.routed_dial_exact(rc_b, s0(), "b.example", 6697, 1, "me"))
-    Unit <- E.must("direct rc admitted at keyed part", W.cmd_admitted(keyed_b, rc_b))
-    Unit <- E.must("direct boot-equivalent holds", WsNet.ws_start.boot_dial_equivalent(keyed_b, rc_b))
-    Unit <- E.must("direct drops boot-equivalent dial", WsNet.ws_start.drop_boot_dial(False{}, keyed_b, rc_b))
-    Unit <- E.must("deferred keeps boot dial", Bool.not(WsNet.ws_start.drop_boot_dial(True{}, keyed_b, rc_b)))
-    Unit <- E.must("direct keeps non-dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_type, rc_type)))
-    Unit <- E.must("direct keeps foreign dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_b, Sid.dial_for(s0(), "c.example", 6697, 1, "me"))))
-    Unit <- E.must("direct keeps stale-gen dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_b, Sid.dial_for(s0(), "b.example", 6697, 2, "me"))))
-    Unit <- E.must("direct keeps unknown-part dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_b, Sid.dial_for(s1(), "b.example", 6697, 1, "me"))))
-    Unit <- E.must("direct keeps cont", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_b, Sid.cont_for(s0(), Nil{}))))
-    Unit <- E.must("direct keeps begin", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, keyed_b, Sid.begin_for(s0(), 1))))
-    Unit <- E.must("env con roundtrip code", U32.is_eq(ec_code([ec_loop()]), 30))
+    Unit <- E.must("direct rc admitted at keyed part", W.cmd_admitted(wunbox(keyed_b), rc_b))
+    Unit <- E.must("direct boot-equivalent holds", WsNet.ws_start.boot_dial_equivalent(wunbox(keyed_b), rc_b))
+    Unit <- E.must("direct drops boot-equivalent dial", WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), rc_b))
+    Unit <- E.must("deferred keeps boot dial", Bool.not(WsNet.ws_start.drop_boot_dial(True{}, wunbox(keyed_b), rc_b)))
+    Unit <- E.must("direct keeps non-dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_type), rc_type)))
+    Unit <- E.must("direct keeps foreign dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), Sid.dial_for(s0(), "c.example", 6697, 1, "me"))))
+    Unit <- E.must("direct keeps stale-gen dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), Sid.dial_for(s0(), "b.example", 6697, 2, "me"))))
+    Unit <- E.must("direct keeps unknown-part dial", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), Sid.dial_for(s1(), "b.example", 6697, 1, "me"))))
+    Unit <- E.must("direct keeps cont", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), Sid.cont_for(s0(), Nil{}))))
+    Unit <- E.must("direct keeps begin", Bool.not(WsNet.ws_start.drop_boot_dial(False{}, wunbox(keyed_b), Sid.begin_for(s0(), 1))))
+    IO.pure(Unit, Unit{})
+
+
+def ph_env_pre() -> IO(Unit):
+  +loop = lbox(ec_loop())
+  do IO<Unit>:
+    Unit <- E.must("env con roundtrip code", U32.is_eq(ec_code(lunbox(loop)), 30))
     Unit <- E.must("env nil fixed sentinel", U32.is_eq(ec_code(Nil{}), 0))
     Unit <- E.must("pre snapshot Some keeps old part", String.eq(np_code(WsNet.ws_net_painted.pre_parts(Some{np_pre()}, [np_post()])), "0:3:pre.test:6697:v4:old:pre.test:old draft:17;nil"))
     Unit <- E.must("pre snapshot Some is not post", Bool.not(String.eq(np_code(WsNet.ws_net_painted.pre_parts(Some{np_pre()}, [np_post()])), np_code([np_post()]))))
@@ -687,6 +932,24 @@ def main() -> IO(Unit):
     Unit <- E.must("pre snapshot Some drops fallback tail", String.eq(np_code(WsNet.ws_net_painted.pre_parts(Some{np_pre()}, [np_post(), np_post()])), np_code([np_pre()])))
     Unit <- E.must("pre snapshot None empty stays empty", String.eq(np_code(WsNet.ws_net_painted.pre_parts(None{}, Nil{})), "nil"))
     Unit <- E.must("pre snapshot Some empty retains old", String.eq(np_code(WsNet.ws_net_painted.pre_parts(Some{np_pre()}, Nil{})), np_code([np_pre()])))
+    IO.pure(Unit, Unit{})
+
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- ph_upload()
+    Unit <- ph_mlease()
+    Unit <- ph_union()
+    Unit <- ph_first()
+    Unit <- ph_cards()
+    Unit <- ph_notify()
+    Unit <- ph_images_key()
+    Unit <- ph_stale_m2()
+    Unit <- ph_full8()
+    Unit <- ph_seven()
+    Unit <- ph_direct()
+    Unit <- ph_env_pre()
     Unit <- prefs_guards()
     Unit <- prefs_owner_guards()
     IO.print("wsnet_gates=ok")
+

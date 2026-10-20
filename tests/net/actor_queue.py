@@ -112,6 +112,9 @@ def main() -> None:
     post_upgrade(binary, "bootlsclose")
     post_upgrade(binary, "bootlsregister")
     post_upgrade(binary, "bootlskept")
+    # − >SEND_CAP kept Cont under frames=1 sends at most 8 wire lines.
+    # + count=0 bootlskept still delivers the single PING after handshake.
+    post_upgrade(binary, "bootlskept", count=9, want_kept=8)
     # Dial B then Drop/cmd-close: both cancel before TCP to B (TimeoutError).
     # Drop+Dial also returns B's AuthScope disabled when A≠B.
     post_upgrade_winner(binary, "afterdialdrop", expect_scope=False)
@@ -256,13 +259,19 @@ def collect_child(child: subprocess.Popen, peer: socket.socket) -> tuple[bytes, 
     return bytes(wire), stdout, stderr
 
 
-def post_upgrade(binary: str, mode: str) -> None:
-    """Drive after_conn with an owned successful plain upgrade result."""
+def post_upgrade(
+    binary: str, mode: str, *, count: int = 0, want_kept: int | None = None
+) -> None:
+    """Drive after_conn with an owned successful plain upgrade result.
+
+    bootlskept count=0 queues one PING; count>0 queues NOTICE lines and
+    frames=1 must admit at most SEND_CAP (8) of them onto the wire.
+    """
     with socket.socket() as server:
         server.bind(("127.0.0.1", 0))
         server.listen(1)
         child = subprocess.Popen(
-            [binary, str(server.getsockname()[1]), "1", "0", mode],
+            [binary, str(server.getsockname()[1]), "1", str(count), mode],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         try:
@@ -271,16 +280,22 @@ def post_upgrade(binary: str, mode: str) -> None:
                 wire, stdout, stderr = collect_child(child, peer)
             assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
             actual = wire.decode().splitlines()
-            want = {
-                "bootlsregister": HANDSHAKE,
-                "bootlskept": HANDSHAKE + ["PING :queued"],
-            }.get(mode, [])
-            assert actual == want, (mode, actual, want)
+            if mode == "bootlskept" and count > 0:
+                kept = [f"NOTICE #t :{i}" for i in range(count, 0, -1)]
+                limit = 8 if want_kept is None else want_kept
+                want = HANDSHAKE + kept[:limit]
+            else:
+                want = {
+                    "bootlsregister": HANDSHAKE,
+                    "bootlskept": HANDSHAKE + ["PING :queued"],
+                }.get(mode, [])
+            assert actual == want, (mode, count, actual, want)
         finally:
             if child.poll() is None:
                 child.kill()
                 child.wait()
-    print(f"actor queue {mode} post-upgrade admission: PASS")
+    label = f"{mode} count={count}" if count else mode
+    print(f"actor queue {label} post-upgrade admission: PASS")
 
 
 def collect_child_scope(

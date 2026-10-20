@@ -1836,6 +1836,64 @@ def session_reset_auth(st: Session) -> Session:
       +next = JoinPlan.reset(plan, fresh, port)
       Session{fresh, drop, rem, draft, JoinPlan.sent(next), chan, net, hist, size, seed, comp, split, typing, port, media, next, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
 
+def comp_upload_state(comp: Comp) -> Up.State:
+  match comp:
+    case CompUpload{state, _, _}: state
+    case _: Up.empty()
+
+def session_upload(st: Session) -> Up.State:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: comp_upload_state(comp)
+
+def session_upload_scope(st: Session) -> Up.Scope:
+  match st:
+    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, port, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
+      Up.Scope{Cl.server_of(cl), port, Cl.active_buf_name(cl)}
+
+def session_upload_online.net(net: NetState) -> Bool:
+  match net:
+    case Online{}: True{}
+    case _: False{}
+
+def session_upload_online(st: Session) -> Bool:
+  match st:
+    case Session{+cl, _, _, _, _, _, net, _, _, _, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
+      session_upload_online.net(net) && Bool.not(Nat.is_eq(Cl.active_of(cl), 0n) || Sub.active_is_synthetic(cl))
+
+# Only an unchanged Confirm can cross the presentation barrier. In particular,
+# Busy -> Confirm resets it even when two batch files have the same path.
+def upload_confirmation_eq(before: Up.State, after: Up.State) -> Bool:
+  match before:
+    case Up.Confirm{request, _}:
+      match after:
+        case Up.Confirm{next, _}: Up.request_eq(request, next)
+        case _: False{}
+    case _: False{}
+
+def comp_upload_presented(comp: Comp) -> Bool:
+  match comp:
+    case CompUpload{Up.Confirm{_, _}, _, presented}: presented
+    case _: False{}
+
+def session_upload_presented(st: Session) -> Bool:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: comp_upload_presented(comp)
+
+def comp_set_upload(+state: Up.State, +comp: Comp) -> Comp:
+  match state:
+    case Up.Idle{}: comp_ordinary(comp)
+    case _: CompUpload{state, comp_word(comp), comp_upload_presented(comp) && upload_confirmation_eq(comp_upload_state(comp), state)}
+
+def session_set_upload(st: Session, state: Up.State) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_set_upload(state, comp), split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
+
+# Every connection/focus transition must call this, not only completion. Busy
+# retains physical ownership but cannot regain permission after leaving scope.
+def session_upload_maintain(+st: Session) -> Session:
+  session_set_upload(st, Up.retain(session_upload(st), session_upload_scope(st), session_upload_online(st)))
+
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
     case False{}:
@@ -1849,7 +1907,8 @@ def session_reconnected(+st: Session, +now: String) -> Session:
   +reset = session_reset_auth(st)
   +fresh = session_set_client(reset, Cl.reset_channel_state(session_cl(reset)))
   +online = session_reconnected.on(session_needs_reconnect_marker(st), fresh, now)
-  session_set_client(online, Cl.diagnostic_notice(Cl.set_now(session_cl(online), now), Cl.System{}, "IRC connection established"))
+  # Online must not revive Confirm/Armed that Offline cleared — retain again.
+  session_upload_maintain(session_set_client(online, Cl.diagnostic_notice(Cl.set_now(session_cl(online), now), Cl.System{}, "IRC connection established")))
 
 # ---- optimistic-send ledger ------------------------------------------------
 # Enter records each echo-message chat wire here (after labeling, so exact
@@ -2122,7 +2181,8 @@ def session_fail.got(+msg: String, +st: Session) -> Session:
       session_fail.reaped.got(pend_reap_all(pends), Sub.echo_err_server(cl, msg), draft, joined, chan, hist, size, seed, comp, split, port, media, plan, edits, iso, hlbox, cf, theme, labelsbox)
 
 def session_fail(+st: Session, +msg: String) -> Session:
-  session_fail.got(msg, st)
+  # Offline cannot keep Confirm/Armed; Up.retain drops consent on !online.
+  session_upload_maintain(session_fail.got(msg, st))
 
 # A failed local helper does not change the connection or framer state.
 def session_error(+st: Session, +msg: String) -> Session:
@@ -2439,59 +2499,6 @@ def key_pol_for(+st: Session, +key: U32, +mods: U32, +codepoint: U32, +wheel: U3
     key_pol_right(key_pol_raw(key, mods, codepoint, wheel, Sp.page_height(rows, session_split(st))), Bool.and(U32.is_eq(key, KEY_RIGHT()), U32.is_zero(mods))),
     panel_esc(st, key))
 
-def comp_upload_state(comp: Comp) -> Up.State:
-  match comp:
-    case CompUpload{state, _, _}: state
-    case _: Up.empty()
-
-def session_upload(st: Session) -> Up.State:
-  match st:
-    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: comp_upload_state(comp)
-
-def session_upload_scope(st: Session) -> Up.Scope:
-  match st:
-    case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, port, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
-      Up.Scope{Cl.server_of(cl), port, Cl.active_buf_name(cl)}
-
-def session_upload_online.net(net: NetState) -> Bool:
-  match net:
-    case Online{}: True{}
-    case _: False{}
-
-def session_upload_online(st: Session) -> Bool:
-  match st:
-    case Session{+cl, _, _, _, _, _, net, _, _, _, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
-      session_upload_online.net(net) && Bool.not(Nat.is_eq(Cl.active_of(cl), 0n) || Sub.active_is_synthetic(cl))
-
-# Only an unchanged Confirm can cross the presentation barrier. In particular,
-# Busy -> Confirm resets it even when two batch files have the same path.
-def upload_confirmation_eq(before: Up.State, after: Up.State) -> Bool:
-  match before:
-    case Up.Confirm{request, _}:
-      match after:
-        case Up.Confirm{next, _}: Up.request_eq(request, next)
-        case _: False{}
-    case _: False{}
-
-def comp_upload_presented(comp: Comp) -> Bool:
-  match comp:
-    case CompUpload{Up.Confirm{_, _}, _, presented}: presented
-    case _: False{}
-
-def session_upload_presented(st: Session) -> Bool:
-  match st:
-    case Session{_, _, _, _, _, _, _, _, _, _, comp, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}: comp_upload_presented(comp)
-
-def comp_set_upload(+state: Up.State, +comp: Comp) -> Comp:
-  match state:
-    case Up.Idle{}: comp_ordinary(comp)
-    case _: CompUpload{state, comp_word(comp), comp_upload_presented(comp) && upload_confirmation_eq(comp_upload_state(comp), state)}
-
-def session_set_upload(st: Session, state: Up.State) -> Session:
-  match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp_set_upload(state, comp), split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
-
 def comp_upload_mark(comp: Comp, presented: Bool) -> Comp:
   match comp:
     case CompUpload{+state, completion, _}:
@@ -2542,11 +2549,6 @@ def session_upload_hint.state(state: Up.State) -> String:
 
 def session_upload_hint(+st: Session) -> String:
   session_upload_hint.state(session_upload(st))
-
-# Every connection/focus transition must call this, not only completion. Busy
-# retains physical ownership but cannot regain permission after leaving scope.
-def session_upload_maintain(+st: Session) -> Session:
-  session_set_upload(st, Up.retain(session_upload(st), session_upload_scope(st), session_upload_online(st)))
 
 # Call after a frame and its keys are processed. A newly staged or completed
 # request must first survive a later warning frame; this frame cannot arm it.

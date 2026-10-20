@@ -150,6 +150,61 @@ def last_ts.go(lines: List<&2, Cl.Line>, +acc: String) -> String:
 def last_ts(cl: Cl.Client) -> String:
   last_ts.go(Cl.active_buf_lines(cl), "")
 
+# Day bar consumes one row; up=2 from live clears it and lands on the older line.
+def wheel_notch_after(+scrolled: Cl.Buffer) -> Nat:
+  match scrolled:
+    case Cl.Buffer{_, _, _, _, _, Cl.ScrollAt{+after, _}, _, _}: after
+
+def wheel_notch_moves.buf(+b: Cl.Buffer) -> Bool:
+  Nat.is_eq(wheel_notch_after(
+    V.scroll_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", 2n, 0n)), 1n)
+
+def wheel_notch_moves.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{+b}: wheel_notch_moves.buf(b)
+
+def wheel_notch_moves() -> Bool:
+  +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
+  +late = Cl.client_log(monday, 0n, Cl.Msg{}, "<a> late")
+  +tuesday = Cl.client_log(Cl.set_now(late, "2026-10-20 (Tuesday)|00:01:00"), 0n, Cl.Msg{}, "<a> early")
+  wheel_notch_moves.got(Cl.nth_buf(Cl.client_bufs(tuesday), 0n))
+
+# Day-bar ScrollAt.tail ignores BodyMedia virtual chars (text_chars+1 only).
+def day_media_tail.go(rows: List<&2, V.AnchoredRow>, +acc: String) -> String:
+  match rows:
+    case Nil{}: acc
+    case Con{V.AnchoredRow{V.BodyRecon{+text, _}, Cl.ScrollAt{_, +tail}, _}, +t}:
+      day_media_tail.go(t, day_anchor_tails.keep(String.starts_with(text, "@"), tail, acc))
+    case Con{_, +t}: day_media_tail.go(t, acc)
+
+def day_media_tail.buf(+name: String, +lines: List<&2, Cl.Line>, +boxed: List<&2, V.PaintOpts>) -> String:
+  day_media_tail.go(
+    V.paint_anchored(lines, name, 40, True{}, Nil{}, True{}, True{}, "irc",
+      List.length(&2, Cl.Line, lines), boxed), "")
+
+def day_media_tail.compare(+name: String, +lines: List<&2, Cl.Line>, +url: String) -> Bool:
+  +media: M.State = M.State{True{}, 1n, 2n, None{}, Nil{},
+    [M.MediaReady{M.Inline{2n}, url, 9}], M.Supported{}}
+  +plain = day_media_tail.buf(name, lines, V.paint_text())
+  +with_media = day_media_tail.buf(name, lines, V.paint_media_only(media))
+  String.eq(plain, with_media) && Bool.not(String.is_empty(plain))
+
+def day_media_tail.got(got: Maybe<&2, Cl.Buffer>, +url: String) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{Cl.Buffer{+name, _, _, +lines, _, _, _, _}}:
+      day_media_tail.compare(name, lines, url)
+
+def day_media_url() -> String:
+  "https://example.test/x.png"
+
+def day_media_tail() -> Bool:
+  +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
+  +late = Cl.client_log(monday, 0n, Cl.Msg{}, "<a> late")
+  +img = Cl.client_log(Cl.set_now(late, "2026-10-20 (Tuesday)|00:01:00"), 0n, Cl.Msg{},
+    "<a> " ++ day_media_url())
+  day_media_tail.got(Cl.nth_buf(Cl.client_bufs(img), 0n), day_media_url())
 def main() -> IO(Unit):
   +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
   +late = Cl.client_log(monday, 0n, Cl.Msg{}, "<a> late")
@@ -186,6 +241,8 @@ def main() -> IO(Unit):
       String.contains(pending_tuesday_bars(), "BAR @2026-10-20 (Tuesday)"))
     Unit <- E.must_eq("day bar ScrollAt.tail stays above the live-bottom zero sentinel", day_anchor_tails(tuesday), "9|10|")
     Unit <- E.must_eq("newest reconnect ScrollAt is not the live-bottom zero sentinel", recon_newest_scroll(recon), "0,1")
+    Unit <- E.must("wheel notch across a day boundary moves off live", wheel_notch_moves())
+    Unit <- E.must("day bar ScrollAt.tail ignores BodyMedia virtual chars", day_media_tail())
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))
     Unit <- E.must("day bar is not a reconnect label", Bool.not(String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "Reconnected")))

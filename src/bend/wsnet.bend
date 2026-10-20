@@ -3083,8 +3083,13 @@ def ws_shut.arm.go(busy: Bool, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
 def ws_shut.arm(+need: Bool, +pevts: Chan(Sess.UiMsg)) -> IO(Unit):
   ws_shut.arm.go(need, pevts)
 
-def ws_shut.ready(+done: Bool, +hist: Bool) -> Bool:
-  Bool.and(done, Bool.not(hist))
+# Prefs settle is live !busy — never a sticky latch past a later PrefLive.start.
+def ws_shut.settle(+ctx: PrefLive.Context) -> Bool:
+  Bool.not(PrefLive.busy(ctx))
+
+# Ready only when prefs, history, and writers are all clear (need inverted).
+def ws_shut.ready(+done: Bool, +hist: Bool, +writers: Bool) -> Bool:
+  Bool.not(ws_shut.need(Bool.not(done), hist, writers))
 
 def ws_shut.fire(fire: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match fire:
@@ -3093,7 +3098,7 @@ def ws_shut.fire(fire: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: P
 
 def ws_shut.elapsed(+tnow: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   +elapsed = U32.sub(tnow, started)
-  +fire = Bool.not(U32.is_lt(elapsed, PrefWorker.DRAIN_MS())) && Bool.not(ws_shut.ready(done, hist))
+  +fire = Bool.not(U32.is_lt(elapsed, PrefWorker.DRAIN_MS())) && Bool.not(ws_shut.ready(done, hist, ws_shut.writers(pending)))
   ws_shut.fire(fire, ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
 def ws_shut.timed(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
@@ -3105,11 +3110,11 @@ def ws_shut.applied(result: PrefLive.Context & Sess.Session & List<&2, String> &
   match result:
     case (+pctx, +st, _, _):
       +busy2 = PrefLive.busy(pctx)
-      ws_shut.timed(ui, pending, pctx, st, id, Bool.pick(Maybe<&2, WsLease>, busy2, owner, None{}), ok && U32.is_zero(code), started, done || Bool.not(busy2), hist, k)
+      ws_shut.timed(ui, pending, pctx, st, id, Bool.pick(Maybe<&2, WsLease>, busy2, owner, None{}), ok && U32.is_zero(code), started, ws_shut.settle(pctx), hist, k)
 
 def ws_shut.reject.got(result: PrefLive.Context & Maybe<&2, WsLease>, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool, hist: Bool) -> WsShut:
   match result:
-    case (+ctx, +owner): WsShut{pending, ctx, st, id, owner, ok && PrefLive.clean(ctx), started, done || Bool.not(PrefLive.busy(ctx)), hist}
+    case (+ctx, +owner): WsShut{pending, ctx, st, id, owner, ok && PrefLive.clean(ctx), started, ws_shut.settle(ctx), hist}
 
 def ws_shut.reject(m: Sess.UiMsg, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool) -> WsShut:
   ws_shut.reject.got(ws_prefs.rejected(m, ctx, owner), pending, st, id, ok, started, done, hist)
@@ -3118,19 +3123,20 @@ def ws_shut.rejected(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> I
   match shut:
     case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done, hist}: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
-# Preferences drain expiry settles preferences only. History stays until
-# WsHistDone or the shared drain budget in ws_shut.fire.
-def ws_shut.deadline_state(+pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +started: U32, +hist: Bool) -> WsShut:
-  WsShut{pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}, hist}
-
-def ws_shut.deadline_go(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
-  match shut:
-    case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done, +hist}:
-      ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
-
 def ws_shut.deadline_kept(+shut: WsShut) -> Bool:
   match shut:
     case WsShut{_, _, _, _, _, _, _, _, +hist}: hist
+
+# Preferences drain expiry settles preferences only (!busy). History stays
+# until WsHistDone or the shared drain budget in ws_shut.fire; never sticky-
+# done past a still-busy PrefLive context.
+def ws_shut.deadline_state(+pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +started: U32, +hist: Bool) -> WsShut:
+  WsShut{pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, ws_shut.settle(ctx), hist}
+
+def ws_shut.deadline_go(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
+  match shut:
+    case WsShut{+pending, +ctx, +st, +id, +owner, +ok, +started, +done, _}:
+      ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, ws_shut.deadline_kept(shut), k)
 
 def ws_shut.prefs_match(current: Bool, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +gen: U32, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match current:
@@ -3167,11 +3173,10 @@ def ws_shut.owner(was_active: Bool, +ctx: PrefLive.Context, +owner: Maybe<&2, Ws
   ws_lease.prefs_next(owner, was_active, PrefLive.active(ctx), id, gen)
 
 def ws_shut.started(was_active: Bool, +ctx2: PrefLive.Context, ui: T.Ui, +pending: List<&2, Key.ServerId>, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
-  +busy2 = PrefLive.busy(ctx2)
   +owner2 = ws_shut.owner(was_active, ctx2, owner, id, ws_part.gen(ws, id))
   do IO<Unit>:
     g : Maybe<&1, WsMsg> <- Chan.recv(WsMsg, main)
-    ws_shut.got(g, ui, pending, ctx2, st, id, owner2, ok, started, done || Bool.not(busy2), hist, ws, k)
+    ws_shut.got(g, ui, pending, ctx2, st, id, owner2, ok, started, ws_shut.settle(ctx2), hist, ws, k)
 
 def ws_shut.step(ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
@@ -3184,7 +3189,7 @@ def ws_shut.drained.go(ready: Bool, +done: Bool, +hist: Bool, ui: T.Ui, +pending
     case False{}: ws_shut.step(ui, pending, ctx, st, id, owner, ok, started, done, hist, ws, main, pevts, k)
 
 def ws_shut.drained(+done: Bool, +hist: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
-  ws_shut.drained.go(ws_shut.ready(done, hist), done, hist, ui, pending, ctx, st, id, owner, ok, started, ws, main, pevts, k)
+  ws_shut.drained.go(ws_shut.ready(done, hist, ws_shut.writers(pending)), done, hist, ui, pending, ctx, st, id, owner, ok, started, ws, main, pevts, k)
 
 def ws_shut.pending(+pending: List<&2, Key.ServerId>, ui: T.Ui, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, +ws: W.Workspace, +main: Chan(WsMsg), +pevts: Chan(Sess.UiMsg), k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match pending:
@@ -3221,7 +3226,7 @@ def ws_shutdown(+loop: WsLoop, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +
         Unit <- ws_shut.arm(ws_shut.need(PrefLive.busy(ctx), hist, ws_shut.writers(pending)), pevts)
         Unit <- ws_shutdown.close(cmds)
         Unit <- ws_history.drain_spawn(hist, hot)
-        ws_shutdown_wait((ui, WsShut{pending, ctx, ws_part.st(ws, id), id, owner, True{}, started, Bool.not(PrefLive.busy(ctx)), hist}), ws, main, evts, pevts)
+        ws_shutdown_wait((ui, WsShut{pending, ctx, ws_part.st(ws, id), id, owner, True{}, started, ws_shut.settle(ctx), hist}), ws, main, evts, pevts)
 
 def ws_halt(halt: Bool, ui: T.Ui, +loop: WsLoop, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), k: (T.Ui & WsLoop) -> IO(Unit)) -> IO(Unit):
   match halt:

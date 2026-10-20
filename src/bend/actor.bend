@@ -310,8 +310,11 @@ def arm_ready(live: Bool, +boot: Chan(Boot)) -> IO(Unit):
 type AuthScope is Data:
   AuthScope{host: String, port: U32, enabled: Bool}
 
+# DialReady.state is the adopted writer socket; kept Cont/Pong/Drop ride
+# through writer_kept at adopt (same Out.batch / SEND_CAP path as
+# writer_admit_won). Fail/cancel paths carry Nil kept.
 type DialReady is Type:
-  DialReady{state: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, scope: AuthScope}
+  DialReady{state: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, kept: List<&2, Sess.NetCmd>, scope: AuthScope}
 
 def arm_fail(
   live: Bool,
@@ -326,57 +329,11 @@ def arm_fail(
     case True{}:
       do IO<Unit>:
         Unit <- boot_down(boot, msg)
-        k(DialReady{(None{}, gen, Nil{}), scope})
+        k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
     case False{}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, writer_fail(evt, gen, msg))
-        k(DialReady{(None{}, gen, Nil{}), scope})
-
-def dial_replay_failed(sock: Tr.Conn, +evt: Chan(Sess.UiMsg), +gen: U32, next: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- writer_drop(sock)
-    Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed during dial admission replay"))
-    next(None{})
-
-def dial_replay_sent(pair: Tr.Conn & Bool, +gen: U32, +evt: Chan(Sess.UiMsg), next: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  match pair:
-    case (sock, ok):
-      match ok:
-        case False{}: dial_replay_failed(sock, evt, gen, next)
-        case True{}: next(Some{sock})
-
-def dial_replay_pong(same: Bool, sock: Tr.Conn, +pongs: List<&2, String>, +gen: U32, +evt: Chan(Sess.UiMsg), next: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  match same:
-    case False{}: next(Some{sock})
-    case True{}:
-      do IO<Unit>:
-        pair : Tr.Conn & Bool <- send_lines(sock, pongs)
-        dial_replay_sent(pair, gen, evt, next)
-
-def dial_replay_step(c: Sess.NetCmd, sock: Tr.Conn, +gen: U32, +evt: Chan(Sess.UiMsg), next: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  match c:
-    case Sess.Cont{+outs}:
-      do IO<Unit>:
-        pair : Tr.Conn & Bool <- send_lines(sock, outs)
-        dial_replay_sent(pair, gen, evt, next)
-    case Sess.Pong{pgen, +pongs, _}:
-      dial_replay_pong(U32.is_eq(pgen, gen), sock, pongs, gen, evt, next)
-    case _:
-      next(Some{sock})
-
-def dial_replay_run(fuel: Nat, current: Maybe<&1, Tr.Conn>, +kept: List<&2, Sess.NetCmd>, +gen: U32, +evt: Chan(Sess.UiMsg), k: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  match fuel:
-    case 0n: k(current)
-    case 1n+p:
-      match current:
-        case None{}: k(None{})
-        case Some{sock}:
-          match kept:
-            case Nil{}: k(Some{sock})
-            case Con{c, t}: dial_replay_step(c, sock, gen, evt, next => dial_replay_run(p, next, t, gen, evt, k))
-
-def dial_replay(+kept: List<&2, Sess.NetCmd>, sock: Tr.Conn, +gen: U32, +evt: Chan(Sess.UiMsg), k: Maybe<&1, Tr.Conn> -> IO(Unit)) -> IO(Unit):
-  dial_replay_run(List.length(&2, Sess.NetCmd, kept), Some{sock}, List.reverse(&2, Sess.NetCmd, kept), gen, evt, k)
+        k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
 
 def arm_ok(
   sock: Tr.Conn,
@@ -393,7 +350,7 @@ def arm_ok(
   do IO<Unit>:
     Unit <- arm_ready(live, boot)
     Unit <- IO.spawn(Unit, reader_start(dup, evt, gen, cmd))
-    dial_replay(kept, sock, gen, evt, final => k(DialReady{(final, gen, Nil{}), scope}))
+    k(DialReady{(Some{sock}, gen, Nil{}), kept, scope})
 
 def arm_dup(
   pair: Tr.Conn & Result<&1, &1, U32 & String, Tr.Conn>,
@@ -935,13 +892,13 @@ def dial_cancel(live: Bool, +boot: Chan(Boot), sock: Socket, +gen: U32, +scope: 
   do IO<Unit>:
     Unit <- Socket.close(sock)
     Unit <- arm_ready(live, boot)
-    k(DialReady{(None{}, gen, Nil{}), scope})
+    k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
 
 def dial_conn_cancel(live: Bool, +boot: Chan(Boot), sock: Tr.Conn, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Tr.close(sock)
     Unit <- arm_ready(live, boot)
-    k(DialReady{(None{}, gen, Nil{}), scope})
+    k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
 
 def after_conn_open(closed: Bool, dropped: Bool, +kept: List<&2, Sess.NetCmd>, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   match closed:
@@ -1166,13 +1123,13 @@ def dial_superseded(+dial_gen: U32, +writer_gen: U32, connected: Bool) -> Bool:
 
 # Dial replaces the live socket. Flush the healthy pending FIFO first (same
 # send_batch contract as writer_finish) without posting WriterDone; admit
-# begins with an empty queue for the new generation.
-def writer_dial_flush_drop(pair: Tr.Conn & Sent) -> IO(Unit):
-  match pair:
-    case (sock, _): writer_drop(sock)
-
+# begins with an empty queue for the new generation. A failed flush posts
+# NetFail like writer_sent (discarded lines are not retried), then still
+# admits the new Dial on a clean queue.
 def writer_dial_flushed(
   pair: Tr.Conn & Sent,
+  +old_gen: U32,
+  +total: Nat,
   +host: String,
   +port: U32,
   +force_tls: Bool,
@@ -1186,14 +1143,24 @@ def writer_dial_flushed(
   +next_txn: U32,
   k: (Writer & AuthScope) -> IO(Unit)
 ) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- writer_dial_flush_drop(pair)
-    writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, False{}, k)
+  match pair:
+    case (sock, Sent{+count, ok}):
+      match ok:
+        case False{}:
+          do IO<Unit>:
+            Unit <- writer_drop(sock)
+            Unit <- IO.spawn(Unit, writer_fail(evt, old_gen, "send timed out or failed; " ++ Nat.show(Nat.add(1n, Nat.sub(total, count))) ++ " queued/uncertain lines were discarded without retry"))
+            writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, False{}, k)
+        case True{}:
+          do IO<Unit>:
+            Unit <- writer_drop(sock)
+            writer_admit_begin(host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, Nil{}, False{}, False{}, k)
 
 def writer_dial_flush(
   sock: Maybe<&1, Tr.Conn>,
   +pending: List<&2, String>,
   +pending_txn: List<&2, U32>,
+  +old_gen: U32,
   +host: String,
   +port: U32,
   +force_tls: Bool,
@@ -1213,7 +1180,7 @@ def writer_dial_flush(
     case Some{s}:
       do IO<Unit>:
         pair : Tr.Conn & Sent <- send_batch(s, pending, pending_txn)
-        writer_dial_flushed(pair, host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, k)
+        writer_dial_flushed(pair, old_gen, List.length(&2, String, pending), host, port, force_tls, nick, dial_gen, evt, boot, cmd, scope, budget, next_txn, k)
 
 def writer_dial_some(
   redundant: Bool,
@@ -1233,9 +1200,9 @@ def writer_dial_some(
     case True{}: k((w, scope))
     case False{}:
       match w:
-        case Writer{sock, _, +pending, +pending_txn, +next_txn, budget, _}:
+        case Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, _}:
           +next_scope = auth_scope_dial(scope, host, port)
-          writer_dial_flush(sock, pending, pending_txn, host, port, force_tls, nick, dial_gen, evt, boot, cmd, next_scope, budget, next_txn, k)
+          writer_dial_flush(sock, pending, pending_txn, gen, host, port, force_tls, nick, dial_gen, evt, boot, cmd, next_scope, budget, next_txn, k)
 
 def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +scope: AuthScope, force_tls: Bool, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match c:
@@ -1294,10 +1261,15 @@ def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot
 def writer_go_tls(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool) -> IO(Unit):
   writer_loop((st, AuthScope{"", 0, has_sasl}), evt, cmd, boot, True{})
 
-def actor_boot_adopt(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), frames: U32, force_tls: Bool) -> IO(Unit):
+# Same sequence as writer_admit_won: adopt, replay kept through Out.batch, then
+# enter the writer loop. Residual pending stays on the Writer for later pumps.
+def dial_ready_adopt(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), budget: Out.Budget, force_tls: Bool) -> IO(Unit):
   match ready:
-    case DialReady{st, scope}:
-      writer_loop((writer_adopt(st, Out.budget_frames(frames), 1), scope), evt, cmd, boot, force_tls)
+    case DialReady{st, +kept, scope}:
+      writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt(st, budget, 1), evt, cmd, True{}, final => writer_loop((final, scope), evt, cmd, boot, force_tls))
+
+def actor_boot_adopt(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), frames: U32, force_tls: Bool) -> IO(Unit):
+  dial_ready_adopt(ready, evt, cmd, boot, Out.budget_frames(frames), force_tls)
 
 def actor_boot_tls(+host: String, +port: U32, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +has_sasl: Bool, frames: U32, +force_tls: Bool) -> IO(Unit):
   dial_begin(host, port, force_tls, nick, gen, evt, boot, cmd, True{}, AuthScope{host, port, has_sasl},
@@ -1313,9 +1285,7 @@ def idle_start_tls(+evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), frames: U32,
     writer_loop((Writer{None{}, 0, Nil{}, Nil{}, 1, Out.budget_frames(frames), False{}}, AuthScope{"", 0, False{}}), evt, cmd, boot, force_tls)
 
 def deferred_started(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), budget: Out.Budget, force_tls: Bool) -> IO(Unit):
-  match ready:
-    case DialReady{got, scope}:
-      writer_loop((writer_adopt(got, budget, 1), scope), evt, cmd, boot, force_tls)
+  dial_ready_adopt(ready, evt, cmd, boot, budget, force_tls)
 
 def deferred_adopt(step: DeferredStep, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), +budget: Out.Budget, +force_tls: Bool, next: Deferred -> IO(Unit)) -> IO(Unit):
   match step:

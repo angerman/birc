@@ -1380,25 +1380,38 @@ def rows_chars(rows: List<&2, BodyRow>) -> Nat:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_chars(h), rows_chars(t))
 
+# Text/source characters only — BodyMedia rows are virtual and must not inflate
+# BodyRecon ScrollAt.tail (day bars / reconnect stay at text_chars+1).
+def row_text_chars(row: BodyRow) -> Nat:
+  match row:
+    case BodyRow{_, _, _, _, _, _, source_chars}: source_chars
+    case _: 0n
+
+def rows_text_chars(rows: List<&2, BodyRow>) -> Nat:
+  match rows:
+    case Nil{}: 0n
+    case Con{h, t}: Nat.add(row_text_chars(h), rows_text_chars(t))
+
 # BodyRecon rows (day bars and reconnect) have zero source characters. Give
-# them ScrollAt.tail = chars+1 so they never collide with a sibling zero-char
-# row or the live-bottom sentinel ScrollAt{after, 0}, without consuming
-# source-character budget. Newest reconnect must not share {0,0} with live.
-def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+# them ScrollAt.tail = text_chars+1 so they never collide with a sibling
+# zero-char row or the live-bottom sentinel ScrollAt{after, 0}, without
+# consuming source-character budget and without counting BodyMedia. Newest
+# reconnect must not share {0,0} with live.
+def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +text_chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
   match is_recon:
-    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(chars, 1n)}, line} <> k(chars)
+    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(text_chars, 1n)}, line} <> k(chars)
     case False{}:
       +tail = Nat.sub(chars, row_chars(h))
       AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> k(tail)
 
-def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
+def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +text_chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   match rows:
     case Nil{}: Nil{}
     case Con{+h, t}:
-      anchored_rows.step(recon_row(h), h, after, chars, line, next => anchored_rows(t, after, next, line))
+      anchored_rows.step(recon_row(h), h, after, chars, text_chars, line, next => anchored_rows(t, after, next, text_chars, line))
 
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
-  anchored_rows(rows, after, rows_chars(rows), line)
+  anchored_rows(rows, after, rows_chars(rows), rows_text_chars(rows), line)
 
 def paint_filter_iso(iso: Maybe<&2, Cl.Iso>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
   match iso:
@@ -2156,32 +2169,31 @@ def shift_at_bottom(+rows: List<&2, AnchoredRow>) -> Bool:
     case Nil{}: True{}
     case Con{_, _}: Nat.is_eq(last_after(rows), 0n)
 
-def shift_pick.page(at_top: Bool, short: Bool, +rows: List<&2, AnchoredRow>, +height: Nat) -> Cl.Scroll:
-  match at_top:
-    case False{}: row_anchor_at(rows, 0n)
-    case True{}:
-      match short:
-        case True{}: Cl.ScrollAt{0n, 0n}
-        case False{}: row_anchor_at(rows, Nat.sub(height, 1n))
+# Upward move with target==0 (including shift_at_top): stay on the oldest
+# painted row. Never snap to live {0,0} or height-1 away from oldest.
+def shift_pick.page(+rows: List<&2, AnchoredRow>) -> Cl.Scroll:
+  row_anchor_at(rows, 0n)
 
-def shift_pick.zero(zero: Bool, +at_top: Bool, +rows: List<&2, AnchoredRow>, +count: Nat, +height: Nat, +target: Nat) -> Cl.Scroll:
+def shift_pick.zero(zero: Bool, +rows: List<&2, AnchoredRow>, +target: Nat) -> Cl.Scroll:
   match zero:
-    case True{}: shift_pick.page(at_top, Nat.is_lt(count, height), rows, height)
+    case True{}: shift_pick.page(rows)
     case False{}: row_anchor_at(rows, Nat.sub(target, 1n))
 
-def shift_pick(snap: Bool, +at_top: Bool, +rows: List<&2, AnchoredRow>, +target: Nat, +count: Nat, +height: Nat) -> Cl.Scroll:
+def shift_pick(snap: Bool, +rows: List<&2, AnchoredRow>, +target: Nat) -> Cl.Scroll:
   match snap:
     case True{}: Cl.ScrollAt{0n, 0n}
-    case False{}: shift_pick.zero(Nat.is_eq(target, 0n), at_top, rows, count, height, target)
+    case False{}: shift_pick.zero(Nat.is_eq(target, 0n), rows, target)
 
 # Move by whole rows inside a window that contains the anchor line, `up`
 # older rows, and `dn` newer rows. Snap to the live tail when the newer walk
 # reached logical after=0, even if that line painted no rows.
+# `height` and `lines_n` remain for call-site shape; top-snap no longer
+# branches on short windows or shift_at_top.
 def shift_anchor(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll, +up: Nat, +dn: Nat, +lines_n: Nat, +reached_newest: Bool) -> Cl.Scroll:
   +count = List.length(&2, AnchoredRow, rows)
   +index = shift_len_of(rows, want)
   +target = Cl.clamp_nat(Nat.sub(Nat.add(index, dn), up), count)
-  shift_pick(Bool.and(reached_newest, Nat.is_eq(target, count)), shift_at_top(rows, lines_n), rows, target, count, height)
+  shift_pick(Bool.and(reached_newest, Nat.is_eq(target, count)), rows, target)
 
 def shift_anchor_stuck(stuck: Bool, +after: Nat, +visited: Nat, moved: Cl.Scroll) -> Cl.Scroll:
   match stuck:
@@ -2213,7 +2225,8 @@ def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWal
 # whole slice paints nothing, shift_anchor_of advances `after` by `visited`.
 def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
   +cap = Nat.add(Nat.add(up, dn), 64n)
-  +tags = day_tag(List.drop(&2, Cl.Line, newest, after), up, mutes, joins, nicks, name, server, boxed)
+  # Cover is the anchor line plus `up` older lines (up=0 still tags one line).
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, after), Nat.add(up, 1n), mutes, joins, nicks, name, server, boxed)
   scroll_rows.join(
     newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, older_day.tags(tags)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
     window_tagged(rev_tail_fuel(), tags, Step{after, up, True{}}, up, name, w, show_ts, boxed))
