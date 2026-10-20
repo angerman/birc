@@ -74,21 +74,16 @@ def remember.allowed_cm(allowed: Bool, state: State, +name: String, +key: String
       match state:
         case State{desired, welcome, sent, barrier, held, revision, motd_done}: State{put_cm(desired, name, key, replace, cm), welcome, sent, barrier, held, revision, motd_done}
 
-def remember.allowed(allowed: Bool, state: State, +name: String, +key: String, replace: Bool) -> State:
-  remember.allowed_cm(allowed, state, name, key, replace, Cl.dflt_cm())
-
-def remember(+state: State, +name: String, +key: String, replace: Bool) -> State:
-  match state:
-    case State{+desired, _, _, _, _, _, _}:
-      remember.allowed(valid_channel(name, key)
-        && (has(desired, name) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace)
-
 def remember_iso(+state: State, +name: String, +key: String, replace: Bool, +iso: Isupport.State) -> State:
   match state:
     case State{+desired, _, _, _, _, _, _}:
       +cm = Isupport.casemapping(iso)
       remember.allowed_cm(Isupport.join_admit(iso, name, key)
         && (has_cm(desired, name, cm) || Nat.is_lt(List.length(&2, Channel, desired), MAX_CHANNELS())), state, name, key, replace, cm)
+
+# Proof/legacy entry: same core as remember_iso with fixed defaults.
+def remember(+state: State, +name: String, +key: String, replace: Bool) -> State:
+  remember_iso(state, name, key, replace, Isupport.defaults())
 
 def remove_cm(xs: List<&2, Channel>, +name: String, +cm: String) -> List<&2, Channel>:
   match xs:
@@ -362,11 +357,8 @@ def capacity_line(parsed: Maybe<&2, Irc.Message>, +state: State, k: State -> Boo
 
 # Submission may stage local buffers. Preflight its whole batch against the
 # same admission rule before Session keeps those local changes.
-def capacity_ok(outs: List<&2, String>, state: State) -> Bool:
-  match outs:
-    case Nil{}: True{}
-    case Con{line, rest}: capacity_line(Irc.parse(line), state, next => capacity_ok(rest, next))
-
+# Non-iso capacity_line/join_capacity/outbound_join twins above remain for
+# now; capacity_ok below is the thin defaults alias of capacity_ok_iso.
 def capacity_command_iso(state: State, +m: Irc.Message, cmd: Irc.Cmd, +iso: Isupport.State) -> State:
   match cmd:
     case Irc.Join{}: outbound_join_iso(String.eq(Irc.msg_param(m, 0n), "0"), state, m, iso)
@@ -389,6 +381,9 @@ def capacity_ok_iso(outs: List<&2, String>, state: State, +iso: Isupport.State) 
   match outs:
     case Nil{}: True{}
     case Con{line, rest}: capacity_line_iso(Irc.parse(line), state, iso, next => capacity_ok_iso(rest, next, iso))
+
+def capacity_ok(outs: List<&2, String>, state: State) -> Bool:
+  capacity_ok_iso(outs, state, Isupport.defaults())
 
 type OutAcc is Data:
   OutAcc{state: State, reversed: List<&2, String>}
@@ -427,9 +422,6 @@ def outbound.finish(acc: OutAcc) -> State & List<&2, String>:
   match acc:
     case OutAcc{state, reversed}: (state, List.reverse(&2, String, reversed))
 
-def outbound(state: State, outs: List<&2, String>) -> State & List<&2, String>:
-  outbound.finish(List.foldl(~&2, ~String, ~OutAcc, ~outbound.step, outs, OutAcc{state, Nil{}}))
-
 def outbound.join_iso(allowed: Bool, +state: State, reversed: List<&2, String>, +line: String, +m: Irc.Message, +iso: Isupport.State) -> OutAcc:
   match allowed:
     case False{}: OutAcc{state, reversed}
@@ -462,6 +454,11 @@ def outbound.go_iso(outs: List<&2, String>, acc: OutAcc, +iso: Isupport.State) -
 
 def outbound_iso(state: State, outs: List<&2, String>, +iso: Isupport.State) -> State & List<&2, String>:
   outbound.finish(outbound.go_iso(outs, OutAcc{state, Nil{}}, iso))
+
+# Proof/legacy entry: same core as outbound_iso with fixed defaults.
+# Private outbound.*/outbound_join/join_targets twins remain for now.
+def outbound(state: State, outs: List<&2, String>) -> State & List<&2, String>:
+  outbound_iso(state, outs, Isupport.defaults())
 
 def forget_present.on(present: Bool, state: State, name: String) -> State:
   match present:
@@ -525,9 +522,6 @@ def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&
       received.control(U32.is_eq(Irc.msg_num(m), 1) && Auth.server_control(cl, Irc.source_prefix(line), m),
         motd_control_with(Cl.dflt_cm(), cl, line, m), state, cl, m)
 
-def received(state: State, +cl: Cl.Client, +line: String) -> State:
-  received.parsed(state, cl, line, Irc.parse(line))
-
 # Negotiated KICK victim (I2-dynamic2 F1): the self-KICK refusal that cancels
 # desired membership compares the victim under the Session CASEMAPPING.
 # Welcome detection keeps the fixed auth control (never forked).
@@ -564,6 +558,12 @@ def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: Strin
 
 def received_with(+cm: String, state: State, +cl: Cl.Client, +line: String) -> State:
   received.parsed_with(cm, state, cl, line, Irc.parse(line))
+
+# Proof/legacy entry: same core as received_with under default CASEMAPPING.
+# Private received.*/forget_present twins remain for now; MOTD post-welcome
+# gate stays in received.control_with (parity with received.control).
+def received(state: State, +cl: Cl.Client, +line: String) -> State:
+  received_with(Cl.dflt_cm(), state, cl, line)
 
 def ready(barrier: Barrier, +cl: Cl.Client) -> Bool:
   match barrier:
