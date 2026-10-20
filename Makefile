@@ -38,6 +38,9 @@ PREFS_HELPER ?= birc-preferences
 # observed. BUILD_TIMEOUT=900 override stays for extreme load.
 BUILD_TIMEOUT ?= 600
 PROOF_TIMEOUT ?= 180
+# Native/JS Bend test compiles under pattern rules. Raise on busy hosts:
+# `make check BEND_TEST_TIMEOUT=600`.
+BEND_TEST_TIMEOUT ?= 180
 PACKAGE_PLAN_TIMEOUT ?= 45
 
 ifeq ($(BIRC_NIX_SHELL),1)
@@ -231,18 +234,19 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 # fallback closure (every Bend and FFI input) used until a per-entry
 # build/<stem>.bend.d exists. Link rules list BEND_UI_SRCS directly.
 BEND_SRC_DEPS := $(BEND_UI_SRCS)
-# Default native Bend test binary (180s bound).
+# Default native Bend test binary (BEND_TEST_TIMEOUT bound).
 $(BLDDIR)/%: tests/bend/%.bend $(BLDDIR)/%.bend.d
-	$(NIXRUN) timeout 180 bend $< -o $@
-# JS backend fixtures (180s bound).
+	$(NIXRUN) timeout $(BEND_TEST_TIMEOUT) bend $< -o $@
+# JS backend fixtures (same bound).
 $(BLDDIR)/%.js: tests/bend/%.bend $(BLDDIR)/%.bend.d
-	$(NIXRUN) timeout 180 bend $< -o $@
+	$(NIXRUN) timeout $(BEND_TEST_TIMEOUT) bend $< -o $@
 # Second-backend review fixtures: build/<guard>_review.js from tests/bend/<guard>.bend.
 $(BLDDIR)/%_review.js: tests/bend/%.bend $(BLDDIR)/%.bend.d
-	$(NIXRUN) timeout 180 bend $< -o $@
-# Generated C intermediates (default 300s bound; 180s overrides below).
+	$(NIXRUN) timeout $(BEND_TEST_TIMEOUT) bend $< -o $@
+# Generated C intermediates (default 300s bound; override with BEND_C_TIMEOUT).
+BEND_C_TIMEOUT ?= 300
 $(BLDDIR)/%.c: tests/bend/%.bend $(BLDDIR)/%.bend.d
-	$(NIXRUN) timeout 300 bend $< -o $@
+	$(NIXRUN) timeout $(BEND_C_TIMEOUT) bend $< -o $@
 # Import closure. Missing imports fail the script (nonzero) before mv.
 # Through $(NIXRUN) like every other recipe: the scanner execs python3, and
 # test-nix-preflight puts a `python3` on PATH that exits 77 so no rule can
