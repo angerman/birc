@@ -1895,28 +1895,28 @@ def pend_body.notice(notice: Bool, +body: String, action: Bool) -> String:
     case True{}: body
     case False{}: pend_body.msg(body, action)
 
-def pend_from_out.sensitive(sensitive: Bool, +cl: Cl.Client, +out: String, +ts: String, +nick: String, +target: String, +body: String, +notice: Bool) -> Maybe<&2, Cl.PendSend>:
+def pend_from_out.sensitive(sensitive: Bool, +cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String, +nick: String, +target: String, +body: String, +notice: Bool) -> Maybe<&2, Cl.PendSend>:
   match sensitive:
     case True{}: None{}
     case False{}:
       +action = Bool.not(notice) && Feed.is_action(body)
-      Some{Cl.PendSend{Cl.message_key(cl, target), target, pend_label(Irc.label_tag(Irc.raw_tags(out))), body, pend_body.notice(notice, body, action), pend_disp.notice(notice, nick, body, action), ts, pend_kind.notice(notice, action), 0n}}
+      Some{Cl.PendSend{Cl.message_key_with(cl, isc, target), target, pend_label(Irc.label_tag(Irc.raw_tags(out))), body, pend_body.notice(notice, body, action), pend_disp.notice(notice, nick, body, action), ts, pend_kind.notice(notice, action), 0n}}
 
-def pend_from_out.gated(ok: Bool, +cl: Cl.Client, +out: String, +ts: String, +nick: String, +target: String, +body: String, +notice: Bool) -> Maybe<&2, Cl.PendSend>:
+def pend_from_out.gated(ok: Bool, +cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String, +nick: String, +target: String, +body: String, +notice: Bool) -> Maybe<&2, Cl.PendSend>:
   match ok:
     case False{}: None{}
-    case True{}: pend_from_out.sensitive(Sub.credential_message(cl, target, body), cl, out, ts, nick, target, body, notice)
+    case True{}: pend_from_out.sensitive(Sub.credential_message(cl, target, body), cl, isc, out, ts, nick, target, body, notice)
 
-def pend_from_out.parsed(+cl: Cl.Client, +out: String, +ts: String, +nick: String, parsed: Maybe<&2, Irc.Message>) -> Maybe<&2, Cl.PendSend>:
+def pend_from_out.parsed(+cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String, +nick: String, parsed: Maybe<&2, Irc.Message>) -> Maybe<&2, Cl.PendSend>:
   match parsed:
     case None{}: None{}
     case Some{+m}:
       +verb = Irc.msg_command(m)
       +notice = Irc.ieq(verb, "NOTICE")
-      pend_from_out.gated((Irc.ieq(verb, "PRIVMSG") || notice) && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n), cl, out, ts, nick, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), notice)
+      pend_from_out.gated((Irc.ieq(verb, "PRIVMSG") || notice) && Nat.is_eq(List.length(&2, String, Irc.msg_params(m)), 2n), cl, isc, out, ts, nick, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), notice)
 
-def pend_from_out(+cl: Cl.Client, +out: String, +ts: String, +nick: String) -> Maybe<&2, Cl.PendSend>:
-  pend_from_out.parsed(cl, out, ts, nick, Irc.parse(out))
+def pend_from_out(+cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String, +nick: String) -> Maybe<&2, Cl.PendSend>:
+  pend_from_out.parsed(cl, isc, out, ts, nick, Irc.parse(out))
 
 def pend_push.evict(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend) -> List<&2, Cl.PendSend>:
   match pends:
@@ -1936,16 +1936,16 @@ def pend_record_one(+pends: List<&2, Cl.PendSend>, +mb: Maybe<&2, Cl.PendSend>) 
     case None{}: pends
     case Some{+e}: pend_push(pends, e)
 
-def pend_record_outs.go(fuel: Nat, +pends: List<&2, Cl.PendSend>, +cl: Cl.Client, outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
+def pend_record_outs.go(fuel: Nat, +pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
   match fuel:
     case 0n: pends
     case 1n+f:
       match outs:
         case Nil{}: pends
-        case Con{+h, t}: pend_record_outs.go(f, pend_record_one(pends, pend_from_out(cl, h, ts, nick)), cl, t, ts, nick)
+        case Con{+h, t}: pend_record_outs.go(f, pend_record_one(pends, pend_from_out(cl, isc, h, ts, nick)), cl, isc, t, ts, nick)
 
-def pend_record_outs(+pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
-  pend_record_outs.go(List.length(&2, String, outs), pends, cl, outs, ts, nick)
+def pend_record_outs(+pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, +outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
+  pend_record_outs.go(List.length(&2, String, outs), pends, cl, isc, outs, ts, nick)
 
 
 def pend_match_label(+label: String, +p: Cl.PendSend) -> Bool:
@@ -1962,56 +1962,56 @@ def pend_drop_label(+pends: List<&2, Cl.PendSend>, +label: String) -> List<&2, C
     case Nil{}: Nil{}
     case Con{+h, +t}: pend_drop_label.rest(pend_match_label(label, h), h, t, pend_drop_label(t, label))
 
-def pend_match_fifo(+target: String, +wire: String, +p: Cl.PendSend) -> Bool:
+def pend_match_fifo(+cm: String, +target: String, +wire: String, +p: Cl.PendSend) -> Bool:
   match p:
-    case Cl.PendSend{_, ptarget, _, pwire, _, _, _, _, _}: Irc.ieq(target, ptarget) && String.eq(wire, pwire)
+    case Cl.PendSend{_, ptarget, _, pwire, _, _, _, _, _}: Cl.buf_eq_cm(cm, target, ptarget) && String.eq(wire, pwire)
 
 def pend_drop_fifo.rest(hit: Bool, +h: Cl.PendSend, +t: List<&2, Cl.PendSend>, +rec: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend>:
   match hit:
     case True{}: t
     case False{}: h <> rec
 
-def pend_drop_fifo(+pends: List<&2, Cl.PendSend>, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
+def pend_drop_fifo(+cm: String, +pends: List<&2, Cl.PendSend>, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
   match pends:
     case Nil{}: Nil{}
-    case Con{+h, +t}: pend_drop_fifo.rest(pend_match_fifo(target, wire, h), h, t, pend_drop_fifo(t, target, wire))
+    case Con{+h, +t}: pend_drop_fifo.rest(pend_match_fifo(cm, target, wire, h), h, t, pend_drop_fifo(cm, t, target, wire))
 
-def pend_confirm_tagged(untagged: Bool, +pends: List<&2, Cl.PendSend>, +label: String, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
+def pend_confirm_tagged(untagged: Bool, +cm: String, +pends: List<&2, Cl.PendSend>, +label: String, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
   match untagged:
-    case True{}: pend_drop_fifo(pends, target, wire)
+    case True{}: pend_drop_fifo(cm, pends, target, wire)
     case False{}: pend_drop_label(pends, label)
 
-def pend_confirm_echo.gated(ok: Bool, +pends: List<&2, Cl.PendSend>, +label: String, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
+def pend_confirm_echo.gated(ok: Bool, +cm: String, +pends: List<&2, Cl.PendSend>, +label: String, +target: String, +wire: String) -> List<&2, Cl.PendSend>:
   match ok:
     case False{}: pends
-    case True{}: pend_confirm_tagged(String.is_empty(label), pends, label, target, wire)
+    case True{}: pend_confirm_tagged(String.is_empty(label), cm, pends, label, target, wire)
 
-def pend_confirm_line.chat(chat: Bool, +pends: List<&2, Cl.PendSend>, +nick: String, +line: String, +m: Irc.Message) -> List<&2, Cl.PendSend>:
+def pend_confirm_line.chat(chat: Bool, +cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +line: String, +m: Irc.Message) -> List<&2, Cl.PendSend>:
   match chat:
     case False{}: pends
     case True{}:
-      pend_confirm_echo.gated(Cl.nick_eq(Irc.msg_nick(m), nick) && Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 2n), pends, pend_label(Irc.label_tag(Irc.raw_tags(line))), Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
+      pend_confirm_echo.gated(Cl.nick_eq_cm(cm, Irc.msg_nick(m), nick) && Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 2n), cm, pends, pend_label(Irc.label_tag(Irc.raw_tags(line))), Irc.msg_param(m, 0n), Irc.msg_param(m, 1n))
 
-def pend_confirm_line.parsed(+pends: List<&2, Cl.PendSend>, +nick: String, +line: String, parsed: Maybe<&2, Irc.Message>) -> List<&2, Cl.PendSend>:
+def pend_confirm_line.parsed(+cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +line: String, parsed: Maybe<&2, Irc.Message>) -> List<&2, Cl.PendSend>:
   match parsed:
     case None{}: pends
     case Some{+m}:
       +verb = Irc.msg_command(m)
-      pend_confirm_line.chat(Irc.ieq(verb, "PRIVMSG") || Irc.ieq(verb, "NOTICE"), pends, nick, line, m)
+      pend_confirm_line.chat(Irc.ieq(verb, "PRIVMSG") || Irc.ieq(verb, "NOTICE"), cm, pends, nick, line, m)
 
-def pend_confirm_line(+pends: List<&2, Cl.PendSend>, +nick: String, +line: String) -> List<&2, Cl.PendSend>:
-  pend_confirm_line.parsed(pends, nick, line, Irc.parse(line))
+def pend_confirm_line(+cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +line: String) -> List<&2, Cl.PendSend>:
+  pend_confirm_line.parsed(cm, pends, nick, line, Irc.parse(line))
 
-def pend_confirm_lines.go(fuel: Nat, +pends: List<&2, Cl.PendSend>, +nick: String, lines: List<&2, String>) -> List<&2, Cl.PendSend>:
+def pend_confirm_lines.go(fuel: Nat, +cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, lines: List<&2, String>) -> List<&2, Cl.PendSend>:
   match fuel:
     case 0n: pends
     case 1n+f:
       match lines:
         case Nil{}: pends
-        case Con{+h, t}: pend_confirm_lines.go(f, pend_confirm_line(pends, nick, h), nick, t)
+        case Con{+h, t}: pend_confirm_lines.go(f, cm, pend_confirm_line(cm, pends, nick, h), nick, t)
 
-def pend_confirm_lines(+pends: List<&2, Cl.PendSend>, +nick: String, +lines: List<&2, String>) -> List<&2, Cl.PendSend>:
-  pend_confirm_lines.go(List.length(&2, String, lines), pends, nick, lines)
+def pend_confirm_lines(+cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +lines: List<&2, String>) -> List<&2, Cl.PendSend>:
+  pend_confirm_lines.go(List.length(&2, String, lines), cm, pends, nick, lines)
 
 def pend_age_one(+p: Cl.PendSend) -> Cl.PendSend:
   match p:
@@ -2860,7 +2860,7 @@ def pend_now(+cl: Cl.Client) -> String:
 def pend_record_cont(+st: Session, +outs: List<&2, String>, echo_ok: Bool) -> Session:
   match echo_ok:
     case False{}: st
-    case True{}: session_set_pends(st, pend_record_outs(session_pends(st), session_cl(st), outs, pend_now(session_cl(st)), Cl.nick_of(session_cl(st))))
+    case True{}: session_set_pends(st, pend_record_outs(session_pends(st), session_cl(st), Isupport.as_iso(session_iso(st)), outs, pend_now(session_cl(st)), Cl.nick_of(session_cl(st))))
 
 def pend_record_cmd(+st: Session, +cmd: NetCmd) -> Session:
   match cmd:
@@ -3944,7 +3944,10 @@ def live_is_dynamic.cmd(c: Irc.Cmd, +m: Irc.Message) -> Bool:
     case Irc.Privmsg{}: True{}
     case Irc.Notice{}: True{}
     case Irc.Tagmsg{}: True{}
-    case Irc.Numeric{_}: U32.is_eq(Irc.msg_num(m), 353) || JoinPlan.motd_num(Irc.msg_num(m))
+    case Irc.Topic{}: True{}
+    case Irc.Mode{}: True{}
+    case Irc.Numeric{_}:
+      U32.is_eq(Irc.msg_num(m), 353) || U32.is_eq(Irc.msg_num(m), 332) || JoinPlan.motd_num(Irc.msg_num(m))
     case _: False{}
 
 def live_is_dynamic.parsed(parsed: Maybe<&2, Irc.Message>) -> Bool:
@@ -4263,7 +4266,7 @@ def step_on_chunk_ms.observed_st(+after: Nat, +st: Session, +outs: List<&2, Stri
 
 def step_on_framed_ms.confirmed(pair: Session & List<&2, String>, +st: Session, +lines: List<&2, String>) -> Session & List<&2, String>:
   match pair:
-    case (+st2, +outs): (session_set_pends(st2, pend_confirm_lines(session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs)
+    case (+st2, +outs): (session_set_pends(st2, pend_confirm_lines(session_cm(st), session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs)
 
 def step_on_framed_ms.split(+lines: List<&2, String>, +rem: List<&2, U32>, +drop: Bool, +st: Session, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32) -> Session & List<&2, String>:
   step_on_framed_ms.confirmed(step_on_chunk_ms.observed(Cl.log_seq_of(session_cl(st)), step_on_framed_ms.base(st, (lines, rem, drop), stamps, now_ms)), st, lines)
@@ -4286,7 +4289,7 @@ def step_on_framed_ms_ceiling.observed3(+after: Nat, trip: Session & List<&2, St
 
 def step_on_framed_ms_ceiling.confirmed(trip: Session & List<&2, String> & List<&2, Drafts.NickRename>, +st: Session, +lines: List<&2, String>) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match trip:
-    case (st2, outs, renames): (session_set_pends(st2, pend_confirm_lines(session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs, renames)
+    case (st2, outs, renames): (session_set_pends(st2, pend_confirm_lines(session_cm(st), session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs, renames)
 
 def step_on_framed_ms_ceiling.split(+lines: List<&2, String>, +rem: List<&2, U32>, +drop: Bool, +st: Session, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   step_on_framed_ms_ceiling.confirmed(step_on_framed_ms_ceiling.observed3(Cl.log_seq_of(session_cl(st)), step_on_framed_ms_ceiling.base(st, (lines, rem, drop), stamps, now_ms, ceiling)), st, lines)

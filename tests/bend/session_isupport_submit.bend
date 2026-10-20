@@ -172,6 +172,18 @@ def receive(+st: Sess.Session, +line: String) -> Sess.Session & List<&2, String>
 def trusted(+st: Sess.Session, +line: String) -> Sess.Session:
   chunk_state(receive(st, line))
 
+def ascii_session_topic_brace_only() -> Bool:
+  +iso = ascii_server()
+  +st = trusted(live(iso, ascii_bracket_client(), "#a{"), ":op!u@h TOPIC #a{ :session topic")
+  String.eq(buf_topic_cm(Sess.session_cl(st), "ascii", "#a{"), "session topic")
+    && String.is_empty(buf_topic_cm(Sess.session_cl(st), "ascii", "#a["))
+
+def ascii_session_mode_brace_only() -> Bool:
+  +iso = ascii_server()
+  +st = trusted(live(iso, ascii_bracket_client(), "#a{"), ":op!u@h MODE #a{ +m")
+  String.contains(show_buf_tail_cm(Sess.session_cl(st), "ascii", "#a{"), "MODE")
+    && Bool.not(String.contains(show_buf_tail_cm(Sess.session_cl(st), "ascii", "#a["), "MODE"))
+
 def saved(+names: List<&2, String>) -> Sess.Session:
   Sess.session_seed_channels(Sess.session_online(Sess.session_with_client_at(base(), "", 6697)), names)
 
@@ -331,4 +343,6 @@ def main() -> IO(Unit):
       Nat.is_eq(Cl.normal_buffer_count(Cl.client_bufs(rfc1459_bracket_client())), 2n))
     Unit <- E.must("ascii negotiated TOPIC updates only the brace sibling", ascii_topic_hits_brace_only())
     Unit <- E.must("ascii negotiated MODE logs only the brace sibling", ascii_mode_logs_brace_only())
+    Unit <- E.must("ascii Session TOPIC updates only the brace sibling", ascii_session_topic_brace_only())
+    Unit <- E.must("ascii Session MODE logs only the brace sibling", ascii_session_mode_brace_only())
     IO.print("session_isupport_submit=ok")

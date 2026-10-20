@@ -1520,8 +1520,9 @@ def day_tag.go(
         case Con{+h, +t}:
           +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
           +hidden = List.is_empty(&2, Cl.Line, filtered)
+          # Cons while walking oldest-first yields newest-first without a second reverse.
           day_tag.go(p, t, visible_day_step(hidden, line_day(h), prev_day), mutes, joins, nicks, name, server, boxed,
-            List.append(&2, DayTag, acc, DayTag{h, prev_day, filtered} <> Nil{}))
+            DayTag{h, prev_day, filtered} <> acc)
 
 def day_tag(
   lines_newest: List<&2, Cl.Line>,
@@ -1532,7 +1533,7 @@ def day_tag(
   +server: String,
   +boxed: List<&2, PaintOpts>
 ) -> List<&2, DayTag>:
-  List.reverse(&2, DayTag, day_tag.go(2048n, List.reverse(&2, Cl.Line, lines_newest), "", mutes, joins, nicks, name, server, boxed, Nil{}))
+  day_tag.go(rev_tail_fuel(), List.reverse(&2, Cl.Line, lines_newest), "", mutes, joins, nicks, name, server, boxed, Nil{})
 
 # Nearest visible dated day scanning newest-first (older neighbors of a line).
 def older_day.dated(empty: Bool, +day: String, k: Unit -> String) -> String:
