@@ -148,6 +148,29 @@ def over_cap_hidden_run_reaches_live() -> Bool:
   +b2 = V.scroll_buf(b1, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
   is_live(buf_scroll(V.scroll_buf(b2, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)))
 
+# Newest 90 QUITs alone (no trailing NEW): live paint must still reach OLD.
+def over_cap_hidden_live_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "",
+    List.reverse(&2, Cl.Line, cons_quits(90n, 2n, Cl.Line{Cl.Msg{}, "", "OLD", "a", 1n} <> Nil{})),
+    Nil{}, Cl.ScrollAt{0n, 0n})
+
+def over_cap_hidden_live_shows_old() -> Bool:
+  String.contains(
+    row_texts(V.paint_body_of(over_cap_hidden_live_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", V.paint_text())),
+    "OLD")
+
+# Enough visible older rows above a long hidden run so PageUp can leave live.
+def over_cap_hidden_page_up_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "",
+    List.reverse(&2, Cl.Line,
+      Cl.Line{Cl.Msg{}, "", "NEW", "a", 96n}
+        <> cons_quits(90n, 6n, cons_msgs(5n, 1n, Nil{}))),
+    Nil{}, Cl.ScrollAt{0n, 0n})
+
+def over_cap_hidden_page_up_moves() -> Bool:
+  +b1 = V.scroll_buf(over_cap_hidden_page_up_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 3n, 0n)
+  Nat.is_gt(scroll_after(buf_scroll(b1)), 0n)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("first_row_of_one_wrapped_line", reaches_first())
@@ -163,4 +186,6 @@ def main() -> IO(Unit):
     Unit <- E.must("long_hidden_run_page_down_progresses", long_hidden_run_progresses())
     Unit <- E.must("over_cap_hidden_run_page_down_progresses", over_cap_hidden_run_progresses())
     Unit <- E.must("over_cap_hidden_run_reaches_live", over_cap_hidden_run_reaches_live())
+    Unit <- E.must("over_cap_hidden_live_paint_shows_old", over_cap_hidden_live_shows_old())
+    Unit <- E.must("over_cap_hidden_page_up_moves", over_cap_hidden_page_up_moves())
     IO.print("scroll_demo=ok")

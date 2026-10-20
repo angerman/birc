@@ -2853,9 +2853,10 @@ def session_label_cmd(+st: Session, +cmd: NetCmd) -> Session & NetCmd:
 
 # Outbound record + status compose (need session accessors above).
 
+# Full Client.now so pending overlays share day bars with stamped history.
 def pend_now(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}: Cl.now_hms(now)
+    case Cl.Client{_, _, _, _, +now, _, _, _}: now
 
 def pend_record_cont(+st: Session, +outs: List<&2, String>, echo_ok: Bool) -> Session:
   match echo_ok:

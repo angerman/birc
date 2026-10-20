@@ -4,6 +4,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/history.bend as H
+import ../../src/bend/media.bend as M
 import ../../src/bend/view.bend as V
 
 def show.go(lines: List<&2, Cl.Line>, +acc: String) -> String:
@@ -106,6 +107,19 @@ def deep_live_bars() -> String:
   +tuesday = Cl.client_log(Cl.set_now(padded, "2026-10-20 (Tuesday)|00:01:00"), 0n, Cl.Msg{}, "<a> early")
   bars_hide_joins(tuesday)
 
+def pending_tuesday_bars.got(got: Maybe<&2, Cl.Buffer>, +pend: Cl.PendSend) -> String:
+  match got:
+    case None{}: ""
+    case Some{+b}:
+      bars.go(V.paint_body_of(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc",
+        V.paint_box(None{}, None{}, M.empty(), None{}, False{}, pend <> Nil{}, True{})), "")
+
+def pending_tuesday_bars() -> String:
+  +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
+  +logged = Cl.client_log(monday, 0n, Cl.Msg{}, "<a> late")
+  +pend: Cl.PendSend = Cl.PendSend{"server", "server", "", "hi", "<me> hi", "hi", "2026-10-20 (Tuesday)|00:01:00", Cl.Self{}, 0n}
+  pending_tuesday_bars.got(Cl.nth_buf(Cl.client_bufs(logged), 0n), pend)
+
 def last_ts.go(lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
     case Nil{}: acc
@@ -146,6 +160,8 @@ def main() -> IO(Unit):
       "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
     Unit <- E.must("live paint seeds day bars past a deep older spine",
       String.contains(deep_live_bars(), "BAR @2026-10-20 (Tuesday)"))
+    Unit <- E.must("pending full stamp paints the next local day bar",
+      String.contains(pending_tuesday_bars(), "BAR @2026-10-20 (Tuesday)"))
     Unit <- E.must_eq("day bar ScrollAt.tail stays above the live-bottom zero sentinel", day_anchor_tails(tuesday), "9|10|")
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))

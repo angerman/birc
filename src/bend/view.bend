@@ -1514,10 +1514,9 @@ def visible_day_step(hidden: Bool, +day: String, +prev_day: String) -> String:
 type DayTag is Data:
   DayTag{line: Cl.Line, prev_day: String, filtered: List<&2, Cl.Line>}
 
-# Viewport headroom: enough hidden/muted lines to fill `need` body rows without
-# tagging the whole buffer spine on every scrolled paint.
-def day_tag_cap(+need: Nat) -> Nat:
-  Nat.add(Nat.mul(need, 4n), 64n)
+# At least one visible line so an up=0 / empty budget still tags the anchor.
+def day_tag_need(+need: Nat) -> Nat:
+  Bool.pick(Nat, Nat.is_eq(need, 0n), 1n, need)
 
 # Nearest visible dated day scanning newest-first (older neighbors of a line).
 def older_day.dated(empty: Bool, +day: String, k: Unit -> String) -> String:
@@ -1567,19 +1566,53 @@ def older_day.scan(
 ) -> String:
   older_day.scan.go(rev_tail_fuel(), lines, mutes, joins, nicks, name, server, boxed)
 
-def day_tag.take.emit(zero: Bool, +h: Cl.Line, k: Unit -> List<&2, Cl.Line>) -> List<&2, Cl.Line>:
-  match zero:
-    case True{}: Nil{}
-    case False{}: h <> k(Unit{})
+# Hidden lines do not consume `left`; stop once `left` visible lines are taken.
+def day_tag.left(hidden: Bool, +left: Nat) -> Nat:
+  match hidden:
+    case True{}: left
+    case False{}: Nat.sub(left, Nat.min(left, 1n))
 
-def day_tag.take(fuel: Nat, lines: List<&2, Cl.Line>, +n: Nat) -> List<&2, Cl.Line>:
+def day_tag.cover.stop(done: Bool, +h: Cl.Line, +acc: List<&2, Cl.Line>, k: Unit -> List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match done:
+    case True{}: h <> acc
+    case False{}: k(Unit{})
+
+# Newest-first walk; cons yields oldest-first among taken (reverse before tag).
+def day_tag.cover.go(
+  fuel: Nat,
+  lines: List<&2, Cl.Line>,
+  +left: Nat,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  +acc: List<&2, Cl.Line>
+) -> List<&2, Cl.Line>:
   match fuel:
-    case 0n: Nil{}
+    case 0n: acc
     case 1n+p:
       match lines:
-        case Nil{}: Nil{}
-        case Con{+h, t}:
-          day_tag.take.emit(Nat.is_eq(n, 0n), h, done => day_tag.take(p, t, Nat.sub(n, 1n)))
+        case Nil{}: acc
+        case Con{+h, +t}:
+          +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+          +hidden = List.is_empty(&2, Cl.Line, filtered)
+          +next = day_tag.left(hidden, left)
+          day_tag.cover.stop(Bool.and(Bool.not(hidden), Nat.is_eq(next, 0n)), h, acc,
+            done => day_tag.cover.go(p, t, next, mutes, joins, nicks, name, server, boxed, h <> acc))
+
+def day_tag.cover(
+  +lines_newest: List<&2, Cl.Line>,
+  +need: Nat,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> List<&2, Cl.Line>:
+  List.reverse(&2, Cl.Line, day_tag.cover.go(rev_tail_fuel(), lines_newest, day_tag_need(need), mutes, joins, nicks, name, server, boxed, Nil{}))
 
 def day_tag.go(
   fuel: Nat,
@@ -1605,10 +1638,10 @@ def day_tag.go(
           day_tag.go(p, t, visible_day_step(hidden, line_day(h), prev_day), mutes, joins, nicks, name, server, boxed,
             DayTag{h, prev_day, filtered} <> acc)
 
-# Tag at most `bound` newest-first lines; seed prev_day from older unscanned lines.
+# Cover `need` visible newest-first lines (hidden runs free); seed from older rest.
 def day_tag(
   +lines_newest: List<&2, Cl.Line>,
-  +bound: Nat,
+  +need: Nat,
   +mutes: List<&2, String>,
   +joins: Bool,
   +nicks: Bool,
@@ -1616,8 +1649,8 @@ def day_tag(
   +server: String,
   +boxed: List<&2, PaintOpts>
 ) -> List<&2, DayTag>:
-  +slice = day_tag.take(rev_tail_fuel(), lines_newest, bound)
-  +seed = older_day.scan(List.drop(&2, Cl.Line, lines_newest, bound), mutes, joins, nicks, name, server, boxed)
+  +slice = day_tag.cover(lines_newest, need, mutes, joins, nicks, name, server, boxed)
+  +seed = older_day.scan(List.drop(&2, Cl.Line, lines_newest, List.length(&2, Cl.Line, slice)), mutes, joins, nicks, name, server, boxed)
   day_tag.go(rev_tail_fuel(), List.reverse(&2, Cl.Line, slice), seed, mutes, joins, nicks, name, server, boxed, Nil{})
 
 def day_rows.on(skip: Bool, +day: String, +w: U32) -> List<&2, BodyRow>:
@@ -1704,7 +1737,7 @@ def paint_recent_tagged(
         next => paint_recent_tagged(t, name, w, show_ts, boxed, next))
 
 def paint_recent_go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, +height: Nat, +acc: List<&2, BodyRow>) -> List<&2, BodyRow>:
-  paint_recent_tagged(day_tag(lines, day_tag_cap(height), mutes, joins, nicks, name, server, boxed), name, w, show_ts, boxed, (height, acc))
+  paint_recent_tagged(day_tag(lines, height, mutes, joins, nicks, name, server, boxed), name, w, show_ts, boxed, (height, acc))
 
 def paint_bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match need:
@@ -1955,7 +1988,7 @@ def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
 # One bounded day_tag pass serves both the older window and the newer-walk day seed.
 def window_anchored(+newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
   +at = window_after(Bool.and(Nat.is_gt(count, 0n), Nat.is_ge(after, count)), after, count)
-  +tags = day_tag(List.drop(&2, Cl.Line, newest, at), day_tag_cap(height), mutes, joins, nicks, name, server, boxed)
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, at), height, mutes, joins, nicks, name, server, boxed)
   window_join(Nat.is_gt(at, 0n),
     window_tagged(rev_tail_fuel(), tags, Step{at, height, True{}}, height, name, w, show_ts, boxed),
     newest, at, height, older_day.tags(tags), name, w, show_ts, mutes, joins, nicks, server, boxed)
@@ -2178,7 +2211,7 @@ def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWal
 # whole slice paints nothing, shift_anchor_of advances `after` by `visited`.
 def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
   +cap = Nat.add(Nat.add(up, dn), 64n)
-  +tags = day_tag(List.drop(&2, Cl.Line, newest, after), day_tag_cap(up), mutes, joins, nicks, name, server, boxed)
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, after), up, mutes, joins, nicks, name, server, boxed)
   scroll_rows.join(
     newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, older_day.tags(tags)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
     window_tagged(rev_tail_fuel(), tags, Step{after, up, True{}}, up, name, w, show_ts, boxed))

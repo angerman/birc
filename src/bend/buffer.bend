@@ -1142,13 +1142,15 @@ def message_key_with.resident(+types: String, +status: String, +sigils: String, 
       # Any resident hit keeps the stored spelling so pending overlays match
       # the open tab after casemap or STATUSMSG aliasing.
       bufname
-    case None{}: target_key_with(types, status, sigils, name)
+    # Miss keeps `name` (already stripped once by audience). Never strip again.
+    case None{}: name
 
 def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
   match cl:
     case Client{_, _, bufs, _, _, _, _, _}:
       match found:
-        case None{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+        # One STATUSMSG strip only — audience already applied target_key_with.
+        case None{}: name
         case Some{i}: message_key_with.resident(iso_types(isc), iso_status(isc), iso_sigils(isc), name, nth_buf(bufs, i))
 
 # STATUSMSG / non-chantype heads (`@#foo`) strip first, then resolve resident.

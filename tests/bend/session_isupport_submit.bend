@@ -225,6 +225,15 @@ def plus_resident_keeps_plus_room() -> Bool:
   +cl = submit_client(Sub.submit_with(iso, base(), "/join +#room"))
   String.eq(Cl.message_key_with(cl, isc, "+#room"), "+#room")
 
+# One STATUSMSG strip only: ++#room / @+#room stay +#room (not double-stripped to #room).
+def plus_statusmsg_no_double_strip() -> Bool:
+  +iso = Is.defaults()
+  +isc = Is.as_iso(iso)
+  +cl = submit_client(Sub.submit_with(iso, base(), "/join #room"))
+  String.eq(Cl.message_key_with(cl, isc, "++#room"), "+#room")
+    && String.eq(Cl.message_key_with(cl, isc, "@+#room"), "+#room")
+    && String.eq(Cl.message_key_with(cl, isc, "+#room"), "#room")
+
 def saved(+names: List<&2, String>) -> Sess.Session:
   Sess.session_seed_channels(Sess.session_online(Sess.session_with_client_at(base(), "", 6697)), names)
 
@@ -391,4 +400,5 @@ def main() -> IO(Unit):
     Unit <- E.must("ascii STATUSMSG audience keys the resident brace buffer", ascii_pend_statusmsg_keys_brace())
     Unit <- E.must("plus STATUSMSG audience keys the resident hash room", plus_statusmsg_keys_hash_room())
     Unit <- E.must("resident plus-channel keeps its stored spelling", plus_resident_keeps_plus_room())
+    Unit <- E.must("STATUSMSG strips at most one leading sigil", plus_statusmsg_no_double_strip())
     IO.print("session_isupport_submit=ok")
