@@ -148,6 +148,9 @@ typedef struct {
   char *clipboard;
   TimuiRect body_inner[2];
   int body_count;
+  /* Index into body_inner for the composer host; -1 until a
+   * PANE_COMPOSER OpBox (or the sole body pane) registers. */
+  int composer_pane;
   TimuiRect nicks_inner;
   BircSel sel;
   int profile_enabled;
@@ -612,6 +615,7 @@ Term timui_open_run(Env e, Term *f, IoWork *w) {
   if (!st) return io_fail(e, 1u, "timui_open failed");
   st->st.text = st->composer;
   st->st.cap = sizeof st->composer;
+  st->composer_pane = -1;
   st->last_tab = -1;
   st->profile_enabled = getenv("BIRC_FRAME_PROFILE") != NULL;
   cfg.title = "birc";
@@ -949,42 +953,47 @@ typedef struct {
 static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
   u64 cid = term_aux(op);
   if (cid == CID_VIEW_OPBOX) {
-    Term f[4];
-    Loc loc = ctr_take(e, op, 4, f);
+    /* role: 0 unknown, 1 body, 2 nicks, 3 composer (body host). */
+    Term f[5];
+    Loc loc = ctr_take(e, op, 5, f);
     TimuiRect r;
+    uint32_t role;
     r.x = (int)(uint32_t)f[0];
     r.y = (int)(uint32_t)f[1];
     r.w = (int)(uint32_t)f[2];
     r.h = (int)(uint32_t)f[3];
+    role = (uint32_t)f[4];
     if (ly && r.y + r.h > ly->root.y + ly->root.h)
       r.h = ly->root.y + ly->root.h - r.y;
     if (ly && ly->bu) {
-      int i, body_box = 0;
-      for (i = 0; i < ly->bu->body_count; i++) {
-        TimuiRect in = ly->bu->body_inner[i];
-        if (r.x == in.x - 1 && r.y == in.y - 1 &&
-            r.w == in.w + 2 && r.h == in.h + 2)
-          body_box = 1;
+      TimuiRect inner = (TimuiRect){r.x + 1, r.y + 1,
+        r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
+      if (role == 1u || role == 3u) {
+        int i, found = -1;
+        for (i = 0; i < ly->bu->body_count; i++) {
+          TimuiRect in = ly->bu->body_inner[i];
+          if (r.x == in.x - 1 && r.y == in.y - 1 &&
+              r.w == in.w + 2 && r.h == in.h + 2)
+            found = i;
+        }
+        if (found < 0 && ly->bu->body_count < 2) {
+          found = ly->bu->body_count;
+          ly->bu->body_inner[found] = inner;
+          ly->bu->body_count++;
+        }
+        if (role == 3u && found >= 0)
+          ly->bu->composer_pane = found;
+      } else if (role == 2u) {
+        ly->bu->nicks_inner = inner;
       }
-      /* TODO(pane-tag): OpBox/OpSplit need an explicit pane role in
-       * view.bend (and cards.bend emitters). Until then role is inferred:
-       * the first x==0 box is the chat body, every other box is the nick
-       * list. Mouse hit-testing and the composer chooser use these rects. */
-      if (ly->bu->body_count == 0 && r.x == 0) {
-        ly->bu->body_inner[0] = (TimuiRect){r.x + 1, r.y + 1,
-          r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
-        ly->bu->body_count = 1;
-      } else if (!body_box) {
-        ly->bu->nicks_inner = (TimuiRect){r.x + 1, r.y + 1,
-          r.w > 2 ? r.w - 2 : 0, r.h > 2 ? r.h - 2 : 0};
-      }
+      /* role 0 (unknown): draw only; tests may emit bare OpBox. */
     }
     if (fr && ly && r.h > 0 && r.w > 2)
       timui_draw_box(ly->buf, r, TIMUI_BORDER_ROUND, ly->border);
-    spare_free(e, cls_fit(4), loc);
+    spare_free(e, cls_fit(5), loc);
   } else if (cid == CID_VIEW_OPSPLIT) {
-    Term f[5];
-    Loc loc = ctr_take(e, op, 5, f);
+    Term f[6];
+    Loc loc = ctr_take(e, op, 6, f);
     TimuiRect area, panes[2];
     TimuiConstraint cons[2] = {TIMUI_FLEX(1), TIMUI_FLEX(1)};
     int axis = (int)(uint32_t)f[4];
@@ -993,6 +1002,8 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
     area.y = (int)(uint32_t)f[1];
     area.w = (int)(uint32_t)f[2];
     area.h = (int)(uint32_t)f[3];
+    /* f[5] is pane role (Body); split always seeds both body inners. */
+    (void)(uint32_t)f[5];
     made = axis == 0 ? timui_split_h(area, cons, 2, panes)
                      : timui_split_v(area, cons, 2, panes);
     if (ly && ly->bu && made == 2) {
@@ -1003,7 +1014,7 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
           panes[i].w > 2 ? panes[i].w - 2 : 0,
           panes[i].h > 2 ? panes[i].h - 2 : 0};
     }
-    spare_free(e, cls_fit(5), loc);
+    spare_free(e, cls_fit(6), loc);
   } else if (cid == CID_VIEW_OPTEXT) {
     Term f[6];
     Loc loc = ctr_take(e, op, 6, f);
@@ -1528,6 +1539,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->ghost_w = 0;
       bu->ghost[0] = '\0';
       memset(bu->body_inner, 0, sizeof bu->body_inner);
+      bu->composer_pane = -1;
       memset(&bu->nicks_inner, 0, sizeof bu->nicks_inner);
     }
     timui_draw_fill(buf, root, panel);
@@ -1545,27 +1557,15 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       bu->st.scroll_y = 0;
     }
     /* Inline composer: the widget sits on the last inner body row after
-     * Bend's <nick> prefix. body_inner[0] is the chat body (first OpBox
-     * with x==0); split mode captures both panes. The bottom-most,
-     * left-most pane is chosen by geometry until OpBox carries a pane
-     * tag (TODO above). Bend already computes split_composer_rect and
-     * passes compose_x. */
+     * Bend's <nick> prefix. Bend tags the host OpBox PANE_COMPOSER (or
+     * the sole body pane when only one is registered). compose_x is the
+     * nick-prefix column from Bend. */
     if (bu) {
       int chosen = -1;
-      int i;
-      for (i = 0; i < bu->body_count; i++) {
-        TimuiRect in = bu->body_inner[i];
-        if (chosen < 0) {
-          chosen = i;
-        } else {
-          TimuiRect cur = bu->body_inner[chosen];
-          int in_bottom = in.y + in.h;
-          int cur_bottom = cur.y + cur.h;
-          if (in_bottom > cur_bottom ||
-              (in_bottom == cur_bottom && in.x < cur.x))
-            chosen = i;
-        }
-      }
+      if (bu->composer_pane >= 0 && bu->composer_pane < bu->body_count)
+        chosen = bu->composer_pane;
+      else if (bu->body_count == 1)
+        chosen = 0;
       if (chosen >= 0) {
         TimuiRect in = bu->body_inner[chosen];
         int cy = in.y + in.h - 1;

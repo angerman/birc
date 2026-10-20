@@ -157,7 +157,7 @@ def frame_done(pair: T.Ui & T.UiKeys) -> IO(Unit):
     case (ui, T.UiKeys{_, _, _, _, _, _, _, _, _, _, _, _}): T.Timui.close(ui)
 
 def frame_retain() -> IO(Unit):
-  +ops : List<&2, V.DrawOp> = [V.OpBox{0, 0, 0, 0}, V.OpSplit{0, 0, 0, 0, 0}, V.OpText{0, 0, 0, 0, 0, ""}, V.OpTabs{0, 0, 0, 0, Nil{}, Nil{}, 0, 0}, V.OpLine{0, 0, 0, 0, [V.Spn{0, ""}, V.Lnk{"", ""}, V.Col{0, 0, ""}]}, V.OpImage{0, 0, 0, 0, ""}, V.OpMedia{0, 0, 0, 0, 0, 0, 0}, V.OpGhost{0, 0, 0, 0, ""}]
+  +ops : List<&2, V.DrawOp> = [V.op_box(0, 0, 0, 0), V.OpSplit{0, 0, 0, 0, 0, 0}, V.OpText{0, 0, 0, 0, 0, ""}, V.OpTabs{0, 0, 0, 0, Nil{}, Nil{}, 0, 0}, V.OpLine{0, 0, 0, 0, [V.Spn{0, ""}, V.Lnk{"", ""}, V.Col{0, 0, ""}]}, V.OpImage{0, 0, 0, 0, ""}, V.OpMedia{0, 0, 0, 0, 0, 0, 0}, V.OpGhost{0, 0, 0, 0, ""}]
   do IO<Unit>:
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     ui2 : T.Ui <- T.Timui.view_begin(ui)

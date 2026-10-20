@@ -46,8 +46,8 @@ def names_len(xs: List<&2, String>) -> Nat:
 
 def op_len(op: V.DrawOp) -> Nat:
   match op:
-    case V.OpBox{_, _, _, _}: 0n
-    case V.OpSplit{_, _, _, _, _}: 0n
+    case V.OpBox{_, _, _, _, _}: 0n
+    case V.OpSplit{_, _, _, _, _, _}: 0n
     case V.OpText{_, _, _, _, _, text}: String.length(text)
     case V.OpTabs{_, _, _, _, names, _, _, _}: names_len(names)
     case V.OpLine{_, _, _, _, spans}: spans_len(spans)

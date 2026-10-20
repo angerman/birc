@@ -74,9 +74,9 @@ def u32s_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
 
 def show_op(op: V.DrawOp) -> String:
   match op:
-    case V.OpBox{x, y, w, h}:
+    case V.OpBox{x, y, w, h, _}:
       "X:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h)
-    case V.OpSplit{x, y, w, h, axis}:
+    case V.OpSplit{x, y, w, h, axis, _}:
       "S:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ U32.show(axis)
     case V.OpText{_, y, _, _, _, +text}:
       "t:" ++ U32.show(y) ++ "|" ++ text

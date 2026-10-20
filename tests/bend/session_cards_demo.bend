@@ -135,7 +135,7 @@ def sess_chunk_outs(pair: Sess.Session & List<&2, String>) -> String:
 def ops_shape(xs: List<&2, V.DrawOp>) -> String:
   match xs:
     case Nil{}: ""
-    case Con{V.OpBox{x, y, w, h}, tail}:
+    case Con{V.OpBox{x, y, w, h, _}, tail}:
       "box:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ ";" ++ ops_shape(tail)
     case Con{V.OpMedia{x, y, w, h, clip_y, clip_h, token}, tail}:
       "media:" ++ U32.show(x) ++ "," ++ U32.show(y) ++ "," ++ U32.show(w) ++ "," ++ U32.show(h) ++ "," ++ U32.show(clip_y) ++ "," ++ U32.show(clip_h) ++ "," ++ U32.show(token) ++ ";" ++ ops_shape(tail)

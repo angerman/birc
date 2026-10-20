@@ -662,7 +662,7 @@ def fullscreen_h(+y: U32, +h: U32) -> U32:
 def fullscreen_ops.box(+box: V.Rect, +token: U32) -> List<&2, V.DrawOp>:
   match box:
     case V.Rect{+x, +y, +w, +h}:
-      V.OpBox{x, y, w, h} <> (V.OpMedia{V.inner_x(x), V.inner_min(y, h), V.inner_w(w),
+      V.OpBox{x, y, w, h, V.PANE_BODY()} <> (V.OpMedia{V.inner_x(x), V.inner_min(y, h), V.inner_w(w),
         fullscreen_h(y, h), 0, fullscreen_h(y, h), token} <> Nil{})
 
 def fullscreen_ops.token(+box: V.Rect, +token: U32) -> List<&2, V.DrawOp>:

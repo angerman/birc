@@ -134,8 +134,8 @@ def coords(x: U32, y: U32, w: U32) -> String:
 
 def op_full(op: V.DrawOp) -> String:
   match op:
-    case V.OpBox{x, y, w, h}: "B" ++ coords(x, y, w) ++ U32.show(h) ++ ";"
-    case V.OpSplit{x, y, w, h, axis}: "P" ++ coords(x, y, w) ++ U32.show(h) ++ "," ++ U32.show(axis) ++ ";"
+    case V.OpBox{x, y, w, h, _}: "B" ++ coords(x, y, w) ++ U32.show(h) ++ ";"
+    case V.OpSplit{x, y, w, h, axis, _}: "P" ++ coords(x, y, w) ++ U32.show(h) ++ "," ++ U32.show(axis) ++ ";"
     case V.OpText{x, y, w, fg, attrs, text}:
       "T" ++ coords(x, y, w) ++ U32.show(fg) ++ "/" ++ U32.show(attrs) ++ ":" ++ text ++ ";"
     case V.OpTabs{x, y, w, sel, names, alerts, bell, bell_seq}:
@@ -157,8 +157,8 @@ def full_list(ops: List<&2, V.DrawOp>) -> String:
 
 def op_shape(op: V.DrawOp) -> String:
   match op:
-    case V.OpBox{x, y, w, h}: "B" ++ coords(x, y, w) ++ U32.show(h) ++ ";"
-    case V.OpSplit{x, y, w, h, axis}: "P" ++ coords(x, y, w) ++ U32.show(h) ++ "," ++ U32.show(axis) ++ ";"
+    case V.OpBox{x, y, w, h, _}: "B" ++ coords(x, y, w) ++ U32.show(h) ++ ";"
+    case V.OpSplit{x, y, w, h, axis, _}: "P" ++ coords(x, y, w) ++ U32.show(h) ++ "," ++ U32.show(axis) ++ ";"
     case V.OpText{x, y, w, _, attrs, text}: "T" ++ coords(x, y, w) ++ U32.show(attrs) ++ ":" ++ text ++ ";"
     case V.OpTabs{x, y, w, sel, names, alerts, bell, bell_seq}:
       "A" ++ coords(x, y, w) ++ U32.show(sel) ++ ":" ++ str_list(names) ++ "|" ++ u32_list(alerts)

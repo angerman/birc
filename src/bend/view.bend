@@ -103,9 +103,24 @@ def cluster_spans(+xs: List<&2, SpanOp>) -> List<&2, SpanOp>:
 type Rect is Data:
   Rect{x: U32, y: U32, w: U32, h: U32}
 
+# Pane roles on OpBox/OpSplit (U32 for the TimUI FFI). Unknown (0) is the
+# backward-compatible default for hand-built ops in tests; production paint
+# tags Body / Nicks / Composer so C does not infer from x==0 or geometry.
+def PANE_UNKNOWN() -> U32:
+  0
+
+def PANE_BODY() -> U32:
+  1
+
+def PANE_NICKS() -> U32:
+  2
+
+def PANE_COMPOSER() -> U32:
+  3
+
 type DrawOp is Data:
-  OpBox{x: U32, y: U32, w: U32, h: U32}
-  OpSplit{x: U32, y: U32, w: U32, h: U32, axis: U32}
+  OpBox{x: U32, y: U32, w: U32, h: U32, role: U32}
+  OpSplit{x: U32, y: U32, w: U32, h: U32, axis: U32, role: U32}
   OpText{x: U32, y: U32, w: U32, fg: U32, attrs: U32, text: String}
   OpTabs{x: U32, y: U32, w: U32, sel: U32, names: List<&2, String>, alerts: List<&2, U32>, bell: U32, bell_seq: U32}
   OpLine{x: U32, y: U32, w: U32, fg: U32, spans: List<&2, SpanOp>}
@@ -113,6 +128,13 @@ type DrawOp is Data:
   OpMedia{x: U32, y: U32, w: U32, h: U32, clip_y: U32, clip_h: U32, token: U32}
   # Deferred after the composer widget; never shares OpText attrs space.
   OpGhost{x: U32, y: U32, w: U32, fg: U32, text: String}
+
+# Test / exhaustiveness helper: role defaults to Unknown.
+def op_box(+x: U32, +y: U32, +w: U32, +h: U32) -> DrawOp:
+  OpBox{x, y, w, h, PANE_UNKNOWN()}
+
+def op_box_role(+x: U32, +y: U32, +w: U32, +h: U32, +role: U32) -> DrawOp:
+  OpBox{x, y, w, h, role}
 
 type Lay is Data:
   Lay{tabs: Rect, user: Rect, body: Rect, nicks: Rect, status: Rect}
@@ -2702,14 +2724,13 @@ def composer_ops(r: Rect, +nick: String, show_ts: Bool) -> List<&2, DrawOp>:
     case Rect{+x, +y, +w, +h}:
       OpLine{inner_x(x), composer_row(y, h), composer_inner_w(w), FG_TEXT(), composer_spans(nick, show_ts)} <> Nil{}
 
-# Split mode: C draws one text widget in the bottom-most/left-most body
-# (src/ffi/timui_ffi.c chooser over the OpSplit panes), so Bend paints the
-# <nick> prefix only in that widget pane. Side-by-side panes share a
-# bottom edge and the left pane wins; stacked panes share a left edge
-# and the bottom pane wins. The ordering mirrors C's (in.y+in.h, in.x)
-# up to constant +1 offsets (composer_row is C's widget row, one above
-# C's inner bottom), so it agrees even for zero-inner panes, including
-# 1-high stacked panes where outer bottoms tie but inner bottoms do not.
+# Split mode: Bend picks the composer host (bottom-most, then left-most)
+# and tags that OpBox PANE_COMPOSER so C seats the widget without a
+# geometry chooser. Side-by-side panes share a bottom edge and the left
+# pane wins; stacked panes share a left edge and the bottom pane wins.
+# composer_row is C's widget row (one above the inner bottom), so the
+# pick agrees for zero-inner panes, including 1-high stacked panes where
+# outer bottoms tie but inner bottoms do not.
 def split_second_wins(+b1: U32, +x1: U32, +b2: U32, +x2: U32) -> Bool:
   U32.is_gt(b2, b1) || (U32.is_eq(b2, b1) && U32.is_lt(x2, x1))
 
@@ -2720,6 +2741,16 @@ def split_widget_is_r1(r1: Rect, r2: Rect) -> Bool:
 
 def split_composer_rect(+r1: Rect, +r2: Rect) -> Rect:
   Bool.pick(Rect, split_widget_is_r1(r1, r2), r1, r2)
+
+def split_pane_role(is_composer: Bool) -> U32:
+  match is_composer:
+    case True{}: PANE_COMPOSER()
+    case False{}: PANE_BODY()
+
+def split_body_role(+r1: Rect, +r2: Rect, first: Bool) -> U32:
+  match first:
+    case True{}: split_pane_role(split_widget_is_r1(r1, r2))
+    case False{}: split_pane_role(Bool.not(split_widget_is_r1(r1, r2)))
 
 def vis_n.on(+have: Nat, +cap: Nat, ge: Bool) -> Nat:
   match ge:
@@ -2822,7 +2853,7 @@ def nick_ops.wide(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: Li
       +fg = FG_DIM()
       +y1 = U32.add(y, 1)
       +max_y = box_max_y(y, h)
-      OpBox{x, y, w, h}
+      OpBox{x, y, w, h, PANE_NICKS()}
         <> OpText{ix, y, iw, fg, 0, title}
         <> nick_ops.go(names, U32.is_lt(y1, max_y), ix, y1, iw, fg, max_y)
 
@@ -3150,7 +3181,7 @@ def split_axis_tag(axis: Sp.Axis) -> U32:
 
 def op_split(r: Rect, axis: Sp.Axis) -> DrawOp:
   match r:
-    case Rect{x, y, w, h}: OpSplit{x, y, w, h, split_axis_tag(axis)}
+    case Rect{x, y, w, h}: OpSplit{x, y, w, h, split_axis_tag(axis), PANE_BODY()}
 
 def split_title.base(+name: String, +topic: String) -> String:
   match topic:
@@ -3198,14 +3229,18 @@ def paint_composer(r: Rect, +nick: String, +boxed: List<&2, PaintOpts>, show_ts:
 def paint_split_composer(+r1: Rect, +r2: Rect, +nick: String, +boxed: List<&2, PaintOpts>, show_ts: Bool) -> List<&2, DrawOp>:
   paint_composer(split_composer_rect(r1, r2), nick, boxed, show_ts)
 
-def paint_body_box_on(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+def paint_body_box_on(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, empty: Bool, +boxed: List<&2, PaintOpts>, +role: U32) -> List<&2, DrawOp>:
   match empty:
-    case True{}: OpBox{x, y, w, h} <> Nil{}
-    case False{}: OpBox{x, y, w, h} <> OpText{inner_x(x), y, inner_w(w), paint_dim(boxed), 0, title} <> Nil{}
+    case True{}: OpBox{x, y, w, h, role} <> Nil{}
+    case False{}: OpBox{x, y, w, h, role} <> OpText{inner_x(x), y, inner_w(w), paint_dim(boxed), 0, title} <> Nil{}
 
-def paint_body_box(r: Rect, +title: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+def paint_body_box_role(r: Rect, +title: String, +boxed: List<&2, PaintOpts>, +role: U32) -> List<&2, DrawOp>:
   match r:
-    case Rect{x, y, w, h}: paint_body_box_on(x, y, w, h, title, String.is_empty(title), boxed)
+    case Rect{x, y, w, h}: paint_body_box_on(x, y, w, h, title, String.is_empty(title), boxed, role)
+
+# Single-pane body hosts the composer widget.
+def paint_body_box(r: Rect, +title: String, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
+  paint_body_box_role(r, title, boxed, PANE_COMPOSER())
 
 def paint_row_normal(+x: U32, +y: U32, +ts: String, +stamp_w: U32, +off: U32, +w: U32, +fg: U32, +spans: List<&2, SpanOp>, empty: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, DrawOp>:
   match empty:
@@ -3259,7 +3294,7 @@ def paint_nick_wide(+x: U32, +y: U32, +w: U32, +h: U32, +title: String, +names: 
       +fg = paint_dim(boxed)
       +y1 = U32.add(y, 1)
       +max_y = box_max_y(y, h)
-      OpBox{x, y, w, h}
+      OpBox{x, y, w, h, PANE_NICKS()}
         <> OpText{ix, y, iw, fg, 0, title}
         <> paint_nick_go(names, U32.is_lt(y1, max_y), ix, y1, iw, fg, max_y, boxed)
 
@@ -3343,10 +3378,10 @@ def paint_view_ops_split(
         op_tabs(tabs, U32.from_nat(active), names, alerts, bell, bell_seq)
           <> List.append(&2, DrawOp, paint_header(user, nick, server, net, boxed),
                op_split(body, axis)
-                 <> List.append(&2, DrawOp, paint_body_box(r1, title1, boxed),
+                 <> List.append(&2, DrawOp, paint_body_box_role(r1, title1, boxed, split_body_role(r1, r2, True{})),
                       List.append(&2, DrawOp, image_ops(r1, preview1),
                         List.append(&2, DrawOp, paint_body_ops(body_hist_rect(r1), body1, boxed),
-                          List.append(&2, DrawOp, paint_body_box(r2, title2, boxed),
+                          List.append(&2, DrawOp, paint_body_box_role(r2, title2, boxed, split_body_role(r1, r2, False{})),
                             List.append(&2, DrawOp, image_ops(r2, preview2), paint_body_ops(body_hist_rect(r2), body2, boxed))))))),
         List.append(&2, DrawOp, paint_nicks(nicks_rect, ntitle, nicks, boxed),
           List.append(&2, DrawOp, op_text(status_rect, paint_dim(boxed), status) <> Nil{}, paint_split_composer(r1, r2, nick, boxed, show_ts))))

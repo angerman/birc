@@ -219,8 +219,8 @@ type SpanOp is Data:
   Lnk{url: String, text: String}
 
 type DrawOp is Data:
-  OpBox{x, y, w, h: U32}
-  OpSplit{x, y, w, h, axis: U32}
+  OpBox{x, y, w, h, role: U32}
+  OpSplit{x, y, w, h, axis, role: U32}
   OpText{x, y, w, fg, attrs: U32, text: String}
   OpTabs{x, y, w, sel: U32, names: List String,
          alerts: List U32, bell: U32, bell_seq: U32}
