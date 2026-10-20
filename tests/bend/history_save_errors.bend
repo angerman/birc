@@ -1,4 +1,5 @@
 # Save errors return one bounded diagnostic after closing the descriptor.
+# Empty path/data is typed Skip, distinct from durable Ok.
 import Base
 import ../../src/bend/history_io.bend as H
 import ../../src/bend/buffer.bend as Cl
@@ -7,6 +8,12 @@ def report(result: Maybe<&2, String>) -> IO(Unit):
   match result:
     case None{}: IO.print("save=ok")
     case Some{text}: IO.print("save=error:" ++ text)
+
+def report_append(got: H.Append) -> IO(Unit):
+  match got:
+    case H.Ok{}: IO.print("save=ok")
+    case H.Skip{}: IO.print("save=skip")
+    case H.Err{+msg}: IO.print("save=error:" ++ msg)
 
 def injected.open(result: Result<&1, &1, U32 & String, File>) -> IO(Unit):
   match result:
@@ -28,12 +35,12 @@ def run(+path: String, mode: String) -> IO(Unit):
         report(result)
     case "empty":
       do IO<Unit>:
-        result : Maybe<&2, String> <- H.history_append_file(path, "")
-        report(result)
+        got : H.Append <- H.history_append_file.typed(path, "")
+        report_append(got)
     case _:
       do IO<Unit>:
-        result : Maybe<&2, String> <- H.history_append_file(path, "fixture\n")
-        report(result)
+        got : H.Append <- H.history_append_file.typed(path, "fixture\n")
+        report_append(got)
 
 def args(xs: List<&1, String>) -> IO(Unit):
   match xs:

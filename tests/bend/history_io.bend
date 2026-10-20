@@ -1,9 +1,11 @@
 # Read past one MiB through EOF without retaining the whole file.
+# Empty append path/data is typed Skip, not durable Ok.
 import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history.bend as H
+import ../../src/bend/history_io.bend as HistIO
 import ../../src/bend/client.bend as Feed
 
 def repeat(n: Nat, +text: String) -> String:
@@ -61,6 +63,16 @@ def loaded_checkpoint_ok(+cl: Cl.Client) -> Bool:
 def empty_ok(+cl: Cl.Client) -> Bool:
   Nat.is_eq(CL.buf_nlines(cl, 0n), 0n) && Nat.is_eq(Cl.log_seq_of(cl), 50n)
 
+def append_is_skip(got: HistIO.Append) -> Bool:
+  match got:
+    case HistIO.Skip{}: True{}
+    case _: False{}
+
+def append_is_ok(got: HistIO.Append) -> Bool:
+  match got:
+    case HistIO.Ok{}: True{}
+    case _: False{}
+
 def main() -> IO(Unit):
   +path: String = "build/history_io.fixture"
   +old = "BIRC2\ta:6667\t*server*\tMSG\t\ta\t" ++ repeat(300n, "x") ++ "\n"
@@ -87,4 +99,12 @@ def main() -> IO(Unit):
     Unit <- File.close(empty_file)
     empty : Cl.Client <- H.history_load_client("build/history_io.empty", "a:6667", 3, configured())
     Unit <- E.must("empty_file", empty_ok(empty))
+    skip_empty : HistIO.Append <- HistIO.history_append_file.typed(path, "")
+    Unit <- E.must("empty_data_is_skip", append_is_skip(skip_empty))
+    skip_path : HistIO.Append <- HistIO.history_append_file.typed("", "fixture\n")
+    Unit <- E.must("empty_path_is_skip", append_is_skip(skip_path))
+    notice_skip : Maybe<&2, String> <- HistIO.history_append_file(path, "")
+    Unit <- E.must("skip_notice_collapses", Maybe.is_none(&2, String, notice_skip))
+    wrote : HistIO.Append <- HistIO.history_append_file.typed("build/history_io.append", "append-ok\n")
+    Unit <- E.must("nonempty_append_is_ok", append_is_ok(wrote))
     IO.print("history_io=ok")

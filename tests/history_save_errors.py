@@ -27,8 +27,8 @@ with tempfile.TemporaryDirectory(prefix="birc-history-save-") as directory:
     missing = root / "missing" / "history.log"
     assert run(missing, "write").startswith("save=error:history save open failed (")
     assert run(missing, "disabled") == "save=ok"
-    assert run(missing, "empty") == "save=ok"
+    assert run(missing, "empty") == "save=skip"
     assert not missing.exists()
-    assert run("", "write") == "save=ok"
+    assert run("", "write") == "save=skip"
 
 print("history_save_errors=ok")
