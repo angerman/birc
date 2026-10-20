@@ -13,10 +13,16 @@ def state_of(pair: M.State & Maybe<&2, M.Request>) -> M.State:
   match pair:
     case (state, _): state
 
+def job_of.fields(got: Maybe<&2, M.Work>) -> String:
+  match got:
+    case None{}: "none"
+    case Some{M.Work{_, url, generation, ticket}}: Nat.show(generation) ++ ":" ++ Nat.show(ticket) ++ ":" ++ url
+
 def job_of(pair: M.State & Maybe<&2, M.Request>) -> String:
   match pair:
     case (_, None{}): "none"
-    case (_, Some{M.Request{_, url, generation, ticket}}): Nat.show(generation) ++ ":" ++ Nat.show(ticket) ++ ":" ++ url
+    # SoftFence / StickyFence yield None via work_fields (never take_job work).
+    case (_, Some{req}): job_of.fields(M.work_fields(req))
 
 def started(state: M.State) -> M.State:
   state_of(M.take_job(state))
@@ -32,10 +38,15 @@ def fill(+n: Nat, state: M.State) -> M.State:
     case 0n: state
     case 1n+p: fill(p, M.enqueue(state, M.Inline{1n}, "https://x.test/" ++ Nat.show(n) ++ ".png"))
 
+def complete_job.work(+state: M.State, +cl: Cl.Client, token: U32, got: Maybe<&2, M.Work>) -> M.State:
+  match got:
+    case None{}: state
+    case Some{M.Work{_, url, gen, ticket}}: M.complete(state, cl, gen, ticket, url, token)
+
 def complete_job(pair: M.State & Maybe<&2, M.Request>, +cl: Cl.Client, token: U32) -> M.State:
   match pair:
     case (state, None{}): state
-    case (+state, Some{M.Request{_, url, gen, ticket}}): M.complete(state, cl, gen, ticket, url, token)
+    case (+state, Some{req}): complete_job.work(state, cl, token, M.work_fields(req))
 
 def populate(+n: Nat, state: M.State) -> M.State:
   match n:

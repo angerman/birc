@@ -97,6 +97,10 @@ type Request is Data:
   SoftFence{target: Target, url: String, ticket: Nat}
   StickyFence{target: Target, url: String}
 
+# Physical take_job payload. SoftFence / StickyFence never produce Work.
+type Work is Data:
+  Work{target: Target, url: String, generation: Nat, ticket: Nat}
+
 type MediaReady is Data:
   MediaReady{target: Target, url: String, token: U32}
 
@@ -169,6 +173,15 @@ def soft_block(req: Request) -> Bool:
   match req:
     case SoftFence{_, _, _}: True{}
     case _: False{}
+
+# Physical work fields only. SoftFence / StickyFence are pending tags and
+# never become the worker — call sites that only arm Request{} use this
+# instead of duplicating fence arms for exhaustiveness.
+def work_fields(req: Request) -> Maybe<&2, Work>:
+  match req:
+    case Request{+target, +url, +generation, +ticket}: Some{Work{target, url, generation, ticket}}
+    case SoftFence{_, _, _}: None{}
+    case StickyFence{_, _}: None{}
 
 def pending_skip(+req: Request) -> Bool:
   request_block(req) || soft_block(req)

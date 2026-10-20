@@ -63,15 +63,18 @@ def finish(accepted: Bool, +st: S.Session, +gen: Nat, +ticket: Nat, +url: String
     case True{}: S.session_set_media(st, M.complete(S.session_media(st), S.session_cl(st), gen, ticket, url, U32.from_nat(ticket)))
     case False{}: S.session_set_media(st, M.reject(S.session_media(st), gen, ticket, url))
 
+def drain.step.work(+media: M.State, +st: S.Session, k: S.Session -> Drain, got: Maybe<&2, M.Work>) -> Drain:
+  match got:
+    # SoftFence / StickyFence are never take_job work.
+    case None{}: Drain{S.session_set_media(st, media), 0n}
+    case Some{M.Work{_, +url, +gen, +ticket}}:
+      +active : S.Session = S.session_set_media(st, media)
+      drain.count(k(finish(S.session_accept_media_result(active, gen, ticket, url), active, gen, ticket, url)))
+
 def drain.step(pair: M.State & Maybe<&2, M.Request>, +st: S.Session, k: S.Session -> Drain) -> Drain:
   match pair:
     case (media, None{}): Drain{S.session_set_media(st, media), 0n}
-    case (media, Some{M.Request{_, +url, +gen, +ticket}}):
-      +active : S.Session = S.session_set_media(st, media)
-      drain.count(k(finish(S.session_accept_media_result(active, gen, ticket, url), active, gen, ticket, url)))
-    # SoftFence / StickyFence are never take_job work; keep match exhaustive.
-    case (media, Some{M.SoftFence{_, _, _}}): Drain{S.session_set_media(st, media), 0n}
-    case (media, Some{M.StickyFence{_, _}}): Drain{S.session_set_media(st, media), 0n}
+    case (media, Some{req}): drain.step.work(media, st, k, M.work_fields(req))
 
 # Real observe/take_job/complete transitions. Fuel catches eviction/refetch loops.
 def drain(fuel: Nat, +st: S.Session) -> Drain:
@@ -147,13 +150,15 @@ def manual_client() -> Cl.Client:
     [Cl.buf_indexed("*preview*", False{}, "/tmp/synthetic.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})]),
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n, False{}}
 
+def prospective.work(+state: M.State, +client: Cl.Client, got: Maybe<&2, M.Work>) -> M.State:
+  match got:
+    case None{}: state
+    case Some{M.Work{_, url, gen, ticket}}: M.complete(state, client, gen, ticket, url, 0)
+
 def prospective(pair: M.State & Maybe<&2, M.Request>, client: Cl.Client) -> M.State:
   match pair:
     case (state, None{}): state
-    case (state, Some{M.Request{_, url, gen, ticket}}): M.complete(state, client, gen, ticket, url, 0)
-    case (state, Some{M.SoftFence{_, _, _}}): state
-    case (state, Some{M.StickyFence{_, _}}): state
-    case (state, Some{_}): state
+    case (state, Some{req}): prospective.work(state, client, M.work_fields(req))
 
 def token_has(xs: List<&2, U32>, +token: U32) -> Bool:
   match xs:

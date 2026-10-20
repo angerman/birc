@@ -321,10 +321,15 @@ def gate1_cards_muted_fs() -> Sess.Session:
 def gate1_cards_muted_admitted() -> Sess.Session:
   Sess.session_observe_visible_cards(fs_st(Sess.session_fullscreen_key(gate1_cards_muted_fs(), Sess.KEY_ESCAPE(), 0)))
 
+def media_job_shape.fields(got: Maybe<&2, M.Work>) -> String:
+  match got:
+    case None{}: "none"
+    case Some{M.Work{_, url, generation, ticket}}: Nat.show(generation) ++ ":" ++ Nat.show(ticket) ++ ":" ++ url
+
 def media_job_shape(job: Maybe<&2, M.Request>) -> String:
   match job:
     case None{}: "none"
-    case Some{M.Request{_, url, generation, ticket}}: Nat.show(generation) ++ ":" ++ Nat.show(ticket) ++ ":" ++ url
+    case Some{req}: media_job_shape.fields(M.work_fields(req))
 
 def media_took_job(pair: M.State & Maybe<&2, M.Request>) -> Maybe<&2, M.Request>:
   match pair:

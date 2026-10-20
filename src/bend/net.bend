@@ -1222,16 +1222,18 @@ def media_args(+source: String) -> List<&1, String>:
 def media_spec() -> Help.Spec:
   Help.Spec{"BIRC_MEDIA_HELPER", "birc-image", 2800000, 11000}
 
-def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
-  match req:
-    case M.Request{_, +url, +generation, +ticket}:
+def media_run.work(+evt: Chan(Sess.UiMsg), got: Maybe<&2, M.Work>) -> IO(Unit):
+  match got:
+    # take_job never admits fences; work_fields keeps Request exhaustiveness.
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{M.Work{_, +url, +generation, +ticket}}:
       do IO<Unit>:
         result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Help.run(media_spec(), media_args(url), "")
         _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
         return Unit{}
-    # take_job never admits fences; arms keep Request exhaustiveness.
-    case M.SoftFence{_, _, _}: IO.pure(Unit, Unit{})
-    case M.StickyFence{_, _}: IO.pure(Unit, Unit{})
+
+def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
+  media_run.work(evt, M.work_fields(req))
 
 def media_spawn(job: Maybe<&2, M.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match job:
@@ -2129,8 +2131,9 @@ def boot_headless.fail(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
     Unit <- Chan.close(Sess.NetCmd, cmd)
     T.Sys.exit_fail(msg)
 
-# Pure −/+: setup cancel posts Down; only Booted (arm_ok / real registration)
-# allows headless start. Reader Up follows Booted on the success path.
+# Pure −/+: setup cancel posts Down; only Booted (post-kept arm_reader /
+# real registration) allows headless start. Booted is posted only after
+# adopt + writer_kept; reader Up follows on that same success arm.
 def boot_headless.may_await(g: Maybe<&1, Act.Boot>) -> Bool:
   match g:
     case Some{Act.Booted{}}: True{}
@@ -2141,7 +2144,8 @@ def boot_headless.is_up(g: Maybe<&1, Sess.UiMsg>) -> Bool:
     case Some{Sess.FromNet{_, Sess.Up{}}}: True{}
     case _: False{}
 
-# Headless: Down/absent fail closed; Booted means registration armed (not cancel).
+# Headless: Down/absent fail closed; Booted means registration armed after
+# kept Cont/Pong flush (not cancel, not pre-kept provisional success).
 def boot_headless(g: Maybe<&1, Act.Boot>, +cmd: Chan(Sess.NetCmd), start: Unit -> IO(Unit)) -> IO(Unit):
   match g:
     case None{}:
