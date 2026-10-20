@@ -1414,22 +1414,49 @@ def rows_text_chars(rows: List<&2, BodyRow>) -> Nat:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_text_chars(h), rows_text_chars(t))
 
-# ScrollAt.tail is text/source only. BodyMedia is virtual (0 text chars) so it
-# neither consumes the budget nor collides with BodyRecon's text_chars+1, and a
-# PageUp anchor taken without media still matches the same text row after
+# ScrollAt.tail is text/source on BodyRow/BodyRecon. BodyMedia is virtual
+# (0 text chars) so it does not consume that budget or use text_chars+1.
+# Remaining media rows become the tail so PageUp into an image is not 0:0
+# (live bottom). A text-only PageUp still matches the same text row after
 # placeholders expand. BodyRecon keeps text_chars+1 without consuming.
-def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +text_chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
-  match is_recon:
-    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(text_chars, 1n)}, line} <> k(text_chars)
+def media_row(row: BodyRow) -> Bool:
+  match row:
+    case BodyMedia{_, _, _, _}: True{}
+    case _: False{}
+
+def media_count.hit(hit: Bool, t: List<&2, BodyRow>, k: List<&2, BodyRow> -> Nat) -> Nat:
+  match hit:
+    case True{}: Nat.add(1n, k(t))
+    case False{}: k(t)
+
+def media_count.go(fuel: Nat, rows: List<&2, BodyRow>) -> Nat:
+  match fuel:
+    case 0n: 0n
+    case 1n+p:
+      match rows:
+        case Nil{}: 0n
+        case Con{+h, t}: media_count.hit(media_row(h), t, rest => media_count.go(p, rest))
+
+def media_count(+rows: List<&2, BodyRow>) -> Nat:
+  media_count.go(List.length(&2, BodyRow, rows), rows)
+
+def anchored_rows.media(is_media: Bool, +h: BodyRow, +after: Nat, +text_chars: Nat, +media_left: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+  match is_media:
+    case True{}: AnchoredRow{h, Cl.ScrollAt{after, media_left}, line} <> k(text_chars)
     case False{}:
       +tail = Nat.sub(text_chars, row_text_chars(h))
       AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> k(tail)
 
+def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +text_chars: Nat, +media_left: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+  match is_recon:
+    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(text_chars, 1n)}, line} <> k(text_chars)
+    case False{}: anchored_rows.media(media_row(h), h, after, text_chars, media_left, line, k)
+
 def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +text_chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   match rows:
     case Nil{}: Nil{}
-    case Con{+h, t}:
-      anchored_rows.step(recon_row(h), h, after, text_chars, line, next => anchored_rows(t, after, next, line))
+    case Con{+h, +t}:
+      anchored_rows.step(recon_row(h), h, after, text_chars, media_count(t), line, next => anchored_rows(t, after, next, line))
 
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_text_chars(rows), line)
@@ -1452,16 +1479,51 @@ def anchor_reached(row: Cl.Scroll, want: Cl.Scroll) -> Bool:
         case Cl.ScrollAt{+wa, +wt}:
           Nat.is_lt(ra, wa) || (Nat.is_eq(ra, wa) && Nat.is_le(rt, wt))
 
-def anchor_end.on(found: Bool, +i: Nat, k: Nat -> Nat) -> Nat:
-  match found:
-    case True{}: i
-    case False{}: k(i)
+# Last text is tail=0; BodyMedia then uses remaining-row tails (5..0).
+# First-match on rt<=wt would treat that text as 0:2 and crop the image.
+# Prefer the same-after row whose tail is closest to want from below;
+# exact tail=0 keeps the first hit so at-oldest text stays 32:0.
+type AnchorBest is Data:
+  AnchorMiss{}
+  AnchorHit{end: Nat, tail: Nat}
 
-def anchor_end(rows: List<&2, AnchoredRow>, +want: Cl.Scroll, +i: Nat) -> Nat:
+def anchor_best.end(best: AnchorBest, +fallback: Nat) -> Nat:
+  match best:
+    case AnchorMiss{}: fallback
+    case AnchorHit{+end, _}: end
+
+def anchor_best.closer(closer: Bool, +i: Nat, +rt: Nat, +end: Nat, +tail: Nat) -> AnchorBest:
+  match closer:
+    case True{}: AnchorHit{i, rt}
+    case False{}: AnchorHit{end, tail}
+
+def anchor_best.take(hit: AnchorBest, +i: Nat, +rt: Nat) -> AnchorBest:
+  match hit:
+    case AnchorMiss{}: AnchorHit{i, rt}
+    case AnchorHit{+end, +tail}:
+      anchor_best.closer(Nat.is_gt(rt, tail), i, rt, end, tail)
+
+def anchor_best.maybe(take: Bool, +best: AnchorBest, +i: Nat, +rt: Nat) -> AnchorBest:
+  match take:
+    case False{}: best
+    case True{}: anchor_best.take(best, i, rt)
+
+def anchor_end.past(past: Bool, +best: AnchorBest, +i: Nat, k: Unit -> Nat) -> Nat:
+  match past:
+    case True{}: anchor_best.end(best, i)
+    case False{}: k(Unit{})
+
+def anchor_end.go(rows: List<&2, AnchoredRow>, +wa: Nat, +wt: Nat, +i: Nat, +best: AnchorBest) -> Nat:
   match rows:
-    case Nil{}: i
-    case Con{AnchoredRow{_, anchor, _}, t}:
-      anchor_end.on(anchor_reached(anchor, want), 1n+i, n => anchor_end(t, want, n))
+    case Nil{}: anchor_best.end(best, i)
+    case Con{AnchoredRow{_, Cl.ScrollAt{+ra, +rt}, _}, +t}:
+      anchor_end.past(Nat.is_lt(ra, wa), best, 1n+i,
+        done => anchor_end.go(t, wa, wt, 1n+i, anchor_best.maybe(Nat.is_eq(ra, wa) && Nat.is_le(rt, wt), best, 1n+i, rt)))
+
+def anchor_end(rows: List<&2, AnchoredRow>, want: Cl.Scroll, +i: Nat) -> Nat:
+  match want:
+    case Cl.ScrollAt{+wa, +wt}:
+      anchor_end.go(rows, wa, wt, i, AnchorMiss{})
 
 # BodyMedia is virtual: top-pin must count source rows (text/day/reconnect) so
 # image expansion pushes older content up instead of drifting the bottom source.
@@ -1839,8 +1901,14 @@ def paint_recent_tagged(
       paint_recent_more(state, h, prev, filtered, name, w, show_ts, boxed,
         next => paint_recent_tagged(t, name, w, show_ts, boxed, next))
 
+# Cover extra newest-first lines so a zero-row newest (empty + known URL
+# with no link span) cannot starve the row budget. paint_recent_more still
+# stops after `height` expanded rows.
+def recent_cover(+height: Nat) -> Nat:
+  Nat.add(height, 64n)
+
 def paint_recent_go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, +height: Nat, +acc: List<&2, BodyRow>) -> List<&2, BodyRow>:
-  paint_recent_tagged(day_tag(lines, height, mutes, joins, nicks, name, server, boxed), name, w, show_ts, boxed, (height, acc))
+  paint_recent_tagged(day_tag(lines, recent_cover(height), mutes, joins, nicks, name, server, boxed), name, w, show_ts, boxed, (height, acc))
 
 def paint_bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match need:
@@ -2086,7 +2154,7 @@ def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
 # One bounded day_tag pass serves both the older window and the newer-walk day seed.
 def window_anchored(+newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
   +at = window_after(Bool.and(Nat.is_gt(count, 0n), Nat.is_ge(after, count)), after, count)
-  +tags = day_tag(List.drop(&2, Cl.Line, newest, at), height, mutes, joins, nicks, name, server, boxed)
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, at), recent_cover(height), mutes, joins, nicks, name, server, boxed)
   window_join(Nat.is_gt(at, 0n),
     window_tagged(rev_tail_fuel(), tags, Step{at, height, True{}}, height, name, w, show_ts, boxed),
     newest, at, height, older_day.tags(tags), name, w, show_ts, mutes, joins, nicks, server, boxed)
