@@ -205,6 +205,13 @@ def ascii_pend_confirm_brace_keeps_bracket() -> Bool:
   +rest = Sess.pend_confirm_lines("ascii", ps, "me", ":me!u@h PRIVMSG #a{ :hi" <> Nil{})
   Nat.is_eq(List.length(&2, Cl.PendSend, rest), 1n) && String.eq(first_pend_buf(rest), "#a[")
 
+def ascii_pend_statusmsg_keys_brace() -> Bool:
+  +iso = Is.apply_line(ascii_server(), ":s 005 me STATUSMSG=@ :are supported")
+  +isc = Is.as_iso(iso)
+  +cl = ascii_bracket_client()
+  String.eq(Cl.message_key_with(cl, isc, "@#a{"), "#a{")
+    && String.eq(Cl.message_key_with(cl, isc, "@#a["), "#a[")
+
 def saved(+names: List<&2, String>) -> Sess.Session:
   Sess.session_seed_channels(Sess.session_online(Sess.session_with_client_at(base(), "", 6697)), names)
 
@@ -368,4 +375,5 @@ def main() -> IO(Unit):
     Unit <- E.must("ascii Session MODE logs only the brace sibling", ascii_session_mode_brace_only())
     Unit <- E.must("ascii Session 332 updates only the brace sibling", ascii_session_332_brace_only())
     Unit <- E.must("ascii pending confirm drops only the brace sibling", ascii_pend_confirm_brace_keeps_bracket())
+    Unit <- E.must("ascii STATUSMSG audience keys the resident brace buffer", ascii_pend_statusmsg_keys_brace())
     IO.print("session_isupport_submit=ok")

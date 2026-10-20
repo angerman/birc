@@ -1925,23 +1925,25 @@ def day_at(
 ) -> String:
   older_day(List.drop(&2, Cl.Line, newest, after), mutes, joins, nicks, name, server, boxed)
 
-def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2, Cl.Line>, +after: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2, Cl.Line>, +after: Nat, +height: Nat, +prev_day: String, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
   match has_newer:
     case False{}: older
     case True{}:
       List.append(&2, AnchoredRow, older,
-        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height, day_at(newest, after, mutes, joins, nicks, name, server, boxed)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(height, after))))
+        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height, prev_day}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(height, after))))
 
 def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
   match past:
     case True{}: Nat.sub(count, 1n)
     case False{}: after
 
+# One day_tag pass serves both the older window and the newer-walk day seed.
 def window_anchored(+newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
   +at = window_after(Bool.and(Nat.is_gt(count, 0n), Nat.is_ge(after, count)), after, count)
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, at), mutes, joins, nicks, name, server, boxed)
   window_join(Nat.is_gt(at, 0n),
-    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, at), Step{at, height, True{}}, height, name, w, show_ts, mutes, joins, nicks, server, boxed),
-    newest, at, height, name, w, show_ts, mutes, joins, nicks, server, boxed)
+    window_tagged(rev_tail_fuel(), tags, Step{at, height, True{}}, height, name, w, show_ts, boxed),
+    newest, at, height, older_day.tags(tags), name, w, show_ts, mutes, joins, nicks, server, boxed)
 
 # One ScrollAt window under media+cards paint. Admission and nav consumers
 # share this instead of each re-entering window_go.
@@ -2161,9 +2163,10 @@ def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWal
 # whole slice paints nothing, shift_anchor_of advances `after` by `visited`.
 def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
   +cap = Nat.add(Nat.add(up, dn), 64n)
+  +tags = day_tag(List.drop(&2, Cl.Line, newest, after), mutes, joins, nicks, name, server, boxed)
   scroll_rows.join(
-    newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, day_at(newest, after, mutes, joins, nicks, name, server, boxed)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
-    window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed))
+    newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, older_day.tags(tags)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
+    window_tagged(rev_tail_fuel(), tags, Step{after, up, True{}}, up, name, w, show_ts, boxed))
 
 def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
   Cl.set_buf_anchor(b, shift_anchor_of(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll, up, dn, count))

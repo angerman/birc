@@ -1138,10 +1138,10 @@ def message_key(+cl: Client, +raw: String) -> String:
 
 def message_key_with.resident(+types: String, +status: String, +sigils: String, +name: String, got: Maybe<&2, Buffer>) -> String:
   match got:
-    case Some{Buffer{+bufname, channel, _, _, _, _, _, _}}:
-      # Resident channels keep the stored buffer spelling so pending overlays
-      # and casemap aliases paint on the open tab, not the typed wire form.
-      Bool.pick(String, channel, bufname, target_key_with(types, status, sigils, name))
+    case Some{Buffer{+bufname, _, _, _, _, _, _, _}}:
+      # Any resident hit keeps the stored spelling so pending overlays match
+      # the open tab after casemap or STATUSMSG aliasing.
+      bufname
     case None{}: target_key_with(types, status, sigils, name)
 
 def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
@@ -1151,9 +1151,14 @@ def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&
         case None{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
         case Some{i}: message_key_with.resident(iso_types(isc), iso_status(isc), iso_sigils(isc), name, nth_buf(bufs, i))
 
+# STATUSMSG / non-chantype heads (`@#foo`) strip first, then resolve resident.
+def message_key_with.audience(+cl: Client, +isc: Iso, +name: String) -> String:
+  +key = target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+  message_key_with.found(cl, isc, key, buf_find_cm(cl, iso_cm(isc), key))
+
 def message_key_with.head(+cl: Client, +isc: Iso, +name: String, actual_channel: Bool) -> String:
   match actual_channel:
-    case False{}: target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
+    case False{}: message_key_with.audience(cl, isc, name)
     case True{}: message_key_with.found(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
 
 def message_key_with.name(+cl: Client, +isc: Iso, +name: String) -> String:
