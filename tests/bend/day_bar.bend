@@ -64,6 +64,15 @@ def bars_buf(cl: Cl.Client) -> String:
 def bars_hide_joins(cl: Cl.Client) -> String:
   bars.hide_joins.got(Cl.nth_buf(Cl.client_bufs(cl), 0n))
 
+def bars.scrolled.got(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: ""
+    case Some{+b}:
+      bars.go(V.paint_body_of(Cl.set_buf_anchor(b, Cl.ScrollAt{1n, 0n}), 20n, 40, True{}, Nil{}, False{}, True{}, "irc", V.paint_text()), "")
+
+def bars_hide_joins_scrolled(cl: Cl.Client) -> String:
+  bars.scrolled.got(Cl.nth_buf(Cl.client_bufs(cl), 0n))
+
 def last_ts.go(lines: List<&2, Cl.Line>, +acc: String) -> String:
   match lines:
     case Nil{}: acc
@@ -99,6 +108,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("server-time PRIVMSG stores the combined stamp", last_ts(stamped), "2026-10-19 (Monday)|00:01:00")
     Unit <- E.must_eq("reconnect HMS does not reprint the same day bar", bars_buf(after_recon), "BAR @2026-10-19 (Monday)|")
     Unit <- E.must_eq("hidden first-of-day still paints the next visible day bar", bars_hide_joins(after_hidden_day),
+      "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
+    Unit <- E.must_eq("scrolled hide-joins keeps the same day bars", bars_hide_joins_scrolled(after_hidden_day),
       "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))

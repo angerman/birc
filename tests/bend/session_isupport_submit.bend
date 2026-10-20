@@ -3,6 +3,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/frame.bend as Fr
 import ../../src/bend/isupport.bend as Is
 import ../../src/bend/join_plan.bend as P
@@ -69,6 +70,52 @@ def ascii_bracket_join_two_buffers() -> Bool:
   Nat.is_eq(Cl.normal_buffer_count(Cl.client_bufs(cl)), 3n)
     && has_channel_cm(cl, "ascii", "#a[")
     && has_channel_cm(cl, "ascii", "#a{")
+
+def buf_topic.buf(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: ""
+    case Some{Cl.Buffer{_, _, +topic, _, _, _, _, _}}: topic
+
+def buf_topic.at(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case None{}: ""
+    case Some{+i}: buf_topic.buf(Cl.nth_buf(Cl.client_bufs(cl), i))
+
+def buf_topic_cm(+cl: Cl.Client, +cm: String, +name: String) -> String:
+  buf_topic.at(cl, Cl.buf_find_cm(cl, cm, name))
+
+def ascii_topic_hits_brace_only() -> Bool:
+  +iso = ascii_server()
+  +cl = Feed.feed_with(ascii_bracket_client(), Is.as_iso(iso), ":op!u@h TOPIC #a{ :brace topic")
+  String.eq(buf_topic_cm(cl, "ascii", "#a{"), "brace topic")
+    && String.is_empty(buf_topic_cm(cl, "ascii", "#a["))
+
+def show_buf_tail.rev(rev: List<&2, Cl.Line>) -> String:
+  match rev:
+    case Nil{}: ""
+    case Con{Cl.Line{_, _, +text, _, _}, _}: text
+
+def show_buf_tail.lines(lines: List<&2, Cl.Line>) -> String:
+  show_buf_tail.rev(List.reverse(&2, Cl.Line, lines))
+
+def show_buf_tail.buf(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: ""
+    case Some{Cl.Buffer{_, _, _, +lines, _, _, _, _}}: show_buf_tail.lines(lines)
+
+def show_buf_tail.at(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case None{}: ""
+    case Some{+i}: show_buf_tail.buf(Cl.nth_buf(Cl.client_bufs(cl), i))
+
+def show_buf_tail_cm(+cl: Cl.Client, +cm: String, +name: String) -> String:
+  show_buf_tail.at(cl, Cl.buf_find_cm(cl, cm, name))
+
+def ascii_mode_logs_brace_only() -> Bool:
+  +iso = ascii_server()
+  +cl = Feed.feed_with(ascii_bracket_client(), Is.as_iso(iso), ":op!u@h MODE #a{ +m")
+  String.contains(show_buf_tail_cm(cl, "ascii", "#a{"), "MODE")
+    && Bool.not(String.contains(show_buf_tail_cm(cl, "ascii", "#a["), "MODE"))
 
 def dollar_channel() -> Cl.Client:
   submit_client(Sub.submit_with(dollar_server(), base(), "/join $room"))
@@ -282,4 +329,6 @@ def main() -> IO(Unit):
       submit_wire(Sub.submit_with(ascii_server(), ascii_bracket_client(), "/mode #a{ +m")), "MODE #a{ +m")
     Unit <- E.must("rfc1459 negotiated JOIN folds bracket siblings into one buffer",
       Nat.is_eq(Cl.normal_buffer_count(Cl.client_bufs(rfc1459_bracket_client())), 2n))
+    Unit <- E.must("ascii negotiated TOPIC updates only the brace sibling", ascii_topic_hits_brace_only())
+    Unit <- E.must("ascii negotiated MODE logs only the brace sibling", ascii_mode_logs_brace_only())
     IO.print("session_isupport_submit=ok")

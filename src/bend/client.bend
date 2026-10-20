@@ -582,8 +582,14 @@ def feed_topic.from_pair(pair: Cl.Client & Maybe<&2, Nat>, +from: String, +topic
 def feed_topic.with(+cl: Cl.Client, +chan: String, +topic: String, +from: String) -> Cl.Client:
   feed_topic.from_pair(wire_get(cl, chan, True{}, False{}), from, topic)
 
+def feed_topic.with_iso(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +topic: String, +from: String) -> Cl.Client:
+  feed_topic.from_pair(wire_get_with(cl, isc, chan, True{}, False{}), from, topic)
+
 def feed_topic(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   feed_topic.with(cl, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), msg_nick(m))
+
+def feed_topic_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
+  feed_topic.with_iso(cl, isc, Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), msg_nick(m))
 
 # ---- names / numeric ----------------------------------------------------
 
@@ -610,6 +616,9 @@ def feed_num.topic.pair(pair: Cl.Client & Maybe<&2, Nat>, +topic: String) -> Cl.
 
 def feed_num.topic(+cl: Cl.Client, +chan: String, +topic: String) -> Cl.Client:
   feed_num.topic.pair(wire_get(cl, chan, True{}, False{}), topic)
+
+def feed_num.topic_with(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +topic: String) -> Cl.Client:
+  feed_num.topic.pair(wire_get_with(cl, isc, chan, True{}, False{}), topic)
 
 def names_upd_with(+isc: Cl.Iso, +names: String, b: Cl.Buffer) -> Cl.Buffer:
   Cl.nick_add_all_cm(b, Cl.iso_cm(isc), Cl.iso_strip(isc), split_names(Irc.sanitize_in(names)))
@@ -753,7 +762,7 @@ def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Mess
     case N001{}:
       feed_n001(cl, prefix, m)
     case N332{}:
-      feed_num.topic(cl, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
+      feed_num.topic_with(cl, isc, Irc.msg_param(m, 1n), Irc.msg_param(m, 2n))
     case N353{}:
       feed_num.n353_with.body(cl, isc, m, is_353_sym(Irc.msg_param(m, 1n)))
     case N366{}:
@@ -800,6 +809,11 @@ def feed_mode(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
     case Irc.Message{_, +nick, _, _, +ps}:
       feed_mode.got(cl, nick, feed_mode.params(Commands.mode_has_key(m), m), wire_find(cl, first_param(ps)))
+
+def feed_mode_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
+  match m:
+    case Irc.Message{_, +nick, _, _, +ps}:
+      feed_mode.got(cl, nick, feed_mode.params(Commands.mode_has_key(m), m), wire_find_with(cl, Cl.iso_cm(isc), first_param(ps)))
 
 def feed_unk(+cl: Cl.Client, +m: Irc.Message) -> Cl.Client:
   match m:
@@ -894,9 +908,9 @@ def feed_msg_with.cmd(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Mes
     case Irc.Nick{}:
       feed_nick_with(cl, isc, m, self)
     case Irc.Topic{}:
-      feed_topic(cl, m)
+      feed_topic_with(cl, isc, m)
     case Irc.Mode{}:
-      feed_mode(cl, m)
+      feed_mode_with(cl, isc, m)
     case Irc.Numeric{_}:
       feed_numeric_with(cl, isc, prefix, m)
     case Irc.Cap{}:
