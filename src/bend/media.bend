@@ -14,6 +14,12 @@ import ./irc.bend as Irc
 def CAP() -> Nat:
   8n
 
+# Total pending list bound: work CAP plus the same number of SoftFence /
+# StickyFence tags. pending_work_count still owns the ready-work CAP;
+# fences are ignored there, so without this the tag list can grow forever.
+def PENDING_CAP() -> Nat:
+  Nat.add(CAP(), CAP())
+
 def path_part.keep(stop: Bool, h: Char, rest: String) -> String:
   match stop:
     case True{}: ""
@@ -200,12 +206,60 @@ def pending_count(state: State) -> Nat:
   match state:
     case State{_, _, _, _, pending, _, _}: pending_work_count.go(pending)
 
+# Physical pending length including SoftFence / StickyFence tags.
+def pending_total(state: State) -> Nat:
+  match state:
+    case State{_, _, _, _, pending, _, _}: List.length(&2, Request, pending)
+
 def ready_count(state: State) -> Nat:
   match state:
     case State{_, _, _, _, _, ready, _}: List.length(&2, MediaReady, ready)
 
 def bounded(+state: State) -> Bool:
-  Nat.is_le(pending_count(state), CAP()) && Nat.is_le(ready_count(state), CAP())
+  Nat.is_le(pending_count(state), CAP())
+    && Nat.is_le(pending_total(state), PENDING_CAP())
+    && Nat.is_le(ready_count(state), CAP())
+
+# Drop one oldest fence tag (rightmost SoftFence / StickyFence). Request
+# work is never removed — work CAP stays with pending_work_count.
+def pending_drop_oldest_fence.miss(fence: Bool, +h: Request, rest: List<&2, Request>) -> List<&2, Request> & Bool:
+  match fence:
+    case True{}: (rest, True{})
+    case False{}: (h <> rest, False{})
+
+def pending_drop_oldest_fence.cont(pair: List<&2, Request> & Bool, +h: Request) -> List<&2, Request> & Bool:
+  match pair:
+    case (rest, True{}): (h <> rest, True{})
+    case (rest, False{}): pending_drop_oldest_fence.miss(pending_skip(h), h, rest)
+
+def pending_drop_oldest_fence.go(xs: List<&2, Request>) -> List<&2, Request> & Bool:
+  match xs:
+    case Nil{}: (Nil{}, False{})
+    case Con{+h, t}:
+      pending_drop_oldest_fence.cont(pending_drop_oldest_fence.go(t), h)
+
+def pending_drop_oldest_fence.got(pair: List<&2, Request> & Bool) -> List<&2, Request>:
+  match pair:
+    case (rest, _): rest
+
+def pending_drop_oldest_fence(xs: List<&2, Request>) -> List<&2, Request>:
+  pending_drop_oldest_fence.got(pending_drop_oldest_fence.go(xs))
+
+# After SoftFence / StickyFence insert: keep total length ≤ PENDING_CAP by
+# dropping oldest fence tags first. One fuel step drops at most one fence.
+def pending_bound.next(fit: Bool, +xs: List<&2, Request>) -> List<&2, Request>:
+  match fit:
+    case True{}: xs
+    case False{}: pending_drop_oldest_fence(xs)
+
+def pending_bound.go(fuel: Nat, +xs: List<&2, Request>) -> List<&2, Request>:
+  match fuel:
+    case 0n: xs
+    case 1n+p:
+      pending_bound.go(p, pending_bound.next(Nat.is_le(List.length(&2, Request, xs), PENDING_CAP()), xs))
+
+def pending_bound(+xs: List<&2, Request>) -> List<&2, Request>:
+  pending_bound.go(List.length(&2, Request, xs), xs)
 
 def target_eq(a: Target, b: Target) -> Bool:
   match a:
@@ -271,7 +325,10 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
     case True{}:
       match state:
         case State{on, +gen, +ticket, active, pending, +ready, display}:
-          State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
+          # pending_bound drops oldest SoftFence / StickyFence first so a
+          # new Request cannot push total past PENDING_CAP when tags fill it.
+          State{on, gen, (ticket + 1n : Nat), active,
+            pending_bound(List.append(&2, Request, pending, [Request{target, url, gen, ticket}])),
             Bool.pick(List<&2, MediaReady>, manual(target), ready_without(ready, target, url), ready), display}
 
 def soft_matches(req: Request, +target: Target, +url: String) -> Bool:
@@ -592,7 +649,7 @@ def reject.on(hit: Bool, +state: State) -> State:
       match state:
         case State{on, gen, ticket, Some{Request{target, url, _, declined}}, pending, ready, display}:
           State{on, gen, ticket, None{},
-            SoftFence{target, url, declined} <> pending_without_soft(pending, target, url),
+            pending_bound(SoftFence{target, url, declined} <> pending_without_soft(pending, target, url)),
             ready, display}
         case _: state
 
@@ -636,8 +693,10 @@ def pending_without_block(xs: List<&2, Request>, +target: Target, +url: String) 
 # StickyFence outside the CAP ready FIFO. request_has blocks automatic
 # relaunch; take_work never promotes it to the physical worker. Cleared on
 # reset/dial (pending wipe), not by same-target generation bumps.
+# pending_bound drops oldest fence tags first so SoftFence floods cannot
+# grow the list past PENDING_CAP while work stays ≤ CAP.
 def reject_full.block(+pending: List<&2, Request>, +target: Target, +url: String, +_gen: Nat) -> List<&2, Request>:
-  StickyFence{target, url} <> pending_without_block(pending, target, url)
+  pending_bound(StickyFence{target, url} <> pending_without_block(pending, target, url))
 
 def reject_full.pending(stuck: Bool, +pending: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> List<&2, Request>:
   match stuck:

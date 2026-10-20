@@ -54,6 +54,19 @@ def populate(+n: Nat, state: M.State) -> M.State:
     case 1n+p:
       populate(p, complete_job(M.take_job(M.enqueue(state, M.Inline{1n}, "https://x.test/" ++ Nat.show(n) ++ ".png")), client(), U32.from_nat(n)))
 
+def soft_tag(+id: Nat) -> M.Request:
+  M.SoftFence{M.Inline{id}, "https://x.test/" ++ Nat.show(id) ++ ".png", id}
+
+# Sixteen SoftFence tags (= PENDING_CAP); reject of id 9 must drop the oldest.
+def soft_full() -> List<&2, M.Request>:
+  [soft_tag(1n), soft_tag(2n), soft_tag(3n), soft_tag(4n), soft_tag(5n), soft_tag(6n),
+    soft_tag(7n), soft_tag(8n), soft_tag(10n), soft_tag(11n), soft_tag(12n), soft_tag(13n),
+    soft_tag(14n), soft_tag(15n), soft_tag(16n), soft_tag(17n)]
+
+def soft_insert_at_cap() -> M.State:
+  M.reject(M.State{True{}, 1n, 2n, Some{M.Request{M.Inline{9n}, "https://x.test/9.png", 1n, 1n}},
+    soft_full(), Nil{}, M.Supported{}}, 1n, 1n, "https://x.test/9.png")
+
 def manual_client.got(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
     case (cl, _): cl
@@ -78,6 +91,17 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("exact URL retained", String.join(M.targets("https://x.test/a.png?q=:eyes:*_#part,"), "|"), "https://x.test/a.png?q=:eyes:*_#part")
     Unit <- E.must_eq("queue bound", Nat.show(M.pending_count(fill(12n, M.initial(True{})))), "8")
     Unit <- E.must("bounded queue", M.bounded(fill(12n, M.initial(True{}))))
+    # − SoftFence tags are invisible to pending_work_count (work stays 0).
+    Unit <- E.must("- SoftFence tags do not count as work",
+      Nat.is_eq(M.pending_count(M.State{True{}, 1n, 1n, None{},
+        [soft_tag(1n), soft_tag(2n), soft_tag(3n)], Nil{}, M.Supported{}}), 0n)
+      && Nat.is_eq(M.pending_total(M.State{True{}, 1n, 1n, None{},
+        [soft_tag(1n), soft_tag(2n), soft_tag(3n)], Nil{}, M.Supported{}}), 3n))
+    # + pending_bound keeps total ≤ PENDING_CAP after SoftFence insert at cap.
+    Unit <- E.must("+ SoftFence insert bounds total pending",
+      Nat.is_le(M.pending_total(soft_insert_at_cap()), M.PENDING_CAP())
+      && M.bounded(soft_insert_at_cap())
+      && Nat.is_eq(M.pending_count(M.enqueue(soft_insert_at_cap(), M.Inline{9n}, "https://x.test/9.png")), 0n))
     Unit <- E.must("full manual queue reported", M.manual_saturated(fill(12n, M.initial(True{})), "https://x.test/manual.png"))
     Unit <- E.must("active manual duplicate is not saturation", Bool.not(M.manual_saturated(M.State{True{}, 1n, 20n, Some{M.Request{M.Manual{}, "https://x.test/manual.png", 1n, 19n}}, [M.Request{M.Inline{1n}, "a", 1n, 1n}, M.Request{M.Inline{1n}, "b", 1n, 2n}, M.Request{M.Inline{1n}, "c", 1n, 3n}, M.Request{M.Inline{1n}, "d", 1n, 4n}, M.Request{M.Inline{1n}, "e", 1n, 5n}, M.Request{M.Inline{1n}, "f", 1n, 6n}, M.Request{M.Inline{1n}, "g", 1n, 7n}, M.Request{M.Inline{1n}, "h", 1n, 8n}], Nil{}, M.Supported{}}, "https://x.test/manual.png")))
     Unit <- E.must_eq("worker starts first request", job_of(M.take_job(queued())), "1:1:https://x.test/a.png")

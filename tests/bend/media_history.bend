@@ -171,6 +171,53 @@ def bump_gen_maintain(state: M.State, +cl: Cl.Client) -> M.State:
     case M.State{on, gen, ticket, active, pending, ready, display}:
       M.maintain(M.State{on, (1n + gen : Nat), ticket, active, pending, ready, display}, cl)
 
+# Unbounded SoftFence list (old hazard): work count stays 0 while tags grow.
+def soft_tags(+n: Nat) -> List<&2, M.Request>:
+  match n:
+    case 0n: Nil{}
+    case 1n+p: M.SoftFence{M.Inline{n}, url(n), n} <> soft_tags(p)
+
+# Many soft declines via reject: each cycle enqueues, takes, SoftFence-defers.
+# Helpers take a continuation so soft_flood can recurse without a forward ref.
+def soft_flood.work(+state: M.State, got: Maybe<&2, M.Work>, k: M.State -> M.State) -> M.State:
+  match got:
+    case None{}: state
+    case Some{M.Work{_, u, g, t}}: k(M.reject(state, g, t, u))
+
+def soft_flood.job(+state: M.State, got: Maybe<&2, M.Request>, k: M.State -> M.State) -> M.State:
+  match got:
+    case None{}: state
+    case Some{req}: soft_flood.work(state, M.work_fields(req), k)
+
+def soft_flood.taken(pair: M.State & Maybe<&2, M.Request>, k: M.State -> M.State) -> M.State:
+  match pair:
+    case (st, job): soft_flood.job(st, job, k)
+
+def soft_flood(+n: Nat, state: M.State) -> M.State:
+  match n:
+    case 0n: state
+    case 1n+p: soft_flood.taken(M.take_job(M.enqueue(state, M.Inline{n}, url(n))), next => soft_flood(p, next))
+
+# StickyFence flood via reject_full into CAP-nonzero ready (no ready slot).
+def sticky_flood.work(+state: M.State, +cl: Cl.Client, got: Maybe<&2, M.Work>, k: M.State -> M.State) -> M.State:
+  match got:
+    case None{}: state
+    case Some{M.Work{_, u, g, t}}: k(M.reject_full(state, cl, g, t, u))
+
+def sticky_flood.job(+state: M.State, +cl: Cl.Client, got: Maybe<&2, M.Request>, k: M.State -> M.State) -> M.State:
+  match got:
+    case None{}: state
+    case Some{req}: sticky_flood.work(state, cl, M.work_fields(req), k)
+
+def sticky_flood.taken(+cl: Cl.Client, pair: M.State & Maybe<&2, M.Request>, k: M.State -> M.State) -> M.State:
+  match pair:
+    case (st, job): sticky_flood.job(st, cl, job, k)
+
+def sticky_flood(+n: Nat, state: M.State, +cl: Cl.Client) -> M.State:
+  match n:
+    case 0n: state
+    case 1n+p: sticky_flood.taken(cl, M.take_job(M.enqueue(state, M.Inline{n}, url(n))), next => sticky_flood(p, next, cl))
+
 def admission.url() -> String:
   "https://history-image.test/archived%20a%E2%80%AF.png"
 
@@ -315,6 +362,13 @@ def ph_cache_admit() -> IO(Unit):
   # StickyFence keeps across a same-target gen bump; reset clears it.
   +sticky_bumped : M.State = bump_gen_maintain(declined_full_cap, client())
   +sticky_reset : M.State = M.reset(declined_full_cap)
+  # − SoftFence tags ignored by pending_work_count: total can exceed PENDING_CAP.
+  +soft_hazard : M.State = M.State{True{}, 1n, 1n, None{}, soft_tags(24n), Nil{}, M.Supported{}}
+  # + reject SoftFence flood: drop oldest fence tags; work count stays 0.
+  +soft_flooded : M.State = soft_flood(24n, M.initial(True{}))
+  # + StickyFence flood into CAP ready (ids 100..): same total bound; work 0.
+  +sticky_base : M.State = M.State{True{}, 1n, 1n, None{}, Nil{}, ready(8n, 100n), M.Supported{}}
+  +sticky_flooded : M.State = sticky_flood(20n, sticky_base, client())
   # + reject_full with room: failed identity → ready_has blocks relaunch.
   +declined_full : M.State = M.reject_full(room, client(), 1n, 100n, url(100n))
   # − speculative complete(..., 0) at CAP FIFO-drops a live owner Bend still has.
@@ -379,6 +433,24 @@ def ph_cache_admit() -> IO(Unit):
       && Bool.not(List.is_empty(&2, String, M.known_urls(sticky_bumped, M.Inline{100n}))))
     Unit <- E.must("+ reset clears StickyFence", List.is_empty(&2, String, M.known_urls(sticky_reset, M.Inline{100n}))
       && Nat.is_eq(M.pending_count(sticky_reset), 0n))
+    # R9/R10 view M4: SoftFence/StickyFence ignored by pending_work_count.
+    Unit <- E.must("- SoftFence flood exceeds PENDING_CAP while work count is 0",
+      Nat.is_gt(M.pending_total(soft_hazard), M.PENDING_CAP())
+      && Nat.is_eq(M.pending_count(soft_hazard), 0n)
+      && Bool.not(M.bounded(soft_hazard)))
+    Unit <- E.must("+ SoftFence reject flood stays within PENDING_CAP",
+      Nat.is_le(M.pending_total(soft_flooded), M.PENDING_CAP())
+      && Nat.is_eq(M.pending_count(soft_flooded), 0n)
+      && M.bounded(soft_flooded)
+      && Nat.is_eq(M.pending_count(M.enqueue(soft_flooded, M.Inline{1n}, url(1n))), 0n)
+      && Bool.not(Terminal.has_job(M.take_job(soft_flooded))))
+    Unit <- E.must("+ StickyFence reject_full flood stays within PENDING_CAP",
+      Nat.is_le(M.pending_total(sticky_flooded), M.PENDING_CAP())
+      && Nat.is_eq(M.pending_count(sticky_flooded), 0n)
+      && M.bounded(sticky_flooded)
+      && Nat.is_eq(List.length(&2, U32, M.retained_tokens(sticky_flooded)), 8n)
+      && Nat.is_eq(M.pending_count(M.enqueue(sticky_flooded, M.Inline{1n}, url(1n))), 0n)
+      && Bool.not(Terminal.has_job(M.take_job(sticky_flooded))))
     Unit <- E.must("+ reject_full records token-zero and blocks relaunch", Bool.not(Terminal.has_active(declined_full))
       && Bool.not(List.is_empty(&2, String, M.known_urls(declined_full, M.Inline{100n})))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full)), 7n)
