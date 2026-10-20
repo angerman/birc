@@ -21,11 +21,14 @@ def echo_controls() -> IO(Unit):
 def welcome_controls() -> IO(Unit):
   +st = Sess.session_with_client_at(Cl.init("me", "127.0.0.1"), "#start", 6667)
   do IO<Unit>:
-    # JOIN flush needs post-welcome MOTD (376/422), not 001 alone.
-    Unit <- E.must_eq("single-label server name may differ from dial host", R.wire(R.chunk(st, ":irc 001 me :welcome\r\n:irc 376 me :end of MOTD\r\n")), "JOIN #start")
-    Unit <- E.must_eq("unprefixed welcome comes from the connection", R.wire(R.chunk(st, "001 me :welcome\r\n376 me :end of MOTD\r\n")), "JOIN #start")
+    # JOIN flush needs post-welcome MOTD. Single-label 001 may differ from the
+    # dial host; MOTD still uses source_is_server against the dial spelling
+    # (dotted dial host, or ieq single-label).
+    Unit <- E.must_eq("single-label server name may differ from dial host", R.wire(R.chunk(st, ":irc 001 me :welcome\r\n:127.0.0.1 376 me :end of MOTD\r\n")), "JOIN #start")
+    # Unprefixed 001 has no server source attestation — registration fails closed.
+    Unit <- E.must_eq("unprefixed welcome comes from the connection", R.wire(R.chunk(st, "001 me :welcome\r\n:127.0.0.1 376 me :end of MOTD\r\n")), "")
     Unit <- E.must_eq("user-prefixed welcome cannot release JOIN", R.wire(R.chunk(st, ":peer!u@h 001 me :fake\r\n")), "")
-    Unit <- E.must_eq("first server welcome assigns nickname and releases JOIN", R.wire(R.chunk(st, ":irc 001 other :fake\r\n:irc 376 other :end of MOTD\r\n")), "JOIN #start")
+    Unit <- E.must_eq("first server welcome assigns nickname and releases JOIN", R.wire(R.chunk(st, ":irc 001 other :fake\r\n:127.0.0.1 376 other :end of MOTD\r\n")), "JOIN #start")
     Unit <- E.must_eq("malformed server prefix cannot release JOIN", R.wire(R.chunk(st, ":https://evil.test 001 me :fake\r\n")), "")
     IO.pure(Unit, Unit{})
 
@@ -36,11 +39,11 @@ def nick_controls() -> IO(Unit):
   +st = profile(Cl.NickServOnly{})
   do IO<Unit>:
     Unit <- E.must_eq("NickServ probes for valid single-label welcome", R.wire(R.chunk(st, ":irc 001 me :welcome\r\n")), "PRIVMSG NickServ :HELP")
-    Unit <- E.must_eq("NickServ probes for valid unprefixed welcome", R.wire(R.chunk(st, "001 me :welcome\r\n")), "PRIVMSG NickServ :HELP")
+    Unit <- E.must_eq("NickServ probes for valid unprefixed welcome", R.wire(R.chunk(st, "001 me :welcome\r\n")), "")
     Unit <- E.must_eq("peer welcome cannot trigger NickServ probe", R.wire(R.chunk(st, ":peer!u@h 001 me :fake\r\n")), "")
     Unit <- E.must_eq("first server welcome assigns nickname and triggers NickServ probe", R.wire(R.chunk(st, ":irc 001 other :fake\r\n")), "PRIVMSG NickServ :HELP")
-    Unit <- E.must_eq("short-server welcome still requires exact NickServ identity", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n:irc 376 me :end of MOTD\r\n")), ":NickServ!hostile@evil.test NOTICE me :Help\r\n")), "")
-    Unit <- E.must_eq("valid service confirmation releases short-server welcome", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n:irc 376 me :end of MOTD\r\n")), A.notice("Help") ++ A.notice("Account confirmed"))), "PRIVMSG NickServ :IDENTIFY account test-secret|JOIN #start")
+    Unit <- E.must_eq("short-server welcome still requires exact NickServ identity", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n:127.0.0.1 376 me :end of MOTD\r\n")), ":NickServ!hostile@evil.test NOTICE me :Help\r\n")), "")
+    Unit <- E.must_eq("valid service confirmation releases short-server welcome", R.wire(R.chunk(R.state(R.chunk(st, ":irc 001 me :welcome\r\n:127.0.0.1 376 me :end of MOTD\r\n")), A.notice("Help") ++ A.notice("Account confirmed"))), "PRIVMSG NickServ :IDENTIFY account test-secret|JOIN #start")
     IO.pure(Unit, Unit{})
 
 def sasl_controls() -> IO(Unit):
