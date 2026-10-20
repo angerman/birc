@@ -264,6 +264,34 @@ def admission.controls() -> IO(Unit):
     Unit <- E.must("resize preserves URL with image rows already present", String.contains(Anchor.rows_text(admission.rows(sunbox(revealed_wide), 180)), admission.url()))
     IO.pure(Unit, Unit{})
 
+# Absolute oldest edge + BodyMedia: top-pin must keep ARCHIVE-1 (URL row) in
+# the first painted source rows. Mid-history ARCHIVE-25 control stays above.
+def admission.oldest_buf() -> Cl.Buffer:
+  Cl.buf_indexed("#archive", True{}, "", admission.lines(32n, 1n), Nil{}, Cl.ScrollAt{32n, 0n})
+
+def admission.oldest_session() -> S.Session:
+  S.session_set_size(session(Cl.Client{"me", "s", [Cl.server_buf(), admission.oldest_buf()],
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 33n, False{}}, S.Online{}, True{}), 30, 160)
+
+def admission.oldest_top(rows: List<&2, V.BodyRow>) -> String:
+  match rows:
+    case Nil{}: ""
+    case Con{V.BodyRow{_, _, _, _, _, spans, _}, _}: V.spans_text(spans)
+    case Con{_, tail}: admission.oldest_top(tail)
+
+def admission.oldest_controls() -> IO(Unit):
+  +at = sbox(admission.oldest_session())
+  +pending = sbox(S.session_observe_visible_media(sunbox(at)))
+  +again = sbox(admission.page_up(sunbox(pending)))
+  do IO<Unit>:
+    Unit <- E.must_eq("at-oldest ScrollAt before media", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(at)))), "32:0")
+    Unit <- E.must("at-oldest exposes ARCHIVE-1 URL before admission", String.contains(Anchor.rows_text(admission.rows(sunbox(at), 160)), admission.url()))
+    Unit <- E.must_eq("at-oldest top source is ARCHIVE-1", admission.oldest_top(admission.rows(sunbox(at), 160)), "ARCHIVE-IMAGE " ++ admission.url())
+    Unit <- E.must_eq("BodyMedia pending keeps at-oldest anchor", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(pending)))), "32:0")
+    Unit <- E.must("BodyMedia pending keeps oldest URL in viewport", String.contains(Anchor.rows_text(admission.rows(sunbox(pending), 160)), admission.url()))
+    Unit <- E.must_eq("PageUp at oldest stays", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(again)))), "32:0")
+    IO.pure(Unit, Unit{})
+
 # The pinned native backend permits at most 247 flattened capture words
 # per continuation. One 66-statement main holding ~10 live Sessions
 # breaches it ("an arity over 247"); each phase below holds only boxed
@@ -497,4 +525,5 @@ def main() -> IO(Unit):
     Unit <- ph_cache_replace()
     Unit <- ph_stopping()
     Unit <- admission.controls()
+    Unit <- admission.oldest_controls()
     IO.print("media_history=ok")
