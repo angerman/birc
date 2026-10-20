@@ -184,6 +184,27 @@ def ascii_session_mode_brace_only() -> Bool:
   String.contains(show_buf_tail_cm(Sess.session_cl(st), "ascii", "#a{"), "MODE")
     && Bool.not(String.contains(show_buf_tail_cm(Sess.session_cl(st), "ascii", "#a["), "MODE"))
 
+def ascii_session_332_brace_only() -> Bool:
+  +iso = ascii_server()
+  +st = trusted(live(iso, ascii_bracket_client(), "#a{"), ":irc 332 me #a{ :rpl topic")
+  String.eq(buf_topic_cm(Sess.session_cl(st), "ascii", "#a{"), "rpl topic")
+    && String.is_empty(buf_topic_cm(Sess.session_cl(st), "ascii", "#a["))
+
+def first_pend_buf(pends: List<&2, Cl.PendSend>) -> String:
+  match pends:
+    case Nil{}: ""
+    case Con{Cl.PendSend{+buf, _, _, _, _, _, _, _, _}, _}: buf
+
+def ascii_pend_confirm_brace_keeps_bracket() -> Bool:
+  +iso = ascii_server()
+  +isc = Is.as_iso(iso)
+  +cl = ascii_bracket_client()
+  +brace = Sess.pend_from_out(cl, isc, "PRIVMSG #a{ :hi", "00:00:00", "me")
+  +bracket = Sess.pend_from_out(cl, isc, "PRIVMSG #a[ :hi", "00:00:00", "me")
+  +ps = Sess.pend_record_one(Sess.pend_record_one(Nil{}, brace), bracket)
+  +rest = Sess.pend_confirm_lines("ascii", ps, "me", ":me!u@h PRIVMSG #a{ :hi" <> Nil{})
+  Nat.is_eq(List.length(&2, Cl.PendSend, rest), 1n) && String.eq(first_pend_buf(rest), "#a[")
+
 def saved(+names: List<&2, String>) -> Sess.Session:
   Sess.session_seed_channels(Sess.session_online(Sess.session_with_client_at(base(), "", 6697)), names)
 
@@ -345,4 +366,6 @@ def main() -> IO(Unit):
     Unit <- E.must("ascii negotiated MODE logs only the brace sibling", ascii_mode_logs_brace_only())
     Unit <- E.must("ascii Session TOPIC updates only the brace sibling", ascii_session_topic_brace_only())
     Unit <- E.must("ascii Session MODE logs only the brace sibling", ascii_session_mode_brace_only())
+    Unit <- E.must("ascii Session 332 updates only the brace sibling", ascii_session_332_brace_only())
+    Unit <- E.must("ascii pending confirm drops only the brace sibling", ascii_pend_confirm_brace_keeps_bracket())
     IO.print("session_isupport_submit=ok")

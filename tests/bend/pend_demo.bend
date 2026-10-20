@@ -159,7 +159,7 @@ def once_ok() -> Bool:
 # FIFO confirm drops the oldest match and keeps the later send.
 def fifo_ok() -> Bool:
   +ps = Sess.session_pends(sent2())
-  +rest = Sess.pend_confirm_lines(ps, "me", ":me!me@localhost PRIVMSG #t :hello" <> Nil{})
+  +rest = Sess.pend_confirm_lines(Cl.dflt_cm(), ps, "me", ":me!me@localhost PRIVMSG #t :hello" <> Nil{})
   Nat.is_eq(List.length(&2, Cl.PendSend, ps), 2n)
     && Nat.is_eq(List.length(&2, Cl.PendSend, rest), 1n)
     && String.eq(first_body(first_pend(rest)), "two")
