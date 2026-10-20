@@ -250,7 +250,7 @@ def history.install(current: Bool, prefs: L.Context, gate: Gate, +decision: Mayb
       do IO<Context & S.Session>:
         local : Cl.Client <- history.flush(decision_known(decision) || explicit_history(st), path, ep, S.session_cl(st))
         _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{gen})
-        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, H.install_startup(H.report_diagnostics(local, snapshot), snapshot)))
+        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, H.install_startup(H.report_diagnostics(local, snapshot, ep, ep), snapshot, ep, ep)))
 
 def history.result(owned: Bool, ctx: Details, +st: S.Session, +gen: U32, got_gen: U32, +ep: String, snapshot: Cl.Client, cmd: Chan(S.NetCmd)) -> IO(Context & S.Session):
   match owned:

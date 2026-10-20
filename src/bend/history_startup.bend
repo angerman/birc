@@ -167,13 +167,20 @@ def install.allowed(ok: Bool, +current: Cl.Client, +snapshot: Cl.Client) -> Cl.C
     case True{}:
       install.buffers(snapshot.buffers(Cl.client_bufs(snapshot), operation_ids(snapshot)), current, Cl.settings_hist_cap(Cl.get_settings(current)))
 
-# The outer startup gate owns endpoint/port/ticket checks and the checkpoint.
-# This defense also rejects a changed host or a newly disabled history setting.
-# Never cap current rows or evict current targets to make room for an archive.
-# Startup-before-005 still imports with the default RFC1459 map; negotiated live imports use History.apply_history_iso.
-def install(+current: Cl.Client, +snapshot: Cl.Client) -> Cl.Client:
+# Exact host:port strings. Outer archive_current / reload_match also check this;
+# this defense rejects host-colliding different ports when a caller skips them.
+def same_endpoint(+current_ep: String, +snapshot_ep: String) -> Bool:
+  String.eq(current_ep, snapshot_ep)
+
+# The outer startup gate owns ticket/generation checks and the checkpoint.
+# This defense also rejects a changed endpoint (host or port) or a newly
+# disabled history setting. Never cap current rows or evict current targets to
+# make room for an archive. Startup-before-005 still imports with the default
+# RFC1459 map; negotiated live imports use History.apply_history_iso.
+def install(+current: Cl.Client, +snapshot: Cl.Client, +current_ep: String, +snapshot_ep: String) -> Cl.Client:
   +settings = Cl.get_settings(current)
-  install.allowed(String.eq(Cl.server_of(current), Cl.server_of(snapshot))
+  install.allowed(same_endpoint(current_ep, snapshot_ep)
+    && String.eq(Cl.server_of(current), Cl.server_of(snapshot))
     && Cl.settings_history(settings) && Bool.not(U32.is_zero(Cl.settings_hist_cap(settings))), current, snapshot)
 
 def install_startup.mark(on: Bool, cl: Cl.Client, index: Nat, now: String) -> Cl.Client:
@@ -200,10 +207,10 @@ def install_startup.marked(+cl: Cl.Client, cutoff: Nat, now: String) -> Cl.Clien
 # The caller reports owned worker diagnostics first. Its current sequence is
 # therefore the archive cutoff: local and operation-only targets get no marker.
 # Never make room for a divider by removing a retained row.
-def install_startup(+current: Cl.Client, snapshot: Cl.Client) -> Cl.Client:
+def install_startup(+current: Cl.Client, snapshot: Cl.Client, +current_ep: String, +snapshot_ep: String) -> Cl.Client:
   match current:
     case Cl.Client{_, _, _, _, now, _, _, +cutoff, _}:
-      install_startup.marked(install(current, snapshot), cutoff, now)
+      install_startup.marked(install(current, snapshot, current_ep, snapshot_ep), cutoff, now)
 
 # Fresh worker *log* rows describe only this read operation. Synthetic history
 # records are rejected by the archive parser; archived Error imports never
@@ -228,10 +235,11 @@ def report_diagnostics.logs(messages: List<&2, String>, current: Cl.Client) -> C
     case Nil{}: current
     case Con{message, rest}: report_diagnostics.logs(rest, Cl.client_log(current, 0n, Cl.Error{}, message))
 
-def report_diagnostics.allowed(same: Bool, current: Cl.Client, snapshot: Cl.Client) -> Cl.Client:
-  match same:
+def report_diagnostics.allowed(ok: Bool, current: Cl.Client, snapshot: Cl.Client) -> Cl.Client:
+  match ok:
     case False{}: current
     case True{}: report_diagnostics.logs(diagnostics(snapshot), current)
 
-def report_diagnostics(+current: Cl.Client, +snapshot: Cl.Client) -> Cl.Client:
-  report_diagnostics.allowed(String.eq(Cl.server_of(current), Cl.server_of(snapshot)), current, snapshot)
+def report_diagnostics(+current: Cl.Client, +snapshot: Cl.Client, +current_ep: String, +snapshot_ep: String) -> Cl.Client:
+  report_diagnostics.allowed(same_endpoint(current_ep, snapshot_ep)
+    && String.eq(Cl.server_of(current), Cl.server_of(snapshot)), current, snapshot)

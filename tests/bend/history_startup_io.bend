@@ -18,7 +18,7 @@ def completed(got: Maybe<&1, S.UiMsg>) -> IO(Unit):
   match got:
     case Some{S.HistoryLoaded{7n, 3, "irc.example:6667", +snapshot}}:
       +current = Cl.client_log(Cl.init_with_cap("me", "irc.example", 1), 0n, Cl.System{}, "startup status")
-      +loaded = H.install(current, snapshot)
+      +loaded = H.install(current, snapshot, "irc.example:6667", "irc.example:6667")
       do IO<Unit>:
         Unit <- E.must("worker snapshot never carries credentials", auth_free(snapshot))
         Unit <- E.must_eq("owned snapshot selects latest row and endpoint", CL.buf_texts(loaded, 1n), "two|")

@@ -62,7 +62,7 @@ def snapshot() -> Cl.Client:
   Feed.feed(Feed.feed(Cl.init("me", "irc.test"), ":me!u@h JOIN #room"), ":bob!u@h PRIVMSG #room :hi me")
 
 def imported() -> Cl.Client:
-  Startup.install_startup(cl0(), snapshot())
+  Startup.install_startup(cl0(), snapshot(), scope(), scope())
 
 def observed(+st: Notify.State, +cl: Cl.Client, +cutoff: Nat) -> Notify.State & List<&2, Notify.Req>:
   Sess.notify_observe(st, cl, scope(), cutoff, "", "")

@@ -35,7 +35,8 @@ def resolve(options: W.Options, +st: S.Session, +gen: U32, got: Maybe<&2, P.Pref
   resolve.taken(R.take(LP.state(LP.initial(options, st, gen))), st, gen, got)
 
 def archive.install(+snapshot: Cl.Client, ctx: LP.Context, +st: S.Session, allowed: Bool) -> LP.Context & S.Session & Bool:
-  (ctx, S.session_set_client(st, H.install_startup(H.report_diagnostics(S.session_cl(st), snapshot), snapshot)), allowed)
+  +ep = Ep.endpoint(Cl.server_of(S.session_cl(st)), S.session_port(st))
+  (ctx, S.session_set_client(st, H.install_startup(H.report_diagnostics(S.session_cl(st), snapshot, ep, ep), snapshot, ep, ep)), allowed)
 
 def archive.pick(read: Bool, ctx: LP.Context, +st: S.Session, +path: String, allowed: Bool) -> IO(LP.Context & S.Session & Bool):
   match read:

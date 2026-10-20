@@ -21,27 +21,27 @@ def marker_at(cl: Cl.Client, index: Nat) -> Bool:
   marker_at.got(Cl.nth_buf(Cl.client_bufs(cl), index))
 
 def positive() -> Bool:
-  +got = H.install_startup(T.base(1), T.snapshot())
+  +got = H.install_startup(T.base(1), T.snapshot(), T.ep(), T.ep())
   T.metadata(got) && marker_at(got, 0n) && marker_at(got, 2n)
     && String.eq(CL.buf_texts(got, 0n), "local|old2|14:00:00|")
     && String.eq(CL.buf_texts(got, 2n), "chat|14:00:00|")
     && Nat.is_eq(Cl.log_seq_of(got), 54n)
 
 def negative() -> Bool:
-  +empty = H.install_startup(T.base(1), Cl.init("archive", "irc.example"))
+  +empty = H.install_startup(T.base(1), Cl.init("archive", "irc.example"), T.ep(), T.ep())
   +off = Cl.set_settings(T.base(1), Cl.set_history(Cl.get_settings(T.base(1)), False{}))
   +failure = Cl.diagnostic(Cl.init("archive", "irc.example"), Cl.Error{}, "history read failed")
-  +reported = H.report_diagnostics(T.base(1), failure)
-  +only_error = H.install_startup(reported, failure)
+  +reported = H.report_diagnostics(T.base(1), failure, T.ep(), T.ep())
+  +only_error = H.install_startup(reported, failure, T.ep(), T.ep())
   String.eq(CL.buf_texts(empty, 0n), "local|") && Nat.is_eq(Cl.log_seq_of(empty), 50n)
-    && String.eq(CL.buf_texts(H.install_startup(off, T.snapshot()), 0n), "local|")
+    && String.eq(CL.buf_texts(H.install_startup(off, T.snapshot(), T.ep(), T.ep()), 0n), "local|")
     && String.eq(CL.buf_texts(only_error, 0n), "local|history read failed|")
     && String.eq(T.text_of(only_error, "*log*"), "history read failed|")
     && Nat.is_eq(Cl.log_seq_of(only_error), 51n)
 
 def full() -> Bool:
-  +one = H.install_startup(T.full_server(1023n), T.server_snapshot())
-  +none = H.install_startup(T.full_server(Cl.SCROLL_CAP()), T.server_snapshot())
+  +one = H.install_startup(T.full_server(1023n), T.server_snapshot(), T.ep(), T.ep())
+  +none = H.install_startup(T.full_server(Cl.SCROLL_CAP()), T.server_snapshot(), T.ep(), T.ep())
   Nat.is_eq(List.length(&2, Cl.Line, T.server_rows(one)), Cl.SCROLL_CAP())
     && String.eq(T.last_text(T.server_rows(one)), "last archived row")
     && Nat.is_eq(Cl.log_seq_of(one), Cl.SCROLL_CAP())

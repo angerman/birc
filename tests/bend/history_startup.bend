@@ -5,6 +5,9 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history_startup.bend as H
 
+def ep() -> String:
+  "irc.example:6697"
+
 def row(+text: String, id: Nat) -> Cl.Line:
   Cl.Line{Cl.Msg{}, "12:00:00", text, "alice", id}
 
@@ -26,7 +29,7 @@ def metadata(cl: Cl.Client) -> Bool:
     case _: False{}
 
 def positive() -> Bool:
-  +got = H.install(base(1), snapshot())
+  +got = H.install(base(1), snapshot(), ep(), ep())
   metadata(got) && String.eq(CL.buf_texts(got, 0n), "local|old2|")
     && String.eq(CL.buf_texts(got, 1n), "") && String.eq(CL.buf_texts(got, 2n), "chat|")
     && Nat.is_eq(Cl.log_seq_of(got), 52n)
@@ -34,10 +37,13 @@ def positive() -> Bool:
 def negative() -> Bool:
   +off = Cl.set_settings(base(1), Cl.set_history(Cl.get_settings(base(1)), False{}))
   +wrong = Cl.set_server(snapshot(), "IRC.EXAMPLE")
-  +zero = H.install(base(0), snapshot())
-  String.eq(CL.buf_texts(H.install(off, snapshot()), 0n), "local|")
-    && String.eq(CL.buf_texts(H.install(base(1), wrong), 0n), "local|")
+  +zero = H.install(base(0), snapshot(), ep(), ep())
+  +port = H.install(base(1), snapshot(), ep(), "irc.example:6667")
+  +diag_port = H.report_diagnostics(base(1), Cl.client_log(Cl.init("old", "irc.example"), 0n, Cl.Error{}, "history read failed (5)"), ep(), "irc.example:6667")
+  String.eq(CL.buf_texts(H.install(off, snapshot(), ep(), ep()), 0n), "local|")
+    && String.eq(CL.buf_texts(H.install(base(1), wrong, ep(), ep()), 0n), "local|")
     && String.eq(CL.buf_texts(zero, 0n), "local|") && Nat.is_eq(Cl.buf_count(Cl.client_bufs(zero)), 2n)
+    && String.eq(CL.buf_texts(port, 0n), "local|") && Nat.is_eq(Cl.log_seq_of(diag_port), 50n)
 
 def fill.client(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
   match pair:
@@ -69,8 +75,8 @@ def text_of(+cl: Cl.Client, name: String) -> String:
   text_of.found(cl, Cl.buf_find(cl, name))
 
 def admission() -> Bool:
-  +partial = H.install(fill(12n, base(1)), admission_snapshot())
-  +full = H.install(fill(13n, base(1)), admission_snapshot())
+  +partial = H.install(fill(12n, base(1)), admission_snapshot(), ep(), ep())
+  +full = H.install(fill(13n, base(1)), admission_snapshot(), ep(), ep())
   missing(Cl.buf_find(partial, "#old")) && String.eq(text_of(partial, "#new"), "recent target|")
     && String.eq(text_of(partial, "early"), "shared|") && Nat.is_eq(Cl.buf_count(Cl.client_bufs(partial)), 15n)
     && missing(Cl.buf_find(full, "#old")) && missing(Cl.buf_find(full, "#new"))
@@ -100,8 +106,8 @@ def last_text(lines: List<&2, Cl.Line>) -> String:
     case Con{_, rest}: last_text(rest)
 
 def capacity() -> Bool:
-  +one = H.install(full_server(U32.to_nat(1023)), server_snapshot())
-  +none = H.install(full_server(Cl.SCROLL_CAP()), server_snapshot())
+  +one = H.install(full_server(U32.to_nat(1023)), server_snapshot(), ep(), ep())
+  +none = H.install(full_server(Cl.SCROLL_CAP()), server_snapshot(), ep(), ep())
   Nat.is_eq(List.length(&2, Cl.Line, server_rows(one)), Cl.SCROLL_CAP())
     && String.eq(last_text(server_rows(one)), "last archived row") && Nat.is_eq(Cl.log_seq_of(one), Cl.SCROLL_CAP())
     && Nat.is_eq(List.length(&2, Cl.Line, server_rows(none)), Cl.SCROLL_CAP())
@@ -110,7 +116,7 @@ def capacity() -> Bool:
 def peer_server() -> Bool:
   +snap: Cl.Client = Cl.Client{"old", "irc.example", Cl.server_buf() <> archive_buf("server", "peer named server", 1n)
     <> archive_buf("*log*", "never replay diagnostics", 2n) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 2n, False{}}
-  +got = H.install(base(1), snap)
+  +got = H.install(base(1), snap, ep(), ep())
   String.eq(text_of(got, "server"), "peer named server|") && String.eq(CL.buf_texts(got, 0n), "local|")
     && missing(Cl.buf_find(got, "*log*")) && Nat.is_eq(Cl.log_seq_of(got), 51n)
 
@@ -118,18 +124,18 @@ def diagnostic_reporting() -> Bool:
   +archive = Cl.client_restore_author_ts(Cl.init("old", "irc.example"), 0n, Cl.Error{}, "12:00:00", "archived error", "")
   +failed = Cl.client_log(archive, 0n, Cl.Error{}, "history read failed (5)")
   +current = Cl.diagnostic(base(1), Cl.Error{}, "current diagnostic")
-  +got = H.report_diagnostics(current, failed)
-  +installed = H.install(got, failed)
+  +got = H.report_diagnostics(current, failed, ep(), ep())
+  +installed = H.install(got, failed, ep(), ep())
   String.eq(String.join(H.diagnostics(failed), "|"), "history read failed (5)")
     && List.is_empty(&2, String, H.diagnostics(archive))
-    && Nat.is_eq(Cl.log_seq_of(H.report_diagnostics(current, archive)), Cl.log_seq_of(current))
+    && Nat.is_eq(Cl.log_seq_of(H.report_diagnostics(current, archive, ep(), ep())), Cl.log_seq_of(current))
     && String.eq(text_of(got, "*log*"), "current diagnostic|history read failed (5)|")
     && String.eq(CL.buf_texts(got, 0n), "local|history read failed (5)|") && Nat.is_eq(Cl.active_of(got), 1n)
     && Nat.is_eq(Cl.log_seq_of(got), 52n)
     && String.eq(CL.buf_texts(installed, 0n), "local|history read failed (5)|archived error|")
     && String.eq(text_of(installed, "*log*"), "current diagnostic|history read failed (5)|")
     && Nat.is_eq(Cl.log_seq_of(installed), 53n)
-    && Nat.is_eq(Cl.log_seq_of(H.report_diagnostics(current, Cl.set_server(failed, "other.example"))), Cl.log_seq_of(current))
+    && Nat.is_eq(Cl.log_seq_of(H.report_diagnostics(current, Cl.set_server(failed, "other.example"), ep(), ep())), Cl.log_seq_of(current))
 
 def line_ids(lines: List<&2, Cl.Line>) -> String:
   match lines:
@@ -147,8 +153,8 @@ def ids_at(cl: Cl.Client, index: Nat) -> String:
 def diagnostic_identity() -> Bool:
   +archive = Cl.client_restore_author_ts(Cl.init("old", "irc.example"), 0n, Cl.Error{}, "12:00:00", "same error", "")
   +failed = Cl.client_log(archive, 0n, Cl.Error{}, "same error")
-  +reported = H.report_diagnostics(base(1), failed)
-  +got = H.install(reported, failed)
+  +reported = H.report_diagnostics(base(1), failed, ep(), ep())
+  +got = H.install(reported, failed, ep(), ep())
   String.eq(CL.buf_texts(got, 0n), "local|same error|same error|")
     && String.eq(text_of(got, "*log*"), "same error|")
     && String.eq(ids_at(got, 0n), "50|51|52|") && String.eq(ids_at(got, 2n), "51|")
@@ -157,12 +163,12 @@ def diagnostic_identity() -> Bool:
 def zero_mirror() -> Bool:
   +snapshot: Cl.Client = Cl.Client{"old", "irc.example", archive_buf("server", "archive with zero ID", 0n)
     <> Cl.buf_indexed("*log*", False{}, "", Cl.Line{Cl.Error{}, "", "unassigned", "", 0n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
-  String.eq(CL.buf_texts(H.install(base(1), snapshot), 0n), "local|archive with zero ID|")
+  String.eq(CL.buf_texts(H.install(base(1), snapshot, ep(), ep()), 0n), "local|archive with zero ID|")
 
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("startup import preserves local rows/IDs/metadata and applies cap to imported rows only", positive())
-    Unit <- E.must("disabled history, zero cap, and stale exact host cannot import", negative())
+    Unit <- E.must("disabled history, zero cap, stale host, and host-colliding ports cannot import", negative())
     Unit <- E.must("current tabs survive full capacity and recent archive targets get remaining slots", admission())
     Unit <- E.must("archive cannot trim current rows at SCROLL_CAP", capacity())
     Unit <- E.must("server peer stays separate and app-session diagnostics never replay", peer_server())

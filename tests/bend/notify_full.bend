@@ -271,7 +271,7 @@ def snapshot_restore() -> Cl.Client:
   Feed.feed(Feed.feed(Cl.init("me", "irc.test"), ":me!u@h JOIN #room"), ":bob!u@h PRIVMSG #room :hi me")
 
 def imported_restore() -> Cl.Client:
-  Startup.install_startup(cl0_restore(), snapshot_restore())
+  Startup.install_startup(cl0_restore(), snapshot_restore(), scope(), scope())
 
 def sess_imported() -> Sess.Session:
   Sess.session_with_client(imported_restore(), "#room")
@@ -391,7 +391,7 @@ def snapA() -> Cl.Client:
   Feed.feed(Feed.feed(Feed.feed(Cl.init("me", "irc.test"), ":me!u@h JOIN #room"), ":bob!u@h PRIVMSG #room :hi me"), ":carol!u@h PRIVMSG #room :yo me")
 
 def impA() -> Cl.Client:
-  Startup.install_startup(Sess.session_cl(st0()), snapA())
+  Startup.install_startup(Sess.session_cl(st0()), snapA(), scope(), scope())
 
 def prodA() -> List<&2, Nat>:
   Sess.notify_claims_installed(1n, impA())
@@ -406,7 +406,7 @@ def step_r2_a1() -> Sess.NotifyLive & Sess.Session & List<&2, String> & List<&2,
   Sess.notify_live_step_claimed(nl_ep(), sessA(), chunk_dave(), 0, True{}, prodA())
 
 def impE() -> Cl.Client:
-  Startup.install_startup(Sess.session_cl(st_g1_1()), snapA())
+  Startup.install_startup(Sess.session_cl(st_g1_1()), snapA(), scope(), scope())
 
 def prodE() -> List<&2, Nat>:
   Sess.notify_claims_installed(2n, impE())
