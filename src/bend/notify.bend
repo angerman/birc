@@ -38,6 +38,9 @@ def BODY_CAP() -> Nat:
 def TITLE_CAP() -> Nat:
   80n
 
+# Product bound (not a bug): multi-server notify tracks at most eight
+# endpoint scopes. Ninth+ unknown scopes fail closed (silent, untracked).
+# Oracles: theme_notify "ninth scope fails closed"; notify_binding_gates g2.
 def SCOPE_CAP() -> Nat:
   8n
 
