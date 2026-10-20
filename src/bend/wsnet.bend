@@ -2544,8 +2544,11 @@ def ws_media.union_other(+xs: List<&2, W.Part>, +skip: Key.ServerId, +acc: List<
         case W.Part{+id, _, _, +st}:
           ws_media.union_other(t, skip, ws_media.union_keep(Bool.not(Key.eq(id, skip)), st, acc))
 
+# Origin retain is current owners only. Speculative complete(..., 0) +
+# List.take would FIFO-drop a live token Bend still owns when ready is
+# already CAP nonzero — the hole reject_full was meant to close.
 def ws_media.union_tokens(+ws: W.Workspace, +skip: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String) -> List<&2, U32>:
-  +origin = M.retained_tokens(M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0))
+  +origin = M.admit_retained(Sess.session_media(st))
   List.append(&2, U32, origin, ws_media.union_other(W.ws_parts(ws), skip, Nil{}))
 
 def ws_media.union_room(+ws: W.Workspace, +skip: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String) -> Bool:

@@ -151,9 +151,26 @@ def generation(state: State) -> Nat:
   match state:
     case State{_, gen, _, _, _, _, _}: gen
 
+# Ticket 0 marks a CAP-overflow sticky failure outside the ready FIFO.
+# Real work tickets start at 1 (see initial/enqueue).
+def request_block(req: Request) -> Bool:
+  match req:
+    case Request{_, _, _, 0n}: True{}
+    case _: False{}
+
+def pending_work_count.keep(block: Bool, rest: Nat) -> Nat:
+  match block:
+    case True{}: rest
+    case False{}: (1n + rest : Nat)
+
+def pending_work_count.go(xs: List<&2, Request>) -> Nat:
+  match xs:
+    case Nil{}: 0n
+    case Con{+h, t}: pending_work_count.keep(request_block(h), pending_work_count.go(t))
+
 def pending_count(state: State) -> Nat:
   match state:
-    case State{_, _, _, _, pending, _, _}: List.length(&2, Request, pending)
+    case State{_, _, _, _, pending, _, _}: pending_work_count.go(pending)
 
 def ready_count(state: State) -> Nat:
   match state:
@@ -214,7 +231,7 @@ def active_has(active: Maybe<&2, Request>, +target: Target, +url: String, +gen: 
 def manual_saturated(state: State, +url: String) -> Bool:
   match state:
     case State{_, +gen, _, active, +pending, _, _}:
-      Nat.is_ge(List.length(&2, Request, pending), CAP())
+      Nat.is_ge(pending_work_count.go(pending), CAP())
         && Bool.not(active_has(active, Manual{}, url, gen) || request_has(pending, Manual{}, url, gen))
 
 def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State:
@@ -232,7 +249,7 @@ def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: Strin
     case True{}:
       match state:
         case State{+on, +gen, +ticket, +active, +pending, +ready, Supported{}}:
-          enqueue.on(Nat.is_lt(List.length(&2, Request, pending), CAP())
+          enqueue.on(Nat.is_lt(pending_work_count.go(pending), CAP())
             && Bool.not(active_has(active, target, url, gen) || request_has(pending, target, url, gen))
             && (manual(target) || Bool.not(ready_has(ready, target, url))),
             State{on, gen, ticket, active, pending, ready, Supported{}}, target, url)
@@ -340,6 +357,27 @@ def visible_result_allowed(state: State, +selected: List<&2, Candidate>) -> Bool
       Nat.is_lt(List.length(&2, MediaReady, visible_ready(ready, selected, True{})), CAP())
         || visible_result.active(active, selected)
 
+# Skip ticket-0 sticky blocks; they suppress enqueue via request_has but
+# must never become the physical worker.
+def take_work.cons(+h: Request, pair: List<&2, Request> & Maybe<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
+  match pair:
+    case (rest, job): (h <> rest, job)
+
+def take_work(xs: List<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
+  match xs:
+    case Nil{}: (Nil{}, None{})
+    case Con{Request{+target, +url, +gen, 0n}, t}:
+      take_work.cons(Request{target, url, gen, 0n}, take_work(t))
+    case Con{+h, t}: (t, Some{h})
+
+def take_job.pending.go(pair: List<&2, Request> & Maybe<&2, Request>, +on: Bool, +gen: Nat, +ticket: Nat, +ready: List<&2, MediaReady>) -> State & Maybe<&2, Request>:
+  match pair:
+    case (rest, None{}): (State{on, gen, ticket, None{}, rest, ready, Supported{}}, None{})
+    case (rest, Some{+req}): (State{on, gen, ticket, Some{req}, rest, ready, Supported{}}, Some{req})
+
+def take_job.pending(pending: List<&2, Request>, +on: Bool, +gen: Nat, +ticket: Nat, +ready: List<&2, MediaReady>) -> State & Maybe<&2, Request>:
+  take_job.pending.go(take_work(pending), on, gen, ticket, ready)
+
 def take_job(state: State) -> State & Maybe<&2, Request>:
   match state:
     case State{on, gen, ticket, active, _, _, Unsupported{}}:
@@ -348,10 +386,8 @@ def take_job(state: State) -> State & Maybe<&2, Request>:
       (State{on, gen, ticket, active, Nil{}, Nil{}, Reported{}}, None{})
     case State{on, gen, ticket, Some{req}, pending, ready, Supported{}}:
       (State{on, gen, ticket, Some{req}, pending, ready, Supported{}}, None{})
-    case State{on, gen, ticket, None{}, Nil{}, ready, Supported{}}:
-      (State{on, gen, ticket, None{}, Nil{}, ready, Supported{}}, None{})
-    case State{on, gen, ticket, None{}, Con{+req, pending}, ready, Supported{}}:
-      (State{on, gen, ticket, Some{req}, pending, ready, Supported{}}, Some{req})
+    case State{on, gen, ticket, None{}, pending, ready, Supported{}}:
+      take_job.pending(pending, on, gen, ticket, ready)
 
 def take_job_allowed(allowed: Bool, state: State) -> State & Maybe<&2, Request>:
   match allowed:
@@ -474,12 +510,46 @@ def reject_full.ready.insert(room: Bool, +target: Target, +url: String, +ready: 
 
 # Sticky failed identity for native CAP overflow. Unlike complete(..., 0),
 # never FIFO-evicts a nonzero retained token: make room by dropping another
-# zero when needed; if ready is already CAP nonzero, clear active only.
+# zero when needed; if ready is already CAP nonzero, ready insert is skipped
+# and reject_full.block records the sticky failure in pending (ticket 0).
 def reject_full.ready(+target: Target, +url: String, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
   +base = ready_without(ready, target, url)
   +fit = Bool.pick(List<&2, MediaReady>, Nat.is_lt(List.length(&2, MediaReady, base), CAP()),
     base, ready_drop_zero(base))
   reject_full.ready.insert(Nat.is_lt(List.length(&2, MediaReady, fit), CAP()), target, url, fit)
+
+def pending_block_keep(hit: Bool, h: Request, tail: List<&2, Request>) -> List<&2, Request>:
+  match hit:
+    case True{}: tail
+    case False{}: h <> tail
+
+def pending_without_block(xs: List<&2, Request>, +target: Target, +url: String) -> List<&2, Request>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      match h:
+        case Request{tg, u, _, _}:
+          pending_block_keep(request_block(h) && target_eq(tg, target) && String.eq(u, url), h,
+            pending_without_block(t, target, url))
+
+# Ticket-0 sticky failure outside the CAP ready FIFO. request_has blocks
+# automatic relaunch; take_work never promotes it to the physical worker.
+def reject_full.block(+pending: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> List<&2, Request>:
+  Request{target, url, gen, 0n} <> pending_without_block(pending, target, url)
+
+def reject_full.pending(stuck: Bool, +pending: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> List<&2, Request>:
+  match stuck:
+    case False{}: pending_without_block(pending, target, url)
+    case True{}: reject_full.block(pending, target, url, gen)
+
+def reject_full.accepted(+state: State) -> State:
+  match state:
+    case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
+      +next_ready = reject_full.ready(target, url, ready)
+      State{on, gen, ticket, None{},
+        reject_full.pending(Bool.not(ready_has(next_ready, target, url)), pending, target, url, gen),
+        next_ready, display}
+    case _: state
 
 def reject_full.on(hit: Bool, accepted: Bool, +state: State) -> State:
   match hit:
@@ -491,27 +561,26 @@ def reject_full.on(hit: Bool, accepted: Bool, +state: State) -> State:
             case State{on, gen, ticket, _, pending, ready, display}:
               State{on, gen, ticket, None{}, pending, ready, display}
             case _: state
-        case True{}:
-          match state:
-            case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
-              State{on, gen, ticket, None{}, pending, reject_full.ready(target, url, ready), display}
-            case _: state
+        case True{}: reject_full.accepted(state)
 
-# Native CAP-overflow rejection records a token-zero failed identity for the
-# exact worker, so observe/enqueue/take does not immediately relaunch the
-# same automatic helper while every native slot stays owned. Visible/policy
-# decline uses reject, not this path — temporary full visible cache must not
-# sticky-poison a URL. Wrong ticket/generation/URL arrivals keep the owner
-# untouched; disabled and dead targets record nothing; manual intents still
-# retry via enqueue.
+# Native CAP-overflow rejection records a failed identity for the exact
+# worker — token-zero in ready when a slot exists, otherwise a ticket-0
+# pending block — so observe/enqueue/take does not immediately relaunch
+# the same automatic helper while every native slot stays owned.
+# Visible/policy decline uses reject, not this path — temporary full
+# visible cache must not sticky-poison a URL. Wrong ticket/generation/URL
+# arrivals keep the owner untouched; disabled and dead targets record
+# nothing; manual intents still retry via enqueue.
 def reject_full(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> State:
   match state:
     case State{_, _, _, +active, _, _, _}:
       reject_full.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state)
     case _: state
 
-# Zero denotes a placeholder, never native payload ownership. Compute this on
-# the prospective completion with token zero before admitting its new payload.
+# Zero denotes a placeholder, never native payload ownership. Native
+# admission retain/room must use admit_retained / admit_room — never
+# retained_tokens(complete(..., 0)), which FIFO-drops a live token Bend
+# still owns when ready is already CAP nonzero.
 def retained_tokens.ready(xs: List<&2, MediaReady>) -> List<&2, U32>:
   match xs:
     case Nil{}: Nil{}
@@ -524,6 +593,13 @@ def retained_tokens(state: State) -> List<&2, U32>:
   match state:
     case State{_, _, _, _, _, ready, Supported{}}: retained_tokens.ready(ready)
     case _: Nil{}
+
+# Current nonzero owners for media_add retain and CAP room checks.
+def admit_retained(+state: State) -> List<&2, U32>:
+  retained_tokens(state)
+
+def admit_room(+state: State) -> Bool:
+  Nat.is_lt(List.length(&2, U32, admit_retained(state)), CAP())
 
 def token_from(xs: List<&2, MediaReady>, +target: Target, +url: String) -> U32:
   match xs:

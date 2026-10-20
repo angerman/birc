@@ -292,6 +292,8 @@ def ph_cache_admit() -> IO(Unit):
   +declined_full_cap : M.State = M.reject_full(hidden, client(), 1n, 100n, url(100n))
   # + reject_full with room: failed identity → ready_has blocks relaunch.
   +declined_full : M.State = M.reject_full(room, client(), 1n, 100n, url(100n))
+  # − speculative complete(..., 0) at CAP FIFO-drops a live owner Bend still has.
+  +speculative : M.State = M.complete(hidden, client(), 1n, 100n, url(100n), 0)
   do IO<Unit>:
     Unit <- E.must("prospective native set retains selected visible token", token_has(M.retained_tokens(protected), 8) && Bool.not(token_has(M.retained_tokens(protected), 1)))
     Unit <- E.must("control shows unchanged completion FIFO would evict visible token", token_has(M.retained_tokens(legacy), 1) && Bool.not(token_has(M.retained_tokens(legacy), 8)))
@@ -301,10 +303,16 @@ def ph_cache_admit() -> IO(Unit):
     Unit <- E.must("- reject clears worker without failed identity", Bool.not(Terminal.has_active(declined)) && Nat.is_eq(M.ready_count(declined), 8n)
       && token_has(M.retained_tokens(declined), 8) && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n}))
       && Nat.is_gt(M.pending_count(M.enqueue(declined, M.Inline{100n}, url(100n))), 0n))
+    Unit <- E.must("- speculative complete at CAP drops a live retained token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(speculative)), 7n)
+      && Bool.not(token_has(M.retained_tokens(speculative), 8)))
+    Unit <- E.must("+ admit_retained keeps every current owner at CAP", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)
+      && token_has(M.admit_retained(hidden), 8) && Bool.not(M.admit_room(hidden)))
     Unit <- E.must("- reject_full at CAP nonzero keeps all retained tokens", Bool.not(Terminal.has_active(declined_full_cap))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full_cap)), 8n)
-      && token_has(M.retained_tokens(declined_full_cap), 8)
-      && List.is_empty(&2, String, M.known_urls(declined_full_cap, M.Inline{100n})))
+      && token_has(M.retained_tokens(declined_full_cap), 8))
+    Unit <- E.must("+ reject_full at CAP nonzero sticky-blocks relaunch", Bool.not(List.is_empty(&2, String, M.known_urls(declined_full_cap, M.Inline{100n})))
+      && Nat.is_eq(M.pending_count(M.enqueue(declined_full_cap, M.Inline{100n}, url(100n))), 0n)
+      && Bool.not(Terminal.has_job(M.take_job(declined_full_cap))))
     Unit <- E.must("+ reject_full records token-zero and blocks relaunch", Bool.not(Terminal.has_active(declined_full))
       && Bool.not(List.is_empty(&2, String, M.known_urls(declined_full, M.Inline{100n})))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full)), 7n)
