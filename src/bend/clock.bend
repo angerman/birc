@@ -46,6 +46,68 @@ def hhmmss() -> IO(String):
     n : U32 <- local_secs()
     return Fmt.fmt_sod(n)
 
+# Local calendar day for channel dividers. ymd is year*10000+month*100+day.
+# wday is libc tm_wday: 0 = Sunday.
+law local_civil:
+  IO(U32 & U32)
+
+def local_civil():
+  import "../ffi/clock_ffi.c"
+
+def weekday.sat(sat: Bool) -> String:
+  match sat:
+    case True{}: "Saturday"
+    case False{}: "Sunday"
+
+def weekday.fri(fri: Bool, +w: U32) -> String:
+  match fri:
+    case True{}: "Friday"
+    case False{}: weekday.sat(U32.is_eq(w, 6))
+
+def weekday.thu(thu: Bool, +w: U32) -> String:
+  match thu:
+    case True{}: "Thursday"
+    case False{}: weekday.fri(U32.is_eq(w, 5), w)
+
+def weekday.wed(wed: Bool, +w: U32) -> String:
+  match wed:
+    case True{}: "Wednesday"
+    case False{}: weekday.thu(U32.is_eq(w, 4), w)
+
+def weekday.tue(tue: Bool, +w: U32) -> String:
+  match tue:
+    case True{}: "Tuesday"
+    case False{}: weekday.wed(U32.is_eq(w, 3), w)
+
+def weekday.mon(mon: Bool, +w: U32) -> String:
+  match mon:
+    case True{}: "Monday"
+    case False{}: weekday.tue(U32.is_eq(w, 2), w)
+
+def weekday.sun(sun: Bool, +w: U32) -> String:
+  match sun:
+    case True{}: "Sunday"
+    case False{}: weekday.mon(U32.is_eq(w, 1), w)
+
+def weekday(+w: U32) -> String:
+  weekday.sun(U32.is_eq(w, 0), w)
+
+def day_label.parts(+ymd: U32, +w: U32) -> String:
+  +year = U32.div(ymd, 10000)
+  +md = U32.mod(ymd, 10000)
+  U32.show(year) ++ "-" ++ Fmt.pad2(U32.div(md, 100)) ++ "-" ++ Fmt.pad2(U32.mod(md, 100)) ++ " (" ++ weekday(w) ++ ")"
+
+def day_label(parts: U32 & U32) -> String:
+  match parts:
+    case (+ymd, +w): day_label.parts(ymd, w)
+
+# Live clock: day label, newline, HH:MM:SS. Line stamps keep the time half.
+def stamp() -> IO(String):
+  do IO<String>:
+    hms : String <- hhmmss()
+    civil : U32 & U32 <- local_civil()
+    return day_label(civil) ++ "\n" ++ hms
+
 law utc_local_parts:
   U32 -> U32 -> U32 -> U32 -> U32 -> U32 -> IO(U32 & U32 & U32)
 

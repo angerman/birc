@@ -2719,7 +2719,7 @@ def ws_prefs.msg(+loop: WsLoop, m: Sess.UiMsg, ui: T.Ui, +main: Chan(WsMsg), +cm
   match loop:
     case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
       do IO<Unit>:
-        ts : String <- Clock.hhmmss()
+        ts : String <- Clock.stamp()
         ws_prefs.owned(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), m, ui, main, cmds, evts, pevts, ack, ts, k)
 
 def ws_histload.installed(got: PrefLive.Context & Sess.Session, +before: PrefLive.Context, +before_seq: Nat, +ws: W.Workspace, +old: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
@@ -2817,7 +2817,7 @@ def ws_paint.ui_err(+loop: WsLoop, +msg: String, ui: T.Ui, +main: Chan(WsMsg), +
     case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
       +id = W.ws_current(ws)
       do IO<Unit>:
-        ts : String <- Clock.hhmmss()
+        ts : String <- Clock.stamp()
         got : T.Ui & W.Workspace & PrefLive.Context & Maybe<&2, WsMedia> & Maybe<&2, WsLease> & List<&2, WsLease> & WsCardsAll & Bool <- ws_post(ui, ws, ws_replace(ws, id, Sess.session_error(Sess.session_set_now(ws_part.st(ws, id), ts), msg)), id, evts, pevts, ctx, media, owner, ups, cards, False{})
         ws_paint.ui_erred(got, main, cmds, evts, pevts, ack, scheduled, bell, notify, begun, k)
 
@@ -2967,7 +2967,7 @@ def ws_routed.stamped(+saved: List<&2, WsLoop>, +rm: Sid.RoutedMsg, ui: T.Ui, +m
 def ws_routed.wait(+saved: List<&2, WsLoop>, +rm: Sid.RoutedMsg, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     now_ms : U32 <- Clock.millis()
-    ts : String <- Clock.hhmmss()
+    ts : String <- Clock.stamp()
     ws_routed.stamped(saved, rm, ui, main, cmds, evts, pevts, ack, now_ms, ts, k)
 
 def ws_routed(+rm: Sid.RoutedMsg, +ws: W.Workspace, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):

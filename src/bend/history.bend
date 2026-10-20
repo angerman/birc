@@ -19,9 +19,15 @@ def serialize_kind(k: Cl.LineKind) -> String:
     case Cl.LinkResult{}: "LINK"
     case Cl.Presence{}: "PRS"
     case Cl.Nick{}: "NCK"
+    case Cl.Day{}: "DAY"
     case Cl.Pending{+inner}: serialize_kind(inner)
 
-def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool, is_prs: Bool, is_nck: Bool) -> Cl.LineKind:
+def parse_kind.day(is_day: Bool) -> Cl.LineKind:
+  match is_day:
+    case True{}: Cl.Day{}
+    case False{}: Cl.Error{}
+
+def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_not: Bool, is_hl: Bool, is_prs: Bool, is_nck: Bool, is_day: Bool) -> Cl.LineKind:
   match is_msg:
     case True{}: Cl.Msg{}
     case False{}:
@@ -45,7 +51,7 @@ def parse_kind.on(is_msg: Bool, is_self: Bool, is_sys: Bool, is_act: Bool, is_no
                             case False{}:
                               match is_nck:
                                 case True{}: Cl.Nick{}
-                                case False{}: Cl.Error{}
+                                case False{}: parse_kind.day(is_day)
 
 def parse_kind(+s: String) -> Cl.LineKind:
   parse_kind.on(
@@ -56,7 +62,8 @@ def parse_kind(+s: String) -> Cl.LineKind:
     String.eq(s, "NOT"),
     String.eq(s, "HL"),
     String.eq(s, "PRS"),
-    String.eq(s, "NCK")
+    String.eq(s, "NCK"),
+    String.eq(s, "DAY")
   )
 
 def serialize_line.recon(is_recon: Bool, +target: String, kind: Cl.LineKind, +ts: String, +text: String) -> String:

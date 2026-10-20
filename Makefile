@@ -1058,6 +1058,9 @@ test-pty-ui-review-selection: build-ui ## Pty: Escape clears selected cells with
 test-pty-ui-review-media: build-ui ## Pty: actual helper rejection blocks raw PNG/APNG upload; accepted data is normalized.
 	$(NIXRUN) timeout 40 python3 tests/pty/ui_review_media.py ./$(BLDDIR)/birc
 
+test-day-bar: $(BLDDIR)/day_bar.js ## Local day dividers and same-day dedupe.
+	$(NIXRUN) sh scripts/check-golden.sh day_bar=ok timeout 30 bun $(BLDDIR)/day_bar.js
+
 test-history: $(BLDDIR)/history_demo ## Stable log identities, authored lines, and typed reconnect markers.
 	$(NIXRUN) sh scripts/check-golden.sh history_demo=ok ./$(BLDDIR)/history_demo
 
@@ -1067,7 +1070,7 @@ test-history-io: $(BLDDIR)/history_io ## Streaming history keeps the newest reco
 test-history-search: $(BLDDIR)/history_search $(BLDDIR)/history_search_io ## Disk-history search/paging and draft/chathistory policy goldens.
 	$(NIXRUN) sh scripts/check-golden.sh history_search=ok ./$(BLDDIR)/history_search
 	$(NIXRUN) sh scripts/check-golden.sh history_search_io=ok ./$(BLDDIR)/history_search_io
-test-review-pure: test-history-search
+test-review-pure: test-day-bar test-history-search
 
 test-link-commands: $(BLDDIR)/link_commands_demo ## Repeated link enumeration and opening preserve numbering.
 	$(NIXRUN) sh scripts/check-golden.sh link_commands_demo=ok ./$(BLDDIR)/link_commands_demo
@@ -1399,7 +1402,7 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 
 .PHONY: test-review-pure
 
-.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
+.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-day-bar test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
 .PHONY: test-pty-frame-links test-pty-launchers
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors

@@ -947,7 +947,7 @@ def on_up(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ts : String <- Clock.hhmmss()
+    ts : String <- Clock.stamp()
     on_up_go(Sess.session_reconnected(st, ts), ui, evt, cmd, ack, gen, k)
 
 @unsafe
@@ -1010,7 +1010,7 @@ def on_fail(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ts : String <- Clock.hhmmss()
+    ts : String <- Clock.stamp()
     on_fail_go(Sess.session_fail(Sess.session_set_now(st, ts), msg), ui, evt, cmd, ack, gen, k)
 
 def on_evt(
@@ -1467,7 +1467,7 @@ def on_msg(
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   do IO<Unit>:
-    ts : String <- Clock.hhmmss()
+    ts : String <- Clock.stamp()
     on_msg_go(m, ui, Sess.session_set_now(st, ts), evt, cmd, ack, gen, k)
 
 def live_step.reload(
@@ -1646,7 +1646,7 @@ def live_step.dispatch(+m: Sess.UiMsg, ui: T.Ui, +st: Sess.Session, +evt: Chan(S
       on_msg(m, ui, st, evt, cmd, ack, gen, nxt => live_step.next(nxt, scheduled, is_continue(m), Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt, False{}, next => preferences_stage(next, ctx, evt, cmd, ack, k)))
     case Sess.TypingTick{now_ms}:
       do IO<Unit>:
-        ts : String <- Clock.hhmmss()
+        ts : String <- Clock.stamp()
         on_typing_tick(ui, Sess.session_set_now(st, ts), now_ms, evt, cmd, ack, gen,
           pair => live_step.tick(pair, scheduled, False{}, Sess.session_cl(st), session_endpoint(st), M.generation(Sess.session_media(st)), hist_path, ctx, evt,
             next => preferences_stage(next, ctx, evt, cmd, ack, k)))
@@ -2061,7 +2061,7 @@ def start_ui(
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     hist_path : String <- Hist.resolve_history_path()
     hist_cap : U32 <- Hist.resolve_history_cap()
-    now : String <- Clock.hhmmss()
+    now : String <- Clock.stamp()
     Unit <- IO.spawn(Unit, heartbeat(cmd))
     start_ui_load(gated, hist_path, hist_cap, nick, host, port, now, ui, chan, frames, sasl_user, sasl_pass, auth, evt, cmd, ack)
 
@@ -2157,7 +2157,7 @@ def run_live_prepared(options: PrefWorker.Options, +frames: U32, +host: String, 
   do IO<Unit>:
     +path : String <- Hist.resolve_history_path()
     +cap : U32 <- Hist.resolve_history_cap()
-    +now : String <- Clock.hhmmss()
+    +now : String <- Clock.stamp()
     on : Bool <- images_enabled()
     con : Bool <- CN.cards_enabled()
     result : LoadedPrefs.Context & Sess.Session & Bool <- Headless.prepare(options,
@@ -2229,6 +2229,6 @@ def run_offline_pick(headless: Bool, +frames: U32, +cl: Cl.Client, +chan: String
 
 def run_offline(+frames: U32, +cl: Cl.Client, +chan: String, port: U32, force_tls: Bool) -> IO(Unit):
   do IO<Unit>:
-    ts : String <- Clock.hhmmss()
+    ts : String <- Clock.stamp()
     t : U32 <- T.Timui.isatty()
     run_offline_pick(U32.is_eq(t, 0), frames, cl, chan, ts, port, force_tls)

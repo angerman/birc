@@ -131,6 +131,7 @@ type LineKind is Data:
   LinkResult{}
   Presence{}
   Nick{}
+  Day{}
   Pending{inner: LineKind}
 
 # Optimistic-send ledger entry. Lives in the Session (view overlay only);
@@ -200,6 +201,7 @@ def kind_eq(a: LineKind, b: LineKind) -> Bool:
     case LinkResult{} LinkResult{}: True{}
     case Presence{} Presence{}: True{}
     case Nick{} Nick{}: True{}
+    case Day{} Day{}: True{}
     case Pending{ia} Pending{ib}: kind_eq(ia, ib)
     case _ _: False{}
 
@@ -1326,13 +1328,49 @@ def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
     case Client{_, _, +bufs, _, _, _, _, _}:
       diagnostic_fresh.fin(List.foldl(~&2, ~Buffer, ~DiagnosticFresh, ~diagnostic_fresh_buf, bufs, DiagnosticFresh{cl, cutoff}))
 
+# Live Client.now is "YYYY-MM-DD (Weekday)\nHH:MM:SS". Tests and restored
+# stamps stay a bare time. Line columns always store the time half.
+def now_day.cut(nl: Bool, pair: String & String) -> String:
+  match nl:
+    case True{}:
+      match pair:
+        case (+day, _): day
+    case False{}: ""
+
+def now_hms.cut(nl: Bool, pair: String & String, +now: String) -> String:
+  match nl:
+    case True{}:
+      match pair:
+        case (_, +rest): String.drop(rest, 1n)
+    case False{}: now
+
+def now_nl.cons(+h: Char, r: String & String) -> String & String:
+  match r:
+    case (tok, rest): (SCon{h, tok}, rest)
+
+def now_nl.fin(+h: Char, +t: String, r: String & String, nl: Bool) -> String & String:
+  match nl:
+    case True{}: ("", SCon{h, t})
+    case False{}: now_nl.cons(h, r)
+
+def now_split(+now: String) -> String & String:
+  match now:
+    case SNil{}: ("", "")
+    case SCon{+h, +t}: now_nl.fin(h, t, now_split(t), Char.is_eq(h, Chr{10}))
+
+def now_day(+now: String) -> String:
+  now_day.cut(String.contains(now, "\n"), now_split(now))
+
+def now_hms(+now: String) -> String:
+  now_hms.cut(String.contains(now, "\n"), now_split(now), now)
+
 def buf_log_ts(+b: Buffer, kind: LineKind, +ts: String, +text: String) -> Buffer:
-  buf_append_line(b, Line{kind, Irc.sanitize_in(ts), Irc.sanitize_keep_style(text), "", 0n})
+  buf_append_line(b, Line{kind, Irc.sanitize_in(now_hms(ts)), Irc.sanitize_keep_style(text), "", 0n})
 
 def buf_reconnect.on(internal: Bool, b: Buffer, now: String) -> Buffer:
   match internal:
     case True{}: b
-    case False{}: buf_log_ts(b, Reconnect{}, "", now)
+    case False{}: buf_log_ts(b, Reconnect{}, "", now_hms(now))
 
 # App-session diagnostics are not chat history. Generic reconnect dividers
 # must not bypass their smaller row cap; the session records a bounded stage.
@@ -1345,6 +1383,12 @@ def is_reconnect(kind: LineKind) -> Bool:
   match kind:
     case Reconnect{}: True{}
     case Pending{+inner}: is_reconnect(inner)
+    case _: False{}
+
+def is_day(kind: LineKind) -> Bool:
+  match kind:
+    case Day{}: True{}
+    case Pending{+inner}: is_day(inner)
     case _: False{}
 
 def is_link_result(kind: LineKind) -> Bool:
@@ -1584,13 +1628,49 @@ def client_log.append(internal: Bool, mirror: Bool, cl: Client, i: Nat, line: Li
     case True{}: diagnostic_line(cl, line)
     case False{}: client_log.original(mirror, cl, i, line)
 
-def client_log_author_ts.record(mirror: Bool, +cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
-  match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
-      +next: Nat = 1n+log_seq
+def last_day.go(fuel: Nat, lines: List<&2, Line>) -> String:
+  match fuel:
+    case 0n: ""
+    case 1n+p:
+      match lines:
+        case Nil{}: ""
+        case Con{Line{Day{}, _, +text, _, _}, _}: text
+        case Con{Line{_, _, _, _, _}, +t}: last_day.go(p, t)
+
+def day_append.eq(same: Bool, +b: Buffer, +day: String, id: Nat) -> Buffer:
+  match same:
+    case True{}: b
+    case False{}: buf_append_line(b, Line{Day{}, "", day, "", id})
+
+def day_append(+b: Buffer, +day: String, id: Nat) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, newest, +count}:
+      day_append.eq(String.eq(day, last_day.go(2048n, newest)), Buffer{name, ch, topic, lines, nicks, scroll, newest, count}, day, id)
+
+def day_note.skip(skip: Bool, bufs: List<&2, Buffer>, +i: Nat, +day: String, seq: Nat) -> List<&2, Buffer> & Nat:
+  match skip:
+    case True{}: (bufs, seq)
+    case False{}:
+      +id = Nat.add(seq, 1n)
+      (buf_modify(bufs, i, b => day_append(b, day, id)), id)
+
+def day_note.on(mirror: Bool, bufs: List<&2, Buffer>, +i: Nat, +day: String, kind: LineKind, seq: Nat) -> List<&2, Buffer> & Nat:
+  match mirror:
+    case False{}: (bufs, seq)
+    case True{}: day_note.skip(String.is_empty(day) || is_day(kind), bufs, i, day, seq)
+
+def client_log_author_ts.noted(pair: List<&2, Buffer> & Nat, +nick: String, +server: String, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, mirror: Bool) -> Client:
+  match pair:
+    case (+bufs, +seq):
+      +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now_hms(now))
+      +next: Nat = 1n+seq
       +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_keep_style(text), Irc.sanitize_in(author), next}
       client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
+
+def client_log_author_ts.record(+mirror: Bool, +cl: Client, +i: Nat, +kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
+      client_log_author_ts.noted(day_note.on(mirror, bufs, i, now_day(now), kind, log_seq), nick, server, active, now, stg, auth, i, kind, ts, text, author, mirror)
 
 def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   client_log_author_ts.record(True{}, cl, i, kind, ts, text, author)

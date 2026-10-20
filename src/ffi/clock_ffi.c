@@ -31,6 +31,9 @@
 #ifndef CID_UTC_LOCAL_PARTS
 #define CID_UTC_LOCAL_PARTS CID(utc_local_parts)
 #endif
+#ifndef CID_LOCAL_CIVIL
+#define CID_LOCAL_CIVIL CID(local_civil)
+#endif
 
 #if CID_UTC_LOCAL_PARTS
 struct birc_clock_parts {
@@ -81,6 +84,24 @@ Term utc_local_parts_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) utc_local_parts_use(void) {
   io_eff(CID_UTC_LOCAL_PARTS, utc_local_parts_run);
+}
+#endif
+
+#if CID_LOCAL_CIVIL
+/* yyyymmdd and tm_wday (0 = Sunday). Bend formats the channel day bar. */
+Term local_civil_run(Env e, Term *f, IoWork *w) {
+  time_t t = time(NULL);
+  struct tm lt;
+  (void)f;
+  (void)w;
+  if (!localtime_r(&t, &lt))
+    return io_tup(e, (Term)0, (Term)0);
+  uint32_t y = (uint32_t)lt.tm_year + 1900u;
+  uint32_t ymd = y * 10000u + ((uint32_t)lt.tm_mon + 1u) * 100u + (uint32_t)lt.tm_mday;
+  return io_tup(e, (Term)ymd, (Term)lt.tm_wday);
+}
+static void __attribute__((constructor)) local_civil_use(void) {
+  io_eff(CID_LOCAL_CIVIL, local_civil_run);
 }
 #endif
 

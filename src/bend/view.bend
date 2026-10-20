@@ -497,8 +497,18 @@ def recon_label.ts(empty: Bool, +ts: String) -> String:
     case True{}: " Reconnected "
     case False{}: " Reconnected: " ++ ts ++ " "
 
+def recon_label.marked(marked: Bool, +text: String) -> String:
+  match marked:
+    case True{}: " " ++ String.drop(text, 1n) ++ " "
+    case False{}: recon_label.ts(String.is_empty(text), text)
+
 def recon_label(+text: String) -> String:
-  recon_label.ts(String.is_empty(text), text)
+  recon_label.marked(String.starts_with(text, "@"), text)
+
+def bar_text(day: Bool, +text: String) -> String:
+  match day:
+    case True{}: "@" ++ text
+    case False{}: text
 
 def recon_divider.gt(gt: Bool, +lbl: String, +lbl_w: U32, +w: U32) -> String:
   match gt:
@@ -528,7 +538,7 @@ def line_ops_at_ts.chk(is_rec: Bool, +x: U32, +y: U32, +w: U32, +k: Cl.LineKind,
 def line_ops_at_ts(+x: U32, +y: U32, +w: U32, +ln: Cl.Line, show_ts: Bool) -> List<&2, DrawOp>:
   match ln:
     case Cl.Line{+k, +ts, +text, +author, +id}:
-      line_ops_at_ts.chk(Cl.is_reconnect(k), x, y, w, k, ts, text, show_ts)
+      line_ops_at_ts.chk(Cl.is_reconnect(k) || Cl.is_day(k), x, y, w, k, ts, bar_text(Cl.is_day(k), text), show_ts)
 
 def line_ops_at(+x: U32, +y: U32, +w: U32, +ln: Cl.Line) -> List<&2, DrawOp>:
   line_ops_at_ts(x, y, w, ln, True{})
@@ -1208,11 +1218,12 @@ def paint_wrap_plain_on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, sh
 def paint_wrap_plain(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match ln:
     case Cl.Line{+k, +ts, +text, _, _}:
-      paint_wrap_plain_on(k, ts, text, w, show_ts, Cl.is_reconnect(k), boxed)
+      paint_wrap_plain_on(k, ts, bar_text(Cl.is_day(k), text), w, show_ts, Cl.is_reconnect(k) || Cl.is_day(k), boxed)
 
 def paint_wrap_inline(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match ln:
     case Cl.Line{Cl.Reconnect{}, _, text, _, _}: [BodyRecon{text, w}]
+    case Cl.Line{Cl.Day{}, _, +text, _, _}: [BodyRecon{bar_text(True{}, text), w}]
     case Cl.Line{Cl.System{}, +ts, +text, _, 0n}:
       paint_manual(contains_url(M.known_urls(opt_media(boxed), M.Manual{}), text), ts, text, w, show_ts, boxed)
     case Cl.Line{+k, +ts, +text, _, +id}:
@@ -1243,7 +1254,7 @@ def paint_unwrapped_on(+k: Cl.LineKind, +ts: String, +text: String, +w: U32, sho
 def paint_unwrapped_line(+ln: Cl.Line, +w: U32, show_ts: Bool, +boxed: List<&2, PaintOpts>) -> BodyRow:
   match ln:
     case Cl.Line{+k, +ts, +text, _, _}:
-      paint_unwrapped_on(k, ts, text, w, show_ts, Cl.is_reconnect(k), boxed)
+      paint_unwrapped_on(k, ts, bar_text(Cl.is_day(k), text), w, show_ts, Cl.is_reconnect(k) || Cl.is_day(k), boxed)
 
 def paint_unwrapped_lines(lines: List<&2, Cl.Line>, +w: U32, +show_ts: Bool, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match lines:
@@ -1696,16 +1707,17 @@ def newer_go(
   +joins: Bool,
   +nicks: Bool,
   +server: String,
-  +boxed: List<&2, PaintOpts>
+  +boxed: List<&2, PaintOpts>,
+  tail: Bool
 ) -> NewerWalk:
   match fuel:
     case 0n: NewerWalk{Nil{}, False{}}
     case 1n+p:
       match lines:
-        case Nil{}: NewerWalk{Nil{}, True{}}
+        case Nil{}: NewerWalk{Nil{}, tail}
         case Con{+h, t}:
           newer_open(step, h, name, w, show_ts, mutes, joins, nicks, server, boxed,
-            next => newer_go(p, t, next, name, w, show_ts, mutes, joins, nicks, server, boxed))
+            next => newer_go(p, t, next, name, w, show_ts, mutes, joins, nicks, server, boxed, tail))
 
 # Drop the newer prefix in place, then reverse the span the walk may visit.
 # Callers pass a line budget for paint windows; scroll passes `after` so the
@@ -1730,7 +1742,7 @@ def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2
     case False{}: older
     case True{}:
       List.append(&2, AnchoredRow, older,
-        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height}, name, w, show_ts, mutes, joins, nicks, server, boxed)))
+        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(height, after))))
 
 def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
   match past:
@@ -1943,9 +1955,12 @@ def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWal
 
 # Older `up` rows from the anchor, then newer rows until `dn` visible rows or
 # the newest logical line — fuel-bounded, not a hard dn+32 line cap.
+# Copy only a page of newer lines, plus a short run of hidden rows. A longer
+# muted stretch moves on the next key instead of rebuilding the whole backlog.
 def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
+  +cap = Nat.add(Nat.add(up, dn), 64n)
   scroll_rows.join(
-    newer_go(rev_tail_fuel(), newer_lines(newest, after, after), Next{newer_after(Nat.is_eq(after, 0n), after), dn}, name, w, show_ts, mutes, joins, nicks, server, boxed),
+    newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
     window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed))
 
 def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:

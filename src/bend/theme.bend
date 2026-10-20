@@ -53,6 +53,7 @@ def kind_dark(k: Cl.LineKind) -> U32:
     case Cl.LinkResult{}: 10526880
     case Cl.Presence{}: 10526880
     case Cl.Nick{}: 10526880
+    case Cl.Day{}: 10526880
     case Cl.Pending{+inner}: dim_fg(kind_dark(inner))
 
 # Dark-on-light variants: readable on a white background.
@@ -69,6 +70,7 @@ def kind_light(k: Cl.LineKind) -> U32:
     case Cl.LinkResult{}: 6710886
     case Cl.Presence{}: 6710886
     case Cl.Nick{}: 6710886
+    case Cl.Day{}: 6710886
     case Cl.Pending{+inner}: dim_fg(kind_light(inner))
 
 def MONO_FG() -> U32:
