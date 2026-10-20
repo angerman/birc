@@ -7,6 +7,7 @@ import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as S
 import ../../src/bend/session.bend as Sess
+import ../../src/bend/irc.bend as Irc
 
 def client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
@@ -51,7 +52,7 @@ def wire_alias_events() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("NAMES routes normalized target", String.eq(CL.buf_nicks(members, "#ab"), "me alice bob "))
     Unit <- E.must_eq("TOPIC/332 route normalized target", W.active_topic(topic), "numeric topic")
-    Unit <- E.must("MODE routes normalized target", String.contains(CL.buf_texts(mode, 1n), "MODE #ab +o bob"))
+    Unit <- E.must("MODE routes normalized target", String.contains(Irc.proto_atom(CL.buf_texts(mode, 1n)), "MODE #ab +o bob"))
     Unit <- E.must("PRIVMSG routes normalized target", String.contains(CL.buf_texts(message, 1n), "<alice> ordinary"))
     Unit <- E.must_eq("KICK/PART route normalized target", CL.buf_nicks(parted, "#ab"), "me ")
     Unit <- E.must("self KICK closes canonical target", Bool.not(CL.has_buf(Feed.feed(parted, ":alice!u@h KICK " ++ target ++ " me :bye"), "#ab")))

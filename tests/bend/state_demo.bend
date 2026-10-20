@@ -72,7 +72,7 @@ def query_collision_ok() -> Bool:
     && String.eq(CL.buf_texts(new, 1n), "<a> first|<b> second|<a> third|a is now known as B|")
     && Nat.is_eq(List.length(&2, Cl.Alert, Cl.settings_unreads(Cl.get_settings(new))), 1n)
     && U32.is_eq(Cl.buf_unread_status(Cl.settings_unreads(Cl.get_settings(new)), "B"), 2)
-    && String.eq(H.extract_new_history(old, new), "B\tSYS\t\ta is now known as B\n")
+    && String.eq(H.extract_new_history(old, new), "B\tNCK\t\ta is now known as B\n")
 
 def query_focus_ok() -> Bool:
   +source = query_source()
@@ -104,7 +104,7 @@ def query_merge_cap_ok() -> Bool:
   +new = Cl.set_active(Feed.feed(old, ":a!u@h NICK :b"), 1n)
   Nat.is_eq(CL.buf_nlines(new, 1n), Cl.SCROLL_CAP())
     && ids_increasing(Cl.active_buf_lines(new), 0n)
-    && String.eq(H.extract_new_history(old, new), "b\tSYS\t\ta is now known as b\n")
+    && String.eq(H.extract_new_history(old, new), "b\tNCK\t\ta is now known as b\n")
 
 def server_nick_ok() -> Bool:
   +server = Feed.feed(Cl.init("me", "s"), ":server!u@h PRIVMSG me :private")
