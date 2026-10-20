@@ -548,6 +548,24 @@ def accept(state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: Stri
     case State{on, current, _, +active, _, _, Supported{}}: exact(active, gen, ticket, url) && accept.active(active, on, current, client)
     case _: False{}
 
+# Drop one newest token-zero ready slot so CAP admission can record a new
+# identity without List.take eviction of a live nonzero retained token.
+def ready_drop_zero(xs: List<&2, MediaReady>) -> List<&2, MediaReady>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{MediaReady{t, u, token}, rest}:
+      match token:
+        case 0: rest
+        case _: MediaReady{t, u, token} <> ready_drop_zero(rest)
+
+# Prefer dropping a token-zero slot (same as reject_full.ready) before
+# List.take can FIFO-evict a live nonzero retained token.
+def complete.ready(+target: Target, +url: String, +token: U32, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
+  +base = ready_without(ready, target, url)
+  +fit = Bool.pick(List<&2, MediaReady>, Nat.is_lt(List.length(&2, MediaReady, base), CAP()),
+    base, ready_drop_zero(base))
+  List.take(&2, MediaReady, MediaReady{target, url, token} <> fit, CAP())
+
 def complete.on(hit: Bool, accepted: Bool, +state: State, token: U32) -> State:
   match hit:
     case False{}: state
@@ -555,7 +573,7 @@ def complete.on(hit: Bool, accepted: Bool, +state: State, token: U32) -> State:
       match state:
         case State{on, gen, ticket, Some{Request{target, url, _, _}}, pending, +ready, display}:
           State{on, gen, ticket, None{}, pending, Bool.pick(List<&2, MediaReady>, accepted,
-            List.take(&2, MediaReady, MediaReady{target, url, token} <> ready, CAP()), ready), display}
+            complete.ready(target, url, token, ready), ready), display}
         case _: state
 
 def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String, token: U32) -> State:
@@ -583,16 +601,6 @@ def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
     case State{_, _, _, +active, _, _, _}:
       reject.on(exact(active, gen, ticket, url), state)
     case _: state
-
-# Drop one newest token-zero ready slot so reject_full can record a failed
-# identity without List.take eviction of a live nonzero retained token.
-def ready_drop_zero(xs: List<&2, MediaReady>) -> List<&2, MediaReady>:
-  match xs:
-    case Nil{}: Nil{}
-    case Con{MediaReady{t, u, token}, rest}:
-      match token:
-        case 0: rest
-        case _: MediaReady{t, u, token} <> ready_drop_zero(rest)
 
 def reject_full.ready.insert(room: Bool, +target: Target, +url: String, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
   match room:

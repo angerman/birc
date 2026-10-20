@@ -319,6 +319,11 @@ def ph_cache_admit() -> IO(Unit):
   +declined_full : M.State = M.reject_full(room, client(), 1n, 100n, url(100n))
   # − speculative complete(..., 0) at CAP FIFO-drops a live owner Bend still has.
   +speculative : M.State = M.complete(hidden, client(), 1n, 100n, url(100n), 0)
+  # −/+ complete into CAP ready that mixes 7nz+1z: blind List.take dropped a
+  # nonzero; zero-prefer keeps all 7nz + the new token.
+  +mixed_z : List<&2, M.MediaReady> = M.MediaReady{M.Inline{0n}, url(0n), 0} <> ready(7n, 1n)
+  +mixed : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, mixed_z, M.Supported{}}
+  +mixed_done : M.State = M.complete(mixed, client(), 1n, 100n, url(100n), 100)
   do IO<Unit>:
     Unit <- E.must("prospective native set retains selected visible token", token_has(M.retained_tokens(protected), 8) && Bool.not(token_has(M.retained_tokens(protected), 1)))
     Unit <- E.must("control shows unchanged completion FIFO would evict visible token", token_has(M.retained_tokens(legacy), 1) && Bool.not(token_has(M.retained_tokens(legacy), 8)))
@@ -338,6 +343,10 @@ def ph_cache_admit() -> IO(Unit):
       && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
     Unit <- E.must("- speculative complete at CAP drops a live retained token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(speculative)), 7n)
       && Bool.not(token_has(M.retained_tokens(speculative), 8)))
+    Unit <- E.must("+ complete at CAP 7nz+1z keeps nonzero and new token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(mixed_done)), 8n)
+      && token_has(M.retained_tokens(mixed_done), 1) && token_has(M.retained_tokens(mixed_done), 7)
+      && token_has(M.retained_tokens(mixed_done), 100)
+      && Bool.not(token_has(M.retained_tokens(mixed_done), 0)))
     Unit <- E.must("+ admit_retained keeps every current owner at CAP", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)
       && token_has(M.admit_retained(hidden), 8) && Bool.not(M.admit_room(hidden)))
     # Headless Net.on_media gate (mirror wsnet): never speculative retain;
