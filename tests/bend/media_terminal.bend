@@ -86,11 +86,16 @@ def initial(supported: Bool, on: Bool) -> S.Session:
 def chunk(st: S.Session) -> S.Session & List<&2, String>:
   S.step_on_chunk(st, Fr.string_to_octets(":alice!u@h PRIVMSG me :before " ++ url() ++ " after\r\nPING :unchanged\r\n"))
 
+# Live admission schedules only via visible candidates (ws paint path).
+# Chunk maintain settles dead state; mirror media_history's observe step.
+def seen(st: S.Session) -> S.Session:
+  S.session_observe_visible_media(st)
+
 def automatic(supported: Bool, on: Bool) -> S.Session:
-  pair_state(chunk(initial(supported, on)))
+  seen(pair_state(chunk(initial(supported, on))))
 
 def repeated(st: S.Session) -> S.Session:
-  pair_state(chunk(entered(S.step_enter(entered(S.step_enter(st, "/images off")), "/images on"))))
+  seen(pair_state(chunk(entered(S.step_enter(entered(S.step_enter(st, "/images off")), "/images on")))))
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -115,7 +120,7 @@ def main() -> IO(Unit):
     +cached : M.State = M.State{True{}, 1n, 3n, Some{M.Request{M.Inline{1n}, url(), 1n, 1n}}, [M.Request{M.Inline{1n}, "https://offline.invalid/b.png", 1n, 2n}], [M.MediaReady{M.Inline{1n}, url(), 7}], M.Supported{}}
     Unit <- E.must("support removal clears preexisting pending and ready ownership", quiet(M.set_supported(cached, False{})) && has_active(M.set_supported(cached, False{})))
     +before : S.Session = initial(False{}, True{})
-    +after : S.Session = pair_state(chunk(before))
+    +after : S.Session = seen(pair_state(chunk(before)))
     +ordinary : S.Session = automatic(True{}, False{})
     Unit <- E.must_eq("one lazy fixed explanation", Nat.show(notice_count(after)), "1")
     Unit <- E.must("explanation is System with fresh ID and no author", notice_kind(lines(S.session_cl(after), "*log*")))
@@ -133,7 +138,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("accepted manual while automatic off explains once", Nat.show(notice_count(manual)), "1")
     +reconnected : S.Session = S.session_reconnected(entered(S.step_enter(after, "/reconnect")), "12:00:00")
     Unit <- E.must("same-endpoint reconnect retains unsupported report", M.reported(S.session_media(reconnected)) && Bool.not(M.supported(S.session_media(reconnected))))
-    Unit <- E.must_eq("post-reconnect image does not repeat explanation", Nat.show(notice_count(pair_state(chunk(reconnected)))), "1")
+    Unit <- E.must_eq("post-reconnect image does not repeat explanation", Nat.show(notice_count(seen(pair_state(chunk(reconnected))))), "1")
     +switched : S.Session = entered(S.step_enter(after, "/connect other.example 6697"))
     Unit <- E.must("endpoint change retains app-session report", M.reported(S.session_media(switched)))
     +loaded : S.Session = Pref.apply(Some{P.capture(S.session_cl(after), False{}, Nil{})}, after)
