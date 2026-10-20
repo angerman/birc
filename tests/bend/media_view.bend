@@ -79,6 +79,15 @@ def first_text(lines: List<&2, Cl.Line>) -> String:
     case Nil{}: ""
     case Con{Cl.Line{_, _, text, _, _}, _}: text
 
+# Live scheduling is visible-pane admission. PRIVMSG does not steal focus.
+def focus_idx.got(+st: Sess.Session, got: Maybe<&2, Nat>) -> Sess.Session:
+  match got:
+    case None{}: st
+    case Some{i}: Sess.session_set_client(st, Cl.set_active(Sess.session_cl(st), i))
+
+def seen(+st: Sess.Session) -> Sess.Session:
+  Sess.session_observe_visible_media(focus_idx.got(st, Cl.buf_find(Sess.session_cl(st), "alice")))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     +line : Cl.Line = first_line(Cl.active_buf_lines(client()))
@@ -96,17 +105,17 @@ def main() -> IO(Unit):
     Unit <- E.must("eviction anchor bounded", Nat.is_le(List.length(&2, V.BodyRow, V.body_of.buf_media(paused, 3n, 24, False{}, Nil{}, True{}, True{}, "s", M.empty())), 3n))
     +only : Cl.Buffer = Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", "alice: " ++ url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n})
     +inside : Cl.Buffer = V.scroll_buf_media(only, 2n, 12, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready())
-    Unit <- E.must_eq("paused inside image", ops_shape(V.body_ops(V.Rect{0, 0, 14, 4}, V.body_of.buf_media(inside, 2n, 12, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,12,6,2,2,7;")
-    Unit <- E.must_eq("resize preserves virtual image position", ops_shape(V.body_ops(V.Rect{0, 0, 42, 4}, V.body_of.buf_media(inside, 2n, 40, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,40,6,2,2,7;")
+    Unit <- E.must_eq("paused inside image", ops_shape(V.body_ops(V.Rect{0, 0, 14, 4}, V.body_of.buf_media(inside, 2n, 12, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,12,6,4,2,7;")
+    Unit <- E.must_eq("resize preserves virtual image position", ops_shape(V.body_ops(V.Rect{0, 0, 42, 4}, V.body_of.buf_media(inside, 2n, 40, False{}, Nil{}, True{}, True{}, "s", ready()))), "1,1,40,6,4,2,7;")
     +manual : Cl.Buffer = Cl.buf_indexed("*preview*", False{}, url(), Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
     +manual_media : M.State = M.State{False{}, 1n, 2n, None{}, Nil{}, [M.MediaReady{M.Manual{}, url(), 9}], M.Supported{}}
     +manual_paused : Cl.Buffer = V.scroll_buf_media(manual, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, manual_media)
-    Unit <- E.must_eq("manual preview uses expanded navigation rows", ops_shape(V.body_ops(V.Rect{0, 0, 22, 4}, V.body_of.buf_media(manual_paused, 2n, 20, False{}, Nil{}, True{}, True{}, "s", manual_media))), "1,1,20,6,2,2,9;")
+    Unit <- E.must_eq("manual preview uses expanded navigation rows", ops_shape(V.body_ops(V.Rect{0, 0, 22, 4}, V.body_of.buf_media(manual_paused, 2n, 20, False{}, Nil{}, True{}, True{}, "s", manual_media))), "1,1,20,6,4,2,9;")
     Unit <- E.must("split media painted", Bool.not(String.is_empty(vm_shape(V.view_draft.state_typing_media(client(), 24, 80, "", "online", Nil{}, Sp.On{Sp.SideBySide{}, "server", "server", 0}, ready())))))
     +live : Sess.Session = Sess.session_online(Sess.session0("me", "s", ""))
-    +fed : Sess.Session = chunk_st(Sess.step_on_chunk(live, Fr.string_to_octets(":alice!u@h PRIVMSG me :https://x.test/a.gif\r\n")))
+    +fed : Sess.Session = seen(chunk_st(Sess.step_on_chunk(live, Fr.string_to_octets(":alice!u@h PRIVMSG me :https://x.test/a.gif\r\n"))))
     Unit <- E.must_eq("new live message schedules", Nat.show(M.pending_count(Sess.session_media(fed))), "1")
-    Unit <- E.must_eq("demo never automatically fetches", Nat.show(M.pending_count(Sess.session_media(chunk_st(Sess.step_on_chunk(Sess.session_demo(Cl.init("me", "s"), ""), Fr.string_to_octets(":alice!u@h PRIVMSG me :https://x.test/a.gif\r\n")))))), "0")
+    Unit <- E.must_eq("demo never automatically fetches", Nat.show(M.pending_count(Sess.session_media(seen(chunk_st(Sess.step_on_chunk(Sess.session_demo(Cl.init("me", "s"), ""), Fr.string_to_octets(":alice!u@h PRIVMSG me :https://x.test/a.gif\r\n"))))))), "0")
     Unit <- E.must_eq("off clears queue", Nat.show(M.pending_count(Sess.session_media(st_of(Sess.step_enter(fed, "/images off"))))), "0")
     Unit <- E.must("on enables auto", M.enabled(Sess.session_media(st_of(Sess.step_enter(st_of(Sess.step_enter(fed, "/images off")), "/images on")))))
     Unit <- E.must_eq("endpoint change resets media", Nat.show(M.pending_count(Sess.session_media(st_of(Sess.step_enter(fed, "/connect other.example 6668"))))), "0")
