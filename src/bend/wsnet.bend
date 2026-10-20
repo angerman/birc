@@ -2559,9 +2559,12 @@ def ws_media_complete.gated(room: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.Ser
         pair : T.Ui & U32 <- T.Timui.media_add(ui, payload, ws_media.union_tokens(ws, id, st, generation, ticket, url))
         ws_media.added(pair, ws, ws, id, st, generation, ticket, url, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
+# Exact-worker policy decline (accept=false) must record a token-zero failed
+# identity via reject_full, same as full-budget gating. Plain M.reject only
+# clears active, so ready_has stays false and observe/take relaunches forever.
 def ws_media_complete(accepted: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match accepted:
-    case False{}: ws_media.rejected(ws, id, st, generation, ticket, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
+    case False{}: ws_media.rejected_full(ws, id, st, generation, ticket, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
     case True{}: ws_media_complete.gated(ws_media.union_room(ws, id, st, generation, ticket, url), ui, ws, id, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
 def ws_media.admitted(+loop: WsLoop, admitted: Bool, ui: T.Ui, +s: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):

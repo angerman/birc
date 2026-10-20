@@ -155,12 +155,18 @@ def run_boot(+port: U32, +drop: Bool, +tls: Bool) -> IO(Unit):
     Unit <- wait_eof(evt)
     IO.print("closed")
 
+def scope_line(enabled: Bool) -> String:
+  match enabled:
+    case True{}: "scope:1"
+    case False{}: "scope:0"
+
 def after_finished(ready: Act.DialReady, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match ready:
-    case Act.DialReady{(sock, _, _), _}:
+    case Act.DialReady{(sock, _, _), Act.AuthScope{_, _, enabled}}:
       do IO<Unit>:
         Unit <- Act.close_socket(sock)
         Unit <- Chan.close(Sess.NetCmd, cmd)
+        Unit <- IO.print(scope_line(enabled))
         Unit <- IO.print("held")
         IO.print("closed")
 
@@ -186,18 +192,29 @@ def after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit
         Chan.close(Sess.NetCmd, cmd)
     case _: IO.pure(Unit, Unit{})
 
-def run_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
+# Drop+Dial scope oracle starts SASL-enabled so the cancel path can prove
+# AuthScope follows dials (disabled when A≠B). Registration modes keep the
+# historical disabled scope so CAP END / no sasl REQ stay stable.
+def after_auth_scope.on(drop_scope: Bool, +port: U32) -> Act.AuthScope:
+  match drop_scope:
+    case True{}: Act.AuthScope{"127.0.0.1", port, True{}}
+    case False{}: Act.AuthScope{"127.0.0.1", 0, False{}}
+
+def after_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
+  after_auth_scope.on(String.eq(mode, "afterdialdrop"), port)
+
+def run_after(sock: Socket, +port: U32, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- after_queue(mode, target, cmd)
     Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, False{},
-      Act.AuthScope{"127.0.0.1", 0, False{}},
+      after_auth_scope(port, mode),
       Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
       pair => after_finished(pair, cmd),
       h2 => p2 => g2 => n2 => scope2 => carry2 => k2 =>
-        Act.dial_begin.go(8n, h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
+        Act.dial_begin.go(h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
 
 def writer_after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match mode:
@@ -213,60 +230,69 @@ def writer_after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> 
 
 def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match pair:
-    case (Act.Writer{sock, _, _, _, _, _, _}, _):
+    case (Act.Writer{sock, _, _, _, _, _, _}, Act.AuthScope{_, _, enabled}):
       do IO<Unit>:
         Unit <- Act.close_socket(sock)
         Unit <- Chan.close(Sess.NetCmd, cmd)
+        Unit <- IO.print(scope_line(enabled))
         Unit <- IO.print("held")
         IO.print("closed")
 
 # Exercise writer_admit's recursive winner, independently of dial_begin:
 # Dial B followed by Drop or cmd-close must cancel before dialing B at all.
-def run_writer_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
+def writer_auth_scope.on(drop_scope: Bool, +port: U32) -> Act.AuthScope:
+  match drop_scope:
+    case True{}: Act.AuthScope{"127.0.0.1", port, True{}}
+    case False{}: Act.AuthScope{"127.0.0.1", 0, False{}}
+
+def writer_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
+  writer_auth_scope.on(String.eq(mode, "writerdialdrop"), port)
+
+def run_writer_after(sock: Socket, +port: U32, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- writer_after_queue(mode, target, cmd)
     Act.writer_admit_conn(Done{Tr.Plain{sock}}, "probe", 1, False{}, evt, boot, cmd,
-      Act.AuthScope{"127.0.0.1", 0, False{}}, Out.budget_frames(1), 1,
+      writer_auth_scope(port, mode), Out.budget_frames(1), 1,
       Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
       pair => writer_after_finished(pair, cmd),
       h2 => p2 => g2 => n2 => scope2 => kept2 => closed2 => dropped2 => k2 =>
         Act.writer_admit_begin(h2, p2, False{}, n2, g2, evt, boot, cmd, scope2,
           Out.budget_frames(1), 1, kept2, closed2, dropped2, k2))
 
-def after_connected(r: Result<&1, &1, U32 & String, Socket>, target: U32, mode: String) -> IO(Unit):
+def after_connected(r: Result<&1, &1, U32 & String, Socket>, port: U32, target: U32, mode: String) -> IO(Unit):
   match r:
     case Fail{_}: IO.die(Unit, 1, "connect failed")
-    case Done{sock}: run_after(sock, target, mode)
+    case Done{sock}: run_after(sock, port, target, mode)
 
-def writer_after_connected(r: Result<&1, &1, U32 & String, Socket>, target: U32, mode: String) -> IO(Unit):
+def writer_after_connected(r: Result<&1, &1, U32 & String, Socket>, port: U32, target: U32, mode: String) -> IO(Unit):
   match r:
     case Fail{_}: IO.die(Unit, 1, "connect failed")
-    case Done{sock}: run_writer_after(sock, target, mode)
+    case Done{sock}: run_writer_after(sock, port, target, mode)
 
 def after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(Unit):
   match p:
     case None{}: IO.die(Unit, 1, "invalid port")
-    case Some{port}:
+    case Some{+port}:
       match target:
         case None{}: IO.die(Unit, 1, "invalid target port")
         case Some{other}:
           do IO<Unit>:
             r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
-            after_connected(r, other, mode)
+            after_connected(r, port, other, mode)
 
 def writer_after_port(p: Maybe<&2, U32>, target: Maybe<&2, U32>, +mode: String) -> IO(Unit):
   match p:
     case None{}: IO.die(Unit, 1, "invalid port")
-    case Some{port}:
+    case Some{+port}:
       match target:
         case None{}: IO.die(Unit, 1, "invalid target port")
         case Some{other}:
           do IO<Unit>:
             r : Result<&1, &1, U32 & String, Socket> <- Dns.TCP.connect_for("127.0.0.1", port, 1000)
-            writer_after_connected(r, other, mode)
+            writer_after_connected(r, port, other, mode)
 
 def auth_target(same: Bool, port: U32, other: U32) -> U32:
   match same:
@@ -294,6 +320,36 @@ def auth_port(p: Maybe<&2, U32>, other: Maybe<&2, U32>, same: Bool) -> IO(Unit):
       match other:
         case None{}: IO.die(Unit, 1, "invalid target port")
         case Some{target}: run_auth_scope(port, target, same)
+
+# ≥9 sequential Dial supersessions during held first-connect setup. Each
+# Dial targets the same port with a newer gen so the old 8n fuel ceiling
+# would arm_fail before the final endpoint could register.
+def dial_fuel_step(fuel: Nat, +port: U32, +gen: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match fuel:
+    case 0n: IO.pure(Unit, Unit{})
+    case 1n+p:
+      do IO<Unit>:
+        Unit <- IO.sleep(80)
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", port, gen, "probe"})
+        Unit <- IO.print("held")
+        dial_fuel_step(p, port, U32.add(gen, 1), cmd)
+
+def run_dial_fuel(+port: U32) -> IO(Unit):
+  do IO<Unit>:
+    +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
+    +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
+    Unit <- IO.spawn(Unit, Act.actor_boot("127.0.0.1", port, "probe", 1, evt, cmd, boot, True{}, 0))
+    Unit <- dial_fuel_step(9n, port, 2, cmd)
+    Unit <- IO.sleep(700)
+    Unit <- Chan.close(Sess.NetCmd, cmd)
+    Unit <- wait_eof(evt)
+    IO.print("closed")
+
+def dial_fuel_port(p: Maybe<&2, U32>) -> IO(Unit):
+  match p:
+    case None{}: IO.die(Unit, 1, "invalid port")
+    case Some{port}: run_dial_fuel(port)
 
 def setup_port(p: Maybe<&2, U32>, drop: Bool, tls: Bool) -> IO(Unit):
   match p:
@@ -352,6 +408,8 @@ def args(xs: List<&1, String>) -> IO(Unit):
       auth_port(U32.read(p), U32.read(n), False{})
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthsame", Nil{}}}}}}:
       auth_port(U32.read(p), U32.read(n), True{})
+    case Con{_, Con{p, Con{_, Con{_, Con{"dialfuel", Nil{}}}}}}:
+      dial_fuel_port(U32.read(p))
     case Con{_, Con{p, Con{f, Con{n, Con{+mode, Nil{}}}}}}: parsed(U32.read(p), U32.read(f), U32.read(n), mode)
     case _: IO.die(Unit, 1, "expected port frames count mode")
 

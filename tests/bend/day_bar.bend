@@ -172,7 +172,7 @@ def main() -> IO(Unit):
     Unit <- E.must("paint inserts the next local day bar after midnight", String.contains(paint_buf(tuesday), "BAR @2026-10-20 (Tuesday)"))
     Unit <- E.must("time gutter stays HMS", String.contains(paint_buf(tuesday), "ROW 00:01:00"))
     Unit <- E.must("foreign pending sends keep the live scroll spine", V.spine_live_pends("server", other_pend <> Nil{}))
-    Unit <- E.must("local pending sends leave the live scroll spine", Bool.not(V.spine_live_pends("server", here_pend <> Nil{})))
+    Unit <- E.must("local pending sends keep the live scroll spine", V.spine_live_pends("server", here_pend <> Nil{}))
     Unit <- E.must_eq("server-time keeps the receipt local day", Cl.stamp_combine("2026-10-19 (Monday)|23:00:00", "00:01:00"), "2026-10-19 (Monday)|00:01:00")
     Unit <- E.must_eq("server-time PRIVMSG stores the combined stamp", last_ts(stamped), "2026-10-19 (Monday)|00:01:00")
     Unit <- E.must_eq("reconnect HMS does not reprint the same day bar", bars_buf(after_recon), "BAR @2026-10-19 (Monday)|")

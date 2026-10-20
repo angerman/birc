@@ -1757,18 +1757,13 @@ def paint_bottom_use(got: Newest, +lines: List<&2, Cl.Line>, +name: String, +hei
       +rows = paint_recent_go(rev, name, w, show_ts, mutes, joins, nicks, server, boxed, height, Nil{})
       paint_bottom_rest(bottom_short(truncated, rows, height), rows, lines, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
-# Pending sends and the preview injection are not on the stored spine.
-# Only pends for this buffer force the full display rebuild; other tabs
-# keep the newest-first scroll walk.
+# Only *preview* leaves the live scroll spine. Local pending sends stay on
+# the history newest walk and overlay at the live bottom via paint_bottom.edge.
 def spine_live(+name: String, +boxed: List<&2, PaintOpts>) -> Bool:
-  Bool.and(
-    List.is_empty(&2, Cl.Line, pending_for_buf(opt_pends(boxed), name)),
-    Bool.not(String.eq(name, "*preview*")))
+  Bool.not(String.eq(name, "*preview*"))
 
 def spine_live_pends(+name: String, +pends: List<&2, Cl.PendSend>) -> Bool:
-  Bool.and(
-    List.is_empty(&2, Cl.Line, pending_for_buf(pends, name)),
-    Bool.not(String.eq(name, "*preview*")))
+  Bool.not(String.eq(name, "*preview*"))
 
 def paint_source(live: Bool, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +boxed: List<&2, PaintOpts>) -> List<&2, Cl.Line>:
   match live:
@@ -2062,10 +2057,10 @@ def paint_bottom.edge(+newest: List<&2, Cl.Line>, +name: String, +topic: String,
   +rows = paint_recent_go(List.append(&2, Cl.Line, rev_new(pending_for_buf(opt_pends(boxed), name), Nil{}), newest), name, w, show_ts, mutes, joins, nicks, server, boxed, height, Nil{})
   paint_preview_row(Bool.and(Nat.is_lt(List.length(&2, BodyRow, rows), height), String.eq(name, "*preview*")), rows, topic, name, w, show_ts, mutes, joins, nicks, server, boxed)
 
-def paint_bottom.live(live: Bool, +newest: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
-  match live:
-    case True{}: paint_recent_go(newest, name, w, show_ts, mutes, joins, nicks, server, boxed, height, Nil{})
-    case False{}: paint_bottom.edge(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+# Live and non-live bottoms both overlay local pends via edge; spine_live
+# already keeps history ScrollAt off the pending list.
+def paint_bottom.live(+newest: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+  paint_bottom.edge(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
 def paint_bottom.away(live: Bool, +newest: List<&2, Cl.Line>, +lines: List<&2, Cl.Line>, +name: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match live:
@@ -2077,7 +2072,7 @@ def paint_bottom.away(live: Bool, +newest: List<&2, Cl.Line>, +lines: List<&2, C
 
 def paint_bottom(bottom: Bool, live: Bool, +newest: List<&2, Cl.Line>, +lines: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match bottom:
-    case True{}: paint_bottom.live(live, newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case True{}: paint_bottom.live(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
     case False{}: paint_bottom.away(live, newest, lines, name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
 
 def paint_body_of.scrolled(live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
@@ -2090,7 +2085,7 @@ def paint_body_of.bottom(preview: Bool, +live: Bool, +newest: List<&2, Cl.Line>,
     case True{}:
       +shown = paint_display_lines(name, topic, raw, boxed)
       paint_bottom_use(newest_lines(shown, height), shown, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
-    case False{}: paint_bottom.live(live, newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: paint_bottom.live(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
 def paint_body_of.at(bottom: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match bottom:

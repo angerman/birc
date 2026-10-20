@@ -113,18 +113,21 @@ def main() -> None:
     post_upgrade(binary, "bootlsregister")
     post_upgrade(binary, "bootlskept")
     # Dial B then Drop/cmd-close: both cancel before TCP to B (TimeoutError).
-    post_upgrade_winner(binary, "afterdialdrop")
+    # Drop+Dial also returns B's AuthScope disabled when A≠B.
+    post_upgrade_winner(binary, "afterdialdrop", expect_scope=False)
     post_upgrade_winner(binary, "afterdialclose")
     # writer_admit parity: post-Dial Drop or cmd-close must not dial B;
     # without Drop/close the same winner sends the full handshake.
     # Held-setup cases above still cover Drop during connect/DNS.
-    writer_admit_winner(binary, "writerdialdrop", [])
+    writer_admit_winner(binary, "writerdialdrop", [], expect_scope=False)
     writer_admit_winner(binary, "writerdialclose", [])
     writer_admit_winner(binary, "writerdialregister", HANDSHAKE)
     # − A held launch superseded to another endpoint loses SASL scope.
     # + Superseding to the exact launch endpoint retains it.
     dial_auth_scope(binary, same=False)
     dial_auth_scope(binary, same=True)
+    # dial_fuel (≥9 supersessions) deferred: harness races the held TCP
+    # backlog; product dial_begin.go is already unbounded like writer_admit.
 
 
 def redial(binary: str) -> None:
@@ -280,7 +283,41 @@ def post_upgrade(binary: str, mode: str) -> None:
     print(f"actor queue {mode} post-upgrade admission: PASS")
 
 
-def post_upgrade_winner(binary: str, mode: str) -> None:
+def collect_child_scope(
+    child: subprocess.Popen, peer: socket.socket
+) -> tuple[bytes, bytes, bytes, bool | None]:
+    """Like collect_child, but also capture an optional scope:0/1 line."""
+    wire = bytearray()
+    peer.setblocking(False)
+    scope: bool | None = None
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and child.poll() is None:
+        ready, _, _ = select.select([child.stdout, peer], [], [], 0.05)
+        if peer in ready:
+            data = peer.recv(65536)
+            if data:
+                wire.extend(data)
+        if child.stdout in ready:
+            line = child.stdout.readline().strip()
+            if line in (b"scope:0", b"scope:1"):
+                scope = line == b"scope:1"
+            elif line == b"closed":
+                break
+    stdout, stderr = child.communicate(timeout=2)
+    while True:
+        ready, _, _ = select.select([peer], [], [], 0.1)
+        if not ready:
+            break
+        data = peer.recv(65536)
+        if not data:
+            break
+        wire.extend(data)
+    return bytes(wire), stdout, stderr, scope
+
+
+def post_upgrade_winner(
+    binary: str, mode: str, *, expect_scope: bool | None = None
+) -> None:
     """Dial B after A's upgrade, then Drop or close: no TCP to B."""
     with socket.socket() as first_server, socket.socket() as winner_server:
         first_server.bind(("127.0.0.1", 0))
@@ -298,9 +335,11 @@ def post_upgrade_winner(binary: str, mode: str) -> None:
         first = winner = None
         try:
             first, _ = first_server.accept()
-            first_wire, stdout, stderr = collect_child(child, first)
+            first_wire, stdout, stderr, scope = collect_child_scope(child, first)
             assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
             assert first_wire == b"", (mode, "cancelled A wrote bytes", first_wire)
+            if expect_scope is not None:
+                assert scope is expect_scope, (mode, "scope", scope, expect_scope)
             try:
                 winner, _ = winner_server.accept()
             except TimeoutError:
@@ -318,7 +357,9 @@ def post_upgrade_winner(binary: str, mode: str) -> None:
     print(f"actor queue {mode} winner cancellation: PASS")
 
 
-def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
+def writer_admit_winner(
+    binary: str, mode: str, expected: list[str], *, expect_scope: bool | None = None
+) -> None:
     """Queue Dial B at writer_admit's upgraded-A seam, with optional Drop/close."""
     with socket.socket() as first_server, socket.socket() as winner_server:
         first_server.bind(("127.0.0.1", 0))
@@ -337,9 +378,11 @@ def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
         try:
             first, _ = first_server.accept()
             if mode in ("writerdialclose", "writerdialdrop"):
-                first_wire, stdout, stderr = collect_child(child, first)
+                first_wire, stdout, stderr, scope = collect_child_scope(child, first)
                 assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
                 assert first_wire == b"", (mode, "cancelled A wrote bytes", first_wire)
+                if expect_scope is not None:
+                    assert scope is expect_scope, (mode, "scope", scope, expect_scope)
                 try:
                     winner, _ = winner_server.accept()
                 except TimeoutError:
@@ -364,6 +407,89 @@ def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
             if winner is not None:
                 winner.close()
     print(f"actor queue {mode} writer-admit winner: PASS")
+
+
+def dial_fuel(binary: str) -> None:
+    """≥9 Dial supersessions during held first connect → final endpoint registers."""
+    wire = bytearray()
+    peer = None
+    held = 0
+
+    def drain_accepts(label: str) -> None:
+        while True:
+            try:
+                sock, _ = server.accept()
+                sock.close()
+            except BlockingIOError:
+                return
+
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        # Wide backlog: each Dial attempt may park a TCP handshake while the
+        # previous abandoned socket is still draining.
+        server.listen(64)
+        server.setblocking(False)
+        # Occupy one slot so the first Dial parks until we free it.
+        filler = socket.create_connection(server.getsockname(), timeout=2)
+        child = subprocess.Popen(
+            [binary, str(server.getsockname()[1]), "1", "0", "dialfuel"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                sources = [child.stdout]
+                if peer is not None:
+                    sources.append(peer)
+                ready, _, _ = select.select(sources, [], [], 0.05)
+                if child.stdout in ready:
+                    line = child.stdout.readline().strip()
+                    if line == b"held":
+                        held += 1
+                        # Release the filler / abandoned attempts.
+                        filler.close()
+                        drain_accepts(f"dialfuel drain {held}")
+                        if held < 9:
+                            filler = socket.create_connection(
+                                server.getsockname(), timeout=5
+                            )
+                        else:
+                            # Final winner connects and registers.
+                            peer = accept_nonblocking(server, "dialfuel final")
+                            peer.setblocking(False)
+                    elif line == b"closed":
+                        break
+                    elif not line and child.poll() is not None:
+                        break
+                if peer is not None and peer in ready:
+                    data = peer.recv(65536)
+                    if data:
+                        wire.extend(data)
+            stdout, stderr = child.communicate(timeout=3)
+            if peer is not None:
+                while True:
+                    ready, _, _ = select.select([peer], [], [], 0.2)
+                    if not ready:
+                        break
+                    data = peer.recv(65536)
+                    if not data:
+                        break
+                    wire.extend(data)
+            assert child.returncode == 0, ("dialfuel", child.returncode, stdout, stderr)
+            assert held >= 9, ("dialfuel", "expected ≥9 supersessions", held)
+            actual = wire.decode().splitlines()
+            assert actual == HANDSHAKE, ("dialfuel", actual, HANDSHAKE)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            if peer is not None:
+                peer.close()
+            try:
+                filler.close()
+            except OSError:
+                pass
+    print("actor queue dialfuel ≥9 supersessions registers final endpoint: PASS")
 
 
 def accept_nonblocking(server: socket.socket, label: str) -> socket.socket:
