@@ -307,6 +307,14 @@ def arm_ready(live: Bool, +boot: Chan(Boot)) -> IO(Unit):
         _ : Result<&1, &1, Boot, Unit> <- Chan.send(Boot, boot, Booted{})
         return Unit{}
 
+# Setup cancel unparks as Down — not Booted (headless success).
+def arm_cancel(live: Bool, +boot: Chan(Boot)) -> IO(Unit):
+  match live:
+    case False{}:
+      IO.pure(Unit, Unit{})
+    case True{}:
+      boot_down(boot, "connect cancelled")
+
 type AuthScope is Data:
   AuthScope{host: String, port: U32, enabled: Bool}
 
@@ -595,11 +603,13 @@ def writer_pong(same: Bool, st: Writer, +pongs: List<&2, String>, +txn: U32, +ev
 # third Dial queued during a held winner setup abandons the winner before it
 # registers (last gen wins). A Drop kept with no newer Dial also abandons
 # before register (zero peer bytes); post-winner Drop is honored the same
-# way after adopt (closes, later Cont unsent). The drain ends at a self-sent
-# Pump{setup_gen} sentinel (the writer's own pump idiom; live Pumps always
-# carry an adopted gen, so only the sentinel matches) or at cmd close
-# (shutdown still finishes) or at fuel exhaustion (falls back to the
-# sequential path). No Socket/Conn crosses a channel; the only spawn is the
+# way after adopt (closes, later Cont unsent). The drain ends only at a
+# self-sent Pump{setup_gen} sentinel (the writer's own pump idiom; live
+# Pumps always carry an adopted gen, so only the sentinel matches) or at
+# cmd close (shutdown still finishes). Each chunk is fuel-bounded (65);
+# exhaustion re-enters with a fresh chunk so a truncated AdmitAcc never
+# reaches register while Drop/Dial remain on cmd. Zero remaining rounds
+# fail closed. No Socket/Conn crosses a channel; the only spawn is the
 # one-shot sentinel send. Pure steps are JS-pinned.
 type QueuedDial is Data:
   QueuedDial{host: String, port: U32, gen: U32, nick: String}
@@ -652,35 +662,67 @@ def admit_consider(c: Sess.NetCmd, +setup_gen: U32, +acc: AdmitAcc) -> AdmitAcc 
     case Sess.Search{_, _, _, _, _, _, _, _, _}:
       (acc, False{})
 
-def writer_drain_next(stop: Bool, +acc: AdmitAcc, k: AdmitAcc -> IO(AdmitAcc)) -> IO(AdmitAcc):
+# Chunk result: (acc, True) stopped at Pump/cmd-close; (acc, False) means
+# fuel hit 0n with cmds still pending — caller must re-enter (never register).
+def writer_drain_next(stop: Bool, +acc: AdmitAcc, k: AdmitAcc -> IO(AdmitAcc & Bool)) -> IO(AdmitAcc & Bool):
   match stop:
     case True{}:
-      IO.pure(AdmitAcc, acc)
+      IO.pure(AdmitAcc & Bool, (acc, True{}))
     case False{}:
       k(acc)
 
-def writer_drain_decided(pair: AdmitAcc & Bool, k: AdmitAcc -> IO(AdmitAcc)) -> IO(AdmitAcc):
+def writer_drain_decided(pair: AdmitAcc & Bool, k: AdmitAcc -> IO(AdmitAcc & Bool)) -> IO(AdmitAcc & Bool):
   match pair:
     case (acc, stop):
       writer_drain_next(stop, acc, k)
 
-def writer_drain_got(got: Maybe<&1, Sess.NetCmd>, +setup_gen: U32, +acc: AdmitAcc, k: AdmitAcc -> IO(AdmitAcc)) -> IO(AdmitAcc):
+def writer_drain_got(got: Maybe<&1, Sess.NetCmd>, +setup_gen: U32, +acc: AdmitAcc, k: AdmitAcc -> IO(AdmitAcc & Bool)) -> IO(AdmitAcc & Bool):
   match got:
     case None{}:
       match acc:
         case AdmitAcc{+latest, +dials, +kept, _, +dropped}:
-          IO.pure(AdmitAcc, AdmitAcc{latest, dials, kept, True{}, dropped})
+          IO.pure(AdmitAcc & Bool, (AdmitAcc{latest, dials, kept, True{}, dropped}, True{}))
     case Some{c}:
       writer_drain_decided(admit_consider(c, setup_gen, acc), k)
 
-def writer_drain(fuel: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: AdmitAcc) -> IO(AdmitAcc):
+def writer_drain_chunk(fuel: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: AdmitAcc) -> IO(AdmitAcc & Bool):
   match fuel:
     case 0n:
-      IO.pure(AdmitAcc, acc)
+      IO.pure(AdmitAcc & Bool, (acc, False{}))
+    case 1n+p:
+      do IO<AdmitAcc & Bool>:
+        got : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
+        writer_drain_got(got, setup_gen, acc, next => writer_drain_chunk(p, cmd, setup_gen, next))
+
+# Fail closed: truncated accumulator must not reach register.
+def writer_drain_fail_closed(+acc: AdmitAcc) -> AdmitAcc:
+  match acc:
+    case AdmitAcc{+latest, +dials, +kept, _, +dropped}:
+      AdmitAcc{latest, dials, kept, True{}, dropped}
+
+# Pair param (not a do-binder): True = Pump/cmd-close; False = re-enter via k.
+def writer_drain_finish(pair: AdmitAcc & Bool, k: AdmitAcc -> IO(AdmitAcc)) -> IO(AdmitAcc):
+  match pair:
+    case (next, True{}):
+      IO.pure(AdmitAcc, next)
+    case (next, False{}):
+      k(next)
+
+# Drain cmd to Pump{setup_gen} or cmd-close. Chunk fuel is 65; each
+# exhaustion consumes one round and re-enters. Zero rounds fail closed
+# (never register on a fuel-truncated AdmitAcc). 32 rounds × 65 ≈ 2080
+# cmds — enough for Cont storms without unbounded @unsafe recursion.
+def writer_drain_rounds(rounds: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: AdmitAcc) -> IO(AdmitAcc):
+  match rounds:
+    case 0n:
+      IO.pure(AdmitAcc, writer_drain_fail_closed(acc))
     case 1n+p:
       do IO<AdmitAcc>:
-        got : Maybe<&1, Sess.NetCmd> <- Chan.recv(Sess.NetCmd, cmd)
-        writer_drain_got(got, setup_gen, acc, next => writer_drain(p, cmd, setup_gen, next))
+        pair : AdmitAcc & Bool <- writer_drain_chunk(65n, cmd, setup_gen, acc)
+        writer_drain_finish(pair, next => writer_drain_rounds(p, cmd, setup_gen, next))
+
+def writer_drain(+cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: AdmitAcc) -> IO(AdmitAcc):
+  writer_drain_rounds(32n, cmd, setup_gen, acc)
 
 def writer_admit_scope(fuel: Nat, +dials: List<&2, QueuedDial>, +scope: AuthScope) -> AuthScope:
   match fuel:
@@ -891,13 +933,13 @@ def writer_peek(+fuel: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: Admi
 def dial_cancel(live: Bool, +boot: Chan(Boot), sock: Socket, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(sock)
-    Unit <- arm_ready(live, boot)
+    Unit <- arm_cancel(live, boot)
     k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
 
 def dial_conn_cancel(live: Bool, +boot: Chan(Boot), sock: Tr.Conn, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Tr.close(sock)
-    Unit <- arm_ready(live, boot)
+    Unit <- arm_cancel(live, boot)
     k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
 
 def after_conn_open(closed: Bool, dropped: Bool, +kept: List<&2, Sess.NetCmd>, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
@@ -951,7 +993,7 @@ def after_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String, +gen: 
     case Done{sock}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, pump_send(cmd, gen))
-        acc : AdmitAcc <- writer_drain(65n, cmd, gen, acc0)
+        acc : AdmitAcc <- writer_drain(cmd, gen, acc0)
         after_conn_decide(acc, sock, nick, gen, evt, boot, cmd, live, scope, k, retry)
 
 def dial_after_open(closed: Bool, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, +acc0: AdmitAcc, k: DialReady -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> DialCarry -> (DialReady -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
@@ -1032,7 +1074,7 @@ def writer_admit_conn(r: Result<&1, &1, (U32 & String), Tr.Conn>, +nick: String,
     case Done{sock}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, pump_send(cmd, gen))
-        acc : AdmitAcc <- writer_drain(65n, cmd, gen, acc0)
+        acc : AdmitAcc <- writer_drain(cmd, gen, acc0)
         writer_admit_decide(acc, sock, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, k, retry)
 
 def writer_admit_raw_drop(+kept: List<&2, Sess.NetCmd>, +closed: Bool, sock: Socket, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):

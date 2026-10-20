@@ -2115,6 +2115,19 @@ def boot_headless.fail(+cmd: Chan(Sess.NetCmd), +msg: String) -> IO(Unit):
     Unit <- Chan.close(Sess.NetCmd, cmd)
     T.Sys.exit_fail(msg)
 
+# Pure −/+: setup cancel posts Down; only Booted (arm_ok / real registration)
+# allows headless start. Reader Up follows Booted on the success path.
+def boot_headless.may_await(g: Maybe<&1, Act.Boot>) -> Bool:
+  match g:
+    case Some{Act.Booted{}}: True{}
+    case _: False{}
+
+def boot_headless.is_up(g: Maybe<&1, Sess.UiMsg>) -> Bool:
+  match g:
+    case Some{Sess.FromNet{_, Sess.Up{}}}: True{}
+    case _: False{}
+
+# Headless: Down/absent fail closed; Booted means registration armed (not cancel).
 def boot_headless(g: Maybe<&1, Act.Boot>, +cmd: Chan(Sess.NetCmd), start: Unit -> IO(Unit)) -> IO(Unit):
   match g:
     case None{}:

@@ -115,6 +115,10 @@ def main() -> None:
     # − >SEND_CAP kept Cont under frames=1 sends at most 8 wire lines.
     # + count=0 bootlskept still delivers the single PING after handshake.
     post_upgrade(binary, "bootlskept", count=9, want_kept=8)
+    # − 65 Cont pad exhausts one drain chunk before Drop: must cancel (0 bytes).
+    # + same pad without Drop: re-enter to Pump, register, SEND_CAP pads.
+    post_upgrade(binary, "afterfueldrop")
+    post_upgrade(binary, "afterfuelreg")
     # Dial B then Drop/cmd-close: both cancel before TCP to B (TimeoutError).
     # Drop+Dial also returns B's AuthScope disabled when A≠B.
     post_upgrade_winner(binary, "afterdialdrop", expect_scope=False)
@@ -125,6 +129,9 @@ def main() -> None:
     writer_admit_winner(binary, "writerdialdrop", [], expect_scope=False)
     writer_admit_winner(binary, "writerdialclose", [])
     writer_admit_winner(binary, "writerdialregister", HANDSHAKE)
+    # writer_admit_conn fuel-chunk parity with after_conn (−/+ above).
+    writer_admit_direct(binary, "writerfueldrop", [])
+    writer_admit_direct(binary, "writerfuelreg", HANDSHAKE + ["NOTICE #t :pad"] * 8)
     # − A held launch superseded to another endpoint loses SASL scope.
     # + Superseding to the exact launch endpoint retains it.
     dial_auth_scope(binary, same=False)
@@ -288,6 +295,8 @@ def post_upgrade(
                 want = {
                     "bootlsregister": HANDSHAKE,
                     "bootlskept": HANDSHAKE + ["PING :queued"],
+                    "afterfuelreg": HANDSHAKE + ["NOTICE #t :pad"] * 8,
+                    "afterfueldrop": [],
                 }.get(mode, [])
             assert actual == want, (mode, count, actual, want)
         finally:
@@ -370,6 +379,29 @@ def post_upgrade_winner(
             if winner is not None:
                 winner.close()
     print(f"actor queue {mode} winner cancellation: PASS")
+
+
+def writer_admit_direct(binary: str, mode: str, expected: list[str]) -> None:
+    """Drive writer_admit_conn on an owned plain sock (no Dial-B winner)."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        child = subprocess.Popen(
+            [binary, str(server.getsockname()[1]), "1", "0", mode],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            peer, _ = server.accept()
+            with peer:
+                wire, stdout, stderr = collect_child(child, peer)
+            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+            actual = wire.decode().splitlines()
+            assert actual == expected, (mode, actual, expected)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    print(f"actor queue {mode} writer-admit direct: PASS")
 
 
 def writer_admit_winner(

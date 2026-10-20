@@ -1,4 +1,6 @@
 # An initial failure must not kill the actor with a newer Dial queued.
+# (-) Down / absent reject headless may_await; setup cancel posts Down.
+# (+) Booted may_await; successful initial boot still posts Booted.
 import Base
 import ./expect.bend as E
 import ../../src/bend/actor.bend as Act
@@ -8,6 +10,22 @@ def boot_expected(g: Maybe<&1, Act.Boot>, +failed: Bool) -> Bool:
   match g:
     case Some{Act.Down{_}}: failed
     case Some{Act.Booted{}}: Bool.not(failed)
+    case _: False{}
+
+def boot_cancel_expected(g: Maybe<&1, Act.Boot>, +dropped: Bool) -> Bool:
+  match g:
+    case Some{Act.Down{_}}: dropped
+    case Some{Act.Booted{}}: Bool.not(dropped)
+    case _: False{}
+
+def may_await(g: Maybe<&1, Act.Boot>) -> Bool:
+  match g:
+    case Some{Act.Booted{}}: True{}
+    case _: False{}
+
+def is_up(g: Maybe<&1, Sess.UiMsg>) -> Bool:
+  match g:
+    case Some{Sess.FromNet{_, Sess.Up{}}}: True{}
     case _: False{}
 
 def arrived(g: Maybe<&1, Sess.UiMsg>, +up: Bool) -> Bool:
@@ -29,6 +47,19 @@ def await_event(fuel: Nat, +evt: Chan(Sess.UiMsg), +up: Bool) -> IO(Unit):
         g : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
         await_event.next(arrived(g, up), await_event(p, evt, up))
 
+def headless_gate() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must("Down rejects provisional await", Bool.not(may_await(Some{Act.Down{"x"}})))
+    Unit <- E.must("absent rejects provisional await", Bool.not(may_await(None{})))
+    Unit <- E.must("cancel outcome is Down", boot_cancel_expected(Some{Act.Down{"connect cancelled"}}, True{}))
+    Unit <- E.must("Booted is not a cancel outcome", Bool.not(boot_cancel_expected(Some{Act.Booted{}}, True{})))
+    Unit <- E.must("Booted may await", may_await(Some{Act.Booted{}}))
+    Unit <- E.must("ready outcome is Booted", boot_cancel_expected(Some{Act.Booted{}}, False{}))
+    Unit <- E.must("Up event is registration success", is_up(Some{Sess.FromNet{1, Sess.Up{}}}))
+    Unit <- E.must("Eof is not Up", Bool.not(is_up(Some{Sess.FromNet{1, Sess.Eof{}}})))
+    return Unit{}
+
+# Await initial boot before Dial B so setup-cancel Down cannot race registration.
 def run(a: U32, b: U32, +failed: Bool) -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("same initial failure", Sess.event_current(Sess.FromNet{1, Sess.InitialFail{"initial"}}, 1))
@@ -39,10 +70,10 @@ def run(a: U32, b: U32, +failed: Bool) -> IO(Unit):
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 1)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- IO.spawn(Unit, Act.actor_boot("127.0.0.1", a, "probe", 1, evt, cmd, boot, False{}, 0))
-    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", b, 2, "next"})
     first : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
     Unit <- E.must("initial outcome", boot_expected(first, failed))
     Unit <- Chan.close(Act.Boot, boot)
+    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", b, 2, "next"})
     Unit <- await_event(16n, evt, True{})
     Unit <- Chan.close(Sess.NetCmd, cmd)
     Unit <- await_event(16n, evt, False{})
@@ -64,5 +95,6 @@ def args(xs: List<&1, String>) -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
+    Unit <- headless_gate()
     xs : List<&1, String> <- IO.args()
     args(xs)

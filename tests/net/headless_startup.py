@@ -3,8 +3,10 @@
 
 (-) UI-first startup painted EOF before the actor's boot result and exited
 successfully on a refused connection; even healthy accept could time out.
+Setup cancel posts Down; headless fails closed and Booted still awaits Up —
+see startup_actor headless_gate and actor_queue bootdrop.
 (+) Refusal fails closed. Eight healthy runs deliver complete registration
-before bounded headless completion. Existing linger.py stays unchanged.
+(Booted+Up) before bounded headless completion. Existing linger.py stays unchanged.
 """
 from __future__ import annotations
 

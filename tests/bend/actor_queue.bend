@@ -191,6 +191,27 @@ def after_kept.go(ping: Bool, +count: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
 def after_kept(+count: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   after_kept.go(U32.is_zero(count), count, cmd)
 
+# Prefill one Cont per drain-chunk unit so a single 65n chunk expires before
+# Pump. (−) afterfueldrop / writerfueldrop: Drop past the bound must cancel
+# with zero peer bytes. (+) afterfuelreg / writerfuelreg: same pad, no Drop,
+# must still register (re-enter) and SEND_CAP-limit kept pads.
+def fuel_pad(fuel: Nat, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match fuel:
+    case 0n: IO.pure(Unit, Unit{})
+    case 1n+p:
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :pad" <> Nil{}})
+        fuel_pad(p, cmd)
+
+def fuel_pad_drop(drop: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match drop:
+    case False{}: fuel_pad(65n, cmd)
+    case True{}:
+      do IO<Unit>:
+        Unit <- fuel_pad(65n, cmd)
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        return Unit{}
+
 def after_queue(+mode: String, +target: U32, +count: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match mode:
     case "bootlsdrop":
@@ -199,6 +220,8 @@ def after_queue(+mode: String, +target: U32, +count: U32, +cmd: Chan(Sess.NetCmd
         return Unit{}
     case "bootlsclose": Chan.close(Sess.NetCmd, cmd)
     case "bootlskept": after_kept(count, cmd)
+    case "afterfueldrop": fuel_pad_drop(True{}, cmd)
+    case "afterfuelreg": fuel_pad_drop(False{}, cmd)
     case "afterdialdrop":
       do IO<Unit>:
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
@@ -224,7 +247,7 @@ def after_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
 def run_after(sock: Socket, +port: U32, +target: U32, +frames: U32, +count: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
-    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 128)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- after_queue(mode, target, count, cmd)
     Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, False{},
@@ -236,6 +259,8 @@ def run_after(sock: Socket, +port: U32, +target: U32, +frames: U32, +count: U32,
 
 def writer_after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match mode:
+    case "writerfueldrop": fuel_pad_drop(True{}, cmd)
+    case "writerfuelreg": fuel_pad_drop(False{}, cmd)
     case "writerdialclose":
       do IO<Unit>:
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
@@ -269,7 +294,7 @@ def writer_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
 def run_writer_after(sock: Socket, +port: U32, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
-    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 4)
+    +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 128)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- writer_after_queue(mode, target, cmd)
     Act.writer_admit_conn(Done{Tr.Plain{sock}}, "probe", 1, False{}, evt, boot, cmd,
@@ -432,12 +457,20 @@ def args(xs: List<&1, String>) -> IO(Unit):
       after_port(U32.read(p), U32.read(f), U32.read(n), "afterdialdrop")
     case Con{_, Con{p, Con{f, Con{n, Con{"afterdialclose", Nil{}}}}}}:
       after_port(U32.read(p), U32.read(f), U32.read(n), "afterdialclose")
+    case Con{_, Con{p, Con{f, Con{n, Con{"afterfueldrop", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(f), U32.read(n), "afterfueldrop")
+    case Con{_, Con{p, Con{f, Con{n, Con{"afterfuelreg", Nil{}}}}}}:
+      after_port(U32.read(p), U32.read(f), U32.read(n), "afterfuelreg")
     case Con{_, Con{p, Con{_, Con{n, Con{"writerdialdrop", Nil{}}}}}}:
       writer_after_port(U32.read(p), U32.read(n), "writerdialdrop")
     case Con{_, Con{p, Con{_, Con{n, Con{"writerdialclose", Nil{}}}}}}:
       writer_after_port(U32.read(p), U32.read(n), "writerdialclose")
     case Con{_, Con{p, Con{_, Con{n, Con{"writerdialregister", Nil{}}}}}}:
       writer_after_port(U32.read(p), U32.read(n), "writerdialregister")
+    case Con{_, Con{p, Con{_, Con{n, Con{"writerfueldrop", Nil{}}}}}}:
+      writer_after_port(U32.read(p), U32.read(n), "writerfueldrop")
+    case Con{_, Con{p, Con{_, Con{n, Con{"writerfuelreg", Nil{}}}}}}:
+      writer_after_port(U32.read(p), U32.read(n), "writerfuelreg")
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthscope", Nil{}}}}}}:
       auth_port(U32.read(p), U32.read(n), False{})
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthsame", Nil{}}}}}}:
