@@ -156,53 +156,62 @@ def retire(ctx: Context, m: Sess.UiMsg) -> Context:
     case Sess.PreferencesSaved{ticket, code}: saved_context(ctx, ticket, code)
     case _: ctx
 
-def drain.result(result: Context & Sess.Session & List<&2, String> & Bool, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
+# Like ws_shut.applied: Loaded/Saved codes AND into exit ok. R.clean alone is
+# not success after a failed prefs completion (read failure without accepted
+# edits stays runtime-clean, but exit must still fail).
+def drain.ok(+ok: Bool, +code: U32) -> Bool:
+  ok && U32.is_zero(code)
+
+def drain.finish(+ctx: Context, +st: Sess.Session, +ok: Bool) -> Sess.Session & Bool:
+  (st, ok && R.clean(state(ctx)))
+
+def drain.applied(result: Context & Sess.Session & List<&2, String> & Bool, +code: U32, +ok: Bool, k: Context -> Sess.Session -> Bool -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match result:
-    case (ctx, st, _, _): k(ctx, st)
+    case (ctx, st, _, _): k(ctx, st, drain.ok(ok, code))
 
-def drain.deadline(+ctx: Context, +st: Sess.Session) -> Sess.Session & Bool:
-  expired(settle(ctx), st, R.clean(state(ctx)))
+def drain.deadline(+ctx: Context, +st: Sess.Session, +ok: Bool) -> Sess.Session & Bool:
+  expired(settle(ctx), st, ok)
 
-def drain.message(got: Maybe<&1, Sess.UiMsg>, +ctx: Context, +st: Sess.Session, +gen: U32, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
+def drain.message(got: Maybe<&1, Sess.UiMsg>, +ctx: Context, +st: Sess.Session, +gen: U32, +ok: Bool, k: Context -> Sess.Session -> Bool -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match got:
     case None{}: IO.pure(Sess.Session & Bool, (notice(1, "drain", st), False{}))
     case Some{msg}:
       match msg:
-        case Sess.PreferencesLoaded{ticket, prefs, code}: drain.result(loaded(ctx, st, gen, ticket, prefs, code), k)
-        case Sess.PreferencesSaved{ticket, code}: drain.result(saved(ctx, st, ticket, code), k)
-        case Sess.PreferencesDeadline{_}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st))
-        case _: k(ctx, st)
+        case Sess.PreferencesLoaded{+ticket, +prefs, +code}: drain.applied(loaded(ctx, st, gen, ticket, prefs, code), code, ok, k)
+        case Sess.PreferencesSaved{+ticket, +code}: drain.applied(saved(ctx, st, ticket, code), code, ok, k)
+        case Sess.PreferencesDeadline{_}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st, ok))
+        case _: k(ctx, st, ok)
 
-def drain.within(ok: Bool, ctx: Context, +st: Sess.Session, +evt: Chan(Sess.UiMsg), gen: U32, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
-  match ok:
-    case False{}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st))
+def drain.within(within: Bool, ctx: Context, +st: Sess.Session, +evt: Chan(Sess.UiMsg), gen: U32, +ok: Bool, k: Context -> Sess.Session -> Bool -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
+  match within:
+    case False{}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st, ok))
     case True{}:
       do IO<Sess.Session & Bool>:
         next : Context <- start(ctx, evt)
         got : Maybe<&1, Sess.UiMsg> <- Chan.recv(Sess.UiMsg, evt)
-        drain.message(got, next, st, gen, k)
+        drain.message(got, next, st, gen, ok, k)
 
-def drain.busy(on: Bool, +ctx: Context, st: Sess.Session, evt: Chan(Sess.UiMsg), gen: U32, +started: U32, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
+def drain.busy(on: Bool, +ctx: Context, st: Sess.Session, evt: Chan(Sess.UiMsg), gen: U32, +started: U32, +ok: Bool, k: Context -> Sess.Session -> Bool -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match on:
-    case False{}: IO.pure(Sess.Session & Bool, (st, R.clean(state(ctx))))
+    case False{}: IO.pure(Sess.Session & Bool, drain.finish(ctx, st, ok))
     case True{}:
       do IO<Sess.Session & Bool>:
         +now : U32 <- Clock.millis()
         drain.within(U32.is_lt(U32.sub(now, started), W.DRAIN_MS()) &&
-          (R.active(state(ctx)) || U32.is_lt(U32.sub(now, started), W.DRAIN_START_MS())), ctx, st, evt, gen, k)
+          (R.active(state(ctx)) || U32.is_lt(U32.sub(now, started), W.DRAIN_START_MS())), ctx, st, evt, gen, ok, k)
 
 @unsafe
-def drain_loop(+ctx: Context, st: Sess.Session, +evt: Chan(Sess.UiMsg), +gen: U32, +started: U32) -> IO(Sess.Session & Bool):
-  drain.busy(busy(ctx), ctx, st, evt, gen, started, next => s => drain_loop(next, s, evt, gen, started))
+def drain_loop(+ctx: Context, st: Sess.Session, +evt: Chan(Sess.UiMsg), +gen: U32, +started: U32, +ok: Bool) -> IO(Sess.Session & Bool):
+  drain.busy(busy(ctx), ctx, st, evt, gen, started, ok, next => s => o => drain_loop(next, s, evt, gen, started, o))
 
 def drain.start(on: Bool, ctx: Context, st: Sess.Session, +evt: Chan(Sess.UiMsg), gen: U32) -> IO(Sess.Session & Bool):
   match on:
-    case False{}: IO.pure(Sess.Session & Bool, (st, R.clean(state(ctx))))
+    case False{}: IO.pure(Sess.Session & Bool, drain.finish(ctx, st, True{}))
     case True{}:
       do IO<Sess.Session & Bool>:
         started : U32 <- Clock.millis()
         Unit <- IO.spawn(Unit, W.deadline(0n, evt))
-        drain_loop(ctx, st, evt, gen, started)
+        drain_loop(ctx, st, evt, gen, started, True{})
 
 def drain(+ctx: Context, st: Sess.Session, evt: Chan(Sess.UiMsg), gen: U32) -> IO(Sess.Session & Bool):
   drain.start(busy(ctx), ctx, st, evt, gen)
