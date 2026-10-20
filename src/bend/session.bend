@@ -2177,7 +2177,8 @@ def session_pend_count(+st: Session) -> Nat:
 def session_fail.reaped.got(reaped: String & Bool, +cl: Cl.Client, +draft: String, joined: Bool, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +port: U32, +media: List<&2, M.State>, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: List<&2, Isupport.State>, +hlbox: List<&2, Hs.HistLive>, +cf: List<&2, C.Retained>, +theme: Theme.Id, +labelsbox: List<&2, Nat>) -> Session:
   match reaped:
     case (+text, _):
-      Session{cl, False{}, Nil{}, pend_draft(draft, text), JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hlbox, cf, [CapNotify.reg0()], theme, labelsbox, Nil{}}
+      # Offline via session_set_net (same upload chokepoint as dial/cancel/online).
+      session_set_net(Session{cl, False{}, Nil{}, pend_draft(draft, text), JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hlbox, cf, [CapNotify.reg0()], theme, labelsbox, Nil{}}, Offline{})
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
@@ -2185,8 +2186,8 @@ def session_fail.got(+msg: String, +st: Session) -> Session:
       session_fail.reaped.got(pend_reap_all(pends), Sub.echo_err_server(cl, msg), draft, joined, chan, hist, size, seed, comp, split, port, media, plan, edits, iso, hlbox, cf, theme, labelsbox)
 
 def session_fail(+st: Session, +msg: String) -> Session:
-  # Offline cannot keep Confirm/Armed; Up.retain drops consent on !online.
-  session_upload_maintain(session_fail.got(msg, st))
+  # session_set_net Offline already runs session_upload_maintain.
+  session_fail.got(msg, st)
 
 # A failed local helper does not change the connection or framer state.
 def session_error(+st: Session, +msg: String) -> Session:
