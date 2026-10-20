@@ -270,6 +270,9 @@ type NetCmd is Data:
   Pong{gen: U32, pongs: List<&2, String>, req: U32}
   Dial{host: String, port: U32, gen: U32, nick: String}
   Drop{}
+  # Flush healthy pending then abandon the socket without WriterDone.
+  # Autoreconnect fail uses this; Drop remains cancel (discard, no flush).
+  Hangup{}
   Pump{gen: U32}
   OpenUrl{url: String}
   Begin{gen: U32}
@@ -378,6 +381,8 @@ def show_netcmd(c: NetCmd) -> String:
       String.concat("dial:" <> host <> ":" <> U32.show(port) <> Nil{})
     case Drop{}:
       "drop"
+    case Hangup{}:
+      "hangup"
     case Pump{_}:
       "pump"
     case Pong{gen, _, _}:
@@ -421,6 +426,8 @@ def hold_cmd(net: NetState, cmd: NetCmd) -> NetCmd:
       Dial{host, port, gen, nick}
     case Drop{}:
       Drop{}
+    case Hangup{}:
+      Hangup{}
     case Pump{gen}:
       Pump{gen}
     case Pong{gen, pongs, req}:
@@ -2924,6 +2931,7 @@ def merge_typing_outs(cmd: NetCmd, +touts: List<&2, String>) -> NetCmd:
     case Cont{+outs}: Cont{List.append(&2, String, outs, touts)}
     case Dial{+host, port, gen, +nick}: Dial{host, port, gen, nick}
     case Drop{}: Drop{}
+    case Hangup{}: Hangup{}
     case Pump{gen}: Pump{gen}
     case Pong{+gen, +pongs, +req}: Pong{gen, pongs, req}
     case OpenUrl{+url}: OpenUrl{url}
@@ -2948,6 +2956,7 @@ def frame_tick_typing.cmd(cmd: NetCmd, +st: Session, +now_ms: U32) -> Session & 
     case Cont{+outs}: frame_tick_typing.cont(session_tick_typing(st, now_ms), outs)
     case Dial{+host, port, gen, +nick}: frame_tick_typing.skip(Dial{host, port, gen, nick}, st)
     case Drop{}: frame_tick_typing.skip(Drop{}, st)
+    case Hangup{}: frame_tick_typing.skip(Hangup{}, st)
     case Pump{gen}: frame_tick_typing.skip(Pump{gen}, st)
     case Pong{+gen, +pongs, +req}: frame_tick_typing.skip(Pong{gen, pongs, req}, st)
     case OpenUrl{+url}: frame_tick_typing.skip(OpenUrl{url}, st)

@@ -93,6 +93,8 @@ def cmd_head(c: Sess.NetCmd) -> String:
       "dial:" ++ host ++ ":" ++ U32.show(port)
     case Sess.Drop{}:
       "drop"
+    case Sess.Hangup{}:
+      "hangup"
     case Sess.Pump{gen}:
       "pump:" ++ U32.show(gen)
     case Sess.Pong{gen, _, _}:

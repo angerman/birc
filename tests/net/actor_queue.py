@@ -60,7 +60,13 @@ def run(binary: str, frames: int, count: int, mode: str = "queue") -> None:
                                     eof = True
                                     break
                                 wire.extend(data)
-                            limit = len(expected) if frames == 0 else min(8 * frames, len(expected))
+                            # Hangup flushes the remainder before "held"; Drop
+                            # and finite frames still hold at SEND_CAP*frames.
+                            limit = (
+                                len(expected)
+                                if frames == 0 or mode == "hangup"
+                                else min(8 * frames, len(expected))
+                            )
                             actual = wire.decode().splitlines()
                             assert actual == expected[:limit], (frames, count, mode, "checkpoint", actual)
                             checkpoint = True
@@ -80,6 +86,7 @@ def run(binary: str, frames: int, count: int, mode: str = "queue") -> None:
                 assert child.returncode == 0, (child.returncode, stdout, stderr)
                 assert checkpoint, ("no checkpoint", stdout, stderr)
                 actual = wire.decode().splitlines()
+                # Drop truncates remainder; hangup/close flush the full FIFO.
                 want = expected[:8] if mode == "drop" else expected
                 assert actual == want, (frames, count, mode, "final FIFO", actual, want)
         finally:
@@ -94,6 +101,8 @@ def main() -> None:
     for frames, count in [(1, 0), (1, 7), (1, 8), (1, 9), (2, 16), (2, 17), (3, 40), (0, 100)]:
         run(binary, frames, count)
     run(binary, 1, 17, "drop")
+    # Hangup flushes remainder (unlike Drop truncate); no WriterDone.
+    run(binary, 1, 17, "hangup")
     redial(binary)
     # − Drop during held setup: zero registration bytes.
     # + same hold without Drop: CAP/NICK/USER handshake reaches the peer.

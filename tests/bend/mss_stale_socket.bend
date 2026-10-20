@@ -103,6 +103,7 @@ def cmd_show(+cmd: Sess.NetCmd) -> String:
     case Sess.Dial{+h, +p, +g, +n}: "dial:" ++ h ++ ":" ++ U32.show(p) ++ "@" ++ U32.show(g) ++ "/" ++ n
     case Sess.Cont{+outs}: "cont:" ++ Nat.show(List.length(&2, String, outs))
     case Sess.Drop{}: "drop"
+    case Sess.Hangup{}: "hangup"
     case Sess.Pump{+g}: "pump:" ++ U32.show(g)
     case Sess.Begin{+g}: "begin:" ++ U32.show(g)
     case Sess.OpenUrl{+u}: "open:" ++ u

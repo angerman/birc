@@ -197,6 +197,7 @@ def dial_show(+cmd: Sess.NetCmd) -> String:
     case Sess.Dial{+host, port, gen, +nick}: host ++ ":" ++ U32.show(port) ++ "@" ++ U32.show(gen) ++ "/" ++ nick
     case Sess.Cont{+outs}: "cont:" ++ Nat.show(List.length(&2, String, outs))
     case Sess.Drop{}: "drop"
+    case Sess.Hangup{}: "hangup"
     case Sess.Pump{gen}: "pump:" ++ U32.show(gen)
     case Sess.OpenUrl{+url}: "open:" ++ url
     case Sess.Begin{gen}: "begin:" ++ U32.show(gen)
@@ -1393,7 +1394,7 @@ def main() -> IO(Unit):
     Unit <- E.must("g5 dial rebuilds bufs", Nat.is_eq(ws_nbufs(g5_dialed, s0()), 1n))
     Unit <- E.must_eq("g5 stale up stays connecting", ws_net(g5_up_stale, s0()), "connecting")
     Unit <- E.must_eq("g5 fresh up online", ws_net(g5_up_fresh, s0()), "online")
-    Unit <- E.must_eq("g5 fail cmd drop", rcc_show(g5_fail_cmd), "0>drop")
+    Unit <- E.must_eq("g5 fail cmd hangup", rcc_show(g5_fail_cmd), "0>hangup")
     Unit <- E.must_eq("g5 fail intent exact", int_show(g5_fail_int), "0:1:d.example:6697:False")
     Unit <- E.must_eq("g5 fail net reconnecting", ws_net(g5_fail, s0()), "connecting")
     Unit <- E.must_eq("g5 fail s1 untouched", ws_texts(g5_fail, s1(), 1n), "<me> s1hi|")
@@ -1535,7 +1536,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("lm dispatch stale s0 unchanged", ws_texts(W.live_ws(lm_stale), s0(), 1n), ws_texts(g5_in0, s0(), 1n))
     Unit <- E.must_eq("lm dispatch up online", ws_net(W.live_ws(lm_up), s0()), "online")
     Unit <- E.must_eq("lm dispatch up emits nothing", W.live_outs(lm_up), "")
-    Unit <- E.must_eq("lm dispatch fail cmd drop", rcc_show(W.live_cmd(lm_fail)), "0>drop")
+    Unit <- E.must_eq("lm dispatch fail cmd hangup", rcc_show(W.live_cmd(lm_fail)), "0>hangup")
     Unit <- E.must_eq("lm dispatch fail intent exact", int_show(W.live_intent(lm_fail)), "0:1:d.example:6697:False")
     Unit <- E.must_eq("lm dispatch fail net reconnecting", ws_net(W.live_ws(lm_fail), s0()), "connecting")
     Unit <- E.must_eq("lm dispatch stale fail stays online", ws_net(W.live_ws(lm_fail_stale), s0()), "online")

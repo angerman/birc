@@ -465,6 +465,9 @@ def deferred_command(cmd: Sess.NetCmd, st: Deferred) -> DeferredStep:
     case Sess.Drop{}:
       match st:
         case Deferred{_, gen, scope}: Waiting{Deferred{None{}, gen, scope}}
+    case Sess.Hangup{}:
+      match st:
+        case Deferred{_, gen, scope}: Waiting{Deferred{None{}, gen, scope}}
     case Sess.Begin{+wanted}:
       match st:
         case Deferred{pending, +gen, scope}: deferred_begin(U32.is_eq(wanted, gen), Deferred{pending, gen, scope})
@@ -642,6 +645,13 @@ def admit_drop(+acc: AdmitAcc) -> AdmitAcc & Bool:
     case AdmitAcc{+latest, +dials, +kept, +closed, _}:
       (AdmitAcc{latest, dials, Sess.Drop{} <> kept, closed, True{}}, False{})
 
+# Setup cancel: Hangup during admit discards like Drop (no registration).
+# Live Hangup flush is writer_command only; admit never reaches that seam.
+def admit_hangup(+acc: AdmitAcc) -> AdmitAcc & Bool:
+  match acc:
+    case AdmitAcc{+latest, +dials, +kept, +closed, _}:
+      (AdmitAcc{latest, dials, Sess.Hangup{} <> kept, closed, True{}}, False{})
+
 def admit_dial(+host: String, +port: U32, +gen: U32, +nick: String, +acc: AdmitAcc) -> AdmitAcc & Bool:
   match acc:
     case AdmitAcc{_, +dials, _, +closed, _}:
@@ -665,6 +675,8 @@ def admit_consider(c: Sess.NetCmd, +setup_gen: U32, +acc: AdmitAcc) -> AdmitAcc 
       admit_dial(host, port, gen, nick, acc)
     case Sess.Drop{}:
       admit_drop(acc)
+    case Sess.Hangup{}:
+      admit_hangup(acc)
     case Sess.Pump{+pgen}:
       admit_pump(U32.is_eq(pgen, setup_gen), acc)
     case Sess.OpenUrl{_}:
@@ -777,6 +789,9 @@ def writer_kept_step(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: C
         case Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, +scheduled}:
           writer_pump(U32.is_eq(pgen, gen), Writer{sock, gen, pending, pending_txn, next_txn, budget, scheduled}, evt, cmd, k)
     case Sess.Drop{}:
+      writer_kept_drop(honor_drop, st, k)
+    case Sess.Hangup{}:
+      # Pre-register cancel: discard like Drop (pending is empty at this seam).
       writer_kept_drop(honor_drop, st, k)
     case Sess.Dial{_, _, _, _}: k(st)
     case Sess.Search{_, _, _, _, _, _, _, _, _}: k(st)
@@ -1193,6 +1208,48 @@ def writer_admit_begin(+host: String, +port: U32, +force_tls: Bool, +nick: Strin
 def dial_superseded(+dial_gen: U32, +writer_gen: U32, connected: Bool) -> Bool:
   connected && U32.is_eq(dial_gen, writer_gen)
 
+# Autoreconnect fail path: flush healthy pending then abandon without
+# WriterDone (reconnect_watch owns the later Dial). Drop stays discard-only.
+def writer_hangup_done(
+  pair: Tr.Conn & Sent,
+  +gen: U32,
+  +total: Nat,
+  +next_txn: U32,
+  +budget: Out.Budget,
+  +evt: Chan(Sess.UiMsg),
+  k: Writer -> IO(Unit)
+) -> IO(Unit):
+  match pair:
+    case (sock, Sent{+count, ok}):
+      match ok:
+        case False{}:
+          do IO<Unit>:
+            Unit <- writer_drop(sock)
+            Unit <- IO.spawn(Unit, writer_fail(evt, gen, "send timed out or failed; " ++ Nat.show(Nat.add(1n, Nat.sub(total, count))) ++ " queued/uncertain lines were discarded without retry"))
+            k(Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}})
+        case True{}:
+          do IO<Unit>:
+            Unit <- writer_drop(sock)
+            k(Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}})
+
+def writer_hangup(
+  sock: Maybe<&1, Tr.Conn>,
+  +pending: List<&2, String>,
+  +pending_txn: List<&2, U32>,
+  +gen: U32,
+  +next_txn: U32,
+  +budget: Out.Budget,
+  +evt: Chan(Sess.UiMsg),
+  k: Writer -> IO(Unit)
+) -> IO(Unit):
+  match sock:
+    case None{}:
+      k(Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}})
+    case Some{s}:
+      do IO<Unit>:
+        pair : Tr.Conn & Sent <- send_batch(s, pending, pending_txn)
+        writer_hangup_done(pair, gen, List.length(&2, String, pending), next_txn, budget, evt, k)
+
 # Dial replaces the live socket. Flush the healthy pending FIFO first (same
 # send_batch contract as writer_finish) without posting WriterDone; admit
 # begins with an empty queue for the new generation. A failed flush posts
@@ -1301,6 +1358,10 @@ def writer_command(c: Sess.NetCmd, st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Cha
           do IO<Unit>:
             Unit <- close_socket(sock)
             k((Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}}, scope))
+    case Sess.Hangup{}:
+      match st:
+        case Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, _}:
+          writer_hangup(sock, pending, pending_txn, gen, next_txn, budget, evt, next => k((next, scope)))
     case Sess.Dial{+host, +port, +gen, +nick}:
       match st:
         case Writer{sock, +writer_gen, +pending, +pending_txn, +next_txn, budget, +scheduled}:

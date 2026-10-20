@@ -356,6 +356,10 @@ def ws_emit.to(+cmd: Sess.NetCmd, +c: Chan(Sess.NetCmd), +evt: Chan(Sess.UiMsg))
       do IO<Unit>:
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, c, Sess.Drop{})
         return Unit{}
+    case Sess.Hangup{}:
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, c, Sess.Hangup{})
+        return Unit{}
     case Sess.Cont{+outs}:
       do IO<Unit>:
         _ : U32 <- Net.emit_outs(c, outs, 0, List.is_empty(&2, String, outs))

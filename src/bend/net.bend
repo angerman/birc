@@ -462,6 +462,10 @@ def emit_cmd(+evt: Chan(Sess.UiMsg), chan: Chan(Sess.NetCmd), c: Sess.NetCmd, +g
       do IO<U32>:
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, chan, Sess.Drop{})
         return gen
+    case Sess.Hangup{}:
+      do IO<U32>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, chan, Sess.Hangup{})
+        return gen
     case Sess.Cont{+outs}:
       emit_outs(chan, outs, gen, List.is_empty(&2, String, outs))
     case Sess.Pump{_}:
@@ -965,8 +969,10 @@ def emit_fail_cmd(
 ) -> IO(U32):
   match c:
     case Sess.Dial{+host, port, _, _}:
+      # Hangup flushes healthy pending then abandons; Drop would discard them
+      # before the 2s redial. WriterDone stays for P5 cmd-close only.
       do IO<U32>:
-        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Drop{})
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Hangup{})
         Unit <- IO.spawn(Unit, reconnect_watch(evt, host, port, gen))
         return gen
     case other:

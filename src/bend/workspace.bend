@@ -830,18 +830,19 @@ def on_routed_up(ws: Workspace, +rm: Sid.RoutedMsg, +ts: String) -> Workspace:
   match rm:
     case Sid.RoutedMsg{+s, m}: on_routed_up.msg(ws, s, m, ts)
 
-# A failed connection always reports Drop to the actor (releasing the old
-# socket) and, when Session schedules an automatic reconnect, the Intent the
-# loop's 2s watch must carry. The generation is not bumped here: like the
-# single-server loop, the bump happens when the redial fires (on_redial), so
-# the Intent carries the current generation for the scheduled-gen check.
+# A failed connection reports Hangup when Session schedules automatic
+# reconnect (flush then abandon; Drop would discard healthy pending), else
+# Drop for cancel-without-redial. The Intent is what the loop's 2s watch
+# must carry. The generation is not bumped here: like the single-server
+# loop, the bump happens when the redial fires (on_redial), so the Intent
+# carries the current generation for the scheduled-gen check.
 type FailResult is Data:
   FailResult{ws: Workspace, cmd: Maybe<&2, Sid.RoutedCmd>, intent: Maybe<&2, Sid.Intent>}
 
 def on_routed_fail.cmd(+parts: List<&2, Part>, +cur: Key.ServerId, +ds: Drafts.Drafts, +rt: List<&2, SlotEpoch>, +id: Key.ServerId, +gen: U32, +scope: Sid.Scope, st3: Sess.Session, cmd: Sess.NetCmd) -> FailResult:
   match cmd:
     case Sess.Dial{host, port, _, _}:
-      FailResult{Workspace{replace_part.go(parts, id, Part{id, gen, scope, clamp_part(st3, id)}), cur, ds, rt}, Some{Sid.RoutedCmd{id, Sess.Drop{}}}, Some{Sid.Intent{id, gen, host, port, v6_of_scope(scope)}}}
+      FailResult{Workspace{replace_part.go(parts, id, Part{id, gen, scope, clamp_part(st3, id)}), cur, ds, rt}, Some{Sid.RoutedCmd{id, Sess.Hangup{}}}, Some{Sid.Intent{id, gen, host, port, v6_of_scope(scope)}}}
     case _:
       FailResult{Workspace{replace_part.go(parts, id, Part{id, gen, scope, clamp_part(st3, id)}), cur, ds, rt}, Some{Sid.RoutedCmd{id, Sess.Drop{}}}, None{}}
 
@@ -1957,6 +1958,11 @@ def routed_dial_exact(+rc: Sid.RoutedCmd, +id: Key.ServerId, +host: String, +por
 def drop_cmd(+cmd: Sess.NetCmd) -> Bool:
   match cmd:
     case Sess.Drop{}: True{}
+    case _: False{}
+
+def hangup_cmd(+cmd: Sess.NetCmd) -> Bool:
+  match cmd:
+    case Sess.Hangup{}: True{}
     case _: False{}
 
 def routed_drop.rc(+rc: Sid.RoutedCmd, +id: Key.ServerId) -> Bool:

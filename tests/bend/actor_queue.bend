@@ -21,6 +21,15 @@ def queue_drop(drop: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
         _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"NOTICE #t :offline" <> Nil{}})
         return Unit{}
 
+# Hangup flushes the healthy remainder (no WriterDone); sibling of Drop truncate.
+def queue_hangup(hangup: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match hangup:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Hangup{})
+        return Unit{}
+
 def queue_redial(redial: Bool, port: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match redial:
     case False{}: IO.pure(Unit, Unit{})
@@ -87,6 +96,7 @@ def run_socket(sock: Socket, +port: U32, +frames: U32, +count: Nat, +mode: Strin
     _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Cont{"QUIT :queue-test" <> Nil{}})
     _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Pump{0})
     Unit <- queue_drop(String.eq(mode, "drop"), cmd)
+    Unit <- queue_hangup(String.eq(mode, "hangup"), cmd)
     Unit <- queue_redial(String.eq(mode, "redial"), port, cmd)
     Unit <- IO.sleep(350)
     Unit <- IO.print("held")
