@@ -2559,12 +2559,13 @@ def ws_media_complete.gated(room: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.Ser
         pair : T.Ui & U32 <- T.Timui.media_add(ui, payload, ws_media.union_tokens(ws, id, st, generation, ticket, url))
         ws_media.added(pair, ws, ws, id, st, generation, ticket, url, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
-# Exact-worker policy decline (accept=false) must record a token-zero failed
-# identity via reject_full, same as full-budget gating. Plain M.reject only
-# clears active, so ready_has stays false and observe/take relaunches forever.
+# Exact-worker policy decline (accept=false: stale/disabled/full visible cache)
+# clears the worker only. Sticky reject_full is reserved for native CAP
+# overflow in ws_media_complete.gated — a temporary full visible cache must
+# not poison-pill an automatic URL after room returns.
 def ws_media_complete(accepted: Bool, ui: T.Ui, +ws: W.Workspace, +id: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match accepted:
-    case False{}: ws_media.rejected_full(ws, id, st, generation, ticket, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
+    case False{}: ws_media.rejected(ws, id, st, generation, ticket, url, ui, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
     case True{}: ws_media_complete.gated(ws_media.union_room(ws, id, st, generation, ticket, url), ui, ws, id, st, generation, ticket, url, payload, main, cmds, evts, pevts, ack, scheduled, bell, ctx, owner, ups, notify, cards, begun, k)
 
 def ws_media.admitted(+loop: WsLoop, admitted: Bool, ui: T.Ui, +s: Key.ServerId, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +payload: String, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
@@ -3091,9 +3092,23 @@ def ws_shut.settle(+ctx: PrefLive.Context) -> Bool:
 def ws_shut.ready(+done: Bool, +hist: Bool, +writers: Bool) -> Bool:
   Bool.not(ws_shut.need(Bool.not(done), hist, writers))
 
+# Drain timeout / PreferencesDeadline may arm for hist or writers while prefs
+# are already idle. Blame prefs (408 notice + ok=False) only when still busy.
+def ws_shut.expired(+settled: Bool, +st: Sess.Session, +ok: Bool) -> Sess.Session & Bool:
+  match settled:
+    case True{}: (st, ok)
+    case False{}: (LoadedPrefs.notice(408, "drain", st), False{})
+
+def ws_shut.fire_state.go(result: Sess.Session & Bool, +ctx: PrefLive.Context, +id: Key.ServerId, +started: U32) -> WsShut:
+  match result:
+    case (+st2, +ok2): WsShut{Nil{}, ctx, st2, id, None{}, ok2, started, True{}, False{}}
+
+def ws_shut.fire_state(+ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32) -> WsShut:
+  ws_shut.fire_state.go(ws_shut.expired(ws_shut.settle(ctx), st, ok), ctx, id, started)
+
 def ws_shut.fire(fire: Bool, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match fire:
-    case True{}: k((ui, WsShut{Nil{}, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, True{}, False{}}))
+    case True{}: k((ui, ws_shut.fire_state(ctx, st, id, ok, started)))
     case False{}: k((ui, WsShut{pending, ctx, st, id, owner, ok, started, done, hist}))
 
 def ws_shut.elapsed(+tnow: U32, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +owner: Maybe<&2, WsLease>, +ok: Bool, +started: U32, +done: Bool, +hist: Bool, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
@@ -3127,11 +3142,17 @@ def ws_shut.deadline_kept(+shut: WsShut) -> Bool:
   match shut:
     case WsShut{_, _, _, _, _, _, _, _, +hist}: hist
 
-# Preferences drain expiry settles preferences only (!busy). History stays
-# until WsHistDone or the shared drain budget in ws_shut.fire; never sticky-
-# done past a still-busy PrefLive context.
+# PreferencesDeadline settles prefs only when still busy (!settle). History
+# stays until WsHistDone or the shared drain budget in ws_shut.fire; never
+# sticky-done past a still-busy PrefLive context, and never sticky-blame
+# prefs when the arm was only for hist/writers.
+def ws_shut.deadline_state.go(result: Sess.Session & Bool, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +id: Key.ServerId, +started: U32, +settled: Bool, +hist: Bool) -> WsShut:
+  match result:
+    case (+st2, +ok): WsShut{pending, ctx, st2, id, None{}, ok, started, settled, hist}
+
 def ws_shut.deadline_state(+pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +started: U32, +hist: Bool) -> WsShut:
-  WsShut{pending, ctx, LoadedPrefs.notice(408, "drain", st), id, None{}, False{}, started, ws_shut.settle(ctx), hist}
+  +settled = ws_shut.settle(ctx)
+  ws_shut.deadline_state.go(ws_shut.expired(settled, st, True{}), pending, ctx, id, started, settled, hist)
 
 def ws_shut.deadline_go(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match shut:

@@ -1501,11 +1501,6 @@ def session_net(+st: Session) -> NetState:
     case Session{_, _, _, _, _, _, net, _, _, _, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
       net
 
-def session_set_net(st: Session, net: NetState) -> Session:
-  match st:
-    case Session{cl, drop, rem, draft, joined, chan, _, hist, size, seed, comp, split, typing, port, media, plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
-
 def session_stopping.net(net: NetState) -> Maybe<&2, Bool>:
   match net:
     case Stopping{wait}: Some{wait}
@@ -1894,6 +1889,13 @@ def session_set_upload(st: Session, state: Up.State) -> Session:
 def session_upload_maintain(+st: Session) -> Session:
   session_set_upload(st, Up.retain(session_upload(st), session_upload_scope(st), session_upload_online(st)))
 
+# Net chokepoint: Offline/Connecting/Reconnecting/Stopping clear upload online;
+# retain drops Confirm/Armed and cancels Busy permission without releasing ownership.
+def session_set_net(st: Session, net: NetState) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, _, hist, size, seed, comp, split, typing, port, media, plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+      session_upload_maintain(Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends})
+
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
     case False{}:
@@ -2248,8 +2250,9 @@ def session_autoreconnect_on(+st: Session) -> Bool:
 
 def session_cancel_reconnect(+st: Session) -> Session:
   match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
+    case Session{+cl, drop, +rem, +draft, joined, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+      # JoinPlan.sent then Offline via session_set_net so upload consent clears.
+      session_set_net(Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}, Offline{})
 
 def session_set_now(+st: Session, +ts: String) -> Session:
   match st:
