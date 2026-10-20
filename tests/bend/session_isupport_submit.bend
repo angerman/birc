@@ -22,9 +22,53 @@ def dollar_server() -> Is.State:
 def hash_server() -> Is.State:
   Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# :are supported")
 
+def ascii_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# CASEMAPPING=ascii :are supported")
+
+def rfc1459_hash_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# CASEMAPPING=rfc1459 :are supported")
+
+def submit_wire(pair: Cl.Client & List<&2, String>) -> String:
+  match pair:
+    case (_, xs): String.join(xs, "|")
+
+def has_channel_cm.found(found: Maybe<&2, Nat>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def has_channel_cm(+cl: Cl.Client, +cm: String, +name: String) -> Bool:
+  has_channel_cm.found(Cl.buf_find_cm(cl, cm, name))
+
 def submit_client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
     case (cl, _): cl
+
+def ascii_bracket_client() -> Cl.Client:
+  +iso = ascii_server()
+  +left = submit_client(Sub.submit_with(iso, base(), "/join #a["))
+  submit_client(Sub.submit_with(iso, left, "/join #a{"))
+
+def rfc1459_bracket_client() -> Cl.Client:
+  +iso = rfc1459_hash_server()
+  +left = submit_client(Sub.submit_with(iso, base(), "/join #a["))
+  submit_client(Sub.submit_with(iso, left, "/join #a{"))
+
+def ascii_part_brace_keeps_bracket() -> Bool:
+  +iso = ascii_server()
+  +after = submit_client(Sub.submit_with(iso, ascii_bracket_client(), "/part #a{"))
+  has_channel_cm(after, "ascii", "#a[") && Bool.not(has_channel_cm(after, "ascii", "#a{"))
+
+def ascii_close_brace_keeps_bracket() -> Bool:
+  +iso = ascii_server()
+  +after = submit_client(Sub.submit_with(iso, ascii_bracket_client(), "/close #a{"))
+  has_channel_cm(after, "ascii", "#a[") && Bool.not(has_channel_cm(after, "ascii", "#a{"))
+
+def ascii_bracket_join_two_buffers() -> Bool:
+  +cl = ascii_bracket_client()
+  Nat.is_eq(Cl.normal_buffer_count(Cl.client_bufs(cl)), 3n)
+    && has_channel_cm(cl, "ascii", "#a[")
+    && has_channel_cm(cl, "ascii", "#a{")
 
 def dollar_channel() -> Cl.Client:
   submit_client(Sub.submit_with(dollar_server(), base(), "/join $room"))
@@ -231,4 +275,11 @@ def main() -> IO(Unit):
     Unit <- E.must("default production paint still omits muted channel row", muted_paint_matches_window(Is.defaults(), "#room"))
     Unit <- E.must_eq("negotiated unmute removes scoped advertised-channel rule", session_mute_pattern(unmuted), "")
     Unit <- E.must("negotiated unmute restores existing Alice line", Nat.is_eq(session_muted_old_count(unmuted, iso), 1n))
+    Unit <- E.must("ascii negotiated JOIN creates two distinct bracket buffers", ascii_bracket_join_two_buffers())
+    Unit <- E.must("ascii negotiated PART removes only the exact bracket target", ascii_part_brace_keeps_bracket())
+    Unit <- E.must("ascii negotiated CLOSE removes only the exact bracket target", ascii_close_brace_keeps_bracket())
+    Unit <- E.must_eq("ascii negotiated MODE resident targets exact bracket sibling",
+      submit_wire(Sub.submit_with(ascii_server(), ascii_bracket_client(), "/mode #a{ +m")), "MODE #a{ +m")
+    Unit <- E.must("rfc1459 negotiated JOIN folds bracket siblings into one buffer",
+      Nat.is_eq(Cl.normal_buffer_count(Cl.client_bufs(rfc1459_bracket_client())), 2n))
     IO.print("session_isupport_submit=ok")

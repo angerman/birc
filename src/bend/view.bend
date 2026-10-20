@@ -1390,23 +1390,6 @@ def paint_filter(+boxed: List<&2, PaintOpts>, lines: List<&2, Cl.Line>, mutes: L
 def paint_display_lines(+name: String, +topic: String, +lines: List<&2, Cl.Line>, +boxed: List<&2, PaintOpts>) -> List<&2, Cl.Line>:
   pending_display_lines(name, opt_pends(boxed), media_display_lines(name, topic, lines, opt_media(boxed)))
 
-def paint_anchored(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
-  match lines:
-    case Nil{}: Nil{}
-    case Con{+h, t}:
-      +after = Nat.sub(left, 1n)
-      +head = paint_body_rows(paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server), name, w, show_ts, boxed)
-      List.append(&2, AnchoredRow, anchored_line(head, after, h), paint_anchored(t, name, w, show_ts, mutes, joins, nicks, server, after, boxed))
-
-def anchored_lines_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
-  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_only(media))
-
-def anchored_lines_media_cards(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
-  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards(media, cards))
-
-def anchored_lines_media_cards_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
-  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards_cm(cm, media, cards))
-
 def anchor_reached(row: Cl.Scroll, want: Cl.Scroll) -> Bool:
   match row:
     case Cl.ScrollAt{+ra, +rt}:
@@ -1502,10 +1485,52 @@ def line_ts(+ln: Cl.Line) -> String:
 def line_day(+ln: Cl.Line) -> String:
   Cl.now_day(line_ts(ln))
 
-def older_day(lines: List<&2, Cl.Line>) -> String:
-  match lines:
-    case Nil{}: ""
-    case Con{+h, _}: line_day(h)
+def day_or_prev(empty: Bool, +day: String, +prev: String) -> String:
+  match empty:
+    case True{}: prev
+    case False{}: day
+
+# Skip filtered and HMS-only / undated neighbors so a muted first-of-day line
+# does not steal the bar, and reconnect/pending stamps do not reprint it.
+def older_day.dated(empty: Bool, +day: String, k: Unit -> String) -> String:
+  match empty:
+    case True{}: k(Unit{})
+    case False{}: day
+
+def older_day.line(hidden: Bool, +day: String, k: Unit -> String) -> String:
+  match hidden:
+    case True{}: k(Unit{})
+    case False{}: older_day.dated(String.is_empty(day), day, k)
+
+def older_day.go(
+  fuel: Nat,
+  lines: List<&2, Cl.Line>,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> String:
+  match fuel:
+    case 0n: ""
+    case 1n+p:
+      match lines:
+        case Nil{}: ""
+        case Con{+h, +t}:
+          older_day.line(List.is_empty(&2, Cl.Line, paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)),
+            line_day(h), done => older_day.go(p, t, mutes, joins, nicks, name, server, boxed))
+
+def older_day(
+  lines: List<&2, Cl.Line>,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> String:
+  older_day.go(2048n, lines, mutes, joins, nicks, name, server, boxed)
 
 def day_rows.on(skip: Bool, +day: String, +w: U32) -> List<&2, BodyRow>:
   match skip:
@@ -1520,6 +1545,49 @@ def day_rows_visible(hidden: Bool, +prev: String, +ts: String, +w: U32) -> List<
   match hidden:
     case True{}: Nil{}
     case False{}: day_rows(prev, ts, w)
+
+def paint_anchored.next_prev(hidden: Bool, +day: String, +prev_day: String) -> String:
+  match hidden:
+    case True{}: prev_day
+    case False{}: day_or_prev(String.is_empty(day), day, prev_day)
+
+# Oldest-first anchored paint threads the previous visible calendar day so
+# scrolled windows get the same day bars as the live bottom.
+def paint_anchored.go(
+  lines: List<&2, Cl.Line>,
+  +prev_day: String,
+  +name: String,
+  +w: U32,
+  +show_ts: Bool,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +server: String,
+  +left: Nat,
+  +boxed: List<&2, PaintOpts>
+) -> List<&2, AnchoredRow>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{+h, t}:
+      +after = Nat.sub(left, 1n)
+      +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+      +hidden = List.is_empty(&2, Cl.Line, filtered)
+      +chat = paint_body_rows(filtered, name, w, show_ts, boxed)
+      +body = List.append(&2, BodyRow, day_rows_visible(hidden, prev_day, line_ts(h), w), chat)
+      List.append(&2, AnchoredRow, anchored_line(body, after, h),
+        paint_anchored.go(t, paint_anchored.next_prev(hidden, line_day(h), prev_day), name, w, show_ts, mutes, joins, nicks, server, after, boxed))
+
+def paint_anchored(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
+  paint_anchored.go(lines, "", name, w, show_ts, mutes, joins, nicks, server, left, boxed)
+
+def anchored_lines_media(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State) -> List<&2, AnchoredRow>:
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_only(media))
+
+def anchored_lines_media_cards(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards(media, cards))
+
+def anchored_lines_media_cards_cm(+cm: String, lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +left: Nat, +media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
+  paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, left, paint_media_cards_cm(cm, media, cards))
 
 # At the live bottom, stop after enough expanded rows, not logical messages:
 # muted/empty media lines can add no rows, while wrapped lines and images add many.
@@ -1539,7 +1607,7 @@ def paint_recent_go(lines: List<&2, Cl.Line>, +name: String, +w: U32, +show_ts: 
   match lines:
     case Nil{}: Pair.snd(Nat, List<&2, BodyRow>, state)
     case Con{+h, +t}:
-      paint_recent_more(state, h, older_day(t), name, w, show_ts, mutes, joins, nicks, server, boxed,
+      paint_recent_more(state, h, older_day(t, mutes, joins, nicks, name, server, boxed), name, w, show_ts, mutes, joins, nicks, server, boxed,
         next => paint_recent_go(t, name, w, show_ts, mutes, joins, nicks, server, boxed, next))
 
 def paint_bottom_rest(need: Bool, +rows: List<&2, BodyRow>, +lines: List<&2, Cl.Line>, +name: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
@@ -1652,7 +1720,7 @@ def window_go(
       match lines:
         case Nil{}: Nil{}
         case Con{+h, +t}:
-          window_with(step, h, older_day(t), height, name, w, show_ts, mutes, joins, nicks, server, boxed,
+          window_with(step, h, older_day(t, mutes, joins, nicks, name, server, boxed), height, name, w, show_ts, mutes, joins, nicks, server, boxed,
             next => window_go(p, t, next, height, name, w, show_ts, mutes, joins, nicks, server, boxed))
 
 def take_emit(zero: Bool, +h: Cl.Line, k: Unit -> List<&2, Cl.Line>) -> List<&2, Cl.Line>:
@@ -1721,11 +1789,12 @@ def newer_from(
     case True{}: NewerWalk{Nil{}, False{}, 0n}
     case False{}:
       +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+      +hidden = List.is_empty(&2, Cl.Line, filtered)
       +chat = paint_body_rows(filtered, name, w, show_ts, boxed)
-      +body = List.append(&2, BodyRow, day_rows_visible(List.is_empty(&2, Cl.Line, filtered), prev_day, line_ts(h), w), chat)
+      +body = List.append(&2, BodyRow, day_rows_visible(hidden, prev_day, line_ts(h), w), chat)
       +n = List.length(&2, BodyRow, body)
       newer_from.rest(Nat.is_eq(after, 0n), anchored_line(body, after, h),
-        Next{Nat.sub(after, 1n), Nat.sub(budget, Nat.min(budget, n)), line_day(h)}, k)
+        Next{Nat.sub(after, 1n), Nat.sub(budget, Nat.min(budget, n)), paint_anchored.next_prev(hidden, line_day(h), prev_day)}, k)
 
 def newer_open(
   step: Next,
@@ -1785,15 +1854,24 @@ def newer_after(zero: Bool, +after: Nat) -> Nat:
     case True{}: 0n
     case False{}: Nat.sub(after, 1n)
 
-def day_at(+newest: List<&2, Cl.Line>, +after: Nat) -> String:
-  older_day(List.drop(&2, Cl.Line, newest, after))
+def day_at(
+  +newest: List<&2, Cl.Line>,
+  +after: Nat,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> String:
+  older_day(List.drop(&2, Cl.Line, newest, after), mutes, joins, nicks, name, server, boxed)
 
 def window_join(has_newer: Bool, +older: List<&2, AnchoredRow>, +newest: List<&2, Cl.Line>, +after: Nat, +height: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, AnchoredRow>:
   match has_newer:
     case False{}: older
     case True{}:
       List.append(&2, AnchoredRow, older,
-        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height, day_at(newest, after)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(height, after))))
+        newer_rows(newer_go(rev_tail_fuel(), newer_lines(newest, after, height), Next{newer_after(Nat.is_eq(after, 0n), after), height, day_at(newest, after, mutes, joins, nicks, name, server, boxed)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(height, after))))
 
 def window_after(past: Bool, +after: Nat, +count: Nat) -> Nat:
   match past:
@@ -2025,7 +2103,7 @@ def scroll_rows.join(walk: NewerWalk, +older: List<&2, AnchoredRow>) -> NewerWal
 def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +name: String, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> NewerWalk:
   +cap = Nat.add(Nat.add(up, dn), 64n)
   scroll_rows.join(
-    newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, day_at(newest, after)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
+    newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, day_at(newest, after, mutes, joins, nicks, name, server, boxed)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
     window_go(rev_tail_fuel(), List.drop(&2, Cl.Line, newest, after), Step{after, up, True{}}, up, name, w, show_ts, mutes, joins, nicks, server, boxed))
 
 def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:

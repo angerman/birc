@@ -964,7 +964,7 @@ def feed_at_with.stamped(+cl: Cl.Client, +isc: Cl.Iso, +line: String, +stamp: St
   match cl:
     case Cl.Client{_, _, _, _, +now, _, _, _}:
       +use = Cl.stamp_combine(now, stamp)
-      Cl.set_now(Cl.stamp_logs(feed_with.server_notice(Cl.set_now(cl, use), isc, Irc.source_prefix(line), feed_at.message(Irc.parse(line), Cl.now_hms(use)), Irc.label_tag(Irc.raw_tags(line)))), now)
+      Cl.set_now(Cl.stamp_logs(feed_with.server_notice(Cl.set_now(cl, use), isc, Irc.source_prefix(line), feed_at.message(Irc.parse(line), use), Irc.label_tag(Irc.raw_tags(line)))), now)
 
 def feed_at_with(+cl: Cl.Client, +isc: Cl.Iso, +line: String, stamp: Maybe<&2, String>) -> Cl.Client:
   match stamp:

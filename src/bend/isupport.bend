@@ -751,7 +751,9 @@ def chan_target_cl.found(+st: State, +s: String, found: Maybe<&2, Nat>) -> Strin
     case None{}: chan_target(st, s)
 
 def chan_target_cl(+st: State, +cl: Cl.Client, +s: String) -> String:
-  chan_target_cl.found(st, s, Cl.buf_find(cl, s))
+  match st:
+    case State{_, _, _, _, +cm, _}:
+      chan_target_cl.found(st, s, Cl.buf_find_cm(cl, cm, s))
 
 # ---- nick privileges ------------------------------------------------------
 

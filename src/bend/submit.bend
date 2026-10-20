@@ -384,6 +384,17 @@ def join_staged.step(acc: Maybe<&2, Cl.Client>, target: String) -> Maybe<&2, Cl.
 def join_staged(targets: List<&2, String>, +cl: Cl.Client) -> Maybe<&2, Cl.Client>:
   List.foldl(~&2, ~String, ~Maybe<&2, Cl.Client>, ~join_staged.step, targets, Some{cl})
 
+def join_staged_iso.go(targets: List<&2, String>, +iso: Is.State, acc: Maybe<&2, Cl.Client>) -> Maybe<&2, Cl.Client>:
+  match targets:
+    case Nil{}: acc
+    case Con{+target, rest}:
+      match acc:
+        case None{}: None{}
+        case Some{cl}: join_staged_iso.go(rest, iso, join_staged.got(Cl.buf_get_with(cl, Is.as_iso(iso), target, True{}, True{})))
+
+def join_staged_iso(+iso: Is.State, targets: List<&2, String>, +cl: Cl.Client) -> Maybe<&2, Cl.Client>:
+  join_staged_iso.go(targets, iso, Some{cl})
+
 def submit_join.staged(+original: Cl.Client, +args: String, staged: Maybe<&2, Cl.Client>) -> Cl.Client & List<&2, String>:
   match staged:
     case None{}: (echo_err_server(original, "buffer limit reached"), empty_out())
@@ -393,6 +404,11 @@ def submit_join.valid(valid: Bool, +cl: Cl.Client, targets: List<&2, String>, +a
   match valid:
     case False{}: (echo_err(cl, "usage: /join #chan[,#chan] [key[,key]]"), empty_out())
     case True{}: submit_join.staged(cl, args, join_staged(targets, cl))
+
+def submit_join_iso.valid(valid: Bool, +iso: Is.State, +cl: Cl.Client, targets: List<&2, String>, +args: String) -> Cl.Client & List<&2, String>:
+  match valid:
+    case False{}: (echo_err(cl, "usage: /join #chan[,#chan] [key[,key]]"), empty_out())
+    case True{}: submit_join.staged(cl, args, join_staged_iso(iso, targets, cl))
 
 def submit_join.words(cl: Cl.Client, pair: String & String) -> Cl.Client & List<&2, String>:
   match pair:
@@ -417,10 +433,10 @@ def submit_join_iso.words(+iso: Is.State, cl: Cl.Client, pair: String & String) 
       +targets = String.split(target, Chr{44})
       +keys = String.split(key, Chr{44})
       +args = submit_join.args(target, key, Bool.not(String.is_empty(key)))
-      submit_join.valid(Bool.not(String.is_empty(target)) && join_channels_iso(targets, Bool.pick(List<&2, String>, String.is_empty(key), Nil{}, keys), iso)
+      submit_join_iso.valid(Bool.not(String.is_empty(target)) && join_channels_iso(targets, Bool.pick(List<&2, String>, String.is_empty(key), Nil{}, keys), iso)
         && Bool.not(String.contains(key, " "))
         && (String.is_empty(key) || Nat.is_le(List.length(&2, String, keys), List.length(&2, String, targets)))
-        && Nat.is_le(Irc.utf8_len(Irc.format_join(args)), Irc.LINE_MAX()), cl, targets, args)
+        && Nat.is_le(Irc.utf8_len(Irc.format_join(args)), Irc.LINE_MAX()), iso, cl, targets, args)
 
 def submit_join_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_join_iso.words(iso, cl, Irc.take_until_space(Irc.drop_spaces(rest)))
@@ -447,6 +463,9 @@ def submit_part.on(+cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.C
 def submit_part.with(+cl: Cl.Client, +chan: String) -> Cl.Client & List<&2, String>:
   submit_part.on(cl, chan, Cl.buf_find(cl, chan))
 
+def submit_part.with_cm(+cl: Cl.Client, +chan: String, +cm: String) -> Cl.Client & List<&2, String>:
+  submit_part.on(cl, chan, Cl.buf_find_cm(cl, cm, chan))
+
 def submit_part.is_ch(+cl: Cl.Client, +chan: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match is_chan:
     case True{}:
@@ -468,6 +487,13 @@ def submit_part.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client &
     case False{}:
       submit_part.is_ch(cl, rest, Irc.starts_channel(rest))
 
+def submit_part.is_ch_iso(+iso: Is.State, +cl: Cl.Client, +chan: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  match is_chan:
+    case True{}:
+      submit_part.with_cm(cl, chan, Is.casemapping(iso))
+    case False{}:
+      (echo_err(cl, "not a channel — use /close"), empty_out())
+
 def submit_part(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_part.empty(cl, rest, String.is_empty(rest))
 
@@ -477,14 +503,14 @@ def submit_part_iso.empty.on(+iso: Is.State, +cl: Cl.Client, +rest: String, serv
       (echo_err(cl, "usage: /part #chan"), empty_out())
     case False{}:
       +chan = Cl.active_buf_name(cl)
-      submit_part.is_ch(cl, chan, Is.is_channel(iso, chan))
+      submit_part.is_ch_iso(iso, cl, chan, Is.is_channel(iso, chan))
 
 def submit_part_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       submit_part_iso.empty.on(iso, cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
     case False{}:
-      submit_part.is_ch(cl, rest, Is.is_channel(iso, rest))
+      submit_part.is_ch_iso(iso, cl, rest, Is.is_channel(iso, rest))
 
 def submit_part_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_part_iso.empty(iso, cl, rest, String.is_empty(rest))
@@ -551,7 +577,7 @@ def submit_close_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty:
       +tgt = Cl.active_buf_name(cl)
       submit_close.drop_as(cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.is_channel(iso, tgt))
     case False{}:
-      submit_close_iso.on(cl, rest, Cl.buf_find(cl, rest), Is.is_channel(iso, rest))
+      submit_close_iso.on(cl, rest, Cl.buf_find_cm(cl, Is.casemapping(iso), rest), Is.is_channel(iso, rest))
 
 def submit_close_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_close_iso.empty(iso, cl, rest, String.is_empty(rest))
@@ -668,11 +694,14 @@ def mode_explicit_word(+iso: Is.State, +name: String) -> Bool:
 def negotiated_channel_shape(+iso: Is.State, +name: String) -> Bool:
   Bool.not(String.starts_with(name, "+")) && (Irc.starts_channel(name) || Is.is_channel(iso, name))
 
-def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
+def mode_resident_cm(bufs: List<&2, Cl.Buffer>, +cm: String, +target: String) -> Bool:
   match bufs:
     case Nil{}: False{}
     case Con{Cl.Buffer{+name, +channel, _, _, _, _, _, _}, rest}:
-      (channel && Irc.ieq(name, target)) || mode_resident(rest, target)
+      (channel && Cl.buf_eq_cm(cm, name, target)) || mode_resident_cm(rest, cm, target)
+
+def mode_resident(bufs: List<&2, Cl.Buffer>, +target: String) -> Bool:
+  mode_resident_cm(bufs, Cl.dflt_cm(), target)
 
 def mode_command.named_as(named: Bool, +cl: Cl.Client, +args: String, active_chan: Bool, first_chan: Bool) -> Maybe<&2, String>:
   match named:
@@ -701,7 +730,7 @@ def mode_command_iso.allowed(ok: Bool, +iso: Is.State, +cl: Cl.Client, +args: St
   match ok:
     case False{}: None{}
     case True{}:
-      mode_command.named_as(mode_resident(Cl.client_bufs(cl), first) || (plus_negotiated_channel(iso, first) && Bool.not(mode_flag_word(first))), cl, args,
+      mode_command.named_as(mode_resident_cm(Cl.client_bufs(cl), Is.casemapping(iso), first) || (plus_negotiated_channel(iso, first) && Bool.not(mode_flag_word(first))), cl, args,
         negotiated_channel_word(iso, Cl.active_buf_name(cl)), mode_channel_word(iso, first))
 
 def mode_command_iso.words(+iso: Is.State, +cl: Cl.Client, +args: String, pair: String & String) -> Maybe<&2, String>:

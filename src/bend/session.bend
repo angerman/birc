@@ -3105,8 +3105,8 @@ def session_submit_stored(+st: Session, +target: String, found: Maybe<&2, Nat>) 
 
 def session_submit_needs_dynamic_for_target(+st: Session, +target: String) -> Bool:
   +neg = session_chan_target(st, target)
-  +fix = Cl.message_key(session_cl(st), target)
-  Bool.not(String.eq(neg, fix)) || session_submit_stored(st, target, Cl.buf_find(session_cl(st), target))
+  +fix = Cl.message_key_with(session_cl(st), Isupport.as_iso(session_iso(st)), target)
+  Bool.not(String.eq(neg, fix)) || session_submit_stored(st, target, Cl.buf_find_cm(session_cl(st), session_cm(st), target))
 
 def session_submit_needs_dynamic.some(+st: Session, got: Maybe<&2, String>) -> Bool:
   match got:
