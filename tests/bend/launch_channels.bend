@@ -11,7 +11,8 @@ def initial(channels: String) -> Sess.Session:
   Sess.session_with_client_at(Cl.init("me", "irc.example"), channels, 6667)
 
 def welcome(st: Sess.Session) -> Sess.Session & List<&2, String>:
-  Sess.step_on_chunk(st, Fr.string_to_octets(":irc.example 001 me :welcome\r\n"))
+  # JOIN flush needs post-welcome MOTD (376/422), not 001 alone.
+  Sess.step_on_chunk(st, Fr.string_to_octets(":irc.example 001 me :welcome\r\n:irc.example 376 me :end of MOTD\r\n"))
 
 def wire(pair: Sess.Session & List<&2, String>) -> String:
   match pair:
@@ -22,7 +23,7 @@ def entered(st: Sess.Session, line: String) -> Sess.Session:
 
 def fresh() -> String:
   wire(Sess.step_on_chunk(entered(Sess.session_online(initial("#one,#two,+#third")), "/connect other.example 6667"),
-    Fr.string_to_octets(":other.example 001 me :welcome\r\n")))
+    Fr.string_to_octets(":other.example 001 me :welcome\r\n:other.example 376 me :end of MOTD\r\n")))
 
 def names(st: Sess.Session) -> String:
   String.join(Sess.session_desired_channels(st), "|")
