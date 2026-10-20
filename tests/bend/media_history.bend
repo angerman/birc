@@ -279,6 +279,9 @@ def admission.oldest_top(rows: List<&2, V.BodyRow>) -> String:
     case Con{V.BodyRow{_, _, _, _, _, spans, _}, _}: V.spans_text(spans)
     case Con{_, tail}: admission.oldest_top(tail)
 
+# − mid-history (admission.controls): BodyMedia expansion pushes the URL
+# above the viewport while ARCHIVE-25 bottom-pin holds. + at-oldest: fill
+# from the top so ARCHIVE-1 text/URL stay painted; PageUp does not move.
 def admission.oldest_controls() -> IO(Unit):
   +at = sbox(admission.oldest_session())
   +pending = sbox(S.session_observe_visible_media(sunbox(at)))
@@ -288,8 +291,9 @@ def admission.oldest_controls() -> IO(Unit):
     Unit <- E.must("at-oldest exposes ARCHIVE-1 URL before admission", String.contains(Anchor.rows_text(admission.rows(sunbox(at), 160)), admission.url()))
     Unit <- E.must_eq("at-oldest top source is ARCHIVE-1", admission.oldest_top(admission.rows(sunbox(at), 160)), "ARCHIVE-IMAGE " ++ admission.url())
     Unit <- E.must_eq("BodyMedia pending keeps at-oldest anchor", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(pending)))), "32:0")
-    Unit <- E.must("BodyMedia pending keeps oldest URL in viewport", String.contains(Anchor.rows_text(admission.rows(sunbox(pending), 160)), admission.url()))
-    Unit <- E.must_eq("PageUp at oldest stays", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(again)))), "32:0")
+    Unit <- E.must_eq("+ BodyMedia pending keeps ARCHIVE-1 as top source", admission.oldest_top(admission.rows(sunbox(pending), 160)), "ARCHIVE-IMAGE " ++ admission.url())
+    Unit <- E.must("+ BodyMedia pending keeps oldest URL in viewport", String.contains(Anchor.rows_text(admission.rows(sunbox(pending), 160)), admission.url()))
+    Unit <- E.must_eq("+ PageUp at oldest stays", Anchor.anchor(Anchor.active_buf(S.session_cl(sunbox(again)))), "32:0")
     IO.pure(Unit, Unit{})
 
 # The pinned native backend permits at most 247 flattened capture words
