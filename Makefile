@@ -1624,7 +1624,10 @@ test-sanitizers: test-asan test-ubsan test-ubsan-native test-png-bounds-ubsan te
 test-sanitizers: test-m20-native-ubsan
 test-sanitizers: test-ui-review-widgets-ubsan test-png-16bit-oom-ubsan
 
-test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat test-perf-hardening ## M7.5: idle, latency, and scale gates.
+# Hardening profiler is optional smoke (no wall/phase fail thresholds).
+# Keep real PTY latency/idle gates only so this target cannot soft-pass.
+test-perf-gates: test-pty-tickrate test-pty-paintwake test-pty-joinlat ## M7.5: idle and latency gates.
+
 
 check-hardening: proof proto-parity test-pty-hostile test-sanitizers test-perf-gates ## M7.3-M7.6 hardening gates.
 

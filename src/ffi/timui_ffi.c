@@ -489,6 +489,9 @@ static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
                             uint32_t clip_h, uint32_t token) {
   TimuiRect full, visible;
   TimuiImage *image = NULL;
+  BircPreview *preview = NULL;
+  BircPreview *reusable = NULL;
+  int i;
   int64_t top = (int64_t)y - clip_y;
   if (!frame || !bu || !ui || x > INT_MAX || y > INT_MAX ||
       width > INT_MAX || height > INT_MAX || clip_h > INT_MAX ||
@@ -497,10 +500,30 @@ static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
     return;
   full = (TimuiRect){(int)x, (int)top, (int)width, (int)height};
   visible = (TimuiRect){(int)x, (int)y, (int)width, (int)clip_h};
-  if (bu->preview_count < BIRC_PREVIEW_CAP) {
-    BircPreview *preview = &bu->previews[bu->preview_count++];
-    image = birc_preview_media(preview, ui, token);
+  /* Split panes may emit OpMedia twice for one ready token. Reuse that slot
+   * so a duplicate never burns a second of the eight preview slots. */
+  for (i = 0; i < BIRC_PREVIEW_CAP; i++) {
+    if (bu->previews[i].token != token)
+      continue;
+    if (bu->previews[i].image) {
+      preview = &bu->previews[i];
+      break;
+    }
+    if (!reusable)
+      reusable = &bu->previews[i];
   }
+  if (!preview)
+    preview = reusable;
+  if (!preview) {
+    if (bu->preview_count < BIRC_PREVIEW_CAP)
+      preview = &bu->previews[bu->preview_count++];
+  } else {
+    int idx = (int)(preview - bu->previews);
+    if (idx >= bu->preview_count)
+      bu->preview_count = idx + 1;
+  }
+  if (preview)
+    image = birc_preview_media(preview, ui, token);
   if (image)
     timui_image_draw_clipped(frame, image, full, visible);
   else

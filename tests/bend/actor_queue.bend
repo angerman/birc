@@ -200,10 +200,16 @@ def run_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
         Act.dial_begin.go(8n, h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
 
 def writer_after_queue(+mode: String, +target: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
-  do IO<Unit>:
-    _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
-    Unit <- setup_drop(String.eq(mode, "writerdialdrop"), cmd)
-    return Unit{}
+  match mode:
+    case "writerdialclose":
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
+        Chan.close(Sess.NetCmd, cmd)
+    case _:
+      do IO<Unit>:
+        _ : Result<&1, &1, Sess.NetCmd, Unit> <- Chan.send(Sess.NetCmd, cmd, Sess.Dial{"127.0.0.1", target, 2, "probe"})
+        Unit <- setup_drop(String.eq(mode, "writerdialdrop"), cmd)
+        return Unit{}
 
 def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match pair:
@@ -216,6 +222,7 @@ def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetC
 
 # Exercise writer_admit's recursive winner, independently of dial_begin:
 # Dial B followed by Drop must connect B but send zero registration bytes.
+# Dial B followed by cmd-close must cancel before dialing B at all.
 def run_writer_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
@@ -338,6 +345,8 @@ def args(xs: List<&1, String>) -> IO(Unit):
       after_port(U32.read(p), U32.read(n), "afterdialclose")
     case Con{_, Con{p, Con{_, Con{n, Con{"writerdialdrop", Nil{}}}}}}:
       writer_after_port(U32.read(p), U32.read(n), "writerdialdrop")
+    case Con{_, Con{p, Con{_, Con{n, Con{"writerdialclose", Nil{}}}}}}:
+      writer_after_port(U32.read(p), U32.read(n), "writerdialclose")
     case Con{_, Con{p, Con{_, Con{n, Con{"writerdialregister", Nil{}}}}}}:
       writer_after_port(U32.read(p), U32.read(n), "writerdialregister")
     case Con{_, Con{p, Con{_, Con{n, Con{"dialauthscope", Nil{}}}}}}:

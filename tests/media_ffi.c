@@ -138,10 +138,49 @@ static int cache_frame_ownership(void) {
   birc_media_clear(&state->media); free(state); clock_paused = 0;
   CHECK(fixture_stop(&fixture) == 0); return 0;
 }
+/* Duplicate OpMedia for one ready token (split panes) must reuse the slot. */
+static int duplicate_token_reuses_preview(void) {
+  SinkFixture fixture; Timui *ui; BircUi *state; Env env = {0}; Term fields[3];
+  char text[256]; uint32_t token; int flags;
+  TimuiTransportWrite saved; TimuiFrame *frame = NULL;
+  TimuiTransport transport = {NULL, media_read, NULL, NULL, NULL};
+  TimuiAllocator allocator = timui_default_allocator();
+  TimuiImage *painted;
+  CHECK(fixture_start(&fixture) == 0); clock_paused = 1; clock_seconds = 1;
+  CHECK(timui_open_for_test(&ui, transport, 8, 4, &allocator) == TIMUI_OK);
+  ui->fd.write_fd = fixture.fds[0][1]; install_writer(ui);
+  state = calloc(1, sizeof *state); CHECK(state); ui->cfg.userdata = state; birc_ui_live = ui;
+  fields[0] = io_hand((uint64_t)(uintptr_t)ui); helper_output(text, 0);
+  fields[1] = (Term)(uintptr_t)text; fields[2] = CID_NIL;
+  token = (uint32_t)timui_media_add_run(env, fields, NULL); CHECK(token != 0);
+  timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
+  ui->fd.write_owner = 3; /* refuse physical write; assert slot reuse only */
+  saved = birc_output_begin(ui, &flags);
+  CHECK(timui_begin(ui, &frame));
+  state->preview_count = 0;
+  birc_media_prune(ui, state);
+  birc_draw_media(frame, state, ui, 1, 1, 2, 2, 0, 2, token);
+  birc_draw_media(frame, state, ui, 4, 1, 2, 2, 0, 2, token);
+  CHECK(state->preview_count == 1);
+  painted = state->previews[0].image;
+  CHECK(painted && state->previews[0].token == token);
+  CHECK(state->previews[1].image == NULL && state->previews[1].token == 0);
+  CHECK(ui->img_place_count == 2);
+  CHECK(ui->img_place[0].img == painted && ui->img_place[1].img == painted);
+  timui_end(frame);
+  birc_output_end(ui, saved, flags);
+  CHECK(captured_len[0] == 0 && state->output.size > 0);
+  memset(&ui->transport, 0, sizeof ui->transport);
+  birc_ui_live = NULL; timui_close(ui); birc_output_destroy(&state->output);
+  birc_media_clear(&state->media); free(state); clock_paused = 0;
+  CHECK(fixture_stop(&fixture) == 0); return 0;
+}
+
 int main(void) {
   media_debug = fdopen(dup(STDERR_FILENO), "w");
   CHECK(image_support_probe() == 0);
   CHECK(cache_frame_ownership() == 0);
+  CHECK(duplicate_token_reuses_preview() == 0);
   if (media_debug) fclose(media_debug);
   puts("media_ffi=ok"); return 0;
 }

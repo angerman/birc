@@ -115,8 +115,10 @@ def main() -> None:
     post_upgrade_winner(binary, "afterdialdrop")
     post_upgrade_winner(binary, "afterdialclose")
     # writer_admit parity: post-Dial Drop cancels the recursive winner before
-    # registration; without Drop the same winner sends the full handshake.
+    # registration; cmd-close with a queued Dial must not dial B at all;
+    # without Drop/close the same winner sends the full handshake.
     writer_admit_winner(binary, "writerdialdrop", [])
+    writer_admit_winner(binary, "writerdialclose", [])
     writer_admit_winner(binary, "writerdialregister", HANDSHAKE)
     # − A held launch superseded to another endpoint loses SASL scope.
     # + Superseding to the exact launch endpoint retains it.
@@ -325,12 +327,13 @@ def post_upgrade_winner(binary: str, mode: str) -> None:
 
 
 def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
-    """Queue Dial B at writer_admit's upgraded-A seam, with optional Drop."""
+    """Queue Dial B at writer_admit's upgraded-A seam, with optional Drop/close."""
     with socket.socket() as first_server, socket.socket() as winner_server:
         first_server.bind(("127.0.0.1", 0))
         first_server.listen(1)
         winner_server.bind(("127.0.0.1", 0))
         winner_server.listen(1)
+        winner_server.settimeout(2)
         child = subprocess.Popen(
             [
                 binary, str(first_server.getsockname()[1]), "1",
@@ -341,14 +344,25 @@ def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
         first = winner = None
         try:
             first, _ = first_server.accept()
-            winner, _ = winner_server.accept()
-            winner_wire, stdout, stderr = collect_child(child, winner)
-            first.settimeout(1)
-            first_wire = first.recv(65536)
-            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
-            assert first_wire == b"", (mode, "abandoned A wrote bytes", first_wire)
-            actual = winner_wire.decode().splitlines()
-            assert actual == expected, (mode, actual, expected)
+            if mode == "writerdialclose":
+                first_wire, stdout, stderr = collect_child(child, first)
+                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+                assert first_wire == b"", (mode, "closed A wrote bytes", first_wire)
+                try:
+                    winner, _ = winner_server.accept()
+                except TimeoutError:
+                    winner = None
+                else:
+                    raise AssertionError((mode, "closed command retried Dial B"))
+            else:
+                winner, _ = winner_server.accept()
+                winner_wire, stdout, stderr = collect_child(child, winner)
+                first.settimeout(1)
+                first_wire = first.recv(65536)
+                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+                assert first_wire == b"", (mode, "abandoned A wrote bytes", first_wire)
+                actual = winner_wire.decode().splitlines()
+                assert actual == expected, (mode, actual, expected)
         finally:
             if child.poll() is None:
                 child.kill()

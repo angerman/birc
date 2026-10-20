@@ -1140,16 +1140,24 @@ def join_admit.base(+st: State, +name: String, +key: String, base: Bool) -> Bool
     case False{}: join_swap(st, name, key)
     case True{}: join_len(st, name)
 
-# Join names need a CHANTYPES head (defaults or advertised). A leading
-# STATUSMSG sigil alone (`@#room`) is never a joinable channel identity.
+# Join names need a CHANTYPES head (defaults or advertised). `@` never begins
+# a stored channel (AGENTS), even when a pathological `CHANTYPES=@#` burst
+# lists it — so `@#room` stays a STATUSMSG audience, not a JOIN target.
+# `+#room` remains joinable whenever `+` is in CHANTYPES.
 def join_admit.types(+ch: Chans) -> String:
   match ch:
     case Chans{+types, _, _, _, _, _, _, _, _}: types
 
+def join_admit.head.ok(+types: String, +h: Char, typed: Bool) -> Bool:
+  match typed:
+    case False{}: False{}
+    # '@' = Chr{64}
+    case True{}: Bool.not(Char.is_eq(h, Chr{64}))
+
 def join_admit.head.name(+types: String, +name: String) -> Bool:
   match name:
     case SNil{}: False{}
-    case SCon{+h, _}: has_char(types, h)
+    case SCon{+h, _}: join_admit.head.ok(types, h, has_char(types, h))
 
 def join_admit.head(+st: State, +name: String) -> Bool:
   match st:

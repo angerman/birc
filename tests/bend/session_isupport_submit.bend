@@ -224,6 +224,7 @@ def plus_resident_keeps_plus_room() -> Bool:
   +isc = Is.as_iso(iso)
   +cl = submit_client(Sub.submit_with(iso, base(), "/join +#room"))
   String.eq(Cl.message_key_with(cl, isc, "+#room"), "+#room")
+    && String.eq(submit_wire(Sub.submit_with(iso, base(), "/join +#room")), "JOIN +#room")
 
 # After CHANTYPES drops `+`, a resident `+#room` still wins over STATUSMSG strip.
 def plus_resident_under_hash_chantypes() -> Bool:
@@ -233,13 +234,25 @@ def plus_resident_under_hash_chantypes() -> Bool:
   String.eq(Cl.message_key_with(cl, isc, "+#room"), "+#room")
     && String.eq(Is.chan_target_cl(iso, cl, "+#room"), "+#room")
 
-# `@` is never a CHANTYPES head — join/part/close must refuse `@#room`.
+# `@` never begins a stored channel — join/part/close must refuse `@#room`.
 def reject_statusmsg_join_part_close() -> Bool:
   +iso = Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# STATUSMSG=@ :are supported")
   +cl = submit_client(Sub.submit_with(iso, base(), "/join #room"))
   String.is_empty(submit_wire(Sub.submit_with(iso, base(), "/join @#room")))
     && String.is_empty(submit_wire(Sub.submit_with(iso, cl, "/part @#room")))
     && String.is_empty(submit_wire(Sub.submit_with(iso, cl, "/close @#room")))
+
+# Pathological `CHANTYPES=@#`: `@` is listed as a type but still cannot begin
+# a joinable channel; `#room` stays admitted.
+def at_hash_chantypes_server() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=@# STATUSMSG=@ :are supported")
+
+def reject_statusmsg_when_at_is_chantype() -> Bool:
+  +iso = at_hash_chantypes_server()
+  String.is_empty(submit_wire(Sub.submit_with(iso, base(), "/join @#room")))
+    && Bool.not(Is.join_admit(iso, "@#room", ""))
+    && String.eq(submit_wire(Sub.submit_with(iso, base(), "/join #room")), "JOIN #room")
+    && Is.join_admit(iso, "#room", "")
 
 # Ascii casemap lookup returns the stored buffer spelling, not the folded key.
 def ascii_message_key_keeps_stored_case() -> Bool:
@@ -426,6 +439,7 @@ def main() -> IO(Unit):
     Unit <- E.must("resident plus-channel keeps its stored spelling", plus_resident_keeps_plus_room())
     Unit <- E.must("resident plus-channel wins after CHANTYPES drops plus", plus_resident_under_hash_chantypes())
     Unit <- E.must("STATUSMSG-only join/part/close targets are rejected", reject_statusmsg_join_part_close())
+    Unit <- E.must("STATUSMSG audience rejected when at is also a CHANTYPE", reject_statusmsg_when_at_is_chantype())
     Unit <- E.must("ascii message keys keep stored buffer case", ascii_message_key_keeps_stored_case())
     Unit <- E.must("STATUSMSG strips at most one leading sigil", plus_statusmsg_no_double_strip())
     IO.print("session_isupport_submit=ok")
