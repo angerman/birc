@@ -323,7 +323,11 @@ def ph_cache_admit() -> IO(Unit):
   # nonzero; zero-prefer keeps all 7nz + the new token.
   +mixed_z : List<&2, M.MediaReady> = M.MediaReady{M.Inline{0n}, url(0n), 0} <> ready(7n, 1n)
   +mixed : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, mixed_z, M.Supported{}}
+  +blind_mixed : M.State = M.State{True{}, 1n, 101n, None{}, Nil{},
+    List.take(&2, M.MediaReady, M.MediaReady{M.Inline{100n}, url(100n), 100} <> mixed_z, M.CAP()), M.Supported{}}
   +mixed_done : M.State = M.complete(mixed, client(), 1n, 100n, url(100n), 100)
+  # Same hazard when media_add returns 0 into a ready that still has zeros.
+  +mixed_zero_done : M.State = M.complete(mixed, client(), 1n, 100n, url(100n), 0)
   do IO<Unit>:
     Unit <- E.must("prospective native set retains selected visible token", token_has(M.retained_tokens(protected), 8) && Bool.not(token_has(M.retained_tokens(protected), 1)))
     Unit <- E.must("control shows unchanged completion FIFO would evict visible token", token_has(M.retained_tokens(legacy), 1) && Bool.not(token_has(M.retained_tokens(legacy), 8)))
@@ -343,10 +347,17 @@ def ph_cache_admit() -> IO(Unit):
       && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
     Unit <- E.must("- speculative complete at CAP drops a live retained token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(speculative)), 7n)
       && Bool.not(token_has(M.retained_tokens(speculative), 8)))
+    Unit <- E.must("- blind take at CAP 7nz+1z drops a nonzero", Nat.is_eq(List.length(&2, U32, M.retained_tokens(blind_mixed)), 7n)
+      && Bool.not(token_has(M.retained_tokens(blind_mixed), 7))
+      && token_has(M.retained_tokens(blind_mixed), 100)
+      && Nat.is_eq(M.ready_count(blind_mixed), 8n))
     Unit <- E.must("+ complete at CAP 7nz+1z keeps nonzero and new token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(mixed_done)), 8n)
       && token_has(M.retained_tokens(mixed_done), 1) && token_has(M.retained_tokens(mixed_done), 7)
       && token_has(M.retained_tokens(mixed_done), 100)
       && Bool.not(token_has(M.retained_tokens(mixed_done), 0)))
+    Unit <- E.must("+ complete(..., 0) at CAP 7nz+1z drops the zero not a nonzero", Nat.is_eq(List.length(&2, U32, M.retained_tokens(mixed_zero_done)), 7n)
+      && token_has(M.retained_tokens(mixed_zero_done), 1) && token_has(M.retained_tokens(mixed_zero_done), 7)
+      && Nat.is_eq(M.ready_count(mixed_zero_done), 8n))
     Unit <- E.must("+ admit_retained keeps every current owner at CAP", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)
       && token_has(M.admit_retained(hidden), 8) && Bool.not(M.admit_room(hidden)))
     # Headless Net.on_media gate (mirror wsnet): never speculative retain;
