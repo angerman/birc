@@ -503,14 +503,14 @@ def submit_part_iso.empty.on(+iso: Is.State, +cl: Cl.Client, +rest: String, serv
       (echo_err(cl, "usage: /part #chan"), empty_out())
     case False{}:
       +chan = Cl.active_buf_name(cl)
-      submit_part.is_ch_iso(iso, cl, chan, Is.is_channel(iso, chan))
+      submit_part.is_ch_iso(iso, cl, chan, Is.join_admit(iso, chan, ""))
 
 def submit_part_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       submit_part_iso.empty.on(iso, cl, rest, Nat.is_eq(Cl.active_of(cl), 0n))
     case False{}:
-      submit_part.is_ch_iso(iso, cl, rest, Is.is_channel(iso, rest))
+      submit_part.is_ch_iso(iso, cl, rest, Is.join_admit(iso, rest, ""))
 
 def submit_part_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_part_iso.empty(iso, cl, rest, String.is_empty(rest))
@@ -575,9 +575,9 @@ def submit_close_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty:
   match empty:
     case True{}:
       +tgt = Cl.active_buf_name(cl)
-      submit_close.drop_as(cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.is_channel(iso, tgt))
+      submit_close.drop_as(cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.join_admit(iso, tgt, ""))
     case False{}:
-      submit_close_iso.on(cl, rest, Cl.buf_find_cm(cl, Is.casemapping(iso), rest), Is.is_channel(iso, rest))
+      submit_close_iso.on(cl, rest, Cl.buf_find_cm(cl, Is.casemapping(iso), rest), Is.join_admit(iso, rest, ""))
 
 def submit_close_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_close_iso.empty(iso, cl, rest, String.is_empty(rest))

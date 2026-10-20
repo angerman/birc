@@ -92,7 +92,7 @@ def target_key_with(+types: String, +status: String, +sigils: String, +raw: Stri
   target_key_with.name(types, status, sigils, target_name(raw))
 
 # STATUSMSG fallback for a message audience, never for a stored channel name.
-# `message_key` first resolves ambiguous audiences against resident channels.
+# `message_key_with` first resolves ambiguous audiences against resident channels.
 def target_key(+raw: String) -> String:
   target_key_with(dflt_types(), dflt_status(), dflt_sigils(), raw)
 
@@ -1113,35 +1113,9 @@ def buf_find_cm(+cl: Client, +cm: String, +name: String) -> Maybe<&2, Nat>:
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
   buf_find_cm(cl, dflt_cm(), name)
 
-# A + channel may itself be named +#room. At message boundaries, prefer an
-# exact resident channel to interpreting its leading + as a STATUSMSG prefix.
-# @ cannot begin a channel name, so @#room always remains an audience alias.
-def message_key.resident(+name: String, got: Maybe<&2, Buffer>) -> String:
-  match got:
-    case Some{Buffer{_, channel, _, _, _, _, _, _}}: Bool.pick(String, channel, name, target_key(name))
-    case None{}: target_key(name)
-
-def message_key.found(+cl: Client, +name: String, found: Maybe<&2, Nat>) -> String:
-  match cl:
-    case Client{_, _, bufs, _, _, _, _, _}:
-      match found:
-        case None{}: target_key(name)
-        case Some{i}: message_key.resident(name, nth_buf(bufs, i))
-
-def message_key.head(+cl: Client, +name: String, actual_channel: Bool) -> String:
-  match actual_channel:
-    case False{}: target_key(name)
-    case True{}: message_key.found(cl, name, buf_find(cl, name))
-
-def message_key.name(+cl: Client, +name: String) -> String:
-  match name:
-    case SNil{}: ""
-    case SCon{+h, +t}: message_key.head(cl, SCon{h, t}, Irc.is_chan_type(h))
-
-def message_key(+cl: Client, +raw: String) -> String:
-  message_key.name(cl, target_name(raw))
-
-def message_key_with.resident(+types: String, +status: String, +sigils: String, +name: String, got: Maybe<&2, Buffer>) -> String:
+# A + channel may itself be named +#room. Exact resident under casemap wins
+# even when + is absent from CHANTYPES; `@` never begins a stored channel.
+def message_key_with.resident(+name: String, got: Maybe<&2, Buffer>) -> String:
   match got:
     case Some{Buffer{+bufname, _, _, _, _, _, _, _}}:
       # Any resident hit keeps the stored spelling so pending overlays match
@@ -1156,32 +1130,37 @@ def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&
       match found:
         # One STATUSMSG strip only — audience already applied target_key_with.
         case None{}: name
-        case Some{i}: message_key_with.resident(iso_types(isc), iso_status(isc), iso_sigils(isc), name, nth_buf(bufs, i))
+        case Some{i}: message_key_with.resident(name, nth_buf(bufs, i))
 
-# STATUSMSG / non-chantype heads (`@#foo`) strip first, then resolve resident.
+# STATUSMSG / non-resident heads strip once, then resolve resident.
 def message_key_with.audience(+cl: Client, +isc: Iso, +name: String) -> String:
   +key = target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
   message_key_with.found(cl, isc, key, buf_find_cm(cl, iso_cm(isc), key))
 
-# Chantype hit: prefer exact resident (so +#room stays +#room). Miss: treat as
-# STATUSMSG audience (strip +/@ then find), even when + is also a CHANTYPE.
+# Exact resident under casemap wins (so +#room stays +#room even when + is
+# not in CHANTYPES). Miss: one STATUSMSG strip, then find.
 def message_key_with.chan(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
   match found:
     case Some{+i}: message_key_with.found(cl, isc, name, Some{i})
     case None{}: message_key_with.audience(cl, isc, name)
 
-def message_key_with.head(+cl: Client, +isc: Iso, +name: String, actual_channel: Bool) -> String:
-  match actual_channel:
-    case False{}: message_key_with.audience(cl, isc, name)
-    case True{}: message_key_with.chan(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
+# `@` never begins a stored channel — strip first. Every other head tries
+# the exact resident spelling before STATUSMSG fallback.
+def message_key_with.at(+cl: Client, +isc: Iso, +name: String, at_head: Bool) -> String:
+  match at_head:
+    case True{}: message_key_with.audience(cl, isc, name)
+    case False{}: message_key_with.chan(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
 
 def message_key_with.name(+cl: Client, +isc: Iso, +name: String) -> String:
   match name:
     case SNil{}: ""
-    case SCon{+h, +t}: message_key_with.head(cl, isc, SCon{h, t}, has_ch(iso_types(isc), h))
+    case SCon{+h, +t}: message_key_with.at(cl, isc, SCon{h, t}, Char.is_eq(h, Chr{64}))
 
 def message_key_with(+cl: Client, +isc: Iso, +raw: String) -> String:
   message_key_with.name(cl, isc, target_name(raw))
+
+def message_key(+cl: Client, +raw: String) -> String:
+  message_key_with(cl, Iso.defaults(), raw)
 
 def empty_buf.nicks.server(is_srv: Bool, +name: String) -> List<&2, String>:
   match is_srv:

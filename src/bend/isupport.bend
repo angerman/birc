@@ -742,18 +742,23 @@ def chan_target(+st: State, +s: String) -> String:
   match st:
     case State{+ch, +pv, _, _, _, _}: chan_target.ch(ch, pv, s)
 
-# Resident-first audience routing (mirrors Cl.message_key): a `+` channel may
-# itself be named `+#room`, so an exact resident buffer keeps its full name
-# and only a non-resident audience falls back to STATUSMSG stripping.
-def chan_target_cl.found(+st: State, +s: String, found: Maybe<&2, Nat>) -> String:
+# Resident-first audience routing (mirrors Cl.message_key_with): a `+` channel
+# may itself be named `+#room`, so an exact resident buffer keeps its stored
+# spelling and only a non-resident audience falls back to STATUSMSG stripping.
+def chan_target_cl.resident(+s: String, got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case Some{Cl.Buffer{+bufname, _, _, _, _, _, _, _}}: bufname
+    case None{}: s
+
+def chan_target_cl.found(+st: State, +cl: Cl.Client, +s: String, found: Maybe<&2, Nat>) -> String:
   match found:
-    case Some{_}: s
+    case Some{+i}: chan_target_cl.resident(s, Cl.nth_buf(Cl.client_bufs(cl), i))
     case None{}: chan_target(st, s)
 
 def chan_target_cl(+st: State, +cl: Cl.Client, +s: String) -> String:
   match st:
     case State{_, _, _, _, +cm, _}:
-      chan_target_cl.found(st, s, Cl.buf_find_cm(cl, cm, s))
+      chan_target_cl.found(st, cl, s, Cl.buf_find_cm(cl, cm, s))
 
 # ---- nick privileges ------------------------------------------------------
 
@@ -1135,12 +1140,32 @@ def join_admit.base(+st: State, +name: String, +key: String, base: Bool) -> Bool
     case False{}: join_swap(st, name, key)
     case True{}: join_len(st, name)
 
+# Join names need a CHANTYPES head (defaults or advertised). A leading
+# STATUSMSG sigil alone (`@#room`) is never a joinable channel identity.
+def join_admit.types(+ch: Chans) -> String:
+  match ch:
+    case Chans{+types, _, _, _, _, _, _, _, _}: types
+
+def join_admit.head.name(+types: String, +name: String) -> Bool:
+  match name:
+    case SNil{}: False{}
+    case SCon{+h, _}: has_char(types, h)
+
+def join_admit.head(+st: State, +name: String) -> Bool:
+  match st:
+    case State{+ch, _, _, _, _, _}: join_admit.head.name(join_admit.types(ch), name)
+
+def join_admit.typed(+st: State, +name: String, +key: String, typed: Bool) -> Bool:
+  match typed:
+    case False{}: False{}
+    case True{}: join_admit.base(st, name, key, Channels.valid(name, key))
+
 # Base channel policy applies first; server bounds (types, CHANNELLEN) add
 # on only after a 005 burst, so an absent burst changes nothing. A base
 # rejection retries through the advertised-type swap above, so `is_channel`
 # and `join_admit` agree on every advertised type.
 def join_admit(+st: State, +name: String, +key: String) -> Bool:
-  join_admit.base(st, name, key, Channels.valid(name, key))
+  join_admit.typed(st, name, key, join_admit.head(st, name))
 
 # ---- accessors ------------------------------------------------------------
 
