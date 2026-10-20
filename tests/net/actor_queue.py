@@ -111,6 +111,8 @@ def main() -> None:
     post_upgrade(binary, "bootlsdrop")
     post_upgrade(binary, "bootlsclose")
     post_upgrade(binary, "bootlsregister")
+    # bootlskept is live: (−) Booted before kept flush fails the child;
+    # (+) Booted only after writer_kept, then SEND_CAP wire oracles hold.
     post_upgrade(binary, "bootlskept")
     # − >SEND_CAP kept Cont under frames=1 sends at most 8 wire lines.
     # + count=0 bootlskept still delivers the single PING after handshake.

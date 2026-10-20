@@ -172,10 +172,56 @@ def after_closed(st: Act.Writer, enabled: Bool, +cmd: Chan(Sess.NetCmd)) -> IO(U
         Unit <- IO.print("held")
         IO.print("closed")
 
-def after_finished(ready: Act.DialReady, +frames: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+# (−) Booted must not be posted before writer_kept. (+) After kept + arm_reader,
+# live success yields Booted (headless registration-armed contract).
+def after_boot_idle(p: Poll<&1, &1, Maybe<&1, Act.Boot>, Unit>) -> Bool:
+  match p:
+    case Wait{_}: True{}
+    case Ready{_}: False{}
+
+def after_boot_gate.ok(idle: Bool) -> IO(Unit):
+  match idle:
+    case True{}: IO.pure(Unit, Unit{})
+    case False{}: IO.die(Unit, 1, "Booted before kept flush")
+
+def after_boot_gate(+live: Bool, +boot: Chan(Act.Boot)) -> IO(Unit):
+  match live:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        pol : Poll<&1, &1, Maybe<&1, Act.Boot>, Unit> <- Chan.try_recv(Act.Boot, boot, 0)
+        after_boot_gate.ok(after_boot_idle(pol))
+
+def after_boot_armed.got(g: Maybe<&1, Act.Boot>) -> IO(Unit):
+  match g:
+    case Some{Act.Booted{}}: IO.pure(Unit, Unit{})
+    case _: IO.die(Unit, 1, "expected Booted after kept")
+
+def after_boot_armed(+live: Bool, +boot: Chan(Act.Boot)) -> IO(Unit):
+  match live:
+    case False{}: IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        g : Maybe<&1, Act.Boot> <- Chan.recv(Act.Boot, boot)
+        after_boot_armed.got(g)
+
+def after_armed(st: Act.Writer, reader: Maybe<&1, Tr.Conn>, +live: Bool, enabled: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Act.Boot), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match st:
+    case Act.Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, +scheduled}:
+      do IO<Unit>:
+        Unit <- Act.arm_reader(reader, live, gen, evt, boot, cmd)
+        Unit <- after_boot_armed(live, boot)
+        after_closed(Act.Writer{sock, gen, pending, pending_txn, next_txn, budget, scheduled}, enabled, cmd)
+
+def after_finished.go(+live: Bool, st: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, +kept: List<&2, Sess.NetCmd>, reader: Maybe<&1, Tr.Conn>, enabled: Bool, +frames: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Act.Boot), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- after_boot_gate(live, boot)
+    Act.writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), Act.writer_adopt(st, Out.budget_frames(frames), 1), evt, cmd, True{}, final => after_armed(final, reader, live, enabled, evt, boot, cmd))
+
+def after_finished(ready: Act.DialReady, +frames: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Act.Boot), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match ready:
-    case Act.DialReady{st, +kept, Act.AuthScope{_, _, enabled}}:
-      Act.writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), Act.writer_adopt(st, Out.budget_frames(frames), 1), evt, cmd, True{}, final => after_closed(final, enabled, cmd))
+    case Act.DialReady{st, +kept, Act.AuthScope{_, _, enabled}, reader, +live}:
+      after_finished.go(live, st, kept, reader, enabled, frames, evt, boot, cmd)
 
 def after_kept.go(ping: Bool, +count: U32, +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
   match ping:
@@ -244,16 +290,21 @@ def after_auth_scope.on(drop_scope: Bool, +port: U32) -> Act.AuthScope:
 def after_auth_scope(+port: U32, +mode: String) -> Act.AuthScope:
   after_auth_scope.on(String.eq(mode, "afterdialdrop"), port)
 
+# bootlskept runs live so Booted is posted after kept — encodes kept-before-Booted.
+def after_live(+mode: String) -> Bool:
+  String.eq(mode, "bootlskept")
+
 def run_after(sock: Socket, +port: U32, +target: U32, +frames: U32, +count: U32, +mode: String) -> IO(Unit):
+  +live = after_live(mode)
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)
     +cmd : Chan(Sess.NetCmd) <- Chan.new(Sess.NetCmd, 128)
     +boot : Chan(Act.Boot) <- Chan.new(Act.Boot, 1)
     Unit <- after_queue(mode, target, count, cmd)
-    Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, False{},
+    Act.after_conn(Done{Tr.Plain{sock}}, "probe", 1, evt, boot, cmd, live,
       after_auth_scope(port, mode),
       Act.AdmitAcc{None{}, Nil{}, Nil{}, False{}, False{}},
-      pair => after_finished(pair, frames, evt, cmd),
+      pair => after_finished(pair, frames, evt, boot, cmd),
       h2 => p2 => g2 => n2 => scope2 => carry2 => k2 =>
         Act.dial_begin.go(h2, p2, False{}, n2, g2, evt, boot, cmd, False{}, scope2, carry2, k2))
 

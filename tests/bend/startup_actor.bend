@@ -1,6 +1,8 @@
 # An initial failure must not kill the actor with a newer Dial queued.
 # (-) Down / absent reject headless may_await; setup cancel posts Down.
 # (+) Booted may_await; successful initial boot still posts Booted.
+# Booted is posted only after adopt + writer_kept (kept Cont/Pong before
+# headless frames); see actor_queue bootlskept kept-before-Booted gate.
 import Base
 import ./expect.bend as E
 import ../../src/bend/actor.bend as Act

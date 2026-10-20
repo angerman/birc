@@ -320,9 +320,26 @@ type AuthScope is Data:
 
 # DialReady.state is the adopted writer socket; kept Cont/Pong/Drop ride
 # through writer_kept at adopt (same Out.batch / SEND_CAP path as
-# writer_admit_won). Fail/cancel paths carry Nil kept.
+# writer_admit_won) BEFORE Booted / reader Up. reader is Some{dup} on
+# success so dial_ready_adopt can arm only after that flush; fail/cancel
+# carry None reader and Nil kept (cancel already posted Down when live).
 type DialReady is Type:
-  DialReady{state: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, kept: List<&2, Sess.NetCmd>, scope: AuthScope}
+  DialReady{state: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, kept: List<&2, Sess.NetCmd>, scope: AuthScope, reader: Maybe<&1, Tr.Conn>, live: Bool}
+
+def dial_ready_none(+gen: U32, +scope: AuthScope, live: Bool) -> DialReady:
+  DialReady{(None{}, gen, Nil{}), Nil{}, scope, None{}, live}
+
+# Post Booted (when live) and spawn reader Up only after kept Cont/Pong
+# have been adopted — headless treats Booted as registration-armed.
+def arm_reader(reader: Maybe<&1, Tr.Conn>, live: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd)) -> IO(Unit):
+  match reader:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{dup}:
+      do IO<Unit>:
+        Unit <- arm_ready(live, boot)
+        Unit <- IO.spawn(Unit, reader_start(dup, evt, gen, cmd))
+        return Unit{}
 
 def arm_fail(
   live: Bool,
@@ -337,28 +354,23 @@ def arm_fail(
     case True{}:
       do IO<Unit>:
         Unit <- boot_down(boot, msg)
-        k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
+        k(dial_ready_none(gen, scope, True{}))
     case False{}:
       do IO<Unit>:
         Unit <- IO.spawn(Unit, writer_fail(evt, gen, msg))
-        k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
+        k(dial_ready_none(gen, scope, False{}))
 
+# Success returns sock+kept+dup without Booted/Up; adopt flushes kept first.
 def arm_ok(
   sock: Tr.Conn,
   dup: Tr.Conn,
   +kept: List<&2, Sess.NetCmd>,
   +gen: U32,
-  +evt: Chan(Sess.UiMsg),
-  +boot: Chan(Boot),
-  +cmd: Chan(Sess.NetCmd),
   live: Bool,
   +scope: AuthScope,
   k: DialReady -> IO(Unit)
 ) -> IO(Unit):
-  do IO<Unit>:
-    Unit <- arm_ready(live, boot)
-    Unit <- IO.spawn(Unit, reader_start(dup, evt, gen, cmd))
-    k(DialReady{(Some{sock}, gen, Nil{}), kept, scope})
+  k(DialReady{(Some{sock}, gen, Nil{}), kept, scope, Some{dup}, live})
 
 def arm_dup(
   pair: Tr.Conn & Result<&1, &1, U32 & String, Tr.Conn>,
@@ -379,7 +391,7 @@ def arm_dup(
             Unit <- Tr.close(sock)
             arm_fail(live, boot, evt, gen, err_msg(e), scope, k)
         case Done{dup}:
-          arm_ok(sock, dup, kept, gen, evt, boot, cmd, live, scope, k)
+          arm_ok(sock, dup, kept, gen, live, scope, k)
 
 def after_reg(
   pair: Tr.Conn & Bool,
@@ -791,6 +803,13 @@ def writer_admit_failed(e: U32 & String, +gen: U32, +evt: Chan(Sess.UiMsg), +sco
     Unit <- IO.spawn(Unit, writer_fail(evt, gen, err_msg(e)))
     k((Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}}, scope))
 
+def writer_admit_dup_ok(dup: Tr.Conn, +closed: Bool, st: Writer, +scope: AuthScope, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
+  match st:
+    case Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, +scheduled}:
+      do IO<Unit>:
+        Unit <- IO.spawn(Unit, reader_start(dup, evt, gen, cmd))
+        writer_admit_done(closed, Writer{sock, gen, pending, pending_txn, next_txn, budget, scheduled}, scope, evt, cmd, k)
+
 def writer_admit_dup_r(r: Result<&1, &1, U32 & String, Tr.Conn>, sock: Tr.Conn, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match r:
     case Fail{e}:
@@ -799,9 +818,8 @@ def writer_admit_dup_r(r: Result<&1, &1, U32 & String, Tr.Conn>, sock: Tr.Conn, 
         Unit <- IO.spawn(Unit, writer_fail(evt, gen, err_msg(e)))
         writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), Writer{None{}, gen, Nil{}, Nil{}, next_txn, budget, False{}}, evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
     case Done{dup}:
-      do IO<Unit>:
-        Unit <- IO.spawn(Unit, reader_start(dup, evt, gen, cmd))
-        writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt((Some{sock}, gen, Nil{}), budget, next_txn), evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
+      # Adopt + kept Cont/Pong before reader Up (parity with arm_ok / dial_ready_adopt).
+      writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt((Some{sock}, gen, Nil{}), budget, next_txn), evt, cmd, True{}, final => writer_admit_dup_ok(dup, closed, final, scope, evt, cmd, k))
 
 def writer_admit_dup(d: Tr.Conn & Result<&1, &1, U32 & String, Tr.Conn>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   match d:
@@ -930,17 +948,17 @@ def writer_peek(+fuel: Nat, +cmd: Chan(Sess.NetCmd), +setup_gen: U32, +acc: Admi
         pair : AdmitAcc & Bool <- writer_peek.polled(pol, setup_gen, acc)
         writer_peek.cont(pair, next => writer_peek(p, cmd, setup_gen, next))
 
-def dial_cancel(live: Bool, +boot: Chan(Boot), sock: Socket, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
+def dial_cancel(+live: Bool, +boot: Chan(Boot), sock: Socket, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Socket.close(sock)
     Unit <- arm_cancel(live, boot)
-    k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
+    k(dial_ready_none(gen, scope, live))
 
-def dial_conn_cancel(live: Bool, +boot: Chan(Boot), sock: Tr.Conn, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
+def dial_conn_cancel(+live: Bool, +boot: Chan(Boot), sock: Tr.Conn, +gen: U32, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Tr.close(sock)
     Unit <- arm_cancel(live, boot)
-    k(DialReady{(None{}, gen, Nil{}), Nil{}, scope})
+    k(dial_ready_none(gen, scope, live))
 
 def after_conn_open(closed: Bool, dropped: Bool, +kept: List<&2, Sess.NetCmd>, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, k: DialReady -> IO(Unit)) -> IO(Unit):
   match closed:
@@ -1303,12 +1321,20 @@ def writer_go(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot
 def writer_go_tls(st: Writer, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), has_sasl: Bool) -> IO(Unit):
   writer_loop((st, AuthScope{"", 0, has_sasl}), evt, cmd, boot, True{})
 
-# Same sequence as writer_admit_won: adopt, replay kept through Out.batch, then
-# enter the writer loop. Residual pending stays on the Writer for later pumps.
+def dial_ready_armed(st: Writer, reader: Maybe<&1, Tr.Conn>, live: Bool, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), scope: AuthScope, force_tls: Bool) -> IO(Unit):
+  match st:
+    case Writer{sock, +gen, +pending, +pending_txn, +next_txn, budget, +scheduled}:
+      do IO<Unit>:
+        Unit <- arm_reader(reader, live, gen, evt, boot, cmd)
+        writer_loop((Writer{sock, gen, pending, pending_txn, next_txn, budget, scheduled}, scope), evt, cmd, boot, force_tls)
+
+# Same sequence as writer_admit_won / writer_admit_dup_r success: adopt, replay
+# kept through Out.batch, THEN Booted + reader Up. Residual pending stays on
+# the Writer for later pumps. Headless must not see Booted while kept is unsent.
 def dial_ready_adopt(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), budget: Out.Budget, force_tls: Bool) -> IO(Unit):
   match ready:
-    case DialReady{st, +kept, scope}:
-      writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt(st, budget, 1), evt, cmd, True{}, final => writer_loop((final, scope), evt, cmd, boot, force_tls))
+    case DialReady{st, +kept, scope, reader, live}:
+      writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt(st, budget, 1), evt, cmd, True{}, final => dial_ready_armed(final, reader, live, evt, cmd, boot, scope, force_tls))
 
 def actor_boot_adopt(ready: DialReady, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +boot: Chan(Boot), frames: U32, force_tls: Bool) -> IO(Unit):
   dial_ready_adopt(ready, evt, cmd, boot, Out.budget_frames(frames), force_tls)
