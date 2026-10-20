@@ -2746,11 +2746,11 @@ def ws_histload.reload_match(pending: Maybe<&2, Nat>, +ticket: Nat, +gen: U32, +
     case Some{+want}:
       Nat.is_eq(want, ticket) && U32.is_eq(gen, got_gen) && String.eq(ep, cur)
 
-def ws_histload.mid(ok: Bool, +st: Sess.Session, +snapshot: Cl.Client, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+def ws_histload.mid(ok: Bool, +st: Sess.Session, +snapshot: Cl.Client, +ep: String, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match ok:
     case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
     case True{}:
-      +cl2 = HistStart.install_startup(HistStart.report_diagnostics(Sess.session_cl(st), snapshot), snapshot)
+      +cl2 = HistStart.install_startup(HistStart.report_diagnostics(Sess.session_cl(st), snapshot, ep, ep), snapshot, ep, ep)
       +ws_new = ws_replace(ws, id, Sess.session_set_client(st, cl2))
       +cards2 = ws_cards_all.hot_set(cards, ws_hot.clear_ticket(ws_cards_all.hot(cards), id))
       do IO<Unit>:
@@ -2764,7 +2764,7 @@ def ws_histload.after(accepted: Bool, got: PrefLive.Context & Sess.Session, +bef
     case False{}:
       match got:
         case (+pctx, _):
-          ws_histload.mid(ws_histload.reload_match(ws_tickets.get(ws_hot.tickets_of(ws_cards_all.hot(cards)), ws_id_nat(id)), ticket, gen, got_gen, ep, Net.session_endpoint(st)), st, snapshot, ws, id, ui, main, cmds, evts, pevts, ack, scheduled, bell, pctx, media, owner, ups, notify, cards, begun, k)
+          ws_histload.mid(ws_histload.reload_match(ws_tickets.get(ws_hot.tickets_of(ws_cards_all.hot(cards)), ws_id_nat(id)), ticket, gen, got_gen, ep, Net.session_endpoint(st)), st, snapshot, ep, ws, id, ui, main, cmds, evts, pevts, ack, scheduled, bell, pctx, media, owner, ups, notify, cards, begun, k)
 
 def ws_histload.done(got: PrefLive.Context & Sess.Session, +before: PrefLive.Context, +before_seq: Nat, +st: Sess.Session, +snapshot: Cl.Client, +ticket: Nat, +got_gen: U32, +ep: String, +gen: U32, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match got:
@@ -3095,12 +3095,10 @@ def ws_shut.settle(+ctx: PrefLive.Context) -> Bool:
 def ws_shut.ready(+done: Bool, +hist: Bool, +writers: Bool) -> Bool:
   Bool.not(ws_shut.need(Bool.not(done), hist, writers))
 
-# Drain timeout / PreferencesDeadline may arm for hist or writers while prefs
-# are already idle. Blame prefs (408 notice + ok=False) only when still busy.
+# Shared settle-gated blame with LoadedPrefs.expired (prefs-only drain uses
+# the same helper). Idle quiet; busy still 408-blames.
 def ws_shut.expired(+settled: Bool, +st: Sess.Session, +ok: Bool) -> Sess.Session & Bool:
-  match settled:
-    case True{}: (st, ok)
-    case False{}: (LoadedPrefs.notice(408, "drain", st), False{})
+  LoadedPrefs.expired(settled, st, ok)
 
 def ws_shut.fire_state.go(result: Sess.Session & Bool, +ctx: PrefLive.Context, +id: Key.ServerId, +started: U32) -> WsShut:
   match result:

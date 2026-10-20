@@ -64,12 +64,24 @@ def active(ctx: Context) -> Bool:
 def waiting(ctx: Context) -> Bool:
   R.waiting(state(ctx))
 
+# Prefs settle is live !busy — never a sticky latch past a later start.
+def settle(+ctx: Context) -> Bool:
+  Bool.not(busy(ctx))
+
 def notice(code: U32, +stage: String, +st: Sess.Session) -> Sess.Session:
   match code:
     case 0: st
     case _:
       Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{},
         "preferences " ++ stage ++ " failed (code: " ++ U32.show(code) ++ ")"))
+
+# Drain timeout / PreferencesDeadline may arrive after prefs already idle
+# (ws_shut arms for hist/writers too). Blame prefs (408 notice + ok=False)
+# only when still busy; idle keeps the prior ok without a manufactured notice.
+def expired(+settled: Bool, +st: Sess.Session, +ok: Bool) -> Sess.Session & Bool:
+  match settled:
+    case True{}: (st, ok)
+    case False{}: (notice(408, "drain", st), False{})
 
 def observe.returned(names: Maybe<&2, List<&2, String>>, +st: Sess.Session) -> Sess.Session:
   match names:
@@ -148,6 +160,9 @@ def drain.result(result: Context & Sess.Session & List<&2, String> & Bool, k: Co
   match result:
     case (ctx, st, _, _): k(ctx, st)
 
+def drain.deadline(+ctx: Context, +st: Sess.Session) -> Sess.Session & Bool:
+  expired(settle(ctx), st, R.clean(state(ctx)))
+
 def drain.message(got: Maybe<&1, Sess.UiMsg>, +ctx: Context, +st: Sess.Session, +gen: U32, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match got:
     case None{}: IO.pure(Sess.Session & Bool, (notice(1, "drain", st), False{}))
@@ -155,12 +170,12 @@ def drain.message(got: Maybe<&1, Sess.UiMsg>, +ctx: Context, +st: Sess.Session, 
       match msg:
         case Sess.PreferencesLoaded{ticket, prefs, code}: drain.result(loaded(ctx, st, gen, ticket, prefs, code), k)
         case Sess.PreferencesSaved{ticket, code}: drain.result(saved(ctx, st, ticket, code), k)
-        case Sess.PreferencesDeadline{_}: IO.pure(Sess.Session & Bool, (notice(408, "drain", st), False{}))
+        case Sess.PreferencesDeadline{_}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st))
         case _: k(ctx, st)
 
 def drain.within(ok: Bool, ctx: Context, +st: Sess.Session, +evt: Chan(Sess.UiMsg), gen: U32, k: Context -> Sess.Session -> IO(Sess.Session & Bool)) -> IO(Sess.Session & Bool):
   match ok:
-    case False{}: IO.pure(Sess.Session & Bool, (notice(408, "drain", st), False{}))
+    case False{}: IO.pure(Sess.Session & Bool, drain.deadline(ctx, st))
     case True{}:
       do IO<Sess.Session & Bool>:
         next : Context <- start(ctx, evt)
