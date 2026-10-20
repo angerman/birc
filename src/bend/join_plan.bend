@@ -509,11 +509,13 @@ def received.control(welcome: Bool, motd: Bool, state: State, cl: Cl.Client, +m:
       match state:
         case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
     case False{} True{}:
-      # MOTD marks registration complete even before 001; flush still waits for
-      # welcome (and auth). Coupling motd_done to was_welcome left early 376/422
-      # stuck with motd_done=False after a later welcome.
+      # Post-welcome MOTD only. Early 376/422 must not arm flush for a later
+      # 001 (Session out-of-order oracle); was_welcome gates motd_done.
       match state:
-        case State{desired, was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, True{}}
+        case State{desired, True{}, sent, barrier, held, revision, _}:
+          State{desired, True{}, sent, barrier, held, revision, True{}}
+        case State{desired, False{}, sent, barrier, held, revision, _}:
+          State{desired, False{}, sent, barrier, held, revision, False{}}
     case False{} False{}: received.command(state, cl, m, Irc.classify(m))
 
 def received.parsed(state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
@@ -545,8 +547,12 @@ def received.control_with(+cm: String, welcome: Bool, motd: Bool, state: State, 
       match state:
         case State{desired, _, sent, barrier, held, revision, motd_done}: State{desired, True{}, sent, barrier, held, revision, motd_done}
     case False{} True{}:
+      # Same post-welcome gate as received.control (keep iso/non-iso twins aligned).
       match state:
-        case State{desired, was_welcome, sent, barrier, held, revision, _}: State{desired, was_welcome, sent, barrier, held, revision, True{}}
+        case State{desired, True{}, sent, barrier, held, revision, _}:
+          State{desired, True{}, sent, barrier, held, revision, True{}}
+        case State{desired, False{}, sent, barrier, held, revision, _}:
+          State{desired, False{}, sent, barrier, held, revision, False{}}
     case False{} False{}: received.command_with(cm, state, cl, m, Irc.classify(m))
 
 def received.parsed_with(+cm: String, state: State, +cl: Cl.Client, +line: String, parsed: Maybe<&2, Irc.Message>) -> State:
