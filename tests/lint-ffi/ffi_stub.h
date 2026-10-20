@@ -45,7 +45,6 @@ typedef Term (*Effect)(Env e, Term *f, IoWork *w);
 #define CID_TIMUI_FRAME 8u
 #define CID_TIMUI_CLOSE 9u
 #define CID_HHMMSS 10u
-#define CID_LOCAL_SECS 12u
 #define CID_MILLIS 27u
 #define CID_RECV_OCTETS 11u
 #define CID_RECV_NB 24u

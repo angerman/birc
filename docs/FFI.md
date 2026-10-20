@@ -51,8 +51,6 @@ when an effect is added or removed.
 | CID | C file | Bend declaration |
 |---|---|---|
 | `CID_UTC_LOCAL_PARTS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law utc_local_parts`) |
-| `CID_LOCAL_SECS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_secs`) |
-| `CID_LOCAL_CIVIL` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_civil`) |
 | `CID_LOCAL_NOW` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law local_now`) |
 | `CID_MILLIS` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law millis`) |
 | `CID_NET_TRACE` | `src/ffi/clock_ffi.c` | `src/bend/clock.bend` (`law net_trace`) |
@@ -272,9 +270,9 @@ type DrawOp is Data:
 
 `--replay FILE` is `File.open`/`File.read` → `replay_lines` → `feed_all` (fail
 closed if missing). Demo/offline share the live `Timui.frame` loop via an idle
-actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `local_secs`
-is a thin localtime FFI; Bend sets `Client.now` at the IO edge so `buf_log_ts`
-stores `Line.ts` at log time.
+actor that waits for `NetCmd.Dial` (never a `Socket` on a Chan). `local_now`
+is one localtime FFI (civil + seconds-of-day); Bend sets `Client.now` at the
+IO edge so `buf_log_ts` stores `Line.ts` at log time.
 
 ## K1 — input actor
 

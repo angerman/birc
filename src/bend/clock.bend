@@ -15,12 +15,6 @@ def fmt_sod(+n: U32) -> String:
 def fmt_hms_ok() -> Bool:
   Fmt.fmt_hms_ok()
 
-law local_secs:
-  IO(U32)
-
-def local_secs():
-  import "../ffi/clock_ffi.c"
-
 law millis:
   IO(U32)
 
@@ -41,26 +35,22 @@ law net_trace:
 def net_trace(stage, txn, count):
   import "../ffi/clock_ffi.c"
 
-def hhmmss() -> IO(String):
-  do IO<String>:
-    n : U32 <- local_secs()
-    return Fmt.fmt_sod(n)
-
-# Local calendar day for channel dividers. ymd is year*10000+month*100+day.
-# wday is libc tm_wday: 0 = Sunday.
-law local_civil:
-  IO(U32 & U32)
-
-def local_civil():
-  import "../ffi/clock_ffi.c"
-
-# One localtime snapshot: ymd, wday, seconds-of-day. stamp() must use this so
-# midnight cannot tear day and HMS across two FFI reads.
+# One localtime snapshot: ymd, wday, seconds-of-day. stamp() and hhmmss()
+# share this so midnight cannot tear day and HMS across two FFI reads.
 law local_now:
   IO(U32 & U32 & U32)
 
 def local_now():
   import "../ffi/clock_ffi.c"
+
+def hhmmss.sod(parts: U32 & U32 & U32) -> String:
+  match parts:
+    case (+ymd, w, s): Fmt.fmt_sod(s)
+
+def hhmmss() -> IO(String):
+  do IO<String>:
+    parts : U32 & U32 & U32 <- local_now()
+    return hhmmss.sod(parts)
 
 def weekday.sat(sat: Bool) -> String:
   match sat:

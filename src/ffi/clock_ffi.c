@@ -19,9 +19,6 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-#ifndef CID_LOCAL_SECS
-#define CID_LOCAL_SECS CID(local_secs)
-#endif
 #ifndef CID_MILLIS
 #define CID_MILLIS CID(millis)
 #endif
@@ -30,9 +27,6 @@
 #endif
 #ifndef CID_UTC_LOCAL_PARTS
 #define CID_UTC_LOCAL_PARTS CID(utc_local_parts)
-#endif
-#ifndef CID_LOCAL_CIVIL
-#define CID_LOCAL_CIVIL CID(local_civil)
 #endif
 #ifndef CID_LOCAL_NOW
 #define CID_LOCAL_NOW CID(local_now)
@@ -114,34 +108,8 @@ static struct birc_local_now birc_local_now_read(void) {
   return out;
 }
 
-#if CID_LOCAL_CIVIL
-/* yyyymmdd and tm_wday (0 = Sunday). Bend formats the channel day bar. */
-Term local_civil_run(Env e, Term *f, IoWork *w) {
-  struct birc_local_now now = birc_local_now_read();
-  (void)f;
-  (void)w;
-  return io_tup(e, (Term)now.ymd, (Term)now.wday);
-}
-static void __attribute__((constructor)) local_civil_use(void) {
-  io_eff(CID_LOCAL_CIVIL, local_civil_run);
-}
-#endif
-
-#if CID_LOCAL_SECS
-Term local_secs_run(Env e, Term *f, IoWork *w) {
-  struct birc_local_now now = birc_local_now_read();
-  (void)e;
-  (void)f;
-  (void)w;
-  return (Term)now.sod;
-}
-static void __attribute__((constructor)) local_secs_use(void) {
-  io_eff(CID_LOCAL_SECS, local_secs_run);
-}
-#endif
-
 #if CID_LOCAL_NOW
-/* Atomic ymd, wday, seconds-of-day for Clock.stamp (no midnight tear). */
+/* Atomic ymd, wday, seconds-of-day for Clock.stamp / hhmmss. */
 Term local_now_run(Env e, Term *f, IoWork *w) {
   struct birc_local_now now = birc_local_now_read();
   (void)f;

@@ -46,4 +46,6 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("leap second", stamp(leap), "08:59:60")
     Unit <- E.must_eq("stamp_join keeps one civil+sod snapshot", Clock.stamp_join(20261020, 2, 3661), "2026-10-20 (Tuesday)|01:01:01")
     Unit <- E.must_eq("stamp_join fails closed on zero civil", Clock.stamp_join(0, 0, 1), "")
+    Unit <- E.must_eq("hhmmss formats sod from the shared clock path", Clock.fmt_sod(3661), "01:01:01")
+    Unit <- E.must_eq("buffer strip defaults match sigils+extra", Cl.dflt_strip(), "@+~&%")
     IO.print("clock_local_demo=ok")

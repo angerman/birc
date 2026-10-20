@@ -20,8 +20,13 @@ def dflt_status() -> String:
 def dflt_sigils() -> String:
   "@+"
 
+# Same composition as isupport.dflt_strip (sigils then extra); buffer cannot
+# import isupport, so the extra fragment lives here once.
+def dflt_extra() -> String:
+  "~&%"
+
 def dflt_strip() -> String:
-  "@+~&%"
+  dflt_sigils() ++ dflt_extra()
 
 def dflt_cm() -> String:
   "rfc1459"
