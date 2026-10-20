@@ -91,6 +91,22 @@ def request() -> U.Request:
 def switch_target(+st: Sess.Session) -> Sess.Session:
   Sess.session_set_client(st, Cl.set_active(Sess.session_cl(st), 0n))
 
+# R7 H1: dial/autoreconnect must clear Confirm via session_set_net.
+def after_dial(+st: Sess.Session) -> Sess.Session:
+  Sess.session_after(st, Sess.Dial{"irc.example", 6667, 0, "me"})
+
+def with_autoreconn(+st: Sess.Session) -> Sess.Session:
+  +cl = Sess.session_cl(st)
+  Sess.session_set_client(st, Cl.set_settings(cl, Cl.set_autoreconn(Cl.get_settings(cl), True{})))
+
+def auto_st(pair: Sess.Session & Sess.NetCmd) -> Sess.Session:
+  match pair:
+    case (st, _): st
+
+# Offline with a fresh Confirm+presented (set_net Offline clears first).
+def offline_presented() -> Sess.Session:
+  shown(Sess.session_set_upload(Sess.session_set_net(presented(), Sess.Offline{}), U.Confirm{request(), Nil{}}))
+
 def nick_client() -> Cl.Client:
   Feed.feed(Feed.feed(Sess.session_cl(online()), ":alice!u@h JOIN :+#room"), ":adam!u@h JOIN :+#room")
 
@@ -220,6 +236,16 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("set_net Offline clears Confirm consent", phase(Sess.session_upload(Sess.session_set_net(presented(), Sess.Offline{}))), "idle")
     Unit <- E.must_eq("set_net Offline keeps Busy owner cancelled", phase(Sess.session_upload(Sess.session_set_net(busy(), Sess.Offline{}))), "busy:False")
     Unit <- E.must_eq("cancel reconnect clears Confirm consent", phase(Sess.session_upload(Sess.session_cancel_reconnect(presented()))), "idle")
+    Unit <- E.must_eq("same-endpoint dial clears Confirm consent", phase(Sess.session_upload(after_dial(presented()))), "idle")
+    Unit <- E.must("same-endpoint dial clears presentation", Bool.not(Sess.session_upload_presented(after_dial(presented()))))
+    Unit <- E.must_eq("same-endpoint dial keeps Busy owner cancelled", phase(Sess.session_upload(after_dial(busy()))), "busy:False")
+    Unit <- E.must_eq("dial→online cannot revive Confirm", phase(Sess.session_upload(Sess.session_reconnected(after_dial(presented()), "12:00:00"))), "idle")
+    Unit <- E.must_eq("F8 after dial→online without new warning", take_path(Sess.session_upload_take(key_state(Sess.session_upload_key(Sess.session_reconnected(after_dial(presented()), "12:00:00"), 22, 0)))), "none")
+    Unit <- E.must_eq("new warning after dial→online authorizes", take_path(Sess.session_upload_take(key_state(Sess.session_upload_key(shown(Sess.st_of_keys(Sess.step_enter(Sess.session_reconnected(after_dial(presented()), "12:00:00"), "/upload '/tmp/private file.txt'"))), 22, 0)))), "/tmp/private file.txt")
+    Unit <- E.must_eq("autoreconnect clears Confirm consent", phase(Sess.session_upload(auto_st(Sess.session_autoreconnect(with_autoreconn(offline_presented()))))), "idle")
+    Unit <- E.must("autoreconnect clears presentation", Bool.not(Sess.session_upload_presented(auto_st(Sess.session_autoreconnect(with_autoreconn(offline_presented()))))))
+    Unit <- E.must_eq("autoreconnect→online cannot revive Confirm", phase(Sess.session_upload(Sess.session_reconnected(auto_st(Sess.session_autoreconnect(with_autoreconn(offline_presented()))), "12:00:00"))), "idle")
+    Unit <- E.must_eq("F8 after autoreconnect→online without new warning", take_path(Sess.session_upload_take(key_state(Sess.session_upload_key(Sess.session_reconnected(auto_st(Sess.session_autoreconnect(with_autoreconn(offline_presented()))), "12:00:00"), 22, 0)))), "none")
     Unit <- E.must_eq("demo upload refuses without worker", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_enter(Sess.session_demo(Sess.session_cl(online()), "+#room"), "/upload /tmp/a")))), "idle")
     Unit <- E.must_eq("control buffer upload refuses", phase(Sess.session_upload(Sess.st_of_keys(Sess.step_enter(switch_target(online()), "/upload /tmp/a")))), "idle")
     Unit <- E.must_eq("ordinary message remains exact", wire(Sess.step_enter(online(), "ordinary text")), "PRIVMSG +#room :ordinary text")

@@ -1456,11 +1456,6 @@ def session_outs_admitted(+st: Session, +outs: List<&2, String>) -> Bool:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +isobox, _, _, _, _, labelsbox, +pends}: session_outs_admitted.go(unbox_iso(isobox), outs)
 
-def session_online(+st: Session) -> Session:
-  match st:
-    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
-      Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
-
 def session_cl(+st: Session) -> Cl.Client:
   match st:
     case Session{+cl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
@@ -1896,6 +1891,12 @@ def session_set_net(st: Session, net: NetState) -> Session:
     case Session{cl, drop, rem, draft, joined, chan, _, hist, size, seed, comp, split, typing, port, media, plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
       session_upload_maintain(Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends})
 
+def session_online(+st: Session) -> Session:
+  match st:
+    case Session{+cl, drop, +rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+      # JoinPlan.sent then Online via session_set_net so upload consent is maintained.
+      session_set_net(Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, Offline{}, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}, Online{})
+
 def session_reconnected.on(was_off: Bool, +st: Session, +now: String) -> Session:
   match was_off:
     case False{}:
@@ -2218,7 +2219,8 @@ def session_autoreconnect.st(
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(server, port))
   # Same-endpoint reconnect: Media resets, but text cards and their worker
   # generation survive; the overlay revalidates against the reset Media.
-  Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Reconnecting{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}
+  # Reconnecting via session_set_net: Confirm/Armed cannot survive the dial.
+  session_set_net(Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}, Reconnecting{})
 
 def session_autoreconnect.reaped(reaped: String & Bool, +draft: String) -> String:
   match reaped:
@@ -2382,7 +2384,9 @@ def session_after.dial(
   +next = JoinPlan.endpoint(same, plan, chan, cl2, port)
   +iso2 = Isupport.endpoint(same, iso)
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(host, port))
-  Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, next_net, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}
+  # Connecting/Reconnecting via session_set_net: connection transitions drop
+  # Confirm/Armed so dial→online cannot F8 without a new warning frame.
+  session_set_net(Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}, next_net)
 
 def session_rebox(+st: Session) -> Session:
   match st:
