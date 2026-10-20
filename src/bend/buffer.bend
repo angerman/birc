@@ -1156,10 +1156,17 @@ def message_key_with.audience(+cl: Client, +isc: Iso, +name: String) -> String:
   +key = target_key_with(iso_types(isc), iso_status(isc), iso_sigils(isc), name)
   message_key_with.found(cl, isc, key, buf_find_cm(cl, iso_cm(isc), key))
 
+# Chantype hit: prefer exact resident (so +#room stays +#room). Miss: treat as
+# STATUSMSG audience (strip +/@ then find), even when + is also a CHANTYPE.
+def message_key_with.chan(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
+  match found:
+    case Some{+i}: message_key_with.found(cl, isc, name, Some{i})
+    case None{}: message_key_with.audience(cl, isc, name)
+
 def message_key_with.head(+cl: Client, +isc: Iso, +name: String, actual_channel: Bool) -> String:
   match actual_channel:
     case False{}: message_key_with.audience(cl, isc, name)
-    case True{}: message_key_with.found(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
+    case True{}: message_key_with.chan(cl, isc, name, buf_find_cm(cl, iso_cm(isc), name))
 
 def message_key_with.name(+cl: Client, +isc: Iso, +name: String) -> String:
   match name:
