@@ -54,7 +54,8 @@ def sasl_controls() -> IO(Unit):
     Unit <- E.must_eq("peer SASL acknowledgement cannot start exchange", R.wire(R.chunk(st, ":peer!u@h CAP me ACK :sasl\r\n")), "")
     Unit <- E.must_eq("wrong recipient SASL acknowledgement cannot start exchange", R.wire(R.chunk(st, ":irc CAP other ACK :sasl\r\n")), "")
     Unit <- E.must_eq("short-server SASL success advances once", A.seq(R.state(R.chunk(waiting, ":irc 903 me :ok\r\n:irc 903 me :duplicate\r\n"))), "1")
-    Unit <- E.must_eq("unprefixed SASL success advances once", A.seq(R.state(R.chunk(waiting, "903 me :ok\r\n903 me :duplicate\r\n"))), "1")
+    # 903 requires a fail-closed server_source (AUTHENTICATE + is the empty-prefix exception).
+    Unit <- E.must_eq("unprefixed SASL success advances once", A.seq(R.state(R.chunk(waiting, "903 me :ok\r\n903 me :duplicate\r\n"))), "0")
     Unit <- E.must_eq("peer SASL success cannot advance", A.seq(R.state(R.chunk(waiting, ":peer!u@h 903 me :fake\r\n"))), "0")
     Unit <- E.must_eq("wrong recipient SASL success cannot advance", A.seq(R.state(R.chunk(waiting, ":irc 903 other :fake\r\n"))), "0")
     IO.pure(Unit, Unit{})
