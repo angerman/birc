@@ -36,9 +36,10 @@ def load(stage: Stage, ticket: Nat, prefs: Maybe<&2, P.Preferences>) -> Stage:
   match stage:
     case Stage{ctx, st}: completed(L.loaded(ctx, st, 1, ticket, prefs, 0))
 
-def up(stage: Stage, host: String) -> Stage:
+def up(stage: Stage, +host: String) -> Stage:
   match stage:
-    case Stage{ctx, st}: Stage{ctx, Rec.state(Rec.chunk(S.session_reconnected(st, ""), ":" ++ host ++ " 001 me :welcome\r\n"))}
+    # JOIN flush needs post-welcome MOTD; hold/release still owned by prefs write.
+    case Stage{ctx, st}: Stage{ctx, Rec.state(Rec.chunk(S.session_reconnected(st, ""), ":" ++ host ++ " 001 me :welcome\r\n:" ++ host ++ " 376 me :end of MOTD\r\n"))}
 
 def command(stage: Stage, text: String) -> Stage:
   match stage:
@@ -78,9 +79,9 @@ def flush_wire(result: L.Context & S.Session & List<&2, String> & Bool) -> Strin
   match result:
     case (_, st, outs, _): String.join(outs, "|") ++ "/" ++ Rec.wire(S.session_resume_joins(st))
 
-def held_wire(stage: Stage, host: String) -> String:
+def held_wire(stage: Stage, +host: String) -> String:
   match stage:
-    case Stage{_, st}: Rec.wire(Rec.chunk(st, ":" ++ host ++ " 001 me :welcome\r\n"))
+    case Stage{_, st}: Rec.wire(Rec.chunk(st, ":" ++ host ++ " 001 me :welcome\r\n:" ++ host ++ " 376 me :end of MOTD\r\n"))
 
 def names(stage: Stage) -> String:
   match stage:

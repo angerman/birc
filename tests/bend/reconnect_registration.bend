@@ -7,8 +7,9 @@ import ./reconnect_auth.bend as A
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/session.bend as Sess
 
+# JOIN flush needs post-welcome MOTD (376/422), not 001 alone.
 def welcome(+nick: String) -> String:
-  ":irc.example 001 " ++ nick ++ " :welcome\r\n"
+  ":irc.example 001 " ++ nick ++ " :welcome\r\n:irc.example 376 " ++ nick ++ " :end of MOTD\r\n"
 
 def nick(st: Sess.Session) -> String:
   Cl.nick_of(Sess.session_cl(st))
@@ -56,7 +57,7 @@ def framed_controls() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must_eq("partial welcome emits no JOIN", R.wire(R.chunk(initial(), ":irc.example 001 Guest42 :wel")), "")
     Unit <- E.must_eq("partial welcome leaves requested nick unchanged", nick(partial), "me")
-    Unit <- E.must_eq("completed partial welcome assigns nick and joins", R.wire(R.chunk(partial, "come\r\n")), "JOIN #start")
+    Unit <- E.must_eq("completed partial welcome assigns nick and joins", R.wire(R.chunk(partial, "come\r\n:irc.example 376 Guest42 :end of MOTD\r\n")), "JOIN #start")
     Unit <- E.must_eq("held welcome still establishes nickname", nick(held), "Guest42")
     Unit <- E.must_eq("held welcome cannot be replaced by a second assignment", nick(R.state(R.chunk(held, welcome("other")))), "Guest42")
     Unit <- E.must_eq("settings release uses accepted held welcome", R.wire(Sess.session_resume_joins(held)), "JOIN #start")
