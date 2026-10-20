@@ -412,6 +412,10 @@ def prefs_deadline_done(+shut: WsNet.WsShut) -> Bool:
   match shut:
     case WsNet.WsShut{_, _, _, _, _, _, _, +done, _}: done
 
+def prefs_deadline_ok(+shut: WsNet.WsShut) -> Bool:
+  match shut:
+    case WsNet.WsShut{_, _, _, _, _, +ok, _, _, _}: ok
+
 def prefs_deadline_noticed(+shut: WsNet.WsShut) -> Bool:
   match shut:
     case WsNet.WsShut{_, _, +st, _, _, _, _, _, _}:
@@ -421,6 +425,15 @@ def prefs_deadline_noticed(+shut: WsNet.WsShut) -> Bool:
 def prefs_deadline_quiet(+shut: WsNet.WsShut) -> Bool:
   match shut:
     case WsNet.WsShut{_, _, +st, _, _, True{}, _, _, _}:
+      String.eq(Sess.session_draft(st), "preserved draft")
+        && Nat.is_eq(List.length(&2, Cl.Buffer, Cl.log_buffers(Sess.session_cl(st))), 0n)
+    case _: False{}
+
+# Idle PreferencesDeadline after a failed Loaded/Saved: keep ok=False without
+# manufacturing a fresh 408 prefs blame notice.
+def prefs_deadline_failed_quiet(+shut: WsNet.WsShut) -> Bool:
+  match shut:
+    case WsNet.WsShut{_, _, +st, _, _, False{}, _, _, _}:
       String.eq(Sess.session_draft(st), "preserved draft")
         && Nat.is_eq(List.length(&2, Cl.Buffer, Cl.log_buffers(Sess.session_cl(st))), 0n)
     case _: False{}
@@ -608,13 +621,17 @@ def prefs_ph_deadline() -> IO(Unit):
   +idle = prefs_ctx(PR.Disabled{})
   +st = sbox(prefs_draft_st())
   do IO<Unit>:
-    Unit <- E.must("deadline while busy does not sticky-done", Bool.not(prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}))))
-    Unit <- E.must("deadline while busy blames prefs", prefs_deadline_blamed(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{})))
-    Unit <- E.must("deadline while idle settles prefs done", prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, True{})))
-    Unit <- E.must("deadline while idle does not sticky-blame prefs", prefs_deadline_quiet(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, True{})))
-    Unit <- E.must("deadline keeps outstanding history", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}), True{}))
-    Unit <- E.must("deadline keeps cleared history false", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, False{}), False{}))
+    Unit <- E.must("deadline while busy does not sticky-done", Bool.not(prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}, True{}))))
+    Unit <- E.must("deadline while busy blames prefs", prefs_deadline_blamed(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}, True{})))
+    Unit <- E.must("deadline while idle settles prefs done", prefs_deadline_done(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, True{}, True{})))
+    Unit <- E.must("deadline while idle does not sticky-blame prefs", prefs_deadline_quiet(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, True{}, True{})))
+    Unit <- E.must("deadline idle after failed write keeps ok false", Bool.not(prefs_deadline_ok(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, False{}, True{}))))
+    Unit <- E.must("deadline idle after failed write stays quiet", prefs_deadline_failed_quiet(WsNet.ws_shut.deadline_state([s0(), s1()], idle, sunbox(st), s1(), 1234, False{}, True{})))
+    Unit <- E.must("deadline busy after failed write still blames", prefs_deadline_blamed(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, False{}, True{})))
+    Unit <- E.must("deadline keeps outstanding history", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}, True{}), True{}))
+    Unit <- E.must("deadline keeps cleared history false", prefs_deadline_hist(WsNet.ws_shut.deadline_state([s0(), s1()], write, sunbox(st), s1(), 1234, True{}, False{}), False{}))
     Unit <- E.must("fire hist/writer stall preserves ok without prefs notice", prefs_deadline_quiet(WsNet.ws_shut.fire_state(idle, sunbox(st), s1(), True{}, 1234)))
+    Unit <- E.must("fire hist/writer stall keeps prior failed ok", Bool.not(prefs_deadline_ok(WsNet.ws_shut.fire_state(idle, sunbox(st), s1(), False{}, 1234))))
     Unit <- E.must("fire prefs stall still blames prefs", prefs_deadline_blamed(WsNet.ws_shut.fire_state(write, sunbox(st), s1(), True{}, 1234)))
     Unit <- E.must("fire prefs stall forces done and clears hist", prefs_deadline_done(WsNet.ws_shut.fire_state(write, sunbox(st), s1(), True{}, 1234)) && Bool.not(prefs_deadline_hist(WsNet.ws_shut.fire_state(write, sunbox(st), s1(), True{}, 1234), True{})))
     Unit <- E.must("settle tracks live busy not sticky latch", WsNet.ws_shut.settle(idle) && Bool.not(WsNet.ws_shut.settle(write)))

@@ -3144,15 +3144,16 @@ def ws_shut.deadline_kept(+shut: WsShut) -> Bool:
 
 # PreferencesDeadline settles prefs only when still busy (!settle). History
 # stays until WsHistDone or the shared drain budget in ws_shut.fire; never
-# sticky-done past a still-busy PrefLive context, and never sticky-blame
-# prefs when the arm was only for hist/writers.
+# sticky-done past a still-busy PrefLive context, never sticky-blame prefs
+# when the arm was only for hist/writers, and never revive ok after a failed
+# Loaded/Saved (idle expired keeps the prior ok; busy still blames).
 def ws_shut.deadline_state.go(result: Sess.Session & Bool, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +id: Key.ServerId, +started: U32, +settled: Bool, +hist: Bool) -> WsShut:
   match result:
     case (+st2, +ok): WsShut{pending, ctx, st2, id, None{}, ok, started, settled, hist}
 
-def ws_shut.deadline_state(+pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +started: U32, +hist: Bool) -> WsShut:
+def ws_shut.deadline_state(+pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +started: U32, +ok: Bool, +hist: Bool) -> WsShut:
   +settled = ws_shut.settle(ctx)
-  ws_shut.deadline_state.go(ws_shut.expired(settled, st, True{}), pending, ctx, id, started, settled, hist)
+  ws_shut.deadline_state.go(ws_shut.expired(settled, st, ok), pending, ctx, id, started, settled, hist)
 
 def ws_shut.deadline_go(+shut: WsShut, ui: T.Ui, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
   match shut:
@@ -3166,7 +3167,7 @@ def ws_shut.prefs_match(current: Bool, m: Sess.UiMsg, ui: T.Ui, +pending: List<&
       match m:
         case Sess.PreferencesLoaded{+ticket, +prefs, +code}: ws_shut.applied(PrefLive.loaded(ctx, st, gen, ticket, prefs, code), code, ui, pending, id, owner, ok, started, done, hist, k)
         case Sess.PreferencesSaved{+ticket, +code}: ws_shut.applied(PrefLive.saved(ctx, st, ticket, code), code, ui, pending, id, owner, ok, started, done, hist, k)
-        case Sess.PreferencesDeadline{_}: ws_shut.deadline_go(ws_shut.deadline_state(pending, ctx, st, id, started, hist), ui, k)
+        case Sess.PreferencesDeadline{_}: ws_shut.deadline_go(ws_shut.deadline_state(pending, ctx, st, id, started, ok, hist), ui, k)
         case _: ws_shut.timed(ui, pending, ctx, st, id, owner, ok, started, done, hist, k)
 
 def ws_shut.prefs_owned(+owner: Maybe<&2, WsLease>, m: Sess.UiMsg, ui: T.Ui, +pending: List<&2, Key.ServerId>, +ctx: PrefLive.Context, +st: Sess.Session, +id: Key.ServerId, +ok: Bool, +started: U32, +done: Bool, hist: Bool, +ws: W.Workspace, k: T.Ui & WsShut -> IO(Unit)) -> IO(Unit):
