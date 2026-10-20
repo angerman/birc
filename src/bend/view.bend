@@ -1364,17 +1364,31 @@ def row_chars(row: BodyRow) -> Nat:
     case BodyRecon{_, _}: 0n
     case BodyMedia{_, _, _, _}: 1n
 
+def day_bar_row(row: BodyRow) -> Bool:
+  match row:
+    case BodyRecon{+text, _}: String.starts_with(text, "@")
+    case _: False{}
+
 def rows_chars(rows: List<&2, BodyRow>) -> Nat:
   match rows:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_chars(h), rows_chars(t))
 
+# Day bars are BodyRecon with zero source characters. Give them ScrollAt.tail =
+# chars+1 so they never collide with a sibling zero-char row or the live-bottom
+# sentinel ScrollAt{after, 0}, without consuming source-character budget.
+def anchored_rows.step(is_day: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+  match is_day:
+    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(chars, 1n)}, line} <> k(chars)
+    case False{}:
+      +tail = Nat.sub(chars, row_chars(h))
+      AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> k(tail)
+
 def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   match rows:
     case Nil{}: Nil{}
     case Con{+h, t}:
-      +tail = Nat.sub(chars, row_chars(h))
-      AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> anchored_rows(t, after, tail, line)
+      anchored_rows.step(day_bar_row(h), h, after, chars, line, next => anchored_rows(t, after, next, line))
 
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_chars(rows), line)
