@@ -39,7 +39,7 @@ static int run(const char *name, const unsigned char *in, size_t n,
   TimuiAllocator al = timui_default_allocator();
   Timui *ui = NULL;
   char comp[4096] = {0};
-  TimuiTextAreaState st = {comp, sizeof comp, 0, 0};
+  TimuiTextAreaState st = {comp, sizeof comp, 0, 0, 0};
   size_t subs = 0, bytes = 0;
   int f;
   timui_open_for_test(&ui, tr, 80, 24, &al);
