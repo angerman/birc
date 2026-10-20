@@ -1392,26 +1392,25 @@ def rows_text_chars(rows: List<&2, BodyRow>) -> Nat:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_text_chars(h), rows_text_chars(t))
 
-# BodyRecon rows (day bars and reconnect) have zero source characters. Give
-# them ScrollAt.tail = text_chars+1 so they never collide with a sibling
-# zero-char row or the live-bottom sentinel ScrollAt{after, 0}, without
-# consuming source-character budget and without counting BodyMedia. Newest
-# reconnect must not share {0,0} with live.
-def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +text_chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+# ScrollAt.tail is text/source only. BodyMedia is virtual (0 text chars) so it
+# neither consumes the budget nor collides with BodyRecon's text_chars+1, and a
+# PageUp anchor taken without media still matches the same text row after
+# placeholders expand. BodyRecon keeps text_chars+1 without consuming.
+def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +text_chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
   match is_recon:
-    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(text_chars, 1n)}, line} <> k(chars)
+    case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(text_chars, 1n)}, line} <> k(text_chars)
     case False{}:
-      +tail = Nat.sub(chars, row_chars(h))
+      +tail = Nat.sub(text_chars, row_text_chars(h))
       AnchoredRow{h, Cl.ScrollAt{after, tail}, line} <> k(tail)
 
-def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +text_chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
+def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +text_chars: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   match rows:
     case Nil{}: Nil{}
     case Con{+h, t}:
-      anchored_rows.step(recon_row(h), h, after, chars, text_chars, line, next => anchored_rows(t, after, next, text_chars, line))
+      anchored_rows.step(recon_row(h), h, after, text_chars, line, next => anchored_rows(t, after, next, line))
 
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
-  anchored_rows(rows, after, rows_chars(rows), rows_text_chars(rows), line)
+  anchored_rows(rows, after, rows_text_chars(rows), line)
 
 def paint_filter_iso(iso: Maybe<&2, Cl.Iso>, lines: List<&2, Cl.Line>, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +chan: String, +server: String) -> List<&2, Cl.Line>:
   match iso:
@@ -1442,12 +1441,73 @@ def anchor_end(rows: List<&2, AnchoredRow>, +want: Cl.Scroll, +i: Nat) -> Nat:
     case Con{AnchoredRow{_, anchor, _}, t}:
       anchor_end.on(anchor_reached(anchor, want), 1n+i, n => anchor_end(t, want, n))
 
+# BodyMedia is virtual: top-pin must count source rows (text/day/reconnect) so
+# image expansion pushes older content up instead of drifting the bottom source.
+def anchored_source(row: AnchoredRow) -> Bool:
+  match row:
+    case AnchoredRow{BodyMedia{_, _, _, _}, _, _}: False{}
+    case _: True{}
+
+def media_run_end.keep(source: Bool, +t: List<&2, AnchoredRow>, +i: Nat, k: Unit -> Nat) -> Nat:
+  match source:
+    case True{}: i
+    case False{}: k(Unit{})
+
+def media_run_end(rows: List<&2, AnchoredRow>, +i: Nat) -> Nat:
+  match rows:
+    case Nil{}: i
+    case Con{+h, +t}:
+      media_run_end.keep(anchored_source(h), t, i, done => media_run_end(t, 1n+i))
+
+# +t is copyable so step may pass it and the continue lambda may capture it.
+def nth_source_end.hit(at_n: Bool, +t: List<&2, AnchoredRow>, +i: Nat, k: Unit -> Nat) -> Nat:
+  match at_n:
+    case True{}: media_run_end(t, i)
+    case False{}: k(Unit{})
+
+def nth_source_end.step(is_src: Bool, +t: List<&2, AnchoredRow>, +n: Nat, +i: Nat, +seen: Nat, k: Nat -> Nat) -> Nat:
+  match is_src:
+    case False{}: k(seen)
+    case True{}: nth_source_end.hit(Nat.is_eq(1n+seen, n), t, i, done => k(1n+seen))
+
+def nth_source_end(fuel: Nat, rows: List<&2, AnchoredRow>, +n: Nat, +i: Nat, +seen: Nat) -> Nat:
+  match fuel:
+    case 0n: i
+    case 1n+p:
+      match rows:
+        case Nil{}: i
+        case Con{+h, +t}:
+          nth_source_end.step(anchored_source(h), t, n, 1n+i, seen,
+            ns => nth_source_end(p, t, n, 1n+i, ns))
+
+# Top-pin (anchor within the first `height` rows) would otherwise take a fixed
+# row budget from the oldest edge; BodyMedia then steals slots and the bottom
+# source line drifts. Keep the height-th source line as the bottom instead.
+# Mid-history top-pin (older rows above ScrollAt): keep the height-th source
+# as the bottom so BodyMedia pushes content up. At-oldest top-pin: fill from
+# the top with a row budget so the oldest source (and its URL) stays visible.
+def head_after(rows: List<&2, AnchoredRow>) -> Nat:
+  match rows:
+    case Nil{}: 0n
+    case Con{AnchoredRow{_, Cl.ScrollAt{+after, _}, _}, _}: after
+
+def viewport_end.top.on(above: Bool, +rows: List<&2, AnchoredRow>, +height: Nat, +count: Nat) -> Nat:
+  match above:
+    case True{}: nth_source_end(count, rows, height, 0n, 0n)
+    case False{}: height
+
+def viewport_end.top(top: Bool, +rows: List<&2, AnchoredRow>, +height: Nat, +count: Nat, +clamped: Nat, +after: Nat) -> Nat:
+  match top:
+    case False{}: clamped
+    case True{}: viewport_end.top.on(Nat.is_gt(head_after(rows), after), rows, height, count)
+
 def viewport_end(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> Nat:
   match want:
     case Cl.ScrollAt{+after, +tail}:
       +count = List.length(&2, AnchoredRow, rows)
-      +end = Bool.pick(Nat, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), count, anchor_end(rows, Cl.ScrollAt{after, tail}, 0n))
-      Nat.sub(count, clamp_scroll(Nat.sub(count, end), count, height))
+      +raw = Bool.pick(Nat, Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), count, anchor_end(rows, Cl.ScrollAt{after, tail}, 0n))
+      +clamped = Nat.sub(count, clamp_scroll(Nat.sub(count, raw), count, height))
+      viewport_end.top(Nat.is_le(raw, height) && Nat.is_ge(count, height), rows, height, count, clamped, after)
 
 def anchored_bodies(rows: List<&2, AnchoredRow>) -> List<&2, BodyRow>:
   match rows:
@@ -1456,7 +1516,8 @@ def anchored_bodies(rows: List<&2, AnchoredRow>) -> List<&2, BodyRow>:
 
 def visible_anchored(+rows: List<&2, AnchoredRow>, +height: Nat, want: Cl.Scroll) -> List<&2, BodyRow>:
   +end = viewport_end(rows, height, want)
-  anchored_bodies(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height))
+  +start = Nat.sub(end, Nat.min(end, height))
+  anchored_bodies(List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, start), Nat.sub(end, start)))
 
 # Newest-first suffix for the live bottom. raw_lines stays oldest-first.
 # SCROLL_CAP + one synthetic preview row + PEND_MAX fits under this fuel;
@@ -2029,7 +2090,8 @@ def window_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U3
 # Viewport slice of an anchored window (AnchoredRow units; preserves ScrollAt).
 def visible_anchored_crop(+rows: List<&2, AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, AnchoredRow>:
   +end = viewport_end(rows, height, scroll)
-  List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, Nat.sub(end, height)), height)
+  +start = Nat.sub(end, Nat.min(end, height))
+  List.take(&2, AnchoredRow, List.drop(&2, AnchoredRow, rows, start), Nat.sub(end, start))
 
 def visible_anchored_buf_media_cards_cm.allowed(+cm: String, allowed: Bool, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
   match allowed:
