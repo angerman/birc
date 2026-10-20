@@ -1229,6 +1229,9 @@ def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
         result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Help.run(media_spec(), media_args(url), "")
         _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
         return Unit{}
+    # take_job never admits fences; arms keep Request exhaustiveness.
+    case M.SoftFence{_, _, _}: IO.pure(Unit, Unit{})
+    case M.StickyFence{_, _}: IO.pure(Unit, Unit{})
 
 def media_spawn(job: Maybe<&2, M.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match job:
@@ -1357,6 +1360,21 @@ def on_media.added(pair: T.Ui & U32, +st: Sess.Session, +generation: Nat, +ticke
       +next = Sess.session_set_media(st, media)
       paint_input(ui, Bool.pick(Sess.Session, U32.is_zero(token), Sess.session_error(next, "image preview unavailable"), next), False{}, evt, cmd, ack, gen, k)
 
+# Full-budget rejection records a failed identity so observe/enqueue/take
+# does not immediately relaunch while all eight native slots stay owned.
+def on_media.rejected_full(ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  paint_input(ui, Sess.session_set_media(st, M.reject_full(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url)), False{}, evt, cmd, ack, gen, k)
+
+# Origin retain is current owners only. Speculative complete(..., 0) would
+# FIFO-drop a live token Bend still owns when ready is already CAP nonzero.
+def on_media.gated(room: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +ticket: Nat, +url: String, payload: String, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +ack: Chan(Unit), +gen: U32, k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)) -> IO(Unit):
+  match room:
+    case False{}: on_media.rejected_full(ui, st, generation, ticket, url, evt, cmd, ack, gen, k)
+    case True{}:
+      do IO<Unit>:
+        pair : T.Ui & U32 <- T.Timui.media_add(ui, payload, M.admit_retained(Sess.session_media(st)))
+        on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, k)
+
 # Exact-worker policy decline clears the worker only. Sticky reject_full is
 # for native CAP overflow after accept; temporary full visible cache must not
 # poison-pill an automatic URL after room returns.
@@ -1364,11 +1382,7 @@ def on_media(accepted: Bool, ui: T.Ui, +st: Sess.Session, +generation: Nat, +tic
   match accepted:
     case False{}:
       k((ui, Sess.session_set_media(st, M.reject(Sess.session_media(st), generation, ticket, url)), gen, False{}))
-    case True{}:
-      do IO<Unit>:
-        pair : T.Ui & U32 <- T.Timui.media_add(ui, payload,
-          M.retained_tokens(M.complete(Sess.session_media(st), Sess.session_cl(st), generation, ticket, url, 0)))
-        on_media.added(pair, st, generation, ticket, url, evt, cmd, ack, gen, k)
+    case True{}: on_media.gated(M.admit_room(Sess.session_media(st)), ui, st, generation, ticket, url, payload, evt, cmd, ack, gen, k)
 
 # Cards completion (C8 live): stale results release the worker without storing
 # and stay quiet; accepted ones store the bounded card and repaint so the new

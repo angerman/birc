@@ -90,8 +90,12 @@ type Target is Data:
 type Candidate is Data:
   Candidate{target: Target, url: String}
 
+# Work uses Request{…}. SoftFence / StickyFence are distinct pending tags —
+# they never borrow generation=0 or ticket=0 from the work namespace.
 type Request is Data:
   Request{target: Target, url: String, generation: Nat, ticket: Nat}
+  SoftFence{target: Target, url: String, ticket: Nat}
+  StickyFence{target: Target, url: String}
 
 type MediaReady is Data:
   MediaReady{target: Target, url: String, token: U32}
@@ -151,20 +155,19 @@ def generation(state: State) -> Nat:
   match state:
     case State{_, gen, _, _, _, _, _}: gen
 
-# Ticket 0 marks a CAP-overflow sticky failure outside the ready FIFO.
+# CAP-overflow sticky failure outside the ready FIFO (StickyFence).
 # Real work tickets start at 1 (see initial/enqueue).
 def request_block(req: Request) -> Bool:
   match req:
-    case Request{_, _, _, 0n}: True{}
+    case StickyFence{_, _}: True{}
     case _: False{}
 
-# Generation 0 marks a non-sticky soft defer from policy decline (reject).
-# Real work generations start at 1. Soft fences suppress automatic relaunch
-# until enqueue_candidates clears them for a again-selected candidate —
-# never a poison-pill like ticket-0 reject_full.
+# Soft defer from policy decline (SoftFence). Suppresses automatic relaunch
+# until enqueue_candidates clears it for a again-selected candidate —
+# never a poison-pill like StickyFence / reject_full.
 def soft_block(req: Request) -> Bool:
   match req:
-    case Request{_, _, 0n, _}: True{}
+    case SoftFence{_, _, _}: True{}
     case _: False{}
 
 def pending_skip(+req: Request) -> Bool:
@@ -229,6 +232,9 @@ def ready_without(xs: List<&2, MediaReady>, +target: Target, +url: String) -> Li
 def request_matches(req: Request, +target: Target, +url: String, +gen: Nat) -> Bool:
   match req:
     case Request{t, u, g, _}: target_eq(t, target) && String.eq(u, url) && Nat.is_eq(g, gen)
+    # Sticky survives gen bumps while the target lives; match by identity only.
+    case StickyFence{t, u}: target_eq(t, target) && String.eq(u, url)
+    case SoftFence{_, _, _}: False{}
 
 def request_has(xs: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> Bool:
   match xs:
@@ -257,7 +263,7 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
 
 def soft_matches(req: Request, +target: Target, +url: String) -> Bool:
   match req:
-    case Request{t, u, 0n, _}: target_eq(t, target) && String.eq(u, url)
+    case SoftFence{t, u, _}: target_eq(t, target) && String.eq(u, url)
     case _: False{}
 
 def soft_has(xs: List<&2, Request>, +target: Target, +url: String) -> Bool:
@@ -393,6 +399,7 @@ def visible_result.active(active: Maybe<&2, Request>, +selected: List<&2, Candid
   match active:
     case None{}: False{}
     case Some{Request{+target, url, _, _}}: manual(target) || candidate_has(selected, target, url)
+    case _: False{}
 
 # A full visible cache must not be displaced by an unrelated hidden completion.
 # Manual requests are explicit user intent, including automatic previews off.
@@ -403,8 +410,8 @@ def visible_result_allowed(state: State, +selected: List<&2, Candidate>) -> Bool
       Nat.is_lt(List.length(&2, MediaReady, visible_ready(ready, selected, True{})), CAP())
         || visible_result.active(active, selected)
 
-# Skip generation-0 soft defer and ticket-0 sticky blocks; both suppress
-# automatic relaunch but must never become the physical worker.
+# Skip SoftFence / StickyFence; both suppress automatic relaunch but must
+# never become the physical worker.
 def take_work.cons(+h: Request, pair: List<&2, Request> & Maybe<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
   match pair:
     case (rest, job): (h <> rest, job)
@@ -412,10 +419,10 @@ def take_work.cons(+h: Request, pair: List<&2, Request> & Maybe<&2, Request>) ->
 def take_work(xs: List<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
   match xs:
     case Nil{}: (Nil{}, None{})
-    case Con{Request{+target, +url, 0n, +ticket}, t}:
-      take_work.cons(Request{target, url, 0n, ticket}, take_work(t))
-    case Con{Request{+target, +url, +gen, 0n}, t}:
-      take_work.cons(Request{target, url, gen, 0n}, take_work(t))
+    case Con{SoftFence{+target, +url, +ticket}, t}:
+      take_work.cons(SoftFence{target, url, ticket}, take_work(t))
+    case Con{StickyFence{+target, +url}, t}:
+      take_work.cons(StickyFence{target, url}, take_work(t))
     case Con{+h, t}: (t, Some{h})
 
 def take_job.pending.go(pair: List<&2, Request> & Maybe<&2, Request>, +on: Bool, +gen: Nat, +ticket: Nat, +ready: List<&2, MediaReady>) -> State & Maybe<&2, Request>:
@@ -489,10 +496,14 @@ def keep_pending(xs: List<&2, Request>, +client: Cl.Client, +gen: Nat) -> List<&
     case Nil{}: Nil{}
     case Con{+h, t}:
       match h:
+        # Soft and sticky fences are identity-scoped: keep while the target
+        # lives across same-target gen bumps. reset / dial clear pending.
+        case SoftFence{target, url, _}:
+          pending_keep(alive(client, target, url), h, keep_pending(t, client, gen))
+        case StickyFence{target, url}:
+          pending_keep(alive(client, target, url), h, keep_pending(t, client, gen))
         case Request{target, url, g, _}:
-          # Soft defer uses generation 0; keep it while the target lives so a
-          # later maintain cannot drop the fence before enqueue_candidates.
-          pending_keep(alive(client, target, url) && (soft_block(h) || Nat.is_eq(g, gen)), h,
+          pending_keep(alive(client, target, url) && Nat.is_eq(g, gen), h,
             keep_pending(t, client, gen))
 
 def keep_ready(xs: List<&2, MediaReady>, +client: Cl.Client) -> List<&2, MediaReady>:
@@ -511,11 +522,13 @@ def exact(active: Maybe<&2, Request>, +gen: Nat, +ticket: Nat, +url: String) -> 
   match active:
     case None{}: False{}
     case Some{Request{_, u, g, t}}: Nat.is_eq(g, gen) && Nat.is_eq(t, ticket) && String.eq(u, url)
+    case _: False{}
 
 def accept.active(active: Maybe<&2, Request>, +on: Bool, +gen: Nat, +client: Cl.Client) -> Bool:
   match active:
     case None{}: False{}
     case Some{Request{+target, url, g, _}}: Nat.is_eq(g, gen) && (on || manual(target)) && alive(client, target, url)
+    case _: False{}
 
 def accept(state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: String) -> Bool:
   match state:
@@ -538,10 +551,9 @@ def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: S
       complete.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state, token)
 
 # Declined native admission releases only the exact physical worker and records
-# a non-sticky soft defer (generation-0 pending). It cannot add a failed
-# placeholder, evict a retained token, clear a different worker, or sticky-
-# poison the URL the way reject_full does. enqueue_candidates clears the fence
-# when the candidate is selected again.
+# a SoftFence. It cannot add a failed placeholder, evict a retained token,
+# clear a different worker, or sticky-poison the URL the way reject_full does.
+# enqueue_candidates clears the fence when the candidate is selected again.
 def reject.on(hit: Bool, +state: State) -> State:
   match hit:
     case False{}: state
@@ -549,7 +561,7 @@ def reject.on(hit: Bool, +state: State) -> State:
       match state:
         case State{on, gen, ticket, Some{Request{target, url, _, declined}}, pending, ready, display}:
           State{on, gen, ticket, None{},
-            Request{target, url, 0n, declined} <> pending_without_soft(pending, target, url),
+            SoftFence{target, url, declined} <> pending_without_soft(pending, target, url),
             ready, display}
         case _: state
 
@@ -577,7 +589,7 @@ def reject_full.ready.insert(room: Bool, +target: Target, +url: String, +ready: 
 # Sticky failed identity for native CAP overflow. Unlike complete(..., 0),
 # never FIFO-evicts a nonzero retained token: make room by dropping another
 # zero when needed; if ready is already CAP nonzero, ready insert is skipped
-# and reject_full.block records the sticky failure in pending (ticket 0).
+# and reject_full.block records a StickyFence in pending.
 def reject_full.ready(+target: Target, +url: String, +ready: List<&2, MediaReady>) -> List<&2, MediaReady>:
   +base = ready_without(ready, target, url)
   +fit = Bool.pick(List<&2, MediaReady>, Nat.is_lt(List.length(&2, MediaReady, base), CAP()),
@@ -594,14 +606,17 @@ def pending_without_block(xs: List<&2, Request>, +target: Target, +url: String) 
     case Nil{}: Nil{}
     case Con{+h, t}:
       match h:
-        case Request{tg, u, _, _}:
-          pending_block_keep(request_block(h) && target_eq(tg, target) && String.eq(u, url), h,
+        case StickyFence{tg, u}:
+          pending_block_keep(target_eq(tg, target) && String.eq(u, url), h,
             pending_without_block(t, target, url))
+        case _:
+          pending_block_keep(False{}, h, pending_without_block(t, target, url))
 
-# Ticket-0 sticky failure outside the CAP ready FIFO. request_has blocks
-# automatic relaunch; take_work never promotes it to the physical worker.
-def reject_full.block(+pending: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> List<&2, Request>:
-  Request{target, url, gen, 0n} <> pending_without_block(pending, target, url)
+# StickyFence outside the CAP ready FIFO. request_has blocks automatic
+# relaunch; take_work never promotes it to the physical worker. Cleared on
+# reset/dial (pending wipe), not by same-target generation bumps.
+def reject_full.block(+pending: List<&2, Request>, +target: Target, +url: String, +_gen: Nat) -> List<&2, Request>:
+  StickyFence{target, url} <> pending_without_block(pending, target, url)
 
 def reject_full.pending(stuck: Bool, +pending: List<&2, Request>, +target: Target, +url: String, +gen: Nat) -> List<&2, Request>:
   match stuck:
@@ -630,7 +645,7 @@ def reject_full.on(hit: Bool, accepted: Bool, +state: State) -> State:
         case True{}: reject_full.accepted(state)
 
 # Native CAP-overflow rejection records a failed identity for the exact
-# worker — token-zero in ready when a slot exists, otherwise a ticket-0
+# worker — token-zero in ready when a slot exists, otherwise a StickyFence
 # pending block — so observe/enqueue/take does not immediately relaunch
 # the same automatic helper while every native slot stays owned.
 # Visible/policy decline uses reject, not this path — temporary full
@@ -708,7 +723,12 @@ def urls_ready(xs: List<&2, MediaReady>, +target: Target) -> List<&2, String>:
 def urls_pending(xs: List<&2, Request>, +target: Target, +gen: Nat) -> List<&2, String>:
   match xs:
     case Nil{}: Nil{}
-    case Con{Request{t, url, g, _}, tail}: targets.keep(target_eq(t, target) && Nat.is_eq(g, gen), url, urls_pending(tail, target, gen))
+    case Con{Request{t, url, g, _}, tail}:
+      targets.keep(target_eq(t, target) && Nat.is_eq(g, gen), url, urls_pending(tail, target, gen))
+    case Con{StickyFence{t, url}, tail}:
+      targets.keep(target_eq(t, target), url, urls_pending(tail, target, gen))
+    case Con{SoftFence{_, _, _}, tail}:
+      urls_pending(tail, target, gen)
 
 def urls_active(active: Maybe<&2, Request>, target: Target, gen: Nat) -> List<&2, String>:
   match active:

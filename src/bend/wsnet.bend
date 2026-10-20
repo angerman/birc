@@ -539,6 +539,8 @@ def ws_mlease.free(+lease: Maybe<&2, WsMedia>) -> Bool:
 def ws_mlease.req_match(+req: M.Request, +generation: Nat, +ticket: Nat, +url: String) -> Bool:
   match req:
     case M.Request{_, u, g, t}: Nat.is_eq(g, generation) && Nat.is_eq(t, ticket) && String.eq(u, url)
+    case M.SoftFence{_, _, _}: False{}
+    case M.StickyFence{_, _}: False{}
 
 def ws_mlease.exact(+lease: Maybe<&2, WsMedia>, +s: Key.ServerId, +generation: Nat, +ticket: Nat, +url: String) -> Bool:
   match lease:

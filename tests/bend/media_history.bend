@@ -69,6 +69,9 @@ def drain.step(pair: M.State & Maybe<&2, M.Request>, +st: S.Session, k: S.Sessio
     case (media, Some{M.Request{_, +url, +gen, +ticket}}):
       +active : S.Session = S.session_set_media(st, media)
       drain.count(k(finish(S.session_accept_media_result(active, gen, ticket, url), active, gen, ticket, url)))
+    # SoftFence / StickyFence are never take_job work; keep match exhaustive.
+    case (media, Some{M.SoftFence{_, _, _}}): Drain{S.session_set_media(st, media), 0n}
+    case (media, Some{M.StickyFence{_, _}}): Drain{S.session_set_media(st, media), 0n}
 
 # Real observe/take_job/complete transitions. Fuel catches eviction/refetch loops.
 def drain(fuel: Nat, +st: S.Session) -> Drain:
@@ -148,11 +151,20 @@ def prospective(pair: M.State & Maybe<&2, M.Request>, client: Cl.Client) -> M.St
   match pair:
     case (state, None{}): state
     case (state, Some{M.Request{_, url, gen, ticket}}): M.complete(state, client, gen, ticket, url, 0)
+    case (state, Some{M.SoftFence{_, _, _}}): state
+    case (state, Some{M.StickyFence{_, _}}): state
+    case (state, Some{_}): state
 
 def token_has(xs: List<&2, U32>, +token: U32) -> Bool:
   match xs:
     case Nil{}: False{}
     case Con{h, tail}: U32.is_eq(h, token) || token_has(tail, token)
+
+# Same-target gen bump that keeps pending (set_supported-enable shape).
+def bump_gen_maintain(state: M.State, +cl: Cl.Client) -> M.State:
+  match state:
+    case M.State{on, gen, ticket, active, pending, ready, display}:
+      M.maintain(M.State{on, (1n + gen : Nat), ticket, active, pending, ready, display}, cl)
 
 def admission.url() -> String:
   "https://history-image.test/archived%20a%E2%80%AF.png"
@@ -291,8 +303,13 @@ def ph_cache_admit() -> IO(Unit):
   +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))
   # Soft defer lifts when the same candidate is selected again.
   +soft_cleared : M.State = M.enqueue_candidates([M.Candidate{M.Inline{100n}, url(100n)}], declined)
+  # SoftFence keeps across a same-target gen bump (not gen=0 encoding).
+  +soft_bumped : M.State = bump_gen_maintain(declined, client())
   # − reject_full into CAP nonzero ready: must not drop a live retained token.
   +declined_full_cap : M.State = M.reject_full(hidden, client(), 1n, 100n, url(100n))
+  # StickyFence keeps across a same-target gen bump; reset clears it.
+  +sticky_bumped : M.State = bump_gen_maintain(declined_full_cap, client())
+  +sticky_reset : M.State = M.reset(declined_full_cap)
   # + reject_full with room: failed identity → ready_has blocks relaunch.
   +declined_full : M.State = M.reject_full(room, client(), 1n, 100n, url(100n))
   # − speculative complete(..., 0) at CAP FIFO-drops a live owner Bend still has.
@@ -309,6 +326,8 @@ def ph_cache_admit() -> IO(Unit):
     Unit <- E.must("- reject soft-blocks bare enqueue", Nat.is_eq(M.pending_count(M.enqueue(declined, M.Inline{100n}, url(100n))), 0n))
     Unit <- E.must("- reject soft-blocks take_job", Bool.not(Terminal.has_job(M.take_job(declined))))
     Unit <- E.must("- reject soft survives maintain as non-work", Nat.is_eq(M.pending_count(M.maintain(declined, client())), 0n))
+    Unit <- E.must("- SoftFence survives same-target gen bump", Nat.is_eq(M.pending_count(M.enqueue(soft_bumped, M.Inline{100n}, url(100n))), 0n)
+      && Bool.not(Terminal.has_job(M.take_job(soft_bumped))))
     Unit <- E.must("+ selected enqueue_candidates lifts soft defer", Nat.is_gt(M.pending_count(soft_cleared), 0n)
       && Terminal.has_job(M.take_job(soft_cleared))
       && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
@@ -316,17 +335,33 @@ def ph_cache_admit() -> IO(Unit):
       && Bool.not(token_has(M.retained_tokens(speculative), 8)))
     Unit <- E.must("+ admit_retained keeps every current owner at CAP", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)
       && token_has(M.admit_retained(hidden), 8) && Bool.not(M.admit_room(hidden)))
+    # Headless Net.on_media gate (mirror wsnet): never speculative retain;
+    # admit_room false → reject_full; policy decline stays plain reject.
+    Unit <- E.must("- net admit_room false at CAP nonzero", Bool.not(M.admit_room(hidden)))
+    Unit <- E.must("+ net admit_room true below CAP", M.admit_room(room))
+    Unit <- E.must("+ net retain list is admit_retained not speculative", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)
+      && token_has(M.admit_retained(hidden), 8)
+      && Bool.not(Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), List.length(&2, U32, M.retained_tokens(speculative)))))
     Unit <- E.must("- reject_full at CAP nonzero keeps all retained tokens", Bool.not(Terminal.has_active(declined_full_cap))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full_cap)), 8n)
       && token_has(M.retained_tokens(declined_full_cap), 8))
     Unit <- E.must("+ reject_full at CAP nonzero sticky-blocks relaunch", Bool.not(List.is_empty(&2, String, M.known_urls(declined_full_cap, M.Inline{100n})))
       && Nat.is_eq(M.pending_count(M.enqueue(declined_full_cap, M.Inline{100n}, url(100n))), 0n)
       && Bool.not(Terminal.has_job(M.take_job(declined_full_cap))))
+    # StickyFence blocks relaunch across gen bumps (same oracle as SoftFence).
+    Unit <- E.must("+ StickyFence survives same-target gen bump", Nat.is_eq(M.pending_count(M.enqueue(sticky_bumped, M.Inline{100n}, url(100n))), 0n)
+      && Bool.not(Terminal.has_job(M.take_job(sticky_bumped)))
+      && Bool.not(List.is_empty(&2, String, M.known_urls(sticky_bumped, M.Inline{100n}))))
+    Unit <- E.must("+ reset clears StickyFence", List.is_empty(&2, String, M.known_urls(sticky_reset, M.Inline{100n}))
+      && Nat.is_eq(M.pending_count(sticky_reset), 0n))
     Unit <- E.must("+ reject_full records token-zero and blocks relaunch", Bool.not(Terminal.has_active(declined_full))
       && Bool.not(List.is_empty(&2, String, M.known_urls(declined_full, M.Inline{100n})))
       && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined_full)), 7n)
       && token_has(M.retained_tokens(declined_full), 7)
       && Nat.is_eq(M.pending_count(M.enqueue(declined_full, M.Inline{100n}, url(100n))), 0n))
+    Unit <- E.must("+ net policy decline stays soft reject not reject_full", Bool.not(Terminal.has_active(declined))
+      && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n}))
+      && Nat.is_eq(List.length(&2, U32, M.retained_tokens(declined)), 8n))
     Unit <- E.must("wrong completion cannot release owned worker", Terminal.has_active(M.reject(hidden, 1n, 99n, url(100n)))
       && Terminal.has_active(M.reject(hidden, 2n, 100n, url(100n))) && Terminal.has_active(M.reject(hidden, 1n, 100n, url(101n))))
     return Unit{}
