@@ -898,7 +898,7 @@ law channel_creation_keeps_status_like_prefix:
   {Cl.active_buf_name.on(Some{Cl.empty_buf("+#room", True{})}) == "+#room" : String}
 
 law resident_channel_wins_over_status_fallback:
-  {Cl.message_key.resident("+#room", Some{Cl.empty_buf("+#room", True{})}) == "+#room" : String}
+  {Cl.message_key_with.resident("+#room", Some{Cl.empty_buf("+#room", True{})}) == "+#room" : String}
 
 law stored_plus_channel_keeps_identity:
   {Hist.history_key("+#room") == "+#room" : String}

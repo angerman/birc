@@ -1253,8 +1253,10 @@ def main() -> IO(Unit):
   +g3_sasl_w4 = W.pipe_after(g3_sasl_w3, aq_e_for)
   +g3_sasl_re = W.auth_edge(aq_up2, aq_w2)
   +g3_sasl_w5 = W.pipe_after(g3_sasl_w4, g3_sasl_re)
-  +g3_ns_chunk : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n"), 0}}}
-  +g3_ns_o = W.live_on_msg(au_nsup, g3_ns_chunk, au_stamps3, 0, "00:00:03")
+  # JOIN flush waits for post-welcome MOTD (376/422), not 001 alone.
+  +g3_ns_stamps4 : List<&2, Maybe<&2, String>> = None{} <> None{} <> None{} <> None{} <> Nil{}
+  +g3_ns_chunk : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:a.example 376 me :end of MOTD\r\n"), 0}}}
+  +g3_ns_o = W.live_on_msg(au_nsup, g3_ns_chunk, g3_ns_stamps4, 0, "00:00:03")
   +g3_ns_w = W.live_ws(g3_ns_o)
   +g3_ns_edge = W.auth_edge(au_nsup, g3_ns_w)
   +g3_ns_w0 : Nat = 0n
@@ -1275,16 +1277,17 @@ def main() -> IO(Unit):
   +g3_ns_red = W.do_redial(g3_ns_fail, s0(), intent_or_dead(W.on_fail_intent(au_nsup, g3_ns_eof, "00:00:06")))
   +g3_ns_up1 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{1, Sess.Up{}}}
   +g3_ns_up2 = W.live_ws(W.live_on_msg(g3_ns_red, g3_ns_up1, g5_stamps, 0, "00:00:07"))
-  +g3_ns_chunk2 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{1, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n"), 0}}}
-  +g3_ns_o2 = W.live_on_msg(g3_ns_up2, g3_ns_chunk2, au_stamps3, 0, "00:00:08")
+  +g3_ns_chunk2 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{1, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:NickServ!service@services.example NOTICE me :You are now identified as account.\r\n:a.example 376 me :end of MOTD\r\n"), 0}}}
+  +g3_ns_o2 = W.live_on_msg(g3_ns_up2, g3_ns_chunk2, g3_ns_stamps4, 0, "00:00:08")
   +g3_ns_rw = W.live_ws(g3_ns_o2)
   +g3_ns_re = W.auth_edge(g3_ns_up2, g3_ns_rw)
   +g3_ns_w5 = W.pipe_after(g3_ns_w4, g3_ns_re)
-  +g3_sasl_001 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n"), 0}}}
-  +g3_sasl_join_o = W.live_on_msg(au_w, g3_sasl_001, g5_stamps, 0, "00:00:03")
+  +g3_sasl_stamps2 : List<&2, Maybe<&2, String>> = None{} <> None{} <> Nil{}
+  +g3_sasl_001 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{0, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:a.example 376 me :end of MOTD\r\n"), 0}}}
+  +g3_sasl_join_o = W.live_on_msg(au_w, g3_sasl_001, g3_sasl_stamps2, 0, "00:00:03")
   +g3_sasl_join_w = W.live_ws(g3_sasl_join_o)
-  +g3_sasl_re001 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{1, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n"), 0}}}
-  +g3_sasl_rejoin_o = W.live_on_msg(aq_w2, g3_sasl_re001, g5_stamps, 0, "00:00:06")
+  +g3_sasl_re001 : Sid.RoutedMsg = Sid.RoutedMsg{s0(), Sess.FromNet{1, Sess.Chunk{F.string_to_octets(":a.example 001 me :welcome\r\n:a.example 376 me :end of MOTD\r\n"), 0}}}
+  +g3_sasl_rejoin_o = W.live_on_msg(aq_w2, g3_sasl_re001, g3_sasl_stamps2, 0, "00:00:06")
   +g3_sasl_rejoin_w = W.live_ws(g3_sasl_rejoin_o)
   +g3_sasl_rejoin_edge = W.auth_edge(aq_w2, g3_sasl_rejoin_w)
   +g3_sasl_w6 = W.pipe_after(g3_sasl_w5, g3_sasl_rejoin_edge)

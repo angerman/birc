@@ -1974,6 +1974,16 @@ def routed_drop(+got: Maybe<&2, Sid.RoutedCmd>, +id: Key.ServerId) -> Bool:
     case None{}: False{}
     case Some{+rc}: routed_drop.rc(rc, id)
 
+def routed_hangup.rc(+rc: Sid.RoutedCmd, +id: Key.ServerId) -> Bool:
+  match rc:
+    case Sid.RoutedCmd{+s, +cmd}: Key.eq(s, id) && hangup_cmd(cmd)
+
+# Autoreconnect fail emits Hangup (flush-then-abandon), not Drop.
+def routed_hangup(+got: Maybe<&2, Sid.RoutedCmd>, +id: Key.ServerId) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{+rc}: routed_hangup.rc(rc, id)
+
 def redial_emits(+got: Maybe<&2, Sid.RoutedCmd>, +id: Key.ServerId, +host: String, +port: U32, +gen: U32, +nick: String) -> Bool:
   match got:
     case None{}: False{}
@@ -2082,7 +2092,7 @@ def runtime_redial_ok() -> Bool:
     && Nat.is_eq(rt_nbufs(dialed, s0()), 1n)
     && String.eq(rt_net(up_stale, s0()), "connecting")
     && String.eq(rt_net(up_fresh, s0()), "online")
-    && routed_drop(on_fail_cmd(up_fresh, eof, "00:00:05"), s0())
+    && routed_hangup(on_fail_cmd(up_fresh, eof, "00:00:05"), s0())
     && intent_exact(intent, s0(), 1, "d.example", 6697, False{})
     && String.eq(rt_net(fail, s0()), "connecting")
     && String.eq(rt_net(fail_stale, s0()), "online")
