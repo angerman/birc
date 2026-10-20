@@ -9,7 +9,6 @@ import ./preferences_runtime.bend as R
 import ./preferences_live.bend as LP
 import ./preferences_worker.bend as W
 import ./preferences_io.bend as F
-import ./history_startup.bend as H
 import ./history_startup_io.bend as Archive
 import ./live_context.bend as LC
 import ./endpoint.bend as Ep
@@ -34,18 +33,19 @@ def resolve.taken(pair: R.State & Maybe<&2, R.Job>, st: S.Session, gen: U32, got
 def resolve(options: W.Options, +st: S.Session, +gen: U32, got: Maybe<&2, P.Preferences> & U32) -> LP.Context & S.Session & Bool:
   resolve.taken(R.take(LP.state(LP.initial(options, st, gen))), st, gen, got)
 
-def archive.install(+snapshot: Cl.Client, ctx: LP.Context, +st: S.Session, allowed: Bool) -> LP.Context & S.Session & Bool:
-  +ep = Ep.endpoint(Cl.server_of(S.session_cl(st)), S.session_port(st))
-  (ctx, S.session_set_client(st, H.install_startup(H.report_diagnostics(S.session_cl(st), snapshot, ep, ep), snapshot, ep, ep)), allowed)
+def archive.install(+snapshot: Cl.Client, +snapshot_ep: String, ctx: LP.Context, +st: S.Session, allowed: Bool) -> LP.Context & S.Session & Bool:
+  # current_ep from Session; snapshot_ep is the archive-load claim (pick).
+  (ctx, S.session_set_client(st, LC.history.merge(S.session_cl(st), st, snapshot, snapshot_ep)), allowed)
 
 def archive.pick(read: Bool, ctx: LP.Context, +st: S.Session, +path: String, allowed: Bool) -> IO(LP.Context & S.Session & Bool):
   match read:
     case False{}: IO.pure(LP.Context & S.Session & Bool, (ctx, st, allowed))
     case True{}:
       +cl = S.session_cl(st)
+      +snapshot_ep = Ep.endpoint(Cl.server_of(cl), S.session_port(st))
       do IO<LP.Context & S.Session & Bool>:
-        snapshot : Cl.Client <- Archive.load(path, Ep.endpoint(Cl.server_of(cl), S.session_port(st)), Cl.settings_hist_cap(Cl.get_settings(cl)), Cl.nick_of(cl), Cl.server_of(cl), LC.now(cl))
-        return archive.install(snapshot, ctx, st, allowed)
+        snapshot : Cl.Client <- Archive.load(path, snapshot_ep, Cl.settings_hist_cap(Cl.get_settings(cl)), Cl.nick_of(cl), Cl.server_of(cl), LC.now(cl))
+        return archive.install(snapshot, snapshot_ep, ctx, st, allowed)
 
 def archive.current(ctx: LP.Context, +st: S.Session, +allowed: Bool, +path: String) -> IO(LP.Context & S.Session & Bool):
   archive.pick(allowed && Bool.not(String.is_empty(path)) && Cl.settings_history(Cl.get_settings(S.session_cl(st)))

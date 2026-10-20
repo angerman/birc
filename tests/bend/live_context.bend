@@ -9,6 +9,7 @@ import ../../src/bend/preferences_worker.bend as W
 import ../../src/bend/preferences.bend as P
 import ../../src/bend/session.bend as S
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/theme.bend as Theme
 import ../../src/bend/actor.bend as A
 
@@ -113,6 +114,23 @@ def drop.released(step: A.DeferredStep) -> Bool:
 def drop() -> Bool:
   drop.released(A.deferred_command(S.Begin{1}, drop.waiting(A.deferred_command(S.Drop{}, A.deferred_initial("irc.example", 6697, "me", False{})))))
 
+# Production history.merge seam with outer archive_current bypassed: current_ep
+# comes from Session (6697); snapshot_ep is an independent HistoryLoaded claim.
+def merge_snap() -> Cl.Client:
+  Cl.Client{"archive", "irc.example", Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "12:00:00", "archived", "alice", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "old", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}}
+
+def merge_ports() -> Bool:
+  +st = session()
+  +local = Cl.init_with_cap("me", "irc.example", 1)
+  +snap = merge_snap()
+  +ok = C.history.merge(local, st, snap, "irc.example:6697")
+  +bad = C.history.merge(local, st, snap, "irc.example:6667")
+  +diag_bad = C.history.merge(local, st, Cl.client_log(snap, 0n, Cl.Error{}, "history read failed (5)"), "irc.example:6667")
+  # Matching snapshot_ep imports (+ divider); mismatched port leaves local untouched.
+  Bool.not(String.eq(CL.buf_texts(ok, 0n), CL.buf_texts(local, 0n)))
+    && String.eq(CL.buf_texts(bad, 0n), CL.buf_texts(local, 0n))
+    && Nat.is_eq(Cl.log_seq_of(diag_bad), Cl.log_seq_of(local))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("before prefs resolution no archive or history-save permission", gate_before_prefs(observe(initial(""))))
@@ -126,4 +144,5 @@ def main() -> IO(Unit):
     Unit <- E.must("failed read is not retroactively authorized without explicit edit", Bool.not(ready_permission(load(reading(initial("")), None{}, 2))))
     Unit <- E.must("accepted history on can authorize later IO after failed read", ready_permission(command(load(reading(initial("")), None{}, 2), "/set history on")))
     Unit <- E.must("Drop then matching Begin releases idle without dialing", drop())
+    Unit <- E.must("history.merge matching port imports; mismatched port fail-closed", merge_ports())
     IO.print("live_context=ok\n")

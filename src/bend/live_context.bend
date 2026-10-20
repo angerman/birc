@@ -243,6 +243,12 @@ def history.flush(on: Bool, +path: String, +ep: String, +cl: Cl.Client) -> IO(Cl
         notice : Maybe<&2, String> <- Save.maybe_save_history(path, ep, Cl.init(Cl.nick_of(cl), Cl.server_of(cl)), cl)
         return history_notice(notice, cl)
 
+# Pure merge seam: current_ep from Session; snapshot_ep is the archive claim.
+# Callers must not pass the same string twice for both arguments.
+def history.merge(+local: Cl.Client, +st: S.Session, +snapshot: Cl.Client, +snapshot_ep: String) -> Cl.Client:
+  +current_ep = Ep.endpoint(Cl.server_of(S.session_cl(st)), S.session_port(st))
+  H.install_startup(H.report_diagnostics(local, snapshot, current_ep, snapshot_ep), snapshot, current_ep, snapshot_ep)
+
 def history.install(current: Bool, prefs: L.Context, gate: Gate, +decision: Maybe<&2, Bool>, +path: String, next: Nat, +st: S.Session, +gen: U32, +ep: String, +snapshot: Cl.Client, cmd: Chan(S.NetCmd)) -> IO(Context & S.Session):
   match current:
     case False{}: IO.pure(Context & S.Session, (wrap(Details{prefs, gate, decision, path, None{}, next}), st))
@@ -250,7 +256,8 @@ def history.install(current: Bool, prefs: L.Context, gate: Gate, +decision: Mayb
       do IO<Context & S.Session>:
         local : Cl.Client <- history.flush(decision_known(decision) || explicit_history(st), path, ep, S.session_cl(st))
         _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{gen})
-        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, H.install_startup(H.report_diagnostics(local, snapshot, ep, ep), snapshot, ep, ep)))
+        # ep is the HistoryLoaded snapshot claim; Session re-derives current_ep.
+        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, history.merge(local, st, snapshot, ep)))
 
 def history.result(owned: Bool, ctx: Details, +st: S.Session, +gen: U32, got_gen: U32, +ep: String, snapshot: Cl.Client, cmd: Chan(S.NetCmd)) -> IO(Context & S.Session):
   match owned:

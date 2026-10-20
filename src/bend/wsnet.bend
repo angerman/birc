@@ -79,7 +79,6 @@ import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
 import ./preferences_live.bend as LoadedPrefs
 import ./startup_headless.bend as Headless
-import ./history_startup.bend as HistStart
 import ./history_startup_io.bend as Archive
 
 type WsMsg is Data:
@@ -2748,11 +2747,12 @@ def ws_histload.reload_match(pending: Maybe<&2, Nat>, +ticket: Nat, +gen: U32, +
     case Some{+want}:
       Nat.is_eq(want, ticket) && U32.is_eq(gen, got_gen) && String.eq(ep, cur)
 
-def ws_histload.mid(ok: Bool, +st: Sess.Session, +snapshot: Cl.Client, +ep: String, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+def ws_histload.mid(ok: Bool, +st: Sess.Session, +snapshot: Cl.Client, +snapshot_ep: String, +ws: W.Workspace, +id: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match ok:
     case False{}: ws_drop(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, k)
     case True{}:
-      +cl2 = HistStart.install_startup(HistStart.report_diagnostics(Sess.session_cl(st), snapshot, ep, ep), snapshot, ep, ep)
+      # current_ep from Session/Net; snapshot_ep from HistoryLoaded (got).
+      +cl2 = PrefLive.history.merge(Sess.session_cl(st), st, snapshot, snapshot_ep)
       +ws_new = ws_replace(ws, id, Sess.session_set_client(st, cl2))
       +cards2 = ws_cards_all.hot_set(cards, ws_hot.clear_ticket(ws_cards_all.hot(cards), id))
       do IO<Unit>:
@@ -2782,9 +2782,11 @@ def ws_histload.got(+loop: WsLoop, +got: Maybe<&2, W.Part>, ui: T.Ui, +s: Key.Se
           +st = Sess.session_set_now(W.part_session(p), ts)
           +before_seq = Cl.log_seq_of(Sess.session_cl(st))
           +gen = W.part_gen(p)
+          # Distinct sources: session/Net current vs HistoryLoaded snapshot claim.
+          +snapshot_ep = ep
           do IO<Unit>:
-            installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, gen, got_gen, ticket, ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
-            ws_histload.done(installed, ctx, before_seq, st, snapshot, ticket, got_gen, ep, gen, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
+            installed : PrefLive.Context & Sess.Session <- PrefLive.history(ctx, st, gen, got_gen, ticket, snapshot_ep, snapshot, ws_cmd.at(cmds, ws_id_nat(s)))
+            ws_histload.done(installed, ctx, before_seq, st, snapshot, ticket, got_gen, snapshot_ep, gen, ws, s, ui, main, cmds, evts, pevts, ack, scheduled, bell, media, owner, ups, notify, cards, begun, k)
 
 def ws_search.landed(landed: Bool, +ws2: W.Workspace, +ws: W.Workspace, +s: Key.ServerId, ui: T.Ui, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +scheduled: Bool, +bell: U32, +ctx: PrefLive.Context, +media: Maybe<&2, WsMedia>, +owner: Maybe<&2, WsLease>, +ups: List<&2, WsLease>, +notify: WsNotify, +cards: WsCardsAll, +begun: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match landed:
