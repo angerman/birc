@@ -111,7 +111,7 @@ def close_guards() -> IO(Unit):
 
 def promoted_fixture() -> Cl.Client:
   +base = Cl.init("me", "s")
-  Cl.Client{"me", "s", Cl.server_buf() <> Cl.buf_indexed("#r", False{}, "topic", Nil{}, ["#r", "alice"], Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.get_settings(base), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.server_buf() <> Cl.buf_indexed("#r", False{}, "topic", Nil{}, ["#r", "alice"], Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.get_settings(base), Cl.AuthIdle{}, 0n, False{}}
 
 def promotion_guard() -> IO(Unit):
   +after = members(Feed.feed(promoted_fixture(), ":me!u@h JOIN #r"))

@@ -365,11 +365,10 @@ static TimuiImage *birc_preview_load(Timui *ui, const char *path) {
   int fd;
   if (!ui || !path || path[0] == '\0')
     return NULL;
-  fd = open(path, O_RDONLY | O_NONBLOCK);
+  fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
   if (fd < 0)
     return NULL;
-  if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fstat(fd, &st) < 0 ||
-      !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+  if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
       (uintmax_t)st.st_size > (uintmax_t)TIMUI_IMAGE_PNG_MAX_BYTES) {
     (void)close(fd);
     return NULL;
@@ -1873,14 +1872,23 @@ Term winch_open_run(Env e, Term *f, IoWork *w) {
   struct sigaction sa;
   (void)f;
   (void)w;
+  /* Linux: pipe2 sets CLOEXEC+NONBLOCK atomically. Darwin has neither
+   * pipe2 nor SOCK_CLOEXEC in the SDK; fall back to pipe + F_SETFD/FL. */
+#if defined(__linux__)
+  if (pipe2(pfd, O_CLOEXEC | O_NONBLOCK) != 0)
+    return io_fail(e, (u32)errno, "winch pipe");
+#else
   if (pipe(pfd) != 0) return io_fail(e, (u32)errno, "winch pipe");
-  if (fcntl(pfd[0], F_SETFL, O_NONBLOCK) < 0 ||
+  if (fcntl(pfd[0], F_SETFD, FD_CLOEXEC) < 0 ||
+      fcntl(pfd[1], F_SETFD, FD_CLOEXEC) < 0 ||
+      fcntl(pfd[0], F_SETFL, O_NONBLOCK) < 0 ||
       fcntl(pfd[1], F_SETFL, O_NONBLOCK) < 0) {
     int err = errno;
     (void)close(pfd[0]);
     (void)close(pfd[1]);
-    return io_fail(e, (u32)err, "winch nonblock");
+    return io_fail(e, (u32)err, "winch cloexec");
   }
+#endif
   birc_winch_rd = pfd[0];
   birc_winch_wr = (sig_atomic_t)pfd[1];
   memset(&sa, 0, sizeof sa);

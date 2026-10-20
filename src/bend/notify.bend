@@ -550,5 +550,5 @@ def notify_collect_bufs(bufs: List<&2, Cl.Buffer>, +scope: String, +nick: String
 
 def notify_collect(+cl: Cl.Client, +scope: String, +cutoff: Nat) -> List<&2, NotifyEvent>:
   match cl:
-    case Cl.Client{+nick, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{+nick, _, +bufs, _, _, _, _, _, _}:
       notify_collect_bufs(bufs, scope, nick, cutoff, 0n)

@@ -112,11 +112,12 @@ def main() -> None:
     post_upgrade(binary, "bootlsclose")
     post_upgrade(binary, "bootlsregister")
     post_upgrade(binary, "bootlskept")
+    # Dial B then Drop/cmd-close: both cancel before TCP to B (TimeoutError).
     post_upgrade_winner(binary, "afterdialdrop")
     post_upgrade_winner(binary, "afterdialclose")
-    # writer_admit parity: post-Dial Drop cancels the recursive winner before
-    # registration; cmd-close with a queued Dial must not dial B at all;
+    # writer_admit parity: post-Dial Drop or cmd-close must not dial B;
     # without Drop/close the same winner sends the full handshake.
+    # Held-setup cases above still cover Drop during connect/DNS.
     writer_admit_winner(binary, "writerdialdrop", [])
     writer_admit_winner(binary, "writerdialclose", [])
     writer_admit_winner(binary, "writerdialregister", HANDSHAKE)
@@ -280,7 +281,7 @@ def post_upgrade(binary: str, mode: str) -> None:
 
 
 def post_upgrade_winner(binary: str, mode: str) -> None:
-    """Dial B after A's upgrade, then Drop or close the command channel."""
+    """Dial B after A's upgrade, then Drop or close: no TCP to B."""
     with socket.socket() as first_server, socket.socket() as winner_server:
         first_server.bind(("127.0.0.1", 0))
         first_server.listen(1)
@@ -297,24 +298,15 @@ def post_upgrade_winner(binary: str, mode: str) -> None:
         first = winner = None
         try:
             first, _ = first_server.accept()
-            if mode == "afterdialdrop":
+            first_wire, stdout, stderr = collect_child(child, first)
+            assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
+            assert first_wire == b"", (mode, "cancelled A wrote bytes", first_wire)
+            try:
                 winner, _ = winner_server.accept()
-                winner_wire, stdout, stderr = collect_child(child, winner)
-                first.settimeout(1)
-                first_wire = first.recv(65536)
-                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
-                assert first_wire == b"", (mode, "abandoned A wrote bytes", first_wire)
-                assert winner_wire == b"", (mode, "dropped B wrote bytes", winner_wire)
+            except TimeoutError:
+                winner = None
             else:
-                first_wire, stdout, stderr = collect_child(child, first)
-                assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
-                assert first_wire == b"", (mode, "closed A wrote bytes", first_wire)
-                try:
-                    winner, _ = winner_server.accept()
-                except TimeoutError:
-                    winner = None
-                else:
-                    raise AssertionError((mode, "closed command retried Dial B"))
+                raise AssertionError((mode, "Drop/close retried Dial B"))
         finally:
             if child.poll() is None:
                 child.kill()
@@ -344,16 +336,16 @@ def writer_admit_winner(binary: str, mode: str, expected: list[str]) -> None:
         first = winner = None
         try:
             first, _ = first_server.accept()
-            if mode == "writerdialclose":
+            if mode in ("writerdialclose", "writerdialdrop"):
                 first_wire, stdout, stderr = collect_child(child, first)
                 assert child.returncode == 0, (mode, child.returncode, stdout, stderr)
-                assert first_wire == b"", (mode, "closed A wrote bytes", first_wire)
+                assert first_wire == b"", (mode, "cancelled A wrote bytes", first_wire)
                 try:
                     winner, _ = winner_server.accept()
                 except TimeoutError:
                     winner = None
                 else:
-                    raise AssertionError((mode, "closed command retried Dial B"))
+                    raise AssertionError((mode, "Drop/close retried Dial B"))
             else:
                 winner, _ = winner_server.accept()
                 winner_wire, stdout, stderr = collect_child(child, winner)

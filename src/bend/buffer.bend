@@ -813,20 +813,21 @@ type Client is Data:
     now: String,
     settings: Settings,
     auth: AuthPhase,
-    log_seq: Nat
+    log_seq: Nat,
+    welcomed: Bool
   }
 
 def get_auth(+cl: Client) -> AuthPhase:
   match cl:
-    case Client{_, _, _, _, _, _, auth, _}: auth_phase(auth)
+    case Client{_, _, _, _, _, _, auth, _, _}: auth_phase(auth)
 
 def client_auth_config(+cl: Client) -> AuthConfig:
   match cl:
-    case Client{_, _, _, _, _, _, auth, _}: auth_config(auth)
+    case Client{_, _, _, _, _, _, auth, _, _}: auth_config(auth)
 
 def auth_success_seq(+cl: Client) -> Nat:
   match cl:
-    case Client{_, _, _, _, _, _, auth, _}: auth_seq(auth)
+    case Client{_, _, _, _, _, _, auth, _, _}: auth_seq(auth)
 
 def auth_config_prefix(config: AuthConfig) -> String:
   match config:
@@ -841,31 +842,31 @@ def client_auth_service(+cl: Client) -> String:
 
 def set_auth_state(+cl: Client, state: AuthPhase) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, _, seq}:
-      Client{nick, server, bufs, active, now, stg, state, seq}
+    case Client{nick, server, bufs, active, now, stg, _, seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, state, seq, welcomed}
 
 def set_auth(+cl: Client, phase: AuthPhase) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      Client{nick, server, bufs, active, now, stg, auth_phase_set(auth, phase), seq}
+    case Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth_phase_set(auth, phase), seq, welcomed}
 
 def advance_auth_success(+cl: Client) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      Client{nick, server, bufs, active, now, stg, auth_seq_advance(auth), seq}
+    case Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth_seq_advance(auth), seq, welcomed}
 
 def log_seq_of(+cl: Client) -> Nat:
   match cl:
-    case Client{_, _, _, _, _, _, _, seq}: seq
+    case Client{_, _, _, _, _, _, _, seq, _}: seq
 
 def set_log_seq(+cl: Client, +seq: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, _}:
-      Client{nick, server, bufs, active, now, stg, auth, seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, _, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}
 
 def is_muted_client_cm(+cm: String, +cl: Client, +from: String, +chan: String) -> Bool:
   match cl:
-    case Client{_, +server, _, _, _, +stg, +auth, +log_seq}:
+    case Client{_, +server, _, _, _, +stg, +auth, +log_seq, _}:
       is_muted_list_cm(cm, settings_mutes(stg), from, chan, server)
 
 def is_muted_client(+cl: Client, +from: String, +chan: String) -> Bool:
@@ -873,18 +874,18 @@ def is_muted_client(+cl: Client, +from: String, +chan: String) -> Bool:
 
 def add_mute_client(+cl: Client, +pat: String) -> Client:
   match cl:
-    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, set_mutes(stg, add_mute_list(settings_mutes(stg), pat)), auth, log_seq}
+    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, add_mute_list(settings_mutes(stg), pat)), auth, log_seq, welcomed}
 
 def del_mute_client(+cl: Client, +pat: String) -> Client:
   match cl:
-    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list(settings_mutes(stg), pat)), auth, log_seq}
+    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list(settings_mutes(stg), pat)), auth, log_seq, welcomed}
 
 def del_mute_client_iso(+cl: Client, +isc: Iso, +pat: String) -> Client:
   match cl:
-    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list_with(iso_types(isc), settings_mutes(stg), pat)), auth, log_seq}
+    case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list_with(iso_types(isc), settings_mutes(stg), pat)), auth, log_seq, welcomed}
 
 # ---- init ---------------------------------------------------------------
 
@@ -892,20 +893,20 @@ def server_buf() -> Buffer:
   buf_indexed("server", False{}, "", Nil{}, Nil{}, ScrollAt{0n, 0n})
 
 def init(+nick: String, +server: String) -> Client:
-  Client{nick, server, server_buf() <> Nil{}, 0n, "", settings0(), AuthIdle{}, 0n}
+  Client{nick, server, server_buf() <> Nil{}, 0n, "", settings0(), AuthIdle{}, 0n, False{}}
 
 def init_with_cap(+nick: String, +server: String, cap: U32) -> Client:
-  Client{nick, server, server_buf() <> Nil{}, 0n, "", settings_with_cap(cap), AuthIdle{}, 0n}
+  Client{nick, server, server_buf() <> Nil{}, 0n, "", settings_with_cap(cap), AuthIdle{}, 0n, False{}}
 
 def get_settings(+cl: Client) -> Settings:
   match cl:
-    case Client{_, _, _, _, _, +stg, +auth, +log_seq}:
+    case Client{_, _, _, _, _, +stg, +auth, +log_seq, _}:
       stg
 
 def set_settings(+cl: Client, +stg: Settings) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, _, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, _, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
 
 def client_sasl_user(+cl: Client) -> String:
   settings_sasl_user(get_settings(cl))
@@ -955,7 +956,7 @@ def client_set_auth(+cl: Client, +mode: AuthMode, +host: String, +port: U32, +pr
 
 def client_set_sasl(+cl: Client, +u: String, +p: String) -> Client:
   match cl:
-    case Client{_, +server, _, _, _, _, _, _}:
+    case Client{_, +server, _, _, _, _, _, _, _}:
       client_set_auth(cl, SaslOnly{}, server, 6667, "", "", u, p)
 
 def auth_config_sasl(config: AuthConfig) -> Bool:
@@ -1013,8 +1014,8 @@ def buf_clear(b: Buffer) -> Buffer:
 
 def buf_clear_at(+cl: Client, +i: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, buf_clear), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, i, buf_clear), active, now, stg, auth, log_seq, welcomed}
 
 def buf_set_lines(+lines: List<&2, Line>, b: Buffer) -> Buffer:
   match b:
@@ -1032,8 +1033,8 @@ def buf_set_lines_fn(lines: List<&2, Line>, b: Buffer) -> Buffer:
 
 def buf_set_lines_at(+cl: Client, +i: Nat, lines: List<&2, Line>) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, buf_set_lines_fn(lines)), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, i, buf_set_lines_fn(lines)), active, now, stg, auth, log_seq, welcomed}
 
 def mark_unread.level(is_hl: Bool) -> AlertLevel:
   match is_hl:
@@ -1067,9 +1068,9 @@ def mark_unread_idx.on_cm(+cm: String, is_active: Bool, got: Maybe<&2, Buffer>, 
 
 def mark_unread_idx_cm(+cm: String, +cl: Client, +i: Nat, is_hl: Bool) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +act, +now, +stg, +auth, +log_seq}:
+    case Client{+nick, +server, +bufs, +act, +now, +stg, +auth, +log_seq, welcomed}:
       +stg2 = mark_unread_idx.on_cm(cm, Nat.is_eq(i, act) || Nat.is_eq(i, 0n), nth_buf(bufs, i), is_hl, stg)
-      Client{nick, server, bufs, act, now, stg2, auth, log_seq}
+      Client{nick, server, bufs, act, now, stg2, auth, log_seq, welcomed}
 
 def mark_unread.check(is_server: Bool, is_hl: Bool, +name: String, +stg: Settings) -> Settings:
   mark_unread.check_cm(dflt_cm(), is_server, is_hl, name, stg)
@@ -1107,7 +1108,7 @@ def buf_find_cm.skip0(xs: List<&2, Buffer>, +cm: String, +name: String) -> Maybe
 
 def buf_find_cm(+cl: Client, +cm: String, +name: String) -> Maybe<&2, Nat>:
   match cl:
-    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
       buf_find_cm.skip0(bufs, cm, name)
 
 def buf_find(+cl: Client, +name: String) -> Maybe<&2, Nat>:
@@ -1126,7 +1127,7 @@ def message_key_with.resident(+name: String, got: Maybe<&2, Buffer>) -> String:
 
 def message_key_with.found(+cl: Client, +isc: Iso, +name: String, found: Maybe<&2, Nat>) -> String:
   match cl:
-    case Client{_, _, bufs, _, _, _, _, _}:
+    case Client{_, _, bufs, _, _, _, _, _, _}:
       match found:
         # One STATUSMSG strip only — audience already applied target_key_with.
         case None{}: name
@@ -1221,15 +1222,15 @@ def diagnostic_slot.make(full: Bool, cl: Client) -> Client & Maybe<&2, Nat>:
     case True{}: (cl, None{})
     case False{}:
       match cl:
-        case Client{nick, server, +bufs, active, now, stg, auth, seq}:
-          (Client{nick, server, List.append(&2, Buffer, bufs, empty_buf(Diagnostic.name(), False{}) <> Nil{}), active, now, stg, auth, seq}, Some{buf_count(bufs)})
+        case Client{nick, server, +bufs, active, now, stg, auth, seq, welcomed}:
+          (Client{nick, server, List.append(&2, Buffer, bufs, empty_buf(Diagnostic.name(), False{}) <> Nil{}), active, now, stg, auth, seq, welcomed}, Some{buf_count(bufs)})
 
 def diagnostic_slot.got(got: Maybe<&2, Nat>, +cl: Client) -> Client & Maybe<&2, Nat>:
   match got:
     case Some{i}: (cl, Some{i})
     case None{}:
       match cl:
-        case Client{_, _, +bufs, _, _, _, _, _}:
+        case Client{_, _, +bufs, _, _, _, _, _, _}:
           diagnostic_slot.make(Nat.is_ge(buf_count(bufs), MAX_BUFFERS()), cl)
 
 def diagnostic_slot(+cl: Client) -> Client & Maybe<&2, Nat>:
@@ -1243,7 +1244,7 @@ def log_buffers.got(got: Maybe<&2, Buffer>) -> List<&2, Buffer>:
 # Preserve only the app-session diagnostics across endpoint changes, not chats.
 def log_buffers.index(cl: Client, i: Nat) -> List<&2, Buffer>:
   match cl:
-    case Client{_, _, bufs, _, _, _, _, _}: log_buffers.got(nth_buf(bufs, i))
+    case Client{_, _, bufs, _, _, _, _, _, _}: log_buffers.got(nth_buf(bufs, i))
 
 def log_buffers.at(cl: Client, got: Maybe<&2, Nat>) -> List<&2, Buffer>:
   match got:
@@ -1255,9 +1256,9 @@ def log_buffers(+cl: Client) -> List<&2, Buffer>:
 
 def diagnostic_line.at(cl: Client, i: Nat, kind: LineKind, ts: String, text: String, id: Nat) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, +stg, auth, seq}:
+    case Client{nick, server, bufs, active, now, +stg, auth, seq, welcomed}:
       +line: Line = Line{kind, String.take(Irc.sanitize_in(ts), 32n), Diagnostic.text(text, settings_sasl_user(stg), settings_sasl_pass(stg)), "", id}
-      Client{nick, server, buf_modify(bufs, i, diagnostic_append(line)), active, now, stg, auth, seq}
+      Client{nick, server, buf_modify(bufs, i, diagnostic_append(line)), active, now, stg, auth, seq, welcomed}
 
 def diagnostic_line.got(pair: Client & Maybe<&2, Nat>, kind: LineKind, ts: String, text: String, id: Nat) -> Client:
   match pair:
@@ -1273,8 +1274,8 @@ def diagnostic_line(cl: Client, line: Line) -> Client:
 # the original error routes. The IO caller supplies only a safe stage label.
 def diagnostic(cl: Client, kind: LineKind, msg: String) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, +now, stg, auth, +seq}:
-      diagnostic_line(Client{nick, server, bufs, active, now, stg, auth, 1n+seq}, Line{kind, now, msg, "", 1n+seq})
+    case Client{nick, server, bufs, active, +now, stg, auth, +seq, welcomed}:
+      diagnostic_line(Client{nick, server, bufs, active, now, stg, auth, 1n+seq, welcomed}, Line{kind, now, msg, "", 1n+seq})
 
 # Ordinary stages do not create a tab. Once opened (or created by an error),
 # the app-session log also records safe connection and authentication stages.
@@ -1326,7 +1327,7 @@ def diagnostic_fresh.fin(acc: DiagnosticFresh) -> Client:
 
 def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
   match cl:
-    case Client{_, _, +bufs, _, _, _, _, _}:
+    case Client{_, _, +bufs, _, _, _, _, _, _}:
       diagnostic_fresh.fin(List.foldl(~&2, ~Buffer, ~DiagnosticFresh, ~diagnostic_fresh_buf, bufs, DiagnosticFresh{cl, cutoff}))
 
 # Live Client.now is "YYYY-MM-DD (Weekday)\nHH:MM:SS". Tests and restored
@@ -1486,14 +1487,14 @@ def stamp_bufs.fin(acc: StampBufs) -> List<&2, Buffer> & Nat:
 def stamp_bufs(bufs: List<&2, Buffer>, seq: Nat) -> List<&2, Buffer> & Nat:
   stamp_bufs.fin(List.foldl(~&2, ~Buffer, ~StampBufs, ~stamp_bufs.step, bufs, StampBufs{Nil{}, seq}))
 
-def stamp_logs.got(pair: List<&2, Buffer> & Nat, nick: String, server: String, active: Nat, now: String, stg: Settings, auth: AuthPhase, cutoff: Nat) -> Client:
+def stamp_logs.got(pair: List<&2, Buffer> & Nat, nick: String, server: String, active: Nat, now: String, stg: Settings, auth: AuthPhase, cutoff: Nat, welcomed: Bool) -> Client:
   match pair:
-    case (bufs, seq): diagnostic_fresh(Client{nick, server, bufs, active, now, stg, auth, seq}, cutoff)
+    case (bufs, seq): diagnostic_fresh(Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}, cutoff)
 
 def stamp_logs(cl: Client) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, +seq}:
-      stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth, seq)
+    case Client{nick, server, bufs, active, now, stg, auth, +seq, welcomed}:
+      stamp_logs.got(stamp_bufs(bufs, seq), nick, server, active, now, stg, auth, seq, welcomed)
 
 def buf_has_lines(b: Buffer) -> Bool:
   match b:
@@ -1516,8 +1517,8 @@ def reconnect_bufs(bufs: List<&2, Buffer>, +now: String) -> List<&2, Buffer>:
 # History and Session share the event-ID stamping boundary for dividers.
 def reconnect_markers(cl: Client, now: String) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, old_now, stg, auth, seq}:
-      stamp_logs(Client{nick, server, reconnect_bufs(bufs, now), active, old_now, stg, auth, seq})
+    case Client{nick, server, bufs, active, old_now, stg, auth, seq, welcomed}:
+      stamp_logs(Client{nick, server, reconnect_bufs(bufs, now), active, old_now, stg, auth, seq, welcomed})
 
 # Roster and topic describe the current connection, unlike retained history.
 def reset_channel_buf(b: Buffer) -> Buffer:
@@ -1533,8 +1534,8 @@ def reset_channel_bufs(bufs: List<&2, Buffer>) -> List<&2, Buffer>:
 
 def reset_channel_state(cl: Client) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
-      Client{nick, server, reset_channel_bufs(bufs), active, now, stg, auth, seq}
+    case Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
+      Client{nick, server, reset_channel_bufs(bufs), active, now, stg, auth, seq, welcomed}
 
 def cap_note(+b: Buffer, +now: String) -> Buffer:
   buf_log_ts(b, Error{}, now, "buffer limit reached")
@@ -1542,22 +1543,22 @@ def cap_note(+b: Buffer, +now: String) -> Buffer:
 def cap_at(+now: String, b: Buffer) -> Buffer:
   cap_note(b, now)
 
-def buf_get.full(got: Maybe<&2, Buffer>, +nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat) -> Client & Maybe<&2, Nat>:
+def buf_get.full(got: Maybe<&2, Buffer>, +nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool) -> Client & Maybe<&2, Nat>:
   match got:
     case None{}:
-      (Client{nick, server, bufs, active, now, stg, auth, log_seq}, None{})
+      (Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}, None{})
     case Some{_}:
-      (stamp_logs(Client{nick, server, buf_modify(bufs, 0n, cap_at(now)), active, now, stg, auth, log_seq}), None{})
+      (stamp_logs(Client{nick, server, buf_modify(bufs, 0n, cap_at(now)), active, now, stg, auth, log_seq, welcomed}), None{})
 
-def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, full: Bool) -> Client & Maybe<&2, Nat>:
+def buf_get.create.cap(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +name: String, is_channel: Bool, full: Bool) -> Client & Maybe<&2, Nat>:
   match full:
     case True{}:
-      buf_get.full(nth_buf(bufs, 0n), nick, server, bufs, active, now, stg, auth, log_seq)
+      buf_get.full(nth_buf(bufs, 0n), nick, server, bufs, active, now, stg, auth, log_seq, welcomed)
     case False{}:
       +b = empty_buf(name, is_channel)
       +i = buf_count(bufs)
       +bufs2 = List.append(&2, Buffer, bufs, b <> Nil{})
-      (Client{nick, server, bufs2, active, now, stg, auth, log_seq}, Some{i})
+      (Client{nick, server, bufs2, active, now, stg, auth, log_seq, welcomed}, Some{i})
 
 def normal_buffer_count.step(n: Nat, b: Buffer) -> Nat:
   match b:
@@ -1567,16 +1568,16 @@ def normal_buffer_count.step(n: Nat, b: Buffer) -> Nat:
 def normal_buffer_count(bufs: List<&2, Buffer>) -> Nat:
   List.foldl(~&2, ~Buffer, ~Nat, ~normal_buffer_count.step, bufs, 0n)
 
-def buf_get.create(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool) -> Client & Maybe<&2, Nat>:
-  buf_get.create.cap(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel,
+def buf_get.create(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +name: String, is_channel: Bool) -> Client & Maybe<&2, Nat>:
+  buf_get.create.cap(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, name, is_channel,
     Nat.is_ge(buf_count(bufs), MAX_BUFFERS()) || (Bool.not(Irc.ieq(name, Diagnostic.name())) && Nat.is_ge(normal_buffer_count(bufs), NORMAL_BUFFERS())))
 
-def buf_get.miss(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
+def buf_get.miss(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
   match create:
     case False{}:
-      (Client{nick, server, bufs, active, now, stg, auth, log_seq}, None{})
+      (Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}, None{})
     case True{}:
-      buf_get.create(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel)
+      buf_get.create(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, name, is_channel)
 
 # Older query-created channels retain their own name as the seed nick. Remove
 # that exact seed when negotiated policy later promotes the existing buffer.
@@ -1604,17 +1605,17 @@ def promote_channel(channel: Bool, b: Buffer) -> Buffer:
     case Buffer{_, +was_channel, _, _, _, _, _, _}:
       promote_channel.on(channel && Bool.not(was_channel), b)
 
-def buf_get.found(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +name: String, is_channel: Bool, create: Bool, found: Maybe<&2, Nat>) -> Client & Maybe<&2, Nat>:
+def buf_get.found(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +name: String, is_channel: Bool, create: Bool, found: Maybe<&2, Nat>) -> Client & Maybe<&2, Nat>:
   match found:
     case Some{+i}:
-      (Client{nick, server, buf_modify(bufs, i, promote_channel(is_channel)), active, now, stg, auth, log_seq}, Some{i})
+      (Client{nick, server, buf_modify(bufs, i, promote_channel(is_channel)), active, now, stg, auth, log_seq, welcomed}, Some{i})
     case None{}:
-      buf_get.miss(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create)
+      buf_get.miss(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, name, is_channel, create)
 
 def buf_get.fin(+cl: Client, +name: String, is_channel: Bool, create: Bool, found: Maybe<&2, Nat>) -> Client & Maybe<&2, Nat>:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      buf_get.found(nick, server, bufs, active, now, stg, auth, log_seq, name, is_channel, create, found)
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      buf_get.found(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, name, is_channel, create, found)
 
 def buf_get(+cl: Client, +name: String, is_channel: Bool, create: Bool) -> Client & Maybe<&2, Nat>:
   +canonical = target_name(name)
@@ -1649,25 +1650,25 @@ def diagnostic_mirror(mirror: Bool, cl: Client, +line: Line) -> Client:
 
 def client_log.original(mirror: Bool, cl: Client, i: Nat, +line: Line) -> Client:
   match cl:
-    case Client{nick, server, bufs, active, now, stg, auth, seq}:
+    case Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
       diagnostic_mirror(mirror,
-        Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, seq}, line)
+        Client{nick, server, buf_modify(bufs, i, b => buf_append_line(b, line)), active, now, stg, auth, seq, welcomed}, line)
 
 def client_log.append(internal: Bool, mirror: Bool, cl: Client, i: Nat, line: Line) -> Client:
   match internal:
     case True{}: diagnostic_line(cl, line)
     case False{}: client_log.original(mirror, cl, i, line)
 
-def client_log_author_ts.noted(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +seq: Nat, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, mirror: Bool) -> Client:
+def client_log_author_ts.noted(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +seq: Nat, welcomed: Bool, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, mirror: Bool) -> Client:
   +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
   +next: Nat = 1n+seq
   +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_keep_style(text), Irc.sanitize_in(author), next}
-  client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next}, i, line)
+  client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next, welcomed}, i, line)
 
 def client_log_author_ts.record(+mirror: Bool, +cl: Client, +i: Nat, +kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      client_log_author_ts.noted(nick, server, bufs, active, now, stg, auth, log_seq, i, kind, ts, text, author, mirror)
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      client_log_author_ts.noted(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, i, kind, ts, text, author, mirror)
 
 def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   client_log_author_ts.record(True{}, cl, i, kind, ts, text, author)
@@ -1685,18 +1686,18 @@ def client_log(+cl: Client, +i: Nat, kind: LineKind, +text: String) -> Client:
 
 def buf_modify_client(+cl: Client, +i: Nat, f: Buffer -> Buffer) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, f), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, i, f), active, now, stg, auth, log_seq, welcomed}
 
 def purge_nick_from_active_buf(+cl: Client, +nick: String) -> Client:
   match cl:
-    case Client{_, _, _, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, _, +active, _, _, +auth, +log_seq, _}:
       buf_modify_client(cl, active, b => purge_nick_buf(b, nick))
 
 def set_now(+cl: Client, +ts: String) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, ts, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, ts, stg, auth, log_seq, welcomed}
 
 def replay_keep.cons(acc: List<&2, String>, +s: String, empty: Bool) -> List<&2, String>:
   match empty:
@@ -1903,8 +1904,8 @@ def nick_add_who(+who: String, b: Buffer) -> Buffer:
 
 def nick_add_idx(+cl: Client, +i: Nat, +who: String) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, nick_add_who(who)), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, i, nick_add_who(who)), active, now, stg, auth, log_seq, welcomed}
 
 def nick_add_step(b: Buffer, h: String) -> Buffer:
   +bb = b
@@ -1925,8 +1926,8 @@ def set_topic_fn(topic: String, b: Buffer) -> Buffer:
 
 def set_topic_at(+cl: Client, +i: Nat, +topic: String) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, i, set_topic_fn(topic)), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, i, set_topic_fn(topic)), active, now, stg, auth, log_seq, welcomed}
 
 def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
   match got:
@@ -1944,9 +1945,9 @@ def set_active.unread_index(control: Bool, stg: Settings, got: Maybe<&2, Buffer>
 
 def set_active(+cl: Client, +i: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, _, +now, +stg, +auth, +log_seq}:
+    case Client{+nick, +server, +bufs, _, +now, +stg, +auth, +log_seq, welcomed}:
       +stg2 = set_active.unread_index(Nat.is_eq(i, 0n), stg, nth_buf(bufs, i))
-      Client{nick, server, bufs, i, now, stg2, auth, log_seq}
+      Client{nick, server, bufs, i, now, stg2, auth, log_seq, welcomed}
 
 def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
   match ok:
@@ -1957,7 +1958,7 @@ def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
 
 def set_active_clamp(+cl: Client, +i: Nat) -> Client:
   match cl:
-    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
       set_active_clamp.on(cl, i, Nat.is_lt(i, buf_count(bufs)))
 
 def set_buf_anchor(+b: Buffer, +sc: Scroll) -> Buffer:
@@ -2083,9 +2084,9 @@ def coalesce_queries.preferred(control: Bool, got: Maybe<&2, Buffer>) -> Maybe<&
 
 def coalesce_queries(+cl: Client, target: String) -> Client:
   match cl:
-    case Client{nick, server, +bufs, +active, now, stg, auth, seq}:
+    case Client{nick, server, +bufs, +active, now, stg, auth, seq, welcomed}:
       +preferred = coalesce_queries.preferred(Nat.is_eq(active, 0n), nth_buf(bufs, active))
-      Client{nick, server, coalesce_queries.bufs(bufs, target, preferred), active, now, stg, auth, seq}
+      Client{nick, server, coalesce_queries.bufs(bufs, target, preferred), active, now, stg, auth, seq, welcomed}
 
 def coalesce_queries.bufs_cm(+cm: String, bufs: List<&2, Buffer>, +target: String, preferred: Maybe<&2, Buffer>) -> List<&2, Buffer>:
   match bufs:
@@ -2096,17 +2097,17 @@ def coalesce_queries.bufs_cm(+cm: String, bufs: List<&2, Buffer>, +target: Strin
 
 def coalesce_queries_cm(+cm: String, +cl: Client, target: String) -> Client:
   match cl:
-    case Client{nick, server, +bufs, +active, now, stg, auth, seq}:
+    case Client{nick, server, +bufs, +active, now, stg, auth, seq, welcomed}:
       +preferred = coalesce_queries.preferred(Nat.is_eq(active, 0n), nth_buf(bufs, active))
-      Client{nick, server, coalesce_queries.bufs_cm(cm, bufs, target, preferred), active, now, stg, auth, seq}
+      Client{nick, server, coalesce_queries.bufs_cm(cm, bufs, target, preferred), active, now, stg, auth, seq, welcomed}
 
 def scroll_zero(b: Buffer) -> Buffer:
   set_buf_scroll(b, 0n)
 
 def snap_active(+cl: Client) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, active, scroll_zero), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, active, scroll_zero), active, now, stg, auth, log_seq, welcomed}
 
 def scroll_add_nat(+scroll: Nat, +up: Nat, +dn: Nat) -> Nat:
   Nat.sub(Nat.add(scroll, up), dn)
@@ -2131,8 +2132,8 @@ def scroll_delta(+up: Nat, +dn: Nat, b: Buffer) -> Buffer:
 
 def apply_active_scroll(+cl: Client, +up: Nat, +dn: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, buf_modify(bufs, active, scroll_delta(up, dn)), active, now, stg, auth, log_seq}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, buf_modify(bufs, active, scroll_delta(up, dn)), active, now, stg, auth, log_seq, welcomed}
 
 def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
   match got:
@@ -2145,7 +2146,7 @@ def buf_scroll_of.on(got: Maybe<&2, Buffer>) -> Nat:
 
 def buf_scroll_of(+cl: Client, +i: Nat) -> Nat:
   match cl:
-    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
       buf_scroll_of.on(nth_buf(bufs, i))
 
 def log_open.got(pair: Client & Maybe<&2, Nat>) -> Client:
@@ -2158,7 +2159,7 @@ def log_open(cl: Client) -> Client:
 
 def active_of(+cl: Client) -> Nat:
   match cl:
-    case Client{_, _, _, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, _, +active, _, _, +auth, +log_seq, _}:
       active
 
 def scroll_eq(a: Scroll, b: Scroll) -> Bool:
@@ -2180,7 +2181,7 @@ def active_scroll.got(b: Maybe<&2, Buffer>) -> Scroll:
 
 def active_scroll(+cl: Client) -> Scroll:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, _, _}:
+    case Client{_, _, +bufs, +active, _, _, _, _, _}:
       active_scroll.got(nth_buf(bufs, active))
 
 def view_name.on(got: Maybe<&2, Buffer>) -> String:
@@ -2194,9 +2195,9 @@ def view_name.on(got: Maybe<&2, Buffer>) -> String:
 # that leave log_seq, active index, and scroll unchanged.
 def view_same(+a: Client, +b: Client) -> Bool:
   match a:
-    case Client{_, _, +abufs, +aact, _, _, _, +aseq}:
+    case Client{_, _, +abufs, +aact, _, _, _, +aseq, welcomed}:
       match b:
-        case Client{_, _, +bbufs, +bact, _, _, _, +bseq}:
+        case Client{_, _, +bbufs, +bact, _, _, _, +bseq, _}:
           Bool.and(
             Bool.and(
               Bool.and(Nat.is_eq(aseq, bseq), Nat.is_eq(aact, bact)),
@@ -2227,12 +2228,12 @@ def cycle_prev.i(+active: Nat, +n: Nat) -> Nat:
 
 def cycle_next(+cl: Client) -> Client:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       set_active(cl, cycle_next.i(active, buf_count(bufs)))
 
 def cycle_prev(+cl: Client) -> Client:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       set_active(cl, cycle_prev.i(active, buf_count(bufs)))
 
 type TabDir is Data:
@@ -2265,13 +2266,22 @@ def cycle_tab(+cl: Client, dir: TabDir) -> Client:
 
 def set_nick(+cl: Client, +nick: String) -> Client:
   match cl:
-    case Client{_, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, stg, auth, log_seq}
+    case Client{_, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
+
+def welcomed_of(+cl: Client) -> Bool:
+  match cl:
+    case Client{_, _, _, _, _, _, _, _, welcomed}: welcomed
+
+def set_welcomed(+cl: Client, welcomed: Bool) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, _}:
+      Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
 
 def set_server(+cl: Client, +server: String) -> Client:
   match cl:
-    case Client{+nick, _, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Client{nick, server, bufs, active, now, stg, auth, log_seq}
+    case Client{+nick, _, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
 
 # ---- drop buffer (PART/KICK self) ---------------------------------------
 
@@ -2303,16 +2313,16 @@ def drop_buf.act(+active: Nat, +bi: Nat, +nbufs2: Nat, shift: Bool) -> Nat:
     case False{}:
       clamp_active(nbufs2, active)
 
-def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, +bi: Nat) -> Client:
+def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat) -> Client:
   +bufs2 = remove_buf(bufs, bi)
   +stg2 = set_active.unread(stg, nth_buf(bufs, bi))
   +next = drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi))
-  set_active(Client{nick, server, bufs2, next, now, stg2, auth, log_seq}, next)
+  set_active(Client{nick, server, bufs2, next, now, stg2, auth, log_seq, welcomed}, next)
 
 def drop_buf.body(+cl: Client, +bi: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      drop_buf.go(nick, server, bufs, active, now, stg, auth, log_seq, bi)
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      drop_buf.go(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi)
 
 def drop_buf.keep(+cl: Client, +bi: Nat, is_server: Bool) -> Client:
   match is_server:
@@ -2334,12 +2344,12 @@ def drop_buf.at(+cl: Client, found: Maybe<&2, Nat>) -> Client:
 
 def nick_of(+cl: Client) -> String:
   match cl:
-    case Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+    case Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
       nick
 
 def server_of(+cl: Client) -> String:
   match cl:
-    case Client{_, +server, _, _, _, _, +auth, +log_seq}:
+    case Client{_, +server, _, _, _, _, +auth, +log_seq, _}:
       server
 
 def active_nicks.on(got: Maybe<&2, Buffer>) -> List<&2, String>:
@@ -2353,7 +2363,7 @@ def active_nicks.on(got: Maybe<&2, Buffer>) -> List<&2, String>:
 
 def active_nicks(+cl: Client) -> List<&2, String>:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       active_nicks.on(nth_buf(bufs, active))
 
 def active_buf_name.on(got: Maybe<&2, Buffer>) -> String:
@@ -2367,7 +2377,7 @@ def active_buf_name.on(got: Maybe<&2, Buffer>) -> String:
 
 def active_buf_name(+cl: Client) -> String:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       active_buf_name.on(nth_buf(bufs, active))
 
 def active_buf_lines.on(got: Maybe<&2, Buffer>) -> List<&2, Line>:
@@ -2381,12 +2391,12 @@ def active_buf_lines.on(got: Maybe<&2, Buffer>) -> List<&2, Line>:
 
 def active_buf_lines(+cl: Client) -> List<&2, Line>:
   match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       active_buf_lines.on(nth_buf(bufs, active))
 
 def client_bufs(+cl: Client) -> List<&2, Buffer>:
   match cl:
-    case Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+    case Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
       bufs
 
 # ---- per-Sid allocation ceiling -------------------------------------------
@@ -2433,8 +2443,8 @@ def ceil_seq(+seq: Nat, +ceiling: Nat) -> Nat:
 
 def clamp_client_ceiling(+cl: Client, +ceiling: Nat) -> Client:
   match cl:
-    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +seq}:
-      Client{nick, server, ceil_bufs.go(bufs, ceiling), active, now, stg, auth, ceil_seq(seq, ceiling)}
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +seq, welcomed}:
+      Client{nick, server, ceil_bufs.go(bufs, ceiling), active, now, stg, auth, ceil_seq(seq, ceiling), welcomed}
 
 def client_overflows.kept(fits: Bool) -> Bool:
   match fits:
@@ -2443,5 +2453,5 @@ def client_overflows.kept(fits: Bool) -> Bool:
 
 def client_overflows(+cl: Client, +ceiling: Nat) -> Bool:
   match cl:
-    case Client{_, _, _, _, _, _, _, +seq}:
+    case Client{_, _, _, _, _, _, _, +seq, _}:
       client_overflows.kept(Nat.is_lt(seq, ceiling))

@@ -263,7 +263,7 @@ def extract_new_bufs(bufs: List<&2, Cl.Buffer>, +seq: Nat) -> String:
 
 def extract_new_history(+old_cl: Cl.Client, new_cl: Cl.Client) -> String:
   match new_cl:
-    case Cl.Client{_, _, bufs, _, _, _, _, _}:
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
       extract_new_bufs(bufs, Cl.log_seq_of(old_cl))
 
 def new_entries.lines(lines: List<&2, Cl.Line>, +target: String, +control: Bool) -> List<&2, HistEntry>:
@@ -320,7 +320,7 @@ def extract_new_history_for.same(same: Bool, +endpoint: String, +old_cl: Cl.Clie
     case True{}: ""
     case False{}:
       match new_cl:
-        case Cl.Client{_, _, bufs, _, _, _, _, _}:
+        case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
           serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
 
 def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
@@ -331,7 +331,7 @@ def extract_new_history_for_except.same(same: Bool, +endpoint: String, +old_cl: 
     case True{}: ""
     case False{}:
       match new_cl:
-        case Cl.Client{_, _, bufs, _, _, _, _, _}:
+        case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
           serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
 
 def extract_new_history_for_except(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
@@ -487,8 +487,8 @@ def cap_bufs_history(bufs: List<&2, Cl.Buffer>, +cap: U32) -> List<&2, Cl.Buffer
 
 def apply_history.cap(cl: Cl.Client, +now: String, +cap: U32) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq}:
-      Cl.reconnect_markers(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq}, now)
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq, welcomed}:
+      Cl.reconnect_markers(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq, welcomed}, now)
 
 def apply_history.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>, now: String, cap: U32) -> Cl.Client:
   match zero:
@@ -515,8 +515,8 @@ type ReadState is Data:
 
 def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
   match cl:
-    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
-      Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq}
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
+      Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq, welcomed}
 
 def read_record.present(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
   match entry:
@@ -726,7 +726,7 @@ def history_load_client.pick(skip: Bool, +path: String, +endpoint: String, +cap:
 # not a fresh init: settings, authentication, and global event IDs must survive.
 def history_load_client(+path: String, +endpoint: String, +cap: U32, +cl: Cl.Client) -> IO(Cl.Client):
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}:
+    case Cl.Client{_, _, _, _, +now, _, _, _, _}:
       history_load_client.pick(String.is_empty(path) || Bool.not(Cl.settings_history(Cl.get_settings(cl))), path, endpoint, cap, cl, now)
 
 def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):

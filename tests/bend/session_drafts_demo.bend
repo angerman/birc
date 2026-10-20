@@ -102,7 +102,7 @@ def alias_bufs() -> List<&2, Cl.Buffer>:
   Cl.server_buf() <> Cl.empty_buf("#a[", True{}) <> Cl.empty_buf("#a{", True{}) <> Nil{}
 
 def alias_cl(+active: Nat) -> Cl.Client:
-  Cl.Client{"me", "irc.example", alias_bufs(), active, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "irc.example", alias_bufs(), active, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def alias_ascii(+active: Nat) -> AD.AD:
   AD.wrap(Sess.session_set_iso(Sess.session_demo(alias_cl(active), "#a["), ascii_iso()), s0())

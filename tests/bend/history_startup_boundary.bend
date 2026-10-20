@@ -9,7 +9,7 @@ import ../../src/bend/history.bend as Hist
 
 def lines(cl: Cl.Client) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, Con{_, Con{Cl.Buffer{_, _, _, rows, _, _, _, _}, _}}, _, _, _, _, _}: rows
+    case Cl.Client{_, _, Con{_, Con{Cl.Buffer{_, _, _, rows, _, _, _, _}, _}}, _, _, _, _, _, _}: rows
     case _: Nil{}
 
 def first(rows: List<&2, Cl.Line>) -> String:
@@ -33,7 +33,7 @@ def report(+cl: Cl.Client, +cap: U32, +expected_first: String) -> IO(Unit):
 
 def control_rows(cl: Cl.Client) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, rows, _, _, _, _}, _}, _, _, _, _, _}: rows
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, rows, _, _, _, _}, _}, _, _, _, _, _, _}: rows
     case _: Nil{}
 
 def failed_read(path: String, snapshot: Cl.Client) -> IO(Cl.Client):

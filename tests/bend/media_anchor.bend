@@ -23,7 +23,7 @@ def client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
 
 def active_buf(cl: Cl.Client) -> Cl.Buffer:
   match cl:
-    case Cl.Client{_, _, bufs, active, _, _, _, _}: V.active_buf.on(Cl.nth_buf(bufs, active))
+    case Cl.Client{_, _, bufs, active, _, _, _, _, _}: V.active_buf.on(Cl.nth_buf(bufs, active))
 
 def active_media() -> M.State:
   M.State{False{}, 1n, 2n, Some{M.Request{M.Manual{}, url(), 1n, 1n}}, Nil{}, Nil{}, M.Supported{}}
@@ -147,11 +147,11 @@ def split_media() -> M.State:
 
 def split_client.of(cl: Cl.Client) -> Cl.Client:
   match cl:
-    case Cl.Client{nick, server, _, _, now, stg, auth, _}:
+    case Cl.Client{nick, server, _, _, now, stg, auth, _, welcomed}:
       Cl.Client{nick, server,
         [Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}),
          Cl.buf_indexed("#b", True{}, "", [Cl.Line{Cl.Msg{}, "", "https://x/b.gif", "bob", 2n}], Nil{}, Cl.ScrollAt{0n, 0n})],
-        0n, now, Cl.set_ts(stg, False{}), auth, 2n}
+        0n, now, Cl.set_ts(stg, False{}), auth, 2n, welcomed}
 
 def split_client() -> Cl.Client:
   split_client.of(Cl.init("me", "s"))

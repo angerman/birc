@@ -22,7 +22,7 @@ def joined() -> Cl.Client:
 
 def receipt(cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, now, _, _, _}: now
+    case Cl.Client{_, _, _, _, now, _, _, _, _}: now
 
 def main() -> IO(Unit):
   +wire : String = "@time=2026-09-28T17:40:27.123Z :alice!u@h PRIVMSG me :hello"

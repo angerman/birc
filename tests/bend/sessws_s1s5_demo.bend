@@ -849,7 +849,7 @@ def typ_cm_iso() -> Iso.State:
   Iso.apply_line(Iso.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")
 
 def typ_cm_client() -> Cl.Client:
-  Cl.Client{"me", "s", Cl.server_buf() <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.server_buf() <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def typ_cm_tagged() -> Sess.Session:
   Sess.st_of_chunk(Sess.step_on_chunk_ms(Sess.session_online(Sess.session_with_client(typ_cm_client(), "#a")), F.string_to_octets(":s CAP me ACK :message-tags\r\n"), 0))

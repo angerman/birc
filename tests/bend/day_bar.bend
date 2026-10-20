@@ -95,6 +95,28 @@ def day_anchor_tails.buf(got: Maybe<&2, Cl.Buffer>) -> String:
 def day_anchor_tails(cl: Cl.Client) -> String:
   day_anchor_tails.buf(Cl.nth_buf(Cl.client_bufs(cl), 0n))
 
+# Newest reconnect BodyRecon must not share ScrollAt{0,0} with the live sentinel.
+def recon_newest_scroll.keep(day: Bool, +after: Nat, +tail: Nat, +acc: String) -> String:
+  match day:
+    case True{}: acc
+    case False{}: Nat.show(after) ++ "," ++ Nat.show(tail)
+
+def recon_newest_scroll.go(rows: List<&2, V.AnchoredRow>, +acc: String) -> String:
+  match rows:
+    case Nil{}: acc
+    case Con{V.AnchoredRow{V.BodyRecon{+text, _}, Cl.ScrollAt{+after, +tail}, _}, +t}:
+      recon_newest_scroll.go(t, recon_newest_scroll.keep(String.starts_with(text, "@"), after, tail, acc))
+    case Con{_, +t}: recon_newest_scroll.go(t, acc)
+
+def recon_newest_scroll.buf(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: ""
+    case Some{Cl.Buffer{+name, _, _, +lines, _, _, _, _}}:
+      recon_newest_scroll.go(V.paint_anchored(lines, name, 40, True{}, Nil{}, True{}, True{}, "irc", List.length(&2, Cl.Line, lines), V.paint_text()), "")
+
+def recon_newest_scroll(cl: Cl.Client) -> String:
+  recon_newest_scroll.buf(Cl.nth_buf(Cl.client_bufs(cl), 0n))
+
 # Deep older history beyond day_tag_cap must still seed the in-window day bar.
 def deep_monday.go(fuel: Nat, cl: Cl.Client) -> Cl.Client:
   match fuel:
@@ -163,6 +185,7 @@ def main() -> IO(Unit):
     Unit <- E.must("pending full stamp paints the next local day bar",
       String.contains(pending_tuesday_bars(), "BAR @2026-10-20 (Tuesday)"))
     Unit <- E.must_eq("day bar ScrollAt.tail stays above the live-bottom zero sentinel", day_anchor_tails(tuesday), "9|10|")
+    Unit <- E.must_eq("newest reconnect ScrollAt is not the live-bottom zero sentinel", recon_newest_scroll(recon), "0,1")
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))
     Unit <- E.must("day bar is not a reconnect label", Bool.not(String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "Reconnected")))

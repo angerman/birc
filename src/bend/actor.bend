@@ -870,14 +870,18 @@ def writer_admit_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: Au
     # transport upgrade or registration, matching dial_begin's DialCarry.
     retry(h2, p2, g2, n2, scope, kept, closed, dropped, k)
 
-# Cmd-close beats a queued Dial winner (parity with after_conn_latest): on
-# shutdown with Dial B still drained, finish/cancel without Dns.dial_dual(B).
+# Cmd-close or Drop beats a queued Dial winner (parity with after_conn_latest):
+# with Dial B still drained, finish/cancel without Dns.dial_dual(B).
 def writer_admit_latest.open(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case None{}:
       writer_admit_single(kept, False{}, dropped, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      writer_admit_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, False{}, dropped, sock, k, retry)
+      match dropped:
+        case True{}:
+          writer_admit_single(kept, False{}, True{}, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
+        case False{}:
+          writer_admit_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, False{}, False{}, sock, k, retry)
 
 def writer_admit_latest(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match closed:
@@ -952,10 +956,14 @@ def after_conn_open(closed: Bool, dropped: Bool, +kept: List<&2, Sess.NetCmd>, s
 def after_conn_latest.open(+latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, k: DialReady -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> DialCarry -> (DialReady -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      do IO<Unit>:
-        Unit <- Tr.close(sock)
-        retry(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope),
-          DialCarry{kept, False{}, dropped}, k)
+      match dropped:
+        case True{}:
+          dial_conn_cancel(live, boot, sock, gen, scope, k)
+        case False{}:
+          do IO<Unit>:
+            Unit <- Tr.close(sock)
+            retry(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope),
+              DialCarry{kept, False{}, False{}}, k)
     case None{}:
       after_conn_open(False{}, dropped, kept, sock, nick, gen, evt, boot, cmd, live, scope, k)
 
@@ -1000,10 +1008,14 @@ def dial_after_plain(dropped: Bool, +closed: Bool, sock: Socket, +host: String, 
 def dial_after_latest.open(latest: Maybe<&2, QueuedDial>, +dials: List<&2, QueuedDial>, +kept: List<&2, Sess.NetCmd>, dropped: Bool, sock: Socket, +host: String, +port: U32, force_tls: Bool, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), live: Bool, +scope: AuthScope, +acc0: AdmitAcc, k: DialReady -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> DialCarry -> (DialReady -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      do IO<Unit>:
-        Unit <- Socket.close(sock)
-        retry(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope),
-          DialCarry{kept, False{}, dropped}, k)
+      match dropped:
+        case True{}:
+          dial_cancel(live, boot, sock, gen, scope, k)
+        case False{}:
+          do IO<Unit>:
+            Unit <- Socket.close(sock)
+            retry(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope),
+              DialCarry{kept, False{}, False{}}, k)
     case None{}:
       dial_after_plain(dropped, False{}, sock, host, port, force_tls, nick, gen, evt, boot, cmd, live, scope, acc0, k, retry)
 
@@ -1081,12 +1093,16 @@ def writer_admit_sock.plain(dropped: Bool, sock: Socket, +host: String, +nick: S
     case True{}: writer_admit_raw_drop(kept, closed, sock, gen, evt, cmd, scope, budget, next_txn, k)
     case False{}: writer_admit_sock.open(closed, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, k, retry)
 
-# Same closed-before-latest rule as dial_after_latest / writer_admit_latest:
-# a drained cmd-close cancels the raw socket without retrying the winner.
+# Same closed/Drop-before-latest rule as dial_after_latest / writer_admit_latest:
+# a drained cmd-close or Drop cancels the raw socket without retrying the winner.
 def writer_admit_sock.latest.open(latest: Maybe<&2, QueuedDial>, dropped: Bool, +dials: List<&2, QueuedDial>, sock: Socket, +host: String, +nick: String, +gen: U32, +force_tls: Bool, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, +kept: List<&2, Sess.NetCmd>, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   match latest:
     case Some{QueuedDial{+h2, +p2, +g2, +n2}}:
-      writer_admit_raw_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, False{}, dropped, sock, k, retry)
+      match dropped:
+        case True{}:
+          writer_admit_raw_drop(kept, False{}, sock, gen, evt, cmd, scope, budget, next_txn, k)
+        case False{}:
+          writer_admit_raw_winner(h2, p2, g2, n2, writer_admit_scope(List.length(&2, QueuedDial, dials), dials, scope), kept, False{}, False{}, sock, k, retry)
     case None{}:
       writer_admit_sock.plain(dropped, sock, host, nick, gen, force_tls, evt, boot, cmd, scope, budget, next_txn, kept, False{}, k, retry)
 

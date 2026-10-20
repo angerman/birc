@@ -10,7 +10,7 @@ import ../../src/bend/session.bend as S
 
 def auth_free(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, _, _, _, +settings, Cl.AuthIdle{}, _}:
+    case Cl.Client{_, _, _, _, _, +settings, Cl.AuthIdle{}, _, _}:
       String.is_empty(Cl.settings_sasl_user(settings)) && String.is_empty(Cl.settings_sasl_pass(settings))
     case _: False{}
 

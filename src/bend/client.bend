@@ -215,7 +215,7 @@ def feed_priv.key.on(+from: String, +target: String, self: Bool) -> String:
 
 def feed_priv.key_with(+cm: String, +cl: Cl.Client, +from: String, +target: String) -> String:
   match cl:
-    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
       feed_priv.key.on(from, target, Cl.buf_eq_cm(cm, Irc.proto_atom(from), nick))
 
 def feed_priv.private_got_with(+cm: String, pair: Cl.Client & Maybe<&2, Nat>, +from: String, notice: Bool, +body: String, +ts: String) -> Cl.Client:
@@ -289,9 +289,9 @@ def join_upd_with(+isc: Cl.Iso, +from: String, +chan: String, +now: String, b: C
 
 def feed_join_with.from_cl(+isc: Cl.Iso, +cl2: Cl.Client, +bi: Nat, +from: String, +chan: String, self: Bool) -> Cl.Client:
   match cl2:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
       feed_join.self(
-        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd_with(isc, from, chan, now)), active, now, stg, auth, log_seq},
+        Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd_with(isc, from, chan, now)), active, now, stg, auth, log_seq, welcomed},
         bi,
         self
       )
@@ -339,17 +339,17 @@ def part_upd_with(+isc: Cl.Iso, +from: String, +chan: String, +now: String, b: C
   +bb = b
   part_upd_with.on(isc, from, chan, now, bb, Cl.nick_has_cm(bb, Cl.iso_cm(isc), from))
 
-def feed_part_with.at(+isc: Cl.Iso, +nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, +bi: Nat, +from: String, +chan: String) -> Cl.Client:
-  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd_with(isc, from, chan, now)), active, now, stg, auth, log_seq}
+def feed_part_with.at(+isc: Cl.Iso, +nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat, +from: String, +chan: String) -> Cl.Client:
+  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, part_upd_with(isc, from, chan, now)), active, now, stg, auth, log_seq, welcomed}
 
 def feed_part_with.on(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +from: String, found: Maybe<&2, Nat>) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
       match found:
         case None{}:
-          Cl.Client{nick, server, bufs, active, now, stg, auth, log_seq}
+          Cl.Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
         case Some{bi}:
-          feed_part_with.at(isc, nick, server, bufs, active, now, stg, auth, log_seq, bi, from, chan)
+          feed_part_with.at(isc, nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi, from, chan)
 
 def feed_part_with.pick(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +from: String, self: Bool, found: Maybe<&2, Nat>) -> Cl.Client:
   match self:
@@ -373,7 +373,7 @@ def feed_self_cm.empty(empty: Bool, +cm: String, +cl: Cl.Client, +from: String) 
       False{}
     case False{}:
       match cl:
-        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
           Cl.buf_eq_cm(cm, Irc.proto_atom(from), nick)
 
 def feed_self_cm(+cm: String, +cl: Cl.Client, +from: String) -> Bool:
@@ -382,17 +382,17 @@ def feed_self_cm(+cm: String, +cl: Cl.Client, +from: String) -> Bool:
 def kick_upd_with(+isc: Cl.Iso, +victim: String, +chan: String, +now: String, b: Cl.Buffer) -> Cl.Buffer:
   Cl.buf_log_ts(Cl.nick_del_cm(b, Cl.iso_cm(isc), Cl.iso_strip(isc), victim), Cl.System{}, now, fmt_kick(victim, chan))
 
-def feed_kick_with.at(+isc: Cl.Iso, +nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, +bi: Nat, +victim: String, +chan: String) -> Cl.Client:
-  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, kick_upd_with(isc, victim, chan, now)), active, now, stg, auth, log_seq}
+def feed_kick_with.at(+isc: Cl.Iso, +nick: String, +server: String, +bufs: List<&2, Cl.Buffer>, +active: Nat, +now: String, +stg: Cl.Settings, +auth: Cl.AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat, +victim: String, +chan: String) -> Cl.Client:
+  Cl.Client{nick, server, Cl.buf_modify(bufs, bi, kick_upd_with(isc, victim, chan, now)), active, now, stg, auth, log_seq, welcomed}
 
 def feed_kick_with.other(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +victim: String, found: Maybe<&2, Nat>) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
       match found:
         case None{}:
-          Cl.Client{nick, server, bufs, active, now, stg, auth, log_seq}
+          Cl.Client{nick, server, bufs, active, now, stg, auth, log_seq, welcomed}
         case Some{bi}:
-          feed_kick_with.at(isc, nick, server, bufs, active, now, stg, auth, log_seq, bi, victim, chan)
+          feed_kick_with.at(isc, nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi, victim, chan)
 
 def feed_kick_with.pick(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +victim: String, self: Bool, found: Maybe<&2, Nat>) -> Cl.Client:
   match self:
@@ -467,8 +467,8 @@ def feed_quit_with.map(+isc: Cl.Iso, xs: List<&2, Cl.Buffer>, from: String, reas
 
 def feed_quit_with.with(+cl: Cl.Client, +isc: Cl.Iso, +from: String, +reason: String) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, feed_quit_with.map(isc, bufs, from, reason, now), active, now, stg, auth, log_seq}
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Cl.Client{nick, server, feed_quit_with.map(isc, bufs, from, reason, now), active, now, stg, auth, log_seq, welcomed}
 
 def feed_quit_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
   feed_quit_with.with(cl, isc, msg_nick(m), Irc.msg_param(m, 0n))
@@ -550,8 +550,8 @@ def feed_nick_with.coalesced(+cm: String, +cl: Cl.Client, +from: String, +to: St
 
 def feed_nick_with.with.valid(+isc: Cl.Iso, +cl: Cl.Client, +from: String, +to: String, self: Bool) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      feed_nick_with.coalesced(Cl.iso_cm(isc), Cl.stamp_logs(Cl.Client{nick, server, feed_nick_with.map(isc, bufs, from, to, now), active, now, stg, auth, log_seq}), from, to, Cl.active_buf_name(cl), self, Nat.is_eq(active, 0n))
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      feed_nick_with.coalesced(Cl.iso_cm(isc), Cl.stamp_logs(Cl.Client{nick, server, feed_nick_with.map(isc, bufs, from, to, now), active, now, stg, auth, log_seq, welcomed}), from, to, Cl.active_buf_name(cl), self, Nat.is_eq(active, 0n))
 
 def feed_nick_with.with.on(+isc: Cl.Iso, allowed: Bool, cl: Cl.Client, from: String, to: String, self: Bool) -> Cl.Client:
   match allowed:
@@ -569,8 +569,8 @@ def topic_upd(+from: String, +topic: String, +now: String, b: Cl.Buffer) -> Cl.B
 
 def feed_topic.from_cl(+cl2: Cl.Client, +bi: Nat, +from: String, +topic: String) -> Cl.Client:
   match cl2:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, topic_upd(from, topic, now)), active, now, stg, auth, log_seq}
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, topic_upd(from, topic, now)), active, now, stg, auth, log_seq, welcomed}
 
 def feed_topic.from_pair(pair: Cl.Client & Maybe<&2, Nat>, +from: String, +topic: String) -> Cl.Client:
   match pair:
@@ -604,8 +604,8 @@ def topic_set(+topic: String, b: Cl.Buffer) -> Cl.Buffer:
 
 def feed_num.topic.cl(+cl2: Cl.Client, +bi: Nat, +topic: String) -> Cl.Client:
   match cl2:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, topic_set(topic)), active, now, stg, auth, log_seq}
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, topic_set(topic)), active, now, stg, auth, log_seq, welcomed}
 
 def feed_num.topic.pair(pair: Cl.Client & Maybe<&2, Nat>, +topic: String) -> Cl.Client:
   match pair:
@@ -625,8 +625,8 @@ def names_upd_with(+isc: Cl.Iso, +names: String, b: Cl.Buffer) -> Cl.Buffer:
 
 def feed_num.names_with.cl(+isc: Cl.Iso, +cl2: Cl.Client, +bi: Nat, +names: String) -> Cl.Client:
   match cl2:
-    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq}:
-      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, names_upd_with(isc, names)), active, now, stg, auth, log_seq}
+    case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Cl.Client{nick, server, Cl.buf_modify(bufs, bi, names_upd_with(isc, names)), active, now, stg, auth, log_seq, welcomed}
 
 def feed_num.names_with.pair(+isc: Cl.Iso, pair: Cl.Client & Maybe<&2, Nat>, +names: String) -> Cl.Client:
   match pair:
@@ -674,7 +674,7 @@ def feed_num.n433.on(+cl: Cl.Client, +m: Irc.Message, +num: U32, +nick: String, 
 
 def feed_num.n433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
   match cl:
-    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+    case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
       feed_num.n433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
 
 def is_353_sym(+s: String) -> Bool:
@@ -746,16 +746,25 @@ def welcome_admit(+prefix: String, +m: Irc.Message) -> Bool:
     && welcome_nick(Irc.proto_atom(Irc.msg_param(m, 0n)))
     && Bool.not(String.is_empty(Irc.msg_param(m, 1n)))
 
-def feed_n001.nick(admitted: Bool, +cl: Cl.Client, +nick: String) -> Cl.Client:
-  match admitted:
-    case True{}: Cl.set_nick(cl, nick)
+# Adopt the assigned nick only on the first admitted 001, or when a later
+# admitted 001 repeats the current nick (Irc.ieq). Conflicting welcomes still
+# log but leave Client.nick unchanged. Client.welcomed mirrors Session's seen
+# gate so nested feed(feed(...)) and feed_all share one barrier.
+def feed_n001.take(allow: Bool, +cl: Cl.Client, +nick: String) -> Cl.Client:
+  match allow:
     case False{}: cl
+    case True{}: Cl.set_welcomed(Cl.set_nick(cl, nick), True{})
+
+def feed_n001.adopt(admitted: Bool, seen: Bool, same: Bool, +cl: Cl.Client, +nick: String) -> Cl.Client:
+  match admitted:
+    case False{}: cl
+    case True{}: feed_n001.take(Bool.or(Bool.not(seen), same), cl, nick)
 
 def feed_n001(+cl: Cl.Client, +prefix: String, +m: Irc.Message) -> Cl.Client:
   # W3: identity adoption normalizes via the shared proto_atom seam;
   # the logged welcome body keeps its raw bytes even when nick is refused.
   +nick = Irc.proto_atom(Irc.msg_param(m, 0n))
-  Cl.client_log(feed_n001.nick(welcome_admit(prefix, m), cl, nick), 0n, Cl.System{}, Irc.msg_param(m, 1n))
+  Cl.client_log(feed_n001.adopt(welcome_admit(prefix, m), Cl.welcomed_of(cl), Irc.ieq(Cl.nick_of(cl), nick), cl, nick), 0n, Cl.System{}, Irc.msg_param(m, 1n))
 
 def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Message, +num: U32, k: NumK) -> Cl.Client:
   match k:
@@ -976,7 +985,7 @@ def feed_at.message(m: Maybe<&2, Irc.Message>, +stamp: String) -> Maybe<&2, Irc.
 
 def feed_at_with.stamped(+cl: Cl.Client, +isc: Cl.Iso, +line: String, +stamp: String) -> Cl.Client:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}:
+    case Cl.Client{_, _, _, _, +now, _, _, _, _}:
       +use = Cl.stamp_combine(now, stamp)
       Cl.set_now(Cl.stamp_logs(feed_with.server_notice(Cl.set_now(cl, use), isc, Irc.source_prefix(line), feed_at.message(Irc.parse(line), use), Irc.label_tag(Irc.raw_tags(line)))), now)
 

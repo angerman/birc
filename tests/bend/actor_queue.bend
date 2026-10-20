@@ -221,8 +221,7 @@ def writer_after_finished(pair: Act.Writer & Act.AuthScope, +cmd: Chan(Sess.NetC
         IO.print("closed")
 
 # Exercise writer_admit's recursive winner, independently of dial_begin:
-# Dial B followed by Drop must connect B but send zero registration bytes.
-# Dial B followed by cmd-close must cancel before dialing B at all.
+# Dial B followed by Drop or cmd-close must cancel before dialing B at all.
 def run_writer_after(sock: Socket, +target: U32, +mode: String) -> IO(Unit):
   do IO<Unit>:
     +evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 64)

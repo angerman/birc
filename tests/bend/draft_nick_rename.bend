@@ -79,13 +79,13 @@ def ctl() -> String:
   D.key_of(True{}, "server")
 
 def qclient() -> Cl.Client:
-  Cl.Client{"me", "a.example", Cl.server_buf() <> Cl.empty_buf("#a", True{}) <> Cl.empty_buf("alice", False{}) <> Nil{}, 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "a.example", Cl.server_buf() <> Cl.empty_buf("#a", True{}) <> Cl.empty_buf("alice", False{}) <> Nil{}, 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def qsession() -> Sess.Session:
   Sess.session_online(Sess.session_with_client(qclient(), "#a"))
 
 def aclient() -> Cl.Client:
-  Cl.Client{"me", "a.example", Cl.server_buf() <> Cl.empty_buf("#a", True{}) <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "a.example", Cl.server_buf() <> Cl.empty_buf("#a", True{}) <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def ascii_iso() -> Iso.State:
   Iso.apply_line(Iso.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")

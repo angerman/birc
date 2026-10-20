@@ -69,6 +69,12 @@ def stale_tick_ok() -> Bool:
   +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1001)
   Ty.has(Ty.expire(s0, 1000), "#birc", "alice")
 
+# Large U32 underflow (elapsed >= 2^31) must expire, not keep forever.
+# Distinct from the 1ms stale_tick keep above.
+def large_underflow_expire_ok() -> Bool:
+  +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 2147483648)
+  Bool.not(Ty.has(Ty.expire(s0, 0), "#birc", "alice"))
+
 def done_and_message_ok() -> Bool:
   +s0 = Ty.apply_line(Ty.empty(), "@+typing=active :alice!a@h TAGMSG #birc", 1000)
   +s1 = Ty.apply_line(s0, "@+typing=done :alice!a@h TAGMSG #birc", 1100)
@@ -155,6 +161,7 @@ def main() -> IO(Unit):
     Unit <- E.must("active_expiry", active_expiry_ok())
     Unit <- E.must("paused_expiry", paused_expiry_ok())
     Unit <- E.must("stale_tick", stale_tick_ok())
+    Unit <- E.must("large_underflow_expire", large_underflow_expire_ok())
     Unit <- E.must("done_and_message", done_and_message_ok())
     Unit <- E.must("refresh_and_wrap", refresh_and_wrap_ok())
     Unit <- E.must("bound", bound_ok())

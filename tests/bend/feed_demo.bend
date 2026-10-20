@@ -53,6 +53,11 @@ def main_on(+demo: Cl.Client) -> IO(Unit):
       "Guest42"
     )
     Unit <- E.must_eq(
+      "feed_001_conflict",
+      Cl.nick_of(Feed.feed(Feed.feed(Cl.init("me", "s"), ":s 001 Guest42 :welcome"), ":s 001 other :welcome")),
+      "Guest42"
+    )
+    Unit <- E.must_eq(
       "feed_001_peer",
       Cl.nick_of(Feed.feed(Cl.init("me", "s"), ":alice!u@h 001 Guest42 :welcome")),
       "me"

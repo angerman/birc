@@ -1555,7 +1555,7 @@ def ws_history.reload_host(+cl: Cl.Client) -> String:
 
 def ws_history.reload_now(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}: now
+    case Cl.Client{_, _, _, _, +now, _, _, _, _}: now
 
 def ws_history.reload_spawn(load: Bool, +ticket: Nat, +gen: U32, +path: String, +ep: String, +cap: U32, +cl: Cl.Client, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match load:

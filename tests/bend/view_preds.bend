@@ -163,7 +163,7 @@ def draw_tabs_ok() -> Bool:
 
 def tab_alerts_ok.on(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq}:
+    case Cl.Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
       u32s_eq(V.tab_alerts(bufs, Cl.Alert{"#a", Cl.Activity{}} <> Cl.Alert{"#b", Cl.Mention{}} <> Nil{}), 0 <> 1 <> 2 <> Nil{})
 
 def tab_alerts_ok() -> Bool:
@@ -183,7 +183,7 @@ def tab_collide.labs(xs: List<&2, String>) -> Bool:
 
 def tab_collide_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq}:
+    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq, _}:
       tab_collide.labs(V.tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_collide_ok() -> Bool:

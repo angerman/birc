@@ -104,8 +104,14 @@ int main(void) {
   CHECK(!birc_media_parse(&parsed, bytes, length));
   length = payload(bytes, 1);
   last = first;
-  for (i = 0; i < 8; i++) { uint32_t token = add(&cache, bytes, length); CHECK(token > last); last = token; }
-  CHECK(birc_media_find(&cache, first) == NULL);
+  /* Fill CAP with first retained; further add fails closed (no FIFO eviction). */
+  for (i = 0; i < 7; i++) {
+    uint32_t token = add(&cache, bytes, length);
+    CHECK(token > last);
+    last = token;
+  }
+  CHECK(add(&cache, bytes, length) == 0);
+  CHECK(birc_media_find(&cache, first) != NULL);
   CHECK(birc_media_find(&cache, last) != NULL);
   CHECK(birc_media_add(&cache, "AA=A", 4) == 0);
   CHECK(birc_media_add(&cache, "AB==", 4) == 0); /* noncanonical tail bits */

@@ -359,7 +359,7 @@ def tab_names_ok.head(xs: List<&2, String>) -> Bool:
 
 def tab_names_ok.on(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq}:
+    case Cl.Client{_, _, +bufs, _, _, +stg, +auth, +log_seq, _}:
       tab_names_ok.head(V.tab_names(bufs, Cl.settings_unreads(stg)))
 
 def tab_names_ok() -> Bool:
@@ -403,7 +403,7 @@ def dummy_lines.go(n: Nat, +i: Nat) -> List<&2, Cl.Line>:
       dummy_line(i) <> dummy_lines.go(p, 1n+i)
 
 def dummy_cl(+n: Nat) -> Cl.Client:
-  Cl.Client{"me", "s", Cl.buf_indexed("server", False{}, "", dummy_lines.go(n, 0n), Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.buf_indexed("server", False{}, "", dummy_lines.go(n, 0n), Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 0n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def body_line_ys.go(ops: List<&2, V.DrawOp>) -> List<&2, U32>:
   match ops:

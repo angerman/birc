@@ -34,7 +34,7 @@ def divider_count(lines: List<&2, Cl.Line>) -> Nat:
 
 def server_rows(cl: Cl.Client) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, _}, _, _, _, _, _}: lines
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, lines, _, _, _, _}, _}, _, _, _, _, _, _}: lines
     case _: Nil{}
 
 def show.ready(ctx: LP.Context, +st: S.Session, allowed: Bool) -> String:

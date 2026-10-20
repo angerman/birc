@@ -108,7 +108,7 @@ def echo_self_gated.suppressed(suppressed: Bool, +cl: Cl.Client, +bi: Nat, +body
     case True{}: cl
     case False{}:
       match cl:
-        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
           Cl.client_log_author_ts(cl, bi, Cl.Self{}, "", Feed.fmt_msg(nick, body), nick)
 
 def echo_self_gated(+cl: Cl.Client, +bi: Nat, +body: String, +echo_ok: Bool) -> Cl.Client:
@@ -122,7 +122,7 @@ def echo_action_gated.suppressed(suppressed: Bool, +cl: Cl.Client, +bi: Nat, +bo
     case True{}: cl
     case False{}:
       match cl:
-        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq}:
+        case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
           Cl.client_log_author_ts(cl, bi, Cl.Action{}, "", Feed.fmt_action(nick, body), nick)
 
 def echo_action_gated(+cl: Cl.Client, +bi: Nat, +body: String, +echo_ok: Bool) -> Cl.Client:

@@ -20,7 +20,7 @@ def active_topic.on(got: Maybe<&2, Cl.Buffer>) -> String:
 
 def active_topic(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, +active, _, _, +auth, +log_seq}:
+    case Cl.Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
       active_topic.on(Cl.nth_buf(bufs, active))
 
 def preview_client() -> Cl.Client:

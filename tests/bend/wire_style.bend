@@ -100,7 +100,7 @@ def buf_last_text.on(got: Maybe<&2, Cl.Buffer>) -> String:
 
 def buf_last_text(+cl: Cl.Client, +i: Nat) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}:
       buf_last_text.on(Cl.nth_buf(bufs, i))
 
 def buf_topic.on(got: Maybe<&2, Cl.Buffer>) -> String:
@@ -110,7 +110,7 @@ def buf_topic.on(got: Maybe<&2, Cl.Buffer>) -> String:
 
 def buf_topic(+cl: Cl.Client, +i: Nat) -> String:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}:
       buf_topic.on(Cl.nth_buf(bufs, i))
 
 def palette() -> String:

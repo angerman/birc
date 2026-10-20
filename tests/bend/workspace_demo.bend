@@ -143,7 +143,7 @@ def alias_ascii.got(+ws: W.Workspace, +got: Maybe<&2, W.Part>) -> W.Workspace:
     case Some{+p}:
       match p:
         case W.Part{+id, +gen, +scope, +st}:
-          +cl : Cl.Client = Cl.Client{"me", "a.example", alias_bufs(), 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+          +cl : Cl.Client = Cl.Client{"me", "a.example", alias_bufs(), 2n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
           W.replace_part(ws, W.Part{id, gen, scope, Sess.session_set_iso(Sess.session_set_client(st, cl), ascii_iso())})
 
 def alias_ascii(+ws: W.Workspace, +id: Key.ServerId) -> W.Workspace:

@@ -36,7 +36,7 @@ def marker_count(lines: List<&2, Cl.Line>) -> Nat:
 
 def loaded_ok(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, +lines, _, _, _, _}, Nil{}}, _, _, _, _, _}:
+    case Cl.Client{_, _, Con{Cl.Buffer{_, _, _, +lines, _, _, _, _}, Nil{}}, _, _, _, _, _, _}:
       Nat.is_eq(List.length(&2, Cl.Line, lines), 4n)
         && Nat.is_eq(marker_count(lines), 1n)
         && String.ends_with(CL.buf_texts(cl, 0n), "last-2|last-1|last-é|12:00:00|")
@@ -44,7 +44,7 @@ def loaded_ok(+cl: Cl.Client) -> Bool:
 
 def preserved_ok(cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{+nick, +server, _, _, +now, +settings, Cl.AuthCap{}, seq}:
+    case Cl.Client{+nick, +server, _, _, +now, +settings, Cl.AuthCap{}, seq, _}:
       String.eq(nick, "configured") && String.eq(server, "a") && String.eq(now, "14:00:00")
         && Bool.not(Cl.settings_ts(settings)) && String.eq(Cl.settings_sasl_user(settings), "user")
         && Nat.is_gt(seq, 50n)
@@ -53,7 +53,7 @@ def preserved_ok(cl: Cl.Client) -> Bool:
 def configured() -> Cl.Client:
   +cl = Cl.client_set_sasl(Cl.init_with_cap("configured", "a", 3), "user", "pass")
   +stg = Cl.set_ts(Cl.get_settings(cl), False{})
-  Cl.Client{"configured", "a", Cl.empty_buf("server", False{}) <> Nil{}, 0n, "14:00:00", stg, Cl.AuthCap{}, 50n}
+  Cl.Client{"configured", "a", Cl.empty_buf("server", False{}) <> Nil{}, 0n, "14:00:00", stg, Cl.AuthCap{}, 50n, False{}}
 
 def loaded_checkpoint_ok(+cl: Cl.Client) -> Bool:
   preserved_ok(cl) && String.is_empty(H.extract_new_history_for("a:6667", cl, Feed.feed(cl, "PING :x")))

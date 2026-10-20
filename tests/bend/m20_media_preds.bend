@@ -20,7 +20,7 @@ def ready(+n: Nat) -> List<&2, M.MediaReady>:
 def client() -> Cl.Client:
   Cl.Client{"me", "s", [Cl.buf_indexed("*server*", False{}, "", lines(8n), Nil{}, Cl.ScrollAt{0n, 0n}),
     Cl.buf_indexed("*preview*", False{}, "manual.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})],
-    1n, "", Cl.settings0(), Cl.AuthIdle{}, 8n}
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 8n, False{}}
 
 def full() -> M.State:
   M.State{True{}, 1n, 9n, None{}, Nil{}, M.MediaReady{M.Manual{}, "manual.png", 8} <> ready(7n), M.Supported{}}

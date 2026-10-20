@@ -2231,9 +2231,9 @@ def endpoint_client.same(same: Bool, +cl: Cl.Client, +host: String) -> Cl.Client
     case True{}: Cl.set_server(cl, host)
     case False{}:
       match cl:
-        case Cl.Client{+nick, _, _, _, +now, +stg, +auth, +seq}:
+        case Cl.Client{+nick, _, _, _, +now, +stg, +auth, +seq, _}:
           +clean = Cl.set_unreads(stg, Nil{})
-          Cl.client_set_lag(Cl.Client{nick, host, Cl.server_buf() <> Cl.log_buffers(cl), 0n, now, clean, auth, seq}, 0)
+          Cl.client_set_lag(Cl.Client{nick, host, Cl.server_buf() <> Cl.log_buffers(cl), 0n, now, clean, auth, seq, False{}}, 0)
 
 def dns_ascii_lower.char(+n: U32, upper: Bool) -> U32:
   match upper:
@@ -2856,7 +2856,7 @@ def session_label_cmd(+st: Session, +cmd: NetCmd) -> Session & NetCmd:
 # Full Client.now so pending overlays share day bars with stamped history.
 def pend_now(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}: now
+    case Cl.Client{_, _, _, _, +now, _, _, _, _}: now
 
 def pend_record_cont(+st: Session, +outs: List<&2, String>, echo_ok: Bool) -> Session:
   match echo_ok:
@@ -3095,7 +3095,7 @@ def session_submit_stored.bufs(+st: Session, +target: String, +bufs: List<&2, Cl
 
 def session_submit_stored.cl(+st: Session, +target: String, +cl: Cl.Client, +i: Nat) -> Bool:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}:
       session_submit_stored.bufs(st, target, bufs, i)
 
 def session_submit_stored(+st: Session, +target: String, found: Maybe<&2, Nat>) -> Bool:
@@ -4546,7 +4546,7 @@ def notify_claims_bufs(bufs: List<&2, Cl.Buffer>, +nick: String, +before: Nat, +
 
 def notify_claims_installed(+before: Nat, +after: Cl.Client) -> List<&2, Nat>:
   match after:
-    case Cl.Client{+nick, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{+nick, _, +bufs, _, _, _, _, _, _}:
       notify_claims_bufs(bufs, nick, before, 0n)
 
 def notify_observe_session_staged_claimed(+st: Notify.State, +sess: Session, +floor: Nat, +q: Notify.Queue, +claimed: List<&2, Nat>) -> Notify.Stage:
@@ -4872,7 +4872,7 @@ def typing_cm_ascii_iso() -> Isupport.State:
   Isupport.apply_line(Isupport.defaults(), ":s 005 me CASEMAPPING=ascii :are supported")
 
 def typing_cm_client() -> Cl.Client:
-  Cl.Client{"me", "s", Cl.server_buf() <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n}
+  Cl.Client{"me", "s", Cl.server_buf() <> Cl.empty_buf("a[b", False{}) <> Cl.empty_buf("a{b", False{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
 
 def typing_cm_tagged() -> Session:
   st_of_chunk(step_on_chunk_ms(session_online(session_with_client(typing_cm_client(), "#a")), Fr.string_to_octets(":s CAP me ACK :message-tags\r\n"), 0))

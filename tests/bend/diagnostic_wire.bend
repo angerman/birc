@@ -25,7 +25,7 @@ def buffers_signature(xs: List<&2, Cl.Buffer>) -> String:
 
 def signature(cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{nick, server, bufs, active, now, _, _, seq}:
+    case Cl.Client{nick, server, bufs, active, now, _, _, seq, _}:
       nick ++ "@" ++ server ++ ":" ++ Nat.show(active) ++ ":" ++ now
         ++ ":" ++ Nat.show(seq) ++ ":" ++ buffers_signature(bufs)
 

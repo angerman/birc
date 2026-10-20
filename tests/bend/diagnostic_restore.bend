@@ -21,7 +21,7 @@ def lines_at.got(buf: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
 
 def lines_at(cl: Cl.Client, i: Nat) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, bufs, _, _, _, _, _}: lines_at.got(Cl.nth_buf(bufs, i))
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}: lines_at.got(Cl.nth_buf(bufs, i))
 
 def signature(lines: List<&2, Cl.Line>) -> String:
   match lines:

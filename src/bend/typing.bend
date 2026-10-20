@@ -301,18 +301,32 @@ def lifetime(status: Irc.TypingStatus) -> U32:
     case Irc.TypingPaused{}: PAUSED_MS()
     case Irc.TypingDone{}: 0
 
-def alive.elapsed(status: Irc.TypingStatus, +elapsed: U32, stale_tick: Bool) -> Bool:
-  match stale_tick:
+# Tiny backward skew (1ms): U32.sub wraps to max. Keep that entry.
+# Half-range underflow (elapsed >= 2^31) is not a 1ms tick: expire, do not
+# keep forever across a stalled clock sample.
+def alive.skew(+elapsed: U32) -> Bool:
+  U32.is_eq(elapsed, 4294967295)
+
+def alive.elapsed(status: Irc.TypingStatus, +elapsed: U32, under: Bool) -> Bool:
+  match under:
     case True{}:
-      True{}
+      False{}
     case False{}:
       U32.is_lt(elapsed, lifetime(status))
+
+def alive.under.on(skew: Bool, +elapsed: U32, status: Irc.TypingStatus) -> Bool:
+  match skew:
+    case True{}: True{}
+    case False{}: alive.elapsed(status, elapsed, U32.is_ge(elapsed, 2147483648))
+
+def alive.under(+elapsed: U32, status: Irc.TypingStatus) -> Bool:
+  alive.under.on(alive.skew(elapsed), elapsed, status)
 
 def alive(+e: Entry, +now_ms: U32) -> Bool:
   match e:
     case Entry{_, _, status, seen_ms}:
       +elapsed = U32.sub(now_ms, seen_ms)
-      alive.elapsed(status, elapsed, U32.is_ge(elapsed, 2147483648))
+      alive.under(elapsed, status)
 
 def expire.keep(+h: Entry, tail: List<&2, Entry>, keep: Bool) -> List<&2, Entry>:
   match keep:

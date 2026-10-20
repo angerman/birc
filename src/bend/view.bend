@@ -1369,16 +1369,23 @@ def day_bar_row(row: BodyRow) -> Bool:
     case BodyRecon{+text, _}: String.starts_with(text, "@")
     case _: False{}
 
+# Day bars and reconnect dividers are BodyRecon with zero source characters.
+def recon_row(row: BodyRow) -> Bool:
+  match row:
+    case BodyRecon{_, _}: True{}
+    case _: False{}
+
 def rows_chars(rows: List<&2, BodyRow>) -> Nat:
   match rows:
     case Nil{}: 0n
     case Con{h, t}: Nat.add(row_chars(h), rows_chars(t))
 
-# Day bars are BodyRecon with zero source characters. Give them ScrollAt.tail =
-# chars+1 so they never collide with a sibling zero-char row or the live-bottom
-# sentinel ScrollAt{after, 0}, without consuming source-character budget.
-def anchored_rows.step(is_day: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
-  match is_day:
+# BodyRecon rows (day bars and reconnect) have zero source characters. Give
+# them ScrollAt.tail = chars+1 so they never collide with a sibling zero-char
+# row or the live-bottom sentinel ScrollAt{after, 0}, without consuming
+# source-character budget. Newest reconnect must not share {0,0} with live.
+def anchored_rows.step(is_recon: Bool, +h: BodyRow, +after: Nat, +chars: Nat, +line: Cl.Line, k: Nat -> List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+  match is_recon:
     case True{}: AnchoredRow{h, Cl.ScrollAt{after, Nat.add(chars, 1n)}, line} <> k(chars)
     case False{}:
       +tail = Nat.sub(chars, row_chars(h))
@@ -1388,7 +1395,7 @@ def anchored_rows(rows: List<&2, BodyRow>, +after: Nat, +chars: Nat, +line: Cl.L
   match rows:
     case Nil{}: Nil{}
     case Con{+h, t}:
-      anchored_rows.step(day_bar_row(h), h, after, chars, line, next => anchored_rows(t, after, next, line))
+      anchored_rows.step(recon_row(h), h, after, chars, line, next => anchored_rows(t, after, next, line))
 
 def anchored_line(+rows: List<&2, BodyRow>, +after: Nat, +line: Cl.Line) -> List<&2, AnchoredRow>:
   anchored_rows(rows, after, rows_chars(rows), line)
@@ -2804,7 +2811,7 @@ def visible_anchored_split_media_cards_cm(+cm: String, pair: Rect & Rect, +cl: C
   match pair:
     case (+r1, +r2):
       match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           List.append(&2, AnchoredRow,
             visible_anchored_buf_media_cards_cm(cm, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
               rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
@@ -2813,7 +2820,7 @@ def visible_anchored_split_media_cards_cm(+cm: String, pair: Rect & Rect, +cl: C
 
 def visible_anchored_single_media_cards_cm(+cm: String, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
   match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _, _}:
       visible_anchored_buf_media_cards_cm(cm, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
         rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
 
@@ -2829,7 +2836,7 @@ def visible_anchored_split_media_cards_iso(+isc: Cl.Iso, pair: Rect & Rect, +cl:
   match pair:
     case (+r1, +r2):
       match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           List.append(&2, AnchoredRow,
             visible_anchored_buf_media_cards_iso(isc, active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
               rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards),
@@ -2838,7 +2845,7 @@ def visible_anchored_split_media_cards_iso(+isc: Cl.Iso, pair: Rect & Rect, +cl:
 
 def visible_anchored_single_media_cards_iso(+isc: Cl.Iso, cl: Cl.Client, +rows: U32, +cols: U32, media: M.State, +cards: List<&2, CardEntry>) -> List<&2, AnchoredRow>:
   match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _, _}:
       visible_anchored_buf_media_cards_iso(isc, active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
         rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media, cards)
 
@@ -2987,7 +2994,7 @@ def visible_media.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +seco
   match pair:
     case (+r1, +r2):
       match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           List.append(&2, M.Candidate,
             visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))),
               rect_vis_h(r1), rect_vis_w(r1), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media),
@@ -2996,7 +3003,7 @@ def visible_media.split(pair: Rect & Rect, +cl: Cl.Client, +first: String, +seco
 
 def visible_media.single(cl: Cl.Client, +rows: U32, +cols: U32, media: M.State) -> List<&2, M.Candidate>:
   match cl:
-    case Cl.Client{_, server, bufs, active, _, +stg, _, _}:
+    case Cl.Client{_, server, bufs, active, _, +stg, _, _, _}:
       visible_media.buffer(active_buf.on(Cl.nth_buf(bufs, active)), vis_h(rows),
         rect_vis_w(lay_body_rect(lay(rows, cols, 0))), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, media)
 
@@ -3035,7 +3042,7 @@ def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
           Cl.buf_modify_client(cl, active, b => scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media))
 
@@ -3047,7 +3054,7 @@ def scroll_active_media_cards_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +ro
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
           Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards_cm(cm, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends))
 
@@ -3059,7 +3066,7 @@ def scroll_active_media_cards_iso.on(+isc: Cl.Iso, move: Bool, +cl: Cl.Client, +
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _}:
+        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
           Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards_iso(isc, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends))
 
@@ -3276,7 +3283,7 @@ def paint_view_ops_split(
 
 def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)
       +lay0 = lay(rows, cols, user_w(uh))
@@ -3331,7 +3338,7 @@ def paint_view_split(
   +typers: List<&2, String>
 ) -> ViewModel:
   match cl:
-    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _}:
+    case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _, _}:
       b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
       +focused_buf = active_buf.on(Cl.nth_buf(bufs, active))
       +uh = user_host_label(nick, server, net)

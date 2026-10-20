@@ -16,6 +16,28 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+/* Owned sockets close-on-exec. SOCK_CLOEXEC when the platform has it;
+ * otherwise F_SETFD after a plain socket (Darwin). */
+static int birc_socket(int domain, int type, int protocol) {
+  int fd;
+#ifdef SOCK_CLOEXEC
+  fd = socket(domain, type | SOCK_CLOEXEC, protocol);
+#else
+  fd = socket(domain, type, protocol);
+#endif
+  if (fd < 0)
+    return -1;
+#ifndef SOCK_CLOEXEC
+  if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+    int err = errno;
+    (void)close(fd);
+    errno = err;
+    return -1;
+  }
+#endif
+  return fd;
+}
+
 /* park=1: EAGAIN waits again (TCP reader). park=0: EAGAIN is None (DNS). */
 static Term recv_fill(Env e, uint8_t *data, ssize_t n, const struct sockaddr_storage *src) {
   char host[INET6_ADDRSTRLEN];
@@ -118,7 +140,7 @@ Term udp_bind6_run(Env e, Term *f, IoWork *w) {
       inet_pton(AF_INET6, host, &at.sin6_addr) == 1) {
     at.sin6_family = AF_INET6;
     at.sin6_port = htons((uint16_t)(u32)f[1]);
-    fd = socket(AF_INET6, SOCK_DGRAM, 0);
+    fd = birc_socket(AF_INET6, SOCK_DGRAM, 0);
     err = fd < 0 ? (u32)errno : 0;
     if (fd >= 0 && bind(fd, (struct sockaddr *)&at, sizeof at) != 0) {
       err = (u32)errno;
@@ -209,14 +231,14 @@ Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
       v4->sin_family = AF_INET;
       v4->sin_port = htons((uint16_t)(u32)f[1]);
       dstlen = (socklen_t)sizeof *v4;
-      fd = socket(AF_INET, SOCK_STREAM, 0);
+      fd = birc_socket(AF_INET, SOCK_STREAM, 0);
       err = fd < 0 ? errno : 0;
     } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
       /* Inner literals only; callers strip parse_any brackets first. */
       v6->sin6_family = AF_INET6;
       v6->sin6_port = htons((uint16_t)(u32)f[1]);
       dstlen = (socklen_t)sizeof *v6;
-      fd = socket(AF_INET6, SOCK_STREAM, 0);
+      fd = birc_socket(AF_INET6, SOCK_STREAM, 0);
       err = fd < 0 ? errno : 0;
     }
   }
@@ -405,7 +427,7 @@ Term socket_dup_run(Env e, Term *f, IoWork *w) {
   int fd = (int)io_hand_v(f[0]);
   int d;
   (void)w;
-  d = dup(fd);
+  d = fcntl(fd, F_DUPFD_CLOEXEC, 0);
   if (d < 0)
     return io_tup(e, f[0], io_fail(e, (u32)errno, NULL));
   return io_tup(e, f[0], io_done(e, io_hand((u64)d)));

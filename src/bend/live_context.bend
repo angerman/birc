@@ -36,7 +36,7 @@ def details(ctx: Context) -> Details:
 
 def now(cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, value, _, _, _}: value
+    case Cl.Client{_, _, _, _, value, _, _, _, _}: value
 
 # Host spelling and a terminal DNS root dot are part of credential and history
 # scope. endpoint.bend owns the bytes; this is not a second formatter.

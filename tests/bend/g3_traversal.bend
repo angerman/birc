@@ -140,7 +140,7 @@ def buf_ids_on(got: Maybe<&2, Cl.Buffer>) -> List<&2, Nat>:
 
 def buf_ids(+cl: Cl.Client, +i: Nat) -> List<&2, Nat>:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, _, _}: buf_ids_on(Cl.nth_buf(bufs, i))
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}: buf_ids_on(Cl.nth_buf(bufs, i))
 
 def last_nat_of(m: Maybe<&2, Nat>, +dflt: Nat) -> Nat:
   match m:

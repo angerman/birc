@@ -29,7 +29,7 @@ def buffer(name: String, rows: List<&2, Cl.Line>) -> Cl.Buffer:
 def client() -> Cl.Client:
   Cl.Client{"me", "s", Cl.server_buf() <> buffer("#left", lines(10n, 1n))
     <> buffer("#right", lines(10n, 11n)) <> buffer("#hidden", lines(10n, 100n)) <> Nil{},
-    1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n}
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n, False{}}
 
 def with_split(st: S.Session, split: Sp.State) -> S.Session:
   match st:
@@ -116,9 +116,9 @@ def fill(n: Nat, +id: Nat, state: M.State) -> M.State:
 
 def restored() -> Cl.Client:
   +current : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#history", Nil{})],
-    1n, "", Cl.settings0(), Cl.AuthIdle{}, 50n}
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 50n, False{}}
   +snapshot : Cl.Client = Cl.Client{"old", "s", [Cl.server_buf(), buffer("#history", [line(1n)])],
-    0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
+    0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}}
   Startup.install(current, snapshot)
 
 def ready(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
@@ -139,7 +139,7 @@ def failed(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
 def manual_client() -> Cl.Client:
   Cl.Client{"me", "s", List.append(&2, Cl.Buffer, Cl.client_bufs(client()),
     [Cl.buf_indexed("*preview*", False{}, "/tmp/synthetic.png", Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})]),
-    1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n}
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 109n, False{}}
 
 def prospective(pair: M.State & Maybe<&2, M.Request>, client: Cl.Client) -> M.State:
   match pair:
@@ -165,7 +165,7 @@ def admission.lines(n: Nat, +id: Nat) -> List<&2, Cl.Line>:
 
 def admission.session() -> S.Session:
   S.session_set_size(session(Cl.Client{"me", "s", [Cl.server_buf(), buffer("#archive", admission.lines(32n, 1n))],
-    1n, "", Cl.settings0(), Cl.AuthIdle{}, 33n}, S.Online{}, True{}), 30, 160)
+    1n, "", Cl.settings0(), Cl.AuthIdle{}, 33n, False{}}, S.Online{}, True{}), 30, 160)
 
 def admission.page_up(st: S.Session) -> S.Session:
   Terminal.entered(S.step_keys(st, S.Keys{"", False{}, Cl.TabStay{}, None{}, 25n, 0n, S.HistStay{}, 0, 0}))
@@ -220,7 +220,7 @@ def ph_panes() -> IO(Unit):
     Unit <- E.must("empty-width viewport never fetches", List.is_empty(&2, M.Candidate,
       V.visible_media.buffer(buffer("#room", [line(1n)]), 10n, 0, False{}, Nil{}, True{}, True{}, "s", M.initial(True{}))))
     Unit <- E.must_eq("fitting tiny viewport admits exact visible row", selected_ids(V.visible_media_candidates(
-      Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n)])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n},
+      Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n)])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}},
       6, 80, Sp.Off{}, M.initial(True{}))), "1|")
     Unit <- E.must_eq("paused anchor uses exact painted rows", selected_ids(M.newest_candidates(V.visible_media.buffer(
       Cl.set_buf_anchor(buffer("#room", lines(10n, 1n)), Cl.ScrollAt{5n, 0n}), 2n, 100, False{}, Nil{}, True{}, True{}, "s", M.initial(True{})), M.initial(True{}))), "5|4|")
@@ -280,7 +280,7 @@ def ph_cache_admit() -> IO(Unit):
   +wanted : List<&2, M.Candidate> = List.append(&2, M.Candidate, selected(7n, 2n), [M.Candidate{M.Inline{9n}, url(9n)}])
   +protected : M.State = prospective(M.take_job(M.enqueue_candidates(wanted, cache)), client())
   +legacy : M.State = prospective(M.take_job(M.enqueue_candidates.go(wanted, cache)), client())
-  +duplicate : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n), Cl.Line{Cl.Msg{}, "", url(1n), "alice", 2n}])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 2n}
+  +duplicate : Cl.Client = Cl.Client{"me", "s", [Cl.server_buf(), buffer("#room", [line(1n), Cl.Line{Cl.Msg{}, "", url(1n), "alice", 2n}])], 1n, "", Cl.settings0(), Cl.AuthIdle{}, 2n, False{}}
   +hidden : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(8n, 1n), M.Supported{}}
   +full = sbox(S.session_set_size(S.session_set_media(sunbox(single), hidden), 200, 200))
   +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))

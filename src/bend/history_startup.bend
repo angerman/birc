@@ -181,10 +181,10 @@ def install_startup.mark(on: Bool, cl: Cl.Client, index: Nat, now: String) -> Cl
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{nick, host, bufs, active, clock, settings, auth, seq}:
+        case Cl.Client{nick, host, bufs, active, clock, settings, auth, seq, welcomed}:
           +next: Nat = 1n+seq
           +marker: Cl.Line = Cl.Line{Cl.Reconnect{}, "", Cl.now_hms(now), "", next}
-          Cl.Client{nick, host, Cl.buf_modify(bufs, index, b => Cl.buf_append_line(b, marker)), active, clock, settings, auth, next}
+          Cl.Client{nick, host, Cl.buf_modify(bufs, index, b => Cl.buf_append_line(b, marker)), active, clock, settings, auth, next, welcomed}
 
 def install_startup.buffers(bufs: List<&2, Cl.Buffer>, +index: Nat, +cutoff: Nat, cl: Cl.Client, +now: String) -> Cl.Client:
   match bufs:
@@ -202,7 +202,7 @@ def install_startup.marked(+cl: Cl.Client, cutoff: Nat, now: String) -> Cl.Clien
 # Never make room for a divider by removing a retained row.
 def install_startup(+current: Cl.Client, snapshot: Cl.Client) -> Cl.Client:
   match current:
-    case Cl.Client{_, _, _, _, now, _, _, +cutoff}:
+    case Cl.Client{_, _, _, _, now, _, _, +cutoff, _}:
       install_startup.marked(install(current, snapshot), cutoff, now)
 
 # Fresh worker *log* rows describe only this read operation. Synthetic history

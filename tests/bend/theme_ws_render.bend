@@ -91,7 +91,7 @@ def buf_lines.on(got: Maybe<&2, Cl.Buffer>) -> List<&2, Cl.Line>:
 
 def buf_lines(+cl: Cl.Client, +i: Nat) -> List<&2, Cl.Line>:
   match cl:
-    case Cl.Client{_, _, +bufs, _, _, _, _, _}:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}:
       buf_lines.on(Cl.nth_buf(bufs, i))
 
 def hist_of(+cl: Cl.Client, +i: Nat) -> String:

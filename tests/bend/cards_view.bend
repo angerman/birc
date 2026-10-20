@@ -107,7 +107,7 @@ def main() -> IO(Unit):
     +ten : Cl.Client = Cl.buf_set_lines_at(Cl.init("me", "s"), 0n, lines(10n))
     Unit <- E.must_eq("visible newest capped", Nat.show(List.length(&2, C.Candidate, C.visible_candidates(ten, 24, 80, Sp.Off{}, M.empty()))), "8")
     Unit <- E.must_eq("visible newest first", cand_shape(C.visible_candidates(ten, 24, 80, Sp.Off{}, M.empty())), "10:https://x.test/p10|9:https://x.test/p9|8:https://x.test/p8|7:https://x.test/p7|6:https://x.test/p6|5:https://x.test/p5|4:https://x.test/p4|3:https://x.test/p3")
-    +synthetic : Cl.Client = Cl.Client{"me", "s", [Cl.buf_indexed("*settings*", False{}, "", [src], Nil{}, Cl.ScrollAt{0n, 0n})], 0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
+    +synthetic : Cl.Client = Cl.Client{"me", "s", [Cl.buf_indexed("*settings*", False{}, "", [src], Nil{}, Cl.ScrollAt{0n, 0n})], 0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}}
     Unit <- E.must_eq("synthetic buffers excluded", cand_shape(C.visible_candidates(synthetic, 24, 80, Sp.Off{}, M.empty())), "")
     +muted : Cl.Client = submitted(Sub.submit(channel("#room"), "/mute alice"))
     +muted_alice : Cl.Client = set_named(Feed.feed(muted, ":alice!u@h PRIVMSG #room :see " ++ page()), "#room")

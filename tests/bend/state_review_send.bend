@@ -62,7 +62,7 @@ def echoes_ok(lines: List<&2, Cl.Line>, wires: List<&2, String>) -> Bool:
 
 def client_now(cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, now, _, _, _}: now
+    case Cl.Client{_, _, _, _, now, _, _, _, _}: now
 
 def history_wires(xs: List<&2, String>, +target: String, +now: String) -> String:
   match xs:

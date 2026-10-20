@@ -41,7 +41,7 @@ def names(bufs: List<&2, Cl.Buffer>) -> String:
 
 def client_names(cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, bufs, _, _, _, _, _}: names(bufs)
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}: names(bufs)
 
 def chats() -> Cl.Client:
   +start = Cl.set_now(Cl.client_set_sasl(Cl.init_with_cap("probe", "a.example", 12), "synth-user", "synth-secret"), "12:34:56")
@@ -94,7 +94,7 @@ def phase_idle(phase: Cl.AuthPhase) -> Bool:
 
 def endpoint_metadata(+cl: Cl.Client) -> Bool:
   match cl:
-    case Cl.Client{+nick, +host, _, +active, +now, +stg, _, _}:
+    case Cl.Client{+nick, +host, _, +active, +now, +stg, _, _, _}:
       String.eq(nick, "probe") && String.eq(host, "b.example") && Nat.is_eq(active, 0n)
         && String.eq(now, "12:34:56") && U32.is_eq(Cl.settings_hist_cap(stg), 12)
         && String.is_empty(Cl.settings_sasl_user(stg))

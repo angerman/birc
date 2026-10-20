@@ -943,7 +943,7 @@ def Laws.sasl_done_no_reply(event, user, pass):
 
 def Laws.auth_preserves_settings(cl, phase):
   match cl:
-    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq, _}:
       {==}
 
 def Laws.nickserv_untrusted_probe_no_reply(cl):
@@ -966,7 +966,7 @@ def Laws.auth_phase_preserves_success(before, after, config, seq):
 
 def Laws.timestamp_preserves_log_sequence(cl, ts):
   match cl:
-    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq}:
+    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq, _}:
       {==}
 
 def Laws.server_time_extract():

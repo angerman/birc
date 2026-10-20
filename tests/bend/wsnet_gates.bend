@@ -133,7 +133,7 @@ def notify_before_restore() -> W.Workspace:
   W.single_client("restored.test", 6697, False{}, Cl.init("me", "restored.test"), "#restored")
 
 def notify_restored() -> W.Workspace:
-  +cl : Cl.Client = Cl.Client{"me", "restored.test", Cl.server_buf() <> Cl.buf_indexed("#restored", True{}, "", [Cl.Line{Cl.Highlight{}, "12:00:00", "me: synthetic restored alert", "alice", 17n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 17n}
+  +cl : Cl.Client = Cl.Client{"me", "restored.test", Cl.server_buf() <> Cl.buf_indexed("#restored", True{}, "", [Cl.Line{Cl.Highlight{}, "12:00:00", "me: synthetic restored alert", "alice", 17n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 17n, False{}}
   W.single_client("restored.test", 6697, False{}, cl, "#restored")
 
 def load_opts() -> PrefWorker.Options:
@@ -169,7 +169,7 @@ def b_url() -> String:
   "https://x.test/b.png"
 
 def b_client() -> Cl.Client:
-  Cl.Client{"me", "h.example", Cl.server_buf() <> Cl.buf_indexed("#b", True{}, "", [Cl.Line{Cl.Msg{}, "", b_url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n}
+  Cl.Client{"me", "h.example", Cl.server_buf() <> Cl.buf_indexed("#b", True{}, "", [Cl.Line{Cl.Msg{}, "", b_url(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}}
 
 def b_req() -> M.Request:
   M.Request{M.Inline{1n}, b_url(), 1n, 1n}
@@ -235,7 +235,7 @@ def upload_lease_records() -> List<&2, WsNet.WsLease>:
 
 def upload_lease_now(+cl: Cl.Client) -> String:
   match cl:
-    case Cl.Client{_, _, _, _, +now, _, _, _}: now
+    case Cl.Client{_, _, _, _, +now, _, _, _, _}: now
 
 def upload_lease_stamped() -> Sess.Session:
   Sess.session_set_now(WsNet.ws_part.st(upload_lease_workspace(), s1()), "10:20:30")

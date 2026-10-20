@@ -1494,6 +1494,15 @@ def history_notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Session
     case Some{msg}:
       (Sess.session_set_client(st, Cl.diagnostic(Sess.session_cl(st), Cl.Error{}, msg)), True{})
 
+# Append failure still surfaces *log*, but must not advance the extract
+# baseline: keep live rows and rewind log_seq to the pre-save checkpoint so
+# unsaved IDs remain visible to the next extract_new_history.
+def history_kept(+st: Sess.Session, failed: Bool, +old_seq: Nat) -> Sess.Session:
+  match failed:
+    case False{}: st
+    case True{}:
+      Sess.session_set_client(st, Cl.set_log_seq(Sess.session_cl(st), old_seq))
+
 def auth_notice(+st: Sess.Session, code: U32) -> Sess.Session:
   match code:
     case 0: st
@@ -1522,13 +1531,15 @@ def live_step.saved(
   allowed: Bool,
   +evt: Chan(Sess.UiMsg),
   +scan: Bool,
+  +old_seq: Nat,
   k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
 ) -> IO(Unit):
   match status:
-    case (+st, failed):
+    case (+st, +failed):
+      +kept = history_kept(st, failed, old_seq)
       do IO<Unit>:
         pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
-        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, st, gen, pending, hist_path, new_endpoint, next => live_step.observe(scan, next, old_media_gen, evt, k))
+        live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, kept, gen, pending, hist_path, new_endpoint, next => live_step.observe(scan, next, old_media_gen, evt, k))
 
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
@@ -1559,7 +1570,9 @@ def live_step.next(
         # saving an Error chat row would recursively fail and notify again.
         # A key that only edits the draft leaves log, buffer, and scroll alone.
         # Admission walks the viewport; skip it until the visible history moves.
-        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, Bool.or(scan, Bool.not(Cl.view_same(old_cl, Sess.session_cl(observed_st)))), k)
+        # After the *log* diagnostic, rewind log_seq to the pre-save checkpoint
+        # so unsaved chat IDs stay visible to the next extract (ws_history.kept).
+        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, Bool.or(scan, Bool.not(Cl.view_same(old_cl, Sess.session_cl(observed_st)))), Cl.log_seq_of(old_cl), k)
 
 def live_step.tick(
   pair: Bool & (T.Ui & Sess.Session & U32 & Bool),
