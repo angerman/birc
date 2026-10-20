@@ -55,8 +55,9 @@ def drain.count(pair: Drain) -> Drain:
   match pair:
     case Drain{st, count}: Drain{st, 1n+count}
 
-# Mirrors net/wsnet accept=false: plain reject clears the worker. Sticky
-# reject_full is native CAP overflow only (ph_cache_admit + below).
+# Mirrors net/wsnet accept=false: plain reject clears the worker and soft-
+# defers relaunch. Sticky reject_full is native CAP overflow only
+# (ph_cache_admit + below).
 def finish(accepted: Bool, +st: S.Session, +gen: Nat, +ticket: Nat, +url: String) -> S.Session:
   match accepted:
     case True{}: S.session_set_media(st, M.complete(S.session_media(st), S.session_cl(st), gen, ticket, url, U32.from_nat(ticket)))
@@ -121,7 +122,7 @@ def restored() -> Cl.Client:
     1n, "", Cl.settings0(), Cl.AuthIdle{}, 50n, False{}}
   +snapshot : Cl.Client = Cl.Client{"old", "s", [Cl.server_buf(), buffer("#history", [line(1n)])],
     0n, "", Cl.settings0(), Cl.AuthIdle{}, 1n, False{}}
-  Startup.install(current, snapshot)
+  Startup.install(current, snapshot, "s:6697", "s:6697")
 
 def ready(n: Nat, +id: Nat) -> List<&2, M.MediaReady>:
   match n:
@@ -286,8 +287,10 @@ def ph_cache_admit() -> IO(Unit):
   +hidden : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(8n, 1n), M.Supported{}}
   +room : M.State = M.State{True{}, 1n, 101n, Some{M.Request{M.Inline{100n}, url(100n), 1n, 100n}}, Nil{}, ready(7n, 1n), M.Supported{}}
   +full = sbox(S.session_set_size(S.session_set_media(sunbox(single), hidden), 200, 200))
-  # − plain reject / visible decline: clears exact worker, records nothing.
+  # − plain reject / visible decline: clears exact worker, soft-defers relaunch.
   +declined : M.State = M.reject(hidden, 1n, 100n, url(100n))
+  # Soft defer lifts when the same candidate is selected again.
+  +soft_cleared : M.State = M.enqueue_candidates([M.Candidate{M.Inline{100n}, url(100n)}], declined)
   # − reject_full into CAP nonzero ready: must not drop a live retained token.
   +declined_full_cap : M.State = M.reject_full(hidden, client(), 1n, 100n, url(100n))
   # + reject_full with room: failed identity → ready_has blocks relaunch.
@@ -300,9 +303,15 @@ def ph_cache_admit() -> IO(Unit):
     Unit <- E.must_eq("same URL on distinct events retains per-target identity", Nat.show(M.pending_count(S.session_media(S.session_observe_visible_media(session(duplicate, S.Online{}, True{}))))), "2")
     Unit <- E.must("legacy admission would accept unrelated hidden completion", M.accept(hidden, client(), 1n, 100n, url(100n)))
     Unit <- E.must("full visible cache rejects unrelated hidden completion", Bool.not(S.session_accept_media_result(sunbox(full), 1n, 100n, url(100n))))
-    Unit <- E.must("- reject clears worker without failed identity", Bool.not(Terminal.has_active(declined)) && Nat.is_eq(M.ready_count(declined), 8n)
-      && token_has(M.retained_tokens(declined), 8) && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n}))
-      && Nat.is_gt(M.pending_count(M.enqueue(declined, M.Inline{100n}, url(100n))), 0n))
+    Unit <- E.must("- reject clears active", Bool.not(Terminal.has_active(declined)))
+    Unit <- E.must("- reject keeps ready CAP", Nat.is_eq(M.ready_count(declined), 8n) && token_has(M.retained_tokens(declined), 8))
+    Unit <- E.must("- reject leaves known_urls empty", List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
+    Unit <- E.must("- reject soft-blocks bare enqueue", Nat.is_eq(M.pending_count(M.enqueue(declined, M.Inline{100n}, url(100n))), 0n))
+    Unit <- E.must("- reject soft-blocks take_job", Bool.not(Terminal.has_job(M.take_job(declined))))
+    Unit <- E.must("- reject soft survives maintain as non-work", Nat.is_eq(M.pending_count(M.maintain(declined, client())), 0n))
+    Unit <- E.must("+ selected enqueue_candidates lifts soft defer", Nat.is_gt(M.pending_count(soft_cleared), 0n)
+      && Terminal.has_job(M.take_job(soft_cleared))
+      && List.is_empty(&2, String, M.known_urls(declined, M.Inline{100n})))
     Unit <- E.must("- speculative complete at CAP drops a live retained token", Nat.is_eq(List.length(&2, U32, M.retained_tokens(speculative)), 7n)
       && Bool.not(token_has(M.retained_tokens(speculative), 8)))
     Unit <- E.must("+ admit_retained keeps every current owner at CAP", Nat.is_eq(List.length(&2, U32, M.admit_retained(hidden)), 8n)

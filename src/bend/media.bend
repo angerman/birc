@@ -158,6 +158,18 @@ def request_block(req: Request) -> Bool:
     case Request{_, _, _, 0n}: True{}
     case _: False{}
 
+# Generation 0 marks a non-sticky soft defer from policy decline (reject).
+# Real work generations start at 1. Soft fences suppress automatic relaunch
+# until enqueue_candidates clears them for a again-selected candidate —
+# never a poison-pill like ticket-0 reject_full.
+def soft_block(req: Request) -> Bool:
+  match req:
+    case Request{_, _, 0n, _}: True{}
+    case _: False{}
+
+def pending_skip(+req: Request) -> Bool:
+  request_block(req) || soft_block(req)
+
 def pending_work_count.keep(block: Bool, rest: Nat) -> Nat:
   match block:
     case True{}: rest
@@ -166,7 +178,7 @@ def pending_work_count.keep(block: Bool, rest: Nat) -> Nat:
 def pending_work_count.go(xs: List<&2, Request>) -> Nat:
   match xs:
     case Nil{}: 0n
-    case Con{+h, t}: pending_work_count.keep(request_block(h), pending_work_count.go(t))
+    case Con{+h, t}: pending_work_count.keep(pending_skip(h), pending_work_count.go(t))
 
 def pending_count(state: State) -> Nat:
   match state:
@@ -243,6 +255,37 @@ def enqueue.on(hit: Bool, +state: State, +target: Target, +url: String) -> State
           State{on, gen, (ticket + 1n : Nat), active, List.append(&2, Request, pending, [Request{target, url, gen, ticket}]),
             Bool.pick(List<&2, MediaReady>, manual(target), ready_without(ready, target, url), ready), display}
 
+def soft_matches(req: Request, +target: Target, +url: String) -> Bool:
+  match req:
+    case Request{t, u, 0n, _}: target_eq(t, target) && String.eq(u, url)
+    case _: False{}
+
+def soft_has(xs: List<&2, Request>, +target: Target, +url: String) -> Bool:
+  match xs:
+    case Nil{}: False{}
+    case Con{+h, t}: soft_matches(h, target, url) || soft_has(t, target, url)
+
+def soft_keep(hit: Bool, h: Request, tail: List<&2, Request>) -> List<&2, Request>:
+  match hit:
+    case True{}: tail
+    case False{}: h <> tail
+
+def pending_without_soft(xs: List<&2, Request>, +target: Target, +url: String) -> List<&2, Request>:
+  match xs:
+    case Nil{}: Nil{}
+    case Con{+h, t}: soft_keep(soft_matches(h, target, url), h, pending_without_soft(t, target, url))
+
+# Selected candidates lift soft defer so the same automatic URL can run again
+# once it is on-screen (or otherwise chosen). Hidden policy declines must not
+# sticky-poison the identity the way reject_full does.
+def soft_clear.go(xs: List<&2, Candidate>, pending: List<&2, Request>) -> List<&2, Request>:
+  match xs:
+    case Nil{}: pending
+    case Con{Candidate{+target, +url}, tail}: soft_clear.go(tail, pending_without_soft(pending, target, url))
+
+def soft_clear(+xs: List<&2, Candidate>, +pending: List<&2, Request>) -> List<&2, Request>:
+  soft_clear.go(xs, pending)
+
 def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: String) -> State:
   match eligible:
     case False{}: state
@@ -251,6 +294,7 @@ def enqueue.eligible(eligible: Bool, +state: State, +target: Target, +url: Strin
         case State{+on, +gen, +ticket, +active, +pending, +ready, Supported{}}:
           enqueue.on(Nat.is_lt(pending_work_count.go(pending), CAP())
             && Bool.not(active_has(active, target, url, gen) || request_has(pending, target, url, gen))
+            && (manual(target) || Bool.not(soft_has(pending, target, url)))
             && (manual(target) || Bool.not(ready_has(ready, target, url))),
             State{on, gen, ticket, active, pending, ready, Supported{}}, target, url)
         case State{on, gen, ticket, active, _, _, _}:
@@ -337,10 +381,12 @@ def visible_ready(xs: List<&2, MediaReady>, +selected: List<&2, Candidate>, +kee
 
 # The completion FIFO remains unchanged. Refresh its bounded priority only for
 # this visible-admission path, so a new preview evicts a hidden result first.
+# Soft defer from a prior policy decline is cleared for every selected
+# candidate before enqueue, so returning to the viewport is not a poison-pill.
 def enqueue_candidates(+xs: List<&2, Candidate>, state: State) -> State:
   match state:
-    case State{on, gen, ticket, active, pending, +ready, display}:
-      enqueue_candidates.go(xs, State{on, gen, ticket, active, pending,
+    case State{on, gen, ticket, active, +pending, +ready, display}:
+      enqueue_candidates.go(xs, State{on, gen, ticket, active, soft_clear(xs, pending),
         List.append(&2, MediaReady, visible_ready(ready, xs, True{}), visible_ready(ready, xs, False{})), display})
 
 def visible_result.active(active: Maybe<&2, Request>, +selected: List<&2, Candidate>) -> Bool:
@@ -357,8 +403,8 @@ def visible_result_allowed(state: State, +selected: List<&2, Candidate>) -> Bool
       Nat.is_lt(List.length(&2, MediaReady, visible_ready(ready, selected, True{})), CAP())
         || visible_result.active(active, selected)
 
-# Skip ticket-0 sticky blocks; they suppress enqueue via request_has but
-# must never become the physical worker.
+# Skip generation-0 soft defer and ticket-0 sticky blocks; both suppress
+# automatic relaunch but must never become the physical worker.
 def take_work.cons(+h: Request, pair: List<&2, Request> & Maybe<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
   match pair:
     case (rest, job): (h <> rest, job)
@@ -366,6 +412,8 @@ def take_work.cons(+h: Request, pair: List<&2, Request> & Maybe<&2, Request>) ->
 def take_work(xs: List<&2, Request>) -> List<&2, Request> & Maybe<&2, Request>:
   match xs:
     case Nil{}: (Nil{}, None{})
+    case Con{Request{+target, +url, 0n, +ticket}, t}:
+      take_work.cons(Request{target, url, 0n, ticket}, take_work(t))
     case Con{Request{+target, +url, +gen, 0n}, t}:
       take_work.cons(Request{target, url, gen, 0n}, take_work(t))
     case Con{+h, t}: (t, Some{h})
@@ -442,7 +490,10 @@ def keep_pending(xs: List<&2, Request>, +client: Cl.Client, +gen: Nat) -> List<&
     case Con{+h, t}:
       match h:
         case Request{target, url, g, _}:
-          pending_keep(Nat.is_eq(g, gen) && alive(client, target, url), h, keep_pending(t, client, gen))
+          # Soft defer uses generation 0; keep it while the target lives so a
+          # later maintain cannot drop the fence before enqueue_candidates.
+          pending_keep(alive(client, target, url) && (soft_block(h) || Nat.is_eq(g, gen)), h,
+            keep_pending(t, client, gen))
 
 def keep_ready(xs: List<&2, MediaReady>, +client: Cl.Client) -> List<&2, MediaReady>:
   match xs:
@@ -486,12 +537,27 @@ def complete(+state: State, +client: Cl.Client, +gen: Nat, +ticket: Nat, +url: S
     case State{_, _, _, +active, _, _, _}:
       complete.on(exact(active, gen, ticket, url), accept(state, client, gen, ticket, url), state, token)
 
-# Declined native admission releases only the exact physical worker. It cannot
-# add a failed placeholder, evict a retained token, or clear a different worker.
+# Declined native admission releases only the exact physical worker and records
+# a non-sticky soft defer (generation-0 pending). It cannot add a failed
+# placeholder, evict a retained token, clear a different worker, or sticky-
+# poison the URL the way reject_full does. enqueue_candidates clears the fence
+# when the candidate is selected again.
+def reject.on(hit: Bool, +state: State) -> State:
+  match hit:
+    case False{}: state
+    case True{}:
+      match state:
+        case State{on, gen, ticket, Some{Request{target, url, _, declined}}, pending, ready, display}:
+          State{on, gen, ticket, None{},
+            Request{target, url, 0n, declined} <> pending_without_soft(pending, target, url),
+            ready, display}
+        case _: state
+
 def reject(+state: State, +gen: Nat, +ticket: Nat, +url: String) -> State:
   match state:
     case State{_, _, _, +active, _, _, _}:
-      complete.on(exact(active, gen, ticket, url), False{}, state, 0)
+      reject.on(exact(active, gen, ticket, url), state)
+    case _: state
 
 # Drop one newest token-zero ready slot so reject_full can record a failed
 # identity without List.take eviction of a live nonzero retained token.
