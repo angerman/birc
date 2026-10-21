@@ -3,12 +3,15 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/view.bend as V
 
+def scroll_b(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
+  V.hold_buf(V.scroll_buf(b, height, w, show_ts, mutes, joins, nicks, server, up, dn))
+
 def long_client() -> Cl.Client:
   Cl.client_log(Cl.init("me", "s"), 0n, Cl.Msg{}, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
 
 # Scroll and paint share height/width so character anchors stay aligned.
 def moved(+cl: Cl.Client, +up: Nat, +dn: Nat) -> Cl.Client:
-  Cl.buf_modify_client(cl, 0n, b => V.scroll_buf(b, 3n, 8, False{}, Nil{}, True{}, True{}, "s", up, dn))
+  Cl.buf_modify_client(cl, 0n, b => scroll_b(b, 3n, 8, False{}, Nil{}, True{}, True{}, "s", up, dn))
 
 def span_text(sp: V.SpanOp) -> String:
   match sp:
@@ -57,7 +60,7 @@ def resize_anchor() -> Bool:
     && String.eq(last(rows(cl, 4)), "klmn")
 
 def narrow_first() -> Bool:
-  +cl = Cl.buf_modify_client(long_client(), 0n, b => V.scroll_buf(b, 3n, 1, False{}, Nil{}, True{}, True{}, "s", 100n, 0n))
+  +cl = Cl.buf_modify_client(long_client(), 0n, b => scroll_b(b, 3n, 1, False{}, Nil{}, True{}, True{}, "s", 100n, 0n))
   String.eq(first(rows(cl, 1)), "A")
 
 def muted_arrival() -> Bool:
@@ -68,7 +71,7 @@ def muted_arrival() -> Bool:
 
 def replacement_anchor() -> Bool:
   +b: Cl.Buffer = Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "abc👩‍💻uvwxyz", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
-  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 7n, 0n)
+  +scrolled = scroll_b(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 7n, 0n)
   String.eq(last(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "c")
     && String.eq(last(V.body_of.buf(scrolled, 1n, 4, False{}, Nil{}, True{}, True{}, "s")), "abc")
 
@@ -105,8 +108,8 @@ def hidden_newest_buf() -> Cl.Buffer:
     Nil{}, Cl.ScrollAt{0n, 0n})
 
 def hidden_newest_paged() -> Cl.Buffer:
-  +up = V.scroll_buf(hidden_newest_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 100n, 0n)
-  V.scroll_buf(V.scroll_buf(up, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 100n),
+  +up = scroll_b(hidden_newest_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 100n, 0n)
+  scroll_b(scroll_b(up, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 100n),
     3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 100n)
 
 # −: must not remain anchored away from live after PageDown across a hidden newest JOIN.
@@ -127,7 +130,7 @@ def long_hidden_buf() -> Cl.Buffer:
 
 # +: PageDown progresses past >dn+32 consecutive filtered lines.
 def long_hidden_run_progresses() -> Bool:
-  +b1 = V.scroll_buf(long_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  +b1 = scroll_b(long_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
   Nat.is_lt(scroll_after(buf_scroll(b1)), 61n)
 
 # −: 90 hidden QUITs exceed dn+64 (=67). Without frontier advance, PageDown sticks.
@@ -139,14 +142,14 @@ def over_cap_hidden_buf() -> Cl.Buffer:
     Nil{}, Cl.ScrollAt{91n, 0n})
 
 def over_cap_hidden_run_progresses() -> Bool:
-  +b1 = V.scroll_buf(over_cap_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  +b1 = scroll_b(over_cap_hidden_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
   Nat.is_lt(scroll_after(buf_scroll(b1)), 91n)
 
 def over_cap_hidden_run_reaches_live() -> Bool:
   +b0 = over_cap_hidden_buf()
-  +b1 = V.scroll_buf(b0, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
-  +b2 = V.scroll_buf(b1, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
-  is_live(buf_scroll(V.scroll_buf(b2, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)))
+  +b1 = scroll_b(b0, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  +b2 = scroll_b(b1, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)
+  is_live(buf_scroll(scroll_b(b2, 3n, 40, False{}, Nil{}, False{}, True{}, "s", 0n, 3n)))
 
 # Newest 90 QUITs alone (no trailing NEW): live paint must still reach OLD.
 def over_cap_hidden_live_buf() -> Cl.Buffer:
@@ -156,7 +159,7 @@ def over_cap_hidden_live_buf() -> Cl.Buffer:
 
 def over_cap_hidden_live_shows_old() -> Bool:
   String.contains(
-    row_texts(V.paint_body_of(over_cap_hidden_live_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", V.paint_text())),
+    row_texts(V.paint_body_buf(over_cap_hidden_live_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", V.paint_text())),
     "OLD")
 
 # Enough visible older rows above a long hidden run so PageUp can leave live.
@@ -168,7 +171,7 @@ def over_cap_hidden_page_up_buf() -> Cl.Buffer:
     Nil{}, Cl.ScrollAt{0n, 0n})
 
 def over_cap_hidden_page_up_moves() -> Bool:
-  +b1 = V.scroll_buf(over_cap_hidden_page_up_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 3n, 0n)
+  +b1 = scroll_b(over_cap_hidden_page_up_buf(), 3n, 40, False{}, Nil{}, False{}, True{}, "s", 3n, 0n)
   Nat.is_gt(scroll_after(buf_scroll(b1)), 0n)
 
 # 40 single-row messages; oldest is after=39. PageUp at the top must stay there.
@@ -178,7 +181,7 @@ def top_snap_buf() -> Cl.Buffer:
     Nil{}, Cl.ScrollAt{39n, 0n})
 
 def page_up_at_top_stays() -> Bool:
-  +b1 = V.scroll_buf(top_snap_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 20n, 0n)
+  +b1 = scroll_b(top_snap_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 20n, 0n)
   Nat.is_eq(scroll_after(buf_scroll(b1)), 39n)
 
 # Two live messages; one wheel/row up must land on the older line (after=1).
@@ -188,7 +191,7 @@ def short_up_buf() -> Cl.Buffer:
     Nil{}, Cl.ScrollAt{0n, 0n})
 
 def short_up_lands_on_older() -> Bool:
-  +b1 = V.scroll_buf(short_up_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  +b1 = scroll_b(short_up_buf(), 20n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
   Nat.is_eq(scroll_after(buf_scroll(b1)), 1n)
 
 def main() -> IO(Unit):

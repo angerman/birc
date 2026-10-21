@@ -2253,30 +2253,30 @@ def paint_bottom(bottom: Bool, live: Bool, +newest: List<&2, Cl.Line>, +lines: L
     case True{}: paint_bottom.live(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
     case False{}: paint_bottom.away(live, newest, lines, name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
 
-def paint_body_of.scrolled(live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+def paint_body_buf.scrolled(live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match live:
     case True{}: paint_bottom.away(True{}, newest, raw, name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
     case False{}: paint_bottom.away(False{}, newest, paint_display_lines(name, topic, raw, boxed), name, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
 
-def paint_body_of.bottom(preview: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+def paint_body_buf.bottom(preview: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match preview:
     case True{}:
       +shown = paint_display_lines(name, topic, raw, boxed)
       paint_bottom_use(newest_lines(shown, height), shown, name, height, w, show_ts, mutes, joins, nicks, server, boxed)
     case False{}: paint_bottom.live(newest, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
-def paint_body_of.at(bottom: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
+def paint_body_buf.at(bottom: Bool, +live: Bool, +newest: List<&2, Cl.Line>, +raw: List<&2, Cl.Line>, +name: String, +topic: String, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> List<&2, BodyRow>:
   match bottom:
-    case True{}: paint_body_of.bottom(String.eq(name, "*preview*"), live, newest, raw, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
-    case False{}: paint_body_of.scrolled(live, newest, raw, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
+    case True{}: paint_body_buf.bottom(String.eq(name, "*preview*"), live, newest, raw, name, topic, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case False{}: paint_body_buf.scrolled(live, newest, raw, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, scroll)
 
-def paint_body_of(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
+def paint_body_buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow>:
   match b:
     case Cl.Buffer{+name, _, +topic, +raw_lines, _, Cl.ScrollAt{+after, +tail}, +newest, +count}:
-      paint_body_of.at(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), spine_live(name, boxed), newest, raw_lines, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, Cl.ScrollAt{after, tail})
+      paint_body_buf.at(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), spine_live(name, boxed), newest, raw_lines, name, topic, count, height, w, show_ts, mutes, joins, nicks, server, boxed, Cl.ScrollAt{after, tail})
 
 def body_of.buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +media: M.State) -> List<&2, BodyRow>:
-  paint_body_of(b, height, w, show_ts, mutes, joins, nicks, server, paint_media_only(media))
+  paint_body_buf(b, height, w, show_ts, mutes, joins, nicks, server, paint_media_only(media))
 
 def body_of.buf(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String) -> List<&2, BodyRow>:
   body_of.buf_media(b, height, w, show_ts, mutes, joins, nicks, server, M.empty())
@@ -2494,11 +2494,11 @@ def paint_hold.use(reuse: Bool, +buf: Cl.Buffer, +rows: List<&2, AnchoredRow>, +
         case Cl.Buffer{_, _, _, _, _, +scroll, _, _}:
           (visible_anchored(rows, height, scroll), True{})
     case False{}:
-      (paint_body_of(buf, height, w, show_ts, mutes, joins, nicks, server, boxed), False{})
+      (paint_body_buf(buf, height, w, show_ts, mutes, joins, nicks, server, boxed), False{})
 
 # Reuse only when this paint asks for the same window the walk covered.
-# The miss arm is the only call to the full painter.
-def paint_hold(+hold: ScrollHold, +height: Nat, +w: U32, +show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
+# True crops the walk. False is the only call to the full painter.
+def paint_body_of(+hold: ScrollHold, +height: Nat, +w: U32, +show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
   match hold:
     case ScrollHold{+buf, +rows, +covered, +hh, +hw, +hts}:
       paint_hold.use(paint_hold.dims(Nat.is_eq(height, hh), U32.is_eq(w, hw), flag_same(show_ts, hts), covered), buf, rows, height, w, show_ts, mutes, joins, nicks, server, boxed)
@@ -2527,8 +2527,9 @@ def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mute
 def scroll_hold(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> ScrollHold:
   scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
 
-def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
-  hold_buf(scroll_hold(b, height, w, show_ts, mutes, joins, nicks, server, up, dn))
+# Keep the covering walk. paint_body_of reuses it; hold_buf drops it.
+def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> ScrollHold:
+  scroll_hold(b, height, w, show_ts, mutes, joins, nicks, server, up, dn)
 
 def scroll_buf_media_cards_iso.full(+isc: Cl.Iso, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
   +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw, media))
@@ -3585,7 +3586,7 @@ def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +
       +lay0 = lay(rows, cols, user_w(uh))
       +br = lay_body_rect(lay0)
       +unreads = Cl.settings_unreads(stg)
-      bod = paint_body_of(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, boxed)
+      bod = paint_body_buf(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, boxed)
       bt nt = body_title_of(b) nicks_title_of(b)
       +ns = nicks_list_of(b)
       ViewModel{paint_view_ops(boxed, lay0, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(opt_legacy(boxed), b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
@@ -3617,7 +3618,7 @@ def paint_view_split_rects(
 ) -> List<&2, DrawOp>:
   match pair:
     case (+r1, +r2):
-      body1 body2 = paint_body_of(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, boxed) paint_body_of(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, boxed)
+      body1 body2 = paint_body_buf(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, boxed) paint_body_buf(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, boxed)
       paint_view_ops_split(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(opt_legacy(boxed), b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(opt_legacy(boxed), b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
 
 def paint_view_split(

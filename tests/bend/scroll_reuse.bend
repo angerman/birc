@@ -18,13 +18,13 @@ def many() -> Cl.Buffer:
   Cl.buf_indexed("#t", True{}, "", List.reverse(&2, Cl.Line, newer), Nil{}, Cl.ScrollAt{0n, 0n})
 
 def parked() -> Cl.Buffer:
-  V.scroll_buf(many(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 24n, 0n)
+  V.hold_buf(V.scroll_buf(many(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 24n, 0n))
 
 def page_hold() -> V.ScrollHold:
-  V.scroll_hold(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 0n, 8n)
+  V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 0n, 8n)
 
 def notch_hold() -> V.ScrollHold:
-  V.scroll_hold(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
 
 def span_text(sp: V.SpanOp) -> String:
   match sp:
@@ -57,10 +57,10 @@ def pair_reused(pair: List<&2, V.BodyRow> & Bool) -> Bool:
     case (_, +reused): reused
 
 def paint_of(+hold: V.ScrollHold) -> List<&2, V.BodyRow> & Bool:
-  V.paint_hold(hold, 8n, 40, False{}, Nil{}, True{}, True{}, "s", V.paint_text())
+  V.paint_body_of(hold, 8n, 40, False{}, Nil{}, True{}, True{}, "s", V.paint_text())
 
 def cold_of(+b: Cl.Buffer) -> List<&2, V.BodyRow>:
-  V.paint_body_of(b, 8n, 40, False{}, Nil{}, True{}, True{}, "s", V.paint_text())
+  V.paint_body_buf(b, 8n, 40, False{}, Nil{}, True{}, True{}, "s", V.paint_text())
 
 def page_rows() -> List<&2, V.BodyRow>:
   pair_rows(paint_of(page_hold()))
@@ -78,7 +78,7 @@ def page_crop() -> List<&2, V.BodyRow>:
 def page_anchor() -> Bool:
   Cl.scroll_eq(
     Cl.buf_scroll(V.hold_buf(page_hold())),
-    Cl.buf_scroll(V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 0n, 8n)))
+    Cl.buf_scroll(V.hold_buf(V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 0n, 8n))))
 
 def notch_rows() -> List<&2, V.BodyRow>:
   pair_rows(paint_of(notch_hold()))
@@ -92,7 +92,7 @@ def notch_cold() -> List<&2, V.BodyRow>:
 def notch_anchor() -> Bool:
   Cl.scroll_eq(
     Cl.buf_scroll(V.hold_buf(notch_hold())),
-    Cl.buf_scroll(V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)))
+    Cl.buf_scroll(V.hold_buf(V.scroll_buf(parked(), 8n, 40, False{}, Nil{}, True{}, True{}, "s", 1n, 0n))))
 
 def main() -> IO(Unit):
   do IO<Unit>:

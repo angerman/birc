@@ -44,17 +44,17 @@ def bars.go(rows: List<&2, V.BodyRow>, +acc: String) -> String:
 def paint.got(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{+b}: paint.go(V.paint_body_of(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", V.paint_text()), "")
+    case Some{+b}: paint.go(V.paint_body_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", V.paint_text()), "")
 
 def bars.got(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{+b}: bars.go(V.paint_body_of(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", V.paint_text()), "")
+    case Some{+b}: bars.go(V.paint_body_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", V.paint_text()), "")
 
 def bars.hide_joins.got(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
-    case Some{+b}: bars.go(V.paint_body_of(b, 20n, 40, True{}, Nil{}, False{}, True{}, "irc", V.paint_text()), "")
+    case Some{+b}: bars.go(V.paint_body_buf(b, 20n, 40, True{}, Nil{}, False{}, True{}, "irc", V.paint_text()), "")
 
 def paint_buf(cl: Cl.Client) -> String:
   paint.got(Cl.nth_buf(Cl.client_bufs(cl), 0n))
@@ -69,7 +69,7 @@ def bars.scrolled.got(got: Maybe<&2, Cl.Buffer>) -> String:
   match got:
     case None{}: ""
     case Some{+b}:
-      bars.go(V.paint_body_of(Cl.set_buf_anchor(b, Cl.ScrollAt{1n, 0n}), 20n, 40, True{}, Nil{}, False{}, True{}, "irc", V.paint_text()), "")
+      bars.go(V.paint_body_buf(Cl.set_buf_anchor(b, Cl.ScrollAt{1n, 0n}), 20n, 40, True{}, Nil{}, False{}, True{}, "irc", V.paint_text()), "")
 
 def bars_hide_joins_scrolled(cl: Cl.Client) -> String:
   bars.scrolled.got(Cl.nth_buf(Cl.client_bufs(cl), 0n))
@@ -133,7 +133,7 @@ def pending_tuesday_bars.got(got: Maybe<&2, Cl.Buffer>, +pend: Cl.PendSend) -> S
   match got:
     case None{}: ""
     case Some{+b}:
-      bars.go(V.paint_body_of(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc",
+      bars.go(V.paint_body_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc",
         V.paint_box(None{}, None{}, M.empty(), None{}, False{}, pend <> Nil{}, True{})), "")
 
 def pending_tuesday_bars() -> String:
@@ -157,7 +157,7 @@ def wheel_notch_after(+scrolled: Cl.Buffer) -> Nat:
 
 def wheel_notch_moves.buf(+b: Cl.Buffer) -> Bool:
   Nat.is_eq(wheel_notch_after(
-    V.scroll_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", 2n, 0n)), 1n)
+    V.hold_buf(V.scroll_buf(b, 20n, 40, True{}, Nil{}, True{}, True{}, "irc", 2n, 0n))), 1n)
 
 def wheel_notch_moves.got(got: Maybe<&2, Cl.Buffer>) -> Bool:
   match got:

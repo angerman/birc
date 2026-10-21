@@ -43,7 +43,7 @@ def line_text(line: Cl.Line) -> String:
 
 def narrow_new_alias() -> Bool:
   +b: Cl.Buffer = Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "a:gem:b", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
-  +scrolled = V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 1n, 0n)
+  +scrolled = V.hold_buf(V.scroll_buf(b, 1n, 1, False{}, Nil{}, True{}, True{}, "s", 1n, 0n))
   String.eq(row_text(V.body_of.buf(scrolled, 1n, 1, False{}, Nil{}, True{}, True{}, "s")), "�")
     && String.eq(row_text(V.body_of.buf(scrolled, 1n, 2, False{}, Nil{}, True{}, True{}, "s")), "💎")
 
