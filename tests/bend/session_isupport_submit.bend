@@ -307,6 +307,10 @@ def view_contains(vm: V.ViewModel, text: String) -> Bool:
   match vm:
     case V.ViewModel{ops, _}: ops_contain(ops, text)
 
+def vm_of(trip: V.ViewModel & List<&2, V.BodyRow> & Bool) -> V.ViewModel:
+  match trip:
+    case (+vm, _, _): vm
+
 def anchored_contains(rows: List<&2, V.AnchoredRow>, +text: String) -> Bool:
   match rows:
     case Nil{}: False{}
@@ -322,7 +326,7 @@ def muted_paint_matches_window(+iso: Is.State, +chan: String) -> Bool:
   +st = muted_client(iso, chan)
   +cl = Sess.session_cl(st)
   +isc = Is.as_iso(iso)
-  +vm = V.view_draft.state_typing_media_cards_iso_themed(isc, cl, 24, 80, "", "online", Nil{}, Sp.Off{}, M.empty(), Nil{}, Theme.Dark{}, Nil{})
+  +vm = vm_of(V.view_draft.state_typing_media_cards_iso_themed(isc, cl, 24, 80, "", "online", Nil{}, Sp.Off{}, M.empty(), Nil{}, Theme.Dark{}, Nil{}, Nil{}))
   +rows = V.visible_anchored_panes_media_cards_iso(isc, cl, 24, 80, Sp.Off{}, M.empty(), Nil{})
   Bool.not(view_contains(vm, "<Alice> old")) && Bool.not(anchored_contains(rows, "<Alice> old"))
 

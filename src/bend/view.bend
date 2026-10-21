@@ -2400,15 +2400,38 @@ def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +na
 # reuses `rows` when they already cover the viewport; a miss paints the full
 # window and drops them. Not a buffer field and not a per-line wrap cache.
 type ScrollHold is Data:
-  ScrollHold{buf: Cl.Buffer, rows: List<&2, AnchoredRow>, covered: Bool, height: Nat, w: U32, show_ts: Bool}
+  ScrollHold{
+    buf: Cl.Buffer,
+    rows: List<&2, AnchoredRow>,
+    covered: Bool,
+    height: Nat,
+    w: U32,
+    show_ts: Bool,
+    joins: Bool,
+    nicks: Bool,
+    mutes: List<&2, String>,
+    server: String,
+    boxed: List<&2, PaintOpts>
+  }
 
 def hold_buf(+hold: ScrollHold) -> Cl.Buffer:
   match hold:
-    case ScrollHold{+buf, _, _, _, _, _}: buf
+    case ScrollHold{+buf, _, _, _, _, _, _, _, _, _, _}: buf
 
 def hold_rows(+hold: ScrollHold) -> List<&2, AnchoredRow>:
   match hold:
-    case ScrollHold{_, +rows, _, _, _, _}: rows
+    case ScrollHold{_, +rows, _, _, _, _, _, _, _, _, _}: rows
+
+# Install the scrolled buffer. `b` is the pre-scroll buffer the lambda still owns.
+def buf_from_hold(+b: Cl.Buffer, +hold: ScrollHold) -> Cl.Buffer:
+  match b:
+    case Cl.Buffer{_, _, _, _, _, _, _, _}: hold_buf(hold)
+
+# Drop the pre-scroll buffer. The installed copy is built outside the lambda
+# so the walk can also be returned to the next paint.
+def buf_swap(+b: Cl.Buffer, +installed: Cl.Buffer) -> Cl.Buffer:
+  match b:
+    case Cl.Buffer{_, _, _, _, _, _, _, _}: installed
 
 def rows_hold.rest(hit: Bool, k: Unit -> Bool) -> Bool:
   match hit:
@@ -2447,31 +2470,31 @@ def scroll_hold.rows(cover: Bool, +rows: List<&2, AnchoredRow>) -> List<&2, Anch
     case True{}: rows
     case False{}: Nil{}
 
-def scroll_hold.pack(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +covered: Bool, +moved: Cl.Scroll, +height: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
-  ScrollHold{Cl.set_buf_anchor(b, moved), scroll_hold.rows(covered, rows), covered, height, w, show_ts}
+def scroll_hold.pack(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +covered: Bool, +moved: Cl.Scroll, +height: Nat, +w: U32, +show_ts: Bool, +joins: Bool, +nicks: Bool, +mutes: List<&2, String>, +server: String, +boxed: List<&2, PaintOpts>) -> ScrollHold:
+  ScrollHold{Cl.set_buf_anchor(b, moved), scroll_hold.rows(covered, rows), covered, height, w, show_ts, joins, nicks, mutes, server, boxed}
 
-def scroll_hold.of(+rows: List<&2, AnchoredRow>, +reached: Bool, +visited: Nat, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+def scroll_hold.of(+rows: List<&2, AnchoredRow>, +reached: Bool, +visited: Nat, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool, +joins: Bool, +nicks: Bool, +mutes: List<&2, String>, +server: String, +boxed: List<&2, PaintOpts>) -> ScrollHold:
   match want:
     case Cl.ScrollAt{+after, +tail}:
       +moved = shift_anchor_of.after(after, tail, rows, height, up, dn, count, reached, visited)
-      scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts)
+      scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts, joins, nicks, mutes, server, boxed)
 
-def scroll_hold.from_walk(walk: NewerWalk, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+def scroll_hold.from_walk(walk: NewerWalk, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool, +joins: Bool, +nicks: Bool, +mutes: List<&2, String>, +server: String, +boxed: List<&2, PaintOpts>) -> ScrollHold:
   match walk:
     case NewerWalk{+rows, +reached, +visited}:
-      scroll_hold.of(rows, reached, visited, b, height, want, up, dn, count, w, show_ts)
+      scroll_hold.of(rows, reached, visited, b, height, want, up, dn, count, w, show_ts, joins, nicks, mutes, server, boxed)
 
-def scroll_hold.anchored(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+def scroll_hold.anchored(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +w: U32, +show_ts: Bool, +joins: Bool, +nicks: Bool, +mutes: List<&2, String>, +server: String, +boxed: List<&2, PaintOpts>) -> ScrollHold:
   +moved = moved_anchor(rows, height, want, up, dn)
-  scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts)
+  scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts, joins, nicks, mutes, server, boxed)
 
 def scroll_shift_hold(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> ScrollHold:
   match scroll:
     case Cl.ScrollAt{+at, +tail}:
-      scroll_hold.from_walk(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), b, height, Cl.ScrollAt{at, tail}, up, dn, count, w, show_ts)
+      scroll_hold.from_walk(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), b, height, Cl.ScrollAt{at, tail}, up, dn, count, w, show_ts, joins, nicks, mutes, server, boxed)
 
-def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
-  hold_buf(scroll_shift_hold(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, boxed, scroll))
+def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> ScrollHold:
+  scroll_shift_hold(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, boxed, scroll)
 
 def flag_same(a: Bool, b: Bool) -> Bool:
   match a:
@@ -2484,8 +2507,188 @@ def flag_same(a: Bool, b: Bool) -> Bool:
         case True{}: False{}
         case False{}: True{}
 
+def flag_or(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}: True{}
+    case False{}: b
+
+def strings_eq_go(fuel: Nat, same: Bool, +a: List<&2, String>, +b: List<&2, String>) -> Bool:
+  match fuel:
+    case 0n: False{}
+    case 1n+p:
+      match same:
+        case False{}: False{}
+        case True{}:
+          match a:
+            case Nil{}:
+              match b:
+                case Nil{}: True{}
+                case _: False{}
+            case Con{+ha, +ta}:
+              match b:
+                case Nil{}: False{}
+                case Con{+hb, +tb}: strings_eq_go(p, String.eq(ha, hb), ta, tb)
+
+def strings_eq(+a: List<&2, String>, +b: List<&2, String>) -> Bool:
+  strings_eq_go(Nat.add(List.length(&2, String, a), 1n), True{}, a, b)
+
+def buf_same.scroll(same: Bool, +sa: Cl.Scroll, +sb: Cl.Scroll) -> Bool:
+  match same:
+    case False{}: False{}
+    case True{}: Cl.scroll_eq(sa, sb)
+
+def buf_same.name(same: Bool, +ca: Nat, +cb: Nat, +sa: Cl.Scroll, +sb: Cl.Scroll) -> Bool:
+  match same:
+    case False{}: False{}
+    case True{}: buf_same.scroll(Nat.is_eq(ca, cb), sa, sb)
+
+def buf_same(+a: Cl.Buffer, +b: Cl.Buffer) -> Bool:
+  match a:
+    case Cl.Buffer{+na, _, _, _, _, +sa, _, +ca}:
+      match b:
+        case Cl.Buffer{+nb, _, _, _, _, +sb, _, +cb}:
+          buf_same.name(String.eq(na, nb), ca, cb, sa, sb)
+
+def theme_eq(a: Maybe<&2, Theme.Id>, b: Maybe<&2, Theme.Id>) -> Bool:
+  match a:
+    case None{}:
+      match b:
+        case None{}: True{}
+        case _: False{}
+    case Some{+ia}:
+      match b:
+        case None{}: False{}
+        case Some{+ib}: String.eq(Theme.show(ia), Theme.show(ib))
+
+def iso_same(+a: Cl.Iso, +b: Cl.Iso) -> Bool:
+  match a:
+    case Cl.Iso{+ca, +ta, +ua, +ga, +ra}:
+      match b:
+        case Cl.Iso{+cb, +tb, +ub, +gb, +rb}:
+          String.eq(ca, cb) && String.eq(ta, tb) && String.eq(ua, ub) && String.eq(ga, gb) && String.eq(ra, rb)
+
+def iso_eq(a: Maybe<&2, Cl.Iso>, b: Maybe<&2, Cl.Iso>) -> Bool:
+  match a:
+    case None{}:
+      match b:
+        case None{}: True{}
+        case _: False{}
+    case Some{+ia}:
+      match b:
+        case None{}: False{}
+        case Some{+ib}: iso_same(ia, ib)
+
+def display_eq(a: M.Display, b: M.Display) -> Bool:
+  match a b:
+    case M.Supported{} M.Supported{}: True{}
+    case M.Unsupported{} M.Unsupported{}: True{}
+    case M.Reported{} M.Reported{}: True{}
+    case _ _: False{}
+
+# A quiet media box has no in-flight or ready image. Any payload misses so a
+# different image set cannot be cropped out of an older walk.
+def media_quiet(active: Maybe<&2, M.Request>, +pending: List<&2, M.Request>, +ready: List<&2, M.MediaReady>) -> Bool:
+  match active:
+    case Some{_}: False{}
+    case None{}: List.is_empty(&2, M.Request, pending) && List.is_empty(&2, M.MediaReady, ready)
+
+def media_same.quiet(ok: Bool, +acta: Maybe<&2, M.Request>, +pa: List<&2, M.Request>, +ra: List<&2, M.MediaReady>, +actb: Maybe<&2, M.Request>, +pb: List<&2, M.Request>, +rb: List<&2, M.MediaReady>) -> Bool:
+  match ok:
+    case False{}: False{}
+    case True{}: media_quiet(acta, pa, ra) && media_quiet(actb, pb, rb)
+
+def media_same(+a: M.State, +b: M.State) -> Bool:
+  match a:
+    case M.State{ona, _, _, +acta, +pa, +ra, +da}:
+      match b:
+        case M.State{onb, _, _, +actb, +pb, +rb, +db}:
+          media_same.quiet(flag_same(ona, onb) && display_eq(da, db), acta, pa, ra, actb, pb, rb)
+
+def card_eq.texts(same: Bool, +ta: List<&2, String>, +tb: List<&2, String>) -> Bool:
+  match same:
+    case False{}: False{}
+    case True{}: strings_eq(ta, tb)
+
+def card_eq(+a: CardEntry, +b: CardEntry) -> Bool:
+  match a:
+    case CardEntry{ida, +ta}:
+      match b:
+        case CardEntry{idb, +tb}: card_eq.texts(Nat.is_eq(ida, idb), ta, tb)
+
+def card_list_eq_go(fuel: Nat, same: Bool, +a: List<&2, CardEntry>, +b: List<&2, CardEntry>) -> Bool:
+  match fuel:
+    case 0n: False{}
+    case 1n+p:
+      match same:
+        case False{}: False{}
+        case True{}:
+          match a:
+            case Nil{}:
+              match b:
+                case Nil{}: True{}
+                case _: False{}
+            case Con{+ha, +ta}:
+              match b:
+                case Nil{}: False{}
+                case Con{+hb, +tb}: card_list_eq_go(p, card_eq(ha, hb), ta, tb)
+
+def card_list_eq(+a: List<&2, CardEntry>, +b: List<&2, CardEntry>) -> Bool:
+  card_list_eq_go(Nat.add(List.length(&2, CardEntry, a), 1n), True{}, a, b)
+
+def cards_eq(a: Maybe<&2, List<&2, CardEntry>>, b: Maybe<&2, List<&2, CardEntry>>) -> Bool:
+  match a:
+    case None{}:
+      match b:
+        case None{}: True{}
+        case _: False{}
+    case Some{+ia}:
+      match b:
+        case None{}: False{}
+        case Some{+ib}: card_list_eq(ia, ib)
+
+# Nonempty optimistic sends miss. Both empty is the same pending box.
+def pends_eq(+a: List<&2, Cl.PendSend>, +b: List<&2, Cl.PendSend>) -> Bool:
+  List.is_empty(&2, Cl.PendSend, a) && List.is_empty(&2, Cl.PendSend, b)
+
+def box_one(+a: PaintOpts, +b: PaintOpts) -> Bool:
+  match a:
+    case PaintOpts{+ta, +ia, +ma, +ca, la, +pa, ina}:
+      match b:
+        case PaintOpts{+tb, +ib, +mb, +cb, lb, +pb, inb}:
+          theme_eq(ta, tb) && iso_eq(ia, ib) && media_same(ma, mb) && cards_eq(ca, cb) && flag_same(la, lb) && pends_eq(pa, pb) && flag_same(ina, inb)
+
+def box_same(+a: List<&2, PaintOpts>, +b: List<&2, PaintOpts>) -> Bool:
+  match a:
+    case Nil{}:
+      match b:
+        case Nil{}: True{}
+        case _: False{}
+    case Con{+ha, _}:
+      match b:
+        case Nil{}: False{}
+        case Con{+hb, _}: box_one(ha, hb)
+
 def paint_hold.dims(h_ok: Bool, w_ok: Bool, ts_ok: Bool, covered: Bool) -> Bool:
   Bool.and(Bool.and(h_ok, w_ok), Bool.and(ts_ok, covered))
+
+# Joins, nicks, mutes, server, and the media/pending box are part of the
+# window. A mismatch is a miss: the False arm is the only full painter.
+def paint_hold.opts(base: Bool, j_ok: Bool, n_ok: Bool, m_ok: Bool, s_ok: Bool, b_ok: Bool) -> Bool:
+  match base:
+    case False{}: False{}
+    case True{}:
+      match j_ok:
+        case False{}: False{}
+        case True{}:
+          match n_ok:
+            case False{}: False{}
+            case True{}:
+              match m_ok:
+                case False{}: False{}
+                case True{}:
+                  match s_ok:
+                    case False{}: False{}
+                    case True{}: b_ok
 
 def paint_hold.use(reuse: Bool, +buf: Cl.Buffer, +rows: List<&2, AnchoredRow>, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
   match reuse:
@@ -2498,15 +2701,16 @@ def paint_hold.use(reuse: Bool, +buf: Cl.Buffer, +rows: List<&2, AnchoredRow>, +
 
 # Reuse only when this paint asks for the same window the walk covered.
 # True crops the walk. False is the only call to the full painter.
-def paint_body_of(+hold: ScrollHold, +height: Nat, +w: U32, +show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
+# `b` is the buffer this paint is drawing; a stale hold misses onto `b`.
+def paint_body_of(+hold: ScrollHold, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
   match hold:
-    case ScrollHold{+buf, +rows, +covered, +hh, +hw, +hts}:
-      paint_hold.use(paint_hold.dims(Nat.is_eq(height, hh), U32.is_eq(w, hw), flag_same(show_ts, hts), covered), buf, rows, height, w, show_ts, mutes, joins, nicks, server, boxed)
+    case ScrollHold{+hb, +rows, +covered, +hh, +hw, +hts, +hjoins, +hnicks, +hmutes, +hserver, +hboxed}:
+      paint_hold.use(paint_hold.opts(paint_hold.dims(Nat.is_eq(height, hh), U32.is_eq(w, hw), flag_same(show_ts, hts), covered) && buf_same(hb, b), flag_same(joins, hjoins), flag_same(nicks, hnicks), strings_eq(mutes, hmutes), String.eq(server, hserver), box_same(boxed, hboxed)), b, rows, height, w, show_ts, mutes, joins, nicks, server, boxed)
 
 def scroll_buf_media.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> ScrollHold:
   +lines = media_display_lines(name, topic, raw, media)
   +rows = anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
-  scroll_hold.anchored(b, rows, height, scroll, up, dn, w, show_ts)
+  scroll_hold.anchored(b, rows, height, scroll, up, dn, w, show_ts, joins, nicks, mutes, server, paint_media_only(media))
 
 def scroll_hold_media.go(live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> ScrollHold:
   match live:
@@ -2521,8 +2725,8 @@ def scroll_hold_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mut
     case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
       scroll_hold_media.go(spine_live(name, paint_media_only(media)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
 
-def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
-  hold_buf(scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media))
+def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> ScrollHold:
+  scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media)
 
 def scroll_hold(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> ScrollHold:
   scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
@@ -2531,27 +2735,27 @@ def scroll_hold(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: Li
 def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> ScrollHold:
   scroll_hold(b, height, w, show_ts, mutes, joins, nicks, server, up, dn)
 
-def scroll_buf_media_cards_iso.full(+isc: Cl.Iso, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
-  +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw, media))
-  +rows = paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), paint_media_cards_iso(isc, media, cards))
-  Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+def scroll_buf_media_cards_iso.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> ScrollHold:
+  +lines = pending_display_lines(name, opt_pends(boxed), media_display_lines(name, topic, raw, media))
+  +rows = paint_anchored(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), boxed)
+  scroll_hold.anchored(b, rows, height, scroll, up, dn, w, show_ts, joins, nicks, mutes, server, boxed)
 
-def scroll_buf_media_cards_iso.go(+isc: Cl.Iso, live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
+def scroll_buf_media_cards_iso.go(live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> ScrollHold:
   match live:
-    case False{}: scroll_buf_media_cards_iso.full(isc, b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+    case False{}: scroll_buf_media_cards_iso.full(b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, boxed, scroll)
     case True{}:
       match scroll:
         case Cl.ScrollAt{+after, _}:
-          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_cards_iso(isc, media, cards), scroll)
+          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, boxed, scroll)
 
-def scroll_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
+def scroll_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, +th: Theme.Id) -> ScrollHold:
   match b:
     case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
-      +boxed = paint_media_cards_iso(isc, media, cards)
-      scroll_buf_media_cards_iso.go(isc, spine_live_pends(name, pends), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, scroll)
+      +boxed = paint_media_cards_iso_theme(isc, media, cards, th, pends)
+      scroll_buf_media_cards_iso.go(spine_live_pends(name, pends), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, boxed, scroll)
 
-def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Buffer:
-  scroll_buf_media_cards_iso(paint_iso_cm(cm), b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends)
+def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> ScrollHold:
+  scroll_buf_media_cards_iso(paint_iso_cm(cm), b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, Theme.default())
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -3330,14 +3534,24 @@ def visible_media_candidates_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, rows: U32, 
 # Prefer when the caller already holds visible_anchored_panes_media_cards_cm.
 def visible_media_candidates_from_rows(+rows: List<&2, AnchoredRow>, +media: M.State) -> List<&2, M.Candidate>:
   M.newest_candidates(visible_media_cards.from_rows(rows), media)
+
+def scroll_active_put(+cl: Cl.Client, +active: Nat, +hold: ScrollHold) -> Cl.Client & List<&2, ScrollHold>:
+  +installed = hold_buf(hold)
+  (Cl.buf_modify_client(cl, active, b => buf_swap(b, installed)), hold <> Nil{})
+
+def scroll_active_drop(pair: Cl.Client & List<&2, ScrollHold>) -> Cl.Client:
+  match pair:
+    case (+cl, _): cl
+
 def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   match move:
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media))
+          +b = active_buf.on(Cl.nth_buf(bufs, active))
+          scroll_active_drop(scroll_active_put(cl, active, scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media)))
 
 def scroll_active_media(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
   scroll_active_media.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media)
@@ -3347,24 +3561,26 @@ def scroll_active_media_cards_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +ro
     case False{}: cl
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards_cm(cm, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends))
+          +b = active_buf.on(Cl.nth_buf(bufs, active))
+          scroll_active_drop(scroll_active_put(cl, active, scroll_buf_media_cards_cm(cm, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends)))
 
 def scroll_active_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
   scroll_active_media_cards_cm.on(cm, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends)
 
-def scroll_active_media_cards_iso.on(+isc: Cl.Iso, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
+def scroll_active_media_cards_iso.on(+isc: Cl.Iso, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, +th: Theme.Id) -> Cl.Client & List<&2, ScrollHold>:
   match move:
-    case False{}: cl
+    case False{}: (cl, Nil{})
     case True{}:
       match cl:
-        case Cl.Client{_, +server, _, +active, _, +stg, _, _, _}:
+        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
-          Cl.buf_modify_client(cl, active, b => scroll_buf_media_cards_iso(isc, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends))
+          +b = active_buf.on(Cl.nth_buf(bufs, active))
+          scroll_active_put(cl, active, scroll_buf_media_cards_iso(isc, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends, th))
 
-def scroll_active_media_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
-  scroll_active_media_cards_iso.on(isc, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends)
+def scroll_active_media_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, +th: Theme.Id) -> Cl.Client & List<&2, ScrollHold>:
+  scroll_active_media_cards_iso.on(isc, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends, th)
 
 def split_axis_tag(axis: Sp.Axis) -> U32:
   match axis:
@@ -3578,7 +3794,49 @@ def paint_view_ops_split(
         List.append(&2, DrawOp, paint_nicks(nicks_rect, ntitle, nicks, boxed),
           List.append(&2, DrawOp, op_text(status_rect, paint_dim(boxed), status) <> Nil{}, paint_split_composer(r1, r2, nick, boxed, show_ts))))
 
-def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
+# A missing or rejected walk. covered is False, so paint_body_of takes the
+# full painter. Nil rows are never cropped into the viewport.
+def hold_miss(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +joins: Bool, +nicks: Bool, +mutes: List<&2, String>, +server: String, +boxed: List<&2, PaintOpts>) -> ScrollHold:
+  ScrollHold{b, Nil{}, False{}, height, w, show_ts, joins, nicks, mutes, server, boxed}
+
+def take_hold.pick(use: Bool, +h: ScrollHold, +miss: ScrollHold) -> ScrollHold:
+  match use:
+    case True{}: h
+    case False{}: miss
+
+def take_hold(+hold: List<&2, ScrollHold>, +miss: ScrollHold) -> ScrollHold:
+  match hold:
+    case Nil{}: take_hold.pick(False{}, miss, miss)
+    case Con{+h, _}: take_hold.pick(True{}, h, miss)
+
+def view_model(trip: ViewModel & List<&2, BodyRow> & Bool) -> ViewModel:
+  match trip:
+    case (+vm, _, _): vm
+
+def paint_view_single.got(
+  +boxed: List<&2, PaintOpts>,
+  lay0: Lay,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +names: List<&2, String>,
+  +alerts: List<&2, U32>,
+  +bell: U32,
+  +bell_seq: U32,
+  +b: Cl.Buffer,
+  +typers: List<&2, String>,
+  +draft: String,
+  +ts: Bool,
+  pair: List<&2, BodyRow> & Bool
+) -> ViewModel & List<&2, BodyRow> & Bool:
+  match pair:
+    case (+bod, reused):
+      bt nt = body_title_of(b) nicks_title_of(b)
+      +ns = nicks_list_of(b)
+      (ViewModel{paint_view_ops(boxed, lay0, nick, server, net, active, names, alerts, bell, bell_seq, bod, preview_path_legacy(opt_legacy(boxed), b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), ts), view_input(draft)}, bod, reused)
+
+def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, +hold: List<&2, ScrollHold>) -> ViewModel & List<&2, BodyRow> & Bool:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _, _}:
       +b = active_buf.on(Cl.nth_buf(bufs, active))
@@ -3586,10 +3844,72 @@ def paint_view_single(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +
       +lay0 = lay(rows, cols, user_w(uh))
       +br = lay_body_rect(lay0)
       +unreads = Cl.settings_unreads(stg)
-      bod = paint_body_buf(b, vis_h(rows), rect_vis_w(br), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, boxed)
-      bt nt = body_title_of(b) nicks_title_of(b)
-      +ns = nicks_list_of(b)
-      ViewModel{paint_view_ops(boxed, lay0, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), bod, preview_path_legacy(opt_legacy(boxed), b), bt, nt, ns, status_or_typing(status_of.buf(b), typers), Cl.settings_ts(stg)), view_input(draft)}
+      +hh = vis_h(rows)
+      +ww = rect_vis_w(br)
+      +ts = Cl.settings_ts(stg)
+      +mutes = Cl.settings_mutes(stg)
+      +joins = Cl.settings_joins(stg)
+      +show_nicks = Cl.settings_nicks(stg)
+      paint_view_single.got(boxed, lay0, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b, typers, draft, ts, paint_body_of(take_hold(hold, hold_miss(b, hh, ww, ts, joins, show_nicks, mutes, server, boxed)), b, hh, ww, ts, mutes, joins, show_nicks, server, boxed))
+
+def paint_view_split_rects.rest(
+  +boxed: List<&2, PaintOpts>,
+  lay0: Lay,
+  axis: Sp.Axis,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +tabs: List<&2, String>,
+  +alerts: List<&2, U32>,
+  +bell: U32,
+  +bell_seq: U32,
+  +r1: Rect,
+  +b1: Cl.Buffer,
+  +focused: U32,
+  +body1: List<&2, BodyRow>,
+  r1ok: Bool,
+  +r2: Rect,
+  +b2: Cl.Buffer,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +status: String,
+  +typers: List<&2, String>,
+  +show_ts: Bool,
+  p2: List<&2, BodyRow> & Bool
+) -> List<&2, DrawOp> & List<&2, BodyRow> & Bool:
+  match p2:
+    case (+body2, r2ok):
+      (paint_view_ops_split(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(opt_legacy(boxed), b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(opt_legacy(boxed), b2), ntitle, nicks, status_or_typing(status, typers), show_ts), List.append(&2, BodyRow, body1, body2), flag_or(r1ok, r2ok))
+
+def paint_view_split_rects.both(
+  +boxed: List<&2, PaintOpts>,
+  lay0: Lay,
+  axis: Sp.Axis,
+  +nick: String,
+  +server: String,
+  +net: String,
+  +active: Nat,
+  +tabs: List<&2, String>,
+  +alerts: List<&2, U32>,
+  +bell: U32,
+  +bell_seq: U32,
+  +r1: Rect,
+  +b1: Cl.Buffer,
+  +focused: U32,
+  +r2: Rect,
+  +b2: Cl.Buffer,
+  +ntitle: String,
+  +nicks: List<&2, String>,
+  +status: String,
+  +typers: List<&2, String>,
+  +show_ts: Bool,
+  p1: List<&2, BodyRow> & Bool,
+  p2: List<&2, BodyRow> & Bool
+) -> List<&2, DrawOp> & List<&2, BodyRow> & Bool:
+  match p1:
+    case (+body1, r1ok):
+      paint_view_split_rects.rest(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, b1, focused, body1, r1ok, r2, b2, ntitle, nicks, status, typers, show_ts, p2)
 
 def paint_view_split_rects(
   +boxed: List<&2, PaintOpts>,
@@ -3614,12 +3934,21 @@ def paint_view_split_rects(
   +nicks: List<&2, String>,
   +status: String,
   +typers: List<&2, String>,
-  +show_ts: Bool
-) -> List<&2, DrawOp>:
+  +show_ts: Bool,
+  +hold: List<&2, ScrollHold>
+) -> List<&2, DrawOp> & List<&2, BodyRow> & Bool:
   match pair:
     case (+r1, +r2):
-      body1 body2 = paint_body_buf(b1, rect_vis_h(r1), rect_vis_w(r1), show_ts, mutes, show_joins, show_nicks, server, boxed) paint_body_buf(b2, rect_vis_h(r2), rect_vis_w(r2), show_ts, mutes, show_joins, show_nicks, server, boxed)
-      paint_view_ops_split(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, split_title(b1, focused, 0), body1, preview_path_legacy(opt_legacy(boxed), b1), r2, split_title(b2, focused, 1), body2, preview_path_legacy(opt_legacy(boxed), b2), ntitle, nicks, status_or_typing(status, typers), show_ts)
+      +h1 = rect_vis_h(r1)
+      +w1 = rect_vis_w(r1)
+      +h2 = rect_vis_h(r2)
+      +w2 = rect_vis_w(r2)
+      paint_view_split_rects.both(boxed, lay0, axis, nick, server, net, active, tabs, alerts, bell, bell_seq, r1, b1, focused, r2, b2, ntitle, nicks, status, typers, show_ts, paint_body_of(take_hold(hold, hold_miss(b1, h1, w1, show_ts, show_joins, show_nicks, mutes, server, boxed)), b1, h1, w1, show_ts, mutes, show_joins, show_nicks, server, boxed), paint_body_of(take_hold(hold, hold_miss(b2, h2, w2, show_ts, show_joins, show_nicks, mutes, server, boxed)), b2, h2, w2, show_ts, mutes, show_joins, show_nicks, server, boxed))
+
+def paint_view_split.got(+draft: String, trip: List<&2, DrawOp> & List<&2, BodyRow> & Bool) -> ViewModel & List<&2, BodyRow> & Bool:
+  match trip:
+    case (+ops, +bod, reused):
+      (ViewModel{ops, view_input(draft)}, bod, reused)
 
 def paint_view_split(
   +boxed: List<&2, PaintOpts>,
@@ -3632,8 +3961,9 @@ def paint_view_split(
   +first: String,
   +second: String,
   +focused: U32,
-  +typers: List<&2, String>
-) -> ViewModel:
+  +typers: List<&2, String>,
+  +hold: List<&2, ScrollHold>
+) -> ViewModel & List<&2, BodyRow> & Bool:
   match cl:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, _, _, _}:
       b1 b2 = active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, first), active))) active_buf.on(Cl.nth_buf(bufs, Maybe.default(&2, Nat, Sp.named_idx(cl, second), active)))
@@ -3647,18 +3977,19 @@ def paint_view_split(
       +nicks = Cl.settings_nicks(stg)
       nt status = nicks_title_of(focused_buf) status_of.buf(focused_buf)
       +ns = nicks_list_of(focused_buf)
-      ViewModel{paint_view_split_rects(boxed, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg)), view_input(draft)}
+      paint_view_split.got(draft, paint_view_split_rects(boxed, split_rects(axis, body_rect), lay0, axis, nick, server, net, active, paint_tab_names(boxed, bufs, unreads), paint_tab_alerts(boxed, bufs, unreads), bool_bit(Cl.settings_bell(stg)), Cl.settings_bell_seq(stg), b1, b2, focused, mutes, joins, nicks, nt, ns, status, typers, Cl.settings_ts(stg), hold))
 
-def paint_view_state(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
+def paint_view_state(+boxed: List<&2, PaintOpts>, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +hold: List<&2, ScrollHold>) -> ViewModel & List<&2, BodyRow> & Bool:
   match split:
-    case Sp.Off{}: paint_view_single(boxed, cl, rows, cols, draft, net, typers)
+    case Sp.Off{}: paint_view_single(boxed, cl, rows, cols, draft, net, typers, hold)
     case Sp.On{axis, +first, +second, focus}:
-      paint_view_split(boxed, cl, rows, cols, draft, net, axis, first, second, focus, typers)
+      paint_view_split(boxed, cl, rows, cols, draft, net, axis, first, second, focus, typers, hold)
+
 def view_draft.state_typing_media(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State) -> ViewModel:
-  paint_view_state(paint_media_only(media), cl, rows, cols, draft, net, typers, split)
+  view_model(paint_view_state(paint_media_only(media), cl, rows, cols, draft, net, typers, split, Nil{}))
 
 def view_draft.state_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State) -> ViewModel:
-  paint_view_state(paint_legacy_empty(), cl, rows, cols, draft, net, typers, split)
+  view_model(paint_view_state(paint_legacy_empty(), cl, rows, cols, draft, net, typers, split, Nil{}))
 
 def view_draft_typing(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>) -> ViewModel:
   view_draft.state_typing(cl, rows, cols, draft, net, typers, Sp.Off{})
@@ -3672,14 +4003,16 @@ def view_draft_split(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +ne
 # Themed production painters. Session owns a Theme.Id and paints through
 # these entries; the unthemed painters above keep the historic dark values.
 def view_draft.state_typing_media_themed(+cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  paint_view_state(paint_media_theme(media, th, pends), cl, rows, cols, draft, net, typers, split)
+  view_model(paint_view_state(paint_media_theme(media, th, pends), cl, rows, cols, draft, net, typers, split, Nil{}))
 
 def view_draft.state_typing_media_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  paint_view_state(paint_media_iso_theme(isc, media, th, pends), cl, rows, cols, draft, net, typers, split)
+  view_model(paint_view_state(paint_media_iso_theme(isc, media, th, pends), cl, rows, cols, draft, net, typers, split, Nil{}))
 
 def view_draft.state_typing_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)
+  view_model(paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split, Nil{}))
 
-def view_draft.state_typing_media_cards_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>) -> ViewModel:
-  paint_view_state(paint_media_cards_iso_theme(isc, media, cards, th, pends), cl, rows, cols, draft, net, typers, split)
+# Frame entry. The hold is the walk from the previous scroll of this window.
+# True means that walk was cropped; False is the only full wrap.
+def view_draft.state_typing_media_cards_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>, +hold: List<&2, ScrollHold>) -> ViewModel & List<&2, BodyRow> & Bool:
+  paint_view_state(paint_media_cards_iso_theme(isc, media, cards, th, pends), cl, rows, cols, draft, net, typers, split, hold)
 

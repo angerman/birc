@@ -34,7 +34,7 @@ def client() -> Cl.Client:
 def with_split(st: S.Session, split: Sp.State) -> S.Session:
   match st:
     case S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, _, typing, port, media, plan, edits, +iso, +hlbox, +cf, +regbox, +theme, _, +pends}:
-      S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, [0n], pends}
+      S.Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, S.labels0(), pends}
 
 def session(cl: Cl.Client, net: S.NetState, on: Bool) -> S.Session:
   S.session_set_media(S.session_set_size(S.session_set_net(S.session_set_client(S.session0("me", "s", ""), cl), net), 35, 200), M.initial(on))

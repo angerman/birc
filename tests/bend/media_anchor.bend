@@ -74,7 +74,7 @@ def cunbox(+b: CBox) -> Cl.Client:
 def paused_session() -> Sess.Session:
   +st = sbox(manual_session())
   +cl = Sess.session_cl(sunbox(st))
-  Sess.session_set_client(sunbox(st), Cl.buf_modify_client(cl, Cl.active_of(cl), b => V.scroll_buf_media(b, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, active_media())))
+  Sess.session_set_client(sunbox(st), Cl.buf_modify_client(cl, Cl.active_of(cl), b => V.hold_buf(V.scroll_buf_media(b, 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, active_media()))))
 
 def failed_session(+st: Sess.Session) -> Sess.Session:
   Sess.session_error(Sess.session_set_media(st, M.complete(Sess.session_media(st), Sess.session_cl(st), 1n, 1n, url(), 0)), "image preview unavailable")
@@ -135,7 +135,7 @@ def projection_controls() -> IO(Unit):
     IO.pure(Unit, Unit{})
 
 def inline_paused() -> Cl.Buffer:
-  V.scroll_buf_media(Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}), 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready_inline())
+  V.hold_buf(V.scroll_buf_media(Cl.buf_indexed("server", False{}, "", [Cl.Line{Cl.Msg{}, "", inline_text(), "alice", 1n}], Nil{}, Cl.ScrollAt{0n, 0n}), 2n, 20, False{}, Nil{}, True{}, True{}, "s", 2n, 0n, ready_inline()))
 
 def first_line(lines: List<&2, Cl.Line>) -> Cl.Line:
   match lines:

@@ -180,11 +180,12 @@ def paint_base.body(
   +cards: C.State,
   +isc: Cl.Iso,
   +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
+  +pends: List<&2, Cl.PendSend>,
+  +hold: List<&2, V.ScrollHold>
 ) -> V.ViewModel:
   match size:
     case Sess.Size{+rows, +cols}:
-      V.view_draft.state_typing_media_cards_iso_themed(isc, cl, rows, cols, draft, Sess.net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), typers, split, media, C.paint_entries(cards), th, pends)
+      V.view_model(V.view_draft.state_typing_media_cards_iso_themed(isc, cl, rows, cols, draft, Sess.net_label_lag_pend(net, Cl.client_lag(cl), List.length(&2, Cl.PendSend, pends)), typers, split, media, C.paint_entries(cards), th, pends, hold))
 
 def paint_base.hint(
   +cl: Cl.Client,
@@ -198,11 +199,12 @@ def paint_base.hint(
   +full: C.Fullscreen,
   +isc: Cl.Iso,
   +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
+  +pends: List<&2, Cl.PendSend>,
+  +hold: List<&2, V.ScrollHold>
 ) -> V.ViewModel:
   match size:
     case Sess.Size{+rows, +cols}:
-      paint_overlay(paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends), full, media, cl, rows, cols)
+      paint_overlay(paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends, hold), full, media, cl, rows, cols)
 
 def paint_finish(ui: T.Ui, +base: V.ViewModel, +rows: U32, +cols: U32, lines: List<&2, String>, +draft: String, +ghost: String, +gx: U32, +th: Theme.Id, +warn: Bool, +seed: U32, +cx: U32) -> IO(T.Ui & T.UiKeys):
   paint_vm(ui, Hint.panel_ops(base, rows, cols, lines, ghost, Hint.ghost_x(gx, draft), th, warn), seed, cx)
@@ -223,15 +225,21 @@ def paint_go.hint(
   +hint: String,
   +th: Theme.Id,
   +pends: List<&2, Cl.PendSend>,
-  +comp: Sess.Comp
+  +comp: Sess.Comp,
+  +hold: List<&2, V.ScrollHold>
 ) -> IO(T.Ui & T.UiKeys):
   match size:
     case Sess.Size{+rows, +cols}:
       +cx = V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl)))
-      +base = paint_base.hint(cl, draft, net, size, split, typers, media, cards, full, isc, th, pends)
+      +base = paint_base.hint(cl, draft, net, size, split, typers, media, cards, full, isc, th, pends, hold)
       do IO<T.Ui & T.UiKeys>:
         ui : T.Ui <- T.Timui.view_begin(ui)
         paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
+
+def paint_go.hot_base.warm(+hold: List<&2, V.ScrollHold>, +frame: List<&2, V.DrawOp>, +full: C.Fullscreen, +media: M.State, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String) -> V.ViewModel:
+  match hold:
+    case Nil{}: paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
+    case Con{_, _}: paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
 
 # True: paint-ready overlay on cached body ops. False: body only (caller overlays
 # for paint; hot_fresh stores these ops, never overlay ops).
@@ -249,14 +257,15 @@ def paint_go.hot_base(
   +full: C.Fullscreen,
   +isc: Cl.Iso,
   +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>
+  +pends: List<&2, Cl.PendSend>,
+  +hold: List<&2, V.ScrollHold>
 ) -> V.ViewModel:
   match use:
     case True{}:
       match size:
         case Sess.Size{+rows, +cols}:
-          paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
-    case False{}: paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends)
+          paint_go.hot_base.warm(hold, frame, full, media, cl, rows, cols, draft)
+    case False{}: paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends, hold)
 
 def paint_go.hot_kept(+frame: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
   match got:
@@ -300,7 +309,8 @@ def paint_go.hot_use.warm(
         got : T.Ui & T.UiKeys <- paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
         return paint_go.hot_kept(frame, got)
 
-def paint_go.hot_use.cold(
+def paint_go.hot_use.warm_hold(
+  +hold: List<&2, V.ScrollHold>,
   +frame: List<&2, V.DrawOp>,
   ui: T.Ui,
   +cl: Cl.Client,
@@ -319,10 +329,34 @@ def paint_go.hot_use.cold(
   +pends: List<&2, Cl.PendSend>,
   +comp: Sess.Comp
 ) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
+  match hold:
+    case Nil{}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+    case Con{_, _}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+
+def paint_go.hot_use.cold(
+  +frame: List<&2, V.DrawOp>,
+  ui: T.Ui,
+  +cl: Cl.Client,
+  +draft: String,
+  +net: Sess.NetState,
+  +seed: U32,
+  size: Sess.Size,
+  split: Sp.State,
+  +typers: List<&2, String>,
+  +media: M.State,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +isc: Cl.Iso,
+  +hint: String,
+  +th: Theme.Id,
+  +pends: List<&2, Cl.PendSend>,
+  +comp: Sess.Comp,
+  +hold: List<&2, V.ScrollHold>
+) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   match size:
     case Sess.Size{+rows, +cols}:
       +cx = V.composer_x(Cl.nick_of(cl), Cl.settings_ts(Cl.get_settings(cl)))
-      +body_vm = paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends)
+      +body_vm = paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends, hold)
       +body = vm_ops(body_vm)
       +base = paint_overlay(body_vm, full, media, cl, rows, cols)
       do IO<T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool>:
@@ -348,11 +382,12 @@ def paint_go.hot_use(
   +hint: String,
   +th: Theme.Id,
   +pends: List<&2, Cl.PendSend>,
-  +comp: Sess.Comp
+  +comp: Sess.Comp,
+  +hold: List<&2, V.ScrollHold>
 ) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   match use:
-    case True{}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
-    case False{}: paint_go.hot_use.cold(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+    case True{}: paint_go.hot_use.warm_hold(hold, frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+    case False{}: paint_go.hot_use.cold(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp, hold)
 
 def paint_go.hot(
   warm: Bool,
@@ -372,18 +407,19 @@ def paint_go.hot(
   +hint: String,
   +th: Theme.Id,
   +pends: List<&2, Cl.PendSend>,
-  comp: Sess.Comp
+  comp: Sess.Comp,
+  +hold: List<&2, V.ScrollHold>
 ) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
-  paint_go.hot_use(Bool.and(warm, Bool.not(List.is_empty(&2, V.DrawOp, frame))), frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+  paint_go.hot_use(Bool.and(warm, Bool.not(List.is_empty(&2, V.DrawOp, frame))), frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp, hold)
 
 def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +isc: Cl.Iso, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
-  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, "", th, Nil{}, Sess.comp0())
+  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, "", th, Nil{}, Sess.comp0(), Nil{})
 
 def paint_session.hint(ui: T.Ui, +st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, _, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, +labelsbox, _}:
       +isc = Isupport.as_iso(Sess.session_iso(st))
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), isc, hint, theme, Sess.session_pends(st), Sess.session_comp(st))
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), Sess.unbox_cards(cf), Sess.unbox_full(cf), isc, hint, theme, Sess.session_pends(st), Sess.session_comp(st), Sess.label_hold(labelsbox))
 
 def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   paint_session.hint(ui, st, Sess.session_upload_hint(st))
@@ -394,9 +430,9 @@ def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
 # of the Session cf cell.
 def paint_session_cards.hint(ui: T.Ui, +st: Sess.Session, +cards: C.State, +full: C.Fullscreen, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, +labelsbox, _}:
       +isc = Isupport.as_iso(Sess.session_iso(st))
-      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, isc, hint, theme, Sess.session_pends(st), Sess.session_comp(st))
+      paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, isc, hint, theme, Sess.session_pends(st), Sess.session_comp(st), Sess.label_hold(labelsbox))
 
 def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys):
   match found:
@@ -406,9 +442,9 @@ def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscre
 # overlay are still built for this frame.
 def paint_session_cards.hot_go(+st: Sess.Session, +cs: C.State, +fl: C.Fullscreen, warm: Bool, +frame: List<&2, V.DrawOp>, ui: T.Ui) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   match st:
-    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, _, _}:
+    case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, +labelsbox, _}:
       +isc = Isupport.as_iso(Sess.session_iso(st))
-      paint_go.hot(warm, frame, ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cs, fl, isc, Sess.session_upload_hint(st), theme, Sess.session_pends(st), Sess.session_comp(st))
+      paint_go.hot(warm, frame, ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cs, fl, isc, Sess.session_upload_hint(st), theme, Sess.session_pends(st), Sess.session_comp(st), Sess.label_hold(labelsbox))
 
 def paint_session_cards.hot(warm: Bool, +frame: List<&2, V.DrawOp>, ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   match found:

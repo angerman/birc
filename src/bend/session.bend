@@ -1239,6 +1239,11 @@ def comp_step_ok() -> Bool:
 type Size is Data:
   Size{rows: U32, cols: U32}
 
+# The labeled-response counter and the one-shot scroll walk share the existing
+# labels box. The hold stays a list so a Session match does not flatten the walk.
+type LabelCell is Data:
+  LabelCell{n: Nat, hold: List<&2, View.ScrollHold>}
+
 type Session is Data:
   Session{
     cl: Cl.Client,
@@ -1281,11 +1286,12 @@ type Session is Data:
     # words and law fixtures hold six live Sessions across one conjunction.
     reg: List<&2, CapNotify.Reg>,
     theme: Theme.Id,
-    # Labeled-response outbound counter (next id suffix). Boxed one-element
-    # cell (same idiom as reg): session_next_label mints "birc-<n>" and
-    # increments. Preserved across endpoint transitions; fresh sessions start
-    # at zero.
-    labels: List<&2, Nat>,
+    # Labeled-response outbound counter (next id suffix) plus the one-shot
+    # scroll walk for the following paint. Boxed one-element cell (same idiom
+    # as reg): session_next_label mints "birc-<n>" and increments. The counter
+    # is preserved across endpoint transitions; the walk is not. Fresh sessions
+    # start at zero with no walk.
+    labels: List<&2, LabelCell>,
     # Optimistic-send ledger (bounded PEND_MAX): unconfirmed echo-message
     # sends rendered as a view-only dimmed overlay. A List field stays a
     # narrow capture (same reason SBox works); entries age out on TypingTick.
@@ -1317,10 +1323,30 @@ def unbox_reg(+xs: List<&2, CapNotify.Reg>) -> CapNotify.Reg:
     case Con{+reg, _}: reg
     case _: CapNotify.reg0()
 
-def unbox_labels(+xs: List<&2, Nat>) -> Nat:
+def labels0() -> List<&2, LabelCell>:
+  LabelCell{0n, Nil{}} <> Nil{}
+
+def label_n(+xs: List<&2, LabelCell>) -> Nat:
   match xs:
-    case Con{+n, _}: n
+    case Con{LabelCell{n, _}, _}: n
     case _: 0n
+
+def label_hold(+xs: List<&2, LabelCell>) -> List<&2, View.ScrollHold>:
+  match xs:
+    case Con{LabelCell{_, +hold}, _}: hold
+    case _: Nil{}
+
+def labels_n(+xs: List<&2, LabelCell>, +n: Nat) -> List<&2, LabelCell>:
+  LabelCell{n, label_hold(xs)} <> Nil{}
+
+def labels_hold(+xs: List<&2, LabelCell>, +hold: List<&2, View.ScrollHold>) -> List<&2, LabelCell>:
+  LabelCell{label_n(xs), hold} <> Nil{}
+
+def labels_drop(+xs: List<&2, LabelCell>) -> List<&2, LabelCell>:
+  LabelCell{label_n(xs), Nil{}} <> Nil{}
+
+def unbox_labels(+xs: List<&2, LabelCell>) -> Nat:
+  label_n(xs)
 
 def SIZE0() -> Size:
   Size{24, 80}
@@ -1330,7 +1356,7 @@ def SIZE0() -> Size:
 def session_with_client_at(+cl: Cl.Client, +chan: String, +port: U32) -> Session:
   +plan = JoinPlan.reset(JoinPlan.initial(chan), cl, port)
   +hl = Hs.hist_live_sync(Hs.hist_live0(), 0n, Ep.endpoint(Cl.server_of(cl), port))
-  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [hl], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default(), [0n], Nil{}}
+  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Connecting{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [hl], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default(), labels0(), Nil{}}
 
 def session_with_client(+cl: Cl.Client, +chan: String) -> Session:
   session_with_client_at(cl, chan, Transport.TLS_PORT())
@@ -1340,7 +1366,7 @@ def session0(+nick: String, +host: String, +chan: String) -> Session:
 
 def session_demo_at(+cl: Cl.Client, +chan: String, port: U32) -> Session:
   +plan = JoinPlan.demo(chan)
-  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [Hs.hist_live0()], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default(), [0n], Nil{}}
+  Session{cl, False{}, Nil{}, "", JoinPlan.sent(plan), chan, Demo{}, hist0(), SIZE0(), 0, comp0(), Sp.state0(), Ty.empty(), port, [M.initial(True{})], plan, Nil{}, [Isupport.defaults()], [Hs.hist_live0()], [C.Retained{C.initial(True{}), C.FullOff{}}], [CapNotify.reg0()], Theme.default(), labels0(), Nil{}}
 
 def session_demo(+cl: Cl.Client, +chan: String) -> Session:
   session_demo_at(cl, chan, Transport.TLS_PORT())
@@ -2181,7 +2207,7 @@ def pend_count(+pends: List<&2, Cl.PendSend>) -> Nat:
 def session_pend_count(+st: Session) -> Nat:
   pend_count(session_pends(st))
 
-def session_fail.reaped.got(reaped: String & Bool, +cl: Cl.Client, +draft: String, joined: Bool, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +port: U32, +media: List<&2, M.State>, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: List<&2, Isupport.State>, +hlbox: List<&2, Hs.HistLive>, +cf: List<&2, C.Retained>, +theme: Theme.Id, +labelsbox: List<&2, Nat>) -> Session:
+def session_fail.reaped.got(reaped: String & Bool, +cl: Cl.Client, +draft: String, joined: Bool, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +port: U32, +media: List<&2, M.State>, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: List<&2, Isupport.State>, +hlbox: List<&2, Hs.HistLive>, +cf: List<&2, C.Retained>, +theme: Theme.Id, +labelsbox: List<&2, LabelCell>) -> Session:
   match reaped:
     case (+text, _):
       # Offline via session_set_net (same upload chokepoint as dial/cancel/online).
@@ -2221,7 +2247,7 @@ def session_autoreconnect.st(
   +cards: C.State,
   +full: C.Fullscreen,
   +theme: Theme.Id,
-  +labelsbox: List<&2, Nat>
+  +labelsbox: List<&2, LabelCell>
 ) -> Session:
   +cl2 = Sub.echo_sys(cl, "reconnecting in 2s to " ++ server ++ ":" ++ U32.show(port) ++ "...")
   +next = JoinPlan.reset(plan, cl2, port)
@@ -2229,7 +2255,7 @@ def session_autoreconnect.st(
   # Same-endpoint reconnect: Media resets, but text cards and their worker
   # generation survive; the overlay revalidates against the reset Media.
   # Reconnecting via session_set_net: Confirm/Armed cannot survive the dial.
-  session_set_net(Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}, Reconnecting{})
+  session_set_net(Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labels_drop(labelsbox), Nil{}}, Reconnecting{})
 
 def session_autoreconnect.reaped(reaped: String & Bool, +draft: String) -> String:
   match reaped:
@@ -2385,7 +2411,7 @@ def session_after.dial(
   +cards: C.State,
   +full: C.Fullscreen,
   +theme: Theme.Id,
-  +labelsbox: List<&2, Nat>
+  +labelsbox: List<&2, LabelCell>
 ) -> Session:
   +same = endpoint_same(cl, host, old_port, port)
   +next_net = dialing_state(same, net)
@@ -2395,7 +2421,7 @@ def session_after.dial(
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(host, port))
   # Connecting/Reconnecting via session_set_net: connection transitions drop
   # Confirm/Armed so dial→online cannot F8 without a new warning frame.
-  session_set_net(Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labelsbox, Nil{}}, next_net)
+  session_set_net(Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labels_drop(labelsbox), Nil{}}, next_net)
 
 def session_rebox(+st: Session) -> Session:
   match st:
@@ -2786,8 +2812,18 @@ def session_labels(+st: Session) -> Nat:
 
 def session_set_labels(st: Session, +n: Nat) -> Session:
   match st:
-    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, +theme, _, +pends}:
-      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, [n], pends}
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, +theme, +labelsbox, +pends}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labels_n(labelsbox, n), pends}
+
+def session_scroll_hold(+st: Session) -> List<&2, View.ScrollHold>:
+  match st:
+    case Session{_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, +labelsbox, _}:
+      label_hold(labelsbox)
+
+def session_put_scroll(+st: Session, +hold: List<&2, View.ScrollHold>) -> Session:
+  match st:
+    case Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, +labelsbox, pends}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labels_hold(labelsbox, hold), pends}
 
 def session_next_label(+st: Session) -> Session & String:
   +n = session_labels(st)
@@ -2974,20 +3010,55 @@ def frame_tick_typing(cmd: NetCmd, +st: Session, +now_ms: U32, halt: Bool) -> Se
 type KeyCtx is Data:
   KeyCtx{keys: Keys, hist: Hist, cl: Cl.Client, draft: String, cmd: NetCmd, split: Sp.State}
 
-def finish_hist(+st: Session, +cl: Cl.Client, +cmd: NetCmd, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, pair: Hist & String) -> Session & NetCmd & Bool:
+def finish_hist(+st: Session, +cl: Cl.Client, +cmd: NetCmd, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, pair: Hist & String, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
   match pair:
     case (h2, draft3):
-      (session_after(session_put_finish(st, cl, draft3, h2, seed, comp, split), cmd), cmd, halt)
+      (session_after(session_put_scroll(session_put_finish(st, cl, draft3, h2, seed, comp, split), hold), cmd), cmd, halt)
 
-def finish_comp(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, split: Sp.State, trip: Comp & String & U32) -> Session & NetCmd & Bool:
+def finish_comp(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, split: Sp.State, trip: Comp & String & U32, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
   match trip:
     case (comp2, draft3, seed):
-      (session_after(session_put_finish(st, cl, draft3, hist, seed, comp2, split), cmd), cmd, False{})
+      (session_after(session_put_scroll(session_put_finish(st, cl, draft3, hist, seed, comp2, split), hold), cmd), cmd, False{})
 
 def focus_after(on: Bool, +cl: Cl.Client, split: Sp.State) -> Cl.Client & Sp.State:
   match on:
     case True{}: Sp.toggle(cl, split)
     case False{}: (cl, split)
+
+# Enter snaps to live and drops the walk. A scroll key keeps the covering walk
+# for the next paint; a key that does not move returns an empty walk.
+# A record, not a triple: the pinned checker will not infer List<ScrollHold>
+# as a tuple component.
+type NavStep is Data:
+  NavStep{cl: Cl.Client, split: Sp.State, hold: List<&2, View.ScrollHold>}
+
+def hold_nil() -> List<&2, View.ScrollHold>:
+  Nil{}
+
+def nav_kept(enter: Bool, pair: Cl.Client & List<&2, View.ScrollHold>) -> Cl.Client & List<&2, View.ScrollHold>:
+  match enter:
+    case False{}: pair
+    case True{}:
+      match pair:
+        case (+cl, _): (Cl.snap_active(cl), hold_nil())
+
+def nav_focus.pair(pair: Cl.Client & Sp.State) -> NavStep:
+  match pair:
+    case (cl2, split2): NavStep{cl2, split2, hold_nil()}
+
+def nav_focus.drop(pair: Cl.Client & Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
+  match hold:
+    case Nil{}: nav_focus.pair(pair)
+    case Con{_, _}: nav_focus.pair(pair)
+
+def nav_focus.go(on: Bool, +cl: Cl.Client, split: Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
+  match on:
+    case False{}: NavStep{cl, split, hold}
+    case True{}: nav_focus.drop(Sp.toggle(cl, split), hold)
+
+def nav_focus.on(on: Bool, pair: Cl.Client & List<&2, View.ScrollHold>, split: Sp.State) -> NavStep:
+  match pair:
+    case (+cl, +hold): nav_focus.go(on, cl, split, hold)
 
 def nav_after(
   +cl: Cl.Client,
@@ -3002,14 +3073,14 @@ def nav_after(
   +media: M.State,
   +iso: Isupport.State,
   +cards: C.State,
-  +pends: List<&2, Cl.PendSend>
-) -> Cl.Client & Sp.State:
+  +pends: List<&2, Cl.PendSend>,
+  +th: Theme.Id
+) -> NavStep:
   match size:
     case Size{rows, cols}:
       +cl2 = apply_click(Cl.cycle_tab(cl, tab), click)
       +split2 = Sp.follow_active(cl2, split)
-      +cl3 = snap_if(enter, View.scroll_active_media_cards_iso(Isupport.as_iso(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends))
-      focus_after(U32.is_eq(focus, 1), cl3, split2)
+      nav_focus.on(U32.is_eq(focus, 1), nav_kept(enter, View.scroll_active_media_cards_iso(Isupport.as_iso(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends, th)), split2)
 
 def panel_keep(comp: Comp, +typed: String, +draft: String) -> Comp:
   comp_of(Sk.panel_keep(view_of(comp), typed, draft))
@@ -3023,34 +3094,34 @@ def pick_idx(comp: Comp) -> Nat:
 def key_plan.placed(+lines: List<&2, String>, +pos: Nat, +draft: String) -> Hist & String:
   (Hist{lines, pos}, draft)
 
-def key_plan.use_hist(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, +pos: Nat, +draft: String) -> Session & NetCmd & Bool:
+def key_plan.use_hist(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, halt: Bool, +seed: U32, +comp: Comp, split: Sp.State, +pos: Nat, +draft: String, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
   match hist:
     case Hist{+lines, _}:
-      finish_hist(st, cl, cmd, halt, seed, comp, split, key_plan.placed(lines, pos, draft))
+      finish_hist(st, cl, cmd, halt, seed, comp, split, key_plan.placed(lines, pos, draft), hold)
 
 # Wire/history keep raw shortcodes. Explicit Tab/Right accept commits glyphs
 # via compose_accept; ordinary typed frames must not auto-rewrite the draft.
 # Nick CompActive keeps Tab cycling (KeyCycle). A slash/emoji picker or unique
 # ghost finishes the selected candidate instead.
-def key_plan.use(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, plan: Sk.KeyPlan) -> Session & NetCmd & Bool:
+def key_plan.use(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, plan: Sk.KeyPlan, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
   match plan:
     case Sk.KeyCycle{}:
-      finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed))
+      finish_comp(st, cl, cmd, hist, split, comp_step_iso(session_iso(st), cl, comp, typed), hold)
     case Sk.KeyApply{halt, +seed, view, +pos, +draft}:
-      key_plan.use_hist(st, cl, cmd, hist, halt, seed, comp_of(view), split, pos, draft)
+      key_plan.use_hist(st, cl, cmd, hist, halt, seed, comp_of(view), split, pos, draft, hold)
 
-def finish_keys.comp.at(+lines: List<&2, String>, +pos: Nat, +st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, hdir: HistDir, enter: Bool) -> Session & NetCmd & Bool:
-  key_plan.use(st, cl, cmd, Hist{lines, pos}, comp, split, typed, Sk.finish_keys.comp(code, lines, pos, view_of(comp), typed, draft, prev, sk_dir(hdir), enter))
+def finish_keys.comp.at(+lines: List<&2, String>, +pos: Nat, +st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, hdir: HistDir, enter: Bool, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
+  key_plan.use(st, cl, cmd, Hist{lines, pos}, comp, split, typed, Sk.finish_keys.comp(code, lines, pos, view_of(comp), typed, draft, prev, sk_dir(hdir), enter), hold)
 
-def finish_keys.comp(+st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
+def finish_keys.comp(+st: Session, +code: U32, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, +comp: Comp, split: Sp.State, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool, +hold: List<&2, View.ScrollHold>) -> Session & NetCmd & Bool:
   match hist:
     case Hist{+lines, +pos}:
-      finish_keys.comp.at(lines, pos, st, code, cl, cmd, comp, split, typed, draft, prev, hdir, enter)
+      finish_keys.comp.at(lines, pos, st, code, cl, cmd, comp, split, typed, draft, prev, hdir, enter, hold)
 
-def finish_keys.nav(+st: Session, pair: Cl.Client & Sp.State, +code: U32, +cmd: NetCmd, +hist: Hist, +comp: Comp, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
-  match pair:
-    case (cl3, split3):
-      finish_keys.comp(st, code, cl3, cmd, hist, comp, split3, typed, draft, prev, hdir, enter)
+def finish_keys.nav(+st: Session, step: NavStep, +code: U32, +cmd: NetCmd, +hist: Hist, +comp: Comp, +typed: String, +draft: String, +prev: String, +hdir: HistDir, +enter: Bool) -> Session & NetCmd & Bool:
+  match step:
+    case NavStep{+cl3, split3, +hold}:
+      finish_keys.comp(st, code, cl3, cmd, hist, comp, split3, typed, draft, prev, hdir, enter, hold)
 
 def finish_keys.open(+st: Session) -> Size & M.State & Isupport.State & C.State & List<&2, Cl.PendSend> & Comp:
   match st:
@@ -3060,7 +3131,7 @@ def finish_keys.open(+st: Session) -> Size & M.State & Isupport.State & C.State 
 def finish_keys.keyed(size: Size, +media: M.State, +iso: Isupport.State, +cards: C.State, +pends: List<&2, Cl.PendSend>, +comp: Comp, +st: Session, keys: Keys, +hist: Hist, +cl2: Cl.Client, +draft2: String, +cmd: NetCmd, split2: Sp.State) -> Session & NetCmd & Bool:
   match keys:
     case Keys{+typed, +enter, +tab, +click, +up, +dn, +hdir, is_comp, focus}:
-      finish_keys.nav(st, nav_after(cl2, split2, size, enter, tab, click, up, dn, focus, media, iso, cards, pends), is_comp, cmd, hist, comp, typed, draft2, session_draft(st), hdir, enter)
+      finish_keys.nav(st, nav_after(cl2, split2, size, enter, tab, click, up, dn, focus, media, iso, cards, pends, session_theme(st)), is_comp, cmd, hist, comp, typed, draft2, session_draft(st), hdir, enter)
 
 def finish_keys.opened(opened: Size & M.State & Isupport.State & C.State & List<&2, Cl.PendSend> & Comp, +st: Session, keys: Keys, +hist: Hist, +cl2: Cl.Client, +draft2: String, +cmd: NetCmd, split2: Sp.State) -> Session & NetCmd & Bool:
   match opened:
@@ -4182,7 +4253,7 @@ def step_chunk_got(
   +cards: C.State,
   +full: C.Fullscreen,
   +theme: Theme.Id,
-  +labelsbox: List<&2, Nat>,
+  +labelsbox: List<&2, LabelCell>,
   +pends: List<&2, Cl.PendSend>
 ) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match got:
@@ -4207,7 +4278,7 @@ def step_chunk_got.folded(
   +cards: C.State,
   +full: C.Fullscreen,
   +theme: Theme.Id,
-  +labelsbox: List<&2, Nat>,
+  +labelsbox: List<&2, LabelCell>,
   +pends: List<&2, Cl.PendSend>
 ) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match pair:
@@ -4239,7 +4310,7 @@ def step_on_chunk_pair(
   +full: C.Fullscreen,
   +regbox: List<&2, CapNotify.Reg>,
   +theme: Theme.Id,
-  +labelsbox: List<&2, Nat>,
+  +labelsbox: List<&2, LabelCell>,
   +pends: List<&2, Cl.PendSend>
 ) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match got:
