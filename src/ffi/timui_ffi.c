@@ -41,6 +41,7 @@
 #include "timui.h"
 #include "birc_output.h"
 #include "birc_media.h"
+#include "bend_cid.h"
 
 #ifndef Loc
 typedef uint64_t Loc;
@@ -54,6 +55,9 @@ typedef uint64_t Loc;
 #endif
 #ifndef CID_TIMUI_IMAGE_SUPPORTED
 #define CID_TIMUI_IMAGE_SUPPORTED CID(Timui.image_supported)
+#endif
+#ifndef CID_TIMUI_MEASURE
+#define CID_TIMUI_MEASURE CID(Timui.measure)
 #endif
 #ifndef CID_TIMUI_VIEW_BEGIN
 #define CID_TIMUI_VIEW_BEGIN CID(Timui.view_begin)
@@ -541,6 +545,65 @@ Term timui_image_supported_run(Env e, Term *f, IoWork *w) {
 }
 static void __attribute__((constructor)) timui_image_supported_use(void) {
   io_eff(CID_TIMUI_IMAGE_SUPPORTED, timui_image_supported_run);
+}
+#endif
+
+/* Same floors as the UiKeys rows/cols taken from timui_root after begin.
+ * Returns 1 when the native grid changed, so the frame can full-redraw. */
+static void birc_floor_grid(int w, int h, uint32_t *rows, uint32_t *cols) {
+  if (h < 4)
+    h = 4;
+  if (w < 1)
+    w = 1;
+  *rows = (uint32_t)h;
+  *cols = (uint32_t)w;
+}
+
+static int birc_sync_term_size(Timui *ui, uint32_t *rows, uint32_t *cols) {
+  int check_fd = -1;
+  int tw = 0;
+  int th = 0;
+  int px_w = 0;
+  int px_h = 0;
+  int resized = 0;
+  *rows = 24;
+  *cols = 80;
+  if (!ui)
+    return 0;
+  if (ui->w > 0 && ui->h > 0)
+    birc_floor_grid(ui->w, ui->h, rows, cols);
+  if (ui->fd.write_fd >= 0 && isatty(ui->fd.write_fd))
+    check_fd = ui->fd.write_fd;
+  else if (ui->fd.read_fd >= 0 && isatty(ui->fd.read_fd))
+    check_fd = ui->fd.read_fd;
+  if (check_fd < 0)
+    return 0;
+  if (timui_term_size_pixels(check_fd, &tw, &th, &px_w, &px_h) != TIMUI_OK)
+    return 0;
+  if (tw <= 0 || th <= 0)
+    return 0;
+  if (tw != ui->w || th != ui->h) {
+    if (timui_ui_resize_pixels(ui, tw, th, px_w, px_h) == TIMUI_OK)
+      resized = 1;
+  }
+  if (ui->w > 0 && ui->h > 0)
+    birc_floor_grid(ui->w, ui->h, rows, cols);
+  else
+    birc_floor_grid(tw, th, rows, cols);
+  return resized;
+}
+
+#if CID_TIMUI_MEASURE
+Term timui_measure_run(Env e, Term *f, IoWork *w) {
+  Timui *ui = (Timui *)(uintptr_t)io_hand_v(f[0]);
+  uint32_t rows = 24;
+  uint32_t cols = 80;
+  (void)w;
+  (void)birc_sync_term_size(ui, &rows, &cols);
+  return io_tup(e, f[0], io_tup(e, (Term)(uint64_t)rows, (Term)(uint64_t)cols));
+}
+static void __attribute__((constructor)) timui_measure_use(void) {
+  io_eff(CID_TIMUI_MEASURE, timui_measure_run);
 }
 #endif
 
@@ -1487,22 +1550,8 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     birc_drop_ops(e, ops);
     return birc_uikeys(e, NULL, 0, "", 0, 24, 80, 0, (uint32_t)TIMUI_KEY_F10, 0, 0, 0, 0, "", "");
   }
-  {
-    int check_fd = -1;
-    if (ui->fd.write_fd >= 0 && isatty(ui->fd.write_fd))
-      check_fd = ui->fd.write_fd;
-    else if (ui->fd.read_fd >= 0 && isatty(ui->fd.read_fd))
-      check_fd = ui->fd.read_fd;
-    if (check_fd >= 0) {
-      int tw = 0, th = 0, px_w = 0, px_h = 0;
-      if (timui_term_size_pixels(check_fd, &tw, &th, &px_w, &px_h) == TIMUI_OK) {
-        if (tw > 0 && th > 0 && (tw != ui->w || th != ui->h)) {
-          if (timui_ui_resize_pixels(ui, tw, th, px_w, px_h) == TIMUI_OK)
-            timui_full_redraw(ui);
-        }
-      }
-    }
-  }
+  if (birc_sync_term_size(ui, &rows, &cols))
+    timui_full_redraw(ui);
   if (bu && bu->profile_enabled)
     profile_t1 = birc_profile_now_ns();
   saved_write = birc_output_begin(ui, &saved_write_flags);

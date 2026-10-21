@@ -1963,6 +1963,26 @@ def open_watch.context(ui: T.Ui, +st: Sess.Session, +gen: U32, evt: Chan(Sess.Ui
 def open_watch.ready(options: PrefWorker.Options, ui: T.Ui, +st: Sess.Session, +gen: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), frames: U32, +hist_path: String) -> IO(Unit):
   open_watch.context(ui, st, gen, evt, cmd, ack, frames, hist_path, PrefLive.initial(options, st, gen, hist_path))
 
+def measure_apply(got: T.Ui & U32 & U32, +st: Sess.Session) -> T.Ui & Sess.Session:
+  match got:
+    case (ui, rc):
+      match rc:
+        case (+rows, cols): (ui, Sess.session_set_size(st, rows, cols))
+
+# The session is born at SIZE0. Read the grid open already measured so the
+# first view matches the terminal.
+def measure_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & Sess.Session):
+  do IO<T.Ui & Sess.Session>:
+    got : T.Ui & U32 & U32 <- T.Timui.measure(ui)
+    return measure_apply(got, st)
+
+def open_watch.measured(got: T.Ui & Sess.Session, +gen: U32, evt: Chan(Sess.UiMsg), cmd: Chan(Sess.NetCmd), ack: Chan(Unit), frames: U32, +hist_path: String) -> IO(Unit):
+  match got:
+    case (ui, +st):
+      do IO<Unit>:
+        options : PrefWorker.Options <- PrefWorker.options()
+        open_watch.ready(options, ui, st, gen, evt, cmd, ack, frames, hist_path)
+
 def open_watch(
   ui: T.Ui,
   +st: Sess.Session,
@@ -1974,8 +1994,8 @@ def open_watch(
   +hist_path: String
 ) -> IO(Unit):
   do IO<Unit>:
-    options : PrefWorker.Options <- PrefWorker.options()
-    open_watch.ready(options, ui, st, gen, evt, cmd, ack, frames, hist_path)
+    got : T.Ui & Sess.Session <- measure_session(ui, st)
+    open_watch.measured(got, gen, evt, cmd, ack, frames, hist_path)
 
 def smoke_painted(
   result: (T.Ui & Sess.Session & Sess.NetCmd & Bool & Bool) & Bool,

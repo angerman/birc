@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include "bend_cid.h"
 #include <time.h>
 #include <unistd.h>
 #ifndef CID_MILLIS

@@ -776,7 +776,7 @@ $(BLDDIR)/birc: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
 	if [ $$rc -eq 0 ]; then \
 	  touch $(BLDDIR)/birc; \
 	elif [ $$rc -eq 1 ]; then \
-	  $(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc'; \
+	  $(NIXRUN) timeout $(BUILD_TIMEOUT) sh -c '$$CC $(BEND_CORE_CFLAGS) -Isrc/ui -Isrc/ffi $(BLDDIR)/birc_bend.c -o $(BLDDIR)/birc' && \
 	  $(BIRC_UI_CACHE_RUN) sh $(BIRC_MAKE_DIR)/scripts/build-ui-cache.sh store $(BLDDIR); \
 	else \
 	  exit $$rc; \

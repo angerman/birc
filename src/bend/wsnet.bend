@@ -31,12 +31,17 @@
 # main-channel drain at shutdown (deadline plus elapsed cap) that also
 # collects writer acknowledgements.
 # G4 startup order is first input-bearing frame, then settings/archive,
-# then exactly one deferred Begin: the UI paints and applies its first
-# keys before any load or boot (a first-frame quit halts before all of
-# it), one settings prepare resolves before each part history import with
-# the postimport client as the save checkpoint, deferred actors boot at
-# live generations and stay silent until the post-input Begin releases
-# them once per part, and BIRC_PREFERENCES=none keeps the direct path.
+# then exactly one deferred Begin. The first view uses the measured
+# terminal size, not SIZE0. That frame still applies its keys before any
+# load or boot (a first-frame quit halts before all of it). Settings and
+# the archive then load on a side fiber while later frames keep that size
+# and follow resize. A keyless wake is not replayed onto the import.
+# The tty watcher is acked during the wait, so later keys still arrive.
+# One settings prepare still resolves before each part history import,
+# with the postimport client as the save checkpoint.
+# Deferred actors boot at live generations only after that load and stay
+# silent until the post-input Begin releases them once per part.
+# BIRC_PREFERENCES=none keeps the direct path.
 # Cards and notifications ride the actual union policy: per-part cards
 # sidecars schedule over exact negotiated paint rows with ONE global worker
 # across all parts (WsCardsAll lease, exact captured C.Request origin like
@@ -81,6 +86,23 @@ import ./preferences_live.bend as LoadedPrefs
 import ./startup_headless.bend as Headless
 import ./history_startup_io.bend as Archive
 
+# Startup load bundle. A Data box (not a tuple): the pinned checker
+# cannot match tuple types carrying Maybe past the second element.
+type WsLoaded is Data:
+  WsLoaded{ws: W.Workspace, lp: Maybe<&2, LoadedPrefs.Context>, known: Bool}
+
+# Keys read while settings and history load. `have` is false until a
+# later frame carries a real key, edit, click, or paste. A keyless wake
+# (the tty watcher's first ready) only updates rows and cols. The first
+# frame's keys are already in the load snapshot.
+type WsHold is Data:
+  WsHold{have: Bool, typed: String, enter: Bool, rows: U32, cols: U32, click: U32, key: U32, mods: U32, codepoint: U32, wheel: U32, url: String, clipboard: String}
+
+# Display workspace while the loader runs. `scheduled` is the one pending
+# UiContinue, same bound as the live loop.
+type WsWait is Data:
+  WsWait{ws: W.Workspace, hold: WsHold, scheduled: Bool}
+
 type WsMsg is Data:
   WsUi{msg: Sess.UiMsg}
   WsNet{rm: Sid.RoutedMsg}
@@ -95,6 +117,10 @@ type WsMsg is Data:
   WsHistAck{sid: Nat, seq: Nat}
   # History worker drained HistStop (or closed admission); shutdown may finish.
   WsHistDone{}
+  # Startup settings/archive finished. The wait loop installs it, then boots.
+  # The live loop only sees this if it arrives late; it does not load again.
+  # `path` is the history file the worker already resolved.
+  WsReady{loaded: WsLoaded, path: String}
 
 type WsCmds is Data:
   WsCmds{c0: Chan(Sess.NetCmd), c1: Chan(Sess.NetCmd), c2: Chan(Sess.NetCmd), c3: Chan(Sess.NetCmd)}
@@ -219,11 +245,6 @@ type WsLoop is Data:
 # waiting for the history worker's WsHistDone under the same drain budget.
 type WsShut is Data:
   WsShut{pending: List<&2, Key.ServerId>, ctx: PrefLive.Context, st: Sess.Session, id: Key.ServerId, owner: Maybe<&2, WsLease>, ok: Bool, started: U32, done: Bool, hist: Bool}
-
-# Startup load bundle. A Data box (not a tuple): the pinned checker
-# cannot match tuple types carrying Maybe past the second element.
-type WsLoaded is Data:
-  WsLoaded{ws: W.Workspace, lp: Maybe<&2, LoadedPrefs.Context>, known: Bool}
 
 def rm_server(+rm: Sid.RoutedMsg) -> Key.ServerId:
   match rm:
@@ -3331,6 +3352,10 @@ def ws_parked.msg(wmsg: WsMsg, +saved: List<&2, WsLoop>, ui: T.Ui, +main: Chan(W
       match saved:
         case Con{+loop, _}: k((ui, loop, False{}))
         case Nil{}: ws_parked.missing(ui, cmds)
+    case WsReady{_, _}:
+      match saved:
+        case Con{+loop, _}: k((ui, loop, False{}))
+        case Nil{}: ws_parked.missing(ui, cmds)
 
 # Receive-carry: Ui/message/continuation remain outside Data. EOF forwards
 # the exact envelope; network messages keep its recursive cell through the
@@ -3492,13 +3517,18 @@ def ws_load.images_pick(edited: Bool, +st: Sess.Session, on: Bool) -> Bool:
 def ws_load.images_on(+st: Sess.Session, on: Bool) -> Bool:
   ws_load.images_pick(ws_load.images_edited(st), st, on)
 
+# The startup divider is "Reconnected: HMS" from Client.now. Init leaves
+# that clock empty; stamp it before the archive import.
+def ws_load.stamped(+st: Sess.Session, +ts: String, on: Bool) -> Sess.Session:
+  Sess.session_set_now(Sess.session_set_media(st, M.initial(ws_load.images_on(st, on))), ts)
+
 def ws_load.one_got(+got: Maybe<&2, W.Part>, +ws: W.Workspace, +id: Key.ServerId, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
   match got:
     case None{}: IO.pure(WsLoaded, WsLoaded{ws, None{}, True{}})
     case Some{+p}:
-      +st0 = Sess.session_set_media(W.part_session(p), M.initial(ws_load.images_on(W.part_session(p), on)))
       do IO<WsLoaded>:
-        result : LoadedPrefs.Context & Sess.Session & Bool <- Headless.prepare(options, st0, W.part_gen(p), path)
+        ts : String <- Clock.stamp()
+        result : LoadedPrefs.Context & Sess.Session & Bool <- Headless.prepare(options, ws_load.stamped(W.part_session(p), ts, on), W.part_gen(p), path)
         ws_load.prepped(result, ws, id)
 
 def ws_load.one(+ws: W.Workspace, +id: Key.ServerId, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
@@ -3747,6 +3777,14 @@ def ws_start.emit_boot.go(drop: Bool, +rc: Sid.RoutedCmd, +cmds: WsCmds, +evts: 
 def ws_start.emit_boot(+deferred: Bool, +ws: W.Workspace, +rc: Sid.RoutedCmd, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
   ws_start.emit_boot.go(ws_start.drop_boot_dial(deferred, ws, rc), rc, cmds, evts)
 
+# The first frame's command stays captured across the load. A key during
+# the wait adds its own command; an empty Cont from a draft or resize is
+# a no-op emit, so both can go out in order.
+def ws_start.emit_extra(+deferred: Bool, +ws: W.Workspace, +more: Maybe<&2, Sid.RoutedCmd>, +cmds: WsCmds, +evts: WsEvts) -> IO(Unit):
+  match more:
+    case None{}: IO.pure(Unit, Unit{})
+    case Some{+rc}: ws_start.emit_boot(deferred, ws, rc, cmds, evts)
+
 def ws_start.boot(+loaded: WsLoaded, support: T.Ui & U32, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool, +rc: Sid.RoutedCmd) -> IO(Unit):
   match loaded:
     case WsLoaded{+ws2, +lp_acc, +known}:
@@ -3757,16 +3795,199 @@ def ws_start.boot(+loaded: WsLoaded, support: T.Ui & U32, +options: PrefWorker.O
         Unit <- ws_begin_all(cmds, ws2)
         ws_supported(support, ws2, main, cmds, evts, pevts, ack, frames, ui_evt, ctx, True{})
 
-def ws_start.keyed(first: T.Ui & W.Workspace & Sid.RoutedCmd & Bool, +flag: U32, +options: PrefWorker.Options, +hist_path: String, on: Bool, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool) -> IO(Unit):
+# Watches are already running. Boot, emit the captured command, Begin,
+# then enter the live loop. Do not open the tty again.
+def ws_start.live(+loaded: WsLoaded, ui: T.Ui, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool, +rc: Sid.RoutedCmd, +extra_rc: Maybe<&2, Sid.RoutedCmd>) -> IO(Unit):
+  match loaded:
+    case WsLoaded{+ws2, +lp_acc, +known}:
+      +ctx = ws_start.ctx(lp_acc, options, ws2, path, known)
+      do IO<Unit>:
+        Unit <- ws_boot.each(ws2, nick, frames, force_tls, main, cmds, evts, W.ws_parts(ws2), deferred)
+        Unit <- ws_start.emit_boot(deferred, ws2, rc, cmds, evts)
+        Unit <- ws_start.emit_extra(deferred, ws2, extra_rc, cmds, evts)
+        Unit <- ws_begin_all(cmds, ws2)
+        Unit <- IO.spawn(Unit, prefs_fwd(pevts, main))
+        Unit <- IO.spawn(Unit, ws_typing_watch(main))
+        ws_begin(frames, ui, ws2, main, cmds, evts, pevts, ack, ctx, True{})
+
+def ws_load.worker(+ws: W.Workspace, +options: PrefWorker.Options, +main: Chan(WsMsg)) -> IO(Unit):
+  do IO<Unit>:
+    +path : String <- Hist.resolve_history_path()
+    on : Bool <- Net.images_enabled()
+    loaded : WsLoaded <- ws_start.loaded(ws, path, options, on)
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsReady{loaded, path})
+    return Unit{}
+
+def ws_hold0() -> WsHold:
+  WsHold{False{}, "", False{}, 0, 0, 0, 0, 0, 0, 0, "", ""}
+
+def ws_hold.nz(+n: U32) -> Bool:
+  Bool.not(U32.is_zero(n))
+
+# A frame is hot when it can change the session. The tty watcher's first
+# ready is not: key, wheel, click, and composer all stay put.
+def ws_hold.hot(enter: Bool, +key: U32, +codepoint: U32, +wheel: U32, +click: U32, +url: String, +clipboard: String, changed: Bool) -> Bool:
+  enter || changed || ws_hold.nz(key) || ws_hold.nz(codepoint) || ws_hold.nz(wheel) || ws_hold.nz(click) || Bool.not(String.is_empty(url)) || Bool.not(String.is_empty(clipboard))
+
+# A later resize must not drop the key that should be replayed, and must
+# not invent one. Rows and cols always come from the newest frame.
+def ws_hold.keep(hot: Bool, +prev: WsHold, +next: WsHold) -> WsHold:
+  match hot:
+    case True{}: next
+    case False{}:
+      match prev:
+        case WsHold{have, +typed, enter, _, _, +click, +key, +mods, +codepoint, +wheel, +url, +clipboard}:
+          match next:
+            case WsHold{_, _, _, +rows, +cols, _, _, _, _, _, _, _}:
+              WsHold{have, typed, enter, rows, cols, click, key, mods, codepoint, wheel, url, clipboard}
+
+def ws_wait.quit_pol(pol: Sess.KeyPol) -> Bool:
+  match pol:
+    case Sess.KeyPol{_, _, _, _, +quit, _, _}: T.flag_on(quit)
+
+def ws_wait.replayed(trip: W.Workspace & Sid.RoutedCmd & Bool, +rc: Sid.RoutedCmd, +lp: Maybe<&2, LoadedPrefs.Context>, known: Bool, ui: T.Ui, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match trip:
+    case (+ws2, +rc2, halt):
+      match halt:
+        case True{}: Net.shutdown_finish(ui, True{})
+        case False{}: ws_start.live(WsLoaded{ws2, lp, known}, ui, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls, rc, Some{rc2})
+
+def ws_wait.replay(+hold: WsHold, +ws: W.Workspace, +lp: Maybe<&2, LoadedPrefs.Context>, known: Bool, ui: T.Ui, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match hold:
+    case WsHold{_, +typed, enter, +rows, +cols, +click, +key, +mods, +codepoint, +wheel, +url, +clipboard}:
+      do IO<Unit>:
+        Unit <- Net.open_clicked(Some{ws_evt.id(evts, W.ws_current(ws))}, url)
+        Unit <- Net.frame_clipboard(clipboard, Some{ws_evt.id(evts, W.ws_current(ws))})
+        ws_wait.replayed(ws_first.keyed((ws, False{}), typed, enter, rows, cols, click, key, mods, codepoint, wheel), rc, lp, known, ui, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+
+# rows 0 is the untouched hold. A real frame is at least the measure floor.
+def ws_wait.sized(zero: Bool, +ws: W.Workspace, +rows: U32, +cols: U32) -> W.Workspace:
+  match zero:
+    case True{}: ws
+    case False{}: W.set_current_size(ws, rows, cols)
+
+def ws_wait.live_cold(+rows: U32, +cols: U32, +ws: W.Workspace, +lp: Maybe<&2, LoadedPrefs.Context>, known: Bool, ui: T.Ui, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  ws_start.live(WsLoaded{ws_wait.sized(U32.is_zero(rows), ws, rows, cols), lp, known}, ui, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls, rc, None{})
+
+def ws_wait.done_have(have: Bool, +typed: String, enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +url: String, +clipboard: String, +ws: W.Workspace, +lp: Maybe<&2, LoadedPrefs.Context>, known: Bool, ui: T.Ui, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match have:
+    case False{}: ws_wait.live_cold(rows, cols, ws, lp, known, ui, rc, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+    case True{}: ws_wait.replay(WsHold{True{}, typed, enter, rows, cols, click, key, mods, codepoint, wheel, url, clipboard}, ws, lp, known, ui, rc, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+
+def ws_wait.done_loaded(have: Bool, +typed: String, enter: Bool, +rows: U32, +cols: U32, +click: U32, +key: U32, +mods: U32, +codepoint: U32, +wheel: U32, +url: String, +clipboard: String, +loaded: WsLoaded, ui: T.Ui, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match loaded:
+    case WsLoaded{+ws, +lp, +known}:
+      ws_wait.done_have(have, typed, enter, rows, cols, click, key, mods, codepoint, wheel, url, clipboard, ws, lp, known, ui, rc, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+
+def ws_wait.done(+hold: WsHold, +loaded: WsLoaded, ui: T.Ui, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match hold:
+    case WsHold{have, +typed, enter, +rows, +cols, +click, +key, +mods, +codepoint, +wheel, +url, +clipboard}:
+      ws_wait.done_loaded(have, typed, enter, rows, cols, click, key, mods, codepoint, wheel, url, clipboard, loaded, ui, rc, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+
+# `k` continues the wait. Quit leaves before boot. Resize updates the
+# painted session immediately. One hot frame is replayed onto the loaded
+# session before Begin; a keyless wake only contributes its size.
+def ws_wait.step_key(halt: Bool, +hold: WsHold, ui: T.Ui, +ws: W.Workspace, +scheduled: Bool, +consumed: Bool, +more: Bool, +main: Chan(WsMsg), k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match halt:
+    case True{}: Net.shutdown_finish(ui, True{})
+    case False{}:
+      do IO<Unit>:
+        scheduled2 : Bool <- ws_more(scheduled, consumed, more, main)
+        k((ui, WsWait{ws, hold, scheduled2}))
+
+def ws_wait.step(keys: T.UiKeys, ui: T.Ui, +ws: W.Workspace, +prev: WsHold, +scheduled: Bool, +consumed: Bool, +main: Chan(WsMsg), k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match keys:
+    case T.UiKeys{enter, +typed, +rows, +cols, +click, +key, +mods, +codepoint, +wheel, more, +url, +clipboard}:
+      +enter_b = T.flag_on(enter)
+      +changed = Bool.not(String.eq(typed, Sess.session_draft(W.current_session(ws))))
+      +hot = ws_hold.hot(enter_b, key, codepoint, wheel, click, url, clipboard, changed)
+      +next : WsHold = WsHold{hot, typed, enter_b, rows, cols, click, key, mods, codepoint, wheel, url, clipboard}
+      +hold = ws_hold.keep(hot, prev, next)
+      +sized = W.set_current_size(ws, rows, cols)
+      ws_wait.step_key(ws_wait.quit_pol(Sess.key_pol_for(W.current_session(ws), key, mods, codepoint, wheel, rows)), hold, ui, sized, scheduled, consumed, T.flag_on(more), main, k)
+
+def ws_wait.painted(got: T.Ui & T.UiKeys, +ws: W.Workspace, +prev: WsHold, +scheduled: Bool, +consumed: Bool, +main: Chan(WsMsg), k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match got:
+    case (ui, keys): ws_wait.step(keys, ui, ws, prev, scheduled, consumed, main, k)
+
+def ws_wait.paint(is_key: Bool, ui: T.Ui, +ws: W.Workspace, +hold: WsHold, +scheduled: Bool, +consumed: Bool, +ack: Chan(Unit), +main: Chan(WsMsg), k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  do IO<Unit>:
+    got : T.Ui & T.UiKeys <- Net.paint_session(ui, W.paint_session(ws, 0))
+    Unit <- Net.ack_key(is_key, ack)
+    ws_wait.painted(got, ws, hold, scheduled, consumed, main, k)
+
+def ws_wait.ui(m: Sess.UiMsg, ui: T.Ui, +ws: W.Workspace, +hold: WsHold, +scheduled: Bool, +ack: Chan(Unit), +main: Chan(WsMsg), k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match m:
+    case Sess.UiKey{}: ws_wait.paint(True{}, ui, ws, hold, scheduled, False{}, ack, main, k)
+    case Sess.UiContinue{}: ws_wait.paint(False{}, ui, ws, hold, scheduled, True{}, ack, main, k)
+    case _: ws_wait.paint(False{}, ui, ws, hold, scheduled, False{}, ack, main, k)
+
+def ws_wait.msg(wmsg: WsMsg, ui: T.Ui, +ws: W.Workspace, +hold: WsHold, +scheduled: Bool, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool, k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match wmsg:
+    case WsReady{+loaded, +path}:
+      ws_wait.done(hold, loaded, ui, rc, options, path, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+    case WsUi{m}:
+      ws_wait.ui(m, ui, ws, hold, scheduled, ack, main, k)
+    case _: k((ui, WsWait{ws, hold, scheduled}))
+
+def ws_wait.got(g: Maybe<&1, WsMsg>, ui: T.Ui, +ws: W.Workspace, +hold: WsHold, +scheduled: Bool, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool, k: (T.Ui & WsWait) -> IO(Unit)) -> IO(Unit):
+  match g:
+    case None{}: Net.shutdown_finish(ui, True{})
+    case Some{wmsg}: ws_wait.msg(wmsg, ui, ws, hold, scheduled, rc, options, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls, k)
+
+@unsafe
+def ws_wait(acc: T.Ui & WsWait, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +nick: String, +force_tls: Bool) -> IO(Unit):
+  match acc:
+    case (ui, +wait):
+      match wait:
+        case WsWait{+ws, +hold, +scheduled}:
+          do IO<Unit>:
+            g : Maybe<&1, WsMsg> <- Chan.recv(WsMsg, main)
+            ws_wait.got(g, ui, ws, hold, scheduled, rc, options, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls, nxt => ws_wait(nxt, rc, options, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls))
+
+def ws_start.arm_win(wr: Result<&1, &1, U32 & String, T.Winch>, tty: T.Tty, ui: T.Ui, +ws: W.Workspace, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +nick: String, +force_tls: Bool) -> IO(Unit):
+  match wr:
+    case Fail{e}: Net.watch_die_tty(e, tty, ui)
+    case Done{w}:
+      do IO<Unit>:
+        Unit <- IO.spawn(Unit, Net.tty_watch(tty, ui_evt, ack))
+        Unit <- IO.spawn(Unit, Net.winch_watch(w, ui_evt))
+        Unit <- IO.spawn(Unit, ui_fwd(ui_evt, main))
+        Unit <- IO.spawn(Unit, ws_load.worker(ws, options, main))
+        ws_wait((ui, WsWait{ws, ws_hold0(), False{}}), rc, options, deferred, main, cmds, evts, pevts, ack, frames, nick, force_tls)
+
+def ws_start.arm_tty(pair: T.Ui & Result<&1, &1, U32 & String, T.Tty>, +ws: W.Workspace, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +nick: String, +force_tls: Bool, wr: Result<&1, &1, U32 & String, T.Winch>) -> IO(Unit):
+  match pair:
+    case (ui, tr):
+      match tr:
+        case Fail{e}: Net.watch_die_win(wr, e, ui)
+        case Done{tty}: ws_start.arm_win(wr, tty, ui, ws, rc, options, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, nick, force_tls)
+
+def ws_start.arm(ui: T.Ui, +ws: W.Workspace, +rc: Sid.RoutedCmd, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +nick: String, +force_tls: Bool) -> IO(Unit):
+  do IO<Unit>:
+    wr : Result<&1, &1, U32 & String, T.Winch> <- T.Winch.open()
+    pair : T.Ui & Result<&1, &1, U32 & String, T.Tty> <- T.Timui.tty(ui)
+    ws_start.arm_tty(pair, ws, rc, options, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, nick, force_tls, wr)
+
+def ws_start.keyed(first: T.Ui & W.Workspace & Sid.RoutedCmd & Bool, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +nick: String, +force_tls: Bool) -> IO(Unit):
   match first:
     case (ui, +ws_keyed, +rc, halt):
       match halt:
         case True{}: Net.shutdown_finish(ui, True{})
-        case False{}:
-          do IO<Unit>:
-            loaded : WsLoaded <- ws_start.loaded(ws_keyed, hist_path, options, on)
-            ws_start.boot(loaded, (ui, flag), options, hist_path, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls, rc)
+        case False{}: ws_start.arm(ui, ws_keyed, rc, options, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, nick, force_tls)
 
+def ws_measure.apply(got: T.Ui & U32 & U32, +ws: W.Workspace) -> T.Ui & W.Workspace:
+  match got:
+    case (ui, rc):
+      match rc:
+        case (+rows, cols): (ui, W.set_current_size(ws, rows, cols))
+
+def ws_start.measured(got: T.Ui & W.Workspace, +options: PrefWorker.Options, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +nick: String, +force_tls: Bool) -> IO(Unit):
+  match got:
+    case (ui, +ws1):
+      do IO<Unit>:
+        first : T.Ui & W.Workspace & Sid.RoutedCmd & Bool <- ws_first.frame(ui, ws1, evts)
+        ws_start.keyed(first, options, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, nick, force_tls)
 
 def ws_start.prepared(support: T.Ui & U32, +options: PrefWorker.Options, +ws0: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool) -> IO(Unit):
   match support:
@@ -3774,10 +3995,8 @@ def ws_start.prepared(support: T.Ui & U32, +options: PrefWorker.Options, +ws0: W
       +deferred = ws_policy(options)
       +ws1 = W.set_media_supported(ws_epoch(ws0, deferred), T.flag_on(flag))
       do IO<Unit>:
-        first : T.Ui & W.Workspace & Sid.RoutedCmd & Bool <- ws_first.frame(ui, ws1, evts)
-        hist_path : String <- Hist.resolve_history_path()
-        on : Bool <- Net.images_enabled()
-        ws_start.keyed(first, flag, options, hist_path, on, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls)
+        got : T.Ui & U32 & U32 <- T.Timui.measure(ui)
+        ws_start.measured(ws_measure.apply(got, ws1), options, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, nick, force_tls)
 
 def ws_start.go(+main: Chan(WsMsg), ui_evt: Chan(Sess.UiMsg), ack: Chan(Unit), c0: Chan(Sess.NetCmd), c1: Chan(Sess.NetCmd), c2: Chan(Sess.NetCmd), c3: Chan(Sess.NetCmd), e0: Chan(Sess.UiMsg), e1: Chan(Sess.UiMsg), e2: Chan(Sess.UiMsg), e3: Chan(Sess.UiMsg), +pevts: Chan(Sess.UiMsg), +frames: U32, +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions, +force_tls: Bool) -> IO(Unit):
   +cmds : WsCmds = WsCmds{c0, c1, c2, c3}

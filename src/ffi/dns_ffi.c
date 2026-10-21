@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "bend_cid.h"
 /* Owned sockets close-on-exec. SOCK_CLOEXEC when the platform has it;
  * otherwise F_SETFD after a plain socket (Darwin). */
 static int birc_socket(int domain, int type, int protocol) {

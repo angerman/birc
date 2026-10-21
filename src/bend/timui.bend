@@ -49,6 +49,14 @@ law Timui.image_supported:
 def Timui.image_supported(ui):
   import "../ffi/timui_ffi.c"
 
+# Rows and columns the next frame will report. Open already sized the grid
+# from TIOCGWINSZ; this reads it again so the first view is not SIZE0.
+law Timui.measure:
+  Ui -> IO(Ui & U32 & U32)
+
+def Timui.measure(ui):
+  import "../ffi/timui_ffi.c"
+
 # Default-off View timing under the existing BIRC_FRAME_PROFILE flag.
 # Sequence this mark before constructing the pure ViewModel.
 law Timui.view_begin:

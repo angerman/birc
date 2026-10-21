@@ -109,7 +109,7 @@ Per-file rows are only the modules whose contract is easy to misread.
 | `LAWS.bend` / `PROOF.bend` | Laws discharged 1:1. `make proof` generates one book per law under `build/proof` (`scripts/split-proof.py`); one book that imports the whole closure does not finish. `LAWS.bend` must never import the IO/effect layer. Cheap gate: `make lint-laws-io` (`scripts/check-laws-io.sh`; wired into `lint-ffi` / `check`). |
 | `src/bend/{actor,app,auth_bridge,net,wsnet,timui,dns,tls,transport,clock,*_io,*_live,*_worker,*_runtime}.bend` | IO/effect layer: foreign effects, or the modules that run them. `LAWS.bend` must never import these. `dns` here is `src/bend/dns.bend` only; `src/bend/dns_wire.bend` and `src/bend/dns_query.bend` are pure. |
 | `src/bend/*.bend` | Pure domain modules that are outside the IO/effect row and do not import it. Proofs may import those. |
-| `src/ffi/*.c` | Thin native effects. C does not parse IRC or decide authentication. `TIMUI_IMPLEMENTATION` lives only in `src/ffi/timui_ffi.c`. |
+| `src/ffi/*.{c,h}` | Thin native effects. C does not parse IRC or decide authentication. `TIMUI_IMPLEMENTATION` lives only in `src/ffi/timui_ffi.c`. |
 | `src/launcher/*.py` / `src/media/*.py` / `tests/lib/*.py` | Test oracles only — not the IRC client. Image, cards, preferences, history search, confirmed uploads, and Keychain launch are native. Do not add Python to the product path. |
 | `src/ui/timui.h` | Vendored single-header TUI. |
 | `docs/FFI.md` / `docs/build-speed.md` / `docs/column-walker-retention.md` / `docs/handover-2026-10-08.md` | Reference notes. The handover is superseded by this file. This file wins when they disagree. |
