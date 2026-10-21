@@ -6,6 +6,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/isupport.bend as Is
 import ../../src/bend/session.bend as S
+import ../../src/bend/theme.bend as Theme
 import ../../src/bend/view.bend as V
 
 # 20 Monday lines then 20 Tuesday lines. Each line is one row at width 40.
@@ -131,10 +132,13 @@ def scroll_at(s: Cl.Scroll) -> String:
 def client_at(+st: S.Session) -> String:
   scroll_at(Cl.active_scroll(S.session_cl(st)))
 
-def hold_at(xs: List<&2, V.ScrollHold>) -> String:
-  match xs:
-    case Nil{}: "missing"
-    case Con{+h, _}: scroll_at(Cl.buf_scroll(V.hold_buf(h)))
+# A second call of the scroll session uses. Not the buffer installed from the stored walk.
+def iso_client(pair: Cl.Client & List<&2, V.ScrollHold>) -> Cl.Client:
+  match pair:
+    case (+cl, _): cl
+
+def oracle_at(+st: S.Session, +up: Nat, +dn: Nat) -> String:
+  scroll_at(Cl.active_scroll(iso_client(V.scroll_active_media_cards_iso(Is.as_iso(S.session_iso(st)), S.session_cl(st), 12, 60, S.session_split(st), up, dn, S.session_media(st), Nil{}, S.session_pends(st), S.session_theme(st)))))
 
 def hold_crop(xs: List<&2, V.ScrollHold>) -> List<&2, V.BodyRow>:
   match xs:
@@ -172,11 +176,29 @@ def notch_cold_ops() -> String:
 def joins_st() -> S.Session:
   with_joins(page_st(), False{})
 
-def joins_rows() -> String:
-  row_texts(trip_rows(paint_held(joins_st())))
+def nicks_st() -> S.Session:
+  +st = page_st()
+  +cl = S.session_cl(st)
+  S.session_set_client(st, Cl.set_settings(cl, Cl.set_nicks(Cl.get_settings(cl), False{})))
 
-def joins_cold_rows() -> String:
-  row_texts(trip_rows(paint_cold(joins_st())))
+def mutes_st() -> S.Session:
+  +st = page_st()
+  +cl = S.session_cl(st)
+  S.session_set_client(st, Cl.set_settings(cl, Cl.set_mutes(Cl.get_settings(cl), "a" <> Nil{})))
+
+def server_st() -> S.Session:
+  +st = page_st()
+  +cl = S.session_cl(st)
+  S.session_set_client(st, Cl.set_server(cl, "other"))
+
+def boxed_st() -> S.Session:
+  S.session_set_theme(page_st(), Theme.Light{})
+
+def miss_rows(+st: S.Session) -> String:
+  row_texts(trip_rows(paint_held(st)))
+
+def miss_cold(+st: S.Session) -> String:
+  row_texts(trip_rows(paint_cold(st)))
 
 def differ(+tag: String, +a: String, +b: String) -> IO(Unit):
   E.must(tag ++ " a=[" ++ a ++ "] b=[" ++ b ++ "]", Bool.not(String.eq(a, b)))
@@ -187,7 +209,7 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("page_text", page_rows(), page_cold_rows())
     Unit <- E.must_eq("page_ops", page_ops(), page_cold_ops())
     Unit <- E.must_eq("page_matches_walk_crop", page_rows(), page_crop_rows())
-    Unit <- E.must_eq("page_anchor", client_at(page_st()), hold_at(S.session_scroll_hold(page_st())))
+    Unit <- E.must_eq("page_anchor", client_at(page_st()), oracle_at(parked_st(), 0n, 8n))
     Unit <- differ("page_left_park", client_at(page_st()), client_at(parked_st()))
     Unit <- differ("page_left_notch", client_at(page_st()), client_at(notch_st()))
     Unit <- E.must_eq("page_full_viewport", Nat.show(List.length(&2, V.BodyRow, trip_rows(paint_held(page_st())))), "8")
@@ -196,8 +218,16 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("notch_text", notch_rows(), notch_cold_rows())
     Unit <- E.must_eq("notch_ops", notch_ops(), notch_cold_ops())
     Unit <- E.must_eq("notch_full_viewport", Nat.show(List.length(&2, V.BodyRow, trip_rows(paint_held(notch_st())))), "8")
-    Unit <- E.must_eq("notch_anchor", client_at(notch_st()), hold_at(S.session_scroll_hold(notch_st())))
+    Unit <- E.must_eq("notch_anchor", client_at(notch_st()), oracle_at(parked_st(), 1n, 0n))
     Unit <- differ("notch_left_park", client_at(notch_st()), client_at(parked_st()))
     Unit <- E.must("joins_miss", Bool.not(trip_ok(paint_held(joins_st()))))
-    Unit <- E.must_eq("joins_text", joins_rows(), joins_cold_rows())
+    Unit <- E.must_eq("joins_text", miss_rows(joins_st()), miss_cold(joins_st()))
+    Unit <- E.must("nicks_miss", Bool.not(trip_ok(paint_held(nicks_st()))))
+    Unit <- E.must_eq("nicks_text", miss_rows(nicks_st()), miss_cold(nicks_st()))
+    Unit <- E.must("mutes_miss", Bool.not(trip_ok(paint_held(mutes_st()))))
+    Unit <- E.must_eq("mutes_text", miss_rows(mutes_st()), miss_cold(mutes_st()))
+    Unit <- E.must("server_miss", Bool.not(trip_ok(paint_held(server_st()))))
+    Unit <- E.must_eq("server_text", miss_rows(server_st()), miss_cold(server_st()))
+    Unit <- E.must("boxed_miss", Bool.not(trip_ok(paint_held(boxed_st()))))
+    Unit <- E.must_eq("boxed_text", miss_rows(boxed_st()), miss_cold(boxed_st()))
     IO.print("scroll_reuse=ok")
