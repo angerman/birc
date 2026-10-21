@@ -309,30 +309,6 @@ def paint_go.hot_use.warm(
         got : T.Ui & T.UiKeys <- paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
         return paint_go.hot_kept(frame, got)
 
-def paint_go.hot_use.warm_hold(
-  +hold: List<&2, V.ScrollHold>,
-  +frame: List<&2, V.DrawOp>,
-  ui: T.Ui,
-  +cl: Cl.Client,
-  +draft: String,
-  +net: Sess.NetState,
-  +seed: U32,
-  size: Sess.Size,
-  split: Sp.State,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +cards: C.State,
-  +full: C.Fullscreen,
-  +isc: Cl.Iso,
-  +hint: String,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>,
-  +comp: Sess.Comp
-) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
-  match hold:
-    case Nil{}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
-    case Con{_, _}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
-
 def paint_go.hot_use.cold(
   +frame: List<&2, V.DrawOp>,
   ui: T.Ui,
@@ -386,7 +362,7 @@ def paint_go.hot_use(
   +hold: List<&2, V.ScrollHold>
 ) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   match use:
-    case True{}: paint_go.hot_use.warm_hold(hold, frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
+    case True{}: paint_go.hot_use.warm(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp)
     case False{}: paint_go.hot_use.cold(frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp, hold)
 
 def paint_go.hot(
@@ -1586,6 +1562,88 @@ def live_step.saved(
         pending : Bool <- more_schedule(scheduled, consumed, more || failed, evt)
         live_step.reload(allowed && Bool.not(String.eq(old_endpoint, new_endpoint)), ui, kept, gen, pending, hist_path, new_endpoint, next => live_step.observe(scan, next, old_media_gen, evt, k))
 
+# Repaint bit and the pre-save log sequence. Computed before the append so
+# the continuation after the save does not keep the previous client.
+def live_step.next.fold(+old_cl: Cl.Client, +new_cl: Cl.Client, scan: Bool) -> Bool & Nat:
+  (Bool.or(scan, Bool.not(Cl.view_same(old_cl, new_cl))), Cl.log_seq_of(old_cl))
+
+def live_step.next.keep(
+  notice: Maybe<&2, String>,
+  ui: T.Ui,
+  +observed_st: Sess.Session,
+  +gen: U32,
+  more: Bool,
+  +auth_code: U32,
+  +scheduled: Bool,
+  +consumed: Bool,
+  +old_endpoint: String,
+  +old_media_gen: Nat,
+  +hist_path: String,
+  +new_endpoint: String,
+  allowed: Bool,
+  +evt: Chan(Sess.UiMsg),
+  repaint: Bool,
+  +old_seq: Nat,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, repaint, old_seq, k)
+
+def live_step.next.save(
+  fold: Bool & Nat,
+  ui: T.Ui,
+  +observed_st: Sess.Session,
+  +gen: U32,
+  more: Bool,
+  +auth_code: U32,
+  +scheduled: Bool,
+  +consumed: Bool,
+  +old_endpoint: String,
+  +old_media_gen: Nat,
+  +hist_path: String,
+  +new_endpoint: String,
+  +allowed: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +old_cl: Cl.Client,
+  +new_cl: Cl.Client,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  match fold:
+    case (repaint, +old_seq):
+      do IO<Unit>:
+        # Save only the current event. Imported rows get fresh IDs and must
+        # become the next baseline, never part of this append comparison.
+        notice : Maybe<&2, String> <- HistIO.maybe_save_history.check_except(allowed && Cl.settings_history(Cl.get_settings(new_cl)), hist_path, new_endpoint, old_cl, new_cl, Hs.hist_live_archived(Sess.session_hist_live(observed_st)))
+        # A save failure belongs only in the non-persisted diagnostic buffer.
+        # Repaint through the existing coalesced continuation, never UiError:
+        # saving an Error chat row would recursively fail and notify again.
+        # A key that only edits the draft leaves log, buffer, and scroll alone.
+        # Admission walks the viewport; skip it until the visible history moves.
+        # After the *log* diagnostic, rewind log_seq to the pre-save checkpoint
+        # so unsaved chat IDs stay visible to the next extract (ws_history.kept).
+        live_step.next.keep(notice, ui, observed_st, gen, more, auth_code, scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, repaint, old_seq, k)
+
+def live_step.next.after(
+  +auth_code: U32,
+  ui: T.Ui,
+  +new_st: Sess.Session,
+  +gen: U32,
+  more: Bool,
+  +scheduled: Bool,
+  +consumed: Bool,
+  +old_endpoint: String,
+  +old_media_gen: Nat,
+  +hist_path: String,
+  +new_endpoint: String,
+  allowed: Bool,
+  +evt: Chan(Sess.UiMsg),
+  +old_cl: Cl.Client,
+  scan: Bool,
+  k: (T.Ui & Sess.Session & U32 & Bool) -> IO(Unit)
+) -> IO(Unit):
+  +observed_st = auth_notice(new_st, auth_code)
+  +new_cl = Sess.session_cl(observed_st)
+  live_step.next.save(live_step.next.fold(old_cl, new_cl, scan), ui, observed_st, gen, more, auth_code, scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, old_cl, new_cl, k)
+
 def live_step.next(
   acc: T.Ui & Sess.Session & U32 & Bool,
   +scheduled: Bool,
@@ -1606,18 +1664,7 @@ def live_step.next(
       do IO<Unit>:
         +auth_code : U32 <- AuthBridge.observed(String.eq(old_endpoint, new_endpoint)
           && Nat.is_gt(Cl.auth_success_seq(Sess.session_cl(new_st)), Cl.auth_success_seq(old_cl)))
-        +observed_st : Sess.Session <- IO.pure(Sess.Session, auth_notice(new_st, auth_code))
-        # Save only the current event. Imported rows get fresh IDs and must
-        # become the next baseline, never part of this append comparison.
-        notice : Maybe<&2, String> <- HistIO.maybe_save_history.check_except(allowed && Cl.settings_history(Cl.get_settings(Sess.session_cl(observed_st))), hist_path, new_endpoint, old_cl, Sess.session_cl(observed_st), Hs.hist_live_archived(Sess.session_hist_live(observed_st)))
-        # A save failure belongs only in the non-persisted diagnostic buffer.
-        # Repaint through the existing coalesced continuation, never UiError:
-        # saving an Error chat row would recursively fail and notify again.
-        # A key that only edits the draft leaves log, buffer, and scroll alone.
-        # Admission walks the viewport; skip it until the visible history moves.
-        # After the *log* diagnostic, rewind log_seq to the pre-save checkpoint
-        # so unsaved chat IDs stay visible to the next extract (ws_history.kept).
-        live_step.saved(history_notice(observed_st, notice), ui, gen, more || Bool.not(U32.is_zero(auth_code)), scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, Bool.or(scan, Bool.not(Cl.view_same(old_cl, Sess.session_cl(observed_st)))), Cl.log_seq_of(old_cl), k)
+        live_step.next.after(auth_code, ui, new_st, gen, more, scheduled, consumed, old_endpoint, old_media_gen, hist_path, new_endpoint, allowed, evt, old_cl, scan, k)
 
 def live_step.tick(
   pair: Bool & (T.Ui & Sess.Session & U32 & Bool),

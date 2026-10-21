@@ -2473,13 +2473,6 @@ def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
     case Some{i}:
       Cl.set_active_clamp(cl, i)
 
-def snap_if(enter: Bool, +cl: Cl.Client) -> Cl.Client:
-  match enter:
-    case True{}:
-      Cl.snap_active(cl)
-    case False{}:
-      cl
-
 def session_seed(+st: Session) -> U32:
   match st:
     case Session{_, _, _, _, _, _, _, _, _, seed, _, _, _, _, _, +plan, +edits, _, _, _, _, _, labelsbox, +pends}:
@@ -3019,11 +3012,6 @@ def finish_comp(+st: Session, +cl: Cl.Client, +cmd: NetCmd, +hist: Hist, split: 
   match trip:
     case (comp2, draft3, seed):
       (session_after(session_put_scroll(session_put_finish(st, cl, draft3, hist, seed, comp2, split), hold), cmd), cmd, False{})
-
-def focus_after(on: Bool, +cl: Cl.Client, split: Sp.State) -> Cl.Client & Sp.State:
-  match on:
-    case True{}: Sp.toggle(cl, split)
-    case False{}: (cl, split)
 
 # Enter snaps to live and drops the walk. A scroll key keeps the covering walk
 # for the next paint; a key that does not move returns an empty walk.

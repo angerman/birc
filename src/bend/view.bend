@@ -1680,9 +1680,14 @@ type DayTag is Data:
   DayTag{line: Cl.Line, prev_day: String, filtered: List<&2, Cl.Line>}
 
 # Cover keeps the paint filter so day_tag.go does not filter the slice again.
-# List length still counts hidden lines; the drop before older_day.scan stays.
+# Hidden lines are in the taken rows, so the seed suffix starts after them.
 type Covered is Data:
   Covered{line: Cl.Line, filtered: List<&2, Cl.Line>}
+
+# Rows already taken, plus the newest-first lines the cover did not consume.
+# The older-day seed scans `rest` instead of walking the cover a second time.
+type CoverRest is Data:
+  CoverRest{rows: List<&2, Covered>, rest: List<&2, Cl.Line>}
 
 # At least one visible line so an up=0 / empty budget still tags the anchor.
 def day_tag_need(+need: Nat) -> Nat:
@@ -1762,12 +1767,13 @@ def day_tag.left(hidden: Bool, +left: Nat) -> Nat:
     case True{}: left
     case False{}: Nat.sub(left, Nat.min(left, 1n))
 
-def day_tag.cover.stop(done: Bool, +row: Covered, +acc: List<&2, Covered>, k: Unit -> List<&2, Covered>) -> List<&2, Covered>:
+def day_tag.cover.stop(done: Bool, +row: Covered, +acc: List<&2, Covered>, +rest: List<&2, Cl.Line>, k: Unit -> CoverRest) -> CoverRest:
   match done:
-    case True{}: row <> acc
+    case True{}: CoverRest{row <> acc, rest}
     case False{}: k(Unit{})
 
-# Newest-first walk; cons yields oldest-first among taken (reverse before tag).
+# Newest-first walk. Cons leaves the taken rows oldest-first, which is the
+# order day_tag.go walks. `rest` is the suffix this walk did not take.
 def day_tag.cover.go(
   fuel: Nat,
   lines: List<&2, Cl.Line>,
@@ -1779,17 +1785,17 @@ def day_tag.cover.go(
   +server: String,
   +boxed: List<&2, PaintOpts>,
   +acc: List<&2, Covered>
-) -> List<&2, Covered>:
+) -> CoverRest:
   match fuel:
-    case 0n: acc
+    case 0n: CoverRest{acc, lines}
     case 1n+p:
       match lines:
-        case Nil{}: acc
+        case Nil{}: CoverRest{acc, Nil{}}
         case Con{+h, +t}:
           +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
           +hidden = List.is_empty(&2, Cl.Line, filtered)
           +next = day_tag.left(hidden, left)
-          day_tag.cover.stop(Bool.and(Bool.not(hidden), Nat.is_eq(next, 0n)), Covered{h, filtered}, acc,
+          day_tag.cover.stop(Bool.and(Bool.not(hidden), Nat.is_eq(next, 0n)), Covered{h, filtered}, acc, t,
             done => day_tag.cover.go(p, t, next, mutes, joins, nicks, name, server, boxed, Covered{h, filtered} <> acc))
 
 def day_tag.cover(
@@ -1801,8 +1807,8 @@ def day_tag.cover(
   +name: String,
   +server: String,
   +boxed: List<&2, PaintOpts>
-) -> List<&2, Covered>:
-  List.reverse(&2, Covered, day_tag.cover.go(rev_tail_fuel(), lines_newest, day_tag_need(need), mutes, joins, nicks, name, server, boxed, Nil{}))
+) -> CoverRest:
+  day_tag.cover.go(rev_tail_fuel(), lines_newest, day_tag_need(need), mutes, joins, nicks, name, server, boxed, Nil{})
 
 def day_tag.go(fuel: Nat, lines: List<&2, Covered>, +prev_day: String, +acc: List<&2, DayTag>) -> List<&2, DayTag>:
   match fuel:
@@ -1816,6 +1822,20 @@ def day_tag.go(fuel: Nat, lines: List<&2, Covered>, +prev_day: String, +acc: Lis
           day_tag.go(p, t, visible_day_step(hidden, line_day(h), prev_day),
             DayTag{h, prev_day, filtered} <> acc)
 
+# The cover's rows are already oldest-first. Seed from the suffix it left.
+def day_tag.from(
+  got: CoverRest,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> List<&2, DayTag>:
+  match got:
+    case CoverRest{+slice, +rest}:
+      day_tag.go(rev_tail_fuel(), slice, older_day.scan(rest, mutes, joins, nicks, name, server, boxed), Nil{})
+
 # Cover `need` visible newest-first lines (hidden runs free); seed from older rest.
 def day_tag(
   +lines_newest: List<&2, Cl.Line>,
@@ -1827,9 +1847,7 @@ def day_tag(
   +server: String,
   +boxed: List<&2, PaintOpts>
 ) -> List<&2, DayTag>:
-  +slice = day_tag.cover(lines_newest, need, mutes, joins, nicks, name, server, boxed)
-  +seed = older_day.scan(List.drop(&2, Cl.Line, lines_newest, List.length(&2, Covered, slice)), mutes, joins, nicks, name, server, boxed)
-  day_tag.go(rev_tail_fuel(), List.reverse(&2, Covered, slice), seed, Nil{})
+  day_tag.from(day_tag.cover(lines_newest, need, mutes, joins, nicks, name, server, boxed), mutes, joins, nicks, name, server, boxed)
 
 def day_rows.on(skip: Bool, +day: String, +w: U32) -> List<&2, BodyRow>:
   match skip:
@@ -2422,11 +2440,6 @@ def hold_rows(+hold: ScrollHold) -> List<&2, AnchoredRow>:
   match hold:
     case ScrollHold{_, +rows, _, _, _, _, _, _, _, _, _}: rows
 
-# Install the scrolled buffer. `b` is the pre-scroll buffer the lambda still owns.
-def buf_from_hold(+b: Cl.Buffer, +hold: ScrollHold) -> Cl.Buffer:
-  match b:
-    case Cl.Buffer{_, _, _, _, _, _, _, _}: hold_buf(hold)
-
 # Drop the pre-scroll buffer. The installed copy is built outside the lambda
 # so the walk can also be returned to the next paint.
 def buf_swap(+b: Cl.Buffer, +installed: Cl.Buffer) -> Cl.Buffer:
@@ -2753,9 +2766,6 @@ def scroll_buf_media_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U3
     case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
       +boxed = paint_media_cards_iso_theme(isc, media, cards, th, pends)
       scroll_buf_media_cards_iso.go(spine_live_pends(name, pends), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, boxed, scroll)
-
-def scroll_buf_media_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> ScrollHold:
-  scroll_buf_media_cards_iso(paint_iso_cm(cm), b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, cards, pends, Theme.default())
 
 def body_title_of(+b: Cl.Buffer) -> String:
   match b:
@@ -3539,35 +3549,18 @@ def scroll_active_put(+cl: Cl.Client, +active: Nat, +hold: ScrollHold) -> Cl.Cli
   +installed = hold_buf(hold)
   (Cl.buf_modify_client(cl, active, b => buf_swap(b, installed)), hold <> Nil{})
 
-def scroll_active_drop(pair: Cl.Client & List<&2, ScrollHold>) -> Cl.Client:
-  match pair:
-    case (+cl, _): cl
-
-def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
+def scroll_active_media.on(move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client & List<&2, ScrollHold>:
   match move:
-    case False{}: cl
+    case False{}: (cl, Nil{})
     case True{}:
       match cl:
         case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
           +rect = focused_rect(rows, cols, split)
           +b = active_buf.on(Cl.nth_buf(bufs, active))
-          scroll_active_drop(scroll_active_put(cl, active, scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media)))
+          scroll_active_put(cl, active, scroll_buf_media(b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media))
 
-def scroll_active_media(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client:
+def scroll_active_media(+cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Client & List<&2, ScrollHold>:
   scroll_active_media.on(Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media)
-
-def scroll_active_media_cards_cm.on(+cm: String, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
-  match move:
-    case False{}: cl
-    case True{}:
-      match cl:
-        case Cl.Client{_, +server, +bufs, +active, _, +stg, _, _, _}:
-          +rect = focused_rect(rows, cols, split)
-          +b = active_buf.on(Cl.nth_buf(bufs, active))
-          scroll_active_drop(scroll_active_put(cl, active, scroll_buf_media_cards_cm(cm, b, rect_vis_h(rect), rect_vis_w(rect), Cl.settings_ts(stg), Cl.settings_mutes(stg), Cl.settings_joins(stg), Cl.settings_nicks(stg), server, up, dn, media, cards, pends)))
-
-def scroll_active_media_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>) -> Cl.Client:
-  scroll_active_media_cards_cm.on(cm, Nat.is_gt(up, 0n) || Nat.is_gt(dn, 0n), cl, rows, cols, split, up, dn, media, cards, pends)
 
 def scroll_active_media_cards_iso.on(+isc: Cl.Iso, move: Bool, +cl: Cl.Client, +rows: U32, +cols: U32, +split: Sp.State, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, +th: Theme.Id) -> Cl.Client & List<&2, ScrollHold>:
   match move:

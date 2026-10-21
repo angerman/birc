@@ -159,9 +159,13 @@ def split_client() -> Cl.Client:
 def split_state(axis: Sp.Axis, focus: U32) -> Sp.State:
   Sp.On{axis, "*server*", "#b", focus}
 
+def scrolled(pair: Cl.Client & List<&2, V.ScrollHold>) -> Cl.Client:
+  match pair:
+    case (+cl, _): cl
+
 def split_paused(+axis: Sp.Axis, +rows: U32) -> Cl.Client:
-  +first = cbox(V.scroll_active_media(split_client(), rows, 80, split_state(axis, 0), 1n, 0n, split_media()))
-  V.scroll_active_media(Cl.set_active(cunbox(first), 1n), rows, 80, split_state(axis, 1), 2n, 0n, split_media())
+  +first = cbox(scrolled(V.scroll_active_media(split_client(), rows, 80, split_state(axis, 0), 1n, 0n, split_media())))
+  scrolled(V.scroll_active_media(Cl.set_active(cunbox(first), 1n), rows, 80, split_state(axis, 1), 2n, 0n, split_media()))
 
 def vm_shape(vm: V.ViewModel) -> String:
   match vm:
