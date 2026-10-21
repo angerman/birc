@@ -6,11 +6,10 @@ These wins keep BUILD-mode iteration fast.
 ## Quick wins
 
 1. **Enter `make shell` once, stay there.** Outside the locked shell,
-   `NIXRUN` (Makefile:25-28) prefixes every command with a fresh
-   `nix develop` startup. Inside, `BIRC_NIX_SHELL=1` and commands run
-   directly. Run `scripts/check-shell.sh` to verify; add it as a guard
-   to slow targets so a missing shell fails fast with the exact next
-   command instead of burning minutes.
+   `NIXRUN` prefixes every command with a fresh `nix develop` startup.
+   Inside, `BIRC_NIX_SHELL=1` and commands run directly. Run
+   `scripts/check-shell.sh` to verify. The default shell has no Pillow;
+   leftover Python image/card oracles are optional (`test-media-*-python`).
 2. **Serialize heavy builds when the host is busy.** Use `make -j1`
    for proof/codegen/compile batches on loaded machines; parallel
    flags only help when cores are actually free.
@@ -30,6 +29,15 @@ These wins keep BUILD-mode iteration fast.
    `*_io`/`*_live`/`*_worker`/`*_runtime`). Self-check:
    `sh scripts/check-laws-io.sh --self-test` (synthetic `notify_io`
    import must fail). Wired into `lint-ffi` and therefore `make check`.
+6. **One stb_image in the product TU.** `timui.h` and `media_fetch_ffi.c`
+   share one decoder. Do not add a second `STB_IMAGE_IMPLEMENTATION` —
+   that doubles clang peak RAM on `birc_bend.c`. JPEG/GIF/BMP stay
+   enabled so the native helper can decode them.
+7. **Do not put `build/<stem>.bend.d` on the left-hand side of the
+   closure rule.** GNU make remakes included fragments first. The
+   scanner lists binaries against the import closure; the `.d` recipe
+   depends only on the test entry and `scripts/bend-deps.sh`. A src
+   edit then rebuilds the affected binaries, not every C-only target.
 
 ## Batch discipline
 

@@ -222,7 +222,7 @@ def auth_pipes(env):
 
 
 def wrapper_launch(binary, config, security):
-    launcher = runpy.run_path(str(ROOT / "src/launcher/keychain_birc.py"), run_name="tls_wrapper_fixture")
+    launcher = runpy.run_path(str(ROOT / "tests/lib/keychain_birc.py"), run_name="tls_wrapper_fixture")
     return launcher["main"](["--profile", "test", "--config", config, "--channel", "#t", "--frames", "0"],
                             security=security, birc=binary, prompt=lambda _: SECRET.decode(), platform="darwin")
 

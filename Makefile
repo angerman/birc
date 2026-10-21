@@ -32,7 +32,6 @@ PORT ?=
 TRANSPORT ?= tls
 PROFILE ?=
 CONFIG ?=
-PREFS_HELPER ?= birc-preferences
 # Generated-C link bound (birc/deferred_frame/ws_upload_frame): calm-host -O2
 # link 143s, loaded laptop ~280s; 600 restores ~2x margin over worst
 # observed. BUILD_TIMEOUT=900 override stays for extreme load.
@@ -214,8 +213,9 @@ build-proto: $(BLDDIR)/birc-proto ## Build the Bend protocol self-test binary.
 
 # Bend emits one C TU (runtime + app). --help is Bend's runtime CLI;
 # birc usage is --help-irc (args.bend).
-BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.c src/ffi/*.h) src/ui/timui.h
-BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upload.nix nix/preferences.nix
+BEND_UI_SRCS := $(wildcard src/bend/*.bend src/ffi/*.h) \
+	$(filter-out src/ffi/keychain_birc.c,$(wildcard src/ffi/*.c)) src/ui/timui.h
+BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix
 
 # Incremental + parallel Bend builds (BUILD mode).
 # Every Bend test binary is a real file target under $(BLDDIR)/ with prerequisites
@@ -224,7 +224,7 @@ BUILD_INPUTS := Makefile flake.nix flake.lock nix/birc.nix nix/media.nix nix/upl
 # BEND_SRC_DEPS is the fail-closed fallback. Phony test targets
 # depend on those files and only run the golden/driver, so fresh outputs skip
 # recompile. Missing sources fail closed (no rule / nonzero exit).
-# Parallelism: the default above is one job per core. `make -jN check` overrides
+# Parallelism: the default above is two jobs per three cores. `make -jN check` overrides
 # it. Each binary writes
 # a distinct file, mkdir -p is parallel-safe, and check-golden logs use
 # mktemp. `proof` has no file outputs and is safe to run concurrently with
@@ -341,7 +341,9 @@ test-preferences-pure: $(BLDDIR)/preferences_demo $(BLDDIR)/preferences_io_demo 
 	$(NIXRUN) sh scripts/check-golden.sh preferences_io_demo=ok timeout 15 ./$(BLDDIR)/preferences_io_demo
 
 test-preferences-helper: ## Owned private files, safe atomic replacement, and strict schemas.
-	$(NIXRUN) timeout 45 python3 tests/preferences.py
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror tests/preferences_native.c -o $(BLDDIR)/preferences_native'
+	$(NIXRUN) sh scripts/check-golden.sh preferences_native=ok timeout 15 ./$(BLDDIR)/preferences_native
 
 test-preferences-io: $(BLDDIR)/preferences_io_driver ## Real bounded helper IO, safe diagnostics, and disabled no-write control.
 	$(NIXRUN) timeout 45 python3 tests/preferences_io.py ./$(BLDDIR)/preferences_io_driver
@@ -394,8 +396,7 @@ test-reconnect-preferences: $(BLDDIR)/reconnect_preferences ## Async channel loa
 test-preferences-runtime: $(BLDDIR)/preferences_runtime_demo ## Bounded coalescing, stale completion isolation, and edit-wins loading.
 	$(NIXRUN) sh scripts/check-golden.sh preferences_runtime_demo=ok timeout 15 ./$(BLDDIR)/preferences_runtime_demo
 
-test-preferences-global: ## Offline global settings never create a fabricated server profile.
-	$(NIXRUN) timeout 45 python3 tests/preferences_global.py
+test-preferences-global: test-preferences-helper ## Offline global settings never create a fabricated server profile.
 
 test-preferences: test-preferences-runtime test-preferences-global
 test-review-pure: test-reconnect-preferences
@@ -467,11 +468,9 @@ test-review-pure: test-deferred-frame
 
 test-review-pure: test-live-context test-live-context-io test-history-startup-io test-history-startup-boundary test-deferred-actor
 
-test-preferences-channels: ## Channel prefixes require a name and never contain persisted JOIN keys.
-	$(NIXRUN) timeout 45 python3 tests/preferences_channels.py
+test-preferences-channels: test-preferences-helper ## Channel prefixes require a name and never contain persisted JOIN keys.
 
-test-preferences-package: ## Provisioned preference helper uses literal arguments and private synthetic files.
-	$(NIXRUN) timeout 60 python3 tests/preferences_package.py $(PREFS_HELPER)
+test-preferences-package: test-preferences-helper ## Native preferences file effect; packaged default is BIRC_PREFS_HELPER=native.
 
 .PHONY: test-session-preferences-intent
 test-session-preferences-intent: $(BLDDIR)/session_preferences_intent ## Accepted settings commands retain explicit intent even when values do not change.
@@ -550,12 +549,21 @@ test-tls: test-keychain-tls test-build-tls test-tls-args test-endpoint test-conn
 test-review-pure: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native
 test-sanitizers: test-tls-native-ubsan
 lint-ffi: lint-tls
-.PHONY: test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-wire-style test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
+.PHONY: test-media-fetch-native test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-wire-style test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
 
-test-media-image: ## Check synthetic image formats, animation, fetch bounds, and public-host policy.
+test-media-fetch-native: ## Native image/card URL policy, local decode, and OpenGraph parse.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 90 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -I src/ffi tests/media_fetch_native.c -lssl -lcrypto -o $(BLDDIR)/media_fetch_native'
+	$(NIXRUN) sh scripts/check-golden.sh media_fetch_native=ok timeout 15 ./$(BLDDIR)/media_fetch_native
+
+test-media-image: test-media-fetch-native ## Native image/card oracles. Python Pillow helpers are leftover, not the product.
+
+test-media-image-python: ## Optional leftover Python image helper oracles (needs Pillow).
 	$(NIXRUN) timeout 30 python3 tests/media_image.py
 
-test-media-cards: ## Bounded OpenGraph cards: fetch policy, shared cache budget, final-base hits.
+test-media-cards: test-media-image ## Native card URL/parse oracles (same C binary as test-media-image).
+
+test-media-cards-python: ## Optional leftover Python card helper oracles (needs Pillow).
 	$(NIXRUN) timeout 120 python3 tests/media_cards.py
 
 test-cards-policy: $(BLDDIR)/cards_policy ## Card eligibility, scheduling, and fullscreen policy goldens.
@@ -569,13 +577,16 @@ test-session-cards: $(BLDDIR)/session_cards_demo.js ## Cards/fullscreen Session 
 	$(NIXRUN) sh scripts/check-golden.sh session_cards_demo=ok timeout 60 bun $(BLDDIR)/session_cards_demo.js
 
 .PHONY: test-media-image-cache
-test-media-image-cache: ## Private bounded cache reuses validated remote assets without a network fetch.
+test-media-image-cache: ## Optional leftover Python cache oracles (needs Pillow).
 	$(NIXRUN) timeout 30 python3 tests/media_image_cache.py
 
-test-review-pure: test-media-image-cache
+.PHONY: test-upload test-upload-fetch-native test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-upload-native-ubsan test-pty-upload test-upload-package
+test-upload-fetch-native: ## Native upload admission and 0x0.st URL oracles. Never contacts the public service.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 90 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -I src/ffi tests/upload_native.c -lssl -lcrypto -o $(BLDDIR)/upload_native'
+	$(NIXRUN) sh scripts/check-golden.sh upload_native=ok timeout 15 ./$(BLDDIR)/upload_native
 
-.PHONY: test-upload test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native test-upload-native-ubsan test-pty-upload test-upload-package
-test-upload-helper: ## Offline upload transport: source, TLS, streaming, deadlines, and safe URL output.
+test-upload-helper: ## Optional leftover Python upload helper oracles.
 	$(NIXRUN) timeout 30 python3 tests/upload.py
 
 test-upload-policy: $(BLDDIR)/upload_demo ## Local path parsing, per-file consent, single-worker ownership, and stale results.
@@ -617,10 +628,10 @@ test-pty-upload: build-ui ## Loopback upload consent, paste refusal, drafts, sta
 
 .PHONY: test-pty-upload-preferences-private
 test-pty-upload-preferences-private: $(PTY_BUILD) ## Owned settings-enabled upload and refusal; standalone, optional PTY_APP selects app.
-	$(NIXRUN) sh -c 'set -eu; helper="$$(command -v birc-preferences)"; for mode in coalesced full all; do timeout 120 python3 tests/pty/upload_preferences_private.py "$$1" "$$helper" "$$mode"; done' sh "$(PTY_APP)"
+	$(NIXRUN) sh -c 'set -eu; for mode in coalesced full all; do timeout 120 python3 tests/pty/upload_preferences_private.py "$$1" native "$$mode"; done' sh "$(PTY_APP)"
 
 test-upload: test-upload-helper test-upload-policy test-upload-session test-upload-dispatch test-upload-io test-upload-hint test-upload-native test-pty-upload ## Offline and actual-loop public-upload qualification; never uploads to the public service.
-test-review-pure: test-upload-helper test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
+test-review-pure: test-upload-fetch-native test-upload-policy test-upload-session test-upload-io test-upload-hint test-upload-native
 test-sanitizers: test-upload-native-ubsan
 
 test-server-time: $(BLDDIR)/server_time_demo ## IRCv3 time tags reach parsed message timestamps.
@@ -768,6 +779,10 @@ $(BLDDIR)/birc: $(BLDDIR)/birc_bend.c $(BLDDIR)/build-config
 	  exit $$rc; \
 	fi
 
+$(BLDDIR)/keychain-birc: src/ffi/keychain_birc.c
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O2 -Wall -Wextra -Werror src/ffi/keychain_birc.c -o $(BLDDIR)/keychain-birc'
+
 build-ui: $(BLDDIR)/birc ## Build Bend TimUI client (src/bend/app.bend).
 
 build: build-proto build-ui ## Build protocol harness and TimUI client.
@@ -775,7 +790,7 @@ build: build-proto build-ui ## Build protocol harness and TimUI client.
 .PHONY: build-package test-package test-keychain-package test-tls-package test-notify-package test-runtime-helpers-package
 build-package: ## Build the installed Nix package and helper without changing pins (15-minute bound).
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 900 $(NIX) $(NIX_FEATURES) build --option timeout 900 --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
+	$(NIXRUN) timeout 1800 $(NIX) $(NIX_FEATURES) build --option timeout 1800 --no-update-lock-file .\#birc --out-link $(BLDDIR)/package-birc
 
 test-package: build-package ## Check installed helper overrides, local images, trust, and clean-environment startup.
 	$(NIXRUN) timeout 75 python3 tests/package.py ./$(BLDDIR)/package-birc
@@ -790,10 +805,10 @@ test-upload-package: build-package ## Installed uploader provenance, CA trust, c
 	$(NIXRUN) timeout 30 python3 tests/upload_package.py ./$(BLDDIR)/package-birc
 	$(NIXRUN) timeout 120 python3 tests/pty/upload.py ./$(BLDDIR)/package-birc/bin/birc
 
-test-notify-package: build-package ## Installed notify helper provenance, clean-PATH delivery, and quiet no-helper retention.
+test-notify-package: build-package ## Installed notify helper provenance: absolute OS backend, no Python dispatcher.
 	$(NIXRUN) timeout 600 python3 tests/notify_package.py ./$(BLDDIR)/package-birc
 
-test-runtime-helpers-package: build-package ## Installed cards/search/preferences provenance and local dispatch (standalone until qualified).
+test-runtime-helpers-package: build-package ## Installed cards/preferences provenance, native search default, and local dispatch.
 	$(NIXRUN) timeout 120 python3 tests/runtime_helpers_package.py ./$(BLDDIR)/package-birc
 
 test-proto: build-proto ## Run Bend protocol golden harness.
@@ -987,7 +1002,17 @@ test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-a
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 
-test-keychain-wrapper: ## Fake Keychain helper: private launch, safe prompt, and save only on verified success.
+test-keychain-native: ## Native profile/TOML/endpoint oracles. Synthetic files only.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror tests/keychain_native.c -o $(BLDDIR)/keychain_native'
+	$(NIXRUN) sh scripts/check-golden.sh keychain_native=ok timeout 15 ./$(BLDDIR)/keychain_native
+
+test-keychain-native-launch: ## Native launcher with fake security/client. Never calls Keychain or IRC.
+	@mkdir -p $(BLDDIR)
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -DBIRC_KEYCHAIN_TEST src/ffi/keychain_birc.c -o $(BLDDIR)/keychain-birc-test'
+	$(NIXRUN) timeout 30 python3 tests/keychain_native_launch.py ./$(BLDDIR)/keychain-birc-test
+
+test-keychain-wrapper: test-keychain-native test-keychain-native-launch ## Fake Keychain helper: private launch, safe prompt, and save only on verified success.
 	$(NIXRUN) timeout 60 python3 tests/keychain_birc.py
 
 test-auth-bridge: ## Strict C11: inherited secret/event pipe bounds, privacy, and one-shot ownership.
@@ -1005,7 +1030,10 @@ test-pty-auth: build-ui ## Actual SASL/NickServ, identity probes, hostile replie
 
 test-auth-profiles: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge test-pty-auth ## Authentication and secure launcher qualification.
 
-test-review-pure: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge
+test-product-no-python: ## Packaged client inputs must not wrap or spawn python3.
+	$(NIXRUN) timeout 15 python3 tests/product_no_python.py
+
+test-review-pure: test-auth-profile test-auth-args test-auth-privacy test-auth-notice test-actor-auth-scope test-keychain-wrapper test-auth-bridge test-product-no-python
 test: test-pty-auth
 
 test-state: $(BLDDIR)/state_demo ## Bounded logging and structural state regressions.
@@ -1059,7 +1087,7 @@ test-ui-review-native-ubsan: ## UBSan: cluster arenas, cell-buffer swaps, select
 test-pty-ui-review-selection: build-ui ## Pty: Escape clears selected cells without quitting or copying blank text.
 	$(NIXRUN) timeout 30 python3 tests/pty/ui_review_selection.py ./$(BLDDIR)/birc
 
-test-pty-ui-review-media: build-ui ## Pty: actual helper rejection blocks raw PNG/APNG upload; accepted data is normalized.
+test-pty-ui-review-media: build-ui ## Pty: native rejection blocks garbage upload; accepted PNG is painted.
 	$(NIXRUN) timeout 40 python3 tests/pty/ui_review_media.py ./$(BLDDIR)/birc
 
 test-day-bar: $(BLDDIR)/day_bar.js ## Local day dividers and same-day dedupe.
@@ -1093,7 +1121,7 @@ test-m21-runtime: $(BLDDIR)/m21_runtime ## DNS reply identity and terminated/unt
 test-m21-sasl-env: $(BLDDIR)/m21_sasl_env ## SASL environment fallback and explicit CLI precedence.
 	$(NIXRUN) timeout 50 python3 tests/sasl_env.py ./$(BLDDIR)/m21_sasl_env
 
-test-media-image-bounds: ## Synthetic expanding GIF limits and APNG fallback decode accounting.
+test-media-image-bounds: ## Optional leftover Python GIF/APNG bound oracles (needs Pillow).
 	$(NIXRUN) timeout 30 python3 tests/media_image_bounds.py
 
 test-m21-native-clusters: ## Actual FFI: complete-cluster tab caps, painting, and click indices.
@@ -1137,7 +1165,7 @@ test-m21-history-native-ubsan: ## UBSan: history allocation ownership, descripto
 	$(NIXRUN) sh -c 'UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh scripts/check-golden.sh m21_history_native=ok timeout 15 ./$(BLDDIR)/m21_history_native_ubsan'
 
 .PHONY: test-m21
-test-m21: test-m21-view test-m21-runtime test-m21-sasl-env test-media-image-bounds test-m21-native-clusters test-m21-clusters-output test-nix-preflight test-m21-targets test-m21-session test-m21-color test-m21-typing test-m21-history-private ## Review fixes: routing, private history, DNS, replay, clusters, and word wrapping.
+test-m21: test-m21-view test-m21-runtime test-m21-sasl-env test-m21-native-clusters test-m21-clusters-output test-nix-preflight test-m21-targets test-m21-session test-m21-color test-m21-typing test-m21-history-private ## Review fixes: routing, private history, DNS, replay, clusters, and word wrapping.
 
 test-review-pure: test-m21
 test-m21: test-m21-history-native
@@ -1426,7 +1454,11 @@ test-review-pure: test-m20
 
 test: test-review-pure test-proto test-feed test-submit test-search test-preview test-split test-typing test-frame test-net test-dns test-dns-timeout test-base64 test-args proto-parity test-ui test-cli test-live test-headless-startup test-richtext-painter test-formatting-painter test-pty ## Protocol + pure + net + DNS + args + fixtures + UI + live mock + pty.
 
-proof: ## Check LAWS via generated one-law shards under build/proof (bend PROOF.bend alone does not finish).
+.PHONY: lint-laws-io
+lint-laws-io: ## Fail closed if LAWS/PROOF import the IO/effect layer.
+	$(NIXRUN) sh scripts/check-laws-io.sh
+
+proof: lint-laws-io ## Check LAWS via generated one-law shards under build/proof (bend PROOF.bend alone does not finish).
 	@test "$(PROOF_TIMEOUT)" -gt 0 2>/dev/null || { printf '%s\n' 'PROOF_TIMEOUT must be a positive number of seconds' >&2; exit 2; }
 	PROOF_TIMEOUT='$(PROOF_TIMEOUT)' $(NIXRUN) sh scripts/run-proof-shards.sh
 
@@ -1436,14 +1468,12 @@ proof-kernel: ## Same as proof with bend --verdict on each shard (not the monoli
 	PROOF_TIMEOUT='$(PROOF_TIMEOUT)' PROOF_FLAGS='--verdict' $(NIXRUN) sh scripts/run-proof-shards.sh
 
 LINT_FFI_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wsign-conversion -Wcast-qual -Wno-unused-command-line-argument -fsyntax-only
-lint-ffi: test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_clock.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_dns.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_auth_bridge.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_tls.c'
-	$(NIXRUN) sh -c '$$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_history_search.c'
+lint-ffi: lint-laws-io test-utf8-fit ## Syntax-only warning lint of src/ffi (real build stays -w).
+	$(NIXRUN) sh -c 'set -eu; \
+	  for f in lint_clock lint_dns lint_history lint_auth_bridge lint_tls lint_history_search lint_preferences lint_media_fetch lint_upload lint_keychain; do \
+	    $$CC $(LINT_FFI_CFLAGS) -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/$$f.c; \
+	  done; \
+	  $$CC $(LINT_FFI_CFLAGS) -DTIMUI_NO_IMAGES -I tests/lint-ffi -I src/ffi -isystem src/ui tests/lint-ffi/lint_timui.c'
 	@awk 'BEGIN{u=0;b=0;p=0;q=0} /if \(!ui\) \{/{p=1} p&&/birc_drop_ops/{u=1} p&&/return birc_uikeys/{p=0} /if \(!timui_begin/{q=1} q&&/birc_drop_ops/{b=1} q&&/return birc_uikeys/{q=0} END{if(!(u&&b)){print "drop_ops: early returns must consume ops"; exit 1}}' src/ffi/timui_ffi.c
 	@! grep -E 'rows[[:space:]]*-[[:space:]]*6' src/ffi/timui_ffi.c
 	@awk '/^def reader_stop\(/{p=1} p&&/Eof/{e=1} p&&/Tr.close\(dup\)/{c=1} p&&/^def / && !/^def reader_stop/{p=0} END{if(!(e&&c)){print "reader_stop: Eof then close the dup only"; exit 1}}' src/bend/actor.bend
@@ -1470,7 +1500,7 @@ test-utf8-fit: ## A7: tab-label 63-byte cap is a UTF-8 boundary.
 .PHONY: test-output-utf8
 test-output-utf8: ## Preserve partial UTF-8 scalars across bounded output retries.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -o $(BLDDIR)/output_utf8 tests/output_utf8.c'
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -DTIMUI_NO_IMAGES -I src/ui -o $(BLDDIR)/output_utf8 tests/output_utf8.c'
 	$(NIXRUN) sh scripts/check-golden.sh output_utf8=ok ./$(BLDDIR)/output_utf8
 
 test-output-shutdown: ## Final output settles UTF-8, framing, and sync debt before status.
@@ -1480,7 +1510,7 @@ test-output-shutdown: ## Final output settles UTF-8, framing, and sync debt befo
 
 test-output-progress: ## One serialized frame drains exactly across short writes and resize.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -I src/ui -I src/ffi -o $(BLDDIR)/output_progress tests/output_progress.c'
+	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -Wall -Wextra -Werror -pthread -DTIMUI_NO_IMAGES -I src/ui -I src/ffi -o $(BLDDIR)/output_progress tests/output_progress.c'
 	$(NIXRUN) sh scripts/check-golden.sh output_progress=ok timeout 15 ./$(BLDDIR)/output_progress
 
 .PHONY: test-view-profile
@@ -1553,7 +1583,7 @@ test-png-bounds-ubsan: ## UBSan: PNG layouts, malformed cache, and allocation-de
 
 test-paste-harness: ## F3/F4: paste UTF-8 lossless hold and tail.
 	@mkdir -p $(BLDDIR)
-	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c'
+	$(NIXRUN) sh -c '$$CC -std=c11 -Wall -Wextra -Werror -DTIMUI_NO_IMAGES -I src/ui -o $(BLDDIR)/paste_harness tests/paste_harness.c'
 	$(NIXRUN) sh scripts/check-golden.sh paste_harness=ok ./$(BLDDIR)/paste_harness
 
 test-perf-cpu: build-ui ## 15 s idle/flood CPU (not in check).
@@ -1650,8 +1680,8 @@ run-auth: ## Keychain-backed IRC (HOST=host; PROFILE defaults to HOST; missing p
 	@test -n "$(HOST)" || { printf '%s\n' 'usage: make run-auth HOST=irc.example.net [PROFILE=name] [NICK=nick] [CHAN=#chan] [PORT=6697] [TRANSPORT=tls|plain] [CONFIG=path]' >&2; exit 2; }
 	@case "$(HOST)" in *:*) printf '%s\n' 'run-auth: HOST must not include a port; set PORT=... or use the profile port' >&2; exit 2 ;; esac
 	@case "$(TRANSPORT)" in tls|plain) ;; *) printf '%s\n' 'TRANSPORT must be tls or plain' >&2; exit 2 ;; esac
-	@$(MAKE) build-ui
-	$(NIXRUN) env BIRC_PROGRAM=./$(BLDDIR)/birc python3 src/launcher/keychain_birc.py --profile "$(if $(strip $(PROFILE)),$(strip $(PROFILE)),$(strip $(HOST)))" --create "$(strip $(HOST))" $(if $(strip $(CONFIG)),--config "$(CONFIG)") --$(TRANSPORT) $(if $(strip $(PORT)),--port "$(strip $(PORT))") $(if $(filter command line environment override,$(origin NICK)),--nick "$(NICK)") $(if $(filter command line environment override,$(origin CHAN)),--channel "$(CHAN)")
+	@$(MAKE) build-ui $(BLDDIR)/keychain-birc
+	$(NIXRUN) env BIRC_PROGRAM=./$(BLDDIR)/birc ./$(BLDDIR)/keychain-birc --profile "$(if $(strip $(PROFILE)),$(strip $(PROFILE)),$(strip $(HOST)))" --create "$(strip $(HOST))" $(if $(strip $(CONFIG)),--config "$(CONFIG)") --$(TRANSPORT) $(if $(strip $(PORT)),--port "$(strip $(PORT))") $(if $(filter command line environment override,$(origin NICK)),--nick "$(NICK)") $(if $(filter command line environment override,$(origin CHAN)),--channel "$(CHAN)")
 
 clean: ## Remove build artefacts (not sources or flake.lock).
 	rm -rf $(BLDDIR)

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Installed launcher provenance and pre-Keychain refusal controls.
+"""Installed native launcher provenance and pre-Keychain refusal controls.
 
 This guard never calls security, fetches a password, or connects to IRC.
 """
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
@@ -19,15 +18,12 @@ def run(command, env):
 
 package = Path(sys.argv[1]).resolve()
 launcher = package / "bin/keychain-birc"
-script = package / "libexec/keychain_birc.py"
-source = Path(__file__).resolve().parents[1] / "src/launcher/keychain_birc.py"
 assert launcher.is_file() and os.access(launcher, os.X_OK), "launcher is not installed"
-assert script.read_bytes() == source.read_bytes(), "installed launcher source is stale"
-wrapper = launcher.read_text()
+assert not (package / "libexec/keychain_birc.py").exists(), "installed launcher still ships Python"
+assert not (package / "libexec/_cache.py").exists(), "installed launcher still ships Python cache helper"
+wrapper = launcher.read_text(errors="replace")
+assert "python3" not in wrapper, "installed launcher still wraps python3"
 assert str(package / "bin/birc") in wrapper, "installed client default is not absolute"
-assert str(script) in wrapper, "launcher does not use installed source"
-python = re.findall(r"/nix/store/[^\s'\"{}]+/bin/python3", wrapper)
-assert len(set(python)) == 1 and Path(python[0]).is_file(), "launcher Python is not provisioned"
 
 with tempfile.TemporaryDirectory(prefix="birc-keychain-package-") as temporary:
     root = Path(temporary)

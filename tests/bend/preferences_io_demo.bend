@@ -11,8 +11,8 @@ def load_shown(pair: Maybe<&2, Pref.Preferences> & U32) -> String:
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- E.must_eq("unset preferences helper uses literal executable", P.program.env(Fail{(2, "private error")}), "birc-preferences")
-    Unit <- E.must_eq("empty preferences helper uses literal executable", P.program.env(Done{""}), "birc-preferences")
+    Unit <- E.must_eq("unset preferences helper uses native scan", P.program.env(Fail{(2, "private error")}), "native")
+    Unit <- E.must_eq("empty preferences helper uses native scan", P.program.env(Done{""}), "native")
     Unit <- E.must_eq("helper path is literal", P.program.env(Done{"/owned/helper path"}), "/owned/helper path")
     Unit <- E.must_eq("missing optional snapshot is success", load_shown(P.load_result(Done{(0, ("", "private stderr"))})), "0:absent")
     Unit <- E.must_eq("malformed helper stdout is rejected", load_shown(P.load_result(Done{(0, ("private malformed stdout", "private stderr"))})), "2:absent")

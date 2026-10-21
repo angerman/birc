@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Launch one auth profile. Keychain access is macOS-only; help is portable.
+"""Test oracle for Keychain profile policy. The product launcher is C.
 
 Profiles contain public metadata, never passwords. A private EOF-framed pipe
 supplies UTF-8 credentials; a separate, launch-bound pipe confirms actual auth.
@@ -29,13 +29,13 @@ import warnings
 
 
 def _load_cache():
-    """Installed keychain-birc is a lone file until nix/birc.nix copies _cache.py."""
+    """Optional shared trusted() helper; inline fallback stays if it is absent."""
     here = Path(__file__).resolve()
     override = os.environ.get("BIRC_CACHE_PY", "")
     candidates = [Path(override)] if override else []
     candidates.append(here.with_name("_cache.py"))
-    if len(here.parents) > 1:
-        candidates.append(here.parents[1] / "media" / "_cache.py")
+    if len(here.parents) > 2:
+        candidates.append(here.parents[2] / "src" / "media" / "_cache.py")
     for path in candidates:
         if path.is_file():
             spec = importlib.util.spec_from_file_location("birc_cache", path)

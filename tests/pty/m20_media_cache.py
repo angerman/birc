@@ -6,16 +6,14 @@ All image URLs are synthetic. The local fake helper returns fixture envelopes;
 no URL is fetched and no desktop helper is invoked.
 """
 import base64
-import importlib.util
-import io
 import os
 from pathlib import Path
 import re
-import struct
 import sys
 import tempfile
 
-from media import Live, assets, Image
+from media import Live, assets
+from media_envelope import envelope
 
 
 def png_uploads(data):
@@ -36,20 +34,11 @@ def png_uploads(data):
 
 def fixtures(directory):
     assets(directory)
-    spec = importlib.util.spec_from_file_location('m20_image', Path(__file__).parents[2] / 'src/media/image.py')
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
     expected = {}
     for index, name in enumerate(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']):
-        source = io.BytesIO()
-        Image.new('RGB', (4, 4), (index * 20, 50, 100)).save(source, format='PNG')
-        encoded = helper.encode(source.getvalue())
+        encoded, png = envelope(4, 4, (index * 20, 50, 100, 255))
         (directory / (name + '.png.txt')).write_text(encoded + '\n')
-        envelope = base64.b64decode(encoded, validate=True)
-        _, _, _, _, rgba_len, gif_len = struct.unpack('>6I', envelope[8:32])
-        offset = 32 + rgba_len + gif_len
-        png_len = struct.unpack('>I', envelope[offset + 4:offset + 8])[0]
-        expected[name] = envelope[offset + 8:offset + 8 + png_len]
+        expected[name] = png
     return expected
 
 

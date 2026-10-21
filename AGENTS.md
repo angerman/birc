@@ -52,17 +52,31 @@ When using timui.h:
 ## Scope
 
 `birc` is an IRC client: **Bend 2 owns main, protocol, client, submit, framer,
-networking, and the frame loop**; C is thin native FFI under `src/ffi/`.
+networking, and the frame loop**; C is thin native FFI under `src/ffi/`; the
+TUI is `src/ui/timui.h`. **The product itself is Bend + C + timui.h only.**
+Do not add Python to the live client, the packaged binary, or a product helper
+that `birc` must spawn. Python may remain in tests and Makefile/PTY harnesses.
+Do not add a packaged Python helper for a path that already has a native owner.
 IRC defaults to verified OpenSSL TLS and port 6697. `--plain` explicitly selects
 plaintext and defaults to 6667; `--tls` and `--plain` conflict. An explicit port
 never selects the transport. Never hand-roll cryptography, disable certificate
 verification, or fall back to plaintext after TLS failure. No ncurses or curl-pipe
-installers. Remote image previews may use the provisioned Python/Pillow helper
-with standard-library HTTPS certificate verification.
+installers. History search uses the linked native scan (`BIRC_SEARCH_HELPER`
+defaults to `native`). Preferences use the linked native file effect
+(`BIRC_PREFS_HELPER` defaults to `native`): C admits the private file and
+TOML document; Bend owns the wire and settings policy. Desktop notifications
+spawn `notify-send` or `/usr/bin/osascript` directly. Remote image and card
+previews use the linked native fetch/decode (`BIRC_MEDIA_HELPER` and
+`BIRC_CARDS_HELPER` default to `native`): C admits files, talks HTTP/1.1 over
+the existing OpenSSL stack, and decodes with vendored stb_image; Bend owns
+request identity, queues, and visible admission.
 Never fetch supplied private chat URLs during tests.
-Confirmed file uploads use the provisioned standard-library HTTPS helper for
-`0x0.st`. Tests use synthetic files, fake helpers, and owned loopback servers;
-never upload user files or contact the public service from tests.
+Confirmed file uploads use the linked native HTTPS effect
+(`BIRC_UPLOAD_HELPER` defaults to `native`): C admits one regular file and
+posts HTTP/1.1 over the existing OpenSSL stack to `0x0.st`; Bend owns
+consent and URL policy. Tests use synthetic files, fake helpers, and owned
+loopback servers; never upload user files or contact the public service from
+tests.
 
 Original material: Apache-2.0; author Moritz Angermann <moritz@zw3rk.com>.
 Preserve upstream licenses. Do not add model attribution.
@@ -96,7 +110,7 @@ Per-file rows are only the modules whose contract is easy to misread.
 | `src/bend/{actor,app,auth_bridge,net,wsnet,timui,dns,tls,transport,clock,*_io,*_live,*_worker,*_runtime}.bend` | IO/effect layer: foreign effects, or the modules that run them. `LAWS.bend` must never import these. `dns` here is `src/bend/dns.bend` only; `src/bend/dns_wire.bend` and `src/bend/dns_query.bend` are pure. |
 | `src/bend/*.bend` | Pure domain modules that are outside the IO/effect row and do not import it. Proofs may import those. |
 | `src/ffi/*.c` | Thin native effects. C does not parse IRC or decide authentication. `TIMUI_IMPLEMENTATION` lives only in `src/ffi/timui_ffi.c`. |
-| `src/launcher/*.py` / `src/media/*.py` | Private nonsecret helpers. Remote HTTPS uses the standard-library certificate check. Confirmed uploads use the `0x0.st` helper. |
+| `src/launcher/*.py` / `src/media/*.py` / `tests/lib/*.py` | Test oracles only — not the IRC client. Image, cards, preferences, history search, confirmed uploads, and Keychain launch are native. Do not add Python to the product path. |
 | `src/ui/timui.h` | Vendored single-header TUI. |
 | `docs/FFI.md` / `docs/build-speed.md` / `docs/column-walker-retention.md` / `docs/handover-2026-10-08.md` | Reference notes. The handover is superseded by this file. This file wins when they disagree. |
 
@@ -197,7 +211,7 @@ Per-file rows are only the modules whose contract is easy to misread.
   peer-prefixed, and later conflicting welcomes without changing live state.
   Reconnect guards must verify actual SASL wire exchange and all desired rooms,
   not only registration or the launch channel.
-- `src/launcher/keychain_birc.py` owns nonsecret TOML profiles and macOS `security` access. Verified TLS profiles need no relay or unsafe flag. Plaintext requires a declared trusted IPv4 loopback relay or per-launch `--allow-insecure-auth`. Resolve the TLS/default-port selection before endpoint-bound Keychain lookup. Never test real credentials or Keychain writes. Versioned ASCII envelopes preserve Unicode through security's hex-print behavior. The wrapper sends raw UTF-8 through an inherited EOF pipe; the separate one-shot `BIRC_AUTH_OK\n` pipe is emitted only on Bend's monotonic auth-success edge. Descriptor env values are not secrets; the native bridge sets CLOEXEC. Never infer success from stdout or child exit. Manual service credential commands skip local echo/history, but manually typed composer drafts remain visible.
+- `src/ffi/keychain_birc.c` owns the packaged `keychain-birc` launcher: nonsecret TOML profiles and macOS `security` access. Verified TLS profiles need no relay or unsafe flag. Plaintext requires a declared trusted IPv4 loopback relay or per-launch `--allow-insecure-auth`. Resolve the TLS/default-port selection before endpoint-bound Keychain lookup. Never test real credentials or Keychain writes. Versioned ASCII envelopes preserve Unicode through security's hex-print behavior. The wrapper sends raw UTF-8 through an inherited EOF pipe; the separate one-shot `BIRC_AUTH_OK\n` pipe is emitted only on Bend's monotonic auth-success edge. Descriptor env values are not secrets; the native bridge sets CLOEXEC. Never infer success from stdout or child exit. Manual service credential commands skip local echo/history, but manually typed composer drafts remain visible. `tests/lib/keychain_birc.py` is the test-only policy oracle.
 - Headless (stdin is not a tty) awaits the bounded initial registration result before painting `--frames N` and exiting; initial failure exits nonzero. On a tty, `N` is a message cap and the loop parks; loop tests need a pty (`make test-pty`).
 - IRCv3 `+typing` state is Bend-owned, capped at 32 entries, and expires from a one-second `TypingTick`; active lasts 6 s and paused lasts 30 s. The tick repaints only for expiry changes, writable short frames, or timed input pending after a non-key paint. The last case repairs a watcher that parked before the frame read input; normal Esc still has its 50-ms watcher deadline. Partial UTF-8 has no idle expiry. `UiKeys.more` is input-only; terminal recovery does not schedule synthetic input wakes. Ordinary frames have a 40-ms output budget; writable repairs have 200 ms; still-full repairs do not wait.
 - Use deterministic progress conditions in PTY tests. Repeat the affected case

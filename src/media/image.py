@@ -399,7 +399,7 @@ def read_local(path):
     """Only an explicit --local argument can enter this path.
 
     nofollow=False: the caller's final symlink is followed. Cache opens do
-    not. search_probe and upload use O_NOFOLLOW on the final component.
+    not. upload uses O_NOFOLLOW on the final component.
     """
     return cache.read_regular(
         path, MAX_LOCAL_BYTES, nofollow=False,

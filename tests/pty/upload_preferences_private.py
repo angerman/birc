@@ -77,7 +77,7 @@ def private_client(helper, full):
             # Original Client still supplies its private history/upload helper.
             os.environ.update({
                 "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
-                "BIRC_PREFERENCES": str(self.prefs_path), "BIRC_PREFS_HELPER": str(helper),
+                "BIRC_PREFERENCES": str(self.prefs_path), "BIRC_PREFS_HELPER": helper,
                 "BIRC_CARDS": "off", "BIRC_IMAGE_CACHE": "none",
                 "BIRC_NOTIFY_HELPER": str(home / "no-notify-helper"),
             })
@@ -146,7 +146,8 @@ def single(binary, helper, full):
 
 def main(binary, helper, mode):
     config_guards()
-    assert helper.is_file() and os.access(helper, os.X_OK), "installed preferences helper unavailable"
+    assert helper == "native" or (helper.is_file() and os.access(helper, os.X_OK)), \
+        "preferences helper must be native or an executable"
     assert mode in ("coalesced", "all", "full"), "mode must be coalesced, all, or full"
     if mode == "all":
         original = upload.Client
@@ -167,7 +168,8 @@ if __name__ == "__main__":
         signal.signal(signal.SIGALRM, wall_bound)
         signal.alarm(100)
         assert len(sys.argv) == 4, "expected BINARY INSTALLED_PREFS_HELPER MODE"
-        main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), sys.argv[3])
+        helper = sys.argv[2]
+        main(Path(sys.argv[1]).resolve(), Path(helper).resolve() if helper != "native" else helper, sys.argv[3])
     except (AssertionError, OSError, subprocess.TimeoutExpired) as error:
         print("upload_preferences_private: " + str(error), file=sys.stderr)
         raise SystemExit(1)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Installed package controls: local images, helper overrides, and offline CA.
+"""Installed package controls: native image default and helper overrides.
 
 No URL is supplied to a helper. The only PTY command besides quit is a local
 JPEG preview; automatic images are off. Child PATH contains only owned fakes.
@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import base64
 import fcntl
-import io
 import json
 import os
 from pathlib import Path
 import pty
 import re
-import shlex
 import struct
 import subprocess
 import sys
@@ -23,11 +21,9 @@ import tempfile
 import termios
 import time
 
-from PIL import Image
-
-# Import Pillow first: tests/pty/typing.py must not shadow its typing import.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "pty"))
 try:
+    from media_envelope import envelope
     from output_stall import drain
 finally:
     sys.path.pop(0)
@@ -47,25 +43,16 @@ def run(command, env, timeout=15):
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
 
 
-def provenance(binary: Path) -> tuple[Path, Path, Path, Path]:
+def provenance(binary: Path) -> None:
     wrapper = binary.read_text()
-    found = re.findall(r"/nix/store/[^\s'\"{}]+/bin/birc-image", wrapper)
-    assert len(set(found)) == 1, "installed birc wrapper has no unique absolute helper"
-    helper = Path(found[0])
-    assert helper.is_file() and os.access(helper, os.X_OK), "installed helper missing"
-    body = helper.read_text()
-    commands = [shlex.split(line) for line in body.splitlines() if line.startswith("exec ")]
-    assert len(commands) == 1 and len(commands[0]) == 4, "unexpected installed helper exec"
-    _, python, script, args = commands[0]
-    assert args == "$@", "installed helper lost argument forwarding"
-    python, script = Path(python), Path(script)
-    assert str(python).startswith("/nix/store/") and python.name == "python3" and python.is_file(), "Python is not installed"
-    assert str(script).startswith("/nix/store/") and script.is_file(), "helper source is not installed"
-    expected = Path(__file__).resolve().parents[1] / "src/media/image.py"
-    assert script.read_bytes() == expected.read_bytes(), "installed helper source differs from this checkout"
-    bundles = re.findall(r"/nix/store/[^\s'\"{}]+/etc/ssl/certs/ca-bundle\.crt", body)
+    found = re.findall(r"BIRC_MEDIA_HELPER=\$\{BIRC_MEDIA_HELPER-'([^']+)'\}", wrapper)
+    assert found == ["native"], "installed media default is not native"
+    found = re.findall(r"BIRC_CARDS_HELPER=\$\{BIRC_CARDS_HELPER-'([^']+)'\}", wrapper)
+    assert found == ["native"], "installed cards default is not native"
+    assert "birc-image" not in wrapper and "birc-cards" not in wrapper, "installed wrapper still ships Python image/cards"
+    assert "python3" not in wrapper, "installed birc wrapper still mentions python3"
+    bundles = re.findall(r"/nix/store/[^\s'\"{}]+/etc/ssl/certs/ca-bundle\.crt", wrapper)
     assert len(set(bundles)) == 1 and Path(bundles[0]).is_file(), "installed CA bundle missing"
-    return helper, python, script, Path(bundles[0])
 
 
 def unpack(output: bytes, expected_size: tuple[int, int]) -> bytes:
@@ -80,68 +67,19 @@ def unpack(output: bytes, expected_size: tuple[int, int]) -> bytes:
     duration, length = struct.unpack(">2I", payload[offset:offset + 8])
     offset += 8
     assert 20 <= duration <= 10000 and offset + length == len(payload), "invalid frame bounds"
-    with Image.open(io.BytesIO(payload[offset:])) as frame:
-        assert frame.format == "PNG" and frame.size == expected_size, "normalized frame is not PNG"
-        assert frame.convert("RGBA").tobytes() == payload[32:32 + rgba_length], "PNG and RGBA disagree"
+    png = payload[offset:offset + length]
+    assert png.startswith(b"\x89PNG\r\n\x1a\n"), "normalized frame is not PNG"
     return output
 
 
-def local_controls(helper: Path, root: Path, env: dict[str, str]) -> tuple[Path, Path, Path]:
-    png, jpeg = root / "synthetic image.png", root / "synthetic image.jpg"
+def local_files(root: Path) -> tuple[Path, Path]:
+    jpeg = root / "synthetic image.jpg"
     payload = root / "payload"
-    for path, fmt in ((png, "PNG"), (jpeg, "JPEG")):
-        Image.new("RGB", (17, 11), (20, 40, 60)).save(path, format=fmt)
-        result = run([str(helper), "--local", str(path)], env)
-        assert result.returncode == 0 and not result.stderr, "installed local helper failed"
-        unpack(result.stdout, (17, 11))
-        if fmt == "PNG":
-            payload.write_bytes(result.stdout)
-    larger = root / "resize.png"
-    Image.new("RGB", (640, 480), (20, 40, 60)).save(larger)
-    result = run([str(helper), "--local", str(larger)], env)
-    assert result.returncode == 0 and not result.stderr, "normalization failed"
-    unpack(result.stdout, (320, 240))
-
-    malformed, dimensions, oversized, fifo, empty = [root / name for name in
-        ("malformed.png", "dimensions.png", "oversized.png", "blocked.fifo", "empty.png")]
-    malformed.write_bytes(b"not an image")
-    Image.new("1", (4097, 1)).save(dimensions)
-    with oversized.open("wb") as file:
-        file.truncate(MAX_LOCAL_BYTES + 1)
-    os.mkfifo(fifo)
-    empty.touch()
-    for path in (malformed, dimensions, oversized, fifo, empty, root, root / "missing.png"):
-        result = run([str(helper), "--local", str(path)], env)
-        assert result.returncode != 0 and not result.stdout, "invalid local input emitted a payload"
-        assert result.stderr == b"birc-image: image unavailable\n", "failure exposed decoder/path text"
-    return png, jpeg, payload
-
-
-def ca_controls(helper: Path, python: Path, bundle: Path, png: Path, root: Path, env: dict[str, str]) -> None:
-    # Trace only synthetic local execution, then load the chosen trust offline.
-    shell = shlex.split(helper.read_text().splitlines()[0][2:])
-    assert shell and shell[0].startswith("/nix/store/"), "helper shell is not installed"
-    custom = root / "custom CA bundle.pem"
-    custom.write_bytes(bundle.read_bytes())
-    for value, expected in ((None, bundle), ("", bundle), (str(custom), custom)):
-        current = dict(env)
-        if value is not None:
-            current["SSL_CERT_FILE"] = value
-        result = run(shell + ["-x", str(helper), "--local", str(png)], current)
-        assert result.returncode == 0, "CA wrapper local execution failed"
-        unpack(result.stdout, (17, 11))
-        selected = []
-        for line in result.stderr.decode().splitlines():
-            fields = shlex.split(line)
-            if len(fields) == 3 and fields[:2] == ["+", "export"] and fields[2].startswith("SSL_CERT_FILE="):
-                selected.append(fields[2].split("=", 1)[1])
-        assert selected == [str(expected)], "CA fallback/override was not preserved"
-        current["SSL_CERT_FILE"] = selected[0]
-        check = run([str(python), "-c",
-            "import ssl,sys; assert ssl.get_default_verify_paths().cafile == sys.argv[1]; "
-            "assert ssl.create_default_context().cert_store_stats()['x509_ca'] > 0",
-            selected[0]], current)
-        assert check.returncode == 0 and not check.stderr, "installed Python cannot load selected CA trust"
+    jpeg.write_bytes((Path(__file__).resolve().parents[1] / "fixtures" / "media" / "local.jpg").read_bytes())
+    encoded, png = envelope(17, 11, (20, 40, 60, 255))
+    payload.write_text(encoded + "\n")
+    unpack(payload.read_bytes(), (17, 11))
+    return jpeg, payload
 
 
 def fake_helper(path: Path, label: str, python: Path, payload: Path) -> None:
@@ -224,15 +162,14 @@ def wrapper_case(binary: Path, jpeg: Path, env: dict[str, str], log: Path, case:
         os.close(master)
 
 
-def wrapper_controls(binary: Path, python: Path, jpeg: Path, payload: Path, root: Path, env: dict[str, str]) -> None:
-    fallback = Path(env["PATH"]) / "birc-image"
+def wrapper_controls(binary: Path, jpeg: Path, payload: Path, root: Path, env: dict[str, str]) -> None:
+    python = Path(sys.executable)
     override = root / "override helper with spaces"
-    fake_helper(fallback, "fallback", python, payload)
     fake_helper(override, "override", python, payload)
     failures = []
-    for name, value, expected in (("unset", None, []),
+    for name, value, expected in (("native default", None, []),
             ("nonempty override", str(override), [["override", ["--local", str(jpeg)]]]),
-            ("empty PATH fallback", "", [["fallback", ["--local", str(jpeg)]]])):
+            ("empty uses native", "", [])):
         log = root / (name.replace(" ", "-") + ".calls")
         current = {**env, "TERM": "xterm-kitty", "TERM_PROGRAM": "kitty",
             "BIRC_FORCE_IMAGE_PROTOCOL": "kitty", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off",
@@ -247,7 +184,7 @@ def wrapper_controls(binary: Path, python: Path, jpeg: Path, payload: Path, root
 def main(argument: str) -> None:
     target = Path(argument).resolve()
     binary = target / "bin/birc" if target.is_dir() else target
-    helper, python, _, bundle = provenance(binary)
+    provenance(binary)
     with tempfile.TemporaryDirectory(prefix="birc-package-") as temporary:
         root = Path(temporary)
         fake_bin = root / "fake-bin"
@@ -258,9 +195,8 @@ def main(argument: str) -> None:
         demo_result = run([str(binary), "--plain", "--demo", "--frames", "1"],
             {**env, "TERM": "xterm-256color", "BIRC_HISTORY": "none", "BIRC_IMAGES": "off"})
         assert demo_result.returncode == 0 and b"birc=ok" in demo_result.stdout + demo_result.stderr, "installed headless smoke failed"
-        png, jpeg, payload = local_controls(helper, root, env)
-        ca_controls(helper, python, bundle, png, root, env)
-        wrapper_controls(binary, python, jpeg, payload, root, env)
+        jpeg, payload = local_files(root)
+        wrapper_controls(binary, jpeg, payload, root, env)
     print("package=ok")
 
 

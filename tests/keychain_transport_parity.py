@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "src/bend/transport_policy.bend"
 ENDPOINT = ROOT / "src/bend/endpoint.bend"
-KEYCHAIN = ROOT / "src/launcher/keychain_birc.py"
+KEYCHAIN = ROOT / "tests/lib/keychain_birc.py"
 
 
 def load_keychain():

@@ -16,6 +16,7 @@ import ./history_search.bend as Hs
 import ./history_search_io.bend as HSIO
 import ./typing.bend as Ty
 import ./media.bend as M
+import ./media_io.bend as MediaIO
 import ./cards.bend as C
 import ./cards_view.bend as CV
 import ./cards_net.bend as CN
@@ -33,7 +34,6 @@ import ./startup_headless.bend as Headless
 import ./preferences_live.bend as LoadedPrefs
 import ./notify.bend as N
 import ./notify_io.bend as NIO
-import ./helper_io.bend as Help
 import ./endpoint.bend as Ep
 
 def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
@@ -1210,32 +1210,16 @@ def on_reconnect(
 ) -> IO(Unit):
   on_reconnect.same(U32.is_eq(scheduled_gen, gen), ui, st, host, port, evt, cmd, ack, gen, k)
 
-# One bounded external worker; only its exact completion can release ownership.
-def media_payload(r: Result<&1, &1, U32 & String, U32 & (String & String)>) -> String:
-  match r:
-    case Fail{_}: ""
-    case Done{(code, (out, _))}: Bool.pick(String, U32.is_zero(code), out, "")
-
-def media_args.pick(remote: Bool, source: String) -> List<&1, String>:
-  match remote:
-    case True{}: [source]
-    case False{}: ["--local", source]
-
-def media_args(+source: String) -> List<&1, String>:
-  media_args.pick(Links.is_url_prefix(source), source)
-
-# Same contract as Sys.media_program: BIRC_MEDIA_HELPER, else birc-image.
-def media_spec() -> Help.Spec:
-  Help.Spec{"BIRC_MEDIA_HELPER", "birc-image", 2800000, 11000}
-
+# One bounded worker; only its exact completion can release ownership.
+# Native fetch/decode is MediaIO; a named helper process remains optional.
 def media_run.work(+evt: Chan(Sess.UiMsg), got: Maybe<&2, M.Work>) -> IO(Unit):
   match got:
     # take_job never admits fences; work_fields keeps Request exhaustiveness.
     case None{}: IO.pure(Unit, Unit{})
     case Some{M.Work{_, +url, +generation, +ticket}}:
       do IO<Unit>:
-        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Help.run(media_spec(), media_args(url), "")
-        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, media_payload(result)})
+        payload : String <- MediaIO.run(url)
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.MediaFetched{generation, ticket, url, payload})
         return Unit{}
 
 def media_run(req: M.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):

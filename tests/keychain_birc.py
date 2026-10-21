@@ -17,7 +17,7 @@ from unittest.mock import patch
 import warnings
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "src/launcher/keychain_birc.py"
+SOURCE = Path(__file__).resolve().parents[1] / "tests/lib/keychain_birc.py"
 spec = importlib.util.spec_from_file_location("keychain_birc", SOURCE)
 assert spec is not None and spec.loader is not None
 launcher = importlib.util.module_from_spec(spec)

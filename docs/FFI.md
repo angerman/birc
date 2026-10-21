@@ -74,6 +74,21 @@ when an effect is added or removed.
 |---|---|---|
 | `CID_APPEND_PRIVATE` | `src/ffi/history_ffi.c` | `src/bend/history_io.bend:17` (`law append_private`) |
 
+### `src/ffi/preferences_ffi.c`
+
+| CID | C file | Bend declaration |
+|---|---|---|
+| `CID_PREFS_LOAD` | `src/ffi/preferences_ffi.c` | `src/bend/preferences_io.bend` (`law prefs_load`) |
+| `CID_PREFS_SAVE` | `src/ffi/preferences_ffi.c` | `src/bend/preferences_io.bend` (`law prefs_save`) |
+
+### `src/ffi/media_fetch_ffi.c`
+
+| CID | C file | Bend declaration |
+|---|---|---|
+| `CID_MEDIA_LOAD` | `src/ffi/media_fetch_ffi.c` | `src/bend/media_io.bend` (`law media_load`) |
+| `CID_CARDS_LOAD` | `src/ffi/media_fetch_ffi.c` | `src/bend/cards_net.bend` (`law cards_load`) |
+| `CID_UPLOAD_PUT` | `src/ffi/upload_ffi.c` | `src/bend/upload_io.bend` (`law upload_put`) |
+
 ### `src/ffi/history_search_ffi.c`
 
 | CID | C file | Bend declaration |

@@ -18384,10 +18384,8 @@ TIMUI_API TimuiStyle timui_theme_style(const TimuiTheme *th,
 #define TIMUI_UNDEF_STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #endif
-#ifndef STBI_ONLY_PNG
-#define TIMUI_UNDEF_STBI_ONLY_PNG
-#define STBI_ONLY_PNG
-#endif
+/* Full stb_image (JPEG/GIF/BMP too) so media_fetch can reuse this one
+ * implementation in the Bend TU. Do not add a second STB_IMAGE_IMPLEMENTATION. */
 #ifndef STBI_NO_STDIO
 #define TIMUI_UNDEF_STBI_NO_STDIO
 #define STBI_NO_STDIO
@@ -18453,6 +18451,18 @@ TIMUI_API TimuiStyle timui_theme_style(const TimuiTheme *th,
 #endif
 #ifdef STBI_NO_TGA
 #define TIMUI_HAD_STBI_NO_TGA
+#endif
+#ifndef STBI_NO_PSD
+#define STBI_NO_PSD
+#endif
+#ifndef STBI_NO_TGA
+#define STBI_NO_TGA
+#endif
+#ifndef STBI_NO_PIC
+#define STBI_NO_PIC
+#endif
+#ifndef STBI_NO_PNM
+#define STBI_NO_PNM
 #endif
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -26532,10 +26542,6 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifdef TIMUI_UNDEF_STBI_NO_STDIO
 #undef STBI_NO_STDIO
 #undef TIMUI_UNDEF_STBI_NO_STDIO
-#endif
-#ifdef TIMUI_UNDEF_STBI_ONLY_PNG
-#undef STBI_ONLY_PNG
-#undef TIMUI_UNDEF_STBI_ONLY_PNG
 #endif
 #ifdef TIMUI_UNDEF_STB_IMAGE_IMPLEMENTATION
 #undef STB_IMAGE_IMPLEMENTATION

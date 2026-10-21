@@ -113,8 +113,10 @@ def closure(entry):
     return files
 
 def products(blddir, stem):
+    # The .d fragment itself is remade only when the entry or scanner
+    # changes (Makefile recipe). Listing it here made GNU make rebuild
+    # every included closure after any src/ edit, including C-only targets.
     return [
-        f"{blddir}/{stem}.bend.d",
         f"{blddir}/{stem}",
         f"{blddir}/{stem}.js",
         f"{blddir}/{stem}.c",

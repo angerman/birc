@@ -1958,7 +1958,7 @@ static void __attribute__((constructor)) sys_platform_use(void) {
 Term sys_media_program_run(Env e, Term *f, IoWork *w) {
   const char *program = getenv("BIRC_MEDIA_HELPER");
   (void)f; (void)w;
-  if (!program || !*program) program = "birc-image";
+  if (!program || !*program) program = "native";
   return io_str(e, program, strlen(program));
 }
 static void __attribute__((constructor)) sys_media_program_use(void) {

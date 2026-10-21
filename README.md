@@ -112,9 +112,9 @@ whole client correct.
 | [`src/ffi/dns_ffi.c`](src/ffi/dns_ffi.c) | C99 | UDP/TCP socket primitives: `recv_octets`, `send_octets`, dup, shutdown |
 | [`src/bend/tls.bend`](src/bend/tls.bend) / [`src/ffi/tls_ffi.c`](src/ffi/tls_ffi.c) | Bend 2 / C11 | Bounded, verified OpenSSL TLS transport |
 | [`src/ffi/clock_ffi.c`](src/ffi/clock_ffi.c) | C99 | Local receipt clock and date-aware UTC-to-local conversion |
-| [`src/media/image.py`](src/media/image.py) | Python | Bounded HTTP(S)/local image loading and normalization with Pillow |
-| [`src/bend/upload.bend`](src/bend/upload.bend) / [`src/bend/upload_io.bend`](src/bend/upload_io.bend) | Bend 2 | Per-file consent, worker ownership, scoped completion, and bounded helper calls |
-| [`src/media/upload.py`](src/media/upload.py) | Python | Fixed-origin HTTPS file upload with streamed input and checked URL output |
+| [`src/ffi/media_fetch_ffi.c`](src/ffi/media_fetch_ffi.c) / [`src/bend/media_io.bend`](src/bend/media_io.bend) | C11 / Bend 2 | Native image/card fetch, decode, and cache; Bend owns request identity |
+| [`src/bend/upload.bend`](src/bend/upload.bend) / [`src/bend/upload_io.bend`](src/bend/upload_io.bend) / [`src/ffi/upload_ffi.c`](src/ffi/upload_ffi.c) | Bend 2 / C11 | Per-file consent and native HTTPS upload to `0x0.st` |
+| [`src/ffi/keychain_birc.c`](src/ffi/keychain_birc.c) | C99 | Packaged `keychain-birc` launcher: TOML profiles and macOS Keychain |
 | [`LAWS.bend`](LAWS.bend) / [`PROOF.bend`](PROOF.bend) | Bend 2 | Quantified proofs and concrete checked examples |
 
 ---
@@ -678,14 +678,14 @@ connecting elsewhere drops them and closes the overlay.
 Press F9 to show the newest ready image fullscreen, and F9 or Esc to close
 it. The overlay re-checks its image token, source, and terminal support on
 every paint, so it closes itself when the image is gone. Use
-`BIRC_CARDS_HELPER` to override the cards helper path for development and
-synthetic tests; an explicitly empty value uses `birc-cards` from PATH.
+`BIRC_CARDS_HELPER` to override the cards helper for development and
+synthetic tests; the default is the linked native effect (`native`).
 
 Use `make shell` before invoking `./build/birc` directly. The Nix package defaults
-an unset helper variable to its absolute helper path. Use `BIRC_MEDIA_HELPER`
-to override the helper for development and synthetic tests. It is an executable
-path, not a shell command. An explicitly empty value uses `birc-image` from
-PATH. Reload an existing Nix shell after provisioning changes.
+an unset helper variable to `native`. Use `BIRC_MEDIA_HELPER` to override the
+helper for development and synthetic tests. `native` is the linked C effect;
+any other value is an executable path, not a shell command. Reload an existing
+Nix shell after provisioning changes.
 
 ### Public file uploads
 
@@ -725,11 +725,10 @@ that result, even if you later return. Cancelling or quitting does not kill
 the running helper. It has a 30-second wall-clock bound; Bend's helper call
 has a separate 35-second bound. Only one upload helper runs at a time.
 
-The Nix package supplies Python, CA trust, and an absolute default uploader.
-Use `make shell` before running `./build/birc` directly. An existing shell
-must be reloaded to find the new uploader. `BIRC_UPLOAD_HELPER` is a literal
-executable-path override for development and offline tests, not a shell
-command. An explicitly empty value uses `birc-upload` from PATH.
+The Nix package defaults the uploader to the linked native effect. Use
+`make shell` before running `./build/birc` directly. `BIRC_UPLOAD_HELPER`
+overrides the helper for development and synthetic tests. `native` is the
+linked C effect; any other value is an executable path, not a shell command.
 Upload code 5 means an HTTP rejection or an invalid service reply. A verified
 numeric HTTP status appears in `*log*` when available. Response bodies,
 private paths, and arbitrary helper diagnostics stay hidden.

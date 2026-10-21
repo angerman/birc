@@ -3768,13 +3768,15 @@ def ws_start.keyed(first: T.Ui & W.Workspace & Sid.RoutedCmd & Bool, +flag: U32,
             ws_start.boot(loaded, (ui, flag), options, hist_path, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls, rc)
 
 
-def ws_start.prepared(support: T.Ui & U32, +options: PrefWorker.Options, +hist_path: String, on: Bool, +ws0: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool) -> IO(Unit):
+def ws_start.prepared(support: T.Ui & U32, +options: PrefWorker.Options, +ws0: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool) -> IO(Unit):
   match support:
     case (ui, +flag):
       +deferred = ws_policy(options)
-      +ws1 = ws_epoch(ws0, deferred)
+      +ws1 = W.set_media_supported(ws_epoch(ws0, deferred), T.flag_on(flag))
       do IO<Unit>:
         first : T.Ui & W.Workspace & Sid.RoutedCmd & Bool <- ws_first.frame(ui, ws1, evts)
+        hist_path : String <- Hist.resolve_history_path()
+        on : Bool <- Net.images_enabled()
         ws_start.keyed(first, flag, options, hist_path, on, deferred, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls)
 
 def ws_start.go(+main: Chan(WsMsg), ui_evt: Chan(Sess.UiMsg), ack: Chan(Unit), c0: Chan(Sess.NetCmd), c1: Chan(Sess.NetCmd), c2: Chan(Sess.NetCmd), c3: Chan(Sess.NetCmd), e0: Chan(Sess.UiMsg), e1: Chan(Sess.UiMsg), e2: Chan(Sess.UiMsg), e3: Chan(Sess.UiMsg), +pevts: Chan(Sess.UiMsg), +frames: U32, +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions, +force_tls: Bool) -> IO(Unit):
@@ -3785,9 +3787,7 @@ def ws_start.go(+main: Chan(WsMsg), ui_evt: Chan(Sess.UiMsg), ack: Chan(Unit), c
     ui : T.Ui <- IO.try(T.Ui, T.Timui.open())
     support : T.Ui & U32 <- T.Timui.image_supported(ui)
     options : PrefWorker.Options <- PrefWorker.options()
-    +hist_path : String <- Hist.resolve_history_path()
-    on : Bool <- Net.images_enabled()
-    ws_start.prepared(support, options, hist_path, on, ws0, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls)
+    ws_start.prepared(support, options, ws0, main, cmds, evts, pevts, ack, frames, ui_evt, host, port, extra, nick, force_tls)
 
 def ws_start(+frames: U32, +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +chan: String, +sasl_user: String, +sasl_pass: String, +auth: Args.AuthOptions, +force_tls: Bool) -> IO(Unit):
   do IO<Unit>:

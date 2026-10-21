@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-{ lib, stdenv, bend, clang, makeWrapper, callPackage, python3, openssl, cacert
+{ lib, stdenv, bend, clang, makeWrapper, openssl, cacert
+, libnotify ? null
 , profileBuild ? false }:
 
 let
-  media = callPackage ./media.nix {};
-  cards = callPackage ./cards.nix {};
-  upload = callPackage ./upload.nix {};
-  preferences = callPackage ./preferences.nix {};
-  search = callPackage ./search.nix {};
-  notify = callPackage ./notify.nix {};
+  notifyHelper =
+    if stdenv.hostPlatform.isDarwin then "/usr/bin/osascript"
+    else if libnotify != null then "${libnotify}/bin/notify-send"
+    else throw "birc Linux package requires libnotify";
 in stdenv.mkDerivation {
   pname = "birc";
   version = "0.1.0";
@@ -51,6 +50,7 @@ in stdenv.mkDerivation {
       -isystem ${lib.getDev openssl}/include birc_bend.c \
       -L${lib.getLib openssl}/lib -Wl,-rpath,${lib.getLib openssl}/lib \
       -lssl -lcrypto -o birc
+    clang -std=c11 -O2 -Wall -Wextra -Werror src/ffi/keychain_birc.c -o keychain-birc
     ${lib.optionalString profileBuild ''
       printf 'birc-build stage=native elapsed_s=%s\n' "$((SECONDS - birc_stage_started))" >&2
     ''}
@@ -62,19 +62,14 @@ in stdenv.mkDerivation {
     mkdir -p $out/bin $out/libexec
     cp birc $out/bin/birc
     wrapProgram $out/bin/birc \
-      --set-default BIRC_MEDIA_HELPER "${media}/bin/birc-image" \
-      --set-default BIRC_CARDS_HELPER "${cards}/bin/birc-cards" \
-      --set-default BIRC_UPLOAD_HELPER "${upload}/bin/birc-upload" \
-      --set-default BIRC_PREFS_HELPER "${preferences}/bin/birc-preferences" \
-      --set-default BIRC_SEARCH_HELPER "${search}/bin/birc-history-search" \
-      --set-default BIRC_NOTIFY_HELPER "${notify}/bin/birc-notify" \
+      --set-default BIRC_MEDIA_HELPER native \
+      --set-default BIRC_CARDS_HELPER native \
+      --set-default BIRC_UPLOAD_HELPER native \
+      --set-default BIRC_PREFS_HELPER native \
+      --set-default BIRC_SEARCH_HELPER native \
+      --set-default BIRC_NOTIFY_HELPER "${notifyHelper}" \
       --set-default SSL_CERT_FILE "${cacert}/etc/ssl/certs/ca-bundle.crt"
-    cp src/launcher/keychain_birc.py $out/libexec/keychain_birc.py
-    # keychain_birc.py resolves the shared helper from a sibling _cache.py; without
-    # this it silently falls back to an inline copy that no test exercises.
-    cp src/media/_cache.py $out/libexec/_cache.py
-    makeWrapper ${python3}/bin/python3 $out/bin/keychain-birc \
-      --add-flags $out/libexec/keychain_birc.py \
+    makeWrapper $PWD/keychain-birc $out/bin/keychain-birc \
       --set-default BIRC_PROGRAM "$out/bin/birc"
     runHook postInstall
   '';

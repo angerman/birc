@@ -20,16 +20,11 @@ import Base
 import ./session.bend as Sess
 import ./cards.bend as C
 import ./links.bend as Links
+import ./helper_io.bend as H
+import ./media_io.bend as MediaIO
 
-def cards_program.fallback(got: Result<&1, &1, U32 & String, String>) -> String:
-  match got:
-    case Fail{_}: "birc-cards"
-    case Done{+value}: Bool.pick(String, String.is_empty(value), "birc-cards", value)
-
-def cards_program() -> IO(String):
-  do IO<String>:
-    got : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_CARDS_HELPER")
-    return cards_program.fallback(got)
+def spec() -> H.Spec:
+  H.Spec{"BIRC_CARDS_HELPER", "native", 2800000, 11000}
 
 def cards_enabled.got(result: Result<&1, &1, U32 & String, String>) -> Bool:
   match result:
@@ -50,20 +45,55 @@ def cards_args.pick(remote: Bool, +source: String) -> List<&1, String>:
 def cards_args(+source: String) -> List<&1, String>:
   cards_args.pick(Links.is_url_prefix(source), source)
 
+def cards_payload_exit(code: U32, +out: String) -> String:
+  Bool.pick(String, U32.is_zero(code), out, "")
+
+def cards_payload_pair(pair: U32 & String) -> String:
+  match pair:
+    case (+code, +out): cards_payload_exit(code, out)
+
 def cards_payload(r: Result<&1, &1, U32 & String, U32 & (String & String)>) -> String:
   match r:
     case Fail{_}: ""
-    case Done{(code, (out, _))}: Bool.pick(String, U32.is_zero(code), out, "")
+    case Done{(code, (out, _))}: cards_payload_exit(code, out)
 
-# One bounded external worker; only its exact completion can release
+def cards_run.native.local(remote: Bool, +source: String) -> IO(String):
+  match remote:
+    case True{}:
+      do IO<String>:
+        pair : U32 & String <- MediaIO.cards_load(0, source)
+        return cards_payload_pair(pair)
+    case False{}:
+      do IO<String>:
+        pair : U32 & String <- MediaIO.cards_load(1, source)
+        return cards_payload_pair(pair)
+
+def cards_run.native(+source: String) -> IO(String):
+  cards_run.native.local(Links.is_url_prefix(source), source)
+
+def cards_run.helper(+source: String) -> IO(String):
+  do IO<String>:
+    result : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run(spec(), cards_args(source), "")
+    return cards_payload(result)
+
+def cards_run.choose(native: Bool, +source: String) -> IO(String):
+  match native:
+    case True{}: cards_run.native(source)
+    case False{}: cards_run.helper(source)
+
+def cards_run.payload(+source: String) -> IO(String):
+  do IO<String>:
+    helper : String <- H.name(spec())
+    cards_run.choose(String.eq(helper, "native"), source)
+
+# One bounded worker; only its exact completion can release
 # ownership (see C.accept / C.complete).
 def cards_run(req: C.Request, +evt: Chan(Sess.UiMsg)) -> IO(Unit):
   match req:
     case C.Request{_, +url, +generation, +ticket}:
       do IO<Unit>:
-        program : String <- cards_program()
-        result : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(program, cards_args(url), "", 2800000, 11000)
-        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.CardFetched{generation, ticket, url, cards_payload(result)})
+        payload : String <- cards_run.payload(url)
+        _ : Result<&1, &1, Sess.UiMsg, Unit> <- Chan.send(Sess.UiMsg, evt, Sess.CardFetched{generation, ticket, url, payload})
         return Unit{}
 
 def cards_spawn(job: Maybe<&2, C.Request>, +evt: Chan(Sess.UiMsg)) -> IO(Unit):

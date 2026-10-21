@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-# One bounded helper call. Consent, scope and URL validation stay in Upload.
+# One bounded upload effect. Consent, scope and URL validation stay in Upload.
+# Decode/transport are the native FFI; a helper remains only when
+# BIRC_UPLOAD_HELPER names one.
 import Base
 import ./helper_io.bend as H
 
 def spec() -> H.Spec:
-  H.Spec{"BIRC_UPLOAD_HELPER", "birc-upload", 2048, 35000}
+  H.Spec{"BIRC_UPLOAD_HELPER", "native", 2048, 35000}
 
 def program.env(result: Result<&1, &1, U32 & String, String>) -> String:
-  H.name_got(result, "birc-upload")
+  H.name_got(result, "native")
 
 def program() -> IO(String):
   H.name(spec())
@@ -63,10 +65,43 @@ def error_text(+code: U32, +status: U32) -> String:
     case 0: "upload returned an invalid URL"
     case _: error_text.http(U32.is_eq(code, 5) && http_rejection(status), code, status)
 
-def run_detail(path: String) -> IO(String & U32 & U32):
+law upload_put:
+  String -> IO(U32 & (String & U32))
+
+def upload_put(path):
+  import "../ffi/upload_ffi.c"
+  import "../ffi/upload_ffi.js"
+
+def native_detail.out(+code: U32, +out: String, +status: U32) -> String & U32 & U32:
+  match code:
+    case 0: (out, 0, 0)
+    case _: ("", code, status)
+
+def native_detail(got: U32 & (String & U32)) -> String & U32 & U32:
+  match got:
+    case (code, rest):
+      match rest:
+        case (out, status): native_detail.out(code, out, status)
+
+def run.native(+path: String) -> IO(String & U32 & U32):
+  do IO<String & U32 & U32>:
+    got : U32 & (String & U32) <- upload_put(path)
+    return native_detail(got)
+
+def run.helper(+path: String) -> IO(String & U32 & U32):
   do IO<String & U32 & U32>:
     got : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run(spec(), ["--local", path], "")
     return result_detail(got)
+
+def run.choose(native: Bool, +path: String) -> IO(String & U32 & U32):
+  match native:
+    case True{}: run.native(path)
+    case False{}: run.helper(path)
+
+def run_detail(path: String) -> IO(String & U32 & U32):
+  do IO<String & U32 & U32>:
+    helper : String <- H.name(spec())
+    run.choose(String.eq(helper, "native"), path)
 
 def run(path: String) -> IO(String & U32):
   do IO<String & U32>:

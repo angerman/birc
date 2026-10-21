@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Offline media integration: exact requests, terminal playback, and live IO.
 
-The helper never fetches a URL. Pillow creates all source images in this fixture.
-Native transport/refusal/allocation boundaries have deterministic C controls;
-this test checks the combined Bend scheduling and native playback boundary.
+The helper never fetches a URL. Committed fixtures under fixtures/media
+supply local JPEG bytes and BIRCIMG1 envelopes. Native transport/refusal
+boundaries have deterministic C controls; this test checks Bend scheduling
+and native playback.
 """
 from __future__ import annotations
 
 import base64
 import fcntl
-import importlib.util
-import io
 import json
 import os
 from pathlib import Path
@@ -26,16 +25,9 @@ import tempfile
 import termios
 import time
 
-# The existing typing.py PTY fixture must not shadow Python's typing module
-# while Pillow imports it. Restore the test path for the shared PTY helpers.
-saved_path = sys.path[:]
-sys.path[:] = [entry for entry in sys.path
-               if Path(entry or os.getcwd()).resolve() != Path(__file__).resolve().parent]
-try:
-    from PIL import Image
-finally:
-    sys.path[:] = saved_path
 from output_recovery import fill
+
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "media"
 
 
 def drain(fd: int, duration: float) -> bytes:
@@ -75,18 +67,11 @@ def receive(conn: socket.socket, needle: bytes, timeout: float) -> bytes:
 
 
 def assets(directory: Path) -> bytes:
-    spec = importlib.util.spec_from_file_location("birc_image", Path(__file__).parents[2] / "src/media/image.py")
-    image_helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(image_helper)
-    jpeg = io.BytesIO()
-    Image.new("RGB", (12, 8), (30, 70, 100)).save(jpeg, format="JPEG")
-    (directory / "local.jpg").write_bytes(jpeg.getvalue())
-    (directory / "still.txt").write_text(image_helper.encode(jpeg.getvalue()) + "\n")
-    gif = io.BytesIO()
-    first = Image.new("RGB", (12, 8), (220, 20, 40))
-    second = Image.new("RGB", (12, 8), (20, 100, 220))
-    first.save(gif, format="GIF", save_all=True, append_images=[second], duration=[40, 120], loop=1)
-    encoded = image_helper.encode(gif.getvalue())
+    jpeg = (FIXTURES / "local.jpg").read_bytes()
+    still = (FIXTURES / "still.b64").read_text()
+    encoded = (FIXTURES / "animated.b64").read_text().strip()
+    (directory / "local.jpg").write_bytes(jpeg)
+    (directory / "still.txt").write_text(still if still.endswith("\n") else still + "\n")
     (directory / "animated.txt").write_text(encoded + "\n")
     payload = base64.b64decode(encoded, validate=True)
     width, height, count, iterations, rgba_len, gif_len = struct.unpack(">6I", payload[8:32])

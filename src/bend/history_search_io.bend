@@ -22,14 +22,15 @@ def SCAN_OUTPUT_CAP() -> U32:
 def SCAN_NATIVE_CAP() -> U32:
   8388608
 
-# Packaged default helper; BIRC_SEARCH_HELPER=native selects the linked
-# native scan instead of a helper process. Output cap stays the helper cap;
-# the native scan keeps SCAN_NATIVE_CAP.
+# Linked native scan is the default. BIRC_SEARCH_HELPER may name an
+# optional process helper; the token "native" (also the unset default)
+# selects the FFI scan instead of Process.run. Output cap stays the
+# helper cap; the native scan keeps SCAN_NATIVE_CAP.
 def search_spec() -> H.Spec:
-  H.Spec{"BIRC_SEARCH_HELPER", "birc-history-search", SCAN_OUTPUT_CAP(), 30000}
+  H.Spec{"BIRC_SEARCH_HELPER", "native", SCAN_OUTPUT_CAP(), 30000}
 
 def program.default(got: Result<&1, &1, U32 & String, String>) -> String:
-  H.name_got(got, "birc-history-search")
+  H.name_got(got, "native")
 
 def program() -> IO(String):
   H.name(search_spec())
