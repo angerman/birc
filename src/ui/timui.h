@@ -3919,6 +3919,11 @@ TIMUI_API int timui_write_all_(int fd, const void *d, size_t n) {
   }
   return (off == 0 && n > 0) ? -1 : (int)off;
 }
+/* Live frames set this so a full terminal buffer returns instead of
+ * sleeping in poll. The frame effect then parks on POLLOUT until the
+ * frame deadline. Teardown leaves this clear and still waits out its
+ * own deadline. */
+static int timui_frame_nowait;
 /* Teardown twin of timui_write_all_. The caller has already made `fd`
  * nonblocking, so write() itself cannot block; every wait is charged against
  * one absolute deadline shared by the whole teardown. Returns bytes written, or
@@ -3947,8 +3952,8 @@ static int timui_write_all_until_(int fd, const void *d, size_t n,
       struct pollfd pfd;
       int left;
       now = timui_now_ms();
-      if (now >= deadline_ms)
-        break; /* budget spent: give the terminal up, not the process */
+      if (timui_frame_nowait || now >= deadline_ms)
+        break; /* live frame: do not sleep the only event-loop thread */
       left = (int)(deadline_ms - now);
       pfd.fd = fd;
       pfd.events = POLLOUT;

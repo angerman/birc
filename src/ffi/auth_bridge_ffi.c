@@ -193,15 +193,39 @@ static uint32_t birc_auth_notify(void) {
 #define CID_NOTIFY CID(notify)
 #endif
 #if CID_SETUP
-Term setup_run(Env e, Term *f, IoWork *w) {
+typedef struct {
   char bytes[BIRC_SECRET_CAP + 1u];
-  size_t size = 0u;
-  (void)f; (void)w;
-  uint32_t code = birc_auth_setup(bytes, &size);
-  Term value = io_str(e, bytes, (u64)size);
-  volatile unsigned char *wipe = (volatile unsigned char *)bytes;
-  for (size_t i = 0; i < sizeof bytes; ++i) wipe[i] = 0u;
-  return io_tup(e, (Term)code, value);
+  size_t size;
+  uint32_t code;
+} BircAuthSetup;
+
+/* The pipe read polls for up to a second. That wait runs on a helper
+ * thread; the event loop only builds the Bend string and wipes the copy. */
+static void setup_call(IoWork *w) {
+  BircAuthSetup *req = (BircAuthSetup *)w->data;
+  req->code = birc_auth_setup(req->bytes, &req->size);
+}
+
+static Term setup_pack(Env e, IoWork *w) {
+  BircAuthSetup *req = (BircAuthSetup *)w->data;
+  Term value = io_str(e, req->bytes, (u64)req->size);
+  volatile unsigned char *wipe = (volatile unsigned char *)req->bytes;
+  size_t i;
+  Term out;
+  for (i = 0; i < sizeof req->bytes; ++i) wipe[i] = 0u;
+  out = io_tup(e, (Term)req->code, value);
+  free(req);
+  w->data = NULL;
+  return out;
+}
+
+Term setup_run(Env e, Term *f, IoWork *w) {
+  BircAuthSetup *req = (BircAuthSetup *)calloc(1, sizeof *req);
+  (void)f;
+  if (!req)
+    return io_tup(e, (Term)(uint32_t)ENOMEM, io_str(e, "", 0));
+  w->data = (char *)req;
+  return io_work(w, setup_call, setup_pack);
 }
 static void __attribute__((constructor)) setup_use(void) {
   io_eff(CID_SETUP, setup_run);

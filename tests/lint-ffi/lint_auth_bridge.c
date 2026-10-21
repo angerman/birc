@@ -6,4 +6,5 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "ffi_stub.h"
+Term io_work(IoWork *w, void (*call)(IoWork *), Term (*pack)(Env, IoWork *));
 #include "auth_bridge_ffi.c"

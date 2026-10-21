@@ -33,9 +33,10 @@
 # G4 startup order is first input-bearing frame, then settings/archive,
 # then exactly one deferred Begin. The first view uses the measured
 # terminal size, not SIZE0. That frame still applies its keys before any
-# load or boot (a first-frame quit halts before all of it). Settings and
-# the archive then load on a side fiber while later frames keep that size
-# and follow resize. A keyless wake is not replayed onto the import.
+# load or boot (a first-frame quit halts before all of it). Each part
+# then loads on its own fiber, so preference and archive reads overlap,
+# while later frames keep that size and follow resize. A keyless wake is
+# not replayed onto the import.
 # The tty watcher is acked during the wait, so later keys still arrive.
 # One settings prepare still resolves before each part history import,
 # with the postimport client as the save checkpoint.
@@ -3810,12 +3811,82 @@ def ws_start.live(+loaded: WsLoaded, ui: T.Ui, +options: PrefWorker.Options, +pa
         Unit <- IO.spawn(Unit, ws_typing_watch(main))
         ws_begin(frames, ui, ws2, main, cmds, evts, pevts, ack, ctx, True{})
 
+# One part's prepared session. Parts run together; the join applies them
+# in slot order so the first prepared context stays the lowest id.
+type WsPartDone is Data:
+  WsPartDone{id: Key.ServerId, st: Sess.Session, lp: Maybe<&2, LoadedPrefs.Context>, known: Bool}
+
+def ws_load.done_of(+loaded: WsLoaded, +id: Key.ServerId) -> WsPartDone:
+  match loaded:
+    case WsLoaded{+ws, +lp, +known}: WsPartDone{id, ws_part.st(ws, id), lp, known}
+
+def ws_load.part(+ws: W.Workspace, +id: Key.ServerId, +path: String, +options: PrefWorker.Options, +on: Bool, +out: Chan(WsPartDone)) -> IO(Unit):
+  do IO<Unit>:
+    loaded : WsLoaded <- ws_load.one(ws, id, path, options, on)
+    _ : Result<&1, &1, WsPartDone, Unit> <- Chan.send(WsPartDone, out, ws_load.done_of(loaded, id))
+    return Unit{}
+
+def ws_load.done_id(+d: WsPartDone) -> Key.ServerId:
+  match d:
+    case WsPartDone{+id, _, _, _}: id
+
+def ws_load.pick.hit(hit: Bool, +found: WsPartDone, +rest: Maybe<&2, WsPartDone>) -> Maybe<&2, WsPartDone>:
+  match hit:
+    case True{}: Some{found}
+    case False{}: rest
+
+def ws_load.pick(+id: Key.ServerId, +xs: List<&2, WsPartDone>) -> Maybe<&2, WsPartDone>:
+  match xs:
+    case Nil{}: None{}
+    case Con{+h, +t}: ws_load.pick.hit(Key.eq(id, ws_load.done_id(h)), h, ws_load.pick(id, t))
+
+def ws_load.use.base(+base: WsLoaded, +id: Key.ServerId, +st: Sess.Session, +lp: Maybe<&2, LoadedPrefs.Context>, known: Bool) -> WsLoaded:
+  match base:
+    case WsLoaded{+ws, +lp_acc, +known_acc}:
+      WsLoaded{ws_replace(ws, id, st), ws_load.keep2(lp_acc, lp), known_acc && known}
+
+def ws_load.use(+done: WsPartDone, +base: WsLoaded) -> WsLoaded:
+  match done:
+    case WsPartDone{+id, +st, +lp, +known}: ws_load.use.base(base, id, st, lp, known)
+
+def ws_load.fold.got(+got: Maybe<&2, WsPartDone>, +base: WsLoaded) -> WsLoaded:
+  match got:
+    case None{}: base
+    case Some{+done}: ws_load.use(done, base)
+
+def ws_load.fold(fuel: Nat, +slot: Nat, +xs: List<&2, WsPartDone>, +base: WsLoaded) -> WsLoaded:
+  match fuel:
+    case 0n: base
+    case 1n+p: ws_load.fold(p, Nat.add(slot, 1n), xs, ws_load.fold.got(ws_load.pick(Key.ServerId{slot}, xs), base))
+
+# None means the part channel closed early. Stop with what already arrived.
+# A value continues, and the self-call stays on the decreased fuel.
+def ws_load.collect.acc(g: Maybe<&1, WsPartDone>, +xs: List<&2, WsPartDone>, k: List<&2, WsPartDone> -> IO(List<&2, WsPartDone>)) -> IO(List<&2, WsPartDone>):
+  match g:
+    case None{}: IO.pure(List<&2, WsPartDone>, xs)
+    case Some{+done}: k(done <> xs)
+
+def ws_load.collect(fuel: Nat, +box: Chan(WsPartDone), +acc: List<&2, WsPartDone>) -> IO(List<&2, WsPartDone>):
+  match fuel:
+    case 0n: IO.pure(List<&2, WsPartDone>, acc)
+    case 1n+p:
+      do IO<List<&2, WsPartDone>>:
+        g : Maybe<&1, WsPartDone> <- Chan.recv(WsPartDone, box)
+        ws_load.collect.acc(g, acc, ys => ws_load.collect(p, box, ys))
+
+# Four part fibers share the post-frame snapshot. Each prepares its own
+# settings before its own archive. The join is slot order, then one Begin.
 def ws_load.worker(+ws: W.Workspace, +options: PrefWorker.Options, +main: Chan(WsMsg)) -> IO(Unit):
   do IO<Unit>:
     +path : String <- Hist.resolve_history_path()
-    on : Bool <- Net.images_enabled()
-    loaded : WsLoaded <- ws_start.loaded(ws, path, options, on)
-    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsReady{loaded, path})
+    +on : Bool <- Net.images_enabled()
+    +box : Chan(WsPartDone) <- Chan.new(WsPartDone, 4)
+    Unit <- IO.spawn(Unit, ws_load.part(ws, Key.ServerId{0n}, path, options, on, box))
+    Unit <- IO.spawn(Unit, ws_load.part(ws, Key.ServerId{1n}, path, options, on, box))
+    Unit <- IO.spawn(Unit, ws_load.part(ws, Key.ServerId{2n}, path, options, on, box))
+    Unit <- IO.spawn(Unit, ws_load.part(ws, Key.ServerId{3n}, path, options, on, box))
+    xs : List<&2, WsPartDone> <- ws_load.collect(4n, box, Nil{})
+    _ : Result<&1, &1, WsMsg, Unit> <- Chan.send(WsMsg, main, WsReady{ws_load.fold(4n, 0n, xs, WsLoaded{ws, None{}, True{}}), path})
     return Unit{}
 
 def ws_hold0() -> WsHold:

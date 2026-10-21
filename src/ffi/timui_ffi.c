@@ -1320,6 +1320,7 @@ static TimuiTransportWrite birc_output_begin(Timui *ui, int *saved_flags) {
   *saved_flags = fcntl(ui->fd.write_fd, F_GETFL, 0);
   birc_frame_disabled = *saved_flags < 0 ||
       fcntl(ui->fd.write_fd, F_SETFL, *saved_flags | O_NONBLOCK) < 0;
+  timui_frame_nowait = 1;
   /* Writable means some bytes fit, not that a complete repaint will fit.
    * A repair gets bounded headroom, never the former two-second UI stall. */
   if (birc_output_pending(ui))
@@ -1335,8 +1336,19 @@ static TimuiTransportWrite birc_output_begin(Timui *ui, int *saved_flags) {
   return saved;
 }
 
-static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
-                           int saved_flags) {
+/* Nested writes return on EAGAIN while this is set. A short frame then
+ * parks on POLLOUT instead of polling here, so the one event-loop thread
+ * can still read the network and the keyboard. The retained offset drains
+ * when the terminal reads, or when the frame deadline is due. */
+static void birc_output_disarm(Timui *ui, TimuiTransportWrite saved,
+                              int saved_flags) {
+  ui->transport.write = saved;
+  timui_frame_nowait = 0;
+  if (saved_flags >= 0 && !birc_frame_disabled)
+    timui_fd_flags_restore_(ui->fd.write_fd, saved_flags);
+}
+
+static void birc_output_release(Timui *ui) {
   BircUi *bu = birc_state(ui);
   if (bu && !birc_output_finish(&bu->output)) {
     birc_output_failure = 1;
@@ -1349,9 +1361,95 @@ static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
     timui_full_redraw(ui);
   }
   birc_frame_drain(ui, bu);
-  ui->transport.write = saved;
-  if (saved_flags >= 0 && !birc_frame_disabled)
-    timui_fd_flags_restore_(ui->fd.write_fd, saved_flags);
+}
+
+static void birc_output_end(Timui *ui, TimuiTransportWrite saved,
+                           int saved_flags) {
+  birc_output_release(ui);
+  birc_output_disarm(ui, saved, saved_flags);
+}
+
+static int birc_frame_unsent(Timui *ui) {
+  BircUi *bu = birc_state(ui);
+  return bu && (bu->output.offset < bu->output.size ||
+                ui->fd.write_utf8_tail_len != 0);
+}
+
+static int birc_frame_can_wait(Timui *ui) {
+  return ui && !birc_frame_disabled && ui->fd.write_fd >= 0 &&
+         birc_frame_unsent(ui) && timui_now_ms() < birc_frame_deadline;
+}
+
+static u64 birc_frame_wait_until(void) {
+  uint64_t now = timui_now_ms();
+  uint64_t left = 0;
+  if (now < birc_frame_deadline)
+    left = birc_frame_deadline - now;
+  return io_tick() + left * 1000000ull;
+}
+
+typedef struct {
+  Timui *ui;
+  TimuiTransportWrite saved_write;
+  int saved_flags;
+  int enter;
+  size_t tlen;
+  uint32_t rows, cols, click, key, mods, codepoint, wheel, more;
+  char *input;
+} BircFrameOut;
+
+static Term birc_frame_emit(Env e, BircFrameOut *st) {
+  Timui *ui = st->ui;
+  BircUi *bu = birc_state(ui);
+  const char *typed = bu ? bu->composer : "";
+  Term out = birc_uikeys(e, ui, st->enter, typed, st->tlen, st->rows, st->cols,
+                         st->click, st->key, st->mods, st->codepoint, st->wheel,
+                         st->more, bu ? bu->link_url : "",
+                         bu && bu->clipboard ? bu->clipboard : "");
+  if (bu) {
+    free(bu->clipboard);
+    bu->clipboard = NULL;
+  }
+  if (st->enter && bu) {
+    bu->composer[0] = '\0';
+    bu->st.cursor = 0;
+    bu->st.scroll_y = 0;
+  }
+  free(st->input);
+  st->input = NULL;
+  return out;
+}
+
+static Term birc_frame_flush(Env e, IoWork *w) {
+  BircFrameOut *st = (BircFrameOut *)w->data;
+  Timui *ui = st->ui;
+  Term out;
+  birc_frame_drain(ui, birc_state(ui));
+  if (birc_frame_can_wait(ui))
+    return io_wait_on(w, ui->fd.write_fd, POLLOUT, birc_frame_wait_until(),
+                      birc_frame_flush);
+  birc_output_disarm(ui, st->saved_write, st->saved_flags);
+  out = birc_frame_emit(e, st);
+  free(st);
+  w->data = NULL;
+  return out;
+}
+
+static Term birc_frame_finish(Env e, IoWork *w, BircFrameOut *snap) {
+  BircFrameOut *st;
+  if (!birc_frame_can_wait(snap->ui)) {
+    birc_output_disarm(snap->ui, snap->saved_write, snap->saved_flags);
+    return birc_frame_emit(e, snap);
+  }
+  st = (BircFrameOut *)calloc(1, sizeof *st);
+  if (!st) {
+    birc_output_disarm(snap->ui, snap->saved_write, snap->saved_flags);
+    return birc_frame_emit(e, snap);
+  }
+  *st = *snap;
+  w->data = (char *)st;
+  return io_wait_on(w, snap->ui->fd.write_fd, POLLOUT, birc_frame_wait_until(),
+                    birc_frame_flush);
 }
 
 static inline int birc_pt_in_rect(int x, int y, TimuiRect r) {
@@ -1731,7 +1829,7 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
       if (birc_frame_write(&ui->transport, "\a", 1) == 1)
         bu->bell_pending = 0;
     }
-    birc_output_end(ui, saved_write, saved_write_flags);
+    birc_output_release(ui);
   }
   if (bu && bu->profile_enabled) {
     uint64_t profile_t4 = birc_profile_now_ns();
@@ -1742,32 +1840,28 @@ Term timui_frame_run(Env e, Term *f, IoWork *w) {
     bu->profile_end_ns += profile_t4 - profile_t3;
   }
   {
-    const char *typed = bu ? bu->composer : "";
-    uint32_t key = (uint32_t)ui->key_pressed;
-    uint32_t mods = ui->key_mods;
-    uint32_t codepoint = ui->key_codepoint;
+    BircFrameOut snap;
     int wh = fr ? timui_mouse_wheel(fr) : 0;
-    uint32_t more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
-                     ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
-    Term out;
     /* Bend owns Escape/F10 policy: Escape may cancel a pending upload.
      * Fatal transport shutdown must bypass that cancelable action. */
-    if (birc_output_failure || (timui_should_quit(ui) && key == 0))
-      key = (uint32_t)TIMUI_KEY_F10;
-    out = birc_uikeys(e, ui, enter, typed, tlen, rows, cols, click, key, mods,
-                         codepoint, (uint32_t)wh, more,
-                         bu ? bu->link_url : "", bu && bu->clipboard ? bu->clipboard : "");
-    if (bu) {
-      free(bu->clipboard);
-      bu->clipboard = NULL;
-    }
-    if (enter && bu) {
-      bu->composer[0] = '\0';
-      bu->st.cursor = 0;
-      bu->st.scroll_y = 0;
-    }
-    free(input);
-    return out;
+    snap.ui = ui;
+    snap.saved_write = saved_write;
+    snap.saved_flags = saved_write_flags;
+    snap.enter = enter;
+    snap.tlen = tlen;
+    snap.rows = rows;
+    snap.cols = cols;
+    snap.click = click;
+    snap.key = (uint32_t)ui->key_pressed;
+    snap.mods = ui->key_mods;
+    snap.codepoint = ui->key_codepoint;
+    snap.wheel = (uint32_t)wh;
+    snap.more = (ui->event_count > 0 || ui->pending_in_len > 0 ||
+                 ui->pending_enter_count > 0 || ui->pending_edit_count > 0) ? 1u : 0u;
+    snap.input = input;
+    if (birc_output_failure || (timui_should_quit(ui) && snap.key == 0))
+      snap.key = (uint32_t)TIMUI_KEY_F10;
+    return birc_frame_finish(e, w, &snap);
   }
 }
 static void __attribute__((constructor)) timui_frame_use(void) {

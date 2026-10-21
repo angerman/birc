@@ -43,10 +43,43 @@ def finish(f: File, state: ReadState) -> IO(Cl.Client):
         Unit <- File.close(f)
         return finish_client(drop, cl, rem)
 
+# Same yield as history reads: the replay framer stays on the event
+# thread, so a 4096-byte push would stall every other fiber. Slice,
+# park, then continue. The framer already keeps a cross-chunk remainder.
+def read_pace.step(fuel: Nat, +bytes: List<&2, U32>, state: ReadState) -> ReadState & List<&2, U32>:
+  match fuel:
+    case 0n: (state, bytes)
+    case 1n+p:
+      match bytes:
+        case Nil{}: (state, Nil{})
+        case Con{+byte, +t}: read_pace.step(p, t, chunk(state, byte <> Nil{}))
+
+def read_pace.unpack(pair: ReadState & List<&2, U32>, k: List<&2, U32> -> ReadState -> IO(Cl.Client)) -> IO(Cl.Client):
+  match pair:
+    case (state, +bytes): k(bytes, state)
+
+def read_pace.more(fuel: Nat, +bytes: List<&2, U32>, +drop: Nat, f: File, +path: String, state: ReadState, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match fuel:
+    case 0n: next(f, state, Nat.sub(remaining, drop))
+    case 1n+p:
+      match bytes:
+        case Nil{}: next(f, state, Nat.sub(remaining, drop))
+        case Con{+byte, +t}:
+          do IO<Cl.Client>:
+            Unit <- IO.sleep(0)
+            read_pace.unpack(read_pace.step(256n, byte <> t, state), bs => st => read_pace.more(p, bs, drop, f, path, st, remaining, next))
+
+def read_pace.launch(pair: ReadState & List<&2, U32>, +drop: Nat, f: File, +path: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match pair:
+    case (state, +left): read_pace.more(List.length(&2, U32, left), left, drop, f, path, state, remaining, next)
+
+def read_pace.begin(+bytes: List<&2, U32>, +drop: Nat, f: File, +path: String, state: ReadState, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  read_pace.launch(read_pace.step(256n, bytes, state), drop, f, path, remaining, next)
+
 def read_loop.bytes(empty: Bool, f: File, +path: String, state: ReadState, +bytes: List<&2, U32>, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
     case True{}: fail(f, path, "unexpected end of file")
-    case False{}: next(f, chunk(state, bytes), Nat.sub(remaining, List.length(&2, U32, bytes)))
+    case False{}: read_pace.begin(bytes, List.length(&2, U32, bytes), f, path, state, remaining, next)
 
 def read_loop.got(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, +path: String, state: ReadState, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:

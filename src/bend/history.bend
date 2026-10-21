@@ -591,10 +591,45 @@ def read_failure.mode(+snapshot: Bool, f: File, state: ReadState, now: String, e
     cl : Cl.Client <- read_finish.mode(snapshot, f, state, now)
     return read_error(snapshot, cl, error, stage)
 
+# The Bend event loop is one thread. File.read_bytes already parks on a
+# helper, but the pure byte walk between reads does not. A short slice
+# then IO.sleep(0) parks this fiber so a resize, a key, or the network
+# can run before the next slice. 256 bytes keeps each walk smaller than
+# one 4096-byte read.
+def read_pace.step(fuel: Nat, +bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState & List<&2, U32>:
+  match fuel:
+    case 0n: (state, bytes)
+    case 1n+p:
+      match bytes:
+        case Nil{}: (state, Nil{})
+        case Con{+byte, +t}: read_pace.step(p, t, read_step(endpoint, cap, state, byte), endpoint, cap)
+
+def read_pace.unpack(pair: ReadState & List<&2, U32>, k: List<&2, U32> -> ReadState -> IO(Cl.Client)) -> IO(Cl.Client):
+  match pair:
+    case (state, +bytes): k(bytes, state)
+
+def read_pace.more(fuel: Nat, +bytes: List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match fuel:
+    case 0n: next(f, state, Nat.sub(remaining, drop))
+    case 1n+p:
+      match bytes:
+        case Nil{}: next(f, state, Nat.sub(remaining, drop))
+        case Con{+byte, +t}:
+          do IO<Cl.Client>:
+            Unit <- IO.sleep(0)
+            read_pace.unpack(read_pace.step(256n, byte <> t, state, endpoint, cap), bs => st => read_pace.more(p, bs, drop, snapshot, f, st, endpoint, cap, now, remaining, next))
+
+def read_pace.launch(pair: ReadState & List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  match pair:
+    case (state, +left): read_pace.more(List.length(&2, U32, left), left, drop, snapshot, f, state, endpoint, cap, now, remaining, next)
+
+def read_pace.begin(+bytes: List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  read_pace.launch(read_pace.step(256n, bytes, state, endpoint, cap), drop, snapshot, f, endpoint, cap, now, remaining, next)
+
 def read_loop.empty.mode(empty: Bool, snapshot: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
     case True{}: read_finish.mode(snapshot, f, state, now)
-    case False{}: next(f, read_chunk(bytes, state, endpoint, cap), Nat.sub(remaining, List.length(&2, U32, bytes)))
+    case False{}: read_pace.begin(bytes, List.length(&2, U32, bytes), snapshot, f, state, endpoint, cap, now, remaining, next)
 
 def read_loop.got.mode(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, snapshot: Bool, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:

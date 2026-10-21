@@ -213,6 +213,11 @@ Local edits to `src/ui/timui.h` (re-apply on an upstream update):
    an unconsumed prefix of the stashed tail is restored on early exit. Held
    input preserves queued focus events across frames. The deferred post-Enter
    tail also keeps Backspace and cursor ops (`pending_edit_ops`).
+5. **Live frame writes do not poll.** `timui_frame_nowait` makes
+   `timui_write_all_until_` return on `EAGAIN` during a frame. If bytes
+   remain, the frame effect parks on `POLLOUT` until the frame deadline,
+   and the retained offset drains when the terminal reads. Teardown still
+   waits inside its deadline.
 
 ### Pure domain types
 
