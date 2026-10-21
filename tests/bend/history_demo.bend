@@ -106,10 +106,17 @@ def utf8_chunk.final(state: H.ReadState) -> Bool:
     case H.ReadState{cl, _, +n, _}:
       String.eq(CL.buf_texts(cl, 0n), "é|") && Nat.is_eq(n, 0n)
 
+def read_all.unpack(pair: H.ReadState & List<&2, U32>) -> H.ReadState:
+  match pair:
+    case (st, _): st
+
+def read_all(+bytes: List<&2, U32>, state: H.ReadState, +endpoint: String, +cap: U32) -> H.ReadState:
+  read_all.unpack(H.read_pace.step(List.length(&2, U32, bytes), bytes, state, endpoint, cap))
+
 def utf8_chunk_ok() -> Bool:
   +start: H.ReadState = H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}
-  +first = H.read_chunk(List.append(&2, U32, Fr.string_to_octets("BIRC2\ta:6667\t*server*\tMSG\t\ta\t"), 195 <> Nil{}), start, "a:6667", 2)
-  utf8_chunk.final(H.read_chunk(169 <> 10 <> Nil{}, first, "a:6667", 2))
+  +first = read_all(List.append(&2, U32, Fr.string_to_octets("BIRC2\ta:6667\t*server*\tMSG\t\ta\t"), 195 <> Nil{}), start, "a:6667", 2)
+  utf8_chunk.final(read_all(169 <> 10 <> Nil{}, first, "a:6667", 2))
 
 def server_roles_ok() -> Bool:
   +old = Cl.init("me", "a")
@@ -132,7 +139,7 @@ def interleaved_history_ok() -> Bool:
   +a = Feed.feed(old, ":a!u@h PRIVMSG me :first")
   +b = Feed.feed(a, ":b!u@h PRIVMSG me :second")
   +new = Feed.feed(b, ":a!u@h PRIVMSG me :third")
-  interleaved.restored(H.read_chunk(Fr.string_to_octets(H.extract_new_history_for("a:6667", old, new)),
+  interleaved.restored(read_all(Fr.string_to_octets(H.extract_new_history_for("a:6667", old, new)),
     H.ReadState{Cl.init("me", "a"), Nil{}, 0n, False{}}, "a:6667", 100))
 
 def casemap_entries() -> List<&2, H.HistEntry>:

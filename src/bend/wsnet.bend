@@ -3535,37 +3535,6 @@ def ws_load.one_got(+got: Maybe<&2, W.Part>, +ws: W.Workspace, +id: Key.ServerId
 def ws_load.one(+ws: W.Workspace, +id: Key.ServerId, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
   ws_load.one_got(W.find_part(ws, id), ws, id, path, options, on)
 
-def ws_start.l4(+g3: WsLoaded, +lp_acc: Maybe<&2, LoadedPrefs.Context>, known_acc: Bool) -> IO(WsLoaded):
-  match g3:
-    case WsLoaded{+ws4, +lp4, +known4}:
-      IO.pure(WsLoaded, WsLoaded{ws4, ws_load.keep2(lp_acc, lp4), known_acc && known4})
-
-def ws_start.l3(+g2: WsLoaded, +lp_acc: Maybe<&2, LoadedPrefs.Context>, known_acc: Bool, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
-  match g2:
-    case WsLoaded{+ws3, +lp3, +known3}:
-      do IO<WsLoaded>:
-        g3 : WsLoaded <- ws_load.one(ws3, Key.ServerId{3n}, path, options, on)
-        ws_start.l4(g3, ws_load.keep2(lp_acc, lp3), known_acc && known3)
-
-def ws_start.l2(+g1: WsLoaded, +lp_acc: Maybe<&2, LoadedPrefs.Context>, known_acc: Bool, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
-  match g1:
-    case WsLoaded{+ws2, +lp2, +known2}:
-      do IO<WsLoaded>:
-        g2 : WsLoaded <- ws_load.one(ws2, Key.ServerId{2n}, path, options, on)
-        ws_start.l3(g2, ws_load.keep2(lp_acc, lp2), known_acc && known2, path, options, on)
-
-def ws_start.l1(+g0: WsLoaded, +lp_acc: Maybe<&2, LoadedPrefs.Context>, known_acc: Bool, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
-  match g0:
-    case WsLoaded{+ws1, +lp1, +known1}:
-      do IO<WsLoaded>:
-        g1 : WsLoaded <- ws_load.one(ws1, Key.ServerId{1n}, path, options, on)
-        ws_start.l2(g1, ws_load.keep2(lp_acc, lp1), known_acc && known1, path, options, on)
-
-def ws_start.loaded(+ws: W.Workspace, +path: String, +options: PrefWorker.Options, +on: Bool) -> IO(WsLoaded):
-  do IO<WsLoaded>:
-    g0 : WsLoaded <- ws_load.one(ws, Key.ServerId{0n}, path, options, on)
-    ws_start.l1(g0, None{}, True{}, path, options, on)
-
 def ws_start.ctx(+lp_acc: Maybe<&2, LoadedPrefs.Context>, +options: PrefWorker.Options, +ws: W.Workspace, +path: String, +known: Bool) -> PrefLive.Context:
   match lp_acc:
     case Some{+lp}: PrefLive.prepared(lp, path, known)
@@ -3785,16 +3754,6 @@ def ws_start.emit_extra(+deferred: Bool, +ws: W.Workspace, +more: Maybe<&2, Sid.
   match more:
     case None{}: IO.pure(Unit, Unit{})
     case Some{+rc}: ws_start.emit_boot(deferred, ws, rc, cmds, evts)
-
-def ws_start.boot(+loaded: WsLoaded, support: T.Ui & U32, +options: PrefWorker.Options, +path: String, +deferred: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +host: String, +port: U32, +extra: List<&2, Ep.Endpoint>, +nick: String, +force_tls: Bool, +rc: Sid.RoutedCmd) -> IO(Unit):
-  match loaded:
-    case WsLoaded{+ws2, +lp_acc, +known}:
-      +ctx = ws_start.ctx(lp_acc, options, ws2, path, known)
-      do IO<Unit>:
-        Unit <- ws_boot.each(ws2, nick, frames, force_tls, main, cmds, evts, W.ws_parts(ws2), deferred)
-        Unit <- ws_start.emit_boot(deferred, ws2, rc, cmds, evts)
-        Unit <- ws_begin_all(cmds, ws2)
-        ws_supported(support, ws2, main, cmds, evts, pevts, ack, frames, ui_evt, ctx, True{})
 
 # Watches are already running. Boot, emit the captured command, Begin,
 # then enter the live loop. Do not open the tty again.

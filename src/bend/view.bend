@@ -1679,6 +1679,11 @@ def visible_day_step(hidden: Bool, +day: String, +prev_day: String) -> String:
 type DayTag is Data:
   DayTag{line: Cl.Line, prev_day: String, filtered: List<&2, Cl.Line>}
 
+# Cover keeps the paint filter so day_tag.go does not filter the slice again.
+# List length still counts hidden lines; the drop before older_day.scan stays.
+type Covered is Data:
+  Covered{line: Cl.Line, filtered: List<&2, Cl.Line>}
+
 # At least one visible line so an up=0 / empty budget still tags the anchor.
 def day_tag_need(+need: Nat) -> Nat:
   Bool.pick(Nat, Nat.is_eq(need, 0n), 1n, need)
@@ -1757,9 +1762,9 @@ def day_tag.left(hidden: Bool, +left: Nat) -> Nat:
     case True{}: left
     case False{}: Nat.sub(left, Nat.min(left, 1n))
 
-def day_tag.cover.stop(done: Bool, +h: Cl.Line, +acc: List<&2, Cl.Line>, k: Unit -> List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+def day_tag.cover.stop(done: Bool, +row: Covered, +acc: List<&2, Covered>, k: Unit -> List<&2, Covered>) -> List<&2, Covered>:
   match done:
-    case True{}: h <> acc
+    case True{}: row <> acc
     case False{}: k(Unit{})
 
 # Newest-first walk; cons yields oldest-first among taken (reverse before tag).
@@ -1773,8 +1778,8 @@ def day_tag.cover.go(
   +name: String,
   +server: String,
   +boxed: List<&2, PaintOpts>,
-  +acc: List<&2, Cl.Line>
-) -> List<&2, Cl.Line>:
+  +acc: List<&2, Covered>
+) -> List<&2, Covered>:
   match fuel:
     case 0n: acc
     case 1n+p:
@@ -1784,8 +1789,8 @@ def day_tag.cover.go(
           +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
           +hidden = List.is_empty(&2, Cl.Line, filtered)
           +next = day_tag.left(hidden, left)
-          day_tag.cover.stop(Bool.and(Bool.not(hidden), Nat.is_eq(next, 0n)), h, acc,
-            done => day_tag.cover.go(p, t, next, mutes, joins, nicks, name, server, boxed, h <> acc))
+          day_tag.cover.stop(Bool.and(Bool.not(hidden), Nat.is_eq(next, 0n)), Covered{h, filtered}, acc,
+            done => day_tag.cover.go(p, t, next, mutes, joins, nicks, name, server, boxed, Covered{h, filtered} <> acc))
 
 def day_tag.cover(
   +lines_newest: List<&2, Cl.Line>,
@@ -1796,31 +1801,19 @@ def day_tag.cover(
   +name: String,
   +server: String,
   +boxed: List<&2, PaintOpts>
-) -> List<&2, Cl.Line>:
-  List.reverse(&2, Cl.Line, day_tag.cover.go(rev_tail_fuel(), lines_newest, day_tag_need(need), mutes, joins, nicks, name, server, boxed, Nil{}))
+) -> List<&2, Covered>:
+  List.reverse(&2, Covered, day_tag.cover.go(rev_tail_fuel(), lines_newest, day_tag_need(need), mutes, joins, nicks, name, server, boxed, Nil{}))
 
-def day_tag.go(
-  fuel: Nat,
-  lines: List<&2, Cl.Line>,
-  +prev_day: String,
-  +mutes: List<&2, String>,
-  +joins: Bool,
-  +nicks: Bool,
-  +name: String,
-  +server: String,
-  +boxed: List<&2, PaintOpts>,
-  +acc: List<&2, DayTag>
-) -> List<&2, DayTag>:
+def day_tag.go(fuel: Nat, lines: List<&2, Covered>, +prev_day: String, +acc: List<&2, DayTag>) -> List<&2, DayTag>:
   match fuel:
     case 0n: acc
     case 1n+p:
       match lines:
         case Nil{}: acc
-        case Con{+h, +t}:
-          +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+        case Con{Covered{+h, +filtered}, +t}:
           +hidden = List.is_empty(&2, Cl.Line, filtered)
           # Cons while walking oldest-first yields newest-first without a second reverse.
-          day_tag.go(p, t, visible_day_step(hidden, line_day(h), prev_day), mutes, joins, nicks, name, server, boxed,
+          day_tag.go(p, t, visible_day_step(hidden, line_day(h), prev_day),
             DayTag{h, prev_day, filtered} <> acc)
 
 # Cover `need` visible newest-first lines (hidden runs free); seed from older rest.
@@ -1835,8 +1828,8 @@ def day_tag(
   +boxed: List<&2, PaintOpts>
 ) -> List<&2, DayTag>:
   +slice = day_tag.cover(lines_newest, need, mutes, joins, nicks, name, server, boxed)
-  +seed = older_day.scan(List.drop(&2, Cl.Line, lines_newest, List.length(&2, Cl.Line, slice)), mutes, joins, nicks, name, server, boxed)
-  day_tag.go(rev_tail_fuel(), List.reverse(&2, Cl.Line, slice), seed, mutes, joins, nicks, name, server, boxed, Nil{})
+  +seed = older_day.scan(List.drop(&2, Cl.Line, lines_newest, List.length(&2, Covered, slice)), mutes, joins, nicks, name, server, boxed)
+  day_tag.go(rev_tail_fuel(), List.reverse(&2, Covered, slice), seed, Nil{})
 
 def day_rows.on(skip: Bool, +day: String, +w: U32) -> List<&2, BodyRow>:
   match skip:

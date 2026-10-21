@@ -3,7 +3,7 @@
 # (first input-bearing frame before settings/archive/Begin; Begin only
 # after ws_act; media lease never pruned in ws_post) are structural and
 # review-verified at src/bend/wsnet.bend (ws_first.frame, ws_start.keyed,
-# ws_start.boot, ws_frame.begun_after, ws_post.prefs); these guards pin
+# ws_start.live, ws_frame.begun_after, ws_post.prefs); these guards pin
 # the pure seams those paths depend on. All synthetic, JS backend.
 # Authored-but-NOT-run: source-only until the heavy lane is granted.
 import Base

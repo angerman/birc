@@ -556,11 +556,6 @@ def read_step(+endpoint: String, cap: U32, state: ReadState, +byte: U32) -> Read
     case ReadState{cl, rev, count, dropping}:
       read_step.newline(U32.is_eq(byte, 10), endpoint, cap, cl, rev, count, dropping, byte)
 
-def read_chunk(bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState:
-  match bytes:
-    case Nil{}: state
-    case Con{byte, t}: read_chunk(t, read_step(endpoint, cap, state, byte), endpoint, cap)
-
 def read_finish.client(snapshot: Bool, cl: Cl.Client, now: String) -> Cl.Client:
   match snapshot:
     case True{}: cl

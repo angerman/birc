@@ -68,8 +68,15 @@ def restored.state(state: H.ReadState) -> Cl.Client:
   match state:
     case H.ReadState{cl, _, _, _}: cl
 
+def read_all.unpack(pair: H.ReadState & List<&2, U32>) -> H.ReadState:
+  match pair:
+    case (st, _): st
+
+def read_all(+bytes: List<&2, U32>, state: H.ReadState, +endpoint: String, +cap: U32) -> H.ReadState:
+  read_all.unpack(H.read_pace.step(List.length(&2, U32, bytes), bytes, state, endpoint, cap))
+
 def restored(+text: String) -> Cl.Client:
-  restored.state(H.read_chunk(Fr.string_to_octets(text), H.ReadState{Cl.init("me", "s"), Nil{}, 0n, False{}}, "s:6667", 1024))
+  restored.state(read_all(Fr.string_to_octets(text), H.ReadState{Cl.init("me", "s"), Nil{}, 0n, False{}}, "s:6667", 1024))
 
 def last_line.rev(+xs: List<&2, Cl.Line>) -> Cl.Line:
   match xs:
