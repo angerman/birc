@@ -748,8 +748,11 @@ FORCE:
 $(BLDDIR)/build-config: FORCE scripts/build-config.sh
 	$(NIXRUN) sh scripts/build-config.sh $@ '$(BEND_CORE_CFLAGS)' '$(SANITIZER_CFLAGS)'
 
-# Cache lookups need `bend` on PATH. Outside the dev shell that means one
-# nix develop when BIRC_UI_CACHE=1; left off, restore is a local miss.
+# Product UI cache is on unless BIRC_UI_CACHE=0. Lookups need `bend` on
+# PATH; outside the dev shell that is one nix develop. The script keeps
+# hits outside build/ so `make clean` does not drop them.
+BIRC_UI_CACHE ?= 1
+export BIRC_UI_CACHE
 ifeq ($(BIRC_UI_CACHE),1)
 BIRC_UI_CACHE_RUN := $(NIXRUN)
 else

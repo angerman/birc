@@ -7,8 +7,8 @@
 # are slow; this script caches their outputs under a content-hash key so an
 # unchanged tree restores the artifact instead of rebuilding it.
 #
-# Scope: this script is inert until wired in. It never edits the Makefile;
-# see the proposed wiring snippet in the task notes / CI fragment.
+# The Makefile calls restore before bend/clang and store after a real link.
+# BIRC_UI_CACHE=0 forces a miss so `make -n` still shows the compiler recipes.
 #
 # Usage:
 #   sh scripts/build-ui-cache.sh key                  # print cache key
@@ -16,11 +16,14 @@
 #   sh scripts/build-ui-cache.sh store [blddir]       # save current outputs
 #
 # Environment:
-#   BIRC_UI_CACHE=1            Enable restore/store. Default off: restore
-#                              reports miss (caller builds normally) and store
-#                              is a no-op. `key` always works.
-#   BIRC_UI_CACHE_DIR          Cache root. Default: build/ui-cache (gitignored
-#                              via build/). CI should override to a cached path.
+#   BIRC_UI_CACHE=1            Enable restore/store. This is the default.
+#                              BIRC_UI_CACHE=0 reports a miss (caller builds
+#                              normally) and makes store a no-op. `key` always
+#                              works.
+#   BIRC_UI_CACHE_DIR          Cache root. Default:
+#                              ${XDG_CACHE_HOME:-$HOME/.cache}/birc/ui-cache.
+#                              Unset HOME or HOME=/homeless-shelter uses
+#                              build/ui-cache. CI should override this.
 #   BEND_CORE_CFLAGS           Must match the Makefile value (default there:
 #                              -std=c11 -O2 -pthread -w). Part of the key.
 #   BIRC_BEND_VERSION          Bend identity override (dry-run/CI). Default:
@@ -34,8 +37,21 @@
 # entry, and installs nothing, so the caller rebuilds from source.
 set -eu
 
-CACHE_DIR=${BIRC_UI_CACHE_DIR:-build/ui-cache}
-CACHE_ON=${BIRC_UI_CACHE:-0}
+# Default outside build/ so `make clean` keeps hits. Nix sandboxes and an
+# unset HOME fall back to build/ui-cache.
+default_cache_dir() {
+    case "${HOME:-}" in
+        ""|/homeless-shelter)
+            printf '%s\n' "build/ui-cache"
+            ;;
+        *)
+            printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/birc/ui-cache"
+            ;;
+    esac
+}
+
+CACHE_DIR=${BIRC_UI_CACHE_DIR:-$(default_cache_dir)}
+CACHE_ON=${BIRC_UI_CACHE:-1}
 CFLAGS_VAL=${BEND_CORE_CFLAGS:-'-std=c11 -O2 -pthread -w'}
 BLD_DEFAULT=build
 

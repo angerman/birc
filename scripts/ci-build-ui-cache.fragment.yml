@@ -13,8 +13,10 @@
 # record (build/build-config). Restore verifies SHA-256 per payload and
 # fails closed (miss -> normal rebuild, never a stale artifact).
 #
-# Required job env: BIRC_UI_CACHE=1 to enable; without it the script is a
-# no-op and the build runs uncached (default-off safe flag).
+# The Makefile defaults BIRC_UI_CACHE=1 and calls this script. Set
+# BIRC_UI_CACHE=0 to force a rebuild. Point BIRC_UI_CACHE_DIR at the
+# actions/cache path; the script default is
+# ${XDG_CACHE_HOME:-$HOME/.cache}/birc/ui-cache.
 #
 # Paste-in steps (assume Nix + bend already provisioned, e.g. Determinate
 # Nix installer + `nix develop` wrapper used by the Makefile's NIXRUN):
@@ -36,6 +38,7 @@
 #     - name: Build UI (cache-aware)
 #       run: |
 #         export BIRC_UI_CACHE=1
+#         export BIRC_UI_CACHE_DIR=build/ui-cache
 #         if ! sh scripts/build-ui-cache.sh restore; then
 #           make build-ui
 #           sh scripts/build-ui-cache.sh store
@@ -53,8 +56,8 @@
 # Notes:
 # - No restore-keys / prefix fallback: a partial key match would restore a
 #   stale TU. Exact key only; miss means rebuild (fail closed).
-# - `make build-ui` itself is unchanged; the script wraps it. The Makefile
-#   wiring alternative (opt-in BIRC_UI_CACHE=1 branch inside the
-#   build/birc_bend.c + build/birc recipes) is intentionally NOT applied here.
+# - `make build-ui` already restores and stores through this script.
+#   A CI job that calls the script itself should set BIRC_UI_CACHE_DIR
+#   to the actions/cache path so it does not also write the XDG default.
 # - Cache size is ~35MB per entry (TU + binary + config); entries are
 #   immutable under their content key, so no eviction logic is needed.

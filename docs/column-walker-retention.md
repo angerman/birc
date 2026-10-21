@@ -56,11 +56,12 @@ client (`/tmp/birc.spindump.txt`, 893 samples) spent about 86% inside
 code, with `term_drop` and `span_fade` hot, and about 14% in `__select`.
 That is the same path as the retainer. It is a CPU profile, not a root.
 
-The pinned compiler is `bend-src` rev `4ff8545f19b09b7d2b8ca2303668100eac8efd66`
-in `flake.lock`. An earlier upstream survey pointed at jump-argument closure
+These notes were taken on `bend-src` rev `4ff8545f19b09b7d2b8ca2303668100eac8efd66`
+(v2.0.37). An earlier upstream survey pointed at jump-argument closure
 retention (bendlang/bend #1243 and the surrounding memory issues) as the
 compiler-side analogue. This note does not re-check those issues. The local
-shape below avoids the closure on this pin. A pin bump is not the fix.
+shape below avoids the closure. A pin bump is not the fix. On Bend 2.0.38,
+runtime flags belong between `+RTS` and `-RTS`.
 
 Constructor and function ids exist only as macros in the generated C of that
 compilation. The store binary does not export them. CID numbers in an older

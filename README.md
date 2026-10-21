@@ -274,7 +274,9 @@ supports snapshots up to 4,294,967,295 bytes.
 
 ## Command-Line Options
 
-Run `./build/birc --help-irc` for a full summary:
+Run `./build/birc --help-irc` for a full summary. Bend runtime flags
+(`--help`, `--threads`, `--gpu`) go between `+RTS` and `-RTS`, for example
+`./build/birc +RTS --help -RTS`.
 
 | Option | Argument | Description |
 |---|---|---|

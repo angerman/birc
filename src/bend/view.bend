@@ -1694,6 +1694,27 @@ def older_day.pick(hidden: Bool, +day: String, k: Unit -> String) -> String:
     case True{}: k(Unit{})
     case False{}: older_day.dated(String.is_empty(day), day, k)
 
+# An empty day never opens or closes a bar, whether the line is hidden or
+# visible, so skip its paint filter. Dated lines still filter and stop at
+# the first visible day. Bare history must not allocate a filter list for
+# every older line on each scroll and paint.
+def older_day.scan.undated(
+  empty: Bool,
+  +h: Cl.Line,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>,
+  k: Unit -> String
+) -> String:
+  match empty:
+    case True{}: k(Unit{})
+    case False{}:
+      +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+      older_day.pick(List.is_empty(&2, Cl.Line, filtered), line_day(h), k)
+
 def older_day.tags(tags: List<&2, DayTag>) -> String:
   match tags:
     case Nil{}: ""
@@ -1716,8 +1737,7 @@ def older_day.scan.go(
       match lines:
         case Nil{}: ""
         case Con{+h, +t}:
-          +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
-          older_day.pick(List.is_empty(&2, Cl.Line, filtered), line_day(h),
+          older_day.scan.undated(String.is_empty(line_day(h)), h, mutes, joins, nicks, name, server, boxed,
             done => older_day.scan.go(p, t, mutes, joins, nicks, name, server, boxed))
 
 def older_day.scan(

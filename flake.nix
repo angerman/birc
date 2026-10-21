@@ -8,9 +8,9 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-  # Bend 2 (bendlang/bend), pinned to an immutable commit (v2.0.37).
+  # Bend 2 (bendlang/bend), pinned to an immutable commit (v2.0.38).
   inputs.bend-src = {
-    url = "github:bendlang/bend/4ff8545f19b09b7d2b8ca2303668100eac8efd66";
+    url = "github:bendlang/bend/0a57ca0d21de94a3724d8be21afb0eb89f88b4d8";
     flake = false;
   };
 
@@ -61,7 +61,7 @@
             ];
             BIRC_NIX_SHELL = "1";
             BIRC_BEND_SRC = "${bend-src}";
-            BIRC_BEND_REV = "4ff8545f19b09b7d2b8ca2303668100eac8efd66";
+            BIRC_BEND_REV = "0a57ca0d21de94a3724d8be21afb0eb89f88b4d8";
             CC = "${pkgs.clang}/bin/clang";
             BIRC_OPENSSL_DEV = "${pkgs.lib.getDev pkgs.openssl}";
             BIRC_OPENSSL_LIB = "${pkgs.lib.getLib pkgs.openssl}";

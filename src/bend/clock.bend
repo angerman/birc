@@ -120,21 +120,38 @@ def stamp() -> IO(String):
     return stamp_join.parts(parts)
 
 law utc_local_parts:
-  U32 -> U32 -> U32 -> U32 -> U32 -> U32 -> IO(U32 & U32 & U32)
+  U32 -> U32 -> U32 -> U32 -> U32 -> U32 -> IO(U32 & U32 & U32 & U32 & U32)
 
 def utc_local_parts(y, m, d, h, n, s):
   import "../ffi/clock_ffi.c"
 
-def local_stamp.parts(parts: U32 & U32 & U32) -> Maybe<&2, String>:
-  match parts:
+# ymd 0 or hour >= 24 is the FFI fail-closed result. Receipt fallback stays
+# in stamp_combine for that empty stamp and for bare HH:MM:SS.
+def local_stamp.bad(zero: Bool, late: Bool) -> Bool:
+  match zero:
+    case True{}: True{}
+    case False{}: late
+
+def local_stamp.dated(bad: Bool, +ymd: U32, +w: U32, +h: U32, +m: U32, +s: U32) -> Maybe<&2, String>:
+  match bad:
+    case True{}: Some{""}
+    case False{}: Some{day_label.parts(ymd, w) ++ "|" ++ Fmt.fmt_hms(h, m, s)}
+
+def local_stamp.hms(+ymd: U32, +w: U32, hms: U32 & U32 & U32) -> Maybe<&2, String>:
+  match hms:
     case (+h, m, s):
-      Some{Bool.pick(String, U32.is_lt(h, 24), Fmt.fmt_hms(h, m, s), "")}
+      local_stamp.dated(local_stamp.bad(U32.is_zero(ymd), Bool.not(U32.is_lt(h, 24))), ymd, w, h, m, s)
+
+def local_stamp.parts(parts: U32 & U32 & U32 & U32 & U32) -> Maybe<&2, String>:
+  match parts:
+    case (+ymd, w, hms):
+      local_stamp.hms(ymd, w, hms)
 
 def local_stamp(utc: Utc.Utc) -> IO(Maybe<&2, String>):
   match utc:
     case Utc.Utc{year, month, day, hour, minute, second}:
       do IO<Maybe<&2, String>>:
-        parts : U32 & U32 & U32 <- utc_local_parts(year, month, day, hour, minute, second)
+        parts : U32 & U32 & U32 & U32 & U32 <- utc_local_parts(year, month, day, hour, minute, second)
         return local_stamp.parts(parts)
 
 def line_stamp.parsed(tag: Utc.Stamp) -> IO(Maybe<&2, String>):

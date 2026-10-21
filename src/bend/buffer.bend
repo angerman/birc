@@ -1330,8 +1330,9 @@ def diagnostic_fresh(+cl: Client, cutoff: Nat) -> Client:
     case Client{_, _, +bufs, _, _, _, _, _, _}:
       diagnostic_fresh.fin(List.foldl(~&2, ~Buffer, ~DiagnosticFresh, ~diagnostic_fresh_buf, bufs, DiagnosticFresh{cl, cutoff}))
 
-# Live Client.now is "YYYY-MM-DD (Weekday)\nHH:MM:SS". Tests and restored
-# stamps stay a bare time. Line columns always store the time half.
+# Stamps are "YYYY-MM-DD (Weekday)|HH:MM:SS" when the event date is known.
+# Bare HH:MM:SS (older logs, explicit HMS overrides) has no calendar day.
+# Paint reads the day half for bars and the time half for the gutter.
 def now_day.cut(mark: Bool, pair: String & String) -> String:
   match mark:
     case True{}:

@@ -199,6 +199,52 @@ def day_media_tail.got(got: Maybe<&2, Cl.Buffer>, +url: String) -> Bool:
 def day_media_url() -> String:
   "https://example.test/x.png"
 
+def hist_cons(m: Maybe<&2, H.HistEntry>, rest: List<&2, H.HistEntry>) -> List<&2, H.HistEntry>:
+  match m:
+    case None{}: Nil{}
+    case Some{entry}: entry <> rest
+
+def room_named.drop(b: Cl.Buffer, k: Unit -> Maybe<&2, Cl.Buffer>) -> Maybe<&2, Cl.Buffer>:
+  match b:
+    case Cl.Buffer{_, _, _, _, _, _, _, _}:
+      k(Unit{})
+
+def room_named.keep(hit: Bool, b: Cl.Buffer, k: Unit -> Maybe<&2, Cl.Buffer>) -> Maybe<&2, Cl.Buffer>:
+  match hit:
+    case True{}: Some{b}
+    case False{}: room_named.drop(b, k)
+
+def room_named.step(b: Cl.Buffer, +name: String, k: Unit -> Maybe<&2, Cl.Buffer>) -> Maybe<&2, Cl.Buffer>:
+  match b:
+    case Cl.Buffer{+bname, is_channel, topic, lines, nicks, scroll, newest, count}:
+      room_named.keep(String.eq(bname, name),
+        Cl.Buffer{bname, is_channel, topic, lines, nicks, scroll, newest, count}, k)
+
+def room_named(bufs: List<&2, Cl.Buffer>, +name: String) -> Maybe<&2, Cl.Buffer>:
+  match bufs:
+    case Nil{}: None{}
+    case Con{b, t}:
+      room_named.step(b, name, done => room_named(t, name))
+
+def room_of(cl: Cl.Client) -> Maybe<&2, Cl.Buffer>:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}:
+      room_named(bufs, "#room")
+
+def birc2_row(+ts: String, +text: String) -> String:
+  "BIRC2\tirc.example:6667\t#room\tMSG\t" ++ ts ++ "\talice\t" ++ text
+
+def restore_room(+rows: List<&2, H.HistEntry>) -> Cl.Client:
+  H.apply_history(Cl.init("me", "irc.example"), rows, "2026-10-21 (Wednesday)|10:00:00", 100)
+
+def restore_mixed() -> Cl.Client:
+  restore_room(hist_cons(H.parse_line_for("irc.example:6667", birc2_row("12:00:00", "old")),
+    hist_cons(H.parse_line_for("irc.example:6667", birc2_row("2026-10-19 (Monday)|23:00:00", "late")),
+      hist_cons(H.parse_line_for("irc.example:6667", birc2_row("2026-10-20 (Tuesday)|00:01:00", "early")), Nil{}))))
+
+def restore_bare() -> Cl.Client:
+  restore_room(hist_cons(H.parse_line_for("irc.example:6667", birc2_row("12:00:00", "old")), Nil{}))
+
 def day_media_tail() -> Bool:
   +monday = Cl.set_now(Cl.init("me", "irc"), "2026-10-19 (Monday)|23:00:00")
   +late = Cl.client_log(monday, 0n, Cl.Msg{}, "<a> late")
@@ -246,4 +292,9 @@ def main() -> IO(Unit):
     Unit <- E.must("reconnect bar stays a reconnect bar", String.contains(V.recon_divider("", 40), "Reconnected"))
     Unit <- E.must("day bar names the local date", String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "2026-10-19 (Monday)"))
     Unit <- E.must("day bar is not a reconnect label", Bool.not(String.contains(V.recon_divider("@2026-10-19 (Monday)", 40), "Reconnected")))
+    Unit <- E.must_eq("restored BIRC2 keeps event dates and a bare older stamp", show.got(room_of(restore_mixed())),
+      "12:00:00 old|2026-10-19 (Monday)|23:00:00 late|2026-10-20 (Tuesday)|00:01:00 early| 10:00:00|")
+    Unit <- E.must_eq("restored BIRC2 paints a bar at each stored day change", bars.got(room_of(restore_mixed())),
+      "BAR @2026-10-19 (Monday)|BAR @2026-10-20 (Tuesday)|")
+    Unit <- E.must_eq("bare restored stamps do not invent a day bar", bars.got(room_of(restore_bare())), "")
     IO.print("day_bar=ok")

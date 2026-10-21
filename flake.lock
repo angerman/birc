@@ -3,17 +3,17 @@
     "bend-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1791886349,
-        "narHash": "sha256-BtOznD2a757sWIqHU57fRJdjEGDOcYnwHO3dp9YxBIY=",
+        "lastModified": 1792534470,
+        "narHash": "sha256-CbaPcdhMfNOsEz+Lb2HYveJ1+kDE9tQBIP7QadRYY8E=",
         "owner": "bendlang",
         "repo": "bend",
-        "rev": "4ff8545f19b09b7d2b8ca2303668100eac8efd66",
+        "rev": "0a57ca0d21de94a3724d8be21afb0eb89f88b4d8",
         "type": "github"
       },
       "original": {
         "owner": "bendlang",
         "repo": "bend",
-        "rev": "4ff8545f19b09b7d2b8ca2303668100eac8efd66",
+        "rev": "0a57ca0d21de94a3724d8be21afb0eb89f88b4d8",
         "type": "github"
       }
     },

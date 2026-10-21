@@ -1,4 +1,5 @@
-/* Local seconds-of-day as U32. Bend formats with Clock.fmt_hms.
+/* Local calendar date plus HMS. Bend formats
+ * YYYY-MM-DD (Weekday)|HH:MM:SS. ymd 0 and hour 24 mean conversion failed.
  * Calendar bounds live in utc_time.bend:valid. This file converts an
  * already-valid date through timegm/localtime_r and checks the libc
  * round trip; it does not repeat the calendar gate.
@@ -34,17 +35,20 @@
 
 #if CID_UTC_LOCAL_PARTS
 struct birc_clock_parts {
+  uint32_t ymd;
+  uint32_t wday;
   uint32_t hour, minute, second;
 };
 
 /* timegm/localtime_r use the event's date for DST and calendar rollover.
  * Convert a leap second at :59, then retain its extra second for display.
- * Callers pass a Utc.valid date; a libc normalization that does not
- * round-trip still fails closed with hour 24. */
+ * The returned ymd/wday are that local civil day (0 = Sunday). Callers
+ * pass a Utc.valid date; a libc normalization that does not round-trip
+ * still fails closed with ymd 0 and hour 24. */
 static struct birc_clock_parts birc_utc_local_parts(
     uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
     uint32_t minute, uint32_t second) {
-  struct birc_clock_parts result = {24u, 0u, 0u};
+  struct birc_clock_parts result = {0u, 0u, 24u, 0u, 0u};
   struct tm utc = {0}, local;
   time_t epoch;
   utc.tm_year = (int)year - 1900;
@@ -61,10 +65,20 @@ static struct birc_clock_parts birc_utc_local_parts(
       || utc.tm_min != (int)minute
       || utc.tm_sec != (int)(second == 60u ? 59u : second)
       || !localtime_r(&epoch, &local)
+      || local.tm_year < 0 || local.tm_year > 8099
+      || local.tm_mon < 0 || local.tm_mon > 11
+      || local.tm_mday < 1 || local.tm_mday > 31
+      || local.tm_wday < 0 || local.tm_wday > 6
       || local.tm_hour < 0 || local.tm_hour >= 24
       || local.tm_min < 0 || local.tm_min >= 60
       || local.tm_sec < 0 || local.tm_sec >= 60)
     return result;
+  {
+    uint32_t y = (uint32_t)local.tm_year + 1900u;
+    result.ymd = y * 10000u + ((uint32_t)local.tm_mon + 1u) * 100u
+                 + (uint32_t)local.tm_mday;
+    result.wday = (uint32_t)local.tm_wday;
+  }
   result.hour = (uint32_t)local.tm_hour;
   result.minute = (uint32_t)local.tm_min;
   result.second = (uint32_t)local.tm_sec + (second == 60u ? 1u : 0u);
@@ -76,8 +90,11 @@ Term utc_local_parts_run(Env e, Term *f, IoWork *w) {
       (uint32_t)f[0], (uint32_t)f[1], (uint32_t)f[2],
       (uint32_t)f[3], (uint32_t)f[4], (uint32_t)f[5]);
   (void)w;
-  return io_tup(e, (Term)local.hour,
-                io_tup(e, (Term)local.minute, (Term)local.second));
+  return io_tup(e, (Term)local.ymd,
+                io_tup(e, (Term)local.wday,
+                       io_tup(e, (Term)local.hour,
+                              io_tup(e, (Term)local.minute,
+                                     (Term)local.second))));
 }
 static void __attribute__((constructor)) utc_local_parts_use(void) {
   io_eff(CID_UTC_LOCAL_PARTS, utc_local_parts_run);

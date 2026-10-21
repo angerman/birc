@@ -38,6 +38,12 @@ These wins keep BUILD-mode iteration fast.
    scanner lists binaries against the import closure; the `.d` recipe
    depends only on the test entry and `scripts/bend-deps.sh`. A src
    edit then rebuilds the affected binaries, not every C-only target.
+8. **The product UI cache is on.** `make build-ui` restores
+   `build/birc_bend.c` and `build/birc` when
+   `scripts/build-ui-cache.sh` hits. The default directory is
+   `${XDG_CACHE_HOME:-$HOME/.cache}/birc/ui-cache`, so `make clean`
+   keeps the hit. `BIRC_UI_CACHE=0` builds from source. Test binaries
+   and proof shards are not cached.
 
 ## Batch discipline
 

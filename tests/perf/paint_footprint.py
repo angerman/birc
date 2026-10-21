@@ -263,7 +263,7 @@ def measure_once(binary: str, passes: int, deadline_s: int = 150) -> dict:
     MeasureError (exact legacy stderr) on harness failure."""
     master, slave = pty.openpty()
     proc = subprocess.Popen(
-        [binary, "--gpu", "off", str(passes)],
+        [binary, "+RTS", "--gpu", "off", "-RTS", str(passes)],
         stdin=subprocess.DEVNULL,
         stdout=slave,
         stderr=subprocess.PIPE,

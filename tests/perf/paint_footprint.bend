@@ -2,8 +2,8 @@
 # Physical-footprint reproducer for one capped rich buffer.
 # Fills the server buffer to SCROLL_CAP with synthetic color, markdown,
 # a URL, and emoji shortcodes, then repaints the production view.
-# Usage: paint_footprint [PASSES]   (default 32, at most 64)
-# Runtime flag --gpu off is consumed before these arguments.
+# Usage: paint_footprint +RTS --gpu off -RTS [PASSES]   (default 32, at most 64)
+# Bend 2.0.38 reads runtime flags only between +RTS and -RTS.
 # Each line is a sample point for an outer footprint driver:
 #   filled LINES
 #   paint INDEX CHECKSUM

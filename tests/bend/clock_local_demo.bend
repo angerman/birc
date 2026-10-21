@@ -28,9 +28,9 @@ def main() -> IO(Unit):
   +wire : String = "@time=2026-09-28T17:40:27.123Z :alice!u@h PRIVMSG me :hello"
   do IO<Unit>:
     local : Maybe<&2, String> <- Clock.line_stamp(wire)
-    Unit <- E.must_eq("date-aware Seoul conversion", stamp(local), "02:40:27")
+    Unit <- E.must_eq("date-aware Seoul conversion", stamp(local), "2026-09-29 (Tuesday)|02:40:27")
     spaced : Maybe<&2, String> <- Clock.line_stamp(" " ++ wire)
-    Unit <- E.must_eq("leading spaces still convert to local time", stamp(spaced), "02:40:27")
+    Unit <- E.must_eq("leading spaces still convert to local time", stamp(spaced), "2026-09-29 (Tuesday)|02:40:27")
     Unit <- E.must_eq("explicit local log override", message_stamp(wire, Some{"02:40:27"}), "02:40:27")
     Unit <- E.must_eq("pure parser unchanged", message_stamp(wire, None{}), "17:40:27")
     Unit <- E.must_eq("invalid time receipt fallback", message_stamp(wire, Some{""}), "10:00:00")
@@ -43,7 +43,7 @@ def main() -> IO(Unit):
     missing : Maybe<&2, String> <- Clock.line_stamp(":alice!u@h PRIVMSG me :@time=bad")
     Unit <- E.must_eq("untagged unchanged", stamp(missing), "missing")
     leap : Maybe<&2, String> <- Clock.line_stamp("@time=2012-06-30T23:59:60.419Z :alice!u@h PRIVMSG me :hello")
-    Unit <- E.must_eq("leap second", stamp(leap), "08:59:60")
+    Unit <- E.must_eq("leap second", stamp(leap), "2012-07-01 (Sunday)|08:59:60")
     Unit <- E.must_eq("stamp_join keeps one civil+sod snapshot", Clock.stamp_join(20261020, 2, 3661), "2026-10-20 (Tuesday)|01:01:01")
     Unit <- E.must_eq("stamp_join fails closed on zero civil", Clock.stamp_join(0, 0, 1), "")
     Unit <- E.must_eq("hhmmss formats sod from the shared clock path", Clock.fmt_sod(3661), "01:01:01")
