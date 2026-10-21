@@ -2396,29 +2396,139 @@ def scroll_rows(+newest: List<&2, Cl.Line>, +after: Nat, +up: Nat, +dn: Nat, +na
     newer_go(rev_tail_fuel(), newer_lines(newest, after, cap), Next{newer_after(Nat.is_eq(after, 0n), after), dn, older_day.tags(tags)}, name, w, show_ts, mutes, joins, nicks, server, boxed, Nat.is_ge(cap, after)),
     window_tagged(rev_tail_fuel(), tags, Step{after, up, True{}}, up, name, w, show_ts, boxed))
 
-def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
-  Cl.set_buf_anchor(b, shift_anchor_of(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), height, scroll, up, dn, count))
+# One-shot window from a scroll walk. The next paint of this same window
+# reuses `rows` when they already cover the viewport; a miss paints the full
+# window and drops them. Not a buffer field and not a per-line wrap cache.
+type ScrollHold is Data:
+  ScrollHold{buf: Cl.Buffer, rows: List<&2, AnchoredRow>, covered: Bool, height: Nat, w: U32, show_ts: Bool}
 
-def scroll_buf_media.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> Cl.Buffer:
+def hold_buf(+hold: ScrollHold) -> Cl.Buffer:
+  match hold:
+    case ScrollHold{+buf, _, _, _, _, _}: buf
+
+def hold_rows(+hold: ScrollHold) -> List<&2, AnchoredRow>:
+  match hold:
+    case ScrollHold{_, +rows, _, _, _, _}: rows
+
+def rows_hold.rest(hit: Bool, k: Unit -> Bool) -> Bool:
+  match hit:
+    case True{}: True{}
+    case False{}: k(Unit{})
+
+def rows_hold.go(fuel: Nat, rows: List<&2, AnchoredRow>, +want: Cl.Scroll) -> Bool:
+  match fuel:
+    case 0n: False{}
+    case 1n+p:
+      match rows:
+        case Nil{}: False{}
+        case Con{AnchoredRow{_, +anchor, _}, +t}:
+          rows_hold.rest(Cl.scroll_eq(anchor, want), done => rows_hold.go(p, t, want))
+
+# Live {0,0} uses the bottom painter, not this crop. Otherwise reuse only when
+# the new anchor sits at least `height` rows into the walk, so the viewport
+# ending on that anchor is already wrapped. A one-notch walk fails that test.
+def scroll_cover.hit(found: Bool, +rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll) -> Bool:
+  match found:
+    case False{}: False{}
+    case True{}: Nat.is_ge(anchor_end(rows, want, 0n), height)
+
+def scroll_cover.live(live: Bool, +rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll) -> Bool:
+  match live:
+    case True{}: False{}
+    case False{}: scroll_cover.hit(rows_hold.go(List.length(&2, AnchoredRow, rows), rows, want), rows, height, want)
+
+def scroll_cover(+rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll) -> Bool:
+  match want:
+    case Cl.ScrollAt{+after, +tail}:
+      scroll_cover.live(Nat.is_eq(after, 0n) && Nat.is_eq(tail, 0n), rows, height, Cl.ScrollAt{after, tail})
+
+def scroll_hold.rows(cover: Bool, +rows: List<&2, AnchoredRow>) -> List<&2, AnchoredRow>:
+  match cover:
+    case True{}: rows
+    case False{}: Nil{}
+
+def scroll_hold.pack(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +covered: Bool, +moved: Cl.Scroll, +height: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+  ScrollHold{Cl.set_buf_anchor(b, moved), scroll_hold.rows(covered, rows), covered, height, w, show_ts}
+
+def scroll_hold.of(+rows: List<&2, AnchoredRow>, +reached: Bool, +visited: Nat, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+  match want:
+    case Cl.ScrollAt{+after, +tail}:
+      +moved = shift_anchor_of.after(after, tail, rows, height, up, dn, count, reached, visited)
+      scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts)
+
+def scroll_hold.from_walk(walk: NewerWalk, +b: Cl.Buffer, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +count: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+  match walk:
+    case NewerWalk{+rows, +reached, +visited}:
+      scroll_hold.of(rows, reached, visited, b, height, want, up, dn, count, w, show_ts)
+
+def scroll_hold.anchored(+b: Cl.Buffer, +rows: List<&2, AnchoredRow>, +height: Nat, +want: Cl.Scroll, +up: Nat, +dn: Nat, +w: U32, +show_ts: Bool) -> ScrollHold:
+  +moved = moved_anchor(rows, height, want, up, dn)
+  scroll_hold.pack(b, rows, scroll_cover(rows, height, moved), moved, height, w, show_ts)
+
+def scroll_shift_hold(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> ScrollHold:
+  match scroll:
+    case Cl.ScrollAt{+at, +tail}:
+      scroll_hold.from_walk(scroll_rows(newest, after, up, dn, name, w, show_ts, mutes, joins, nicks, server, boxed), b, height, Cl.ScrollAt{at, tail}, up, dn, count, w, show_ts)
+
+def scroll_shift(+b: Cl.Buffer, +name: String, +newest: List<&2, Cl.Line>, +after: Nat, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +boxed: List<&2, PaintOpts>, scroll: Cl.Scroll) -> Cl.Buffer:
+  hold_buf(scroll_shift_hold(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, boxed, scroll))
+
+def flag_same(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      match b:
+        case True{}: True{}
+        case False{}: False{}
+    case False{}:
+      match b:
+        case True{}: False{}
+        case False{}: True{}
+
+def paint_hold.dims(h_ok: Bool, w_ok: Bool, ts_ok: Bool, covered: Bool) -> Bool:
+  Bool.and(Bool.and(h_ok, w_ok), Bool.and(ts_ok, covered))
+
+def paint_hold.use(reuse: Bool, +buf: Cl.Buffer, +rows: List<&2, AnchoredRow>, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
+  match reuse:
+    case True{}:
+      match buf:
+        case Cl.Buffer{_, _, _, _, _, +scroll, _, _}:
+          (visible_anchored(rows, height, scroll), True{})
+    case False{}:
+      (paint_body_of(buf, height, w, show_ts, mutes, joins, nicks, server, boxed), False{})
+
+# Reuse only when this paint asks for the same window the walk covered.
+# The miss arm is the only call to the full painter.
+def paint_hold(+hold: ScrollHold, +height: Nat, +w: U32, +show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +boxed: List<&2, PaintOpts>) -> List<&2, BodyRow> & Bool:
+  match hold:
+    case ScrollHold{+buf, +rows, +covered, +hh, +hw, +hts}:
+      paint_hold.use(paint_hold.dims(Nat.is_eq(height, hh), U32.is_eq(w, hw), flag_same(show_ts, hts), covered), buf, rows, height, w, show_ts, mutes, joins, nicks, server, boxed)
+
+def scroll_buf_media.full(+b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> ScrollHold:
   +lines = media_display_lines(name, topic, raw, media)
   +rows = anchored_lines_media(lines, name, w, show_ts, mutes, joins, nicks, server, List.length(&2, Cl.Line, lines), media)
-  Cl.set_buf_anchor(b, moved_anchor(rows, height, scroll, up, dn))
+  scroll_hold.anchored(b, rows, height, scroll, up, dn, w, show_ts)
 
-def scroll_buf_media.go(live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> Cl.Buffer:
+def scroll_hold_media.go(live: Bool, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +newest: List<&2, Cl.Line>, +count: Nat, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, scroll: Cl.Scroll) -> ScrollHold:
   match live:
     case False{}: scroll_buf_media.full(b, name, topic, raw, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
     case True{}:
       match scroll:
         case Cl.ScrollAt{+after, _}:
-          scroll_shift(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_only(media), scroll)
+          scroll_shift_hold(b, name, newest, after, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, paint_media_only(media), scroll)
 
-def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
+def scroll_hold_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> ScrollHold:
   match b:
     case Cl.Buffer{+name, _, +topic, +raw, _, +scroll, +newest, +count}:
-      scroll_buf_media.go(spine_live(name, paint_media_only(media)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
+      scroll_hold_media.go(spine_live(name, paint_media_only(media)), b, name, topic, raw, newest, count, height, w, show_ts, mutes, joins, nicks, server, up, dn, media, scroll)
+
+def scroll_buf_media(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State) -> Cl.Buffer:
+  hold_buf(scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, media))
+
+def scroll_hold(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> ScrollHold:
+  scroll_hold_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
 
 def scroll_buf(+b: Cl.Buffer, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat) -> Cl.Buffer:
-  scroll_buf_media(b, height, w, show_ts, mutes, joins, nicks, server, up, dn, M.empty())
+  hold_buf(scroll_hold(b, height, w, show_ts, mutes, joins, nicks, server, up, dn))
 
 def scroll_buf_media_cards_iso.full(+isc: Cl.Iso, +b: Cl.Buffer, +name: String, +topic: String, +raw: List<&2, Cl.Line>, +height: Nat, +w: U32, +show_ts: Bool, +mutes: List<&2, String>, +joins: Bool, +nicks: Bool, +server: String, +up: Nat, +dn: Nat, +media: M.State, +cards: List<&2, CardEntry>, +pends: List<&2, Cl.PendSend>, scroll: Cl.Scroll) -> Cl.Buffer:
   +lines = pending_display_lines(name, pends, media_display_lines(name, topic, raw, media))
