@@ -524,17 +524,19 @@ def apply_history.cap(cl: Cl.Client, +now: String, +cap: U32) -> Cl.Client:
     case Cl.Client{+nick, +server, +bufs, +active, _, +stg, +auth, +log_seq, welcomed}:
       Cl.reconnect_markers(Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, log_seq, welcomed}, now)
 
+# Cap 0 restores nothing and must leave an existing client unchanged.
 def apply_history.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>, now: String, cap: U32) -> Cl.Client:
   match zero:
-    case True{}: apply_history.cap(cl, now, cap)
+    case True{}: cl
     case False{}: apply_history.cap(apply_entries(entries, cl), now, cap)
 
 def apply_history(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32) -> Cl.Client:
   apply_history.capped(U32.is_eq(cap, 0), cl, entries, now, cap)
 
+# Cap 0 restores nothing and must leave an existing client unchanged.
 def apply_history_iso.capped(zero: Bool, cl: Cl.Client, entries: List<&2, HistEntry>, now: String, cap: U32, +isc: Cl.Iso) -> Cl.Client:
   match zero:
-    case True{}: apply_history.cap(cl, now, cap)
+    case True{}: cl
     case False{}: apply_history.cap(apply_entries_iso(entries, cl, isc), now, cap)
 
 def apply_history_iso(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String, +cap: U32, +isc: Cl.Iso) -> Cl.Client:

@@ -67,6 +67,22 @@ def loaded_identity_ok() -> Bool:
   +new = Feed.feed(old, "PING :server")
   String.is_empty(H.extract_new_history(old, new))
 
+def client_now(cl: Cl.Client) -> String:
+  match cl:
+    case Cl.Client{_, _, _, _, now, _, _, _, _}: now
+
+# Cap 0 must not trim rows, add a reconnect marker, or replace the clock.
+def cap_zero_keeps_ok() -> Bool:
+  +base = Cl.set_now(Cl.client_log(Cl.init("me", "s"), 0n, Cl.Msg{}, "keep"), "09:00:00")
+  +plain = H.apply_history(base, Nil{}, "13:00:00", 0)
+  +iso = H.apply_history_iso(base, Nil{}, "13:00:00", 0, Cl.Iso.defaults())
+  String.eq(CL.buf_texts(plain, 0n), "keep|")
+    && String.eq(CL.buf_texts(iso, 0n), "keep|")
+    && Nat.is_eq(Cl.log_seq_of(plain), Cl.log_seq_of(base))
+    && Nat.is_eq(Cl.log_seq_of(iso), Cl.log_seq_of(base))
+    && String.eq(client_now(plain), client_now(base))
+    && String.eq(client_now(iso), client_now(base))
+
 def rejected_local.got(pair: Cl.Client & List<&2, String>, +old: Cl.Client) -> Bool:
   match pair:
     case (+new, _):
@@ -206,6 +222,7 @@ def main() -> IO(Unit):
     Unit <- E.must("edit_identity", edit_identity_ok())
     Unit <- E.must("feed_identity", feed_identity_ok())
     Unit <- E.must("loaded_identity", loaded_identity_ok())
+    Unit <- E.must("cap zero leaves server text, log_seq, and now", cap_zero_keeps_ok())
     Unit <- E.must("rejected_local", rejected_local_ok())
     Unit <- E.must("endpoint", endpoint_ok())
     Unit <- E.must("utf8_chunk", utf8_chunk_ok())

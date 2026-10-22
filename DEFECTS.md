@@ -167,7 +167,7 @@ Closed in 95a32e0.
   `visible_candidates_cards_iso` still returns that URL. The pending-aware
   window does not. With an empty pending list, both return it.
 
-- [ ] **D9. apply_history with cap 0 deletes existing chat rows.**
+- [x] **D9. apply_history with cap 0 deletes existing chat rows.**
   `apply_history.capped` (`src/bend/history.bend:529`) and the iso twin
   at `:537` call `apply_history.cap` when cap is 0.
   `take_last` (`src/bend/buffer.bend:1184`) drops `length - n` lines, so
