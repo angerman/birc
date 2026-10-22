@@ -138,6 +138,10 @@ def fixture_client() -> Cl.Client:
   Feed.feed_all(Cl.init("me", "irc.test"),
     ":me!u@h JOIN #chan" <> ":alice!u@h PRIVMSG #chan :live hello" <> Nil{})
 
+def history_off_client() -> Cl.Client:
+  +cl = fixture_client()
+  Cl.set_settings(cl, Cl.set_history(Cl.get_settings(cl), False{}))
+
 def texts_or_missing(got: Maybe<&2, Nat>, +cl: Cl.Client) -> String:
   match got:
     case None{}: "<missing>"
@@ -469,8 +473,14 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("sub_fetch_invalid", submitted_outs(fixture_client(), "latest *search* 5", True{}), "")
     Unit <- E.must("sub_usage_echo", String.contains(submitted_echo(fixture_client(), "frobnicate", True{}), "usage: /history search"))
     Unit <- E.must_eq("sub_usage_outs", submitted_outs(fixture_client(), "frobnicate", True{}), "")
-    Unit <- E.must("sub_search_live", String.ends_with(submitted_echo(fixture_client(), "search hello", True{}),
-      "disk history search runs in the live session|"))
+    Unit <- E.must("sub_search_quiet", Bool.not(String.contains(submitted_echo(fixture_client(), "search hello", True{}), Hs.live_only())))
+    Unit <- E.must_eq("sub_search_outs", submitted_outs(fixture_client(), "search hello", True{}), "")
+    Unit <- E.must("sub_page_quiet", Bool.not(String.contains(submitted_echo(fixture_client(), "page 0 needle", True{}), Hs.live_only())))
+    Unit <- E.must_eq("sub_page_outs", submitted_outs(fixture_client(), "page 0 needle", True{}), "")
+    Unit <- E.must("sub_search_off", String.ends_with(submitted_echo(history_off_client(), "search hello", True{}), Hs.search_disabled() ++ "|"))
+    Unit <- E.must_eq("sub_search_off_outs", submitted_outs(history_off_client(), "search hello", True{}), "")
+    Unit <- E.must("sub_page_off", String.ends_with(submitted_echo(history_off_client(), "page 0 needle", True{}), Hs.search_disabled() ++ "|"))
+    Unit <- E.must_eq("sub_page_off_outs", submitted_outs(history_off_client(), "page 0 needle", True{}), "")
     Unit <- E.must("sub_needs_conn", Hs.history_needs_connection("latest #a")
       && Hs.history_needs_connection("between #a m1 m2")
       && Bool.not(Hs.history_needs_connection("search hello"))

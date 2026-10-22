@@ -14,8 +14,8 @@
 # (search_open_admitted keeps the pure admission policy for laws); the live
 # loop stamps tickets/generations/endpoints and checks
 # search_completion_admitted (history_page_admitted for paged fetches)
-# before import; net.bend captures the Session import seed as the history
-# checkpoint before live dispatch.
+# before import. The completion loop discards the returned log_seq because
+# a *search* import does not mint event ids.
 import Base
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
@@ -1852,7 +1852,7 @@ def submit_fetch.line(+cl: Cl.Client, line: Maybe<&2, String>, +negotiated: Bool
 
 def submit_history.search(+cl: Cl.Client, on: Bool) -> Cl.Client & List<&2, String>:
   match on:
-    case True{}: (echo_history(cl, live_only()), Nil{})
+    case True{}: (cl, Nil{})
     case False{}: (echo_history(cl, search_disabled()), Nil{})
 
 def submit_history.req(+cl: Cl.Client, req: HistoryRequest, +negotiated: Bool) -> Cl.Client & List<&2, String>:
@@ -1866,9 +1866,9 @@ def submit_history.req(+cl: Cl.Client, req: HistoryRequest, +negotiated: Bool) -
     case ReqAround{+target, +anchor, +limit}: submit_fetch.line(cl, around_line(target, anchor, limit), negotiated)
     case ReqBetween{+target, +a, +b, +limit}: submit_fetch.line(cl, between_line(target, a, b, limit), negotiated)
 
-# Pure adapter for the integrator's Sub.Slash arm. Disk search/page need
-# Session file IO, so they report live_only until Session interception
-# (mirroring upload_input) runs search_file/import_page.
+# Pure adapter for Session's /history arm. Search and page send no wire.
+# History on leaves the client unchanged; the live key path starts the scan.
+# History off echoes search_disabled and stays a local Cont.
 def submit_history(+cl: Cl.Client, +rest: String, +negotiated: Bool) -> Cl.Client & List<&2, String>:
   submit_history.req(cl, parse_request(rest), negotiated)
 

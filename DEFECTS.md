@@ -183,7 +183,7 @@ Closed in 95a32e0.
   `keep`, the same `log_seq`, and the same `now`. Today the buffer is
   empty and `now` is the restore clock.
 
-- [ ] **D10. An enabled /history search still logs the refusal Error.**
+- [x] **D10. An enabled /history search still logs the refusal Error.**
   `submit_history.search` (`src/bend/history_search.bend:1855`) echoes
   `live_only()` (`:1835`, "disk history search runs in the live
   session") when history is on, and returns no wire. The live key path
@@ -509,7 +509,7 @@ unless the item says a dead arm goes with it.
   Say `ws_notify.fire` and `ws_notify.done` provision the platform
   helper and thread per-part notify state. Leave that wiring alone.
 
-- [ ] **C20. The search header says net.bend stores the import seed.**
+- [x] **C20. The search header says net.bend stores the import seed.**
   `src/bend/history_search.bend:17` says `net.bend` captures the
   Session import seed as the history checkpoint before live dispatch.
   `on_search.rest` (`src/bend/net.bend:1370`) matches
