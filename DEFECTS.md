@@ -501,7 +501,7 @@ unless the item says a dead arm goes with it.
   Say the caller supplies the mapping and Client does not store one.
   Do not add a Client field.
 
-- [ ] **C19. The notify header still calls N9.3 a merge point.**
+- [x] **C19. The notify header still calls N9.3 a merge point.**
   `src/bend/notify.bend:28` says threading `Notify.State` through the
   live loop and default helper provisioning stay parent merge points.
   `ws_notify.done` (`src/bend/wsnet.bend:953`) already loads

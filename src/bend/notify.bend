@@ -25,8 +25,8 @@
 # order-independent: every fresh event notifies exactly once in ascending id
 # order, and the mark still owns at-most-once (replays stay silent).
 # Session dispatch and async delivery have pure seams here and in
-# session.bend/notify_io.bend; threading Notify.State through the live loop
-# and default helper provisioning stay parent merge points (N9.3).
+# session.bend/notify_io.bend. ws_notify.fire and ws_notify.done provision
+# the platform helper and thread per-part notify state.
 import Base
 import ./irc.bend as Irc
 import ./buffer.bend as Cl
