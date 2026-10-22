@@ -5,6 +5,7 @@ import ./buffer.bend as Cl
 import ./irc_commands.bend as Commands
 import ./cap_notify.bend as CapNotify
 import ./wire_style.bend as Ws
+import ./diagnostic.bend as Diag
 
 # ---- format helpers -----------------------------------------------------
 
@@ -274,12 +275,19 @@ def feed_priv.route_with(+cl: Cl.Client, +isc: Cl.Iso, +target: String, +from: S
   feed_priv.route_with.mute(Cl.is_muted_client_cm(Cl.iso_cm(isc), cl, from, tgt) || Bool.not(wire_name(from))
     || (Bool.not(wire_name(tgt)) && Bool.not(notice && Irc.ieq(tgt, "*"))), cl, isc, tgt, from, notice, body, ts)
 
+# Startup paints *log* while autojoin echoes arrive. Those echoes must not
+# walk the view through every joined channel. An explicit /join already
+# focuses from submit before the echo, and a self-join from any other tab
+# still focuses the channel.
+def feed_join.self.stay(on_log: Bool, +cl: Cl.Client, +bi: Nat) -> Cl.Client:
+  match on_log:
+    case True{}: cl
+    case False{}: Cl.set_active(cl, bi)
+
 def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
   match self:
-    case True{}:
-      Cl.set_active(cl, bi)
-    case False{}:
-      cl
+    case True{}: feed_join.self.stay(Irc.ieq(Cl.active_buf_name(cl), Diag.name()), cl, bi)
+    case False{}: cl
 
 def join_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String) -> Cl.Buffer:
   Cl.buf_log_ts(b, Cl.Presence{}, now, fmt_join(from, Cl.target_name(chan)))

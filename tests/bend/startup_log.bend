@@ -3,6 +3,7 @@
 import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
+import ../../src/bend/client.bend as Feed
 import ../../src/bend/history.bend as H
 import ../../src/bend/history_startup.bend as HS
 
@@ -30,8 +31,19 @@ def line(+id: Nat, +text: String) -> Cl.Line:
 def snap() -> Cl.Client:
   Cl.Client{"archive", "irc.example",
     Cl.buf_indexed("server", False{}, "", line(1n, "motd") <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
-      <> (Cl.buf_indexed("#room", True{}, "", line(2n, "archived") <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{}),
-    0n, "old", Cl.settings0(), Cl.AuthIdle{}, 2n, False{}}
+      <> (Cl.buf_indexed("#room", True{}, "", line(2n, "archived") <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
+      <> (Cl.buf_indexed("ChanServ", False{}, "", line(20n, "registered") <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
+      <> (Cl.buf_indexed("SaslServ", False{}, "", line(21n, "ready") <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
+      <> Nil{}))),
+    0n, "old", Cl.settings0(), Cl.AuthIdle{}, 21n, False{}}
+
+def joined_log() -> Cl.Client:
+  Feed.feed(loading(), ":me!u@h JOIN #chan")
+
+def found_buf(got: Maybe<&2, Nat>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{_}: True{}
 
 def restored() -> Cl.Client:
   HS.install_startup(connecting(), snap(), ep(), ep())
@@ -97,7 +109,9 @@ def main() -> IO(Unit):
       Cl.startup_loading(ep()) ++ "|" ++ Cl.startup_connecting(ep()) ++ "|")
     Unit <- E.must_eq("import keeps the stage log", log_text(restored()), log_text(connecting()))
     Unit <- E.must_eq("import keeps log focus", Cl.active_buf_name(restored()), "*log*")
-    Unit <- E.must_eq("import appends the room", client_names(restored()), "server;*log*;#room;")
+    Unit <- E.must_eq("import appends archive order", client_names(restored()), "server;*log*;#room;ChanServ;SaslServ;")
+    Unit <- E.must_eq("self JOIN on the log stays there", Cl.active_buf_name(joined_log()), "*log*")
+    Unit <- E.must("self JOIN still opens the channel", found_buf(Cl.buf_find(joined_log(), "#chan")))
     Unit <- E.must("import keeps the archived room line", String.contains(room_text(restored()), "archived"))
     Unit <- E.must_eq("stage lines are not chat history", H.extract_new_history(Cl.init("me", "irc.example"), connecting()), "")
     Unit <- E.must_eq("held and connected stay on log", Cl.active_buf_name(established()), "*log*")

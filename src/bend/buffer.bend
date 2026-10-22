@@ -1749,6 +1749,42 @@ def client_log_author_ts.record(+mirror: Bool, +cl: Client, +i: Nat, +kind: Line
 def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   client_log_author_ts.record(True{}, cl, i, kind, ts, text, author)
 
+def line_stamp_of(ln: Line) -> String:
+  match ln:
+    case Line{_, +ts, _, _, _}: ts
+
+def buf_tail_stamp.newest(lines: List<&2, Line>) -> String:
+  match lines:
+    case Nil{}: ""
+    case Con{+h, _}: line_stamp_of(h)
+
+def buf_tail_stamp.last(lines: List<&2, Line>) -> String:
+  match lines:
+    case Nil{}: ""
+    case Con{+h, Nil{}}: line_stamp_of(h)
+    case Con{_, +t}: buf_tail_stamp.last(t)
+
+def buf_tail_stamp.pick(has_new: Bool, +newest: List<&2, Line>, +lines: List<&2, Line>) -> String:
+  match has_new:
+    case True{}: buf_tail_stamp.newest(newest)
+    case False{}: buf_tail_stamp.last(lines)
+
+# Head of the newest-first suffix, else the last sealed line. Empty is "".
+def buf_tail_stamp(+b: Buffer) -> String:
+  match b:
+    case Buffer{_, _, _, +lines, _, _, +newest, _}:
+      buf_tail_stamp.pick(Bool.not(List.is_empty(&2, Line, newest)), newest, lines)
+
+def buf_tail_stamp_at.got(got: Maybe<&2, Buffer>) -> String:
+  match got:
+    case None{}: ""
+    case Some{+b}: buf_tail_stamp(b)
+
+def buf_tail_stamp_at(+cl: Client, +i: Nat) -> String:
+  match cl:
+    case Client{_, _, +bufs, _, _, _, _, _, _}:
+      buf_tail_stamp_at.got(nth_buf(bufs, i))
+
 # History imports receive fresh chat IDs but are not new diagnostic events.
 # Reuse the same timestamp/sanitization/cap path without replaying error copies.
 def client_restore_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:

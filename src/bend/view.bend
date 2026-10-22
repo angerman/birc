@@ -1694,9 +1694,35 @@ def older_day.pick(hidden: Bool, +day: String, k: Unit -> String) -> String:
 
 # An empty day never opens or closes a bar, whether the line is hidden or
 # visible, so skip its paint filter. Dated lines still filter and stop at
-# the first visible day. Bare history must not allocate a filter list for
-# every older line on each scroll and paint.
-def older_day.scan.undated(
+# the first visible day. The scan tail-calls itself: a closure per bare
+# line made every channel notch walk the undated tail.
+type DaySeek is Data:
+  DayMiss{}
+  DayHit{day: String}
+
+def older_day.scan.step.day(empty: Bool, +day: String) -> DaySeek:
+  match empty:
+    case True{}: DayMiss{}
+    case False{}: DayHit{day}
+
+def older_day.scan.step.pick(hidden: Bool, +day: String) -> DaySeek:
+  match hidden:
+    case True{}: DayMiss{}
+    case False{}: older_day.scan.step.day(String.is_empty(day), day)
+
+def older_day.scan.step.hit(
+  +h: Cl.Line,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> DaySeek:
+  +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
+  older_day.scan.step.pick(List.is_empty(&2, Cl.Line, filtered), line_day(h))
+
+def older_day.scan.step.on(
   empty: Bool,
   +h: Cl.Line,
   +mutes: List<&2, String>,
@@ -1704,14 +1730,27 @@ def older_day.scan.undated(
   +nicks: Bool,
   +name: String,
   +server: String,
-  +boxed: List<&2, PaintOpts>,
-  k: Unit -> String
-) -> String:
+  +boxed: List<&2, PaintOpts>
+) -> DaySeek:
   match empty:
-    case True{}: k(Unit{})
-    case False{}:
-      +filtered = paint_filter(boxed, h <> Nil{}, mutes, joins, nicks, name, server)
-      older_day.pick(List.is_empty(&2, Cl.Line, filtered), line_day(h), k)
+    case True{}: DayMiss{}
+    case False{}: older_day.scan.step.hit(h, mutes, joins, nicks, name, server, boxed)
+
+def older_day.scan.step(
+  +h: Cl.Line,
+  +mutes: List<&2, String>,
+  +joins: Bool,
+  +nicks: Bool,
+  +name: String,
+  +server: String,
+  +boxed: List<&2, PaintOpts>
+) -> DaySeek:
+  older_day.scan.step.on(String.is_empty(line_day(h)), h, mutes, joins, nicks, name, server, boxed)
+
+def older_day.scan.stop(got: DaySeek) -> String:
+  match got:
+    case DayMiss{}: ""
+    case DayHit{+day}: day
 
 def older_day.tags(tags: List<&2, DayTag>) -> String:
   match tags:
@@ -1721,6 +1760,7 @@ def older_day.tags(tags: List<&2, DayTag>) -> String:
 
 def older_day.scan.go(
   fuel: Nat,
+  got: DaySeek,
   lines: List<&2, Cl.Line>,
   +mutes: List<&2, String>,
   +joins: Bool,
@@ -1730,13 +1770,15 @@ def older_day.scan.go(
   +boxed: List<&2, PaintOpts>
 ) -> String:
   match fuel:
-    case 0n: ""
+    case 0n: older_day.scan.stop(got)
     case 1n+p:
-      match lines:
-        case Nil{}: ""
-        case Con{+h, +t}:
-          older_day.scan.undated(String.is_empty(line_day(h)), h, mutes, joins, nicks, name, server, boxed,
-            done => older_day.scan.go(p, t, mutes, joins, nicks, name, server, boxed))
+      match got:
+        case DayHit{+day}: day
+        case DayMiss{}:
+          match lines:
+            case Nil{}: ""
+            case Con{+h, +t}:
+              older_day.scan.go(p, older_day.scan.step(h, mutes, joins, nicks, name, server, boxed), t, mutes, joins, nicks, name, server, boxed)
 
 def older_day.scan(
   lines: List<&2, Cl.Line>,
@@ -1747,7 +1789,7 @@ def older_day.scan(
   +server: String,
   +boxed: List<&2, PaintOpts>
 ) -> String:
-  older_day.scan.go(rev_tail_fuel(), lines, mutes, joins, nicks, name, server, boxed)
+  older_day.scan.go(rev_tail_fuel(), DayMiss{}, lines, mutes, joins, nicks, name, server, boxed)
 
 # Hidden lines do not consume `left`; stop once `left` visible lines are taken.
 def day_tag.left(hidden: Bool, +left: Nat) -> Nat:

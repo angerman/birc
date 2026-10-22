@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -168,13 +169,16 @@ static void __attribute__((constructor)) history_append_private_use(void) {
 #endif
 
 /* Kept-line handoff. C frames newlines, drops an invalid or overlong
- * record, and retains the last min(cap, 1024) lines per target. Record
- * acceptance still runs in Bend on the returned fields. The ring simulates
- * an empty client (one server buffer): at most 14 channels stay alive, and
- * the oldest channel is dropped when another would be created. Display
- * names are that empty client's final buffer order so Bend can plant the
- * buffers before applying lines. A session that already holds channel
- * buffers is not passed in. */
+ * record, and retains the last min(cap, 1024) lines per target. A bare
+ * HH:MM:SS stamp borrows that target's last dated day and rolls one civil
+ * day when the clock goes backwards, so the kept window still bars after
+ * the anchor has left it. Weekday names and the roll match utc_time.bend
+ * (Sunday = 0). Record acceptance still runs in Bend on the returned
+ * fields. The ring simulates an empty client (one server buffer): at most
+ * 14 channels stay alive, and the oldest channel is dropped when another
+ * would be created. Display names are that empty client's final buffer
+ * order so Bend can plant the buffers before applying lines. A session
+ * that already holds channel buffers is not passed in. */
 #ifndef CID_READ_KEPT
 #define CID_READ_KEPT CID(read_kept)
 #endif
@@ -190,6 +194,16 @@ typedef struct {
   uint32_t seq;
 } BircHistSpan;
 
+/* sod < 0 means the day is known but its clock is not. known == 0 ignores sod.
+ * Eviction and revive keep this state: the ring drops lines, not the day. */
+typedef struct {
+  int known;
+  int y;
+  int m;
+  int d;
+  int sod;
+} BircHistDay;
+
 typedef struct {
   char *key;
   uint32_t key_len;
@@ -197,6 +211,7 @@ typedef struct {
   uint32_t display_len;
   int alive;
   uint32_t last_seq;
+  BircHistDay day;
   BircHistSpan *ring;
   uint32_t count;
   uint32_t next;
@@ -218,6 +233,7 @@ typedef struct {
   uint32_t hash_mask;
   uint32_t alive[BIRC_HIST_ALIVE_MAX];
   uint32_t alive_n;
+  BircHistDay server_day;
   BircHistSpan *server;
   uint32_t server_n;
   uint32_t server_next;
@@ -431,6 +447,7 @@ static int birc_hist_insert(BircHistScan *sc, const unsigned char *key,
   memcpy(copy, key, (size_t)key_len);
   copy[key_len] = '\0';
   memset(&sc->slots[sc->slot_n], 0, sizeof sc->slots[sc->slot_n]);
+  sc->slots[sc->slot_n].day.sod = -1;
   sc->slots[sc->slot_n].key = copy;
   sc->slots[sc->slot_n].key_len = key_len;
   at = birc_hist_hash(key, key_len) & sc->hash_mask;
@@ -529,11 +546,204 @@ static int birc_hist_set_display(BircHistSlot *slot, const unsigned char *s, uin
   return 1;
 }
 
+/* Sunday = 0, same names as clock.bend weekday. */
+static const char *const birc_hist_week[] = {
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+};
+
+static int birc_hist_digits(const unsigned char *s, uint32_t n) {
+  uint32_t i;
+  if (n == 0u)
+    return 0;
+  for (i = 0; i < n; i++) {
+    if (s[i] < '0' || s[i] > '9')
+      return 0;
+  }
+  return 1;
+}
+
+static int birc_hist_num(const unsigned char *s, uint32_t n) {
+  int v = 0;
+  uint32_t i;
+  for (i = 0; i < n; i++)
+    v = v * 10 + (int)(s[i] - '0');
+  return v;
+}
+
+static int birc_hist_leap(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+static int birc_hist_mdays(int year, int month) {
+  static const int days[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month < 1 || month > 12)
+    return 0;
+  if (month == 2 && birc_hist_leap(year))
+    return 29;
+  return days[month];
+}
+
+static int birc_hist_ymd(const unsigned char *s, uint32_t n, int *y, int *m, int *d) {
+  int yy;
+  int mm;
+  int dd;
+  if (n < 10u || s[4] != '-' || s[7] != '-')
+    return 0;
+  if (!birc_hist_digits(s, 4u) || !birc_hist_digits(s + 5, 2u) || !birc_hist_digits(s + 8, 2u))
+    return 0;
+  yy = birc_hist_num(s, 4u);
+  mm = birc_hist_num(s + 5, 2u);
+  dd = birc_hist_num(s + 8, 2u);
+  if (yy < 1 || yy > 9999 || mm < 1 || mm > 12 || dd < 1 || dd > birc_hist_mdays(yy, mm))
+    return 0;
+  *y = yy;
+  *m = mm;
+  *d = dd;
+  return 1;
+}
+
+static int birc_hist_hms(const unsigned char *s, uint32_t n, int *sod) {
+  int hour;
+  int minute;
+  int second;
+  if (n != 8u || s[2] != ':' || s[5] != ':')
+    return 0;
+  if (!birc_hist_digits(s, 2u) || !birc_hist_digits(s + 3, 2u) || !birc_hist_digits(s + 6, 2u))
+    return 0;
+  hour = birc_hist_num(s, 2u);
+  minute = birc_hist_num(s + 3, 2u);
+  second = birc_hist_num(s + 6, 2u);
+  if (hour > 23 || minute > 59 || second > 60)
+    return 0;
+  *sod = hour * 3600 + minute * 60 + second;
+  return 1;
+}
+
+static int birc_hist_bar(const unsigned char *s, uint32_t n, uint32_t *at) {
+  uint32_t i;
+  for (i = 0; i < n; i++) {
+    if (s[i] == '|') {
+      *at = i;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int birc_hist_wday(int year, int month, int day) {
+  static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+  int y = year;
+  if (month < 3)
+    y -= 1;
+  return (y + y / 4 - y / 100 + y / 400 + t[month - 1] + day) % 7;
+}
+
+static void birc_hist_next_day(int *y, int *m, int *d) {
+  int dim;
+  if (*y == 9999 && *m == 12 && *d == 31)
+    return;
+  dim = birc_hist_mdays(*y, *m);
+  if (*d < dim) {
+    *d += 1;
+    return;
+  }
+  *d = 1;
+  if (*m < 12) {
+    *m += 1;
+    return;
+  }
+  *m = 1;
+  if (*y < 9999)
+    *y += 1;
+}
+
+/* A dated stamp updates the day and keeps its text. A bare clock with a
+ * known day is rewritten to YYYY-MM-DD (Weekday)|HH:MM:SS. Anything else,
+ * including a dated stamp whose date does not parse, leaves the day alone. */
+static void birc_hist_carry(BircHistDay *day, const unsigned char *s, uint32_t n,
+                            const uint32_t *off, unsigned char *out, uint32_t out_cap,
+                            const unsigned char **use, uint32_t *use_n) {
+  uint32_t begin = 0;
+  uint32_t end;
+  uint32_t sn;
+  uint32_t bar = 0;
+  int sod = 0;
+  int y;
+  int m;
+  int d;
+  int w;
+  int nw;
+  char prefix[64];
+  *use = s;
+  *use_n = n;
+  end = birc_hist_field_at(off, 4u, &begin);
+  if (end < begin || end > n)
+    return;
+  sn = end - begin;
+  if (birc_hist_bar(s + begin, sn, &bar)) {
+    int yy = 0;
+    int mm = 0;
+    int dd = 0;
+    if (!birc_hist_ymd(s + begin, bar, &yy, &mm, &dd))
+      return;
+    day->known = 1;
+    day->y = yy;
+    day->m = mm;
+    day->d = dd;
+    if (n > bar + begin + 1u &&
+        birc_hist_hms(s + begin + bar + 1u, sn - bar - 1u, &sod))
+      day->sod = sod;
+    else
+      day->sod = -1;
+    return;
+  }
+  if (!day->known || !birc_hist_hms(s + begin, sn, &sod))
+    return;
+  y = day->y;
+  m = day->m;
+  d = day->d;
+  if (day->sod >= 0 && sod < day->sod)
+    birc_hist_next_day(&y, &m, &d);
+  w = birc_hist_wday(y, m, d);
+  if (w < 0 || w > 6)
+    return;
+  nw = snprintf(prefix, sizeof prefix, "%04d-%02d-%02d (%s)|", y, m, d, birc_hist_week[w]);
+  if (nw < 0 || (uint32_t)nw >= sizeof prefix)
+    return;
+  if (begin > out_cap || (uint32_t)nw + 8u > out_cap - begin || n - end > out_cap - begin - (uint32_t)nw - 8u)
+    return;
+  if (begin != 0u)
+    memcpy(out, s, (size_t)begin);
+  memcpy(out + begin, prefix, (size_t)nw);
+  memcpy(out + begin + (uint32_t)nw, s + begin, 8u);
+  if (end < n)
+    memcpy(out + begin + (uint32_t)nw + 8u, s + end, (size_t)(n - end));
+  day->known = 1;
+  day->y = y;
+  day->m = m;
+  day->d = d;
+  day->sod = sod;
+  *use = out;
+  *use_n = begin + (uint32_t)nw + 8u + (n - end);
+}
+
+static int birc_hist_store(BircHistScan *sc, BircHistDay *day, const unsigned char *s, uint32_t n,
+                           const uint32_t *off, BircHistSpan **ring, uint32_t *count,
+                           uint32_t *next, uint32_t *last) {
+  unsigned char built[BIRC_HIST_LINE_MAX + 64u];
+  const unsigned char *use = s;
+  uint32_t use_n = n;
+  uint32_t stored = 0;
+  birc_hist_carry(day, s, n, off, built, (uint32_t)sizeof built, &use, &use_n);
+  if (!birc_hist_arena(sc, use, use_n, &stored))
+    return 0;
+  return birc_hist_ring_push(sc, ring, count, next, last, stored, use_n);
+}
+
 static int birc_hist_take(BircHistScan *sc, const unsigned char *s, uint32_t n) {
   uint32_t off7[8];
   uint32_t begin;
   uint32_t end;
-  uint32_t stored;
   unsigned char norm[BIRC_HIST_LINE_MAX];
   unsigned char folded[BIRC_HIST_LINE_MAX];
   uint32_t key_len;
@@ -558,12 +768,9 @@ static int birc_hist_take(BircHistScan *sc, const unsigned char *s, uint32_t n) 
     return 1;
   target = s + begin;
   target_n = end - begin;
-  if (target_n == 8u && memcmp(target, "*server*", 8) == 0) {
-    if (!birc_hist_arena(sc, s, n, &stored))
-      return 0;
-    return birc_hist_ring_push(sc, &sc->server, &sc->server_n, &sc->server_next,
-                               NULL, stored, n);
-  }
+  if (target_n == 8u && memcmp(target, "*server*", 8) == 0)
+    return birc_hist_store(sc, &sc->server_day, s, n, off7, &sc->server, &sc->server_n,
+                           &sc->server_next, NULL);
   key_len = birc_hist_norm(target, target_n, norm);
   if (key_len == 0u || norm[0] == '*')
     return 1;
@@ -588,14 +795,13 @@ static int birc_hist_take(BircHistScan *sc, const unsigned char *s, uint32_t n) 
     sc->slots[slot].ring = NULL;
     sc->slots[slot].count = 0;
     sc->slots[slot].next = 0;
+    /* day stays. A revived target continues the calendar it already saw. */
     sc->slots[slot].alive = 1;
     sc->alive[sc->alive_n++] = slot;
   }
-  if (!birc_hist_arena(sc, s, n, &stored))
-    return 0;
-  return birc_hist_ring_push(sc, &sc->slots[slot].ring, &sc->slots[slot].count,
-                             &sc->slots[slot].next, &sc->slots[slot].last_seq,
-                             stored, n);
+  return birc_hist_store(sc, &sc->slots[slot].day, s, n, off7, &sc->slots[slot].ring,
+                         &sc->slots[slot].count, &sc->slots[slot].next,
+                         &sc->slots[slot].last_seq);
 }
 
 static void birc_hist_copy_ring(BircHistSpan *dst, const BircHistSpan *ring,
@@ -723,6 +929,7 @@ static void birc_hist_read(BircHistScan *sc, int fd, uint32_t remaining) {
 static void birc_hist_scan(BircHistScan *sc, int fd, uint32_t size,
                            const unsigned char *ep, uint32_t ep_len, uint32_t keep) {
   memset(sc, 0, sizeof *sc);
+  sc->server_day.sod = -1;
   sc->ep = ep;
   sc->ep_len = ep_len;
   sc->keep = keep > BIRC_HIST_KEEP_MAX ? BIRC_HIST_KEEP_MAX : keep;

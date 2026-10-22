@@ -3,6 +3,7 @@ import Base
 import ./buffer.bend as Cl
 import ./irc.bend as Irc
 import ./frame.bend as Fr
+import ./utc_time.bend as Utc
 
 # ---- line serialization & parsing -----------------------------------------
 
@@ -472,10 +473,16 @@ def apply_hist_entry_iso(entry: HistEntry, cl: Cl.Client, +isc: Cl.Iso) -> Cl.Cl
 def hist_keep(+cap: U32) -> Nat:
   Cl.clamp_nat(U32.to_nat(cap), Cl.SCROLL_CAP())
 
+def apply_fast.dated(+cl: Cl.Client, +bi: Nat, kind: Cl.LineKind, +ts: String, +text: String, +author: String, +cap: U32) -> Cl.Client:
+  Cl.client_restore_capped(cl, bi, kind, ts, text, author, hist_keep(cap))
+
+# Read the previous stamp before the push. A native ring may already have
+# written '|'; carry then leaves that stamp alone. The byte walker uses the
+# same rule, including a dated anchor that the cap later drops.
 def apply_fast.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line, +cap: U32) -> Cl.Client:
   match ln:
     case Cl.Line{kind, +ts, +text, +author, _}:
-      Cl.client_restore_capped(cl, bi, kind, ts, text, author, hist_keep(cap))
+      apply_fast.dated(cl, bi, kind, Utc.carry(Cl.buf_tail_stamp_at(cl, bi), ts), text, author, cap)
 
 def apply_fast.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line, +cap: U32) -> Cl.Client:
   match pair:

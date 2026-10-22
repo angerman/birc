@@ -125,10 +125,29 @@ def collect.buffer(+acc: Import, b: Cl.Buffer, +control: Bool, cap: U32) -> Impo
           collect.allowed((control || (Cl.target_wire(name) && Bool.not(String.is_empty(name))))
             && (control || Bool.not(seen(names, name))), acc, name, archive_lines(lines), control, cap)
 
-def collect(bufs: List<&2, Cl.Buffer>, acc: Import, first: Bool, +cap: U32) -> Import:
+def collect.when(ok: Bool, +acc: Import, +b: Cl.Buffer, +cap: U32) -> Import:
+  match ok:
+    case False{}: acc
+    case True{}: collect.buffer(acc, b, False{}, cap)
+
+def import_client(acc: Import) -> Cl.Client:
+  match acc:
+    case Import{cl, _, _}: cl
+
+def admit.present(got: Maybe<&2, Nat>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def collect.chosen(+acc: Import, +b: Cl.Buffer, +picked: List<&2, String>, +cap: U32) -> Import:
+  match b:
+    case Cl.Buffer{+name, _, _, _, _, _, _, _}:
+      collect.when(seen(picked, name) || admit.present(Cl.buf_find(import_client(acc), name)), acc, b, cap)
+
+def collect.ordered(bufs: List<&2, Cl.Buffer>, acc: Import, +picked: List<&2, String>, +cap: U32) -> Import:
   match bufs:
     case Nil{}: acc
-    case Con{b, rest}: collect(rest, collect.buffer(acc, b, first, cap), False{}, cap)
+    case Con{+b, +rest}: collect.ordered(rest, collect.chosen(acc, b, picked, cap), picked, cap)
 
 def recent_id(b: Cl.Buffer) -> Nat:
   match b:
@@ -152,14 +171,82 @@ def install.collected(got: Import) -> Cl.Client:
     case Import{cl, entries, _}:
       List.foldl(~&2, ~H.HistEntry, ~Cl.Client, ~(cl => entry => restore(entry, cl)), List.sort(~H.HistEntry, ~H.entry_id_le, entries), cl)
 
+def admit.usable(+name: String, +lines: List<&2, Cl.Line>, +acc: List<&2, String>, +cl: Cl.Client) -> Bool:
+  Bool.not(List.is_empty(&2, Cl.Line, archive_lines(lines)))
+    && Cl.target_wire(name)
+    && Bool.not(String.is_empty(name))
+    && Bool.not(seen(acc, name))
+    && Bool.not(admit.present(Cl.buf_find(cl, name)))
+
+# `left` is room-1. A skipped target does not spend a slot, so the next room
+# is 1+left. The walk itself shrinks the buffer list, which is the recursive
+# argument. Nat.sub stays behind the full-client match in room_for.
+def admit.keep(
+  ok: Bool,
+  +name: String,
+  +left: Nat,
+  +acc: List<&2, String>,
+  k: Nat -> List<&2, String> -> List<&2, String>
+) -> List<&2, String>:
+  match ok:
+    case False{}: k(1n+left, acc)
+    case True{}: k(left, name <> acc)
+
+def admit.buffer(
+  +b: Cl.Buffer,
+  +left: Nat,
+  +cl: Cl.Client,
+  +acc: List<&2, String>,
+  k: Nat -> List<&2, String> -> List<&2, String>
+) -> List<&2, String>:
+  match b:
+    case Cl.Buffer{+name, _, _, +lines, _, _, _, _}:
+      admit.keep(admit.usable(name, lines, acc, cl), name, left, acc, k)
+
+def admit.go(bufs: List<&2, Cl.Buffer>, room: Nat, +cl: Cl.Client, +acc: List<&2, String>) -> List<&2, String>:
+  match bufs:
+    case Nil{}: acc
+    case Con{+b, +rest}:
+      match room:
+        case 0n: acc
+        case 1n+left:
+          admit.buffer(b, left, cl, acc, next => acc2 => admit.go(rest, next, cl, acc2))
+
+def room_for.normal(under: Bool, +count: Nat, +normal: Nat) -> Nat:
+  match under:
+    case False{}: 0n
+    case True{}: Nat.min(Nat.sub(Cl.MAX_BUFFERS(), count), Nat.sub(Cl.NORMAL_BUFFERS(), normal))
+
+def room_for.span(under: Bool, +count: Nat, +normal: Nat) -> Nat:
+  match under:
+    case False{}: 0n
+    case True{}: room_for.normal(Nat.is_lt(normal, Cl.NORMAL_BUFFERS()), count, normal)
+
+def room_for.counts(+count: Nat, +normal: Nat) -> Nat:
+  room_for.span(Nat.is_lt(count, Cl.MAX_BUFFERS()), count, normal)
+
+def room_for.bufs(+bufs: List<&2, Cl.Buffer>) -> Nat:
+  room_for.counts(Cl.buf_count(bufs), Cl.normal_buffer_count(bufs))
+
+def room_for(+cl: Cl.Client) -> Nat:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}: room_for.bufs(bufs)
+
+def install.picked(+rest: List<&2, Cl.Buffer>, +current: Cl.Client) -> List<&2, String>:
+  admit.go(List.sort(~Cl.Buffer, ~recent, rest), room_for(current), current, Nil{})
+
+def install.ordered(+server: Cl.Buffer, +rest: List<&2, Cl.Buffer>, +current: Cl.Client, +cap: U32) -> Cl.Client:
+  +base = collect.buffer(Import{current, Nil{}, Nil{}}, server, True{}, cap)
+  install.collected(collect.ordered(rest, base, install.picked(rest, current), cap))
+
 def install.buffers(bufs: List<&2, Cl.Buffer>, +current: Cl.Client, +cap: U32) -> Cl.Client:
   match bufs:
     case Nil{}: current
     case Con{server, rest}:
-      # Current tabs win. Remaining slots go to the most recently used archive
-      # targets, before accepted rows are replayed in their original file order.
-      install.collected(collect(List.sort(~Cl.Buffer, ~recent, rest),
-        collect.buffer(Import{current, Nil{}, Nil{}}, server, True{}, cap), False{}, cap))
+      # Current tabs win. Spare slots go to the most recently used archive
+      # targets, then those targets are appended in snapshot order. Accepted
+      # rows still replay in file order.
+      install.ordered(server, rest, current, cap)
 
 def install.allowed(ok: Bool, +current: Cl.Client, +snapshot: Cl.Client) -> Cl.Client:
   match ok:

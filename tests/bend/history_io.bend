@@ -155,6 +155,61 @@ def evict_saved(+sig: String, +paced: Cl.Client) -> IO(Unit):
     Unit <- E.must("overlong record is dropped", Bool.not(String.contains(sig, "TOO-LONG")))
     E.must("older server row falls out of the cap", Bool.not(String.contains(sig, "early-server")))
 
+def day_line(+ep: String, +stamp: String, +text: String) -> String:
+  "BIRC2\t" ++ ep ++ "\t#d\tMSG\t" ++ stamp ++ "\tu\t" ++ text ++ "\n"
+
+# The dated anchor is outside the cap. Both the byte walker and the native
+# ring must still roll the kept bare times onto the next civil day.
+def day_body(+ep: String) -> String:
+  day_line(ep, "09:00:00", "bare-early")
+    ++ day_line(ep, "2026-10-21 (Wednesday)|23:50:00", "dated")
+    ++ day_line(ep, "23:51:00", "same")
+    ++ day_line(ep, "00:10:00", "roll")
+    ++ day_line(ep, "00:11:00", "stay")
+
+def day_kept() -> String:
+  "2026-10-22 (Thursday)|00:10:00|2026-10-22 (Thursday)|00:11:00|"
+
+def stamps_pipe(lines: List<&2, Cl.Line>) -> String:
+  match lines:
+    case Nil{}: ""
+    case Con{Cl.Line{_, +ts, _, _, _}, +t}: ts ++ "|" ++ stamps_pipe(t)
+
+# The buffer list is the shrinking argument. Both arms run; only the matching
+# target's stamps are kept.
+def stamps_walk(bufs: List<&2, Cl.Buffer>) -> String:
+  match bufs:
+    case Nil{}: ""
+    case Con{Cl.Buffer{+name, _, _, +lines, _, _, _, _}, +rest}:
+      Bool.pick(String, String.eq(name, "#d"), stamps_pipe(lines), stamps_walk(rest))
+
+def day_stamps(+cl: Cl.Client) -> String:
+  match cl:
+    case Cl.Client{_, _, +bufs, _, _, _, _, _, _}: stamps_walk(bufs)
+
+def day_paced(+content: String, +ep: String) -> Cl.Client:
+  +bytes = Fr.string_to_octets(content)
+  evict_paced(H.read_pace.step(List.length(&2, U32, bytes), bytes, H.ReadState{Cl.init_with_cap("me", "irc.example", 2), Nil{}, 0n, False{}}, ep, 2))
+
+def day_saved(+paced: Cl.Client, +snap: Cl.Client) -> IO(Unit):
+  +want = day_kept()
+  do IO<Unit>:
+    Unit <- E.must_eq("byte walker dates across an evicted anchor", want, day_stamps(paced))
+    Unit <- E.must_eq("native ring dates across an evicted anchor", want, day_stamps(snap))
+    Unit <- E.must("walker kept the rolled lines", String.contains(oracle_sig(paced), "#d=roll|stay|"))
+    E.must("ring kept the rolled lines", String.contains(oracle_sig(snap), "#d=roll|stay|"))
+
+def day_check(+ep: String) -> IO(Unit):
+  +content = day_body(ep)
+  +paced = day_paced(content, ep)
+  do IO<Unit>:
+    f : File <- IO.try(File, File.open("build/history_io.day", "w"))
+    pair : File & Result<&1, &1, U32 & String, Unit> <- File.write(f, content)
+    f : File <- wrote(pair)
+    Unit <- File.close(f)
+    snap : Cl.Client <- HistIO.history_snapshot_client("build/history_io.day", ep, 2, Cl.init_with_cap("me", "irc.example", 2))
+    day_saved(paced, snap)
+
 def evict_check(+ep: String) -> IO(Unit):
   +content = evict_body(ep)
   +paced = evict_pace(content, ep)
@@ -192,6 +247,7 @@ def main() -> IO(Unit):
     Unit <- File.close(empty_file)
     empty : Cl.Client <- HistIO.history_load_client("build/history_io.empty", "a:6667", 3, configured())
     Unit <- evict_check("irc.example:6697")
+    Unit <- day_check("irc.example:6697")
     Unit <- E.must("empty_file", empty_ok(empty))
     skip_empty : HistIO.Append <- HistIO.history_append_file.typed(path, "")
     Unit <- E.must("empty_data_is_skip", append_is_skip(skip_empty))
