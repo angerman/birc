@@ -246,6 +246,264 @@ Closed in 95a32e0.
   file also returns stage 2 and restores no rows. A regular file owned
   by the euid still restores.
 
+- [x] **D14. A newer history retry inherits the empty pending identity.**
+  `ws_history.on_fail.go` (`src/bend/wsnet.bend:1727`) stores
+  `ws_pend.prepend(retry, ws_hot.pend_of(hot))`. `ws_pend.prepend`
+  (`:1072`) keeps that record's `sid`, `base`, and `seq`. Empty pending
+  is `WsPend{"", 0n, 0n, 0n}` (`:1068`). A later `ws_pend.offer` for a
+  different server returns false (`:1519`), and `write_mark.send`
+  answers `Some{"history part pending"}` (`:1528`).
+  Rectify: when the stored pending bytes are empty, store
+  `WsPend{retry, ws_id_nat(id), base, seq}` for this failed job.
+  `on_fail` already has `seq` (`:1730`); pass it into the newer arm.
+  Leave a nonempty pending identity alone. Do not add a field.
+  Add a case: server 1, empty pending, and a hold on server 1 above
+  the failed seq. `on_fail` of `"ROW\n"` keeps that job's id, base,
+  and seq. `write_mark` for server 1 does not answer
+  `history part pending`.
+
+- [x] **D15. A framed line the feed rejects still confirms a pending send.**
+  `step_on_framed_ms.confirmed` (`src/bend/session.bend:4455`) runs
+  `pend_confirm_lines` on the original framed `lines`. The ceiling twin
+  does the same (`:4478`). `pend_confirm_line` (`:2138`) treats any
+  self `PRIVMSG` or `NOTICE` as confirmation.
+  `live_split_step.unclaimed` (`:4256`) keeps a claimed batch line out
+  of the feed.
+  Rectify: confirm only lines the feed admits. A claimed batch line,
+  and a suffix the ceiling drops, must leave the pending send in
+  place. Do not add a field.
+  Add a case: one pending self PRIVMSG, then a framed batch-tagged
+  echo of that PRIVMSG that history claims. The pending send remains.
+  Today `pend_confirm_lines` drops it.
+
+- [x] **D16. Split pane lookup always folds with rfc1459.**
+  `named_idx.server` (`src/bend/split.bend:183`) resolves a non-server
+  pane with `Cl.buf_find(cl, target)`. `buf_find`
+  (`src/bend/buffer.bend:1115`) calls `buf_find_cm` with `dflt_cm()`
+  `"rfc1459"` (`:32`). Under `CASEMAPPING=ascii`, `#x{` and `#x[` stay
+  distinct, and this lookup returns one pane for both. View already
+  holds a casemap at the call (`src/bend/view.bend:3338`).
+  Rectify: pass that existing casemap into `buf_find_cm`. Do not add
+  a Session or Client field.
+  Add a case: ascii casemap, buffers `#x{` and `#x[`. `named_idx` of
+  `#x[` is not the index of `#x{`. Today the two names fold together.
+
+- [x] **D17. An endpoint change appends the replaced client.**
+  `endpoint_client.same` (`src/bend/session.bend:2407`) keeps `seq` and
+  replaces buffers with `Cl.server_buf() <> Cl.log_buffers(cl)`.
+  `session_after.dial` (`:2489`) installs that client.
+  `extract_new_history_for_except.same` (`src/bend/history.bend:332`)
+  returns `""` when the log seqs match, and otherwise serializes only
+  `new_cl` (`:336`). `live_step.next.save` (`src/bend/net.bend:1559`)
+  passes `new_endpoint`, `old_cl`, and `new_cl` to
+  `maybe_save_history.check_except`. `old_endpoint` is already a
+  parameter (`:1544`).
+  Rectify: append the pre-replace client's unsaved rows for
+  `old_endpoint` before the buffer replace. Do not add a field.
+  Add a case: one unsaved channel row, then dial a different host.
+  The old endpoint's history contains that row. Today the append is
+  empty.
+
+- [x] **D18. A failed history save reuses a line id that is still stored.**
+  `history_kept` (`src/bend/net.bend:1469`) on failure does
+  `Cl.set_log_seq(..., old_seq)` and leaves the unsaved row in the
+  buffers. `client_log_author_ts.noted` (`src/bend/buffer.bend:1740`)
+  allocates `1n+seq` from that rewound `log_seq` and stores it on the
+  next line.
+  Rectify: allocate one past the greater of `log_seq` and the highest
+  id still stored. Leave the rewind so those rows stay visible to the
+  next extract. Do not renumber stored rows. Do not add a field.
+  Add a case: log a row, fail the append, log another row. The two
+  line ids differ. Today the second id equals the first.
+
+- [x] **D19. Image admission never counts the cards directory.**
+  `src/ffi/media_fetch_ffi.c:1174` calls
+  `birc_mf_usage(cards ? parent : dirfd, cards ? ".img" : ".card", ...)`.
+  An image write sets `dirfd = parent` (`:1169`) and therefore counts
+  `.card` names in the image directory. Stored cards are opened under
+  `cards/` (`:1166`). A card write counts `.img` names in the parent.
+  The shared caps at `:1176` then treat the other directory as empty.
+  Rectify: count the files committed in the other directory against
+  `BIRC_MF_MAX_CACHE_ENTRIES` and `BIRC_MF_MAX_CACHE_BYTES`. Keep both
+  caps.
+  Add a case: fill `cards/` to the entry cap, then admit one image.
+  The image is refused. Today it is stored.
+
+- [x] **D20. Upload accepts 6to4 and Teredo destinations.**
+  `birc_up_public_address` (`src/ffi/upload_ffi.c:148`) returns 1 for
+  any address that survives the `2000::/3` test (`:146`) and the
+  mapped, multicast, loopback, link-local, site-local, and unspecified
+  rejects (`:143`). `birc_up_connect` then opens a socket (`:256`).
+  `birc_media_public_address` returns 0 for `2002::/16`
+  (`src/ffi/media_fetch_ffi.c:239`) and for `2001:0000::/32` (`:241`).
+  Rectify: reject those two prefixes before `return 1`, the way the
+  media check does. Do not hand-roll cryptography.
+  Add a case: `2002:0102:0304::1` and `2001:0000::1` are not public.
+  `2001:4860:4860::8888` stays public.
+
+- [x] **D21. Keychain reap blocks after the helper closes stdout.**
+  After stdout EOF breaks the read loop, `src/ffi/keychain_birc.c:1408`
+  checks the deadline once. `:1412` then calls
+  `waitpid(pid, &status, 0)` with no `WNOHANG`. A child that has closed
+  stdout and not exited waits past the deadline. The fail path is what
+  kills the child (`:1427`).
+  Rectify: poll `waitpid` with `WNOHANG` until the child exits or the
+  existing deadline passes, then kill it the way the fail path does.
+  Add a case: a helper that closes stdout and sleeps past the deadline.
+  The reap returns failure without waiting out that sleep. Today
+  `waitpid` blocks until the child exits.
+
+- [x] **D22. Chathistory import stores every row as a plain message.**
+  `batch_matches.go` (`src/bend/history_search.bend:1014`) builds
+  `Cl.Line{Cl.Msg{}, stamp, text, author, 0n}`. `batch_collect.msg`
+  (`:930`) already stored
+  `Irc.sanitize_in(batch_body.action(...))`. Live
+  `feed_priv.write.msg` stores `Cl.Action`
+  (`src/bend/client.bend:154`) or `Cl.Notice` (`:164`), and
+  `client_log_author_ts.noted` keeps the body with
+  `Irc.sanitize_keep_style` (`src/bend/buffer.bend:1741`).
+  Rectify: store Action, Notice, or Msg the way the live writer does,
+  and keep the styled body. Do not add a field.
+  Add a case: a batch NOTICE and a CTCP ACTION that contains a color
+  byte. Import stores `Cl.Notice` and `Cl.Action`, and the color byte
+  remains. Today both rows are `Cl.Msg` and the color byte is gone.
+
+- [x] **D23. An ascii split of `#x[` and `#x{` turns off.**
+  `normalize` (`src/bend/split.bend:309`) keeps an On split only when
+  `Bool.not(Irc.ieq(first, second))`. `Irc.ieq`
+  (`src/bend/irc.bend:189`) is `String.eq(rfc1459(a), rfc1459(b))`,
+  and that fold maps `[` to `{`. This is not `named_idx` (D16).
+  Rectify: compare the two pane names with the session casemap.
+  Do not add a field.
+  Add a case: `CASEMAPPING=ascii`, an On split of `#x[` and `#x{`.
+  `normalize` stays On. Today it returns `Off{}`.
+
+- [x] **D24. History off still appends an unchanged save.**
+  The unchanged arm (`src/bend/wsnet.bend:1889`) is
+  `ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), data, ...)`.
+  `enabled` is false when `settings_history` is false (`:1896`).
+  `async_go`'s false arm (`:1650`) calls
+  `HistIO.history_append_file.claim(path, data)`. The changed arm
+  (`:1881`) already gates on `settings_history`.
+  Rectify: do not claim-append the unchanged extract when history
+  is off. Leave the changed-arm gate as it is.
+  Add a case: history disabled, endpoint unchanged, nonempty extract.
+  The file is not appended. Today `claim` runs.
+
+- [x] **D25. `empty_buf` ORs the fixed channel predicate.**
+  `empty_buf` (`src/bend/buffer.bend:1179`) stores
+  `is_channel || target_channel(canonical)`. `target_channel`
+  (`:102`) uses `dflt_types()` `"#&+!"` (`:15`). A caller that
+  passes false for `&local` under `CHANTYPES=#` still gets a channel.
+  Rectify: store the caller's `is_channel` bit. Do not OR
+  `target_channel`.
+  Add a case: `empty_buf("&local", False{})` leaves the channel bit
+  false. Today it is true.
+
+- [x] **D26. Focusing one buffer clears its ascii twin's unread.**
+  `set_active.unread` (`src/bend/buffer.bend:2064`) calls
+  `del_unread_items(settings_unreads(stg), name)`.
+  `del_unread_items` (`:677`) is
+  `del_unread_items_cm(dflt_cm(), unreads, name)`, and `dflt_cm()`
+  (`:32`) is `"rfc1459"`, which folds `[` onto `{`. This is not
+  the pane lookup in D16.
+  Rectify: delete that unread with the negotiated casemap already
+  on the client. Do not add a field.
+  Add a case: `CASEMAPPING=ascii`, unreads for `#a[` and `#a{`.
+  `set_active` on `#a[` drops only `#a[`. Today both are gone.
+
+- [x] **D27. One chathistory page replaces the msgid ledger.**
+  `hist_live_note_seen` (`src/bend/history_search.bend:1422`) stores
+  `List.take(&2, String, seen, SEEN_CAP())`. `SEEN_CAP` (`:41`) and
+  `BATCH_CAP` (`:39`) are both `100n`. `import_source_page`
+  (`:1144`) appends the fresh msgids onto `seen`, and
+  `import_source_fresh` (`:1125`) inserts a msgid when
+  `List.contains` misses it.
+  Rectify: keep the previous page. `SEEN_CAP` must stay strictly
+  above one `BATCH_CAP` page. Do not add a Session field.
+  Add a case: page 1 stores 100 new msgids, page 2 stores 100 more,
+  and a later import of a page-1 msgid does not insert it again.
+  Today the take keeps only the latest page.
+
+- [x] **D28. Partial UTF-8 arms a 50 ms tty wake.**
+  The tty park (`src/ffi/timui_ffi.c:1980`) sets the deadline when
+  `birc_ui_live->input.state != 0`, adding `50000000ull` (`:1981`).
+  A UTF-8 lead stores `p->state = 4`
+  (`src/ui/timui.h:14772`). Partial UTF-8 has no idle expiry.
+  Rectify: arm that deadline only for the states that already expire.
+  Leave state 4 with no deadline. Do not edit `timui.h`.
+  Add a case: one byte `0xC3` and then silence. The tty wait stays
+  parked past 50 ms. A later `0xA9` still produces U+00E9. Today
+  the wait completes every 50 ms.
+
+- [x] **D29. A 10-digit hist_cap wraps to zero.**
+  `birc_prefs_parse_wire` (`src/ffi/preferences_ffi.c:771`) accepts
+  a `hist_cap` of up to 10 digits. The fold (`:776`) is
+  `cap = cap * 10u + (uint32_t)(*c - '0')`, and `:779` stores it.
+  `4294967296` wraps to 0. A stored 0 disables history.
+  Rectify: reject the field before the multiply when it would pass
+  `4294967295`, and return 0 from the parser. `4294967295` still
+  parses.
+  Add a case: `birc_prefs_write` of a wire whose `hist_cap` is
+  `4294967296` fails and leaves the file unchanged. Today the value
+  is stored as 0.
+
+- [x] **D30. An ascii twin's error id rejects the next local command.**
+  `find_sig.buf` (`src/bend/session_drafts.bend:175`) is
+  `find_sig.pick(Irc.ieq(stored, name), last_sig(lines), cont)`.
+  `Irc.ieq` folds `[` onto `{`, so a lookup of `#x{` returns `#x[`'s
+  last-line id. `sig_new_error` (`:189`) is
+  `nerr && Bool.not(Nat.is_eq(nid, oid))`, and that sends an
+  empty-out command down the reseed path. This is not the settled
+  draft claim: the function returns an id, and the id is the twin's.
+  Rectify: match the buffer name with the session casemap. Do not
+  add a field.
+  Add a case: `CASEMAPPING=ascii`, buffers `#x[` then `#x{`, and
+  `#x{`'s last line is `Error`. An empty-out command on `#x[`
+  succeeds and clears the composer. Today the twin's error id
+  reseeds the typed line.
+
+- [x] **D31. Equal log sequences skip rows above the checkpoint.**
+  `extract_new_history_for.same` (`src/bend/history.bend:321`) is
+  `case True{}: ""`. `extract_new_history_for` (`:328`) sets that
+  flag with `Nat.is_eq` of the two `log_seq` values.
+  `extract_new_history_for_except.same` (`:332`) returns `""` on
+  the same flag. D17 is the unequal arm after a buffer replace.
+  D18 is the rewind that can leave an id above the sequence.
+  Rectify: when the sequences match, still emit lines whose ids
+  are above `Cl.log_seq_of(old_cl)`, in both `.same` functions.
+  Do not add a field.
+  Add a case: both clients have `log_seq` 0 and the new client has
+  one `Msg` with id 1. `extract_new_history_for` returns that
+  BIRC2 row. Today it returns `""`.
+
+- [x] **D32. A second buffer loads history through an unadmitted open.**
+  `history_load_client.route` (`src/bend/history_io.bend:202`) sends
+  a non-plain client to `H.history_load_client`. That open is
+  `File.open(path, "r")` (`src/bend/history.bend:812`).
+  `history_snapshot_client.route` (`src/bend/history_io.bend:217`)
+  does the same through `history.bend:744`. `File.open` follows a
+  symlink. The plain arm uses `read_kept`.
+  Rectify: admit the path with
+  `O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`, a regular file, and
+  the euid, and fail the load on refusal, before any parse. Do not
+  add a `src/` file.
+  Add a case: the server buffer plus one channel, and a history
+  path that is a symlink to a regular BIRC2 file. The client is
+  unchanged and the load fails. Today the link is followed and the
+  rows are planted.
+
+- [x] **D33. Card unescape drops a non-BMP numeric reference.**
+  `birc_mf_unescape` (`src/ffi/media_fetch_ffi.c:1592`) accepts
+  `v <= 0x10fffful`. The last encode arm (`:1598`) is
+  `v < 0x10000`. A larger value writes nothing, and `:1603` then
+  consumes the reference.
+  Rectify: encode U+10000 through U+10FFFF as four UTF-8 bytes.
+  Leave a surrogate reference undecoded.
+  Add a case: an `og:title` of `&#x1F600;` round-trips as U+1F600.
+  Today the title is empty. `&#xD800;` is not written as the bytes
+  `ED A0 80`.
+
 ## Comments
 
 Rewrite the comment. Leave the arithmetic and the control flow alone
@@ -517,6 +775,58 @@ unless the item says a dead arm goes with it.
   Say the completion loop discards the returned `log_seq` because a
   `*search*` import does not mint event ids. Leave the match alone.
 
+- [x] **C21. A bare nick is described as user presence.**
+  `src/bend/cap_notify.bend:395` says "Bare ambiguous nicks stay
+  users, matching the shared host gate". `notify_prefix_ok` (`:398`)
+  is `Bool.not(server_source(prefix))`. `server_source` (`:186`) is
+  `Endpoint.server_source`, and that is `host_ok`
+  (`src/bend/endpoint.bend:39`), which admits any single LDH label.
+  A bare nick therefore fails the presence check.
+  Say a single LDH label is a server source, so a bare nick is not
+  user presence. Leave `notify_prefix_ok` alone.
+
+- [x] **C22. The search header gives history.bend the wrong chunk size.**
+  `src/bend/history_search.bend:3` says the scan mirrors
+  `history.bend` with "4096-byte chunks". `hist_read_chunk`
+  (`src/bend/history.bend:632`) is `65536n`. This file's own
+  `SCAN_CHUNK` (`history_search.bend:36`) is `4096n`.
+  Say the history reader uses 65536-byte chunks and this scan uses
+  `SCAN_CHUNK` of 4096. Do not change either size.
+
+- [x] **C23. The chathistory comment says import normalizes stamps.**
+  `src/bend/history_search.bend:797` says "the live Clock.line_stamps
+  layer normalizes them at import". `batch_collect.msg` (`:929`)
+  stores `Irc.sanitize_in(Irc.msg_time(msg))`, and
+  `import_source_apply` passes that stamp to `Hist.apply_entry`
+  without calling `Clock.line_stamps`.
+  Say the imported stamp is the sanitized wire time. Leave the import
+  alone. D22 covers the row kind.
+
+- [x] **C24. Search and page are still described as `live_only`.**
+  `src/bend/session.bend:579` says "search/page report live_only until
+  the live loop runs search_file". With history on,
+  `submit_history.search` (`src/bend/history_search.bend:1855`)
+  returns `(cl, Nil{})` and does not call `live_only`. D10 is the
+  old behavior.
+  Say history-on search and page return the same client and no outs.
+  Leave `submit_history.search` alone.
+
+- [x] **C25. A 510-octet line is described as dropped.**
+  `src/bend/frame.bend:546` says "overlong line (≥ LINE_OCTET_MAX
+  octets before LF) is dropped." `LINE_OCTET_MAX` is 510.
+  `legal_max_ok` (`:587`) keeps `a_line(510n)`.
+  Say a payload of `LINE_OCTET_MAX` octets before LF is kept, and
+  the next octet is what drops. Leave `legal_max_ok` and
+  `step_normal` alone.
+
+- [x] **C26. The search header names `search_open_file` as live IO.**
+  `src/bend/history_search.bend:9` says "search/page IO runs
+  search_open_file/import_page". `search_spawn`
+  (`src/bend/net.bend:408`) spawns `HSIO.search_run_native` or
+  `HSIO.search_run`. C22 covers the chunk size on line 3.
+  Say the live loop spawns `search_run_native` or `search_run`.
+  Leave the spawn alone.
+
 ## Dead code
 
 No caller outside the definition, including `tests/` and `LAWS.bend`,
@@ -589,6 +899,181 @@ walker that `visible_candidates`, a test, or a law still calls.
   Delete `tab_mention_bg` and `tab_mention_fg` with C13. Do not add
   `OpTabs` words.
 
+- [x] **Y5. Uncalled upload lease counter.**
+  `ws_lease.up_took` (`src/bend/wsnet.bend:517`) has no caller in
+  `src/`, `tests/`, or `LAWS.bend`. Upload spawn uses
+  `ws_lease.up_add` (`:509`).
+  Delete `ws_lease.up_took`. Leave `ws_lease.up_add`.
+
+- [x] **Y6. Uncalled history notice predicate.**
+  `ws_history.notice_ok` (`src/bend/wsnet.bend:1410`) has no caller.
+  `ws_history.unsaved` and `ws_history.hold_after` match `None{}`
+  inline.
+  Delete `ws_history.notice_ok`.
+
+- [x] **Y7. Uncalled query-rename list wrappers.**
+  `rename_queries` (`src/bend/split.bend:257`) and
+  `rename_queries_cm` (`:297`) have no caller. The live path is
+  `rename_query.line_cm` (`:289`).
+  Delete `rename_queries`, `rename_queries_cm`, and
+  `rename_queries_cm.go`. Leave `rename_query.line_cm`.
+
+- [x] **Y8. Uncalled visible-media tail walker.**
+  `visible_media.buffer.tail` (`src/bend/view.bend:3507`) has no
+  caller. `visible_media.buffer.where` uses `visible_media.full` and
+  `visible_media.spine`.
+  Delete `visible_media.buffer.tail`. Delete `.tail.scanned` and any
+  `.tail.use` helper only when a grep shows `tail` is the only caller.
+
+- [x] **Y9. Uncalled casemap anchored-cards walker.**
+  `anchored_lines_media_cards_cm` (`src/bend/view.bend:1934`) has no
+  caller. `anchored_lines_media_cards` (`:1931`) is the sibling.
+  Delete `anchored_lines_media_cards_cm` only. Leave the sibling.
+
+- [x] **Y10. Uncalled paint_source.**
+  `paint_source` (`src/bend/view.bend:1993`) has no caller in `src/`,
+  `tests/`, or `LAWS.bend`.
+  Delete `paint_source`.
+
+- [x] **Y11. Uncalled composer_spans.**
+  `composer_spans` (`src/bend/view.bend:3144`) has no caller.
+  `paint_composer_spans` is a different function and stays.
+  Delete `composer_spans`.
+
+- [x] **Y12. Uncalled op_box_role.**
+  `op_box_role` (`src/bend/view.bend:136`) has no caller. `op_box`
+  (`:133`) stays.
+  Delete `op_box_role`.
+
+- [x] **Y13. Uncalled cards admission without pending rows.**
+  `visible_media_candidates_cards_iso` (`src/bend/view.bend:3573`) has
+  no caller. Production calls
+  `visible_media_candidates_cards_iso_pends` (`:3576`).
+  Delete the no-pends function. Leave the pends function.
+
+- [x] **Y14. Uncalled split axis and focus readers.**
+  `axis_of` (`src/bend/split.bend:44`) and `focus_of` (`:49`) have no
+  caller in `src/`, `tests/`, or `LAWS.bend`.
+  Delete both.
+
+- [x] **Y15. Uncalled themed status wrapper.**
+  `status_themed` (`src/bend/view_hint.bend:179`) has no caller. Its
+  body calls `status_themed.on` (`:174`). `status` (`:171`) stays.
+  Delete `status_themed`. Delete `status_themed.on` only when a grep
+  shows `status_themed` is its only caller.
+
+- [x] **Y16. Uncalled notify send entries.**
+  `send` (`src/bend/notify_io.bend:104`), `send_async` (`:151`), and
+  `send_many` (`:201`) have no caller. Live delivery is
+  `run_jobs_done` (`:178`), which `ws_notify.fire` spawns.
+  Delete the three entries and a helper only when a grep shows its
+  only callers were those entries. Leave `run_jobs`, `run_jobs_done`,
+  and `send.run`.
+
+- [x] **Y17. Uncalled format_match.**
+  `format_match` (`src/bend/history_search.bend:151`) has no caller.
+  `format_all` inlines `Feed.format_search_match`.
+  Delete `format_match`. Leave `format_all`.
+
+- [x] **Y18. Uncalled search-evidence projectors.**
+  `search_evidence_missing` (`src/bend/history_search.bend:485`) and
+  `search_evidence_sig` (`:508`) have no caller. `search_evidence_bits`
+  (`:499`) and `search_evidence_admitted` (`:489`) stay.
+  Delete the two projectors. Leave the constructors and
+  `search_evidence_admitted`.
+
+- [x] **Y19. Uncalled client history cap wrapper.**
+  `cap_client_history` (`src/bend/history.bend:552`) has no caller.
+  `apply_history.cap` trims with `cap_bufs_history`.
+  Delete `cap_client_history`. Leave `cap_bufs_history`.
+
+- [x] **Y20. Uncalled history.bend startup client.**
+  `history_init_client` (`src/bend/history.bend:829`) only calls
+  `history_init_client.pick` (`:822`). `history_init_client.content`
+  (`:804`) only calls `history_init_client.has` (`:797`). Nothing in
+  `src/`, `tests/`, or `LAWS.bend` calls either pair. Live startup is
+  `HistIO.history_init_client`.
+  Delete the four `history.bend` functions. Leave
+  `history_load_client` and the `history_io.bend` initializer.
+
+- [x] **Y21. Uncalled `writer_admit_won`.**
+  `writer_admit_won` (`src/bend/actor.bend:897`) has no caller in
+  `src/`, `tests/`, or `LAWS.bend`. Live admit is
+  `writer_admit_dup_r` (`:830`) and `dial_ready_adopt` (`:1409`).
+  Delete `writer_admit_won`. Leave those two.
+
+- [x] **Y22. Uncalled `paint_session_cards.hint`.**
+  `paint_session_cards.hint` (`src/bend/net.bend:355`) has no caller
+  in `src/`, `tests/`, or `LAWS.bend`. The cards frame calls
+  `paint_session_cards.hot` (`src/bend/wsnet.bend:2498`).
+  Delete `paint_session_cards.hint`. Leave `.hot`.
+
+- [x] **Y23. Uncalled headless predicates.**
+  `boot_headless.may_await` (`src/bend/net.bend:2179`) and
+  `boot_headless.is_up` (`:2184`) have no caller in `src/`,
+  `tests/`, or `LAWS.bend`. `boot_headless` (`:2191`) matches
+  `Act.Booted` itself.
+  Delete the two predicates. Leave `boot_headless`.
+
+- [x] **Y24. Uncalled `history_append_file.private_result`.**
+  `history_append_file.private_result` (`src/bend/history_io.bend:60`)
+  has no caller. `outcome` (`:69`) returns
+  `history_append_file.private_append` directly.
+  Delete `private_result`. Leave `private_append` and `outcome`.
+
+- [x] **Y25. Uncalled `result.exit`.**
+  `result.exit` (`src/bend/upload_io.bend:17`) has no caller.
+  `result` returns through `result.compat(result_detail(got))`.
+  Delete `result.exit`. Leave `result`, `result_detail`, and
+  `result.compat`.
+
+- [x] **Y26. Uncalled `is_helper`.**
+  `is_helper` (`src/bend/notify_io.bend:44`) has no caller.
+  `known_helper` (`:50`) is `known_base(base_of(helper))`.
+  Delete `is_helper`. Leave `known_base` and `known_helper`.
+
+- [x] **Y27. Uncalled `send_queued`.**
+  `send_queued` (`src/bend/notify_io.bend:231`) has no caller.
+  Tests call `send_queued.with` (`:226`). This is not Y16.
+  Delete `send_queued`. Leave `send_queued.with`, `run_jobs`,
+  `run_jobs_done`, and `send.run`.
+
+- [x] **Y28. Uncalled `owns_read`.**
+  `owns_read` (`src/bend/preferences_runtime.bend:51`) has no
+  caller. `saved_result` uses `owns_write`, and `loaded.eligible`
+  compares the ticket inline.
+  Delete `owns_read`. Leave `owns_write`.
+
+- [x] **Y29. Uncalled `job_write`.**
+  `job_write` (`src/bend/preferences_runtime.bend:420`) has no
+  caller. `take` clears dirty with `job_same` and `job_snapshot`.
+  Delete `job_write`. Leave `job_snapshot`.
+
+- [x] **Y30. Uncalled `visible_buffer_cards_cm`.**
+  `visible_buffer_cards_cm` (`src/bend/cards.bend:572`) has no
+  caller in `src/`, `tests/`, or `LAWS.bend`. Admission uses
+  `visible_panes_cards_cm` (`:575`).
+  Delete `visible_buffer_cards_cm`. Leave
+  `visible_panes_cards_cm`.
+
+## Performance
+
+- [x] **P1. Each message cluster rescans the remaining string.**
+  `split.go` (`src/bend/message_chunks.bend:38`) calls
+  `Columns.cluster(SCon{h, t})` on every cluster. `cluster`
+  (`src/bend/columns.bend:132`) then calls
+  `cluster_bounded(s, Nat.add(1n, String.length(t)))`, so each cluster
+  walks the tail to measure it. `cluster_bounded` (`:122`) already
+  takes that bound, and `:108` says a cluster walk passes decreasing
+  fuel instead of `String.length`.
+  Rectify: from `message_chunks`, call `cluster_bounded` with the
+  length `split` already computed, and decrease that fuel per cluster.
+  Do not rewrite the cluster or width rules in `columns.bend`.
+  Add a case: a 400-scalar word still splits into the same chunks,
+  and `split.go` calls `Columns.cluster_bounded` with a decreasing
+  fuel. Today it calls `Columns.cluster`, which measures the tail on
+  every cluster.
+
 ## Settled, leave them
 
 These came up in the same review and are not open defects.
@@ -621,3 +1106,9 @@ These came up in the same review and are not open defects.
   current product comments aside from the items above.
 - `paint_view_single` / `paint_view_split` call `paint_body_of`. A miss
   there is a full paint of the same buffer, not a wrong buffer.
+- `MODE $room +k` is rewritten by `session_redact_wire` (`session.bend:4121`) before `feed_mode_with`. `sensitive_target` (`isupport.bend:951`) accepts a negotiated `$` channel, so `feed_mode_with` (`client.bend:833`) skipping `Commands.mode_has_key` does not log the key.
+- History read copies the live ring (`history_ffi.c:848`) and frees the arena with the request. An overwritten slot is not returned in place of the last `min(cap, 1024)` lines.
+- `wire_style` flush of an empty accumulator returns the existing segment list (`wire_style.bend:129`). That eager call does not allocate a discarded segment.
+- The `NetCmd` copy in `net_msg.bend` omits `Hangup`, and neither the product nor `tests/bend/shutdown_ack.bend` constructs that copy.
+- `find_sig.pick` (`session_drafts.bend:175`) returns that buffer's last-line id and error flag. It does not take `#x{`'s draft for `#x[`.
+- The quiet post (`wsnet.bend:2192`) calls `ws_post.carded`, which stages preferences. `ws_cards_stage` stays on the uploaded path.

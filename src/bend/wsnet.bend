@@ -514,11 +514,6 @@ def ws_lease.up_has(+xs: List<&2, WsLease>, +id: Key.ServerId, +gen: U32) -> Boo
     case Nil{}: False{}
     case Con{+h, +t}: ws_lease.match(h, id, gen) || ws_lease.up_has(t, id, gen)
 
-def ws_lease.up_took(+xs: List<&2, WsLease>, +job: Maybe<&2, Up.Request>, +id: Key.ServerId, +gen: U32) -> List<&2, WsLease>:
-  match job:
-    case None{}: xs
-    case Some{_}: ws_lease.up_add(xs, id, gen)
-
 def ws_lease.up_kept_hit(hit: Bool, +s: Key.ServerId, +gen: U32, +kept: List<&2, WsLease>) -> List<&2, WsLease>:
   match hit:
     case True{}: WsLease{s, gen} <> kept
@@ -1407,11 +1402,6 @@ def ws_history.write_held(accepted: Bool, +hot: WsHot, +pend: WsPend) -> WsHot:
 # has to append. The extract client is the pre-step client raised to this
 # part's queued hold, and a channel accept moves that floor immediately.
 # Skip must not count as durable success.
-def ws_history.notice_ok(notice: Maybe<&2, String>) -> Bool:
-  match notice:
-    case None{}: True{}
-    case Some{_}: False{}
-
 def ws_history.write_chan.put(+ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
   match pend:
     case WsPend{+bytes, +sid, +base, +seq}:
@@ -1720,15 +1710,23 @@ def ws_history.on_fail.rewind(+ws: W.Workspace, +id: Key.ServerId, +base: Nat, +
   +cl2 = Cl.set_log_seq(cl, ws_history.rewind_seq(Cl.log_seq_of(cl), base))
   (ws_replace(ws, id, Sess.session_set_client(st, cl2)), ws_hot.with_hold(hot, 0n))
 
+# Empty pending is WsPend{"", 0, 0, 0} and has no part identity. A later
+# offer for another server would refuse that blob. This failed job owns
+# the record instead. Nonempty pending keeps its sid, base, and seq.
+def ws_history.on_fail.stored(empty: Bool, +retry: String, +id: Key.ServerId, +base: Nat, +seq: Nat, +pend: WsPend) -> WsPend:
+  match empty:
+    case True{}: WsPend{retry, ws_id_nat(id), base, seq}
+    case False{}: ws_pend.prepend(retry, pend)
+
 # A newer hold means a later job is already queued above `seq`. Keep that
 # floor and prepend the failed blob so the next admission retries it first.
-def ws_history.on_fail.go(newer: Bool, +ws: W.Workspace, +id: Key.ServerId, +base: Nat, +retry: String, +hot: WsHot) -> W.Workspace & WsHot:
+def ws_history.on_fail.go(newer: Bool, +ws: W.Workspace, +id: Key.ServerId, +base: Nat, +seq: Nat, +retry: String, +hot: WsHot) -> W.Workspace & WsHot:
   match newer:
-    case True{}: (ws, ws_hot.with_pending(hot, ws_pend.prepend(retry, ws_hot.pend_of(hot))))
+    case True{}: (ws, ws_hot.with_pending(hot, ws_history.on_fail.stored(String.is_empty(ws_hot.pending_of(hot)), retry, id, base, seq, ws_hot.pend_of(hot))))
     case False{}: ws_history.on_fail.rewind(ws, id, base, hot)
 
 def ws_history.on_fail(+ws: W.Workspace, +id: Key.ServerId, +base: Nat, +seq: Nat, +retry: String, +hot: WsHot) -> W.Workspace & WsHot:
-  ws_history.on_fail.go(Nat.is_gt(ws_history.hold_in(ws_hot.hold_of(hot), id), seq), ws, id, base, retry, hot)
+  ws_history.on_fail.go(Nat.is_gt(ws_history.hold_in(ws_hot.hold_of(hot), id), seq), ws, id, base, seq, retry, hot)
 
 def ws_history.lift_ckpt(+ckpt: Sess.Session, +hold: Nat) -> Sess.Session:
   Sess.session_set_client(ckpt, ws_history.floor_cl(Sess.session_cl(ckpt), hold))
@@ -1882,11 +1880,18 @@ def ws_history_save.branch.changed(have: Bool, +path: String, +data: String, +ck
     case False{}:
       ws_history.changed_sync(path, data, ckpt, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, hot)
 
+# Unchanged endpoint. History off must not claim-append the extract.
+# History on still queues when a worker exists, and claim-appends otherwise.
+def ws_history_save.branch.unchanged(enabled: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot) -> IO(W.Workspace & Bool & WsHot):
+  match enabled:
+    case False{}: IO.pure(W.Workspace & Bool & WsHot, (new_ws, (False{}, hot)))
+    case True{}: ws_history.async_go(ws_history.have_jobs(jobs), data, ckpt, new_ws, affected, hot)
+
 def ws_history_save.branch(changed: Bool, +jobs: Maybe<&2, Chan(HistJob)>, +path: String, +data: String, +ckpt: Sess.Session, +new_ws: W.Workspace, +affected: Key.ServerId, +cap: U32, +old_ep: String, +new_ep: String, allowed: Bool, enabled: Bool, +gen: U32, +evt: Chan(Sess.UiMsg), +hot: WsHot, +cl: Cl.Client) -> IO(W.Workspace & Bool & WsHot):
   match changed:
     case True{}:
       ws_history_save.branch.changed(ws_history.have_jobs(jobs), path, data, ckpt, new_ws, affected, cap, old_ep, new_ep, allowed, enabled, gen, evt, hot, cl)
-    case False{}: ws_history.async_go(Bool.and(enabled, ws_history.have_jobs(jobs)), data, ckpt, new_ws, affected, hot)
+    case False{}: ws_history_save.branch.unchanged(enabled, jobs, data, ckpt, new_ws, affected, hot)
 
 def ws_history_save.go(changed: Bool, +allowed: Bool, +old_st: Sess.Session, +new_st: Sess.Session, +old_ep: String, +new_ep: String, +old_ws: W.Workspace, +new_ws: W.Workspace, +affected: Key.ServerId, +hot: WsHot, +evt: Chan(Sess.UiMsg)) -> IO(W.Workspace & Bool & WsHot):
   match hot:

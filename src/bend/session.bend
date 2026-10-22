@@ -576,10 +576,10 @@ def submit_send_with(+iso: Isupport.State, +cl: Cl.Client, +input: Sub.Input, on
 # ---- /history interception ----------------------------------------------
 # /history is a Session-owned catalog constructor (like connect), intercepted
 # on the LIVE submit path: fetch subcommands need a connection and the
-# negotiated chathistory flag, while search/page report live_only until the
-# live loop runs search_file and history_import_search. The negotiated flag
-# comes from the session's live history owner (shared CAP registry); the
-# key loop threads it from Session into submit_or_split/apply_keys.
+# negotiated chathistory flag. History-on search and page return the same
+# client and no outs. The negotiated flag comes from the session's live
+# history owner (shared CAP registry); the key loop threads it from Session
+# into submit_or_split/apply_keys.
 def history_apply.offline(offline: Bool, +cl: Cl.Client, +rest: String, +negotiated: Bool) -> Cl.Client & String & NetCmd:
   match offline:
     case True{}: (Sub.echo_err_server(cl, "not connected"), "", Cont{Nil{}})
@@ -2151,6 +2151,14 @@ def pend_confirm_lines.go(fuel: Nat, +cm: String, +pends: List<&2, Cl.PendSend>,
 def pend_confirm_lines(+cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +lines: List<&2, String>) -> List<&2, Cl.PendSend>:
   pend_confirm_lines.go(List.length(&2, String, lines), cm, pends, nick, lines)
 
+# A framed self echo confirms only when the feed kept it. Claimed batch rows
+# and ceiling reverts leave the client log sequence unchanged; an admitted
+# chat line allocates an id. Lines that do not allocate stay pending.
+def pend_confirm_grew(grew: Bool, +cm: String, +pends: List<&2, Cl.PendSend>, +nick: String, +line: String) -> List<&2, Cl.PendSend>:
+  match grew:
+    case False{}: pends
+    case True{}: pend_confirm_line(cm, pends, nick, line)
+
 def pend_age_one(+p: Cl.PendSend) -> Cl.PendSend:
   match p:
     case Cl.PendSend{+buf, +target, +label, +wire, +body, +disp, +ts, +kind, +age}: Cl.PendSend{buf, target, label, wire, body, disp, ts, kind, 1n+age}
@@ -2492,7 +2500,7 @@ def session_after.dial(
   +hl2 = Hs.hist_live_sync(hl, 1n+Hs.hist_live_gen(hl), Ep.endpoint(host, port))
   # Connecting/Reconnecting via session_set_net: connection transitions drop
   # Confirm/Armed so dial→online cannot F8 without a new warning frame.
-  session_set_net(Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, Sp.normalize(cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labels_drop(labelsbox), Nil{}}, next_net)
+  session_set_net(Session{cl2, False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, Sp.normalize_cm(Isupport.casemapping(iso2), cl2, split), Ty.empty(), port, [M.reset(media)], next, edits, [iso2], [hl2], [C.Retained{dial_cards(same, cards), dial_full(same, full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labels_drop(labelsbox), Nil{}}, next_net)
 
 def session_rebox(+st: Session) -> Session:
   match st:
@@ -2537,12 +2545,15 @@ def session_after(+st: Session, cmd: NetCmd) -> Session:
 def session_on_cmd(+st: Session, +cmd: NetCmd) -> Session:
   session_after(st, cmd)
 
-def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
+def apply_click_cm(+cm: String, +cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
   match c:
     case None{}:
       cl
     case Some{i}:
-      Cl.set_active_clamp(cl, i)
+      Cl.set_active_clamp_cm(cm, cl, i)
+
+def apply_click(+cl: Cl.Client, c: Maybe<&2, Nat>) -> Cl.Client:
+  apply_click_cm(Cl.dflt_cm(), cl, c)
 
 def session_seed(+st: Session) -> U32:
   match st:
@@ -2722,17 +2733,17 @@ def split_apply.focus.got(pair: Cl.Client & Sp.State) -> Cl.Client & String & Ne
     case (cl2, split2):
       (Sub.echo_info(cl2, "split focus changed"), "", Cont{Nil{}}, split2)
 
-def split_apply.focus.on(on: Bool, +cl: Cl.Client, split: Sp.State) -> Cl.Client & String & NetCmd & Sp.State:
+def split_apply.focus.on(on: Bool, +cm: String, +cl: Cl.Client, split: Sp.State) -> Cl.Client & String & NetCmd & Sp.State:
   match on:
     case False{}:
       (Sub.echo_err(cl, "split view is not active"), "", Cont{Nil{}}, split)
     case True{}:
-      split_apply.focus.got(Sp.toggle(cl, split))
+      split_apply.focus.got(Sp.toggle_cm(cm, cl, split))
 
-def split_apply.focus(+cl: Cl.Client, +split: Sp.State) -> Cl.Client & String & NetCmd & Sp.State:
-  split_apply.focus.on(Sp.is_on(split), cl, split)
+def split_apply.focus(+cm: String, +cl: Cl.Client, +split: Sp.State) -> Cl.Client & String & NetCmd & Sp.State:
+  split_apply.focus.on(Sp.is_on(split), cm, cl, split)
 
-def split_apply(+cl: Cl.Client, split: Sp.State, cmd: Sp.Command) -> Cl.Client & String & NetCmd & Sp.State:
+def split_apply(+cm: String, +cl: Cl.Client, split: Sp.State, cmd: Sp.Command) -> Cl.Client & String & NetCmd & Sp.State:
   match cmd:
     case Sp.NotSplit{}:
       (cl, "", Cont{Nil{}}, split)
@@ -2743,15 +2754,16 @@ def split_apply(+cl: Cl.Client, split: Sp.State, cmd: Sp.Command) -> Cl.Client &
     case Sp.SplitClose{}:
       (Sub.echo_info(cl, "split view closed"), "", Cont{Nil{}}, Sp.Off{})
     case Sp.SplitFocus{}:
-      split_apply.focus(cl, split)
+      split_apply.focus(cm, cl, split)
 
 def submit_follow.got(
+  +cm: String,
   triple: Cl.Client & String & NetCmd,
   split: Sp.State
 ) -> Cl.Client & String & NetCmd & Sp.State:
   match triple:
     case (+cl2, draft2, cmd):
-      (cl2, draft2, cmd, Sp.follow_active(cl2, split))
+      (cl2, draft2, cmd, Sp.follow_active_cm(cm, cl2, split))
 
 # Pane verbs are catalog constructors. Argument policy stays in Sp.parse_split_arg
 # (protocol-style remainder); the verb itself is not scanned again.
@@ -2770,6 +2782,7 @@ def split_of_input(input: Sub.Input) -> Sp.Command:
     case _: Sp.NotSplit{}
 
 def submit_or_split.cmd(
+  +cm: String,
   ctx: Sub.SubmitCtx,
   cmd: Sp.Command,
   +cl: Cl.Client,
@@ -2781,11 +2794,12 @@ def submit_or_split.cmd(
 ) -> Cl.Client & String & NetCmd & Sp.State:
   match cmd:
     case Sp.NotSplit{}:
-      submit_follow.got(submit_input_ctx(ctx, input, cl, net, port, negotiated), split)
+      submit_follow.got(cm, submit_input_ctx(ctx, input, cl, net, port, negotiated), split)
     case _:
-      split_apply(cl, split, cmd)
+      split_apply(cm, cl, split, cmd)
 
 def submit_or_split.enter(
+  +cm: String,
   enter: Bool,
   ctx: Sub.SubmitCtx,
   +cl: Cl.Client,
@@ -2800,9 +2814,10 @@ def submit_or_split.enter(
     case False{}:
       (cl, typed, Cont{Nil{}}, split)
     case True{}:
-      submit_or_split.cmd(ctx, split_of_input(input), cl, split, net, port, input, negotiated)
+      submit_or_split.cmd(cm, ctx, split_of_input(input), cl, split, net, port, input, negotiated)
 
 def submit_or_split(
+  +cm: String,
   ctx: Sub.SubmitCtx,
   +cl: Cl.Client,
   split: Sp.State,
@@ -2813,7 +2828,7 @@ def submit_or_split(
   +negotiated: Bool,
   input: Sub.Input
 ) -> Cl.Client & String & NetCmd & Sp.State:
-  submit_or_split.enter(enter, ctx, cl, split, net, port, typed, negotiated, input)
+  submit_or_split.enter(cm, enter, ctx, cl, split, net, port, typed, negotiated, input)
 
 def session_typing(+st: Session) -> Ty.State:
   match st:
@@ -3140,14 +3155,14 @@ def nav_focus.pair(pair: Cl.Client & Sp.State) -> NavStep:
   match pair:
     case (cl2, split2): NavStep{cl2, split2, hold_nil()}
 
-def nav_focus.go(on: Bool, +cl: Cl.Client, split: Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
+def nav_focus.go(on: Bool, +cm: String, +cl: Cl.Client, split: Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
   match on:
     case False{}: NavStep{cl, split, hold}
-    case True{}: nav_focus.pair(Sp.toggle(cl, split))
+    case True{}: nav_focus.pair(Sp.toggle_cm(cm, cl, split))
 
-def nav_focus.on(on: Bool, pair: Cl.Client & List<&2, View.ScrollHold>, split: Sp.State) -> NavStep:
+def nav_focus.on(on: Bool, +cm: String, pair: Cl.Client & List<&2, View.ScrollHold>, split: Sp.State) -> NavStep:
   match pair:
-    case (+cl, +hold): nav_focus.go(on, cl, split, hold)
+    case (+cl, +hold): nav_focus.go(on, cm, cl, split, hold)
 
 def nav_after(
   +cl: Cl.Client,
@@ -3167,9 +3182,10 @@ def nav_after(
 ) -> NavStep:
   match size:
     case Size{rows, cols}:
-      +cl2 = apply_click(Cl.cycle_tab(cl, tab), click)
-      +split2 = Sp.follow_active(cl2, split)
-      nav_focus.on(U32.is_eq(focus, 1), nav_kept(enter, View.scroll_active_media_cards_iso(Isupport.as_iso(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends, th)), split2)
+      +cm = Isupport.casemapping(iso)
+      +cl2 = apply_click_cm(cm, Cl.cycle_tab_cm(cm, cl, tab), click)
+      +split2 = Sp.follow_active_cm(cm, cl2, split)
+      nav_focus.on(U32.is_eq(focus, 1), cm, nav_kept(enter, View.scroll_active_media_cards_iso(Isupport.as_iso(iso), cl2, rows, cols, split2, up, dn, media, C.paint_entries(cards), pends, th)), split2)
 
 def panel_keep(comp: Comp, +typed: String, +draft: String) -> Comp:
   comp_of(Sk.panel_keep(view_of(comp), typed, draft))
@@ -3347,7 +3363,7 @@ def step_keys.base.submit(+st: Session, +keys: Keys, +hist2: Hist, dyn: Bool, in
     case Keys{+typed, enter, _, _, _, _, _, _, _}:
       +negotiated = session_negotiated(st)
       +echo_ok = session_echo_ok(st)
-      finish_keys.quad(st, keys, hist2, submit_or_split(step_keys.base.ctx(dyn, session_iso(st), echo_ok), session_cl(st), session_split(st), session_net(st), session_port(st), typed, enter, negotiated, input))
+      finish_keys.quad(st, keys, hist2, submit_or_split(session_cm(st), step_keys.base.ctx(dyn, session_iso(st), echo_ok), session_cl(st), session_split(st), session_net(st), session_port(st), typed, enter, negotiated, input))
 
 def step_keys.base(+st: Session, +keys: Keys, +input: Sub.Input) -> Session & NetCmd & Bool:
   match st:
@@ -4274,16 +4290,56 @@ def live_split_step(+port: U32, acc: LiveAcc & Sp.State, item: StampedLine) -> L
     case (+live, +split):
       live_split_step.pair(live, split, item, port)
 
-def fold_split.go(+fuel: Nat, +port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>) -> LiveAcc & Sp.State:
+# A framed self echo confirms only when the kept client advanced the log
+# sequence. Casemap and nick stay the pre-step session values for the chunk.
+# A claimed batch row and a ceiling revert keep that sequence, so the pending
+# send stays. The folded ledger replaces the chunk's input pends.
+def live_seq(live: LiveAcc) -> Nat:
+  match live:
+    case LiveAcc{FoldAcc{+cl, _, _}, _, _, _, _, _, _}: Cl.log_seq_of(cl)
+
+def stamped_wire(item: StampedLine) -> String:
+  match item:
+    case StampedLine{+line, _}: line
+
+def fold_split.pair(live: LiveAcc, split: Sp.State) -> LiveAcc & Sp.State:
+  (live, split)
+
+def fold_split.with_pends(live: LiveAcc, split: Sp.State, pends: List<&2, Cl.PendSend>) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  (live, split, pends)
+
+# prev_seq is a Nat so this step does not flatten two LiveAcc values.
+def fold_split.confirm_seq(+prev_seq: Nat, +nlive: LiveAcc, nsplit: Sp.State, cm: String, pends: List<&2, Cl.PendSend>, nick: String, line: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  (nlive, nsplit, pend_confirm_grew(Nat.is_lt(prev_seq, live_seq(nlive)), cm, pends, nick, line))
+
+def fold_split.step_next(+prev_seq: Nat, next: LiveAcc & Sp.State, h: StampedLine, cm: String, pends: List<&2, Cl.PendSend>, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match next:
+    case (+nlive, +nsplit):
+      fold_split.confirm_seq(prev_seq, nlive, nsplit, cm, pends, nick, stamped_wire(h))
+
+def fold_split.step_run(+port: U32, +live: LiveAcc, split: Sp.State, +h: StampedLine, cm: String, pends: List<&2, Cl.PendSend>, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  fold_split.step_next(live_seq(live), live_split_step(port, fold_split.pair(live, split), h), h, cm, pends, nick)
+
+def fold_split.step_rest(port: U32, rest: Sp.State & List<&2, Cl.PendSend>, live: LiveAcc, h: StampedLine, cm: String, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match rest:
+    case (+split, +pends): fold_split.step_run(port, live, split, h, cm, pends, nick)
+
+def fold_split.step(port: U32, acc: LiveAcc & Sp.State & List<&2, Cl.PendSend>, h: StampedLine, cm: String, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match acc:
+    case (+live, rest): fold_split.step_rest(port, rest, live, h, cm, nick)
+
+def fold_split.go(fuel: Nat, +port: U32, acc: LiveAcc & Sp.State & List<&2, Cl.PendSend>, xs: List<&2, StampedLine>, +cm: String, +nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
   match fuel:
     case 0n: acc
     case 1n+f:
       match xs:
         case Nil{}: acc
-        case Con{+h, +t}: fold_split.go(f, port, live_split_step(port, acc, h), t)
+        case Con{+h, +t}: fold_split.go(f, port, fold_split.step(port, acc, h, cm, nick), t, cm, nick)
 
-def fold_split(+port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>) -> LiveAcc & Sp.State:
-  fold_split.go(List.length(&2, StampedLine, xs), port, acc, xs)
+def fold_split(port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, cm: String, pends: List<&2, Cl.PendSend>, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match acc:
+    case (+live, +split):
+      fold_split.go(List.length(&2, StampedLine, xs), port, fold_split.with_pends(live, split, pends), xs, cm, nick)
 
 # Ceiling admission over the (LiveAcc & Sp.State) pair: step one line
 # through the single live entry, then revert the whole line (the entire
@@ -4318,16 +4374,31 @@ def live_split_ceiling(prev: LiveAcc & Sp.State, +item: StampedLine, +ceiling: N
     case (+live, +split):
       live_split_ceiling.step(live, split, item, ceiling, port)
 
-def fold_split_ceiling.go(+fuel: Nat, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat, +port: U32) -> LiveAcc & Sp.State:
+# Same sequence rule after live_split_ceiling. A reverted line keeps the
+# pre-line client, so its pending send stays.
+def fold_split_ceiling.step_run(+port: U32, +live: LiveAcc, split: Sp.State, +h: StampedLine, ceiling: Nat, cm: String, pends: List<&2, Cl.PendSend>, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  fold_split.step_next(live_seq(live), live_split_ceiling(fold_split.pair(live, split), h, ceiling, port), h, cm, pends, nick)
+
+def fold_split_ceiling.step_rest(port: U32, rest: Sp.State & List<&2, Cl.PendSend>, live: LiveAcc, h: StampedLine, ceiling: Nat, cm: String, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match rest:
+    case (+split, +pends): fold_split_ceiling.step_run(port, live, split, h, ceiling, cm, pends, nick)
+
+def fold_split_ceiling.step(port: U32, acc: LiveAcc & Sp.State & List<&2, Cl.PendSend>, h: StampedLine, ceiling: Nat, cm: String, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match acc:
+    case (+live, rest): fold_split_ceiling.step_rest(port, rest, live, h, ceiling, cm, nick)
+
+def fold_split_ceiling.go(fuel: Nat, +port: U32, acc: LiveAcc & Sp.State & List<&2, Cl.PendSend>, xs: List<&2, StampedLine>, +ceiling: Nat, +cm: String, +nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
   match fuel:
     case 0n: acc
     case 1n+f:
       match xs:
         case Nil{}: acc
-        case Con{+h, +t}: fold_split_ceiling.go(f, live_split_ceiling(acc, h, ceiling, port), t, ceiling, port)
+        case Con{+h, +t}: fold_split_ceiling.go(f, port, fold_split_ceiling.step(port, acc, h, ceiling, cm, nick), t, ceiling, cm, nick)
 
-def fold_split_ceiling(+port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, +ceiling: Nat) -> LiveAcc & Sp.State:
-  fold_split_ceiling.go(List.length(&2, StampedLine, xs), acc, xs, ceiling, port)
+def fold_split_ceiling(port: U32, acc: LiveAcc & Sp.State, +xs: List<&2, StampedLine>, ceiling: Nat, cm: String, pends: List<&2, Cl.PendSend>, nick: String) -> LiveAcc & Sp.State & List<&2, Cl.PendSend>:
+  match acc:
+    case (+live, +split):
+      fold_split_ceiling.go(List.length(&2, StampedLine, xs), port, fold_split.with_pends(live, split, pends), xs, ceiling, cm, nick)
 
 def step_chunk_got(
   +draft: String,
@@ -4353,7 +4424,7 @@ def step_chunk_got(
   match got:
     case LiveAcc{FoldAcc{+cl2, reversed, _}, typing, +plan, +iso, +hl, +reg, +renames}:
       +typing2 = Ty.retain_client(typing, cl2)
-      (Session{cl2, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, Sp.normalize(cl2, split), typing2, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], [reg], theme, labelsbox, pends}, List.reverse(&2, String, reversed), List.reverse(&2, Drafts.NickRename, renames))
+      (Session{cl2, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, Sp.normalize_cm(Isupport.casemapping(iso), cl2, split), typing2, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], [reg], theme, labelsbox, pends}, List.reverse(&2, String, reversed), List.reverse(&2, Drafts.NickRename, renames))
 
 def step_chunk_got.folded(
   +draft: String,
@@ -4379,6 +4450,52 @@ def step_chunk_got.folded(
     case (+got, +split2):
       step_chunk_got(draft, chan, net, hist, size, seed, comp, split2, port, rem, drop, got, media, edits, cards, full, theme, labelsbox, pends)
 
+
+def step_on_chunk_pair.use_rest(
+  +draft: String,
+  +chan: String,
+  net: NetState,
+  +hist: Hist,
+  +size: Size,
+  +seed: U32,
+  +comp: Comp,
+  +port: U32,
+  rem: List<&2, U32>,
+  drop: Bool,
+  rest: Sp.State & List<&2, Cl.PendSend>,
+  live: LiveAcc,
+  +media: M.State,
+  +edits: List<&2, String>,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +theme: Theme.Id,
+  +labelsbox: List<&2, LabelCell>
+) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
+  match rest:
+    case (+split, +pends):
+      step_chunk_got.folded(draft, chan, net, hist, size, seed, comp, port, rem, drop, fold_split.pair(live, split), media, edits, cards, full, theme, labelsbox, pends)
+
+def step_on_chunk_pair.use(
+  +draft: String,
+  +chan: String,
+  net: NetState,
+  +hist: Hist,
+  +size: Size,
+  +seed: U32,
+  +comp: Comp,
+  +port: U32,
+  rem: List<&2, U32>,
+  drop: Bool,
+  folded: LiveAcc & Sp.State & List<&2, Cl.PendSend>,
+  +media: M.State,
+  +edits: List<&2, String>,
+  +cards: C.State,
+  +full: C.Fullscreen,
+  +theme: Theme.Id,
+  +labelsbox: List<&2, LabelCell>
+) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
+  match folded:
+    case (+live, rest): step_on_chunk_pair.use_rest(draft, chan, net, hist, size, seed, comp, port, rem, drop, rest, live, media, edits, cards, full, theme, labelsbox)
 
 def step_on_chunk_pair(
   +cl: Cl.Client,
@@ -4409,18 +4526,20 @@ def step_on_chunk_pair(
 ) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match got:
     case (lines, rem2, drop2):
-      step_chunk_got.folded(
+      step_on_chunk_pair.use(
         draft, chan, net, hist, size, seed, comp, port, rem2, drop2,
-        fold_split(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, iso, hl, unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps)), media, edits, cards, full, theme, labelsbox, pends)
+        fold_split(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, iso, hl, unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps), Isupport.casemapping(iso), pends, Cl.nick_of(cl)),
+        media, edits, cards, full, theme, labelsbox)
 
 def step_on_chunk_pair_ceiling(+st: Session, +now_ms: U32, got: List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match st:
-    case Session{+cl, _, _, +draft, _, +chan, net, +hist, size, seed, +comp, split, +typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
+    case Session{+cl, _, _, +draft, _, +chan, net, +hist, size, seed, +comp, split, +typing, +port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
       match got:
         case (lines, rem2, drop2):
-          step_chunk_got.folded(
+          step_on_chunk_pair.use(
             draft, chan, net, hist, size, seed, comp, port, rem2, drop2,
-            fold_split_ceiling(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, unbox_iso(iso), unbox_hist_live(hlbox), unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps), ceiling), unbox_media(media), edits, unbox_cards(cf), unbox_full(cf), theme, labelsbox, pends)
+            fold_split_ceiling(port, (LiveAcc{FoldAcc{cl, Nil{}, now_ms}, typing, plan, unbox_iso(iso), unbox_hist_live(hlbox), unbox_reg(regbox), Nil{}}, split), stamped_lines(lines, stamps), ceiling, Isupport.casemapping(unbox_iso(iso)), pends, Cl.nick_of(cl)),
+            unbox_media(media), edits, unbox_cards(cf), unbox_full(cf), theme, labelsbox)
 
 # NICK-arrival draft rename (I2 CM rename across the live path): the Client
 
@@ -4450,12 +4569,10 @@ def step_on_chunk_ms.observed(after: Nat, trip: Session & List<&2, String>) -> S
 def step_on_chunk_ms.observed_st(+after: Nat, +st: Session, +outs: List<&2, String>) -> Session & List<&2, String>:
   (session_observe_cards(session_observe_media(st, after)), outs)
 
-def step_on_framed_ms.confirmed(pair: Session & List<&2, String>, +st: Session, +lines: List<&2, String>) -> Session & List<&2, String>:
-  match pair:
-    case (+st2, +outs): (session_set_pends(st2, pend_confirm_lines(session_cm(st), session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs)
-
+# The fold confirms a self echo only after the feed keeps it. A claimed
+# batch row and a ceiling-dropped suffix leave the pending send in place.
 def step_on_framed_ms.split(+lines: List<&2, String>, +rem: List<&2, U32>, +drop: Bool, +st: Session, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32) -> Session & List<&2, String>:
-  step_on_framed_ms.confirmed(step_on_chunk_ms.observed(Cl.log_seq_of(session_cl(st)), step_on_framed_ms.base(st, (lines, rem, drop), stamps, now_ms)), st, lines)
+  step_on_chunk_ms.observed(Cl.log_seq_of(session_cl(st)), step_on_framed_ms.base(st, (lines, rem, drop), stamps, now_ms))
 
 def step_on_framed_ms(+st: Session, framed: List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32) -> Session & List<&2, String>:
   match framed:
@@ -4473,12 +4590,8 @@ def step_on_framed_ms_ceiling.observed3(+after: Nat, trip: Session & List<&2, St
   match trip:
     case (+st, rest): step_on_framed_ms_ceiling.observed3.rest(rest, after, st)
 
-def step_on_framed_ms_ceiling.confirmed(trip: Session & List<&2, String> & List<&2, Drafts.NickRename>, +st: Session, +lines: List<&2, String>) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
-  match trip:
-    case (st2, outs, renames): (session_set_pends(st2, pend_confirm_lines(session_cm(st), session_pends(st), Cl.nick_of(session_cl(st)), lines)), outs, renames)
-
 def step_on_framed_ms_ceiling.split(+lines: List<&2, String>, +rem: List<&2, U32>, +drop: Bool, +st: Session, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
-  step_on_framed_ms_ceiling.confirmed(step_on_framed_ms_ceiling.observed3(Cl.log_seq_of(session_cl(st)), step_on_framed_ms_ceiling.base(st, (lines, rem, drop), stamps, now_ms, ceiling)), st, lines)
+  step_on_framed_ms_ceiling.observed3(Cl.log_seq_of(session_cl(st)), step_on_framed_ms_ceiling.base(st, (lines, rem, drop), stamps, now_ms, ceiling))
 
 def step_on_framed_ms_ceiling(+st: Session, framed:
  List<&2, String> & List<&2, U32> & Bool, stamps: List<&2, Maybe<&2, String>>, +now_ms: U32, +ceiling: Nat) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
@@ -5066,7 +5179,7 @@ def typing_cm_keyed(+st: Session, +text: String) -> Session:
   st_of_keys(step_keys(st, keys_of(text, False{}, 0, 0, 0, 0, 0, 0, 0)))
 
 def typing_cm_focus(+st: Session, +i: Nat) -> Session:
-  session_set_client(st, Cl.set_active(session_cl(st), i))
+  session_set_client(st, Cl.set_active_cm(session_cm(st), session_cl(st), i))
 
 def live_tick_cm_alias_ok() -> Bool:
   +base = typing_cm_focus(session_set_iso(typing_cm_tagged(), typing_cm_ascii_iso()), 1n)

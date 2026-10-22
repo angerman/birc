@@ -28,6 +28,9 @@ int main(void) {
   uint32_t http = 0;
   char path[] = "/tmp/birc-upload-native-XXXXXX";
   int fd;
+  must(!birc_up_public_address("2002:0102:0304::1"), "6to4");
+  must(!birc_up_public_address("2001:0000::1"), "teredo");
+  must(birc_up_public_address("2001:4860:4860::8888"), "public v6");
   must(birc_upload_checked_url("https://0x0.st/s/secret/abc.png\n", 31, url, sizeof url), "good url");
   must(strcmp(url, "https://0x0.st/s/secret/abc.png") == 0, "strip newline");
   must(!birc_upload_checked_url("https://evil.example/x\n", 23, url, sizeof url), "foreign origin");

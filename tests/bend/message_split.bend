@@ -7,6 +7,7 @@ import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as S
 import ../../src/bend/history.bend as H
 import ../../src/bend/session.bend as Sess
+import ../../src/bend/message_chunks.bend as Chunks
 
 def client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
@@ -98,6 +99,25 @@ def action_boundary(+cl: Cl.Client, +body: String) -> Bool:
     && Nat.is_eq(List.length(&2, String, outs), 2n)
     && no_credentials(cl, outs)
 
+def word400.eq(+a: String, +b: String, +c: String, +d: String, +word: String) -> Bool:
+  +part = Irc.stars.go(100n)
+  String.eq(a, part) && String.eq(b, part) && String.eq(c, part) && String.eq(d, part)
+    && String.eq(a ++ b ++ c ++ d, word)
+
+def word400.list(xs: List<&2, String>, +word: String) -> Bool:
+  match xs:
+    case Con{+a, Con{+b, Con{+c, Con{+d, Nil{}}}}}: word400.eq(a, b, c, d, word)
+    case _: False{}
+
+def word400.got(got: Maybe<&2, List<&2, String>>, +word: String) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{xs}: word400.list(xs, word)
+
+def word400_chunks_ok() -> Bool:
+  +word = Irc.stars.go(400n)
+  word400.got(Chunks.split(word, 100n), word)
+
 def main() -> IO(Unit):
   +cl = base()
   +ascii = Irc.stars.go(1000n)
@@ -116,6 +136,7 @@ def main() -> IO(Unit):
     ++ "IDENTIFY opaque-secret"
   do IO<Unit>:
     Unit <- E.must("long ASCII splits without loss", split_ok(S.submit(cl, ascii), ascii, 3n))
+    Unit <- E.must("400-scalar word keeps chunk boundaries", word400_chunks_ok())
     Unit <- E.must("short text remains one line", split_ok(S.submit(cl, "hi"), "hi", 1n))
     Unit <- E.must("UTF8 splits without loss", split_ok(S.submit(cl, repeat(400n, "漢")), repeat(400n, "漢"), 3n))
     Unit <- E.must("combining cluster stays whole", cluster_boundary(S.submit(cl, Irc.stars.go(494n) ++ accent), Irc.stars.go(494n), accent))

@@ -5,6 +5,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as Sub
+import ../../src/bend/history_search.bend as Hs
 
 def fixture() -> Cl.Client:
   Feed.feed_all(
@@ -97,7 +98,116 @@ def full_client() -> Cl.Client:
 def full_search_client() -> Cl.Client:
   take_client(Sub.submit(full_client(), "/search hello"))
 
+def kind_name(kind: Cl.LineKind) -> String:
+  match kind:
+    case Cl.Msg{}: "MSG"
+    case Cl.Action{}: "ACT"
+    case Cl.Notice{}: "NOT"
+    case _: "?"
+
+def line_sig(ln: Cl.Line) -> String:
+  match ln:
+    case Cl.Line{kind, _, text, author, _}:
+      kind_name(kind) ++ "|" ++ author ++ "|" ++ text
+
+def lines_sig(xs: List<&2, Cl.Line>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{h, t}: line_sig(h) ++ "\n" ++ lines_sig(t)
+
+def chan_lines.buf(b: Cl.Buffer) -> String:
+  match b:
+    case Cl.Buffer{_, _, _, lines, _, _, _, _}: lines_sig(lines)
+
+def chan_lines.got(got: Maybe<&2, Cl.Buffer>) -> String:
+  match got:
+    case None{}: "<missing>"
+    case Some{b}: chan_lines.buf(b)
+
+def chan_lines.idx(cl: Cl.Client, i: Nat) -> String:
+  match cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
+      chan_lines.got(Cl.nth_buf(bufs, i))
+
+def chan_lines.find(cl: Cl.Client, got: Maybe<&2, Nat>) -> String:
+  match got:
+    case None{}: "<missing>"
+    case Some{i}: chan_lines.idx(cl, i)
+
+def chan_lines(+cl: Cl.Client) -> String:
+  chan_lines.find(cl, Cl.buf_find(cl, "#chan"))
+
+def or_idle(got: Maybe<&2, Hs.ChatBatch>) -> Hs.ChatBatch:
+  match got:
+    case None{}: Hs.ChatIdle{}
+    case Some{b}: b
+
+def color_byte() -> String:
+  SCon{Chr{3}, "04red"}
+
+def ctcp_action() -> String:
+  ctl(1, "ACTION " ++ color_byte() ++ ctl(1, ""))
+
+def styled_open() -> Hs.ChatBatch:
+  or_idle(Hs.batch_open(":irc.test BATCH +abc chathistory #chan", "irc.test"))
+
+def styled_batch() -> Hs.ChatBatch:
+  Hs.batch_close(
+    Hs.batch_line(
+      Hs.batch_line(
+        Hs.batch_line(styled_open(), "me", "@batch=abc;msgid=n1 :bob!u@h NOTICE #chan :note"),
+        "me", "@batch=abc;msgid=a1 :alice!u@h PRIVMSG #chan :" ++ ctcp_action()),
+      "me", "@batch=abc;msgid=p1 :carol!u@h PRIVMSG #chan :hi"),
+    ":irc.test BATCH -abc", "irc.test")
+
+def styled_client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
+  match pair:
+    case (cl, _): cl
+
+def styled_imported() -> Cl.Client:
+  styled_client(Hs.import_source_page(Cl.init("me", "irc.test"), "#chan",
+    Hs.batch_matches(styled_batch()), False{}, Nil{}))
+
+def want_styled() -> String:
+  "NOT|bob|<bob> note\nACT|alice|* alice " ++ color_byte() ++ "\nMSG|carol|<carol> hi\n"
+
+def id_page(fuel: Nat, +prefix: String, +i: Nat) -> List<&2, Hs.ServerMatch>:
+  match fuel:
+    case 0n: Nil{}
+    case 1n+p:
+      Hs.ServerMatch{"#chan", Cl.Line{Cl.Msg{}, "", "t", "a", 0n}, prefix ++ Nat.show(i)}
+        <> id_page(p, prefix, Nat.add(i, 1n))
+
+def step_page.got(hl: Hs.HistLive, pair: Cl.Client & List<&2, String>) -> Hs.HistLive & Cl.Client:
+  match pair:
+    case (cl, seen): (Hs.hist_live_note_seen(hl, seen), cl)
+
+def step_page(+hl: Hs.HistLive, cl: Cl.Client, matches: List<&2, Hs.ServerMatch>) -> Hs.HistLive & Cl.Client:
+  step_page.got(hl, Hs.import_source_page(cl, "#chan", matches, False{}, Hs.hist_live_seen(hl)))
+
+def step_page_hl(pair: Hs.HistLive & Cl.Client) -> Hs.HistLive:
+  match pair:
+    case (hl, _): hl
+
+def two_pages.second(pair: Hs.HistLive & Cl.Client) -> Hs.HistLive:
+  match pair:
+    case (hl, cl): step_page_hl(step_page(hl, cl, id_page(100n, "b", 0n)))
+
+def two_pages() -> Hs.HistLive:
+  two_pages.second(step_page(Hs.hist_live0(), Cl.init("me", "irc.test"), id_page(100n, "a", 0n)))
+
+def fresh_count(seen: List<&2, String>, msgid: String) -> Nat:
+  List.length(&2, Hs.ServerMatch,
+    Hs.import_source_fresh(
+      Hs.ServerMatch{"#chan", Cl.Line{Cl.Msg{}, "", "t", "a", 0n}, msgid} <> Nil{},
+      "#chan", seen))
+
+def seen_has(seen: List<&2, String>, id: String) -> Bool:
+  List.contains(~String, ~String.eq, seen, id)
+
 def main() -> IO(Unit):
+  +styled : String = chan_lines(styled_imported())
+  +seen : List<&2, String> = Hs.hist_live_seen(two_pages())
   do IO<Unit>:
     Unit <- E.must_eq("active", Sub.active_name(search_client()), "*search*")
     Unit <- E.must_eq("count", Nat.show(CL.nbuf(search_client())), "4")
@@ -144,4 +254,13 @@ def main() -> IO(Unit):
     )
     Unit <- E.must_eq("cap_first", first_text(Feed.search_buf(cap_fixture(), "hit")), "[#many] hit 1")
     Unit <- E.must_eq("cap_last", last_text(Feed.search_buf(cap_fixture(), "hit")), "[#many] hit 1024")
+    Unit <- E.must_eq("import_notice_action_color", styled, want_styled())
+    Unit <- E.must("seen_cap_above_page", Nat.is_gt(Hs.SEEN_CAP(), Hs.BATCH_CAP()))
+    Unit <- E.must_eq("seen_two_pages", Nat.show(List.length(&2, String, seen)), "200")
+    Unit <- E.must("seen_keeps_a0", seen_has(seen, "a0"))
+    Unit <- E.must("seen_keeps_a99", seen_has(seen, "a99"))
+    Unit <- E.must("seen_keeps_b0", seen_has(seen, "b0"))
+    Unit <- E.must("seen_keeps_b99", seen_has(seen, "b99"))
+    Unit <- E.must_eq("seen_page1_not_reinserted", Nat.show(fresh_count(seen, "a0")), "0")
+    Unit <- E.must_eq("seen_admits_new", Nat.show(fresh_count(seen, "z9")), "1")
     IO.print("search_demo=ok")

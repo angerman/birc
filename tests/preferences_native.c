@@ -33,6 +33,30 @@ static void path_at(char *out, size_t n, const char *name) {
   must(snprintf(out, n, "%s/%s", root, name) < (int)n, "path");
 }
 
+static int read_whole(const char *path, char *buf, size_t cap, size_t *n) {
+  int fd;
+  size_t got = 0;
+  fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0)
+    return 0;
+  while (got < cap) {
+    ssize_t r = read(fd, buf + got, cap - got);
+    if (r < 0) {
+      if (errno == EINTR)
+        continue;
+      (void)close(fd);
+      return 0;
+    }
+    if (r == 0) {
+      *n = got;
+      return close(fd) == 0;
+    }
+    got += (size_t)r;
+  }
+  (void)close(fd);
+  return 0;
+}
+
 static const char *wire(void) {
   return "BIRC_PREFS1\n"
          "settings\t0\t1\t0\t1\t200\t1\t0\t0\t1\n"
@@ -144,6 +168,38 @@ int main(void) {
                         "BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\nchannel\tserver\n",
                         strlen("BIRC_PREFS1\nsettings\t0\t1\t0\t1\t200\t1\t0\t0\t1\nchannel\tserver\n")) == 2,
        "query name");
+
+  {
+    const char *over =
+      "BIRC_PREFS1\n"
+      "settings\t0\t1\t0\t1\t4294967296\t1\t0\t0\t1\n"
+      "mute\talice*#room@irc.example\n"
+      "channel\t+#room\n"
+      "channel\t#日本語\n";
+    const char *max_wire =
+      "BIRC_PREFS1\n"
+      "settings\t0\t1\t0\t1\t4294967295\t1\t0\t0\t1\n"
+      "mute\talice*#room@irc.example\n"
+      "channel\t+#room\n"
+      "channel\t#日本語\n";
+    char before[4096];
+    char after[4096];
+    size_t bn = 0;
+    size_t an = 0;
+    BircPrefsDoc stg;
+    int known = 0;
+    must(birc_prefs_parse_wire(over, strlen(over), &stg, &known) == 0, "hist_cap overflow parse");
+    must(birc_prefs_parse_wire(max_wire, strlen(max_wire), &stg, &known) == 1
+         && known == 1 && stg.hist_cap == 4294967295u, "hist_cap max parse");
+    must(read_whole(path, before, sizeof before, &bn) && bn > 0, "hist_cap snapshot");
+    must(birc_prefs_write(path, "irc.example", 6697, over, strlen(over)) == 2, "hist_cap overflow");
+    must(read_whole(path, after, sizeof after, &an) && an == bn
+         && memcmp(before, after, bn) == 0, "hist_cap unchanged");
+    expect_read(path, "irc.example", 6697, 0, wire(), "hist_cap overflow keeps prior");
+    must(birc_prefs_write(path, "irc.example", 6697, max_wire, strlen(max_wire)) == 0,
+         "hist_cap max write");
+    expect_read(path, "irc.example", 6697, 0, max_wire, "hist_cap max roundtrip");
+  }
 
   {
     char lock[1024];

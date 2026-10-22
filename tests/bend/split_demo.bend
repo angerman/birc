@@ -141,14 +141,51 @@ def split_server_view_ok() -> Bool:
   +vm = V.view_draft_split(Sess.session_cl(st), 30, 120, "", "demo", Sess.session_split(st))
   view_contains(vm, "PRIVATE-SERVER-QUERY") && Bool.not(view_contains(vm, "CONTROL-WELCOME"))
 
+# Each step keeps at most two Sessions. A four-session && chain exceeds
+# the pinned 247-word backend cap.
+def split_server_focus_ok.line(+st: Sess.Session, +text: String) -> Bool:
+  String.eq(cmd_first(trip_cmd(Sess.step_enter(st, text))), "PRIVMSG server :" ++ text)
+
+def split_server_focus_ok.after_before(ok: Bool, +st2: Sess.Session) -> Bool:
+  match ok:
+    case False{}: False{}
+    case True{}: split_server_focus_ok.line(st2, "after")
+
+def split_server_focus_ok.active2(ok2: Bool, +st0: Sess.Session, +st2: Sess.Session) -> Bool:
+  match ok2:
+    case False{}: False{}
+    case True{}: split_server_focus_ok.after_before(split_server_focus_ok.line(st0, "before"), st2)
+
+def split_server_focus_ok.on2(+st0: Sess.Session, +st2: Sess.Session) -> Bool:
+  split_server_focus_ok.active2(Nat.is_eq(Cl.active_of(Sess.session_cl(st2)), 3n), st0, st2)
+
+def split_server_focus_ok.from2(ok1: Bool, +st0: Sess.Session, +st1: Sess.Session) -> Bool:
+  match ok1:
+    case False{}: False{}
+    case True{}: split_server_focus_ok.on2(st0, trip_state(Sess.step_keys(st1, Sess.keys_focus())))
+
+def split_server_focus_ok.from1(+st0: Sess.Session, +st1: Sess.Session) -> Bool:
+  split_server_focus_ok.from2(Nat.is_eq(Cl.active_of(Sess.session_cl(st1)), 1n), st0, st1)
+
 def split_server_focus_ok() -> Bool:
   +st0 = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/vsplit #one"))
-  +st1 = trip_state(Sess.step_keys(st0, Sess.keys_focus()))
-  +st2 = trip_state(Sess.step_keys(st1, Sess.keys_focus()))
-  Nat.is_eq(Cl.active_of(Sess.session_cl(st1)), 1n)
-    && Nat.is_eq(Cl.active_of(Sess.session_cl(st2)), 3n)
-    && String.eq(cmd_first(trip_cmd(Sess.step_enter(st0, "before"))), "PRIVMSG server :before")
-    && String.eq(cmd_first(trip_cmd(Sess.step_enter(st2, "after"))), "PRIVMSG server :after")
+  split_server_focus_ok.from1(st0, trip_state(Sess.step_keys(st0, Sess.keys_focus())))
+
+def ascii_brackets() -> Cl.Client:
+  Cl.Client{"me", "s", Cl.server_buf() <> Cl.empty_buf("#x{", True{}) <> Cl.empty_buf("#x[", True{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
+
+def ascii_pane_lookup_ok() -> Bool:
+  +cl = ascii_brackets()
+  idx_is(Sp.named_idx(cl, "*server*"), 0n)
+    && idx_is(Sp.named_idx_cm("ascii", cl, "*server*"), 0n)
+    && idx_is(Sp.named_idx(cl, "#x{"), 1n)
+    && idx_is(Sp.named_idx(cl, "#x["), 1n)
+    && idx_is(Sp.named_idx_cm("ascii", cl, "#x{"), 1n)
+    && idx_is(Sp.named_idx_cm("ascii", cl, "#x["), 2n)
+
+def ascii_split_on_ok() -> Bool:
+  +cl = ascii_brackets()
+  Sp.is_on(Sp.normalize_cm("ascii", cl, Sp.On{Sp.Stacked{}, "#x[", "#x{", 0}))
 
 def removed_query_split_ok() -> Bool:
   +st = trip_state(Sess.step_enter(Sess.session_demo(server_query_client(), "#one"), "/vsplit #one"))
@@ -197,5 +234,7 @@ def main() -> IO(Unit):
     Unit <- E.must("removed_query_closes_split", removed_query_split_ok())
     Unit <- E.must("split_control_query", split_control_query_ok())
     Unit <- E.must("split_explicit_control", split_explicit_control_ok())
+    Unit <- E.must("ascii panes stay distinct", ascii_pane_lookup_ok())
+    Unit <- E.must("ascii bracket split stays on", ascii_split_on_ok())
     Unit <- E.must("ctrl_w", Sess.split_key_ok())
     IO.print("split_demo=ok")

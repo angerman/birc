@@ -14,11 +14,6 @@ def program.env(result: Result<&1, &1, U32 & String, String>) -> String:
 def program() -> IO(String):
   H.name(spec())
 
-def result.exit(code: U32, output: String) -> String & U32:
-  match code:
-    case 0: (output, 0)
-    case _: ("", code)
-
 def HTTP_PREFIX() -> String:
   "birc-upload: failed (code:5, http:"
 

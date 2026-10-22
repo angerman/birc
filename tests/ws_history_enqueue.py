@@ -64,4 +64,16 @@ with tempfile.TemporaryDirectory(prefix="birc-ws-hist-enq-") as directory:
     lines = run(root / "retry-unused.log", "retry")
     assert lines == ["before=80000", "save=ok", "pending=0"], lines
 
+    # Empty pending on server 1 takes that job's id, base, and seq.
+    ident = root / "ident-unused.log"
+    lines = run(ident, "ident")
+    assert lines == ["ident=yes", "save=ok"], lines
+    assert not ident.exists(), "empty-ident mark must not sync-write"
+
+    # History off, same endpoint, nonempty extract: claim must not run.
+    off = root / "off.log"
+    lines = run(off, "off")
+    assert lines == ["off=yes", "same=yes", "moved=yes", "delta=yes", "failed=no"], lines
+    assert not off.exists(), "history off appended the unchanged extract"
+
 print("ws_history_enqueue=ok")

@@ -221,6 +221,121 @@ def evict_check(+ep: String) -> IO(Unit):
     snap : Cl.Client <- HistIO.history_snapshot_client("build/history_io.evict", ep, 2, Cl.init_with_cap("me", "irc.example", 2))
     evict_saved(oracle_sig(snap), paced)
 
+def kept_row() -> String:
+  "BIRC2\ta:6667\t#disk\tMSG\t\tnick\tdisk-row\n"
+
+def occupied.fields(base: Cl.Client) -> Cl.Client:
+  match base:
+    case Cl.Client{+nick, +server, _, _, +now, +stg, +auth, _, welcomed}:
+      Cl.Client{nick, server,
+        Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "local-server", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
+          <> Cl.buf_indexed("#live", True{}, "", Cl.Line{Cl.Msg{}, "", "local-chan", "", 2n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n})
+          <> Nil{},
+        0n, now, stg, auth, 2n, welcomed}
+
+# Server buffer plus one channel. buf_count > 1 is the non-plain load.
+def occupied() -> Cl.Client:
+  occupied.fields(Cl.init_with_cap("me", "a", 8))
+
+def write_text(+path: String, +content: String) -> IO(Unit):
+  do IO<Unit>:
+    f : File <- IO.try(File, File.open(path, "w"))
+    pair : File & Result<&1, &1, U32 & String, Unit> <- File.write(f, content)
+    f : File <- wrote(pair)
+    File.close(f)
+
+def one_line.got(xs: List<&2, String>) -> String:
+  match xs:
+    case Con{+h, _}: h
+    case Nil{}: ""
+
+def one_line(+s: String) -> String:
+  one_line.got(String.split(s, Chr{10}))
+
+def run_pair.out(ok: Bool, +out: String) -> String:
+  match ok:
+    case True{}: one_line(out)
+    case False{}: ""
+
+def run_pair(got: Result<&1, &1, U32 & String, U32 & (String & String)>) -> U32 & String:
+  match got:
+    case Fail{_}: (99, "")
+    case Done{(+code, (+out, _))}: (code, run_pair.out(U32.is_eq(code, 0), out))
+
+def shell(+prog: String, args: List<&1, String>) -> IO(U32 & String):
+  do IO<U32 & String>:
+    got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run(prog, args, "", 4096, 5000)
+    return run_pair(got)
+
+def temp_ok(+dir: String) -> Bool:
+  String.starts_with(dir, "/tmp/birc-hist-admit.")
+
+def refused_ok(+cl: Cl.Client) -> Bool:
+  +sig = oracle_sig(cl)
+  String.contains(sig, "local-server") && String.contains(sig, "local-chan")
+    && Bool.not(String.contains(sig, "disk-row"))
+    && Bool.not(CL.has_buf(cl, "#disk"))
+    && CL.has_buf(cl, "#live")
+    && String.contains(sig, "open failed")
+
+# buf_find skips index 0, so the control buffer is the texts at 0.
+def restored_ok(+cl: Cl.Client) -> Bool:
+  +sig = oracle_sig(cl)
+  String.contains(sig, "local-server") && String.contains(sig, "local-chan")
+    && String.contains(sig, "disk-row")
+    && String.contains(CL.buf_texts(cl, 0n), "local-server")
+    && CL.has_buf(cl, "#live") && CL.has_buf(cl, "#disk")
+
+def rm_tree.sink(got: Result<&1, &1, U32 & String, U32 & (String & String)>) -> Unit:
+  match got:
+    case _: Unit{}
+
+def rm_tree(+dir: String) -> IO(Unit):
+  do IO<Unit>:
+    got : Result<&1, &1, U32 & String, U32 & (String & String)> <- Process.run("rm", ["-rf", "--", dir], "", 4096, 5000)
+    return rm_tree.sink(got)
+
+def admit_loads(+file: String, +link: String) -> IO(Unit):
+  do IO<Unit>:
+    refused : Cl.Client <- HistIO.history_load_client(link, "a:6667", 8, occupied())
+    Unit <- E.must("symlink load leaves prior rows and does not follow", refused_ok(refused))
+    snapped : Cl.Client <- HistIO.history_snapshot_client(link, "a:6667", 8, occupied())
+    Unit <- E.must("symlink snapshot leaves prior rows and does not follow", refused_ok(snapped))
+    loaded : Cl.Client <- HistIO.history_load_client(file, "a:6667", 8, occupied())
+    E.must("regular file restores the channel onto an occupied client", restored_ok(loaded))
+
+def admit_linked.ok(ok: Bool, +file: String, +link: String) -> IO(Unit):
+  match ok:
+    case False{}: IO.die(Unit, 1, "symlink")
+    case True{}: admit_loads(file, link)
+
+def admit_linked(pair: U32 & String, +file: String, +link: String) -> IO(Unit):
+  match pair:
+    case (+code, _): admit_linked.ok(U32.is_eq(code, 0), file, link)
+
+def admit_files(+dir: String) -> IO(Unit):
+  +file = dir ++ "/kept.log"
+  +link = dir ++ "/kept.link"
+  do IO<Unit>:
+    Unit <- write_text(file, kept_row())
+    pair : U32 & String <- shell("ln", ["-s", file, link])
+    Unit <- admit_linked(pair, file, link)
+    rm_tree(dir)
+
+def admit_in.safe(ok: Bool, +dir: String) -> IO(Unit):
+  match ok:
+    case False{}: IO.die(Unit, 1, "temp dir")
+    case True{}: admit_files(dir)
+
+def admit_from(pair: U32 & String) -> IO(Unit):
+  match pair:
+    case (+code, +dir): admit_in.safe(U32.is_eq(code, 0) && temp_ok(dir), dir)
+
+def admit_occupied() -> IO(Unit):
+  do IO<Unit>:
+    pair : U32 & String <- shell("mktemp", ["-d", "/tmp/birc-hist-admit.XXXXXX"])
+    admit_from(pair)
+
 def main() -> IO(Unit):
   +path: String = "build/history_io.fixture"
   +old = "BIRC2\ta:6667\t*server*\tMSG\t\ta\t" ++ repeat(300n, "x") ++ "\n"
@@ -249,6 +364,7 @@ def main() -> IO(Unit):
     Unit <- evict_check("irc.example:6697")
     Unit <- day_check("irc.example:6697")
     Unit <- E.must("empty_file", empty_ok(empty))
+    Unit <- admit_occupied()
     skip_empty : HistIO.Append <- HistIO.history_append_file.typed(path, "")
     Unit <- E.must("empty_data_is_skip", append_is_skip(skip_empty))
     skip_path : HistIO.Append <- HistIO.history_append_file.typed("", "fixture\n")

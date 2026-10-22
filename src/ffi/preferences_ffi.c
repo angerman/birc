@@ -771,9 +771,14 @@ static int birc_prefs_parse_wire(const char *body, size_t n, BircPrefsDoc *stg, 
     if (cap_n == 0 || cap_n > 10)
       return 0;
     while (*c) {
+      uint32_t digit;
       if (*c < '0' || *c > '9')
         return 0;
-      cap = cap * 10u + (uint32_t)(*c - '0');
+      digit = (uint32_t)(*c - '0');
+      /* A wrapped 0 disables history. Reject before the multiply. */
+      if (cap > (4294967295u - digit) / 10u)
+        return 0;
+      cap = cap * 10u + digit;
       c++;
     }
     stg->hist_cap = cap;

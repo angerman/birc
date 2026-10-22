@@ -9,6 +9,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/session.bend as Sess
+import ../../src/bend/drafts.bend as Drafts
 import ../../src/bend/cap_notify.bend as Cap
 import ../../src/bend/theme.bend as Theme
 import ../../src/bend/view.bend as V
@@ -135,6 +136,30 @@ def confirm_ok() -> Bool:
   Nat.is_eq(Sess.session_pend_count(confirmed()), 0n)
     && String.eq(CL.buf_texts(Sess.session_cl(confirmed()), 1n), "-> me joined #t|<me> hello|")
 
+# A batch tag claims the self echo before the feed. The pending send stays
+# and the buffer keeps the join line.
+def claimed_echo() -> String:
+  "@batch=abc;msgid=m1 :me!me@localhost PRIVMSG #t :hello"
+
+def claimed_st() -> Sess.Session:
+  confirmed_st(Sess.step_on_framed_ms(sent(), (claimed_echo() <> Nil{}, Nil{}, False{}), Nil{}, 0))
+
+def pend_kept(+st: Sess.Session) -> Bool:
+  Nat.is_eq(Sess.session_pend_count(st), 1n)
+    && String.eq(first_body(first_pend(Sess.session_pends(st))), "hello")
+    && String.eq(CL.buf_texts(Sess.session_cl(st), 1n), "-> me joined #t|")
+
+def claimed_batch_keeps_pending() -> Bool:
+  pend_kept(claimed_st())
+
+def ceiling_st(trip: Sess.Session & List<&2, String> & List<&2, Drafts.NickRename>) -> Sess.Session:
+  match trip:
+    case (+st, _, _): st
+
+# Ceiling 1 drops the allocating echo. The pending send stays with the join line.
+def ceiling_drop_keeps_pending() -> Bool:
+  pend_kept(ceiling_st(Sess.step_on_framed_ms_ceiling(sent(), (":me!me@localhost PRIVMSG #t :hello" <> Nil{}, Nil{}, False{}), Nil{}, 0, 1n)))
+
 def hello_count.hit(hit: Bool, +rec: Nat) -> Nat:
   match hit:
     case True{}: 1n+rec
@@ -234,6 +259,8 @@ def main() -> IO(Unit):
     Unit <- E.must("overlay_dim", overlay_ok())
     Unit <- E.must("status_label", label_ok())
     Unit <- E.must("confirm", confirm_ok())
+    Unit <- E.must("claimed_batch_keeps_pending", claimed_batch_keeps_pending())
+    Unit <- E.must("ceiling_drop_keeps_pending", ceiling_drop_keeps_pending())
     Unit <- E.must("renders_once", once_ok())
     Unit <- E.must("fifo", fifo_ok())
     Unit <- E.must("timeout_reaps", timeout_ok())

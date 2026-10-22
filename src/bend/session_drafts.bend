@@ -142,8 +142,10 @@ def keys_enter(+keys: Sess.Keys) -> Bool:
 # active buffer or echo_err_server to buffer 0, including the join-capacity
 # hook rewrite); accepted paths never append Error lines. Compare per-buffer
 # last-line (id, is-error) by buffer name across the step, keyed on stable
-# global line IDs, never on rendered text or timestamps. Cap eviction cannot
-# hide a rejection: only the last line per buffer is compared.
+# global line IDs, never on rendered text or timestamps. Names match with
+# the session casemap through Cl.buf_eq_cm, so ascii keeps a bracket and a
+# brace apart. Cap eviction cannot hide a rejection: only the last line per
+# buffer is compared.
 # Runs only on enter frames that need the verdict, never on typing frames.
 
 def kind_is_error(kind: Cl.LineKind) -> Bool:
@@ -169,17 +171,17 @@ def find_sig.pick(hit: Bool, found: Nat & Bool, cont: Nat & Bool) -> Nat & Bool:
     case True{}: found
     case False{}: cont
 
-def find_sig.buf(+h: Cl.Buffer, cont: Nat & Bool, +name: String) -> Nat & Bool:
+def find_sig.buf(+cm: String, +h: Cl.Buffer, cont: Nat & Bool, +name: String) -> Nat & Bool:
   match h:
     case Cl.Buffer{+stored, _, _, +lines, _, _, _, _}:
-      find_sig.pick(Irc.ieq(stored, name), last_sig(lines), cont)
+      find_sig.pick(Cl.buf_eq_cm(cm, stored, name), last_sig(lines), cont)
 
-def find_sig.go(+xs: List<&2, Cl.Buffer>, +name: String) -> Nat & Bool:
+def find_sig.go(+cm: String, +xs: List<&2, Cl.Buffer>, +name: String) -> Nat & Bool:
   match xs:
     case Nil{}: (0n, False{})
     case Con{+h, +t}:
-      cont = find_sig.go(t, name)
-      find_sig.buf(h, cont, name)
+      cont = find_sig.go(cm, t, name)
+      find_sig.buf(cm, h, cont, name)
 
 def sig_new_error(bsig: Nat & Bool, fsig: Nat & Bool) -> Bool:
   match bsig:
@@ -188,17 +190,17 @@ def sig_new_error(bsig: Nat & Bool, fsig: Nat & Bool) -> Bool:
         case (oid, _):
           nerr && Bool.not(Nat.is_eq(nid, oid))
 
-def new_error.go(+after: List<&2, Cl.Buffer>, +before: List<&2, Cl.Buffer>) -> Bool:
+def new_error.go(+cm: String, +after: List<&2, Cl.Buffer>, +before: List<&2, Cl.Buffer>) -> Bool:
   match after:
     case Nil{}: False{}
     case Con{+h, +t}:
       match h:
         case Cl.Buffer{+name, _, _, +lines, _, _, _, _}:
-          +tail = new_error.go(t, before)
-          sig_new_error(last_sig(lines), find_sig.go(before, name)) || tail
+          +tail = new_error.go(cm, t, before)
+          sig_new_error(last_sig(lines), find_sig.go(cm, before, name)) || tail
 
-def submit_had_error(+before: Cl.Client, +after: Cl.Client) -> Bool:
-  new_error.go(Cl.client_bufs(after), Cl.client_bufs(before))
+def submit_had_error(+cm: String, +before: Cl.Client, +after: Cl.Client) -> Bool:
+  new_error.go(cm, Cl.client_bufs(after), Cl.client_bufs(before))
 
 # ---- small predicates ---------------------------------------------------
 
@@ -240,7 +242,7 @@ def step_keys.moved_reject(+st: Sess.Session, +ds: Drafts.Drafts, +server: Key.S
 def step_keys.saved_error(+st: List<&2, Sess.Session>, +after: Cl.Client) -> Bool:
   match st:
     case Nil{}: True{}
-    case Con{+before, _}: submit_had_error(Sess.session_cl(before), after)
+    case Con{+before, _}: submit_had_error(Sess.session_cm(before), Sess.session_cl(before), after)
 
 def step_keys.saved_endpoint_same(+st: List<&2, Sess.Session>, +host: String, +port: U32) -> Bool:
   match st:

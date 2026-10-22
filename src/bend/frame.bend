@@ -543,7 +543,7 @@ def roundtrip_ok.pair(got: List<&2, String> & List<&2, U32>, +lines: List<&2, St
 def roundtrip_ok(+lines: List<&2, String>, +rem: List<&2, U32>) -> Bool:
   roundtrip_ok.pair(push(Nil{}, append_octets(join_lines(lines), rem)), lines, rem)
 
-# M7.2 — overlong line (≥ LINE_OCTET_MAX octets before LF) is dropped.
+# M7.2 — a payload of LINE_OCTET_MAX octets before LF is kept, and the next octet is what drops.
 def repeat_octet.go(n: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
   match n:
     case 0n:

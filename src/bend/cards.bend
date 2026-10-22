@@ -569,9 +569,6 @@ def visible_candidates_from_rows(+rows: List<&2, V.AnchoredRow>) -> List<&2, Can
 # and Nil{} cards. A separate non-cm walk would mute rows that walk
 # retains (e.g. a[b under CASEMAPPING=ascii with muted a{b) and leak
 # hidden URLs.
-def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_rows(V.visible_anchored_buf_media_cards_cm(cm, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
-
 def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   visible_rows(V.visible_anchored_panes_media_cards_cm(cm, cl, rows, cols, split, media, cards))
 

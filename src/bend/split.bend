@@ -41,16 +41,6 @@ def is_on(st: State) -> Bool:
     case Off{}: False{}
     case On{_, _, _, _}: True{}
 
-def axis_of(st: State) -> Axis:
-  match st:
-    case Off{}: Stacked{}
-    case On{axis, _, _, _}: axis
-
-def focus_of(st: State) -> U32:
-  match st:
-    case Off{}: 0
-    case On{_, _, _, focus}: focus
-
 def first_extent(+n: U32) -> U32:
   U32.add(U32.div(n, 2), U32.mod(n, 2))
 
@@ -177,13 +167,18 @@ def default_target(+cl: Cl.Client) -> Maybe<&2, Nat>:
   +count = Cl.buf_count(Cl.client_bufs(cl))
   default_target.on(Cl.active_of(cl), count, Nat.is_gt(count, 1n))
 
-def named_idx.server(is_server: Bool, +cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+# *server* is the control pane before any fold. Other names use the caller's
+# CASEMAPPING: rfc1459 folds `[` onto `{`, ascii does not.
+def named_idx.server(is_server: Bool, +cm: String, +cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
   match is_server:
     case True{}: Some{0n}
-    case False{}: Cl.buf_find(cl, target)
+    case False{}: Cl.buf_find_cm(cl, cm, target)
+
+def named_idx_cm(+cm: String, +cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+  named_idx.server(String.eq(target, "*server*"), cm, cl, target)
 
 def named_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
-  named_idx.server(String.eq(target, "*server*"), cl, target)
+  named_idx_cm(Cl.dflt_cm(), cl, target)
 
 # Internal pane keys never guess a role from the display name. Only command
 # input accepts the old "server" alias, and only while that query is absent.
@@ -221,8 +216,11 @@ def found.got(got: Maybe<&2, Nat>) -> Bool:
     case None{}: False{}
     case Some{_}: True{}
 
+def found_cm(+cm: String, +cl: Cl.Client, +name: String) -> Bool:
+  found.got(named_idx_cm(cm, cl, name))
+
 def found(+cl: Cl.Client, +name: String) -> Bool:
-  found.got(named_idx(cl, name))
+  found_cm(Cl.dflt_cm(), cl, name)
 
 # A query keeps its pane and focus when NICK changes its name. The internal
 # control key is not a query. Apply accepted renames in arrival order before
@@ -253,9 +251,6 @@ def rename_query.parsed(st: State, m: Maybe<&2, Irc.Message>) -> State:
 
 def rename_query.line(st: State, line: String) -> State:
   rename_query.parsed(st, Irc.parse(line))
-
-def rename_queries(st: State, lines: List<&2, String>) -> State:
-  List.foldl(~&2, ~String, ~State, ~rename_query.line, lines, st)
 
 # Negotiated pane rename (I2-dynamic3 R2): query keys compare under the
 # Session CASEMAPPING through the shared buf_eq_cm owner, so an unrelated
@@ -289,55 +284,70 @@ def rename_query.parsed_cm(+cm: String, st: State, m: Maybe<&2, Irc.Message>) ->
 def rename_query.line_cm(+cm: String, st: State, line: String) -> State:
   rename_query.parsed_cm(cm, st, Irc.parse(line))
 
-def rename_queries_cm.go(+cm: String, lines: List<&2, String>, st: State) -> State:
-  match lines:
-    case Nil{}: st
-    case Con{+h, +t}: rename_queries_cm.go(cm, t, rename_query.line_cm(cm, st, h))
-
-def rename_queries_cm(+cm: String, st: State, lines: List<&2, String>) -> State:
-  rename_queries_cm.go(cm, lines, st)
-
 def normalize.on(ok: Bool, st: State) -> State:
   match ok:
     case True{}: st
     case False{}: Off{}
 
-def normalize(+cl: Cl.Client, st: State) -> State:
+# Client has no CASEMAPPING field. Callers that already hold the negotiated
+# mapping use normalize_cm. The two-argument entry stays on rfc1459.
+def normalize.keep(+cm: String, +cl: Cl.Client, +first: String, +second: String) -> Bool:
+  found_cm(cm, cl, first) && found_cm(cm, cl, second) && Bool.not(Cl.buf_eq_cm(cm, first, second))
+
+def normalize_cm(+cm: String, +cl: Cl.Client, st: State) -> State:
   match st:
     case Off{}: Off{}
     case On{axis, +first, +second, focus}:
-      normalize.on(found(cl, first) && found(cl, second) && Bool.not(Irc.ieq(first, second)), On{axis, first, second, focus})
+      normalize.on(normalize.keep(cm, cl, first, second), On{axis, first, second, focus})
+
+def normalize(+cl: Cl.Client, st: State) -> State:
+  normalize_cm(Cl.dflt_cm(), cl, st)
+
+def follow_active.on_cm(+cm: String, +cl: Cl.Client, axis: Axis, +first: String, +second: String, +focus: U32, +active: String) -> State:
+  match focus:
+    case 0: normalize_cm(cm, cl, On{axis, active, second, 0})
+    case _: normalize_cm(cm, cl, On{axis, first, active, 1})
+
+def follow_active_cm(+cm: String, +cl: Cl.Client, st: State) -> State:
+  match st:
+    case Off{}: Off{}
+    case On{axis, +first, +second, focus}:
+      follow_active.on_cm(cm, cl, axis, first, second, focus, name_at(cl, Cl.active_of(cl)))
 
 def follow_active.on(+cl: Cl.Client, axis: Axis, +first: String, +second: String, +focus: U32, +active: String) -> State:
-  match focus:
-    case 0: normalize(cl, On{axis, active, second, 0})
-    case _: normalize(cl, On{axis, first, active, 1})
+  follow_active.on_cm(Cl.dflt_cm(), cl, axis, first, second, focus, active)
 
 def follow_active(+cl: Cl.Client, st: State) -> State:
-  match st:
-    case Off{}: Off{}
-    case On{axis, +first, +second, focus}:
-      follow_active.on(cl, axis, first, second, focus, name_at(cl, Cl.active_of(cl)))
+  follow_active_cm(Cl.dflt_cm(), cl, st)
 
 def focus_name(+first: String, +second: String, +focus: U32) -> String:
   match focus:
     case 0: first
     case _: second
 
-def set_active_named.got(+cl: Cl.Client, got: Maybe<&2, Nat>) -> Cl.Client:
+def set_active_named.got_cm(+cm: String, +cl: Cl.Client, got: Maybe<&2, Nat>) -> Cl.Client:
   match got:
     case None{}: cl
-    case Some{+i}: Cl.set_active(cl, i)
+    case Some{+i}: Cl.set_active_cm(cm, cl, i)
+
+def set_active_named_cm(+cm: String, +cl: Cl.Client, +name: String) -> Cl.Client:
+  set_active_named.got_cm(cm, cl, named_idx_cm(cm, cl, name))
+
+def set_active_named.got(+cl: Cl.Client, got: Maybe<&2, Nat>) -> Cl.Client:
+  set_active_named.got_cm(Cl.dflt_cm(), cl, got)
 
 def set_active_named(+cl: Cl.Client, +name: String) -> Cl.Client:
-  set_active_named.got(cl, named_idx(cl, name))
+  set_active_named_cm(Cl.dflt_cm(), cl, name)
 
-def toggle(+cl: Cl.Client, st: State) -> Cl.Client & State:
+def toggle_cm(+cm: String, +cl: Cl.Client, st: State) -> Cl.Client & State:
   match st:
     case Off{}: (cl, Off{})
     case On{axis, +first, +second, focus}:
       +next = toggle_focus(focus)
-      (set_active_named(cl, focus_name(first, second, next)), On{axis, first, second, next})
+      (set_active_named_cm(cm, cl, focus_name(first, second, next)), On{axis, first, second, next})
+
+def toggle(+cl: Cl.Client, st: State) -> Cl.Client & State:
+  toggle_cm(Cl.dflt_cm(), cl, st)
 
 def parse_split_arg.vertical(vertical: Bool, +word: String, +rest: String) -> Command:
   match vertical:

@@ -41,6 +41,47 @@ def nick_roster() -> IO(Unit):
     Unit <- E.must_eq("nick rename swaps one", CL.buf_nicks.text(renamed), "Dave ")
     IO.pure(Unit, Unit{})
 
+def channel_bit(b: Cl.Buffer) -> Bool:
+  match b:
+    case Cl.Buffer{_, ch, _, _, _, _, _, _}: ch
+
+def caller_channel_bit() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must("empty_buf ampersand local keeps a false channel bit", Bool.not(channel_bit(Cl.empty_buf("&local", False{}))))
+    IO.pure(Unit, Unit{})
+
+def unread_names(xs: List<&2, Cl.Alert>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{Cl.Alert{+name, _}, +t}:
+      name ++ "|" ++ unread_names(t)
+
+def ascii_focus.step(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
+  match pair:
+    case (+cl, _): cl
+
+def ascii_focus.base() -> Cl.Client:
+  ascii_focus.step(Cl.buf_get(ascii_focus.step(Cl.buf_get(Cl.init("me", "s"), "#a[", True{}, True{})), "#a{", True{}, True{}))
+
+def ascii_focus.armed() -> Cl.Client:
+  +cl = ascii_focus.base()
+  Cl.set_settings(cl, Cl.set_unreads(Cl.get_settings(cl), Cl.Alert{"#a[", Cl.Activity{}} <> Cl.Alert{"#a{", Cl.Activity{}} <> Nil{}))
+
+def ascii_focus.idx(got: Maybe<&2, Nat>) -> Nat:
+  match got:
+    case None{}: 0n
+    case Some{+i}: i
+
+def ascii_focus.done() -> Cl.Client:
+  +cl = ascii_focus.armed()
+  Cl.set_active_cm("ascii", cl, ascii_focus.idx(Cl.buf_find_cm(cl, "ascii", "#a[")))
+
+def ascii_focus() -> IO(Unit):
+  +names = unread_names(Cl.settings_unreads(Cl.get_settings(ascii_focus.done())))
+  do IO<Unit>:
+    Unit <- E.must_eq("ascii focus drops only the bracket unread", names, "#a{|")
+    IO.pure(Unit, Unit{})
+
 def view_structure() -> IO(Unit):
   +base = Feed.feed(Feed.feed(Cl.init("me", "s"), ":a!u@h PRIVMSG me :hi"), ":b!u@h PRIVMSG me :hi")
   +closed = Cl.drop_buf(base, 2n)
@@ -54,5 +95,7 @@ def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- spines_controls()
     Unit <- nick_roster()
+    Unit <- caller_channel_bit()
+    Unit <- ascii_focus()
     Unit <- view_structure()
     IO.print("buffer_spines=ok")

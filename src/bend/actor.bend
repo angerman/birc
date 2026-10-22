@@ -890,13 +890,6 @@ def writer_admit_single_go(drop: Bool, +kept: List<&2, Sess.NetCmd>, +closed: Bo
 def writer_admit_single(+kept: List<&2, Sess.NetCmd>, +closed: Bool, dropped: Bool, sock: Tr.Conn, +nick: String, +gen: U32, +evt: Chan(Sess.UiMsg), +boot: Chan(Boot), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
   writer_admit_single_go(dropped, kept, closed, sock, nick, gen, evt, boot, cmd, scope, budget, next_txn, k)
 
-# Winner replay honors Drop (L1-src6 GATE 2a): a queued Drop after the winner
-# closes the adopted socket and a later Cont finds None (unsent). The live
-# recursive winner re-enters the drain via retry and replays via single
-# (also honor True); this entry stays pinned with honor True.
-def writer_admit_won(pair: Maybe<&1, Tr.Conn> & U32 & List<&2, String>, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +evt: Chan(Sess.UiMsg), +cmd: Chan(Sess.NetCmd), +scope: AuthScope, budget: Out.Budget, +next_txn: U32, k: (Writer & AuthScope) -> IO(Unit)) -> IO(Unit):
-  writer_kept(List.length(&2, Sess.NetCmd, kept), List.reverse(&2, Sess.NetCmd, kept), writer_adopt(pair, budget, next_txn), evt, cmd, True{}, final => writer_admit_done(closed, final, scope, evt, cmd, k))
-
 def writer_admit_winner(+h2: String, +p2: U32, +g2: U32, +n2: String, +scope: AuthScope, +kept: List<&2, Sess.NetCmd>, +closed: Bool, +dropped: Bool, sock: Tr.Conn, k: (Writer & AuthScope) -> IO(Unit), retry: String -> U32 -> U32 -> String -> AuthScope -> List<&2, Sess.NetCmd> -> Bool -> Bool -> ((Writer & AuthScope) -> IO(Unit)) -> IO(Unit)) -> IO(Unit):
   do IO<Unit>:
     Unit <- Tr.close(sock)

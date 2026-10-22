@@ -279,14 +279,14 @@ def feed_priv.route_with(+cl: Cl.Client, +isc: Cl.Iso, +target: String, +from: S
 # walk the view through every joined channel. An explicit /join already
 # focuses from submit before the echo, and a self-join from any other tab
 # still focuses the channel.
-def feed_join.self.stay(on_log: Bool, +cl: Cl.Client, +bi: Nat) -> Cl.Client:
+def feed_join.self.stay(on_log: Bool, +cm: String, +cl: Cl.Client, +bi: Nat) -> Cl.Client:
   match on_log:
     case True{}: cl
-    case False{}: Cl.set_active(cl, bi)
+    case False{}: Cl.set_active_cm(cm, cl, bi)
 
-def feed_join.self(+cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
+def feed_join.self(+cm: String, +cl: Cl.Client, +bi: Nat, self: Bool) -> Cl.Client:
   match self:
-    case True{}: feed_join.self.stay(Irc.ieq(Cl.active_buf_name(cl), Diag.name()), cl, bi)
+    case True{}: feed_join.self.stay(Irc.ieq(Cl.active_buf_name(cl), Diag.name()), cm, cl, bi)
     case False{}: cl
 
 def join_upd.log(b: Cl.Buffer, +from: String, +chan: String, +now: String) -> Cl.Buffer:
@@ -299,6 +299,7 @@ def feed_join_with.from_cl(+isc: Cl.Iso, +cl2: Cl.Client, +bi: Nat, +from: Strin
   match cl2:
     case Cl.Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
       feed_join.self(
+        Cl.iso_cm(isc),
         Cl.Client{nick, server, Cl.buf_modify(bufs, bi, join_upd_with(isc, from, chan, now)), active, now, stg, auth, log_seq, welcomed},
         bi,
         self

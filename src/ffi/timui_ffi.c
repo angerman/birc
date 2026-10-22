@@ -1977,9 +1977,12 @@ static Term fd_ready_run(Env e, Term *f, IoWork *w) {
   w->hand = (intptr_t)fd;
   w->made = drain;
   {
-    u64 at = (!drain && birc_ui_live && birc_ui_live->input.state != 0)
-                 ? io_tick() + 50000000ull
-                 : 0;
+    int state = 0;
+    /* State 4 is an unfinished UTF-8 lead and does not expire. Every other
+     * nonzero parser state keeps the 50 ms wake. State 0 is not a deadline. */
+    if (!drain && birc_ui_live)
+      state = birc_ui_live->input.state;
+    u64 at = (state != 0 && state != 4) ? io_tick() + 50000000ull : 0;
     return io_wait_on(w, fd, POLLIN, at, fd_ready_more);
   }
 }

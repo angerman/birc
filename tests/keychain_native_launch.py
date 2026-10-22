@@ -10,12 +10,69 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def executable(path: Path, body: str) -> Path:
     path.write_text("#!" + sys.executable + "\n" + body)
     path.chmod(0o700)
     return path
+
+
+def stdout_closed_past_deadline(launcher: str, root: Path, cfg: Path) -> None:
+    """Helper closes stdout and sleeps past birc_kc_bounded's 30s deadline.
+
+    load_secret and save_secret both pass 30.0. A blocking waitpid would sit
+    until this sleep ends; the reap must fail soon after the deadline instead.
+    """
+    deadline = 30.0
+    sleep_s = 120
+    bound = deadline + 10.0
+    executable(root / "security_hang", """
+import os, time
+os.close(1)
+end = time.monotonic() + %d
+while time.monotonic() < end:
+    if os.getppid() == 1:
+        raise SystemExit(0)
+    time.sleep(0.05)
+""" % sleep_s)
+    for name in ("child", "calls"):
+        stale = root / name
+        if stale.exists():
+            stale.unlink()
+    env = {
+        "HOME": str(root),
+        "LANG": "C",
+        "PATH": "",
+        "BIRC_PROGRAM": str(root / "birc"),
+        "BIRC_SECURITY": str(root / "security_hang"),
+        "BIRC_KEYCHAIN_PLATFORM": "darwin",
+        "BIRC_KEYCHAIN_PASSWORD": "synthetic-secret",
+    }
+    proc = subprocess.Popen(
+        [launcher, "--profile", "test", "--config", str(cfg), "--frames", "1"],
+        env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+    started = time.monotonic()
+    try:
+        try:
+            out, err = proc.communicate(timeout=bound)
+        except subprocess.TimeoutExpired:
+            raise AssertionError(
+                "reap still blocked %.0fs after stdout EOF; helper sleeps %ds"
+                % (bound, sleep_s)) from None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    elapsed = time.monotonic() - started
+    assert proc.returncode == 1, err
+    assert b"Keychain helper timed out" in err, err
+    assert b"synthetic-secret" not in out + err
+    assert not (root / "child").exists()
+    assert elapsed < bound, elapsed
+    assert elapsed >= deadline - 2.0, elapsed
 
 
 def main(launcher: str) -> None:
@@ -111,6 +168,8 @@ sys.exit(0)
             env={"PATH": "", "LANG": "C"}, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, timeout=5)
         assert bad.returncode == 2 and marker.encode() not in bad.stdout + bad.stderr
+
+        stdout_closed_past_deadline(launcher, root, cfg)
     print("keychain_native_launch=ok")
 
 

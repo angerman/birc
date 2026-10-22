@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // JS twin of read_kept. Suites that run on bun have no C ring, so this
-// returns every framed record and an empty name list. Bend still accepts
-// each record, caps each buffer, and evicts. The native client uses the C
-// ring in history_ffi.c and does not call this file.
+// returns every framed record and an empty name list. A final symlink is
+// refused before the read (lstat, then open with O_NOFOLLOW) and is stage 2.
+// Bend still accepts each record, caps each buffer, and evicts. The native
+// client uses the C ring in history_ffi.c and does not call this file.
 
 function history_kept_errno(err) {
   const n = err && typeof err.errno === "number" ? err.errno : 0;
@@ -50,6 +51,24 @@ function history_kept_lines(buf) {
   return lines;
 }
 
+function history_kept_eloop() {
+  const os = require("os");
+  const errno = os.constants && os.constants.errno;
+  return errno && typeof errno.ELOOP === "number" ? errno.ELOOP : 62;
+}
+
+function history_kept_flags(fs) {
+  const c = fs.constants;
+  return c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0) | (c.O_CLOEXEC || 0);
+}
+
+function history_kept_fail(err) {
+  const code = history_kept_errno(err);
+  return history_kept_pack(code === 2 ? 1 : 2, code, history_kept_nil(), history_kept_nil());
+}
+
+// lstat rejects a symlink before any read. O_NOFOLLOW covers a replace
+// between that check and the open. Regular files still return every record.
 function read_kept(path, _endpoint, _cap) {
   const fs = require("fs");
   const name = io_bytes(path);
@@ -57,14 +76,27 @@ function read_kept(path, _endpoint, _cap) {
     return history_kept_pack(2, 92, history_kept_nil(), history_kept_nil());
   }
   const file = name.length > 0 ? Buffer.from(name) : "";
-  let buf;
+  let st;
   try {
-    buf = fs.readFileSync(file);
+    st = fs.lstatSync(file);
   } catch (err) {
-    const code = history_kept_errno(err);
-    return history_kept_pack(code === 2 ? 1 : 2, code, history_kept_nil(), history_kept_nil());
+    return history_kept_fail(err);
   }
-  return history_kept_pack(0, 0, history_kept_nil(), history_kept_list(history_kept_lines(buf)));
+  if (st.isSymbolicLink()) {
+    return history_kept_pack(2, history_kept_eloop(), history_kept_nil(), history_kept_nil());
+  }
+  let fd;
+  try {
+    fd = fs.openSync(file, history_kept_flags(fs));
+    const buf = fs.readFileSync(fd);
+    fs.closeSync(fd);
+    return history_kept_pack(0, 0, history_kept_nil(), history_kept_list(history_kept_lines(buf)));
+  } catch (err) {
+    if (typeof fd === "number") {
+      try { fs.closeSync(fd); } catch (_) { /* the open error is the result */ }
+    }
+    return history_kept_fail(err);
+  }
 }
 
 io_eff(CID(read_kept), read_kept);

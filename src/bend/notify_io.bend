@@ -41,9 +41,6 @@ def base_last.go(xs: List<&2, String>, +acc: String) -> String:
 def base_of(+program: String) -> String:
   base_last.go(String.split(program, Chr{47}), "")
 
-def is_helper(+program: String, +name: String) -> Bool:
-  String.eq(base_of(program), name)
-
 def known_base(+base: String) -> Bool:
   String.eq(base, "notify-send") || String.eq(base, "osascript") || String.eq(base, "birc-notify")
 
@@ -96,16 +93,6 @@ def send.run(+program: String, args: List<&1, String>) -> IO(Maybe<&2, String>):
         got : Result<&1, &1, U32 & String, U32 & (String & String)> <- H.run_named(program, spec(), h <> t, "")
         return send_result(got)
 
-def send.with(+program: Maybe<&2, String>, +req: Notify.Req) -> IO(Maybe<&2, String>):
-  match program:
-    case None{}: IO.pure(Maybe<&2, String>, None{})
-    case Some{+helper}: send.run(helper, args_for(helper, req))
-
-def send(+req: Notify.Req) -> IO(Maybe<&2, String>):
-  do IO<Maybe<&2, String>>:
-    helper : Maybe<&2, String> <- program()
-    send.with(helper, req)
-
 # Default-helper resolution: an explicit BIRC_NOTIFY_HELPER wins; otherwise
 # the caller-supplied platform default applies (the live loop passes
 # Sys.notify_default: osascript on macOS, notify-send elsewhere). Either way
@@ -136,23 +123,6 @@ def post_on_failure(diag: Maybe<&2, String>, notice: Maybe<&2, Chan(Sess.UiMsg)>
     case None{}: IO.pure(Unit, Unit{})
     case Some{+evt}: post_diag(diag, evt)
 
-def run_async(+helper: String, +req: Notify.Req, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  do IO<Unit>:
-    diag : Maybe<&2, String> <- send.run(helper, args_for(helper, req))
-    post_on_failure(diag, notice)
-
-def send_async.with(+helper: Maybe<&2, String>, +req: Notify.Req, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  match helper:
-    case None{}: IO.pure(Unit, Unit{})
-    case Some{+h}: IO.spawn(Unit, run_async(h, req, notice))
-
-# Off-frame-path send: resolves the explicit helper, then hands the bounded
-# run to a detached worker. No helper means no spawn and no diagnostic.
-def send_async(+req: Notify.Req, notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  do IO<Unit>:
-    helper : Maybe<&2, String> <- program()
-    send_async.with(helper, req, notice)
-
 # Single-worker body: deliver every handed job in FIFO order on one
 # detached worker, reusing the bounded run and stage-label-only diagnostics.
 def run_jobs.go(fuel: Nat, +helper: String, +jobs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
@@ -180,29 +150,6 @@ def run_jobs_done(+helper: String, +jobs: List<&2, Notify.Req>, +notice: Maybe<&
     Unit <- run_jobs(helper, jobs, notice)
     post_done(notice, ticket, endpoint)
 
-def send_many.nonempty(empty: Bool, +helper: String, +reqs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  match empty:
-    case True{}: IO.pure(Unit, Unit{})
-    case False{}: IO.spawn(Unit, run_jobs(helper, reqs, notice))
-
-def send_many.known(known: Bool, +helper: String, +reqs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  match known:
-    case True{}: send_many.nonempty(List.is_empty(&2, Notify.Req, reqs), helper, reqs, notice)
-    case False{}: post_on_failure(Some{"notify failed (unknown helper)"}, notice)
-
-def send_many.with(+helper: Maybe<&2, String>, +reqs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  match helper:
-    case None{}: IO.pure(Unit, Unit{})
-    case Some{+h}: send_many.known(known_helper(h), h, reqs, notice)
-
-# One detached worker drains the whole staged list in FIFO order; unconfigured
-# sends nothing. An unknown helper reports one stage-label diagnostic without
-# spawning; an empty list spawns nothing.
-def send_many(+reqs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Unit):
-  do IO<Unit>:
-    helper : Maybe<&2, String> <- program()
-    send_many.with(helper, reqs, notice)
-
 def send_queued.jobs(+helper: String, +kept: Notify.Queue, +jobs: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Notify.Queue):
   match jobs:
     case Nil{}: IO.pure(Notify.Queue, kept)
@@ -227,11 +174,6 @@ def send_queued.with(+helper: Maybe<&2, String>, +q: Notify.Queue, +notice: Mayb
   match helper:
     case None{}: IO.pure(Notify.Queue, q)
     case Some{+h}: send_queued.known(known_helper(h), h, q, notice)
-
-def send_queued(+q: Notify.Queue, +notice: Maybe<&2, Chan(Sess.UiMsg)>) -> IO(Notify.Queue):
-  do IO<Notify.Queue>:
-    helper : Maybe<&2, String> <- program()
-    send_queued.with(helper, q, notice)
 
 def notify_live_spawn.active(active: Maybe<&2, Nat>, +h: String, +nl2: Sess.NotifyLive, +sess2: Sess.Session, +outs: List<&2, String>, +handed: List<&2, Notify.Req>, +notice: Maybe<&2, Chan(Sess.UiMsg)>, +endpoint: String) -> IO(Sess.NotifyLive & Sess.Session & List<&2, String>):
   match active:

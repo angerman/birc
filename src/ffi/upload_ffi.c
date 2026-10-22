@@ -145,6 +145,11 @@ static int birc_up_public_address(const char *value) {
       return 0;
     if ((a6.s6_addr[0] & 0xe0) != 0x20)
       return 0;
+    if (a6.s6_addr[0] == 0x20 && a6.s6_addr[1] == 0x02)
+      return 0;
+    if (a6.s6_addr[0] == 0x20 && a6.s6_addr[1] == 0x01
+        && a6.s6_addr[2] == 0 && a6.s6_addr[3] == 0)
+      return 0;
     return 1;
   }
   if (inet_pton(AF_INET, value, &a4) != 1)

@@ -391,9 +391,9 @@ def notify_event.cmd(+nick: String, +m: Irc.Message, account: Bool) -> NotifyEve
     case False{}: notify_event.away(nick, m, Irc.ieq(Irc.msg_command(m), "AWAY"))
 
 # G6.3: presence is a user statement. A validated server source (dotted or
-# single-label alike) can never be an ACCOUNT/AWAY subject, even when its
-# bare nick looks innocent. Bare ambiguous nicks stay users, matching the
-# shared host gate; empty nicks still fail below.
+# single-label alike) can never be an ACCOUNT/AWAY subject. A single LDH
+# label is a server source, so a bare nick is not user presence; empty
+# nicks still fail below.
 def notify_prefix_ok(+prefix: String, +server: String) -> Bool:
   Bool.not(server_source(prefix))
 

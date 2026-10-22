@@ -1174,9 +1174,11 @@ def empty_buf.nicks(+name: String, is_channel: Bool) -> List<&2, String>:
     case False{}:
       empty_buf.nicks.server(String.starts_with(name, "*"), name)
 
+# Caller owns the channel bit. Do not OR the fixed "#&+!" predicate:
+# `&local` under CHANTYPES=# stays a query when the caller passes false.
 def empty_buf(+name: String, +is_channel: Bool) -> Buffer:
   +canonical = target_name(name)
-  +channel = is_channel || target_channel(canonical)
+  +channel = is_channel
   buf_indexed(canonical, channel, "", Nil{}, empty_buf.nicks(canonical, channel), ScrollAt{0n, 0n})
 
 # Keep the last n lines in original order (oldest → newest).
@@ -1735,9 +1737,38 @@ def client_log.append(internal: Bool, mirror: Bool, cl: Client, i: Nat, line: Li
     case True{}: diagnostic_line(cl, line)
     case False{}: client_log.original(mirror, cl, i, line)
 
+# A failed history append rewinds log_seq and leaves the row. The next id
+# is one past the greater of that seq and any id still stored.
+def log_id.max(gt: Bool, +a: Nat, +b: Nat) -> Nat:
+  match gt:
+    case True{}: a
+    case False{}: b
+
+def log_id.greater(+a: Nat, +b: Nat) -> Nat:
+  log_id.max(Nat.is_gt(a, b), a, b)
+
+def log_id.line(acc: Nat, line: Line) -> Nat:
+  match line:
+    case Line{_, _, _, _, id}:
+      log_id.greater(acc, id)
+
+def log_id.lines(+lines: List<&2, Line>, +acc: Nat) -> Nat:
+  List.foldl(~&2, ~Line, ~Nat, ~log_id.line, lines, acc)
+
+def log_id.buf(acc: Nat, b: Buffer) -> Nat:
+  match b:
+    case Buffer{_, _, _, +lines, _, _, +newest, _}:
+      log_id.lines(newest, log_id.lines(lines, acc))
+
+def log_id.bufs(+bufs: List<&2, Buffer>) -> Nat:
+  List.foldl(~&2, ~Buffer, ~Nat, ~log_id.buf, bufs, 0n)
+
+def log_id.alloc(+seq: Nat, +highest: Nat) -> Nat:
+  Nat.add(1n, log_id.greater(seq, highest))
+
 def client_log_author_ts.noted(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +seq: Nat, welcomed: Bool, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, mirror: Bool) -> Client:
   +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
-  +next: Nat = 1n+seq
+  +next: Nat = log_id.alloc(seq, log_id.bufs(bufs))
   +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_keep_style(text), Irc.sanitize_in(author), next}
   client_log.append(client_log.destination(nth_buf(bufs, i)), mirror, Client{nick, server, bufs, active, now, stg, auth, next, welcomed}, i, line)
 
@@ -2054,37 +2085,54 @@ def set_topic_at(+cl: Client, +i: Nat, +topic: String) -> Client:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
       Client{nick, server, buf_modify(bufs, i, set_topic_fn(topic)), active, now, stg, auth, log_seq, welcomed}
 
-def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+def set_active.unread_cm(+cm: String, +stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
   match got:
     case None{}:
       stg
     case Some{b}:
       match b:
         case Buffer{+name, _, _, _, _, _, _, _}:
-          set_unreads(stg, del_unread_items(settings_unreads(stg), name))
+          set_unreads(stg, del_unread_items_cm(cm, settings_unreads(stg), name))
 
-def set_active.unread_index(control: Bool, stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+def set_active.unread(+stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+  set_active.unread_cm(dflt_cm(), stg, got)
+
+def set_active.unread_index_cm(control: Bool, +cm: String, stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
   match control:
     case True{}: stg
-    case False{}: set_active.unread(stg, got)
+    case False{}: set_active.unread_cm(cm, stg, got)
 
-def set_active(+cl: Client, +i: Nat) -> Client:
+def set_active.unread_index(control: Bool, stg: Settings, got: Maybe<&2, Buffer>) -> Settings:
+  set_active.unread_index_cm(control, dflt_cm(), stg, got)
+
+# Client has no casemap field. Callers that hold the negotiated mapping
+# pass it here. The two-argument entry stays on rfc1459.
+def set_active_cm(+cm: String, +cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, _, +now, +stg, +auth, +log_seq, welcomed}:
-      +stg2 = set_active.unread_index(Nat.is_eq(i, 0n), stg, nth_buf(bufs, i))
+      +stg2 = set_active.unread_index_cm(Nat.is_eq(i, 0n), cm, stg, nth_buf(bufs, i))
       Client{nick, server, bufs, i, now, stg2, auth, log_seq, welcomed}
 
-def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
+def set_active(+cl: Client, +i: Nat) -> Client:
+  set_active_cm(dflt_cm(), cl, i)
+
+def set_active_clamp.on_cm(+cm: String, +cl: Client, +i: Nat, ok: Bool) -> Client:
   match ok:
     case True{}:
-      set_active(cl, i)
+      set_active_cm(cm, cl, i)
     case False{}:
       cl
 
-def set_active_clamp(+cl: Client, +i: Nat) -> Client:
+def set_active_clamp_cm(+cm: String, +cl: Client, +i: Nat) -> Client:
   match cl:
     case Client{_, _, +bufs, _, _, _, +auth, +log_seq, _}:
-      set_active_clamp.on(cl, i, Nat.is_lt(i, buf_count(bufs)))
+      set_active_clamp.on_cm(cm, cl, i, Nat.is_lt(i, buf_count(bufs)))
+
+def set_active_clamp.on(+cl: Client, +i: Nat, ok: Bool) -> Client:
+  set_active_clamp.on_cm(dflt_cm(), cl, i, ok)
+
+def set_active_clamp(+cl: Client, +i: Nat) -> Client:
+  set_active_clamp_cm(dflt_cm(), cl, i)
 
 def set_buf_anchor(+b: Buffer, +sc: Scroll) -> Buffer:
   match b:
@@ -2372,15 +2420,21 @@ def cycle_prev.i.on(z: Bool, +active: Nat, +n: Nat) -> Nat:
 def cycle_prev.i(+active: Nat, +n: Nat) -> Nat:
   cycle_prev.i.on(Nat.is_eq(active, 0n), active, n)
 
-def cycle_next(+cl: Client) -> Client:
+def cycle_next_cm(+cm: String, +cl: Client) -> Client:
   match cl:
     case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
-      set_active(cl, cycle_next.i(active, buf_count(bufs)))
+      set_active_cm(cm, cl, cycle_next.i(active, buf_count(bufs)))
+
+def cycle_prev_cm(+cm: String, +cl: Client) -> Client:
+  match cl:
+    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
+      set_active_cm(cm, cl, cycle_prev.i(active, buf_count(bufs)))
+
+def cycle_next(+cl: Client) -> Client:
+  cycle_next_cm(dflt_cm(), cl)
 
 def cycle_prev(+cl: Client) -> Client:
-  match cl:
-    case Client{_, _, +bufs, +active, _, _, +auth, +log_seq, _}:
-      set_active(cl, cycle_prev.i(active, buf_count(bufs)))
+  cycle_prev_cm(dflt_cm(), cl)
 
 type TabDir is Data:
   TabStay{}
@@ -2401,14 +2455,17 @@ def tab_dir.on(+n: U32, next: Bool, prev: Bool) -> TabDir:
 def tab_dir(+n: U32) -> TabDir:
   tab_dir.on(n, U32.is_eq(n, 1), U32.is_eq(n, 2))
 
-def cycle_tab(+cl: Client, dir: TabDir) -> Client:
+def cycle_tab_cm(+cm: String, +cl: Client, dir: TabDir) -> Client:
   match dir:
     case TabStay{}:
       cl
     case TabNext{}:
-      cycle_next(cl)
+      cycle_next_cm(cm, cl)
     case TabPrev{}:
-      cycle_prev(cl)
+      cycle_prev_cm(cm, cl)
+
+def cycle_tab(+cl: Client, dir: TabDir) -> Client:
+  cycle_tab_cm(dflt_cm(), cl, dir)
 
 def set_nick(+cl: Client, +nick: String) -> Client:
   match cl:

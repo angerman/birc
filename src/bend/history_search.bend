@@ -1,12 +1,13 @@
 # Disk-history search with stateless paging plus IRCv3 draft/chathistory
 # server history. Pure policy first; the bounded file scan mirrors
-# history.bend (snapshot size bound, 4096-byte chunks, 8192-byte records,
-# endpoint isolation, replay of framed records only).
+# history.bend (snapshot size bound, 8192-byte records, endpoint
+# isolation, replay of framed records only). The history reader uses
+# 65536-byte chunks and this scan uses SCAN_CHUNK of 4096.
 # Results import into *search* through the checkpoint-neutral buffer replace
 # used by memory search, so restored rows are never appended again.
 # Integration seams: /history is a Session-owned catalog alias intercepted
 # by Session.submit_input_hist (Session owns the verb, like connect);
-# search/page IO runs search_open_file/import_page, and the shared CAP
+# the live loop spawns search_run_native or search_run, and the shared CAP
 # registry (CapNotify.chathistory_ok) feeds the `negotiated` argument
 # through chat_negotiated. This module never owns CAP END.
 # MERGE POINTS (flagged, Session/Net owned): history_search_io.open_private
@@ -38,8 +39,10 @@ def SCAN_CHUNK() -> Nat:
 def BATCH_CAP() -> Nat:
   100n
 
+# hist_live_note_seen takes the head. One page of room drops the previous
+# page, so the cap stays two BATCH_CAP pages.
 def SEEN_CAP() -> Nat:
-  100n
+  Nat.add(BATCH_CAP(), BATCH_CAP())
 
 def CAP_NAME() -> String:
   CapNotify.CAP_CHATHISTORY()
@@ -147,10 +150,6 @@ def match_record.entry(+query: DiskQuery, entry: Maybe<&2, Hist.HistEntry>, +at:
 
 def match_record(+query: DiskQuery, +endpoint: String, +raw: String, +at: Nat) -> Maybe<&2, DiskMatch>:
   match_record.entry(query, Hist.parse_line_for(endpoint, raw), at)
-
-def format_match(+m: DiskMatch) -> Cl.Line:
-  match m:
-    case DiskMatch{+target, +line, _}: Feed.format_search_match(target, line)
 
 # ---- paging -----------------------------------------------------------
 # The scan keeps the newest PAGE_SIZE matches older than the cursor.
@@ -482,10 +481,6 @@ type SearchEvidence is Data:
 def search_evidence_refused() -> SearchEvidence:
   SearchEvidence{False{}, False{}, False{}, False{}, False{}}
 
-def search_evidence_missing(+ev: SearchEvidence) -> Bool:
-  match ev:
-    case SearchEvidence{_, _, _, _, +missing}: missing
-
 def search_evidence_admitted(+ev: SearchEvidence) -> Bool:
   match ev:
     case SearchEvidence{+regular, +owned, +symlink, +private, +missing}:
@@ -499,17 +494,6 @@ def search_evidence_bits.bit(+bits: U32, +mask: U32) -> Bool:
 def search_evidence_bits(+bits: U32) -> SearchEvidence:
   SearchEvidence{search_evidence_bits.bit(bits, 1), search_evidence_bits.bit(bits, 2),
     search_evidence_bits.bit(bits, 4), search_evidence_bits.bit(bits, 8), search_evidence_bits.bit(bits, 16)}
-
-def search_evidence_bit(+b: Bool) -> String:
-  match b:
-    case True{}: "1"
-    case False{}: "0"
-
-def search_evidence_sig(+ev: SearchEvidence) -> String:
-  match ev:
-    case SearchEvidence{+regular, +owned, +symlink, +private, +missing}:
-      search_evidence_bit(regular) ++ "," ++ search_evidence_bit(owned) ++ ","
-        ++ search_evidence_bit(symlink) ++ "," ++ search_evidence_bit(private) ++ "," ++ search_evidence_bit(missing)
 
 # Helper wire line: `SE` plus five bits (regular owned symlink private
 # missing) with an optional trailing newline. Anything else refuses closed.
@@ -793,8 +777,7 @@ def between(negotiated: Bool, +target: String, +a: String, +b: String, +limit: N
 # BATCH +ref chathistory <target> ... BATCH -ref. Only PRIVMSG/NOTICE with
 # a msgid and a `batch` tag equal to the collect ref reach the results;
 # foreign targets, missing msgids, other-batch/live traffic, and other
-# commands are ignored. Stamps are UTC clocks from the wire; the live
-# Clock.line_stamps layer normalizes them at import (integrator seam).
+# commands are ignored. The imported stamp is the sanitized wire time.
 
 type BatchMsg is Data:
   BatchMsg{msgid: String, stamp: String, text: String, author: String}
@@ -903,6 +886,17 @@ def batch_body.action(action: Bool, +nick: String, +body: String) -> String:
     case True{}: Feed.fmt_action(nick, Feed.action_text(body))
     case False{}: Feed.fmt_msg(nick, body)
 
+# Leading bold is a notice tag added after sanitize. It is not body text.
+# batch_matches strips one character and stores Cl.Notice. A notice never
+# takes the action form. Style bytes stay on the kept body.
+def notice_mark() -> String:
+  SCon{Chr{2}, ""}
+
+def batch_collect.store(notice: Bool, +nick: String, +raw: String) -> String:
+  match notice:
+    case True{}: notice_mark() ++ Irc.sanitize_keep_style(Feed.fmt_msg(nick, raw))
+    case False{}: Irc.sanitize_keep_style(batch_body.action(Feed.is_action(raw), nick, raw))
+
 def batch_collect.full(full: Bool, +ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +mid: String, +stamp: String, +body: String, +author: String) -> ChatBatch:
   match full:
     case True{}: ChatCollect{ref, target, channel, messages, True{}}
@@ -927,7 +921,7 @@ def batch_collect.msg(+ref: String, +target: String, +channel: Bool, +messages: 
     Nat.is_ge(List.length(&2, BatchMsg, messages), BATCH_CAP()),
     ref, target, channel, messages, overflow, mid,
     Irc.sanitize_in(Irc.msg_time(msg)),
-    Irc.sanitize_in(batch_body.action(Feed.is_action(raw), nick, raw)),
+    batch_collect.store(Irc.ieq(Irc.msg_command(msg), "NOTICE"), nick, raw),
     Irc.sanitize_in(nick))
 
 def batch_collect.parsed(+ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String, m: Maybe<&2, Irc.Message>) -> ChatBatch:
@@ -1007,11 +1001,36 @@ def batch_msgid(+m: BatchMsg) -> String:
 type ServerMatch is Data:
   ServerMatch{target: String, line: Cl.Line, msgid: String}
 
+def batch_row.notice(target: String, msgid: String, stamp: String, text: String, author: String) -> ServerMatch:
+  ServerMatch{target, Cl.Line{Cl.Notice{}, stamp, String.drop(text, 1n), author, 0n}, msgid}
+
+def batch_row.action(target: String, msgid: String, stamp: String, text: String, author: String) -> ServerMatch:
+  ServerMatch{target, Cl.Line{Cl.Action{}, stamp, text, author, 0n}, msgid}
+
+def batch_row.msg(target: String, msgid: String, stamp: String, text: String, author: String) -> ServerMatch:
+  ServerMatch{target, Cl.Line{Cl.Msg{}, stamp, text, author, 0n}, msgid}
+
+def batch_row.as_notice(action: Bool, +target: String, +msgid: String, +stamp: String, +text: String, +author: String) -> ServerMatch:
+  match action:
+    case True{}: batch_row.notice(target, msgid, stamp, text, author)
+    case False{}: batch_row.notice(target, msgid, stamp, text, author)
+
+def batch_row.on_action(action: Bool, +target: String, +msgid: String, +stamp: String, +text: String, +author: String) -> ServerMatch:
+  match action:
+    case True{}: batch_row.action(target, msgid, stamp, text, author)
+    case False{}: batch_row.msg(target, msgid, stamp, text, author)
+
+def batch_row.pick(notice: Bool, action: Bool, +target: String, +msgid: String, +stamp: String, +text: String, +author: String) -> ServerMatch:
+  match notice:
+    case True{}: batch_row.as_notice(action, target, msgid, stamp, text, author)
+    case False{}: batch_row.on_action(action, target, msgid, stamp, text, author)
+
 def batch_matches.go(msgs: List<&2, BatchMsg>, +target: String) -> List<&2, ServerMatch>:
   match msgs:
     case Nil{}: Nil{}
     case Con{BatchMsg{+msgid, +stamp, +text, +author}, t}:
-      ServerMatch{target, Cl.Line{Cl.Msg{}, stamp, text, author, 0n}, msgid} <> batch_matches.go(t, target)
+      batch_row.pick(String.starts_with(text, notice_mark()), String.starts_with(text, "* "),
+        target, msgid, stamp, text, author) <> batch_matches.go(t, target)
 
 def batch_matches(batch: ChatBatch) -> List<&2, ServerMatch>:
   match batch:

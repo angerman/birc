@@ -9,6 +9,7 @@
 #ifndef _DARWIN_C_SOURCE
 #define _DARWIN_C_SOURCE
 #endif
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,30 @@ static void must(int ok, const char *label) {
     fprintf(stderr, "media_fetch_native: %s\n", label);
     exit(1);
   }
+}
+
+static int regular_file(const char *path) {
+  struct stat st;
+  return lstat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static void put_card(const char *cards, unsigned i) {
+  char path[512];
+  FILE *f;
+  int wr = snprintf(path, sizeof path, "%s/%064x.card", cards, i);
+  must(wr > 0 && (size_t)wr < sizeof path, "card path");
+  f = fopen(path, "wb");
+  must(f != NULL, "card fopen");
+  must(fwrite("c", 1, 1, f) == 1, "card byte");
+  must(fclose(f) == 0, "card fclose");
+}
+
+static void image_path(const char *root, const char *url, char *path, size_t n) {
+  char name[80];
+  int wr;
+  birc_mf_sha_name(url, ".img", name, sizeof name);
+  wr = snprintf(path, n, "%s/%s", root, name);
+  must(name[0] != 0 && wr > 0 && (size_t)wr < n, "image path");
 }
 
 static int b64_digit(unsigned char c) {
@@ -123,6 +148,35 @@ int main(void) {
   out = NULL;
 
   {
+    const char *html = "<meta property=\"og:title\" content=\"&#x1F600;\">";
+    must(birc_cards_parse((const unsigned char *)html, strlen(html),
+                          "https://example.test/read", &out, &n) == 0, "emoji title");
+  }
+  must(out && strcmp(out, "\xF0\x9F\x98\x80\n\n\n") == 0, "emoji bytes");
+  free(out);
+  out = NULL;
+
+  {
+    const char *html = "<meta property=\"og:title\" content=\"&#xD800;\">";
+    const unsigned char cesu[3] = {0xed, 0xa0, 0x80};
+    must(birc_cards_parse((const unsigned char *)html, strlen(html),
+                          "https://example.test/read", &out, &n) == 0, "surrogate title");
+    must(out && n >= 3, "surrogate length");
+    {
+      size_t at;
+      int found = 0;
+      for (at = 0; at + 3u <= n; at++) {
+        if (memcmp(out + at, cesu, 3) == 0)
+          found = 1;
+      }
+      must(!found, "surrogate bytes");
+    }
+    must(strcmp(out, "&#xD800;\n\n\n") == 0, "surrogate text");
+  }
+  free(out);
+  out = NULL;
+
+  {
     const char *html = "<meta property=\"og:image\" content=\"http://example.test/i.png\">";
     must(birc_cards_parse((const unsigned char *)html, strlen(html),
                           "https://example.test/read", &out, &n) == 0, "http thumb");
@@ -158,6 +212,46 @@ int main(void) {
 
   must(birc_media_run(0, "https://127.0.0.1/a.png", &out, &n) != 0, "loopback image");
   must(birc_cards_run(0, "http://example.test/read", &out, &n) != 0, "plain card");
+
+  {
+    char root[] = "/tmp/birc-mf-cap-XXXXXX";
+    char cards[128], admit[512], capped[512], kept[512], lockpath[160];
+    const unsigned char img[] = {1, 2, 3, 4};
+    const char *admit_url = "https://example.test/admit.png";
+    const char *capped_url = "https://example.test/capped.png";
+    int parent, wr;
+    unsigned i;
+    must(mkdtemp(root) != NULL, "cap dir");
+    must(chmod(root, 0700) == 0, "cap mode");
+    wr = snprintf(cards, sizeof cards, "%s/cards", root);
+    must(wr > 0 && (size_t)wr < sizeof cards, "cards path");
+    must(mkdir(cards, 0700) == 0 && chmod(cards, 0700) == 0, "cards dir");
+    for (i = 0; i + 1u < BIRC_MF_MAX_CACHE_ENTRIES; i++)
+      put_card(cards, i);
+    parent = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    must(parent >= 0, "cap parent");
+    birc_mf_cache_write(parent, 0, admit_url, img, sizeof img, NULL);
+    image_path(root, admit_url, admit, sizeof admit);
+    must(regular_file(admit), "admit under cap");
+    put_card(cards, BIRC_MF_MAX_CACHE_ENTRIES - 1u);
+    wr = snprintf(kept, sizeof kept, "%s/%064x.card", cards, BIRC_MF_MAX_CACHE_ENTRIES - 1u);
+    must(wr > 0 && (size_t)wr < sizeof kept, "kept card path");
+    birc_mf_cache_write(parent, 0, capped_url, img, sizeof img, NULL);
+    image_path(root, capped_url, capped, sizeof capped);
+    must(!regular_file(capped), "image at card cap");
+    must(regular_file(admit), "admitted image kept");
+    must(regular_file(kept), "cards kept");
+    must(close(parent) == 0, "close parent");
+    must(unlink(admit) == 0, "unlink admit");
+    for (i = 0; i < BIRC_MF_MAX_CACHE_ENTRIES; i++) {
+      char gone[512];
+      wr = snprintf(gone, sizeof gone, "%s/%064x.card", cards, i);
+      must(wr > 0 && (size_t)wr < sizeof gone && unlink(gone) == 0, "unlink card");
+    }
+    wr = snprintf(lockpath, sizeof lockpath, "%s/.lock", root);
+    must(wr > 0 && (size_t)wr < sizeof lockpath && unlink(lockpath) == 0, "unlink lock");
+    must(rmdir(cards) == 0 && rmdir(root) == 0, "rmdir cap");
+  }
 
   printf("media_fetch_native=ok\n");
   return 0;

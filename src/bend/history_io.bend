@@ -57,9 +57,6 @@ def history_append_file.private_append(pair: U32 & U32) -> Append:
     case (stage, code):
       history_append_file.err(H.save_error((code, ""), Bool.pick(String, U32.is_eq(stage, 1), "open failed", "write failed")))
 
-def history_append_file.private_result(pair: U32 & U32) -> Maybe<&2, String>:
-  append_notice(history_append_file.private_append(pair))
-
 def history_append_file.outcome(skip: Bool, +path: String, +data: String) -> IO(Append):
   match skip:
     case True{}: IO.pure(Append, Skip{})
@@ -123,9 +120,10 @@ def maybe_save_history(+path: String, +endpoint: String, +old_cl: Cl.Client, +ne
     return append_notice(got)
 
 # Native framing keeps the last min(cap, 1024) lines of each target and the
-# final channel order of an empty client. Bend still accepts each record.
-# A client that already holds another buffer stays on the byte walker: the
-# ring above does not see those buffers.
+# final channel order. Bend still accepts each record and plants it onto the
+# client already in hand, including one that holds another buffer. Every load
+# admits the path through read_kept first: no symlink, a regular file, and
+# the euid. A refusal fails before any parse.
 law read_kept:
   String -> String -> U32 -> IO(U32 & U32 & List<&2, String> & List<&2, List<&2, String>>)
 
@@ -199,7 +197,7 @@ def history_file.plain(+cl: Cl.Client) -> Bool:
 def history_load_client.route(plain: Bool, +path: String, +endpoint: String, +cap: U32, +cl: Cl.Client, +now: String) -> IO(Cl.Client):
   match plain:
     case True{}: history_file.load(False{}, path, endpoint, cap, cl, now)
-    case False{}: H.history_load_client(path, endpoint, cap, cl)
+    case False{}: history_file.load(False{}, path, endpoint, cap, cl, now)
 
 def history_load_client.pick(skip: Bool, +path: String, +endpoint: String, +cap: U32, +cl: Cl.Client, +now: String) -> IO(Cl.Client):
   match skip:
@@ -214,7 +212,7 @@ def history_load_client(+path: String, +endpoint: String, +cap: U32, +cl: Cl.Cli
 def history_snapshot_client.route(plain: Bool, +path: String, +endpoint: String, +cap: U32, +cl: Cl.Client) -> IO(Cl.Client):
   match plain:
     case True{}: history_file.load(True{}, path, endpoint, cap, cl, "")
-    case False{}: H.history_snapshot_client(path, endpoint, cap, cl)
+    case False{}: history_file.load(True{}, path, endpoint, cap, cl, "")
 
 def history_snapshot_client(+path: String, +endpoint: String, +cap: U32, +cl: Cl.Client) -> IO(Cl.Client):
   history_snapshot_client.route(history_file.plain(cl), path, endpoint, cap, cl)

@@ -347,6 +347,47 @@ static int selection_escape_clears_without_quit(void) {
   return 0;
 }
 
+/* A UTF-8 lead (state 4) must not arm the 50 ms tty wake. Silence past that
+ * window leaves the partial sequence parked, and the continuation still
+ * decodes to U+00E9. Other nonzero parser states keep the deadline. */
+static int partial_utf8_park(void) {
+  Fixture f;
+  uint32_t key, more;
+  int state;
+  CHECK(fixture_start(&f) == 0);
+  CHECK(feed(&f, "\xc3", 1, &key, &more) == 0);
+  CHECK(f.ui->input.state == 4 && key == TIMUI_KEY_UNKNOWN && more == 0);
+  CHECK(f.ui->text_in_len == 0);
+  CHECK(arm(&f) == 0 && parked.deadline == 0);
+  now_ms += 51; /* past the wake the expiring states keep */
+  CHECK(arm(&f) == 0 && parked.deadline == 0);
+  CHECK(paint(&f, &key, &more) == 0);
+  CHECK(f.ui->input.state == 4 && f.ui->text_in_len == 0);
+  CHECK(key == TIMUI_KEY_UNKNOWN && more == 0 && maintenance_ready(&f) == 0);
+  CHECK(feed(&f, "\xa9", 1, &key, &more) == 0);
+  CHECK(f.ui->input.state == 0 && key == TIMUI_KEY_UNKNOWN && more == 0);
+  CHECK(f.ui->text_in_len == 2);
+  CHECK((unsigned char)f.ui->text_in[0] == 0xC3 &&
+        (unsigned char)f.ui->text_in[1] == 0xA9);
+  CHECK(feed(&f, "\x1b", 1, &key, &more) == 0);
+  CHECK(f.ui->input.state == 1);
+  CHECK(arm(&f) == 0 && parked.deadline == io_tick() + UINT64_C(50000000));
+  for (state = 0; state <= 7; state++) {
+    f.ui->input.state = state;
+    f.ui->input.pasting = 0;
+    CHECK(arm(&f) == 0);
+    if (state == 0 || state == 4)
+      CHECK(parked.deadline == 0);
+    else
+      CHECK(parked.deadline == io_tick() + UINT64_C(50000000));
+  }
+  f.ui->input.state = 0;
+  f.ui->input.pasting = 1; /* open paste is state 0, not a tty deadline */
+  CHECK(arm(&f) == 0 && parked.deadline == 0);
+  CHECK(fixture_stop(&f) == 0);
+  return 0;
+}
+
 /* Mid-draft unmodified Right is suppressed for ghost accept; Shift+Right
  * must still report so Bend can switch tabs. */
 static int shift_right_mid_draft(void) {
@@ -381,6 +422,7 @@ int main(void) {
   CHECK(full_output_escape_control() == 0);
   CHECK(focus_report_does_not_spin() == 0);
   CHECK(timed_parser_controls() == 0);
+  CHECK(partial_utf8_park() == 0);
   CHECK(selection_escape_clears_without_quit() == 0);
   CHECK(shift_right_mid_draft() == 0);
   puts("input_wake=ok");

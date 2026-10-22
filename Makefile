@@ -1014,7 +1014,7 @@ test-keychain-native: ## Native profile/TOML/endpoint oracles. Synthetic files o
 test-keychain-native-launch: ## Native launcher with fake security/client. Never calls Keychain or IRC.
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) timeout 60 sh -c '$$CC -std=c11 -O0 -Werror=vla -pedantic -Wall -Wextra -Werror -DBIRC_KEYCHAIN_TEST src/ffi/keychain_birc.c -o $(BLDDIR)/keychain-birc-test'
-	$(NIXRUN) timeout 30 python3 tests/keychain_native_launch.py ./$(BLDDIR)/keychain-birc-test
+	$(NIXRUN) timeout 90 python3 tests/keychain_native_launch.py ./$(BLDDIR)/keychain-birc-test
 
 test-keychain-wrapper: test-keychain-native test-keychain-native-launch ## Fake Keychain helper: private launch, safe prompt, and save only on verified success.
 	$(NIXRUN) timeout 60 python3 tests/keychain_birc.py

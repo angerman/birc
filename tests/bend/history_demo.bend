@@ -198,6 +198,26 @@ def buffer_shape.found(+cl: Cl.Client, found: Maybe<&2, Nat>) -> String:
 def buffer_shape(+cl: Cl.Client, +cm: String, +name: String) -> String:
   buffer_shape.found(cl, Cl.buf_find_cm(cl, cm, name))
 
+def above_seq.client(base: Cl.Client) -> Cl.Client:
+  match base:
+    case Cl.Client{+nick, +server, _, +active, +now, +stg, +auth, _, welcomed}:
+      Cl.Client{nick, server,
+        Cl.buf_indexed("server", False{}, "", Cl.Line{Cl.Msg{}, "", "kept-above", "", 1n} <> Nil{}, Nil{}, Cl.ScrollAt{0n, 0n}) <> Nil{},
+        active, now, stg, auth, 0n, welcomed}
+
+def no_exclude() -> List<&2, Nat>:
+  Nil{}
+
+# Both log sequences are 0. The stored Msg id is 1, above that checkpoint.
+def equal_seq_above_ok() -> Bool:
+  +old = Cl.init("me", "a")
+  +new = above_seq.client(old)
+  +row: String = "BIRC2\ta:6667\t*server*\tMSG\t\t\tkept-above\n"
+  Nat.is_eq(Cl.log_seq_of(old), 0n) && Nat.is_eq(Cl.log_seq_of(new), 0n)
+    && String.eq(H.extract_new_history_for("a:6667", old, new), row)
+    && String.eq(H.extract_new_history_for_except("a:6667", old, new, no_exclude()), row)
+    && String.is_empty(H.extract_new_history_for_except("a:6667", old, new, 1n <> Nil{}))
+
 def dollar_history_report() -> String:
   +iso = Is.apply_line(Is.defaults(), ":a 005 me CHANTYPES=$ :are supported")
   +isc = Is.as_iso(iso)
@@ -230,4 +250,5 @@ def main() -> IO(Unit):
     Unit <- E.must("interleaved_history_order", interleaved_history_ok())
     Unit <- E.must_eq("history import follows negotiated ascii while default RFC1459 still merges", casemap_history_report(), "3:left||:right||/2:left|right||")
     Unit <- E.must_eq("negotiated history hit promotes query and leaves channels clean", dollar_history_report(), "query:$room/channel:/channel:")
+    Unit <- E.must("equal log seq still writes an id above it", equal_seq_above_ok())
     IO.print("history_demo=ok")

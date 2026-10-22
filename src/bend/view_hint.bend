@@ -170,11 +170,3 @@ def status.on(empty: Bool, vm: V.ViewModel, rows: U32, cols: U32, +hint: String)
 
 def status(vm: V.ViewModel, rows: U32, cols: U32, +hint: String) -> V.ViewModel:
   status.on(String.is_empty(hint), vm, rows, cols, hint)
-
-def status_themed.on(empty: Bool, vm: V.ViewModel, rows: U32, cols: U32, +hint: String, +th: Theme.Id) -> V.ViewModel:
-  match empty:
-    case True{}: vm
-    case False{}: panel_ops(vm, rows, cols, hint <> Nil{}, "", 0, th, True{})
-
-def status_themed(vm: V.ViewModel, rows: U32, cols: U32, +hint: String, +th: Theme.Id) -> V.ViewModel:
-  status_themed.on(String.is_empty(hint), vm, rows, cols, hint, th)

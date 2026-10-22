@@ -48,11 +48,6 @@ def busy(state: State) -> Bool:
     case State{_, _, _, None{}, Queue{Nil{}, _, _}, loaded, blocked, _, _, _, _, _, _}: Bool.not(loaded) && Bool.not(blocked)
     case Disabled{}: False{}
 
-def owns_read(state: State, ticket: Nat) -> Bool:
-  match state:
-    case State{_, _, _, Some{Read{owned, _, _, _, _}}, _, _, _, _, _, _, _, _, _}: Nat.is_eq(owned, ticket)
-    case _: False{}
-
 def owns_write(state: State, ticket: Nat) -> Bool:
   match state:
     case State{_, _, _, Some{Write{owned, _, _, _}}, _, _, _, _, _, _, _, _, _}: Nat.is_eq(owned, ticket)
@@ -416,11 +411,6 @@ def job_same(job: Job, host: String, port: U32) -> Bool:
   match job:
     case Read{_, other, n, _, _}: same(host, port, other, n)
     case Write{_, other, n, _}: same(host, port, other, n)
-
-def job_write(job: Job) -> Bool:
-  match job:
-    case Write{_, _, _, _}: True{}
-    case _: False{}
 
 def job_snapshot(job: Job, prefs: P.Preferences) -> Bool:
   match job:

@@ -110,6 +110,16 @@ def alias_ascii(+active: Nat) -> AD.AD:
 def alias_dflt(+active: Nat) -> AD.AD:
   AD.wrap(Sess.session_demo(alias_cl(active), "#a["), s0())
 
+# Ascii keeps #x[ distinct from #x{. The brace buffer's last line is Error.
+def twin_bufs() -> List<&2, Cl.Buffer>:
+  Cl.server_buf() <> Cl.empty_buf("#x[", True{}) <> Cl.empty_buf("#x{", True{}) <> Nil{}
+
+def twin_cl() -> Cl.Client:
+  Cl.client_log(Cl.Client{"me", "irc.example", twin_bufs(), 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}, 2n, Cl.Error{}, "boom")
+
+def twin_ad() -> AD.AD:
+  AD.wrap(Sess.session_set_iso(Sess.session_demo(twin_cl(), "#x["), ascii_iso()), s0())
+
 # Production reads fold under the session's own negotiated map.
 def drafts_live(+ad: AD.AD, +key: String) -> String:
   D.get_cm(AD.ad_drafts(ad), s0(), key, Sess.session_cm(AD.ad_session(ad)))
@@ -404,6 +414,19 @@ def ph_history_enter() -> IO(Unit):
     Unit <- E.must_eq("history off page keeps draft", drafts_of(unbox(off_page), "#b"), "/history page 0 needle")
     return Unit{}
 
+# An empty-out command on #x[ clears the composer. The brace buffer's error
+# id stays on that buffer.
+def ph_ascii_error_twin() -> IO(Unit):
+  +base = box(twin_ad())
+  +helped = box(AD.do_enter(unbox(base), "/help"))
+  do IO<Unit>:
+    Unit <- E.must("ascii twin help sends nothing", Nat.is_eq(nouts(AD.step_cmd(unbox(base), Sess.keys_enter("/help"))), 0n))
+    Unit <- E.must_eq("ascii twin help stays on bracket buffer", AD.ad_active(unbox(helped)), "#x[")
+    Unit <- E.must_eq("ascii twin help clears composer", AD.ad_composer(unbox(helped)), "")
+    Unit <- E.must_eq("ascii twin help clears draft", drafts_live(unbox(helped), "#x["), "")
+    Unit <- E.must("ascii twin brace buffer keeps its error", String.contains(CL.buf_texts(cl_of(unbox(helped)), 2n), "boom"))
+    return Unit{}
+
 def ph_laws() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("focus gate law holds", AD.focus_gate_ok())
@@ -423,6 +446,7 @@ def main() -> IO(Unit):
     Unit <- ph_multi()
     Unit <- ph_ctl_modal()
     Unit <- ph_cm_alias()
+    Unit <- ph_ascii_error_twin()
     Unit <- ph_laws()
     Unit <- ph_saved_session()
     Unit <- ph_history_enter()

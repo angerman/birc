@@ -314,26 +314,30 @@ def serialize_entries(entries: List<&2, HistEntry>, +endpoint: String) -> String
         case Entry{target, line}: serialize_line_for(endpoint, target, line) ++ serialize_entries(t, endpoint)
         case ServerEntry{line}: serialize_line_for(endpoint, "*server*", line) ++ serialize_entries(t, endpoint)
 
-# A matching log sequence means every stored id is already at or below the
-# baseline. Walking the scrollback to confirm that is the idle-tick cost.
+def extract_new_history_for.rows(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
+  match new_cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
+      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
+
+# Equal log sequences are not a checkpoint. A rewind can leave an id above
+# log_seq, so both arms still emit those rows from the new client.
 def extract_new_history_for.same(same: Bool, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
   match same:
-    case True{}: ""
-    case False{}:
-      match new_cl:
-        case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
-          serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries(bufs, Cl.log_seq_of(old_cl), True{})), endpoint)
+    case True{}: extract_new_history_for.rows(endpoint, old_cl, new_cl)
+    case False{}: extract_new_history_for.rows(endpoint, old_cl, new_cl)
 
 def extract_new_history_for(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client) -> String:
   extract_new_history_for.same(Nat.is_eq(Cl.log_seq_of(old_cl), Cl.log_seq_of(new_cl)), endpoint, old_cl, new_cl)
 
+def extract_new_history_for_except.rows(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
+  match new_cl:
+    case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
+      serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
+
 def extract_new_history_for_except.same(same: Bool, +endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
   match same:
-    case True{}: ""
-    case False{}:
-      match new_cl:
-        case Cl.Client{_, _, bufs, _, _, _, _, _, _}:
-          serialize_entries(List.sort(~HistEntry, ~entry_id_le, new_entries_except(bufs, Cl.log_seq_of(old_cl), True{}, excluded)), endpoint)
+    case True{}: extract_new_history_for_except.rows(endpoint, old_cl, new_cl, excluded)
+    case False{}: extract_new_history_for_except.rows(endpoint, old_cl, new_cl, excluded)
 
 def extract_new_history_for_except(+endpoint: String, +old_cl: Cl.Client, +new_cl: Cl.Client, +excluded: List<&2, Nat>) -> String:
   extract_new_history_for_except.same(Nat.is_eq(Cl.log_seq_of(old_cl), Cl.log_seq_of(new_cl)), endpoint, old_cl, new_cl, excluded)
@@ -548,11 +552,6 @@ def apply_history_iso(+cl: Cl.Client, entries: List<&2, HistEntry>, +now: String
 # read boundary. The record bound also rejects a corrupt unterminated line.
 type ReadState is Data:
   ReadState{cl: Cl.Client, rev: List<&2, U32>, count: Nat, dropping: Bool}
-
-def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
-  match cl:
-    case Cl.Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
-      Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq, welcomed}
 
 def read_record.present(entry: Maybe<&2, HistEntry>, cl: Cl.Client, +cap: U32) -> Cl.Client:
   match entry:
@@ -794,16 +793,6 @@ def resolve_history_cap() -> IO(U32):
     b : Result<&1, &1, U32 & String, String> <- IO.get_env("BIRC_HISTORY_LINES")
     IO.pure(U32, resolve_history_cap.val(b))
 
-def history_init_client.has(empty: Bool, +content: String, +nick: String, +host: String, +now: String, +cap: U32) -> Cl.Client:
-  match empty:
-    case True{}:
-      Cl.init_with_cap(nick, host, cap)
-    case False{}:
-      apply_history(Cl.init_with_cap(nick, host, cap), parse_history_text(content), now, cap)
-
-def history_init_client.content(+content: String, +nick: String, +host: String, +now: String, +cap: U32) -> Cl.Client:
-  history_init_client.has(String.is_empty(content), content, nick, host, now, cap)
-
 def history_load_client.pick(skip: Bool, +path: String, +endpoint: String, +cap: U32, +cl: Cl.Client, +now: String) -> IO(Cl.Client):
   match skip:
     case True{}: IO.pure(Cl.Client, cl)
@@ -818,13 +807,3 @@ def history_load_client(+path: String, +endpoint: String, +cap: U32, +cl: Cl.Cli
   match cl:
     case Cl.Client{_, _, _, _, +now, _, _, _, _}:
       history_load_client.pick(String.is_empty(path) || Bool.not(Cl.settings_history(Cl.get_settings(cl))), path, endpoint, cap, cl, now)
-
-def history_init_client.pick(empty: Bool, +path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
-  match empty:
-    case True{}:
-      IO.pure(Cl.Client, Cl.init_with_cap(nick, host, cap))
-    case False{}:
-      history_load_client(path, endpoint, cap, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
-
-def history_init_client(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
-  history_init_client.pick(String.is_empty(path), path, endpoint, cap, nick, host, now)

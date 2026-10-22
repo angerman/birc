@@ -1134,7 +1134,7 @@ static void birc_mf_cache_write(int parent, int cards, const char *url,
                                 const unsigned char *data, size_t n, const char *final) {
   char name[80];
   const char *suffix = cards ? ".card" : ".img";
-  int dirfd = -1, lock = -1;
+  int dirfd = -1, lock = -1, otherfd = -1;
   uint32_t other_n = 0;
   uint64_t other_b = 0;
   unsigned char *stored = NULL;
@@ -1171,7 +1171,21 @@ static void birc_mf_cache_write(int parent, int cards, const char *url,
   lock = birc_mf_lock(parent);
   if (lock < 0)
     goto done;
-  if (birc_mf_usage(cards ? parent : dirfd, cards ? ".img" : ".card", &other_n, &other_b) != 0)
+  /* Images are .img files beside the parent; cards are .card files under cards/. Both caps count the other tree. */
+  if (cards) {
+    otherfd = parent;
+  } else {
+    struct stat cards_st;
+    if (fstatat(parent, "cards", &cards_st, AT_SYMLINK_NOFOLLOW) != 0) {
+      if (errno != ENOENT)
+        goto done;
+    } else if (!S_ISDIR(cards_st.st_mode)
+               || birc_mf_open_cards(parent, 0, &otherfd) != 0) {
+      goto done;
+    }
+  }
+  if (otherfd >= 0
+      && birc_mf_usage(otherfd, cards ? ".img" : ".card", &other_n, &other_b) != 0)
     goto done;
   if (other_n + 1u > BIRC_MF_MAX_CACHE_ENTRIES || other_b + n > BIRC_MF_MAX_CACHE_BYTES)
     goto done;
@@ -1254,6 +1268,8 @@ done:
     (void)close(lock);
   if (cards && dirfd >= 0)
     (void)close(dirfd);
+  if (!cards && otherfd >= 0)
+    (void)close(otherfd);
   free(stored);
 }
 
@@ -1589,7 +1605,9 @@ static void birc_mf_unescape(const char *in, char *out, size_t out_n) {
           v = strtoul(in + i + 3, &end, 16);
         else
           v = strtoul(in + i + 2, &end, 10);
-        if (end && *end == ';' && v > 0 && v <= 0x10fffful) {
+        /* U+D800..U+DFFF are not scalar values; leave that reference text. */
+        if (end && *end == ';' && v > 0 && v <= 0x10fffful
+            && (v < 0xd800ul || v > 0xdffful)) {
           if (v < 0x80) {
             out[o++] = (char)v;
           } else if (v < 0x800 && o + 2 < out_n) {
@@ -1597,6 +1615,11 @@ static void birc_mf_unescape(const char *in, char *out, size_t out_n) {
             out[o++] = (char)(0x80 | (v & 0x3f));
           } else if (v < 0x10000 && o + 3 < out_n) {
             out[o++] = (char)(0xe0 | (v >> 12));
+            out[o++] = (char)(0x80 | ((v >> 6) & 0x3f));
+            out[o++] = (char)(0x80 | (v & 0x3f));
+          } else if (v >= 0x10000ul && o + 4 < out_n) {
+            out[o++] = (char)(0xf0 | (v >> 18));
+            out[o++] = (char)(0x80 | ((v >> 12) & 0x3f));
             out[o++] = (char)(0x80 | ((v >> 6) & 0x3f));
             out[o++] = (char)(0x80 | (v & 0x3f));
           }

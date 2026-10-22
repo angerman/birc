@@ -1404,14 +1404,28 @@ static int birc_kc_bounded(char *const argv[], const unsigned char *data, size_t
   }
   {
     int status = 0;
-    double remain = deadline - birc_kc_now();
-    if (remain <= 0) {
-      birc_kc_fail("Keychain helper timed out");
-      goto fail;
-    }
-    if (waitpid(pid, &status, 0) < 0) {
-      birc_kc_fail("Keychain helper failed");
-      goto fail;
+    while (1) {
+      double remain = deadline - birc_kc_now();
+      int ms;
+      pid_t wpid;
+      if (remain <= 0) {
+        birc_kc_fail("Keychain helper timed out");
+        goto fail;
+      }
+      wpid = waitpid(pid, &status, WNOHANG);
+      if (wpid == pid)
+        break;
+      if (wpid < 0) {
+        if (errno == EINTR)
+          continue;
+        birc_kc_fail("Keychain helper failed");
+        goto fail;
+      }
+      /* Same 50 ms reap poll as launch shutdown, capped by the helper deadline. */
+      ms = remain > 0.05 ? 50 : (int)(remain * 1000.0);
+      if (ms < 1)
+        ms = 1;
+      (void)poll(NULL, 0, ms);
     }
     *code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
     *out_n = got;

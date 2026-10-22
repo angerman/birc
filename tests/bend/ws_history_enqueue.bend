@@ -10,6 +10,8 @@ import ../../src/bend/history.bend as Hist
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/server_key.bend as Key
 import ../../src/bend/history_io.bend as HistIO
+import ../../src/bend/live_context.bend as PrefLive
+import ../../src/bend/preferences_worker.bend as PrefWorker
 
 def report(result: Maybe<&2, String>) -> IO(Unit):
   match result:
@@ -284,6 +286,94 @@ def retry.go(+path: String) -> IO(Unit):
     ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
     retry.after(blob, ws, id, path, ch)
 
+# Server 1, empty pending, hold above the failed seq. The stored record
+# must keep this job's id, base, and seq, and a later mark for server 1
+# must not refuse with "history part pending".
+def empty_ident.eq(same_bytes: Bool, same_sid: Bool, same_base: Bool, same_seq: Bool) -> Bool:
+  Bool.and(Bool.and(same_bytes, same_sid), Bool.and(same_base, same_seq))
+
+def empty_ident.yes(+p: WsNet.WsPend, +sid: Nat, +base: Nat, +seq: Nat) -> Bool:
+  match p:
+    case WsNet.WsPend{+bytes, +got_sid, +got_base, +got_seq}:
+      empty_ident.eq(String.eq(bytes, "ROW\n"), Nat.is_eq(got_sid, sid), Nat.is_eq(got_base, base), Nat.is_eq(got_seq, seq))
+
+def empty_ident.notice_in(inner: Maybe<&2, String> & WsNet.WsHot) -> IO(Unit):
+  match inner:
+    case (+notice, _): report(notice)
+
+def empty_ident.notice(pair: (Maybe<&2, String> & WsNet.WsHot) & Bool) -> IO(Unit):
+  match pair:
+    case (inner, _): empty_ident.notice_in(inner)
+
+def empty_ident.after(+id: Key.ServerId, +base: Nat, +seq: Nat, +hold: Nat, +ws: W.Workspace, +path: String, +ch: Chan(WsNet.HistJob)) -> IO(Unit):
+  +hot0 = retry.hot(WsNet.ws_hot.empty(), path, ch, WsNet.ws_pend.empty(), hold)
+  +hot1 = retry.took(WsNet.ws_history.on_fail(ws, id, base, seq, "ROW\n", hot0))
+  +pend = WsNet.ws_hot.pend_of(hot1)
+  do IO<Unit>:
+    Unit <- report_bool("ident", empty_ident.yes(pend, 1n, base, seq))
+    pair : (Maybe<&2, String> & WsNet.WsHot) & Bool <- WsNet.ws_history.write_mark(hot1, "NEXT\n", 1n, base, seq)
+    empty_ident.notice(pair)
+
+def empty_ident.sid() -> Key.ServerId:
+  Key.ServerId{1n}
+
+def empty_ident.go(+path: String) -> IO(Unit):
+  +id = empty_ident.sid()
+  +base = W.id_base(id)
+  +seq = Nat.add(base, 1n)
+  +hold = Nat.add(seq, 1n)
+  +ws = W.single_client("irc.example", 6697, False{}, Cl.init("me", "irc.example"), "#t")
+  do IO<Unit>:
+    ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
+    empty_ident.after(id, base, seq, hold, ws, path, ch)
+
+def history_off.quiet(+cl: Cl.Client) -> Cl.Client:
+  Cl.set_settings(cl, Cl.set_history(Cl.get_settings(cl), False{}))
+
+def history_off.finish(got: W.Workspace & Bool & WsNet.WsHot) -> IO(Unit):
+  match got:
+    case (_, rest):
+      match rest:
+        case (failed, _): report_bool("failed", failed)
+
+def history_off.flags(off: Bool, same: Bool, moved: Bool, delta: Bool) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- report_bool("off", off)
+    Unit <- report_bool("same", same)
+    Unit <- report_bool("moved", moved)
+    report_bool("delta", delta)
+
+def history_off.save(+ctx: PrefLive.Context, +old_ws: W.Workspace, +new_ws: W.Workspace, +id: Key.ServerId, +hot: WsNet.WsHot) -> IO(Unit):
+  do IO<Unit>:
+    evt : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 1)
+    got : W.Workspace & Bool & WsNet.WsHot <- WsNet.ws_history_save(ctx, old_ws, new_ws, id, hot, evt)
+    history_off.finish(got)
+
+# History disabled, same endpoint, nonempty extract. The file must stay absent.
+# Flags and the save are separate continuations so a Session is not flattened
+# into the same capture as both workspaces.
+def history_off.go(+path: String) -> IO(Unit):
+  +ep = syncfail.ep()
+  +old_ws0 = W.single_client("irc.example", 6697, False{}, Cl.init("me", "irc.example"), "#t")
+  +id = W.ws_current(old_ws0)
+  +ckpt = WsNet.ws_part.st(old_ws0, id)
+  +old_cl = history_off.quiet(Sess.session_cl(ckpt))
+  +old_st = Sess.session_set_client(ckpt, old_cl)
+  +old_ws = syncfail.part(old_ws0, old_st)
+  +live_cl = Cl.client_log(old_cl, 0n, Cl.Msg{}, "off-row")
+  +new_st = Sess.session_set_client(old_st, live_cl)
+  +new_ws = syncfail.part(old_ws, new_st)
+  +data = Hist.extract_new_history_for(ep, old_cl, live_cl)
+  +ctx = PrefLive.initial(PrefWorker.Options{False{}, False{}, False{}, False{}}, new_st, 0, path)
+  +hot = missing.hot(path)
+  off = Bool.not(Cl.settings_history(Cl.get_settings(live_cl)))
+  same = String.eq(PrefLive.endpoint(old_st), PrefLive.endpoint(new_st))
+  moved = Bool.not(Nat.is_eq(Cl.log_seq_of(old_cl), Cl.log_seq_of(live_cl)))
+  delta = Bool.not(String.is_empty(data))
+  do IO<Unit>:
+    Unit <- history_off.flags(off, same, moved, delta)
+    history_off.save(ctx, old_ws, new_ws, id, hot)
+
 def run(+path: String, mode: String) -> IO(Unit):
   match mode:
     case "overflow":
@@ -306,6 +396,10 @@ def run(+path: String, mode: String) -> IO(Unit):
       stop.go()
     case "retry":
       retry.go(path)
+    case "ident":
+      empty_ident.go(path)
+    case "off":
+      history_off.go(path)
     case _: IO.die(Unit, 1, "unknown mode")
 
 def args(xs: List<&1, String>) -> IO(Unit):
