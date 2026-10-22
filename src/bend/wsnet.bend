@@ -2001,10 +2001,12 @@ def ws_upload.restored(+ws: W.Workspace, +typed: String, +restore: Bool) -> W.Wo
 # Cards stage: current-part scheduling over the exact negotiated paint
 # rows (union C policy) through the ONE global physical lease. Completions
 # route back per part; inline rows and the fullscreen overlay paint from
-# the same sidecar over the same row set.
-def ws_cards.sized(+isc: Cl.Iso, +size: Sess.Size, +cl: Cl.Client, +split: Sp.State, +media: M.State, +painted: List<&2, V.CardEntry>) -> List<&2, C.Candidate>:
+# the same sidecar over the same row set. At ScrollAt{0,0} admission
+# prepends that buffer's pending lines before history newest. A scrolled
+# window stays on the history spine. Cl.Pending stays ineligible.
+def ws_cards.sized(+isc: Cl.Iso, +size: Sess.Size, +cl: Cl.Client, +split: Sp.State, +media: M.State, +painted: List<&2, V.CardEntry>, +pends: List<&2, Cl.PendSend>) -> List<&2, C.Candidate>:
   match size:
-    case Sess.Size{+rows, +cols}: C.visible_candidates_cards_iso(isc, cl, rows, cols, split, media, painted)
+    case Sess.Size{+rows, +cols}: C.visible_candidates_cards_iso(isc, cl, rows, cols, split, media, painted, pends)
 
 # (A) a spawn takes the global lease with its captured request envelope;
 # a quiet stage keeps the lease untouched. Only the exact completion
@@ -2029,7 +2031,7 @@ def ws_cards.staged(found: C.State & C.Fullscreen, +ws: W.Workspace, +id: Key.Se
       +full = C.maintain_full(fl, Sess.session_media(st), Sess.session_cl(st))
       +isc = Isupport.as_iso(Sess.session_iso(st))
       +open = C.is_open(full)
-      +cands = ws_cards.cands_open(open, ws_cards.sized(isc, Sess.session_size(st), Sess.session_cl(st), Sess.session_split(st), Sess.session_media(st), C.paint_entries(kept)))
+      +cands = ws_cards.cands_open(open, ws_cards.sized(isc, Sess.session_size(st), Sess.session_cl(st), Sess.session_split(st), Sess.session_media(st), C.paint_entries(kept), Sess.session_pends(st)))
       ws_cards.jobs(C.take_job_allowed(ws_cards.spawn_ok(on, kept, Sess.session_net(st), open, ws_cards_all.lease(cards)), C.enqueue_candidates(cands, kept)), ws, id, gen, full, cards, evts)
 
 def ws_cards_stage(+ws: W.Workspace, +evts: WsEvts, +cards: WsCardsAll) -> IO(W.Workspace & WsCardsAll):

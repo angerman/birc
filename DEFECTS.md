@@ -152,7 +152,7 @@ Closed in 95a32e0.
   Paint slot 7, then one new token. The new token draws its image.
   Today it is a placeholder.
 
-- [ ] **D8. Workspace card admission ignores live-tail pending rows.**
+- [x] **D8. Workspace card admission ignores live-tail pending rows.**
   `visible_candidates_cards_iso` (`src/bend/cards.bend:583`) walks
   history `newest` through `visible_anchored_panes_media_cards_iso`
   (`:580`). It does not take the pending prefix paint uses at

@@ -21,6 +21,9 @@ import ../../src/bend/view.bend as V
 import ../../src/bend/cards.bend as C
 import ../../src/bend/cards_view.bend as CV
 import ../../src/bend/cards_net.bend as CN
+import ../../src/bend/server_key.bend as Key
+import ../../src/bend/workspace.bend as W
+import ../../src/bend/wsnet.bend as WsNet
 
 def page() -> String:
   "https://x.test/read"
@@ -404,6 +407,117 @@ def gate5_sess_iso_new_ready(+st: Sess.Session, +gen: Nat, +ticket: Nat, +url: S
   +taken = gate5_sess_iso_taken(st, gen, ticket, url)
   cards_ready(on_card_st(CN.on_card_session(Sess.session_accept_card_result(taken, 2n, 2n, page()), taken, 2n, 2n, page(), "T\nD\n")))
 
+# Eight one-row lines fill an 8-row pane. The oldest line is the only https
+# card. One optimistic row at ScrollAt{0,0} makes nine rows, and the crop
+# keeps the last eight, so that URL leaves paint and admission. Cl.Pending
+# stays ineligible. ScrollAt{1,0} does not prepend.
+def pane_rows() -> U32:
+  12
+
+def pane_cols() -> U32:
+  80
+
+def old_url() -> String:
+  "https://x.test/old"
+
+def pend_url() -> String:
+  "https://x.test/pend"
+
+def line_text.on(url: Bool, +id: Nat) -> String:
+  match url:
+    case True{}: "see " ++ old_url()
+    case False{}: "m" ++ Nat.show(id)
+
+def line_text(+id: Nat) -> String:
+  line_text.on(Nat.is_eq(id, 1n), id)
+
+def cons_lines(fuel: Nat, +id: Nat, +acc: List<&2, Cl.Line>) -> List<&2, Cl.Line>:
+  match fuel:
+    case 0n: acc
+    case 1n+p:
+      cons_lines(p, Nat.add(id, 1n), Cl.Line{Cl.Msg{}, "", line_text(id), "a", id} <> acc)
+
+def eight_buf(scroll: Cl.Scroll) -> Cl.Buffer:
+  Cl.buf_indexed("#t", True{}, "", List.reverse(&2, Cl.Line, cons_lines(8n, 1n, Nil{})), Nil{}, scroll)
+
+def quiet() -> Cl.Settings:
+  Cl.set_ts(Cl.settings0(), False{})
+
+def eight_client(scroll: Cl.Scroll) -> Cl.Client:
+  Cl.Client{"me", "s", eight_buf(scroll) <> Nil{}, 0n, "", quiet(), Cl.AuthIdle{}, 0n, False{}}
+
+def one_pend() -> List<&2, Cl.PendSend>:
+  Cl.PendSend{"#t", "", "", "", "", "see " ++ pend_url(), "", Cl.Self{}, 0n} <> Nil{}
+
+def eight_st_at(scroll: Cl.Scroll, pends: List<&2, Cl.PendSend>) -> Sess.Session:
+  Sess.session_set_pends(Sess.session_set_size(Sess.session_online(Sess.session_with_client(eight_client(scroll), "#t")), pane_rows(), pane_cols()), pends)
+
+def cand_url(c: C.Candidate) -> String:
+  match c:
+    case C.Candidate{_, url}: url
+
+def cand_urls(xs: List<&2, C.Candidate>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{h, Nil{}}: cand_url(h)
+    case Con{h, t}: cand_url(h) ++ "|" ++ cand_urls(t)
+
+def cands_of(+st: Sess.Session) -> List<&2, C.Candidate>:
+  C.visible_candidates_cards_iso(Is.as_iso(Sess.session_iso(st)), Sess.session_cl(st), pane_rows(), pane_cols(), Sess.session_split(st), Sess.session_media(st), Nil{}, Sess.session_pends(st))
+
+def sized_of(+st: Sess.Session) -> List<&2, C.Candidate>:
+  WsNet.ws_cards.sized(Is.as_iso(Sess.session_iso(st)), Sess.session_size(st), Sess.session_cl(st), Sess.session_split(st), Sess.session_media(st), Nil{}, Sess.session_pends(st))
+
+def window_of(+st: Sess.Session) -> List<&2, C.Candidate>:
+  C.visible_candidates_from_rows(V.visible_anchored_panes_media_cards_iso_pends(Is.as_iso(Sess.session_iso(st)), Sess.session_cl(st), pane_rows(), pane_cols(), Sess.session_split(st), Sess.session_media(st), Nil{}, Sess.session_pends(st)))
+
+def admit_text(+st: Sess.Session) -> String:
+  cand_urls(cands_of(st)) ++ ";" ++ cand_urls(sized_of(st)) ++ ";" ++ cand_urls(window_of(st))
+
+def req_url(req: C.Request) -> String:
+  match req:
+    case C.Request{_, url, _, _}: url
+
+def join_reqs(xs: List<&2, C.Request>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{h, Nil{}}: req_url(h)
+    case Con{h, t}: req_url(h) ++ "|" ++ join_reqs(t)
+
+def active_url(active: Maybe<&2, C.Request>) -> String:
+  match active:
+    case None{}: ""
+    case Some{req}: req_url(req)
+
+def state_urls(state: C.State) -> String:
+  match state:
+    case C.State{_, _, _, active, pending, _}: active_url(active) ++ join_reqs(pending)
+
+def pair_all(pair: W.Workspace & WsNet.WsCardsAll) -> WsNet.WsCardsAll:
+  match pair:
+    case (_, all): all
+
+def fenced_cs(pair: C.State & C.Fullscreen) -> C.State:
+  match pair:
+    case (cs, _): cs
+
+def sidecar_cs(all: WsNet.WsCardsAll) -> C.State:
+  fenced_cs(WsNet.ws_cards.sidecar(WsNet.ws_cards_all.parts(all), Key.first(), 0, True{}))
+
+def ws_stub() -> W.Workspace:
+  W.single_client("s", 6697, False{}, Cl.init("me", "s"), "#t")
+
+# on=False keeps spawn_ok false, so the helper is not spawned. The enabled
+# sidecar still enqueues the sized candidate list.
+def staged_urls(st: Sess.Session) -> IO(String):
+  do IO<String>:
+    c0 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 1)
+    c1 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 1)
+    c2 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 1)
+    c3 : Chan(Sess.UiMsg) <- Chan.new(Sess.UiMsg, 1)
+    got : W.Workspace & WsNet.WsCardsAll <- WsNet.ws_cards.staged((C.initial(True{}), C.FullOff{}), ws_stub(), Key.first(), 0, st, WsNet.ws_cards_all.empty(), WsNet.WsEvts{c0, c1, c2, c3}, False{})
+    IO.pure(String, state_urls(sidecar_cs(pair_all(got))))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     # ---- shared boundary seam: View, /open, Media, Cards read one run set ----
@@ -648,4 +762,19 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("gate5 sess iso gen new stores", Nat.show(gate5_sess_iso_new_ready(g5sess, 2n, 1n, page())), "1")
     Unit <- E.must_eq("gate5 sess iso ticket new stores", Nat.show(gate5_sess_iso_new_ready(g5sess, 1n, 2n, page())), "1")
     Unit <- E.must_eq("gate5 sess iso url new stores", Nat.show(gate5_sess_iso_new_ready(g5sess, 1n, 1n, doc())), "1")
+    # One pending row at the live tail pushes the oldest https card out of
+    # the 8-row pane. Iso candidates, sized, and staged agree with the
+    # pending-aware window. An empty pend list and a scrolled window keep it.
+    +st_pend : Sess.Session = eight_st_at(Cl.ScrollAt{0n, 0n}, one_pend())
+    +st_nil : Sess.Session = eight_st_at(Cl.ScrollAt{0n, 0n}, Nil{})
+    +st_up : Sess.Session = eight_st_at(Cl.ScrollAt{1n, 0n}, one_pend())
+    staged_pend : String <- staged_urls(st_pend)
+    staged_nil : String <- staged_urls(st_nil)
+    Unit <- E.must_eq("pend pane is 8 rows", Nat.show(V.vis_h(pane_rows())), "8")
+    Unit <- E.must_eq("pend tail drops pushed card", admit_text(st_pend), ";;")
+    Unit <- E.must_eq("pend tail staged drops pushed card", staged_pend, "")
+    Unit <- E.must_eq("empty pend keeps pushed card", admit_text(st_nil), old_url() ++ ";" ++ old_url() ++ ";" ++ old_url())
+    Unit <- E.must_eq("empty pend staged keeps pushed card", staged_nil, old_url())
+    Unit <- E.must_eq("scrolled pend keeps pushed card", admit_text(st_up), old_url() ++ ";" ++ old_url() ++ ";" ++ old_url())
+    Unit <- E.must("pend row stays ineligible", Bool.not(String.contains(admit_text(st_pend), pend_url())))
     IO.print("cards_live=ok")
