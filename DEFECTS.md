@@ -139,7 +139,7 @@ Closed in 95a32e0.
   no notice and leaves pending empty. Today the notice is
   `history queue full` and the pending length stays 80000.
 
-- [ ] **D7. A reused high preview slot skips free slots below it.**
+- [x] **D7. A reused high preview slot skips free slots below it.**
   `src/ffi/timui_ffi.c:528` sets `preview_count = idx + 1` when an
   existing token is reused. A new token is stored only at
   `previews[preview_count]` (`:524`). Reusing slot 7 makes
@@ -484,7 +484,7 @@ unless the item says a dead arm goes with it.
   Say live merges go through `install_startup` and the default RFC1459
   map. Leave that call on `install_startup`.
 
-- [ ] **C17. The OpTabs comment still waits for colour fields.**
+- [x] **C17. The OpTabs comment still waits for colour fields.**
   `src/ffi/timui_ffi.c:1154` says mention colours belong in `f[8]` and
   `f[9]` once `OpTabs` grows. The next call (`:1157`) paints
   `BIRC_TAB_MENTION_BG` and `BIRC_TAB_MENTION_FG`. C13 already fixed

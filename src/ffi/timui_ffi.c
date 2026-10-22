@@ -519,13 +519,24 @@ static void birc_draw_media(TimuiFrame *frame, BircUi *bu, Timui *ui,
   }
   if (!preview)
     preview = reusable;
+  /* A miss takes the first slot whose token is 0. preview_count stops on
+   * that hole; reusing a higher slot must not skip it. */
   if (!preview) {
-    if (bu->preview_count < BIRC_PREVIEW_CAP)
-      preview = &bu->previews[bu->preview_count++];
-  } else {
+    for (i = 0; i < BIRC_PREVIEW_CAP; i++) {
+      if (bu->previews[i].token != 0)
+        continue;
+      preview = &bu->previews[i];
+      break;
+    }
+  }
+  if (preview) {
     int idx = (int)(preview - bu->previews);
-    if (idx >= bu->preview_count)
-      bu->preview_count = idx + 1;
+    int hole = bu->preview_count;
+    if (idx >= bu->preview_count) {
+      while (hole < idx && bu->previews[hole].token != 0)
+        hole++;
+      bu->preview_count = hole < idx ? hole : idx + 1;
+    }
   }
   if (preview)
     image = birc_preview_media(preview, ui, token);
@@ -1151,9 +1162,8 @@ static void birc_draw_op(Env e, TimuiFrame *fr, Term op, BircLay *ly) {
       ly->bu->last_tab = orig;
     if (fr && ntabs > 0)
       (void)timui_tabs(fr, TIMUI_ID("birc.bufs"), r, labs, ntabs, &sel);
-    /* f[0..7] are OpTabs as declared in view.bend. Mention colours belong
-     * in f[8] (bg) and f[9] (fg) once that constructor grows; until then
-     * the historic dark pair is the only pair C can paint. */
+    /* f[0..7] are OpTabs as declared in view.bend. BIRC_TAB_MENTION_BG and
+     * BIRC_TAB_MENTION_FG are the palette. OpTabs stays eight fields. */
     birc_draw_tab_alerts(fr, r, labs, ntabs, alerts, nalerts, sel,
                          BIRC_TAB_MENTION_BG, BIRC_TAB_MENTION_FG);
     if (ly && ly->bu)

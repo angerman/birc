@@ -176,11 +176,71 @@ static int duplicate_token_reuses_preview(void) {
   CHECK(fixture_stop(&fixture) == 0); return 0;
 }
 
+/* Eight slots, prune 0..6, paint slot 7, then one new token. The hole
+ * below the reused slot must draw that token, not a placeholder. The fill
+ * uses no image protocol so those eight draws do not fill the placement cap. */
+static int high_slot_admits_lower_hole(void) {
+  SinkFixture fixture; Timui *ui; BircUi *state;
+  char text[256]; uint32_t tokens[BIRC_PREVIEW_CAP], fresh, kept_token;
+  int flags, i;
+  TimuiTransportWrite saved; TimuiFrame *frame = NULL;
+  TimuiTransport transport = {NULL, media_read, NULL, NULL, NULL};
+  TimuiAllocator allocator = timui_default_allocator();
+  TimuiImage *kept, *painted;
+  CHECK(fixture_start(&fixture) == 0); clock_paused = 1; clock_seconds = 1;
+  CHECK(timui_open_for_test(&ui, transport, 8, 4, &allocator) == TIMUI_OK);
+  ui->fd.write_fd = fixture.fds[0][1]; install_writer(ui);
+  state = calloc(1, sizeof *state); CHECK(state); ui->cfg.userdata = state; birc_ui_live = ui;
+  helper_output(text, 0);
+  timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_NONE);
+  ui->fd.write_owner = 3; /* refuse physical write; assert slot choice only */
+  saved = birc_output_begin(ui, &flags);
+  CHECK(timui_begin(ui, &frame));
+  state->preview_count = 0;
+  birc_media_prune(ui, state);
+  for (i = 0; i < BIRC_PREVIEW_CAP; i++) {
+    tokens[i] = birc_media_add(&state->media, text, strlen(text));
+    CHECK(tokens[i] != 0);
+    birc_draw_media(frame, state, ui, 1, 1, 2, 2, 0, 2, tokens[i]);
+    CHECK(state->previews[i].token == tokens[i] && state->previews[i].image);
+  }
+  CHECK(state->preview_count == BIRC_PREVIEW_CAP && ui->img_place_count == 0);
+  kept_token = tokens[BIRC_PREVIEW_CAP - 1];
+  birc_media_retain(&state->media, &kept_token, 1);
+  fresh = birc_media_add(&state->media, text, strlen(text));
+  CHECK(fresh != 0 && fresh != kept_token);
+  state->preview_count = 0;
+  birc_media_prune(ui, state);
+  for (i = 0; i < BIRC_PREVIEW_CAP - 1; i++)
+    CHECK(state->previews[i].token == 0 && state->previews[i].image == NULL);
+  kept = state->previews[BIRC_PREVIEW_CAP - 1].image;
+  CHECK(kept && state->previews[BIRC_PREVIEW_CAP - 1].token == kept_token);
+  timui_force_image_protocol(ui, TIMUI_IMAGE_PROTOCOL_KITTY);
+  birc_draw_media(frame, state, ui, 1, 1, 2, 2, 0, 2, kept_token);
+  CHECK(state->preview_count == 0);
+  CHECK(state->previews[BIRC_PREVIEW_CAP - 1].image == kept);
+  CHECK(ui->img_place_count == 1 && ui->img_place[0].img == kept);
+  birc_draw_media(frame, state, ui, 4, 1, 2, 2, 0, 2, fresh);
+  painted = state->previews[0].image;
+  CHECK(painted && state->previews[0].token == fresh && state->preview_count == 1);
+  CHECK(ui->img_place_count == 2 && ui->img_place[1].img == painted);
+  CHECK(state->previews[BIRC_PREVIEW_CAP - 1].token == kept_token);
+  CHECK(state->previews[BIRC_PREVIEW_CAP - 1].image == kept);
+  timui_end(frame);
+  birc_output_end(ui, saved, flags);
+  CHECK(captured_len[0] == 0 && state->output.size > 0);
+  memset(&ui->transport, 0, sizeof ui->transport);
+  birc_ui_live = NULL; timui_close(ui); birc_output_destroy(&state->output);
+  birc_media_clear(&state->media); free(state); clock_paused = 0;
+  CHECK(fixture_stop(&fixture) == 0); return 0;
+}
+
 int main(void) {
   media_debug = fdopen(dup(STDERR_FILENO), "w");
   CHECK(image_support_probe() == 0);
   CHECK(cache_frame_ownership() == 0);
   CHECK(duplicate_token_reuses_preview() == 0);
+  CHECK(high_slot_admits_lower_hole() == 0);
   if (media_debug) fclose(media_debug);
   puts("media_ffi=ok"); return 0;
 }
