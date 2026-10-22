@@ -975,8 +975,10 @@ static void history_read_kept_call(IoWork *w) {
     return;
   req->stage = 2u;
   req->err = (uint32_t)EINVAL;
+  /* O_NOFOLLOW refuses a symlink. O_NONBLOCK lets a writerless FIFO return
+   * an fd so the regular-file check can reject it instead of blocking. */
   do {
-    fd = open(req->path, O_RDONLY | O_CLOEXEC, 0);
+    fd = open(req->path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     req->stage = errno == ENOENT ? 1u : 2u;
@@ -986,6 +988,12 @@ static void history_read_kept_call(IoWork *w) {
   if ((fstat)(fd, &info) != 0) {
     req->stage = 3u;
     req->err = (uint32_t)errno;
+    (close)(fd);
+    return;
+  }
+  if (!S_ISREG(info.st_mode) || info.st_uid != geteuid()) {
+    req->stage = 2u;
+    req->err = (uint32_t)EPERM;
     (close)(fd);
     return;
   }

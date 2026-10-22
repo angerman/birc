@@ -225,7 +225,7 @@ Closed in 95a32e0.
   Add a case: `mkfifo` a path with no writer and call the upload run.
   It returns the source error without blocking.
 
-- [ ] **D13. Startup history read follows symlinks and can block in open.**
+- [x] **D13. Startup history read follows symlinks and can block in open.**
   `history_read_kept_call` (`src/ffi/history_ffi.c:979`) opens with
   `O_RDONLY | O_CLOEXEC` and then only rejects a negative or oversized
   `st_size` (`:992`). A FIFO blocks inside that `open`. A symlink is

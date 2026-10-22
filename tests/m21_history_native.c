@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0
- * Actual private append core and FFI ownership, using synthetic files only. */
+ * Actual private append core, kept-read admission, and FFI ownership.
+ * Synthetic files only. */
 #define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
@@ -202,10 +203,85 @@ static int ownership(const char *root) {
   CHECK(unlink(path) == 0);
   return 0;
 }
+static char *copy_str(const char *text) {
+  size_t n = strlen(text);
+  char *out = malloc(n + 1u);
+  if (!out)
+    return NULL;
+  memcpy(out, text, n + 1u);
+  return out;
+}
+/* Missing stays stage 1. A symlink and a writerless FIFO are stage 2 and
+ * restore nothing. An euid-owned regular file, even mode 0644, still restores. */
+static int kept_call(const char *path, int expect_row, uint32_t *stage, uint32_t *err,
+                     uint32_t *rows) {
+  BircHistRead *req = calloc(1, sizeof *req);
+  IoWork work;
+  CHECK(req != NULL);
+  req->path = copy_str(path);
+  req->endpoint = copy_str("irc.example:6667");
+  req->cap = 4u;
+  CHECK(req->path != NULL && req->endpoint != NULL);
+  memset(&work, 0, sizeof work);
+  work.data = (char *)req;
+  history_read_kept_call(&work);
+  *stage = req->stage;
+  *err = req->err;
+  *rows = req->out_n;
+  if (expect_row) {
+    CHECK(req->out != NULL && req->out_n == 1u && req->out[0].len > 0u);
+    CHECK(req->name_n == 1u && req->names != NULL && req->names_arena != NULL);
+    CHECK(req->names[0].len == 5u);
+    CHECK(memcmp(req->names_arena + req->names[0].off, "#room", 5) == 0);
+  } else {
+    CHECK(req->out == NULL && req->out_n == 0u && req->name_n == 0u);
+  }
+  history_read_kept_free(req);
+  return 0;
+}
+static int kept_admit(const char *root) {
+  static const char line[] =
+      "BIRC2\tirc.example:6667\t#room\tMSG\t12:00:00\tnick\tok\n";
+  char path[256], link[256], fifo[256], missing[256];
+  struct stat info;
+  uint32_t stage = 9u, err = 0u, rows = 9u;
+  int fd;
+  ssize_t wrote;
+  unsigned int left;
+  CHECK(snprintf(path, sizeof path, "%s/kept", root) > 0);
+  CHECK(snprintf(link, sizeof link, "%s/kept-link", root) > 0);
+  CHECK(snprintf(fifo, sizeof fifo, "%s/kept-fifo", root) > 0);
+  CHECK(snprintf(missing, sizeof missing, "%s/kept-missing", root) > 0);
+  CHECK(kept_call(missing, 0, &stage, &err, &rows) == 0);
+  CHECK(stage == 1u && err == (uint32_t)ENOENT && rows == 0u);
+  fd = open(path, O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0644);
+  CHECK(fd >= 0);
+  wrote = write(fd, line, sizeof line - 1u);
+  CHECK(wrote == (ssize_t)(sizeof line - 1u) && close(fd) == 0);
+  CHECK(chmod(path, 0644) == 0);
+  CHECK(stat(path, &info) == 0 && S_ISREG(info.st_mode));
+  CHECK(info.st_uid == geteuid() && (info.st_mode & 0777) == 0644);
+  CHECK(kept_call(path, 1, &stage, &err, &rows) == 0);
+  CHECK(stage == 0u && err == 0u && rows == 1u);
+  CHECK(symlink(path, link) == 0);
+  CHECK(kept_call(link, 0, &stage, &err, &rows) == 0);
+  CHECK(stage == 2u && err == (uint32_t)ELOOP && rows == 0u);
+  CHECK(kept_call(path, 1, &stage, &err, &rows) == 0);
+  CHECK(stage == 0u && err == 0u && rows == 1u);
+  CHECK(mkfifo(fifo, 0600) == 0);
+  CHECK(alarm(5) == 0u);
+  CHECK(kept_call(fifo, 0, &stage, &err, &rows) == 0);
+  left = alarm(0);
+  CHECK(left > 0u);
+  CHECK(stage == 2u && err == (uint32_t)EPERM && rows == 0u);
+  CHECK(unlink(fifo) == 0 && unlink(link) == 0 && unlink(path) == 0);
+  return 0;
+}
 int main(void) {
   char root[] = "/tmp/birc-history-native-XXXXXX";
   CHECK(mkdtemp(root) != NULL);
   CHECK(core(root) == 0);
+  CHECK(kept_admit(root) == 0);
   CHECK(ownership(root) == 0);
   CHECK(rmdir(root) == 0);
   puts("m21_history_native=ok");
