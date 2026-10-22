@@ -91,7 +91,7 @@ Closed in 95a32e0.
   store `opaque-secret`, and the same `/mode` line is not recallable.
   A `+k` in the first flags word stays hidden.
 
-- [ ] **D4. A TLS write that wants a read is followed by SSL_read.**
+- [x] **D4. A TLS write that wants a read is followed by SSL_read.**
   The comment at `src/ffi/tls_ffi.c:407` says `WANT_WRITE` forbids other
   TLS IO until that write finishes. The loop at `:409` retries only
   while `writer->want == POLLOUT`. `SSL_write` returning

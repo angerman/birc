@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <openssl/pem.h>
+#include <openssl/ssl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,12 +19,20 @@
 #endif
 static int allocation_fail;
 static void (*allocation_hook)(void);
+static size_t ssl_read_ex_calls;
+static int (*real_ssl_read_ex)(SSL *, void *, size_t, size_t *) = SSL_read_ex;
+static int counting_ssl_read_ex(SSL *ssl, void *buf, size_t num, size_t *readbytes) {
+  ssl_read_ex_calls++;
+  return real_ssl_read_ex(ssl, buf, num, readbytes);
+}
 static void *fixture_alloc(size_t count, size_t size) {
   if (allocation_hook != NULL) allocation_hook();
   return allocation_fail ? NULL : calloc(count, size);
 }
 #define BIRC_TLS_ALLOC fixture_alloc
+#define SSL_read_ex counting_ssl_read_ex
 #include "../src/ffi/tls_ffi.c"
+#undef SSL_read_ex
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "tls_native:%d: %s\n", __LINE__, #x); return 1; } } while (0)
 typedef struct {
@@ -419,6 +428,7 @@ static int buffered_and_refs(Certificates *c) {
   pair_free(&p);
   return 0;
 }
+static int write_wants_read(Certificates *c);
 static int writes(Certificates *c) {
   Pair p;
   BircTlsError error;
@@ -488,6 +498,95 @@ static int writes(Certificates *c) {
   CHECK(birc_tls_shutdown(p.client).code == 0u);
   CHECK(birc_tls_write_step(out, ticks()) == -1 && out->error.code == (uint32_t)EPIPE && out->sent == offset);
   birc_tls_write_free(out);
+  pair_free(&p);
+  CHECK(write_wants_read(c) == 0);
+  return 0;
+}
+/* The next SSL_write on this verified socket reports WANT_READ. Count
+ * SSL_read_ex calls made by the shared object; the read step must not make
+ * one while that write is unfinished. Owned loopback, synthetic certificate. */
+static int write_wants_read_flag;
+static long write_wants_read_cb(BIO *bio, int oper, const char *argp, size_t len,
+                                int argi, long argl, int ret, size_t *processed) {
+  (void)argp; (void)len; (void)argi; (void)argl; (void)processed;
+  if (write_wants_read_flag && oper == BIO_CB_WRITE) {
+    BIO_clear_retry_flags(bio);
+    BIO_set_retry_read(bio);
+    return -1;
+  }
+  return ret;
+}
+static int write_wants_read(Certificates *c) {
+  Pair p;
+  BircTlsError error;
+  BircTlsWrite *out;
+  BircTlsRead *in;
+  BIO *transport;
+  short want;
+  uint64_t deadline, limit;
+  size_t sent;
+  char *bytes;
+  int result;
+  CHECK(pair_new(&p, c, c->certificate, "localhost") == 0 && handshake(&p, 0u) == 0);
+  transport = SSL_get_wbio(p.client->state->ssl);
+  CHECK(transport != NULL && transport == SSL_get_rbio(p.client->state->ssl));
+  BIO_set_callback_ex(transport, write_wants_read_cb);
+  write_wants_read_flag = 1;
+  bytes = strdup("ping");
+  CHECK(bytes != NULL);
+  out = birc_tls_write_new(p.client, bytes, 4u, ticks() + UINT64_C(1000000000), &error);
+  CHECK(out != NULL && birc_tls_write_step(out, ticks()) == 0);
+  CHECK(out->want == POLLIN && !out->finished && out->sent == 0u);
+  ssl_read_ex_calls = 0u;
+  in = birc_tls_read_new(p.client, 8u, &error);
+  CHECK(in != NULL);
+  CHECK(birc_tls_read_step(in, ticks(), &want, &deadline, &error) == 0);
+  CHECK(ssl_read_ex_calls == 0u && want == POLLIN && deadline == out->deadline);
+  CHECK(!out->finished && out->sent == 0u && !p.client->state->stopped);
+  write_wants_read_flag = 0;
+  BIO_set_callback_ex(transport, NULL);
+  while (!out->finished && ticks() < out->deadline) {
+    CHECK(birc_tls_write_step(out, ticks()) >= 0);
+    if (!out->finished && out->want != 0) {
+      struct pollfd ready = {p.client->state->fd, out->want, 0};
+      CHECK(poll(&ready, 1u, 20) >= 0);
+    }
+  }
+  CHECK(out->finished && out->error.code == 0u && out->sent == 4u);
+  birc_tls_write_free(out);
+  sent = 0u;
+  limit = ticks() + UINT64_C(1000000000);
+  while (sent < 4u && ticks() < limit) {
+    size_t chunk = 0u;
+    const char pong[] = "pong";
+    ERR_clear_error();
+    int wrote = SSL_write_ex(p.ssl, &pong[sent], 4u - sent, &chunk);
+    int why = wrote == 1 ? SSL_ERROR_NONE : SSL_get_error(p.ssl, wrote);
+    if (wrote == 1) {
+      sent += chunk;
+      continue;
+    }
+    CHECK(why == SSL_ERROR_WANT_READ || why == SSL_ERROR_WANT_WRITE);
+    if (why == SSL_ERROR_WANT_READ) {
+      unsigned char sink[512];
+      size_t got = 0u;
+      ERR_clear_error();
+      (void)SSL_read_ex(p.ssl, sink, sizeof sink, &got);
+    }
+    struct pollfd ready = {p.fd, why == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, 0};
+    CHECK(poll(&ready, 1u, 20) >= 0);
+  }
+  CHECK(sent == 4u);
+  do {
+    result = birc_tls_read_step(in, ticks(), &want, &deadline, &error);
+    if (result == 0) {
+      struct pollfd ready = {p.client->state->fd, want != 0 ? want : POLLIN, 0};
+      CHECK(poll(&ready, 1u, 20) >= 0);
+    }
+  } while (result == 0 && ticks() < limit);
+  CHECK(result == 1 && error.code == 0u && in->got == 4u && memcmp(in->bytes, "pong", 4u) == 0);
+  CHECK(ssl_read_ex_calls > 0u);
+  birc_tls_read_free(in);
   pair_free(&p);
   return 0;
 }

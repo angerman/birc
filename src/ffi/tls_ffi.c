@@ -404,18 +404,26 @@ static int birc_tls_read_step(BircTlsRead *in, uint64_t now, short *want,
   *deadline = 0u;
   *error = birc_tls_error(0u, NULL);
   if (state->stopped) { in->got = 0u; return 1; }
-  /* WANT_WRITE forbids another TLS IO. Cooperatively finish that exact write
-   * before reading; its original callback later packs the stored result. */
+  /* An unfinished write forbids other TLS IO until that write finishes.
+   * WANT_READ and WANT_WRITE both retry this exact write and park on its
+   * want. WANT_READ on an unfinished write also forbids the read. The
+   * original callback later packs the stored result. */
   while (state->writer != NULL && !state->writer->finished &&
-         state->writer->want == POLLOUT) {
+         (state->writer->want == 0 || state->writer->want == POLLIN ||
+          state->writer->want == POLLOUT)) {
     BircTlsWrite *out = state->writer;
     (void)birc_tls_write_step(out, now);
     if (state->stopped) { in->got = 0u; return 1; }
-    if (!out->finished && out->want == POLLOUT) {
-      *want = POLLOUT;
+    if (!out->finished && (out->want == POLLIN || out->want == POLLOUT)) {
+      *want = out->want;
       *deadline = out->deadline;
       return 0;
     }
+  }
+  if (state->writer != NULL && !state->writer->finished) {
+    *want = state->writer->want;
+    *deadline = state->writer->deadline;
+    return 0;
   }
   ERR_clear_error();
   errno = 0;
