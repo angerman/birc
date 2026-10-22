@@ -4033,7 +4033,8 @@ def view_draft.state_typing_media_cards_cm_themed(+cm: String, +cl: Cl.Client, +
   view_model(paint_view_state(paint_media_cards_cm_theme(cm, media, cards, th, pends), cl, rows, cols, draft, net, typers, split, Nil{}))
 
 # Frame entry. The hold is the walk from the previous scroll of this window.
-# True means that walk was cropped; False is the only full wrap.
+# True means at least one pane cropped its walk. False means every pane
+# took the full painter.
 def view_draft.state_typing_media_cards_iso_themed(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String, +net: String, +typers: List<&2, String>, split: Sp.State, +media: M.State, +cards: List<&2, CardEntry>, +th: Theme.Id, +pends: List<&2, Cl.PendSend>, +hold: List<&2, ScrollHold>) -> ViewModel & List<&2, BodyRow> & Bool:
   paint_view_state(paint_media_cards_iso_theme(isc, media, cards, th, pends), cl, rows, cols, draft, net, typers, split, hold)
 

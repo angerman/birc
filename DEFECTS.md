@@ -459,7 +459,7 @@ unless the item says a dead arm goes with it.
   Say the constants are the palette. Delete the two Bend functions with
   Y4. Do not add `OpTabs` fields.
 
-- [ ] **C14. The frame-entry comment says False is the only full wrap.**
+- [x] **C14. The frame-entry comment says False is the only full wrap.**
   `src/bend/view.bend:4036` says "True means that walk was cropped;
   False is the only full wrap." `paint_view_split_rects.rest`
   (`view.bend:3904`) returns `flag_or(r1ok, r2ok)`. `flag_or`
