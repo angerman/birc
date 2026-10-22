@@ -25,7 +25,8 @@
 #   Dial applies replace_endpoint with Session's exact endpoint_same; a
 #   rejected submit (a new Error line appears, detected by stable line IDs,
 #   never by rendered text) stashes the typed text and reseeds the composer
-#   instead of clearing. Accepted local commands clear; unreachable NetCmd
+#   instead of clearing. Accepted local commands clear. OpenUrl and Search
+#   clear the same way and do not reseed the typed line. Unreachable NetCmd
 #   arms preserve (fail closed).
 # - Enter on multiline chat (RouteMulti, no upload intent, no pending modal)
 #   routes through Drafts.submit_lines atomically, then completes through
@@ -302,11 +303,15 @@ def step_keys.stayed_type(+st2: Sess.Session, +ds: Drafts.Drafts, +server: Key.S
     case False{}:
       (AD{st2, Drafts.set_cm(ds, server, cur, Sess.session_draft(st2), Sess.session_cm(st2)), server}, cmd, halt)
 
+# OpenUrl and Search are accepted and send no wire. Clear the buffer draft
+# and leave the composer as Session finished it; do not reseed typed.
 def step_keys.stayed_enter(+st: List<&2, Sess.Session>, +st2: Sess.Session, +ds: Drafts.Drafts, +server: Key.ServerId, +typed: String, +cur: String, +cmd: Sess.NetCmd, +halt: Bool) -> AD & Sess.NetCmd & Bool:
   match cmd:
     case Sess.Cont{+outs}:
       step_keys.cont_enter(st, st2, ds, server, typed, cur, outs, cmd, halt)
     case Sess.OpenUrl{_}:
+      (AD{st2, Drafts.after_submit_cm(ds, server, cur, Sess.session_cm(st2)), server}, cmd, halt)
+    case Sess.Search{_, _, _, _, _, _, _, _, _}:
       (AD{st2, Drafts.after_submit_cm(ds, server, cur, Sess.session_cm(st2)), server}, cmd, halt)
     case _:
       (AD{Sess.session_upload_draft(st2, typed, 1), Drafts.set_cm(ds, server, cur, typed, Sess.session_cm(st2)), server}, cmd, halt)

@@ -199,7 +199,7 @@ Closed in 95a32e0.
   Error. History off still echoes "disk history is disabled" and does
   not search.
 
-- [ ] **D11. An accepted Search command reseeds the composer.**
+- [x] **D11. An accepted Search command reseeds the composer.**
   `step_keys.stayed_enter` (`src/bend/session_drafts.bend:311`) clears
   the draft for `OpenUrl` and puts the typed line back on every other
   command (`:312`, `session_upload_draft(st2, typed, 1)`). `Search` is

@@ -367,6 +367,43 @@ def ph_saved_session() -> IO(Unit):
     Unit <- E.must("carrier absent state emits nothing", Nat.is_eq(nouts(AD.step_cmd.got(carrier_empty_trip())), 0n))
     return Unit{}
 
+def history_off_ad() -> AD.AD:
+  +cl = rooms()
+  AD.wrap(Sess.session_demo(Cl.set_settings(cl, Cl.set_history(Cl.get_settings(cl), False{})), "#a"), s0())
+
+# Enabled /history search and page are Search with no live_only Error, and
+# the unchanged buffer's composer and draft stay empty. History off stays
+# Cont, echoes the disabled refusal, and keeps the typed command.
+def ph_history_enter() -> IO(Unit):
+  +searched = box(AD.do_enter(demo(), "/history search needle"))
+  +paged = box(AD.do_enter(demo(), "/history page 0 needle"))
+  +off_search = box(AD.do_enter(history_off_ad(), "/history search needle"))
+  +off_page = box(AD.do_enter(history_off_ad(), "/history page 0 needle"))
+  do IO<Unit>:
+    Unit <- E.must_eq("history search yields Search", Sess.show_netcmd(AD.step_cmd(demo(), Sess.keys_enter("/history search needle"))), "search:needle||16777216")
+    Unit <- E.must_eq("history search keeps buffer", AD.ad_active(unbox(searched)), "#b")
+    Unit <- E.must_eq("history search buffer has no live_only", CL.buf_texts(cl_of(unbox(searched)), 2n), CL.buf_texts(cl_of(demo()), 2n))
+    Unit <- E.must_eq("history search clears composer", AD.ad_composer(unbox(searched)), "")
+    Unit <- E.must_eq("history search clears draft", drafts_of(unbox(searched), "#b"), "")
+    Unit <- E.must("history search draft absent", Bool.not(has_draft(unbox(searched), "#b")))
+    Unit <- E.must_eq("history page yields Search", Sess.show_netcmd(AD.step_cmd(demo(), Sess.keys_enter("/history page 0 needle"))), "search:needle||0")
+    Unit <- E.must_eq("history page keeps buffer", AD.ad_active(unbox(paged)), "#b")
+    Unit <- E.must_eq("history page buffer has no live_only", CL.buf_texts(cl_of(unbox(paged)), 2n), CL.buf_texts(cl_of(demo()), 2n))
+    Unit <- E.must_eq("history page clears composer", AD.ad_composer(unbox(paged)), "")
+    Unit <- E.must_eq("history page clears draft", drafts_of(unbox(paged), "#b"), "")
+    Unit <- E.must_eq("history off stays Cont", Sess.show_netcmd(AD.step_cmd(history_off_ad(), Sess.keys_enter("/history search needle"))), "cont")
+    Unit <- E.must("history off sends no search", Nat.is_eq(nouts(AD.step_cmd(history_off_ad(), Sess.keys_enter("/history search needle"))), 0n))
+    Unit <- E.must("history off echoes disabled", String.ends_with(CL.buf_texts(cl_of(unbox(off_search)), 2n), "disk history is disabled|"))
+    Unit <- E.must("history off has no live_only", Bool.not(String.contains(CL.buf_texts(cl_of(unbox(off_search)), 2n), "disk history search runs in the live session")))
+    Unit <- E.must_eq("history off keeps composer", AD.ad_composer(unbox(off_search)), "/history search needle")
+    Unit <- E.must_eq("history off keeps draft", drafts_of(unbox(off_search), "#b"), "/history search needle")
+    Unit <- E.must_eq("history off page stays Cont", Sess.show_netcmd(AD.step_cmd(history_off_ad(), Sess.keys_enter("/history page 0 needle"))), "cont")
+    Unit <- E.must("history off page sends no search", Nat.is_eq(nouts(AD.step_cmd(history_off_ad(), Sess.keys_enter("/history page 0 needle"))), 0n))
+    Unit <- E.must("history off page echoes disabled", String.ends_with(CL.buf_texts(cl_of(unbox(off_page)), 2n), "disk history is disabled|"))
+    Unit <- E.must_eq("history off page keeps composer", AD.ad_composer(unbox(off_page)), "/history page 0 needle")
+    Unit <- E.must_eq("history off page keeps draft", drafts_of(unbox(off_page), "#b"), "/history page 0 needle")
+    return Unit{}
+
 def ph_laws() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("focus gate law holds", AD.focus_gate_ok())
@@ -388,4 +425,5 @@ def main() -> IO(Unit):
     Unit <- ph_cm_alias()
     Unit <- ph_laws()
     Unit <- ph_saved_session()
+    Unit <- ph_history_enter()
     IO.print("session_drafts_demo=ok")
