@@ -1291,7 +1291,7 @@ def ws_history.saved(+st: Sess.Session, failed: Bool, +ws: W.Workspace, +id: Key
       IO.pure(W.Workspace & Bool, (ws2, failed))
     case True{}:
       do IO<W.Workspace & Bool>:
-        loaded : Cl.Client <- Hist.history_load_client(path, new_ep, cap, Sess.session_cl(st))
+        loaded : Cl.Client <- HistIO.history_load_client(path, new_ep, cap, Sess.session_cl(st))
         return ws_history.reloaded(loaded, st, ws, id, failed)
 
 def ws_history.got(pair: Sess.Session & Bool, +ckpt: Sess.Session, +ws: W.Workspace, +id: Key.ServerId, +path: String, +old_ep: String, +new_ep: String, +cap: U32, allowed: Bool) -> IO(W.Workspace & Bool):

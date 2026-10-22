@@ -1450,7 +1450,7 @@ def live_step.reload(
       k((ui, st, gen, pending))
     case True{}:
       do IO<Unit>:
-        loaded : Cl.Client <- Hist.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
+        loaded : Cl.Client <- HistIO.history_load_client(hist_path, new_endpoint, Cl.settings_hist_cap(Cl.get_settings(Sess.session_cl(st))), Sess.session_cl(st))
         k((ui, Sess.session_set_client(st, loaded), gen, pending))
 
 def history_notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Session & Bool:
@@ -2086,7 +2086,7 @@ def live_client(+cl: Cl.Client, +host: String, +port: U32, +sasl_user: String, +
 def start_ui_client(gated: Bool, +path: String, +ep: String, +cap: U32, +nick: String, +host: String, +now: String) -> IO(Cl.Client):
   match gated:
     case True{}: IO.pure(Cl.Client, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
-    case False{}: Hist.history_init_client(path, ep, cap, nick, host, now)
+    case False{}: HistIO.history_init_client(path, ep, cap, nick, host, now)
 
 # Focus *log* before the first paint. The deferred dial does not start until
 # Begin, so the loading line is the honest first stage.

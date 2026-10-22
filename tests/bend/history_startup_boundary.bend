@@ -6,6 +6,7 @@ import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/history_startup.bend as H
 import ../../src/bend/history_startup_io.bend as F
 import ../../src/bend/history.bend as Hist
+import ../../src/bend/history_io.bend as HistIO
 
 def lines(cl: Cl.Client) -> List<&2, Cl.Line>:
   match cl:
@@ -55,7 +56,7 @@ def run(+path: String) -> IO(Unit):
     Unit <- E.must("snapshot failure is log-only and cannot trim completed archive rows",
       Nat.is_eq(List.length(&2, String, H.diagnostics(failed)), 1n) && List.is_empty(&2, Cl.Line, control_rows(failed)))
     Unit <- report(H.install(Cl.init_with_cap("me", "irc.example", 1024), failed, "irc.example:6667", "irc.example:6667"), 1024, "row0")
-    +legacy : Cl.Client <- Hist.history_init_client(path, "irc.example:6667", 1023, "archive", "irc.example", "12:00:00")
+    +legacy : Cl.Client <- HistIO.history_init_client(path, "irc.example:6667", 1023, "archive", "irc.example", "12:00:00")
     Unit <- E.must("ordinary reader retains its legacy divider behavior", Nat.is_eq(List.length(&2, Cl.Line, lines(legacy)), 1024n)
       && String.eq(first(lines(legacy)), "row1") && String.eq(last(lines(legacy)), "12:00:00"))
     IO.print("history_startup_boundary=ok")

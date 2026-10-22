@@ -1212,6 +1212,81 @@ def buf_push(+b: Buffer, +line: Line, +cap: Nat) -> Buffer:
 def buf_append_line(+b: Buffer, +line: Line) -> Buffer:
   buf_push(b, line, SCROLL_CAP())
 
+# History load keeps one bounded tail per buffer. `lines` is the oldest
+# prefix and `newest` is only the newer suffix, so a push is a cons.
+# Dropping the oldest is the head of `lines`, or one reverse each time
+# that prefix runs out. Seal rebuilds the normal mirror once, at the end.
+def buf_hist_push.rotated(old_first: List<&2, Line>, +head: Line, +name: String, +ch: Bool, +topic: String, +nicks: List<&2, String>, +scroll: Scroll, +count: Nat) -> Buffer:
+  match old_first:
+    case Nil{}: Buffer{name, ch, topic, Nil{}, nicks, scroll, head <> Nil{}, Nat.sub(count, 1n)}
+    case Con{_, +rest}: Buffer{name, ch, topic, rest, nicks, scroll, head <> Nil{}, Nat.sub(count, 1n)}
+
+def buf_hist_push.rotate(+newest: List<&2, Line>, +name: String, +ch: Bool, +topic: String, +nicks: List<&2, String>, +scroll: Scroll, +count: Nat) -> Buffer:
+  match newest:
+    case Nil{}: Buffer{name, ch, topic, Nil{}, nicks, scroll, Nil{}, 0n}
+    case Con{+head, +tail}: buf_hist_push.rotated(List.reverse(&2, Line, tail), head, name, ch, topic, nicks, scroll, count)
+
+def buf_hist_push.drop(+lines: List<&2, Line>, +name: String, +ch: Bool, +topic: String, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>, +count: Nat) -> Buffer:
+  match lines:
+    case Con{_, +rest}: Buffer{name, ch, topic, rest, nicks, scroll, newest, Nat.sub(count, 1n)}
+    case Nil{}: buf_hist_push.rotate(newest, name, ch, topic, nicks, scroll, count)
+
+def buf_hist_push.trim(over: Bool, +name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>, +count: Nat) -> Buffer:
+  match over:
+    case False{}: Buffer{name, ch, topic, lines, nicks, scroll, newest, count}
+    case True{}: buf_hist_push.drop(lines, name, ch, topic, nicks, scroll, newest, count)
+
+def buf_hist_push(+b: Buffer, +line: Line, +cap: Nat) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, +newest, +count}:
+      buf_hist_push.trim(Nat.is_gt(1n+count, cap), name, ch, topic, lines, nicks, buf_log.scroll(scroll), line <> newest, 1n+count)
+
+# A sealed buffer stores every kept line in `lines` and the mirror in
+# `newest`, so its count equals the prefix length. A queue does not.
+def buf_hist_seal.form(canonical: Bool, +name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +newest: List<&2, Line>) -> Buffer:
+  match canonical:
+    case True{}: buf_indexed(name, ch, topic, lines, nicks, scroll)
+    case False{}: buf_indexed(name, ch, topic, List.append(&2, Line, lines, List.reverse(&2, Line, newest)), nicks, scroll)
+
+def buf_hist_seal(+b: Buffer) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, +newest, +count}:
+      buf_hist_seal.form(Nat.is_eq(List.length(&2, Line, lines), count), name, ch, topic, lines, nicks, scroll, newest)
+
+def buf_hist_open.plain(+name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +cap: Nat) -> Buffer:
+  +kept = take_last(lines, cap)
+  Buffer{name, ch, topic, kept, nicks, scroll, Nil{}, List.length(&2, Line, kept)}
+
+def buf_hist_open.arm(synthetic: Bool, +b: Buffer, +name: String, +ch: Bool, +topic: String, +lines: List<&2, Line>, +nicks: List<&2, String>, +scroll: Scroll, +cap: Nat) -> Buffer:
+  match synthetic:
+    case True{}: b
+    case False{}: buf_hist_open.plain(name, ch, topic, lines, nicks, scroll, cap)
+
+def buf_hist_open(+b: Buffer, +cap: Nat) -> Buffer:
+  match b:
+    case Buffer{+name, +ch, +topic, +lines, +nicks, +scroll, _, _}:
+      buf_hist_open.arm(target_is_synthetic(name), b, name, ch, topic, lines, nicks, scroll, cap)
+
+def bufs_hist_open(bufs: List<&2, Buffer>, +cap: Nat) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, +t}: buf_hist_open(b, cap) <> bufs_hist_open(t, cap)
+
+def bufs_hist_seal(bufs: List<&2, Buffer>) -> List<&2, Buffer>:
+  match bufs:
+    case Nil{}: Nil{}
+    case Con{+b, +t}: buf_hist_seal(b) <> bufs_hist_seal(t)
+
+def client_hist_open(+cl: Client, +cap: Nat) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs_hist_open(bufs, cap), active, now, stg, auth, log_seq, welcomed}
+
+def client_hist_seal(+cl: Client) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      Client{nick, server, bufs_hist_seal(bufs), active, now, stg, auth, log_seq, welcomed}
+
 # Diagnostics have no author/nick payload and retain only bounded, private text.
 # Mirror IDs are the original event IDs; copying does not create a new event.
 def diagnostic_append(+line: Line, b: Buffer) -> Buffer:
@@ -1678,6 +1753,19 @@ def client_log_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +tex
 # Reuse the same timestamp/sanitization/cap path without replaying error copies.
 def client_restore_author_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String) -> Client:
   client_log_author_ts.record(False{}, cl, i, kind, ts, text, author)
+
+# Same fresh id and sanitization as a restore, pushed onto that buffer's
+# bounded tail only. Other buffers stay untouched.
+def client_restore_capped.noted(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +seq: Nat, welcomed: Bool, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, +cap: Nat) -> Client:
+  +ts_use = client_log_ts.pick(String.is_empty(ts), ts, now)
+  +next: Nat = 1n+seq
+  +line: Line = Line{kind, Irc.sanitize_in(ts_use), Irc.sanitize_keep_style(text), Irc.sanitize_in(author), next}
+  Client{nick, server, buf_modify(bufs, i, b => buf_hist_push(b, line, cap)), active, now, stg, auth, next, welcomed}
+
+def client_restore_capped(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String, +author: String, +cap: Nat) -> Client:
+  match cl:
+    case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
+      client_restore_capped.noted(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, i, kind, ts, text, author, cap)
 
 def client_log_ts(+cl: Client, +i: Nat, kind: LineKind, +ts: String, +text: String) -> Client:
   client_log_author_ts(cl, i, kind, ts, text, "")

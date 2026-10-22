@@ -83,6 +83,9 @@ char *io_cstr(Env e, Term term, u64 *size) {
   return owned[index];
 }
 Term io_tup(Env e, Term first, Term second) { (void)e; return (first << 32) | second; }
+/* The kept-line pack is not exercised here. The symbols must still link. */
+Term io_str(Env e, const char *p, u64 n) { (void)e; (void)p; (void)n; abort(); }
+Term io_node(Env e, u64 cid, Term a, Term b) { (void)e; (void)cid; (void)a; (void)b; abort(); }
 void io_eff(u32 cid, Effect run) { (void)cid; (void)run; }
 /* Run the actual helper callback synchronously, then the actual owning pack. */
 static Term io_work(IoWork *work, void (*call)(IoWork *), Term (*pack)(Env, IoWork *)) {

@@ -3,6 +3,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/history.bend as H
+import ../../src/bend/history_io.bend as HistIO
 
 def configured() -> Cl.Client:
   +settings = Cl.set_ts(Cl.get_settings(Cl.client_set_sasl(Cl.init("configured", "a"), "user", "pass")), False{})
@@ -68,7 +69,7 @@ def run(load: Bool, +path: String, +mode: String) -> IO(Unit):
   match load:
     case True{}:
       do IO<Unit>:
-        cl : Cl.Client <- H.history_load_client(path, "a:6667", 3, configured())
+        cl : Cl.Client <- HistIO.history_load_client(path, "a:6667", 3, configured())
         report(cl)
     case False{}:
       do IO<Unit>:

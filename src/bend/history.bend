@@ -361,16 +361,24 @@ def oldest_target.compare(old: Maybe<&2, OldestTarget>, +i: Nat, +id: Nat) -> Ma
     case None{}: Some{OldestTarget{i, id}}
     case Some{OldestTarget{+oi, +oid}}: oldest_target.choose(Nat.is_lt(id, oid), i, id, Some{OldestTarget{oi, oid}})
 
-def oldest_target.at(eligible: Bool, old: Maybe<&2, OldestTarget>, i: Nat, lines: List<&2, Cl.Line>) -> Maybe<&2, OldestTarget>:
+# The newest-first suffix, when present, starts with the latest row.
+# A sealed buffer and a history queue both keep that shape. Falling
+# back to the oldest-first tail is the still-unpushed prefix.
+def buffer_recent_id(newest: List<&2, Cl.Line>, lines: List<&2, Cl.Line>) -> Nat:
+  match newest:
+    case Con{Cl.Line{_, _, _, _, +id}, _}: id
+    case Nil{}: last_id(lines)
+
+def oldest_target.at(eligible: Bool, old: Maybe<&2, OldestTarget>, i: Nat, +id: Nat) -> Maybe<&2, OldestTarget>:
   match eligible:
     case False{}: old
-    case True{}: oldest_target.compare(old, i, last_id(lines))
+    case True{}: oldest_target.compare(old, i, id)
 
 def oldest_target(bufs: List<&2, Cl.Buffer>, +i: Nat, old: Maybe<&2, OldestTarget>) -> Maybe<&2, OldestTarget>:
   match bufs:
     case Nil{}: old
-    case Con{Cl.Buffer{+name, _, _, lines, _, _, _, _}, rest}:
-      oldest_target(rest, 1n+i, oldest_target.at(Nat.is_gt(i, 0n) && Bool.not(Cl.target_is_synthetic(name)), old, i, lines))
+    case Con{Cl.Buffer{+name, _, _, +lines, _, _, +newest, _}, rest}:
+      oldest_target(rest, 1n+i, oldest_target.at(Nat.is_gt(i, 0n) && Bool.not(Cl.target_is_synthetic(name)), old, i, buffer_recent_id(newest, lines)))
 
 def evict_target.got(old: Maybe<&2, OldestTarget>, cl: Cl.Client) -> Cl.Client:
   match old:
@@ -460,6 +468,25 @@ def apply_hist_entry_iso(entry: HistEntry, cl: Cl.Client, +isc: Cl.Iso) -> Cl.Cl
     case ServerEntry{line}: apply_entry.bi(cl, 0n, line)
     case Entry{+target, line}: apply_entry.got(history_target_iso(cl, target, isc), line)
 
+# File restore never keeps more than the scroll window. A zero cap adds nothing.
+def hist_keep(+cap: U32) -> Nat:
+  Cl.clamp_nat(U32.to_nat(cap), Cl.SCROLL_CAP())
+
+def apply_fast.bi(+cl: Cl.Client, +bi: Nat, ln: Cl.Line, +cap: U32) -> Cl.Client:
+  match ln:
+    case Cl.Line{kind, +ts, +text, +author, _}:
+      Cl.client_restore_capped(cl, bi, kind, ts, text, author, hist_keep(cap))
+
+def apply_fast.got(pair: Cl.Client & Maybe<&2, Nat>, ln: Cl.Line, +cap: U32) -> Cl.Client:
+  match pair:
+    case (cl2, None{}): cl2
+    case (cl2, Some{bi}): apply_fast.bi(cl2, bi, ln, cap)
+
+def apply_hist_fast(entry: HistEntry, cl: Cl.Client, +cap: U32) -> Cl.Client:
+  match entry:
+    case ServerEntry{line}: apply_fast.bi(cl, 0n, line, cap)
+    case Entry{+target, line}: apply_fast.got(history_target(cl, target), line, cap)
+
 def apply_entries(entries: List<&2, HistEntry>, cl: Cl.Client) -> Cl.Client:
   match entries:
     case Nil{}: cl
@@ -518,10 +545,10 @@ def cap_client_history(cl: Cl.Client, cap: U32) -> Cl.Client:
     case Cl.Client{nick, server, bufs, active, now, stg, auth, seq, welcomed}:
       Cl.Client{nick, server, cap_bufs_history(bufs, cap), active, now, stg, auth, seq, welcomed}
 
-def read_record.present(entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
+def read_record.present(entry: Maybe<&2, HistEntry>, cl: Cl.Client, +cap: U32) -> Cl.Client:
   match entry:
     case None{}: cl
-    case Some{entry}: cap_client_history(apply_hist_entry(entry, cl), cap)
+    case Some{entry}: apply_hist_fast(entry, cl, cap)
 
 def read_record.capped(zero: Bool, entry: Maybe<&2, HistEntry>, cl: Cl.Client, cap: U32) -> Cl.Client:
   match zero:
@@ -556,10 +583,14 @@ def read_step(+endpoint: String, cap: U32, state: ReadState, +byte: U32) -> Read
     case ReadState{cl, rev, count, dropping}:
       read_step.newline(U32.is_eq(byte, 10), endpoint, cap, cl, rev, count, dropping, byte)
 
-def read_finish.client(snapshot: Bool, cl: Cl.Client, now: String) -> Cl.Client:
+def read_finish.sealed(snapshot: Bool, cl: Cl.Client, +now: String) -> Cl.Client:
   match snapshot:
     case True{}: cl
     case False{}: Cl.reconnect_markers(cl, now)
+
+# The scan stores a bounded queue. Markers and the UI read the sealed mirror.
+def read_finish.client(snapshot: Bool, cl: Cl.Client, now: String) -> Cl.Client:
+  read_finish.sealed(snapshot, Cl.client_hist_seal(cl), now)
 
 # A worker snapshot spends its bounded row capacity only on archive records.
 # The UI adds its divider after import, when spare capacity is known.
@@ -586,45 +617,59 @@ def read_failure.mode(+snapshot: Bool, f: File, state: ReadState, now: String, e
     cl : Cl.Client <- read_finish.mode(snapshot, f, state, now)
     return read_error(snapshot, cl, error, stage)
 
-# The Bend event loop is one thread. File.read_bytes already parks on a
-# helper, but the pure byte walk between reads does not. A short slice
-# then IO.sleep(0) parks this fiber so a resize, a key, or the network
-# can run before the next slice. 256 bytes keeps each walk smaller than
-# one 4096-byte read.
-def read_pace.step(fuel: Nat, +bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState & List<&2, U32>:
+# One native read. The pure walk of that chunk does not park, so the
+# fiber yields once per chunk and then scans it straight through.
+def hist_read_chunk() -> Nat:
+  65536n
+
+# Byte walk only. The caller opens the queues and seals them.
+def read_walk(fuel: Nat, +bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState & List<&2, U32>:
   match fuel:
     case 0n: (state, bytes)
     case 1n+p:
       match bytes:
         case Nil{}: (state, Nil{})
-        case Con{+byte, +t}: read_pace.step(p, t, read_step(endpoint, cap, state, byte), endpoint, cap)
+        case Con{+byte, +t}: read_walk(p, t, read_step(endpoint, cap, state, byte), endpoint, cap)
+
+def read_pace.open_state(state: ReadState, +cap: U32) -> ReadState:
+  match state:
+    case ReadState{+cl, rev, count, dropping}:
+      ReadState{Cl.client_hist_open(cl, hist_keep(cap)), rev, count, dropping}
+
+def read_pace.seal_pair(pair: ReadState & List<&2, U32>) -> ReadState & List<&2, U32>:
+  match pair:
+    case (ReadState{+cl, rev, count, dropping}, +rest):
+      (ReadState{Cl.client_hist_seal(cl), rev, count, dropping}, rest)
+
+# A zero cap parses nothing and must not trim buffers the caller already holds.
+def read_pace.step.mode(zero: Bool, fuel: Nat, +bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState & List<&2, U32>:
+  match zero:
+    case True{}: read_walk(fuel, bytes, state, endpoint, cap)
+    case False{}: read_pace.seal_pair(read_walk(fuel, bytes, read_pace.open_state(state, cap), endpoint, cap))
+
+def read_pace.step(fuel: Nat, +bytes: List<&2, U32>, state: ReadState, +endpoint: String, +cap: U32) -> ReadState & List<&2, U32>:
+  read_pace.step.mode(U32.is_eq(cap, 0), fuel, bytes, state, endpoint, cap)
 
 def read_pace.unpack(pair: ReadState & List<&2, U32>, k: List<&2, U32> -> ReadState -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:
     case (state, +bytes): k(bytes, state)
 
-def read_pace.more(fuel: Nat, +bytes: List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
-  match fuel:
-    case 0n: next(f, state, Nat.sub(remaining, drop))
-    case 1n+p:
-      match bytes:
-        case Nil{}: next(f, state, Nat.sub(remaining, drop))
-        case Con{+byte, +t}:
-          do IO<Cl.Client>:
-            Unit <- IO.sleep(0)
-            read_pace.unpack(read_pace.step(256n, byte <> t, state, endpoint, cap), bs => st => read_pace.more(p, bs, drop, snapshot, f, st, endpoint, cap, now, remaining, next))
+def read_pace.spent(rest: List<&2, U32>, +drop: Nat) -> Nat:
+  match rest:
+    case Nil{}: drop
+    case _: Nat.sub(drop, List.length(&2, U32, rest))
 
-def read_pace.launch(pair: ReadState & List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
-  match pair:
-    case (state, +left): read_pace.more(List.length(&2, U32, left), left, drop, snapshot, f, state, endpoint, cap, now, remaining, next)
-
-def read_pace.begin(+bytes: List<&2, U32>, +drop: Nat, snapshot: Bool, f: File, state: ReadState, +endpoint: String, +cap: U32, +now: String, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
-  read_pace.launch(read_pace.step(256n, bytes, state, endpoint, cap), drop, snapshot, f, endpoint, cap, now, remaining, next)
+# The Bend event loop is one thread. Yield once, then walk this chunk,
+# so a resize or a key can run between chunks without a park per 256 bytes.
+def read_pace.begin(+bytes: List<&2, U32>, +drop: Nat, f: File, state: ReadState, +endpoint: String, +cap: U32, +remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
+  do IO<Cl.Client>:
+    Unit <- IO.sleep(0)
+    read_pace.unpack(read_walk(drop, bytes, state, endpoint, cap), rest => st => next(f, st, Nat.sub(remaining, read_pace.spent(rest, drop))))
 
 def read_loop.empty.mode(empty: Bool, snapshot: Bool, f: File, +bytes: List<&2, U32>, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match empty:
     case True{}: read_finish.mode(snapshot, f, state, now)
-    case False{}: read_pace.begin(bytes, List.length(&2, U32, bytes), snapshot, f, state, endpoint, cap, now, remaining, next)
+    case False{}: read_pace.begin(bytes, List.length(&2, U32, bytes), f, state, endpoint, cap, remaining, next)
 
 def read_loop.got.mode(pair: File & Result<&1, &1, U32 & String, List<&2, U32>>, snapshot: Bool, state: ReadState, endpoint: String, cap: U32, now: String, remaining: Nat, next: File -> ReadState -> Nat -> IO(Cl.Client)) -> IO(Cl.Client):
   match pair:
@@ -639,7 +684,7 @@ def read_loop.read.mode(done: Bool, +snapshot: Bool, f: File, state: ReadState, 
     case True{}: read_finish.mode(snapshot, f, state, now)
     case False{}:
       do IO<Cl.Client>:
-        pair : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, U32.from_nat(Cl.clamp_nat(remaining, 4096n)))
+        pair : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, U32.from_nat(Cl.clamp_nat(remaining, hist_read_chunk())))
         read_loop.got.mode(pair, snapshot, state, endpoint, cap, now, remaining, next)
 
 # The file's initial size bounds the loop. Appends during loading cannot keep it
@@ -652,10 +697,16 @@ def read_loop.mode(fuel: Nat, +snapshot: Bool, f: File, state: ReadState, +endpo
       read_loop.read.mode(Nat.is_eq(remaining, 0n), snapshot, f, state, endpoint, cap, now, remaining,
         f2 => st2 => rest => read_loop.mode(p, snapshot, f2, st2, endpoint, cap, now, rest))
 
-def read_size.mode(pair: File & Result<&1, &1, U32 & String, U32>, snapshot: Bool, cl: Cl.Client, endpoint: String, cap: U32, now: String) -> IO(Cl.Client):
+# Cap 0 restores nothing and must leave an existing client unchanged.
+def read_prepare.mode(zero: Bool, cl: Cl.Client, +cap: U32) -> Cl.Client:
+  match zero:
+    case True{}: cl
+    case False{}: Cl.client_hist_open(cl, hist_keep(cap))
+
+def read_size.mode(pair: File & Result<&1, &1, U32 & String, U32>, snapshot: Bool, cl: Cl.Client, endpoint: String, +cap: U32, now: String) -> IO(Cl.Client):
   match pair:
     case (f, Fail{error}): read_failure.mode(snapshot, f, ReadState{cl, Nil{}, 0n, False{}}, now, error, "size unavailable")
-    case (f, Done{+size}): read_loop.mode(1n+U32.to_nat(size), snapshot, f, ReadState{cl, Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
+    case (f, Done{+size}): read_loop.mode(1n+U32.to_nat(size), snapshot, f, ReadState{read_prepare.mode(U32.is_eq(cap, 0), cl, cap), Nil{}, 0n, False{}}, endpoint, cap, now, U32.to_nat(size))
 
 # ENOENT is the normal first-run case on this POSIX runtime. Other open
 # failures must be visible; an inaccessible history file is not an empty one.

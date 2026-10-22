@@ -48,6 +48,7 @@ def recent_guards() -> IO(Unit):
   +touched = restored(base, old_records(14n) ++ record("OLD14", "touched") ++ record("recent", "latest"), 1)
   +alias = restored(base, old_records(14n) ++ record("ol" ++ SCon{Chr{31}, "d14"}, "touched"), 1)
   +zero = restored(base, old_records(20n) ++ record("*server*", "server"), 0)
+  +rotated = restored(base, record("#a", "1") ++ record("#a", "2") ++ record("#b", "b1") ++ record("#a", "3") ++ record("#a", "4"), 2)
   do IO<Unit>:
     Unit <- E.must("newest target replaces oldest restored target", CL.has_buf(many, "recent") && Bool.not(CL.has_buf(many, "old14")) && Nat.is_eq(CL.nbuf(many), 15n))
     Unit <- E.must("target recency follows last retained record", CL.has_buf(touched, "old14") && Bool.not(CL.has_buf(touched, "old13")))
@@ -57,6 +58,8 @@ def recent_guards() -> IO(Unit):
     Unit <- E.must("bounded restore does not generate buffer-limit errors", String.is_empty(CL.buf_texts(many, 0n)))
     Unit <- E.must("zero cap restores neither chat targets nor server rows", Nat.is_eq(CL.nbuf(zero), 1n) && String.is_empty(CL.buf_texts(zero, 0n)))
     Unit <- E.must_eq("per-buffer row cap retains most recent", CL.buf_texts(restored(base, record("alice", "one") ++ record("alice", "two"), 1), 1n), "two|")
+    Unit <- E.must_eq("row cap keeps each buffer's newest lines in order", CL.buf_texts(rotated, 1n), "3|4|")
+    Unit <- E.must_eq("row cap leaves the other buffer's tail", CL.buf_texts(rotated, 2n), "b1|")
     IO.pure(Unit, Unit{})
 
 def reserved_guards() -> IO(Unit):

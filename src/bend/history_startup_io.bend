@@ -2,13 +2,13 @@
 # Startup reads own an auth-free client, never a captured mutable Session.
 import Base
 import ./buffer.bend as Cl
-import ./history.bend as H
+import ./history_io.bend as HistIO
 import ./session.bend as Sess
 
 def load.enabled(on: Bool, +path: String, +endpoint: String, +cap: U32, nick: String, host: String, now: String) -> IO(Cl.Client):
   match on:
     case False{}: IO.pure(Cl.Client, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
-    case True{}: H.history_snapshot_client(path, endpoint, cap, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
+    case True{}: HistIO.history_snapshot_client(path, endpoint, cap, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
 
 def load(+path: String, +endpoint: String, +cap: U32, +nick: String, +host: String, now: String) -> IO(Cl.Client):
   load.enabled(Bool.not(String.is_empty(path) || U32.is_zero(cap)), path, endpoint,
