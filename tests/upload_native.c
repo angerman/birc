@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define BIRC_UPLOAD_CORE_ONLY
@@ -39,6 +40,19 @@ int main(void) {
   (void)close(fd);
   must(birc_upload_run(path, &out, &http) == 2 && out == NULL, "empty file");
   (void)unlink(path);
+  {
+    char folder[] = "/tmp/birc-upload-fifo-XXXXXX";
+    char fifo[64];
+    uint32_t code;
+    int n;
+    must(mkdtemp(folder) != NULL, "fifo dir");
+    n = snprintf(fifo, sizeof fifo, "%s/fifo", folder);
+    must(n > 0 && (size_t)n < sizeof fifo && mkfifo(fifo, 0600) == 0, "mkfifo");
+    code = birc_upload_run(fifo, &out, &http);
+    (void)unlink(fifo);
+    (void)rmdir(folder);
+    must(code == 2 && out == NULL, "fifo");
+  }
   printf("upload_native=ok\n");
   return 0;
 }

@@ -213,7 +213,7 @@ Closed in 95a32e0.
   stays a `Cont` plus the disabled Error and still keeps the typed
   command.
 
-- [ ] **D12. Upload open of a FIFO blocks before the regular-file check.**
+- [x] **D12. Upload open of a FIFO blocks before the regular-file check.**
   `birc_up_open` (`src/ffi/upload_ffi.c:441`) uses
   `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` and only then rejects a
   non-regular file (`:444`). A FIFO `open` waits for a writer, so

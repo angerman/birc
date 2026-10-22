@@ -438,7 +438,7 @@ static int birc_up_open(const char *path, BircUpStamp *stamp) {
   int fd;
   if (!path || !path[0] || !stamp)
     return -1;
-  fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
   if (fd < 0)
     return -1;
   if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)
