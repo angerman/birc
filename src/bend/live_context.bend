@@ -265,7 +265,8 @@ def history.install(current: Bool, prefs: L.Context, gate: Gate, +decision: Mayb
         local : Cl.Client <- history.flush(decision_known(decision) || explicit_history(st), path, ep, S.session_cl(st))
         _ : Result<&1, &1, S.NetCmd, Unit> <- Chan.send(S.NetCmd, cmd, S.Begin{gen})
         # ep is the HistoryLoaded snapshot claim; Session re-derives current_ep.
-        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, history.merge(local, st, snapshot, ep)))
+        # Begin is the dial. The notice is a no-op until startup_log opened *log*.
+        return (wrap(Details{prefs, Open{}, decision, path, None{}, next}), S.session_set_client(st, history.merge(Cl.startup_connect(local, ep), st, snapshot, ep)))
 
 def history.result(owned: Bool, ctx: Details, +st: S.Session, +gen: U32, got_gen: U32, +ep: String, snapshot: Cl.Client, cmd: Chan(S.NetCmd)) -> IO(Context & S.Session):
   match owned:

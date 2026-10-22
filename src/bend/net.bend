@@ -2088,8 +2088,13 @@ def start_ui_client(gated: Bool, +path: String, +ep: String, +cap: U32, +nick: S
     case True{}: IO.pure(Cl.Client, Cl.set_now(Cl.init_with_cap(nick, host, cap), now))
     case False{}: Hist.history_init_client(path, ep, cap, nick, host, now)
 
+# Focus *log* before the first paint. The deferred dial does not start until
+# Begin, so the loading line is the honest first stage.
+def start_ui_shown(gated: Bool, +cl: Cl.Client, +ep: String) -> Cl.Client:
+  Cl.startup_shown(gated, cl, ep)
+
 def start_ui_load(
-  gated: Bool,
+  +gated: Bool,
   +hist_path: String,
   +hist_cap: U32,
   +nick: String,
@@ -2110,7 +2115,7 @@ def start_ui_load(
     cl : Cl.Client <- start_ui_client(gated, hist_path, endpoint(host, port), hist_cap, nick, host, now)
     on : Bool <- images_enabled()
     con : Bool <- CN.cards_enabled()
-    start_ui_go(ui, Sess.session_set_cards(Sess.session_set_media(Sess.session_with_client_at(live_client(cl, host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), C.initial(con)), frames, evt, cmd, ack, hist_path)
+    start_ui_go(ui, Sess.session_set_cards(Sess.session_set_media(Sess.session_with_client_at(live_client(start_ui_shown(gated, cl, endpoint(host, port)), host, port, sasl_user, sasl_pass, auth), chan, port), M.initial(on)), C.initial(con)), frames, evt, cmd, ack, hist_path)
 
 def start_ui(
   gated: Bool,

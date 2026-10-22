@@ -549,7 +549,7 @@ test-tls: test-keychain-tls test-build-tls test-tls-args test-endpoint test-conn
 test-review-pure: test-keychain-tls test-build-tls test-tls-args test-endpoint test-connect-endpoint test-tls-native
 test-sanitizers: test-tls-native-ubsan
 lint-ffi: lint-tls
-.PHONY: test-media-fetch-native test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-wire-style test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-history-save-errors test-reader-errors test-clipboard-errors
+.PHONY: test-media-fetch-native test-media-image test-media-policy test-media-view test-media-anchor test-media-native test-media-portable test-media-native-ubsan test-pty-media test-pty-diagnostic test-formatting test-formatting-painter test-wire-style test-theme test-diagnostic test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-startup-log test-history-save-errors test-reader-errors test-clipboard-errors
 
 test-media-fetch-native: ## Native image/card URL policy, local decode, and OpenGraph parse.
 	@mkdir -p $(BLDDIR)
@@ -637,7 +637,7 @@ test-sanitizers: test-upload-native-ubsan
 test-server-time: $(BLDDIR)/server_time_demo ## IRCv3 time tags reach parsed message timestamps.
 	$(NIXRUN) sh scripts/check-golden.sh server_time_demo=ok ./$(BLDDIR)/server_time_demo
 
-test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire $(BLDDIR)/diagnostic_demo ## Log bounds, privacy, wire isolation, commands, retention, and IO controls.
+test-diagnostic: test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire test-startup-log $(BLDDIR)/diagnostic_demo ## Log bounds, privacy, wire isolation, commands, retention, and IO controls.
 	$(NIXRUN) sh scripts/check-golden.sh diagnostic_demo=ok ./$(BLDDIR)/diagnostic_demo
 
 .PHONY: test-diagnostic-wire
@@ -647,7 +647,8 @@ test-diagnostic-session: $(BLDDIR)/diagnostic_session
 test-diagnostic-restore: $(BLDDIR)/diagnostic_restore
 test-diagnostic-io: $(BLDDIR)/diagnostic_io
 test-diagnostic-wire: $(BLDDIR)/diagnostic_wire
-test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire:
+test-startup-log: $(BLDDIR)/startup_log ## Startup *log* focus, stage lines, and archive import.
+test-diagnostic-buffer test-diagnostic-submit test-diagnostic-session test-diagnostic-restore test-diagnostic-io test-diagnostic-wire test-startup-log:
 	@mkdir -p $(BLDDIR)
 	$(NIXRUN) sh scripts/check-golden.sh $(subst -,_,$(patsubst test-%,%,$@))=ok timeout 15 ./$(BLDDIR)/$(subst -,_,$(patsubst test-%,%,$@))
 

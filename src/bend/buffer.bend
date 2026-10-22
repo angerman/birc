@@ -2158,6 +2158,27 @@ def log_open.got(pair: Client & Maybe<&2, Nat>) -> Client:
 def log_open(cl: Client) -> Client:
   log_open.got(diagnostic_slot(cl))
 
+# First frame. diagnostic creates the slot; log_open focuses it.
+# Later stages stay on diagnostic_notice and do not move focus.
+def startup_loading(+ep: String) -> String:
+  "loading saved history for " ++ ep
+
+def startup_connecting(+ep: String) -> String:
+  "connecting to " ++ ep
+
+def startup_log(+cl: Client, +msg: String) -> Client:
+  log_open(diagnostic(cl, System{}, msg))
+
+def startup_connect(+cl: Client, +ep: String) -> Client:
+  diagnostic_notice(cl, System{}, startup_connecting(ep))
+
+# waiting: the archive worker is still running, so the first line is the load.
+# Otherwise the dial has already started and the first line is the connect.
+def startup_shown(waiting: Bool, cl: Client, ep: String) -> Client:
+  match waiting:
+    case True{}: startup_log(cl, startup_loading(ep))
+    case False{}: startup_log(cl, startup_connecting(ep))
+
 def active_of(+cl: Client) -> Nat:
   match cl:
     case Client{_, _, _, +active, _, _, +auth, +log_seq, _}:
