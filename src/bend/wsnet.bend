@@ -956,8 +956,9 @@ def ws_notify.done(+nnot: WsNotify, +ticket: Nat, +endpoint: String, +ws: W.Work
 
 # ---- per-part cards sidecars (actual C/CNet policy) ------------------------
 # Scheduling runs the same pure C scheduling as single-server (painted
-# visibility, mutes, media exclusion, exact completion) with one worker
-# per live part. State lives here instead of a Session cf field.
+# visibility, mutes, media exclusion, exact completion) with one global
+# cards worker, gated by `ws_cards.spawn_ok`, with per-part sidecar state.
+# State lives here instead of a Session cf field.
 def ws_cards.net_ok(+net: Sess.NetState) -> Bool:
   match net:
     case Sess.Stopping{_}: False{}
@@ -1411,15 +1412,76 @@ def ws_history.notice_ok(notice: Maybe<&2, String>) -> Bool:
     case None{}: True{}
     case Some{_}: False{}
 
+def ws_history.write_chan.put(+ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
+  match pend:
+    case WsPend{+bytes, +sid, +base, +seq}:
+      do IO<(Maybe<&2, String> & WsHot) & Bool>:
+        p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, bytes, sid, base, seq}, 0)
+        return ((None{}, ws_history.write_held(ws_history.enqueue_poll(p), hot, WsPend{bytes, sid, base, seq})), False{})
+
+# `stuck` means the stored pending was already over the cap, so refusing
+# would leave an on_fail retry queued forever. Send that stored blob and
+# clear it on accept. A larger offered `pend` is the same bytes plus a
+# growth that was already concatenated; keep the suffix after a successful
+# send so those new rows are not dropped. Queue-full stays only when the
+# stored bytes still fit and this growth would not.
+def ws_history.write_chan.suffix(longer: Bool, +n: Nat, +grown: String) -> String:
+  match longer:
+    case False{}: ""
+    case True{}: String.drop(grown, n)
+
+def ws_history.write_chan.suffix_of(+stored: String, +grown: String) -> String:
+  ws_history.write_chan.suffix(Nat.is_gt(String.length(grown), String.length(stored)), String.length(stored), grown)
+
+def ws_history.write_chan.rest_on(has: Bool, +extra: String, +hot: WsHot, +sid: Nat, +base: Nat, +seq: Nat) -> WsHot:
+  match has:
+    case False{}: hot
+    case True{}: ws_hot.with_pending(hot, WsPend{extra, sid, base, seq})
+
+def ws_history.write_chan.rest_at(+extra: String, +hot: WsHot, +sid: Nat, +base: Nat, +seq: Nat) -> WsHot:
+  ws_history.write_chan.rest_on(Bool.not(String.is_empty(extra)), extra, hot, sid, base, seq)
+
+def ws_history.write_chan.rest_bytes(+hot: WsHot, +sbytes: String, +grown: WsPend) -> WsHot:
+  match grown:
+    case WsPend{+gbytes, +sid, +base, +seq}:
+      ws_history.write_chan.rest_at(ws_history.write_chan.suffix_of(sbytes, gbytes), hot, sid, base, seq)
+
+def ws_history.write_chan.rest_go(+hot: WsHot, +stored: WsPend, +grown: WsPend) -> WsHot:
+  match stored:
+    case WsPend{+sbytes, _, _, _}:
+      ws_history.write_chan.rest_bytes(hot, sbytes, grown)
+
+# Accept: stored bytes are in the channel; keep only a non-empty suffix.
+# Reject: the channel took nothing, so hold the offered blob for the retry.
+def ws_history.write_chan.rest(cleared: Bool, +hot: WsHot, +stored: WsPend, +grown: WsPend) -> WsHot:
+  match cleared:
+    case False{}: ws_hot.with_pending(hot, grown)
+    case True{}: ws_history.write_chan.rest_go(hot, stored, grown)
+
+def ws_history.write_chan.drained_in(inner: Maybe<&2, String> & WsHot, durable: Bool, +stored: WsPend, +grown: WsPend) -> (Maybe<&2, String> & WsHot) & Bool:
+  match inner:
+    case (+notice, +hot):
+      ((notice, ws_history.write_chan.rest(String.is_empty(ws_hot.pending_of(hot)), hot, stored, grown)), durable)
+
+def ws_history.write_chan.drained(pair: (Maybe<&2, String> & WsHot) & Bool, +stored: WsPend, +grown: WsPend) -> (Maybe<&2, String> & WsHot) & Bool:
+  match pair:
+    case (inner, +durable):
+      ws_history.write_chan.drained_in(inner, durable, stored, grown)
+
+def ws_history.write_chan.drain(+ch: Chan(HistJob), +hot: WsHot, +path: String, +stored: WsPend, +grown: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
+  do IO<(Maybe<&2, String> & WsHot) & Bool>:
+    pair : (Maybe<&2, String> & WsHot) & Bool <- ws_history.write_chan.put(ch, hot, path, stored)
+    return ws_history.write_chan.drained(pair, stored, grown)
+
+def ws_history.write_chan.over(stuck: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
+  match stuck:
+    case True{}: ws_history.write_chan.drain(ch, hot, path, ws_hot.pend_of(hot), pend)
+    case False{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((Some{"history queue full"}, hot), False{}))
+
 def ws_history.write_chan.send(over: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
   match over:
-    case True{}: IO.pure((Maybe<&2, String> & WsHot) & Bool, ((Some{"history queue full"}, hot), False{}))
-    case False{}:
-      match pend:
-        case WsPend{+bytes, +sid, +base, +seq}:
-          do IO<(Maybe<&2, String> & WsHot) & Bool>:
-            p : Poll<&1, &1, Result<&1, &1, HistJob, Unit>, HistJob> <- Chan.try_send(HistJob, ch, HistJob{path, bytes, sid, base, seq}, 0)
-            return ((None{}, ws_history.write_held(ws_history.enqueue_poll(p), hot, WsPend{bytes, sid, base, seq})), False{})
+    case True{}: ws_history.write_chan.over(ws_history.over_cap(String.length(ws_hot.pending_of(hot))), ch, hot, path, pend)
+    case False{}: ws_history.write_chan.put(ch, hot, path, pend)
 
 def ws_history.write_chan.go(empty: Bool, +ch: Chan(HistJob), +hot: WsHot, +path: String, +pend: WsPend) -> IO((Maybe<&2, String> & WsHot) & Bool):
   match empty:

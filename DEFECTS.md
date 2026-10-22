@@ -122,7 +122,7 @@ Closed in 95a32e0.
   shows the reaped bodies. The 33rd unconfirmed send still shows the
   evicted oldest body.
 
-- [ ] **D6. An over-cap history retry cannot be admitted again.**
+- [x] **D6. An over-cap history retry cannot be admitted again.**
   `ws_history.on_fail.go` (`src/bend/wsnet.bend:1665`) prepends the
   failed blob onto the stored pending with no size check. The comment
   at `:1661` says the next admission retries it.
@@ -469,7 +469,7 @@ unless the item says a dead arm goes with it.
   every pane took the full painter. Leave `flag_or` and the painters
   alone.
 
-- [ ] **C15. The cards comment says one worker per part.**
+- [x] **C15. The cards comment says one worker per part.**
   `src/bend/wsnet.bend:959` says scheduling runs "with one worker per
   live part." `ws_cards.spawn_ok` (`:1227`) also requires
   `ws_clease.free(lease)`. The comment at `:1224` says a taken lease

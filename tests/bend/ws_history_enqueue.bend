@@ -234,6 +234,56 @@ def stop.go() -> IO(Unit):
     main : Chan(WsNet.WsMsg) <- Chan.new(WsNet.WsMsg, 4)
     stop.after(ch, main)
 
+# 2^n copies. Depth stays small; 40000 = 2^15+2^12+2^11+2^10+2^6.
+def retry.dbl(n: Nat, +s: String) -> String:
+  match n:
+    case 0n: s
+    case 1n+p: retry.dbl(p, s ++ s)
+
+def retry.k40() -> String:
+  retry.dbl(15n, "x") ++ retry.dbl(12n, "x") ++ retry.dbl(11n, "x") ++ retry.dbl(10n, "x") ++ retry.dbl(6n, "x")
+
+def retry.hot(+empty: WsNet.WsHot, +path: String, +ch: Chan(WsNet.HistJob), +pending: WsNet.WsPend, +hold: Nat) -> WsNet.WsHot:
+  match empty:
+    case WsNet.WsHot{+on, _, +cap, _, +warm, +frame, +ts, +reload, _, _}:
+      WsNet.WsHot{on, path, cap, Some{ch}, warm, frame, ts, reload, pending, hold}
+
+def retry.took(pair: W.Workspace & WsNet.WsHot) -> WsNet.WsHot:
+  match pair:
+    case (_, +hot): hot
+
+def retry.report_in(inner: Maybe<&2, String> & WsNet.WsHot) -> IO(Unit):
+  match inner:
+    case (+notice, +hot):
+      do IO<Unit>:
+        Unit <- report(notice)
+        IO.print("pending=" ++ Nat.show(String.length(WsNet.ws_hot.pending_of(hot))))
+
+def retry.report(pair: (Maybe<&2, String> & WsNet.WsHot) & Bool) -> IO(Unit):
+  match pair:
+    case (inner, _): retry.report_in(inner)
+
+# 40000 stored bytes, then on_fail prepends another 40000. The next
+# write_chan.send into a channel with room must admit that 80000 blob:
+# no notice, pending empty. A full-queue notice would leave it stuck.
+def retry.after(+blob: String, +ws: W.Workspace, +id: Key.ServerId, +path: String, +ch: Chan(WsNet.HistJob)) -> IO(Unit):
+  +stored : WsNet.WsPend = WsNet.WsPend{blob, 0n, 0n, 1n}
+  +hot0 = retry.hot(WsNet.ws_hot.empty(), path, ch, stored, 2n)
+  +hot1 = retry.took(WsNet.ws_history.on_fail(ws, id, 0n, 1n, blob, hot0))
+  +pend = WsNet.ws_hot.pend_of(hot1)
+  do IO<Unit>:
+    Unit <- IO.print("before=" ++ Nat.show(String.length(WsNet.ws_hot.pending_of(hot1))))
+    pair : (Maybe<&2, String> & WsNet.WsHot) & Bool <- WsNet.ws_history.write_chan.send(WsNet.ws_history.over_cap(String.length(WsNet.ws_pend.bytes(pend))), ch, hot1, path, pend)
+    retry.report(pair)
+
+def retry.go(+path: String) -> IO(Unit):
+  +blob = retry.k40()
+  +ws = W.single_client("irc.example", 6697, False{}, Cl.init("me", "irc.example"), "#t")
+  +id = W.ws_current(ws)
+  do IO<Unit>:
+    ch : Chan(WsNet.HistJob) <- Chan.new(WsNet.HistJob, 1)
+    retry.after(blob, ws, id, path, ch)
+
 def run(+path: String, mode: String) -> IO(Unit):
   match mode:
     case "overflow":
@@ -254,6 +304,8 @@ def run(+path: String, mode: String) -> IO(Unit):
       fence.go(path)
     case "stop":
       stop.go()
+    case "retry":
+      retry.go(path)
     case _: IO.die(Unit, 1, "unknown mode")
 
 def args(xs: List<&1, String>) -> IO(Unit):

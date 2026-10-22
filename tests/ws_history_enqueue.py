@@ -60,4 +60,8 @@ with tempfile.TemporaryDirectory(prefix="birc-ws-hist-enq-") as directory:
     lines = run(root / "stop-unused.log", "stop")
     assert lines == ["stop=yes"], lines
 
+    # 40000 pending, then on_fail of 40000. Room in the channel admits it.
+    lines = run(root / "retry-unused.log", "retry")
+    assert lines == ["before=80000", "save=ok", "pending=0"], lines
+
 print("ws_history_enqueue=ok")
