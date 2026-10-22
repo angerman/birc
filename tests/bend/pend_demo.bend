@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Optimistic-send slice: Enter records a pending echo, the themed paint
 # shows it dimmed, the wire echo confirms it (FIFO or label), and
-# timeout/failure reaps it with draft restore.
+# timeout/failure reaps every body (oldest first) into an empty composer
+# or the server buffer when the composer is busy.
 import Base
 import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
@@ -187,6 +188,45 @@ def fail_ok() -> Bool:
   Nat.is_eq(Sess.session_pend_count(st), 0n)
     && String.eq(Sess.session_draft(st), "hello")
 
+def enter(+st: Sess.Session, +text: String) -> Sess.Session:
+  trip_st(Sess.step_keys(st, Sess.keys_of(text, True{}, 0, 0, 0, 0, 0, 0, 0)))
+
+def sent_one_two() -> Sess.Session:
+  enter(enter(echo_session(), "one"), "two")
+
+def server_text(+st: Sess.Session) -> String:
+  CL.buf_texts(Sess.session_cl(st), 0n)
+
+# Both unconfirmed bodies time out into an empty composer, oldest first.
+def timeout_both_ok() -> Bool:
+  +st = expire_n(31n, sent_one_two())
+  Nat.is_eq(Sess.session_pend_count(st), 0n)
+    && String.eq(Sess.session_draft(st), "one\ntwo")
+    && Bool.not(String.contains(server_text(st), "one"))
+
+# A busy composer stays; the reaped bodies are logged on the server buffer.
+def timeout_busy_ok() -> Bool:
+  +st = expire_n(31n, Sess.session_set_draft(sent_one_two(), "typing"))
+  Nat.is_eq(Sess.session_pend_count(st), 0n)
+    && String.eq(Sess.session_draft(st), "typing")
+    && String.eq(server_text(st), "one|two|")
+
+def send_cap.bump(+label: Nat) -> Nat:
+  1n+label
+
+def send_cap(n: Nat, +label: Nat, +st: Sess.Session) -> Sess.Session:
+  match n:
+    case 0n: st
+    case 1n+p: send_cap(p, send_cap.bump(label), enter(st, "b" ++ Nat.show(label)))
+
+# One past PEND_MAX (the 33rd send) evicts the oldest body into the empty composer.
+def cap_evict_ok() -> Bool:
+  +st = send_cap(1n+Cl.PEND_MAX(), 1n, echo_session())
+  Nat.is_eq(Sess.session_pend_count(st), Cl.PEND_MAX())
+    && String.eq(Sess.session_draft(st), "b1")
+    && String.eq(first_body(first_pend(Sess.session_pends(st))), "b2")
+    && Bool.not(String.contains(server_text(st), "b1"))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("record", record_ok())
@@ -198,4 +238,7 @@ def main() -> IO(Unit):
     Unit <- E.must("fifo", fifo_ok())
     Unit <- E.must("timeout_reaps", timeout_ok())
     Unit <- E.must("fail_restores", fail_ok())
+    Unit <- E.must("timeout_restores_both", timeout_both_ok())
+    Unit <- E.must("timeout_logs_busy", timeout_busy_ok())
+    Unit <- E.must("cap_shows_oldest", cap_evict_ok())
     IO.print("pend_demo=ok")

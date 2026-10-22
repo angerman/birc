@@ -106,7 +106,7 @@ Closed in 95a32e0.
   `SSL_ERROR_WANT_READ` must not call `SSL_read_ex` from the read step.
   After the write completes, the following plaintext read succeeds.
 
-- [ ] **D5. Echo-message revert keeps one body and drops the rest.**
+- [x] **D5. Echo-message revert keeps one body and drops the rest.**
   `pend_restore_text` (`src/bend/session.bend:2186`) keeps
   `pend_restore.one(h)` and ignores the tail. `pend_draft` (`:2194`)
   writes that string only when the composer is empty. Timeout, failure,

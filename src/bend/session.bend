@@ -1573,6 +1573,12 @@ def session_set_client(st: Session, +cl: Cl.Client) -> Session:
     case Session{_, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, +media, +plan, +edits, +iso, +hlbox, +cf, +regbox, +theme, labelsbox, +pends}:
       Session{cl, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
 
+# Replace the client and keep joined. session_set_client copies JoinPlan.sent into joined.
+def session_put_client(st: Session, +cl: Cl.Client) -> Session:
+  match st:
+    case Session{_, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, +theme, +labelsbox, +pends}:
+      Session{cl, drop, rem, draft, joined, chan, net, hist, size, seed, comp, split, typing, port, media, plan, edits, iso, hlbox, cf, regbox, theme, labelsbox, pends}
+
 # ---- live history owner ---------------------------------------------------
 # Session carries one Hs.HistLive: the chathistory batch collector, the
 # outstanding/completed search stamps, the server-fetch cursor anchor, the
@@ -1952,10 +1958,12 @@ def session_reconnected(+st: Session, +now: String) -> Session:
 # Enter records each echo-message chat wire here (after labeling, so exact
 # labels ride along); the view overlays dimmed Pending rows until the server
 # echo confirms (exact label match, FIFO target+bytes fallback) or the entry
-# reverts (30-tick timeout, disconnect, cap eviction). Credential wires never
-# record: their echo is consumed by the credential gate and must never
-# resurface in the draft. NAK carries no parseable label today, so timeout
-# covers server-side rejection.
+# reverts (30-tick timeout, disconnect, cap eviction). Revert restores every
+# reaped body, oldest first: an empty composer receives them, and a busy
+# composer keeps its text while the bodies are logged on the server buffer.
+# Credential wires never record: their echo is consumed by the credential
+# gate and must never resurface in the draft. NAK carries no parseable label
+# today, so timeout covers server-side rejection.
 
 def pend_label(+mb: Maybe<&2, String>) -> String:
   match mb:
@@ -2015,34 +2023,67 @@ def pend_from_out.parsed(+cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String
 def pend_from_out(+cl: Cl.Client, +isc: Cl.Iso, +out: String, +ts: String, +nick: String) -> Maybe<&2, Cl.PendSend>:
   pend_from_out.parsed(cl, isc, out, ts, nick, Irc.parse(out))
 
-def pend_push.evict(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend) -> List<&2, Cl.PendSend>:
+# Cap eviction drops the oldest entry. The Maybe is that body, when one was dropped.
+def pend_push.evict(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend) -> List<&2, Cl.PendSend> & Maybe<&2, Cl.PendSend>:
   match pends:
-    case Nil{}: entry <> Nil{}
-    case Con{_, t}: List.append(&2, Cl.PendSend, t, entry <> Nil{})
+    case Nil{}: (entry <> Nil{}, None{})
+    case Con{+h, t}: (List.append(&2, Cl.PendSend, t, entry <> Nil{}), Some{h})
 
-def pend_push.capped(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend, full: Bool) -> List<&2, Cl.PendSend>:
+def pend_push.capped(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend, full: Bool) -> List<&2, Cl.PendSend> & Maybe<&2, Cl.PendSend>:
   match full:
     case True{}: pend_push.evict(pends, entry)
-    case False{}: List.append(&2, Cl.PendSend, pends, entry <> Nil{})
+    case False{}: (List.append(&2, Cl.PendSend, pends, entry <> Nil{}), None{})
+
+def pend_push.tracked(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend) -> List<&2, Cl.PendSend> & Maybe<&2, Cl.PendSend>:
+  pend_push.capped(pends, entry, Nat.is_ge(List.length(&2, Cl.PendSend, pends), Cl.PEND_MAX()))
+
+def pend_push.kept(got: List<&2, Cl.PendSend> & Maybe<&2, Cl.PendSend>) -> List<&2, Cl.PendSend>:
+  match got:
+    case (+pends, _): pends
 
 def pend_push(+pends: List<&2, Cl.PendSend>, +entry: Cl.PendSend) -> List<&2, Cl.PendSend>:
-  pend_push.capped(pends, entry, Nat.is_ge(List.length(&2, Cl.PendSend, pends), Cl.PEND_MAX()))
+  pend_push.kept(pend_push.tracked(pends, entry))
+
+def pend_note_evict(got: Maybe<&2, Cl.PendSend>, +evicted: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend>:
+  match got:
+    case None{}: evicted
+    case Some{+p}: p <> evicted
+
+def pend_record_tracked.got(pushed: List<&2, Cl.PendSend> & Maybe<&2, Cl.PendSend>, +evicted: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  match pushed:
+    case (+pends, dropped): (pends, pend_note_evict(dropped, evicted))
+
+def pend_record_tracked(+pends: List<&2, Cl.PendSend>, +mb: Maybe<&2, Cl.PendSend>, +evicted: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  match mb:
+    case None{}: (pends, evicted)
+    case Some{+e}: pend_record_tracked.got(pend_push.tracked(pends, e), evicted)
 
 def pend_record_one(+pends: List<&2, Cl.PendSend>, +mb: Maybe<&2, Cl.PendSend>) -> List<&2, Cl.PendSend>:
   match mb:
     case None{}: pends
     case Some{+e}: pend_push(pends, e)
 
-def pend_record_outs.go(fuel: Nat, +pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
-  match fuel:
-    case 0n: pends
-    case 1n+f:
-      match outs:
-        case Nil{}: pends
-        case Con{+h, t}: pend_record_outs.go(f, pend_record_one(pends, pend_from_out(cl, isc, h, ts, nick)), cl, isc, t, ts, nick)
+def pend_record_outs.finish(+pends: List<&2, Cl.PendSend>, +evicted: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  (pends, List.reverse(&2, Cl.PendSend, evicted))
 
-def pend_record_outs(+pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, +outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend>:
-  pend_record_outs.go(List.length(&2, String, outs), pends, cl, isc, outs, ts, nick)
+def pend_record_outs.done(got: List<&2, Cl.PendSend> & List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  match got:
+    case (+pends, +evicted): pend_record_outs.finish(pends, evicted)
+
+# Eviction notes are consed newest-first. Fuel is matched before the pair.
+# The pair is the parameter: match cannot scrutinize the tracked call.
+def pend_record_outs.go(fuel: Nat, got: List<&2, Cl.PendSend> & List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  match fuel:
+    case 0n: pend_record_outs.done(got)
+    case 1n+f:
+      match got:
+        case (+pends, +evicted):
+          match outs:
+            case Nil{}: pend_record_outs.finish(pends, evicted)
+            case Con{+h, t}: pend_record_outs.go(f, pend_record_tracked(pends, pend_from_out(cl, isc, h, ts, nick), evicted), cl, isc, t, ts, nick)
+
+def pend_record_outs(+pends: List<&2, Cl.PendSend>, +cl: Cl.Client, +isc: Cl.Iso, +outs: List<&2, String>, +ts: String, +nick: String) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
+  pend_record_outs.go(List.length(&2, String, outs), (pends, Nil{}), cl, isc, outs, ts, nick)
 
 
 def pend_match_label(+label: String, +p: Cl.PendSend) -> Bool:
@@ -2163,12 +2204,9 @@ def pend_reaped.any(+reaped: List<&2, Cl.PendSend>) -> Bool:
 def pend_reap.split(+pends: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
   (pend_keep.go(List.length(&2, Cl.PendSend, pends), pends), pend_drop.go(List.length(&2, Cl.PendSend, pends), pends))
 
-def pend_reap.rev(split: List<&2, Cl.PendSend> & List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
-  match split:
-    case (+kept, +reaped): (kept, List.reverse(&2, Cl.PendSend, reaped))
-
+# Kept and reaped stay oldest-first. Callers restore that order.
 def pend_reap(+pends: List<&2, Cl.PendSend>) -> List<&2, Cl.PendSend> & List<&2, Cl.PendSend>:
-  pend_reap.rev(pend_reap.split(pends))
+  pend_reap.split(pends)
 
 def pend_restore.kind(+kind: Cl.LineKind, +target: String, +body: String) -> String:
   match kind:
@@ -2180,10 +2218,36 @@ def pend_restore.one(+p: Cl.PendSend) -> String:
   match p:
     case Cl.PendSend{_, +target, _, _, +body, _, _, +kind, _}: pend_restore.kind(kind, target, body)
 
+def pend_restore_join.pick(empty: Bool, +acc: String, +one: String) -> String:
+  match empty:
+    case True{}: one
+    case False{}: acc ++ "\n" ++ one
+
+def pend_restore_join(+acc: String, +one: String) -> String:
+  pend_restore_join.pick(String.is_empty(acc), acc, one)
+
+def pend_restore_text.go(fuel: Nat, reaped: List<&2, Cl.PendSend>, +acc: String) -> String:
+  match fuel:
+    case 0n: acc
+    case 1n+f:
+      match reaped:
+        case Nil{}: acc
+        case Con{+h, t}: pend_restore_text.go(f, t, pend_restore_join(acc, pend_restore.one(h)))
+
+# Every reaped body, oldest first, one composer line each.
 def pend_restore_text(+reaped: List<&2, Cl.PendSend>) -> String:
-  match reaped:
-    case Nil{}: ""
-    case Con{+h, _}: pend_restore.one(h)
+  pend_restore_text.go(List.length(&2, Cl.PendSend, reaped), reaped, "")
+
+def pend_log_bodies.go(fuel: Nat, +cl: Cl.Client, reaped: List<&2, Cl.PendSend>) -> Cl.Client:
+  match fuel:
+    case 0n: cl
+    case 1n+f:
+      match reaped:
+        case Nil{}: cl
+        case Con{+h, t}: pend_log_bodies.go(f, Sub.echo_sys(cl, pend_restore.one(h)), t)
+
+def pend_log_bodies(+cl: Cl.Client, +reaped: List<&2, Cl.PendSend>) -> Cl.Client:
+  pend_log_bodies.go(List.length(&2, Cl.PendSend, reaped), cl, reaped)
 
 def pend_draft.empty(restore: Bool, +draft: String, +text: String) -> String:
   match restore:
@@ -2193,13 +2257,18 @@ def pend_draft.empty(restore: Bool, +draft: String, +text: String) -> String:
 def pend_draft(+draft: String, +text: String) -> String:
   pend_draft.empty(String.is_empty(draft) && Bool.not(String.is_empty(text)), draft, text)
 
-def pend_reap_all.some(+pends: List<&2, Cl.PendSend>) -> String & Bool:
-  (pend_restore_text(List.reverse(&2, Cl.PendSend, pends)), True{})
+# Empty composer receives the joined bodies. A busy composer is unchanged
+# and each body is logged on the server buffer, oldest first.
+def pend_restore_apply.pick(restore: Bool, +cl: Cl.Client, +draft: String, +reaped: List<&2, Cl.PendSend>, +text: String) -> Cl.Client & String:
+  match restore:
+    case True{}: (cl, pend_draft.empty(True{}, draft, text))
+    case False{}: (pend_log_bodies(cl, reaped), pend_draft.empty(False{}, draft, text))
 
-def pend_reap_all(+pends: List<&2, Cl.PendSend>) -> String & Bool:
-  match pends:
-    case Nil{}: ("", False{})
-    case Con{+h, +t}: pend_reap_all.some(h <> t)
+def pend_restore_apply.at(+cl: Cl.Client, +draft: String, +reaped: List<&2, Cl.PendSend>, +text: String) -> Cl.Client & String:
+  pend_restore_apply.pick(String.is_empty(draft) && Bool.not(String.is_empty(text)), cl, draft, reaped, text)
+
+def pend_restore_apply(+cl: Cl.Client, +draft: String, +reaped: List<&2, Cl.PendSend>) -> Cl.Client & String:
+  pend_restore_apply.at(cl, draft, reaped, pend_restore_text(reaped))
 
 def pend_count(+pends: List<&2, Cl.PendSend>) -> Nat:
   List.length(&2, Cl.PendSend, pends)
@@ -2208,16 +2277,16 @@ def pend_count(+pends: List<&2, Cl.PendSend>) -> Nat:
 def session_pend_count(+st: Session) -> Nat:
   pend_count(session_pends(st))
 
-def session_fail.reaped.got(reaped: String & Bool, +cl: Cl.Client, +draft: String, joined: Bool, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +port: U32, +media: List<&2, M.State>, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: List<&2, Isupport.State>, +hlbox: List<&2, Hs.HistLive>, +cf: List<&2, C.Retained>, +theme: Theme.Id, +labelsbox: List<&2, LabelCell>) -> Session:
-  match reaped:
-    case (+text, _):
+def session_fail.restored(got: Cl.Client & String, joined: Bool, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +port: U32, +media: List<&2, M.State>, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: List<&2, Isupport.State>, +hlbox: List<&2, Hs.HistLive>, +cf: List<&2, C.Retained>, +theme: Theme.Id, +labelsbox: List<&2, LabelCell>) -> Session:
+  match got:
+    case (+cl, +draft):
       # Offline via session_set_net (same upload chokepoint as dial/cancel/online).
-      session_set_net(Session{cl, False{}, Nil{}, pend_draft(draft, text), JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hlbox, cf, [CapNotify.reg0()], theme, labelsbox, Nil{}}, Offline{})
+      session_set_net(Session{cl, False{}, Nil{}, draft, JoinPlan.sent(plan), chan, Online{}, hist, size, seed, comp, split, Ty.empty(), port, media, plan, edits, iso, hlbox, cf, [CapNotify.reg0()], theme, labelsbox, Nil{}}, Offline{})
 
 def session_fail.got(+msg: String, +st: Session) -> Session:
   match st:
     case Session{+cl, _, _, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hlbox, +cf, _, +theme, labelsbox, +pends}:
-      session_fail.reaped.got(pend_reap_all(pends), Sub.echo_err_server(cl, msg), draft, joined, chan, hist, size, seed, comp, split, port, media, plan, edits, iso, hlbox, cf, theme, labelsbox)
+      session_fail.restored(pend_restore_apply(Sub.echo_err_server(cl, msg), draft, pends), joined, chan, hist, size, seed, comp, split, port, media, plan, edits, iso, hlbox, cf, theme, labelsbox)
 
 def session_fail(+st: Session, +msg: String) -> Session:
   # session_set_net Offline already runs session_upload_maintain.
@@ -2258,9 +2327,10 @@ def session_autoreconnect.st(
   # Reconnecting via session_set_net: Confirm/Armed cannot survive the dial.
   session_set_net(Session{Cl.diagnostic_notice(cl2, Cl.System{}, "IRC reconnect scheduled in 2s"), False{}, Nil{}, draft, JoinPlan.sent(next), chan, Offline{}, hist, size, seed, comp, split, Ty.empty(), port, [M.reset(media)], next, edits, [iso], [hl2], [C.Retained{cards, C.maintain_full(full, M.reset(media), cl2)}], [CapNotify.reg0()], theme, labels_drop(labelsbox), Nil{}}, Reconnecting{})
 
-def session_autoreconnect.reaped(reaped: String & Bool, +draft: String) -> String:
-  match reaped:
-    case (+text, _): pend_draft(draft, text)
+def session_autoreconnect.dialed(got: Cl.Client & String, +chan: String, +hist: Hist, +size: Size, +seed: U32, +comp: Comp, split: Sp.State, +server: String, +port: U32, +media: M.State, +plan: JoinPlan.State, +edits: List<&2, String>, +iso: Isupport.State, +hl: Hs.HistLive, +cards: C.State, +full: C.Fullscreen, +theme: Theme.Id, +labelsbox: List<&2, LabelCell>) -> Session & NetCmd:
+  match got:
+    case (+cl, +draft):
+      (session_autoreconnect.st(cl, draft, chan, hist, size, seed, comp, split, server, port, media, plan, edits, iso, hl, cards, full, theme, labelsbox), Dial{server, port, 0, Cl.nick_of(cl)})
 
 def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match ok:
@@ -2269,7 +2339,7 @@ def session_autoreconnect.dial(ok: Bool, +st: Session, +server: String) -> Sessi
     case True{}:
       match st:
         case Session{+cl, drop, rem, +draft, joined, +chan, _, +hist, size, seed, +comp, split, _, port, +media, +plan, +edits, +iso, +hlbox, +cf, _, +theme, labelsbox, +pends}:
-          (session_autoreconnect.st(cl, session_autoreconnect.reaped(pend_reap_all(pends), draft), chan, hist, size, seed, comp, split, server, port, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), theme, labelsbox), Dial{server, port, 0, Cl.nick_of(cl)})
+          session_autoreconnect.dialed(pend_restore_apply(cl, draft, pends), chan, hist, size, seed, comp, split, server, port, unbox_media(media), plan, edits, unbox_iso(iso), unbox_hist_live(hlbox), unbox_cards(cf), unbox_full(cf), theme, labelsbox)
 
 def session_autoreconnect.chk(auto: Bool, +st: Session, +server: String) -> Session & NetCmd:
   match auto:
@@ -2760,10 +2830,30 @@ def session_expire_typing.got(+st: Session, pair: Ty.State & Bool) -> Session & 
     case (typing, changed):
       (session_put_typing(session_put_joined(session_rebox(st), JoinPlan.sent(session_plan(st))), typing), changed)
 
+def session_expire_typing.install(reaped: Bool, +cl: Cl.Client, +draft: String, +st: Session, +kept: List<&2, Cl.PendSend>) -> Session:
+  match reaped:
+    case False{}: session_set_pends(session_set_draft(st, draft), kept)
+    case True{}: session_set_pends(session_set_draft(session_put_client(st, cl), draft), kept)
+
+def session_expire_typing.drop_changed(tchanged: Bool) -> Bool:
+  match tchanged:
+    case True{}: True{}
+    case False{}: True{}
+
+def session_expire_typing.restored_at(reaped: Bool, got: Cl.Client & String, +st: Session, +kept: List<&2, Cl.PendSend>, changed: Bool) -> Session & Bool:
+  match got:
+    case (+cl, +draft):
+      (session_expire_typing.install(reaped, cl, draft, st, kept), changed)
+
+def session_expire_typing.restored(reaped: Bool, got: Cl.Client & String, +st: Session, +kept: List<&2, Cl.PendSend>, tchanged: Bool) -> Session & Bool:
+  match reaped:
+    case False{}: session_expire_typing.restored_at(False{}, got, st, kept, tchanged)
+    case True{}: session_expire_typing.restored_at(True{}, got, st, kept, session_expire_typing.drop_changed(tchanged))
+
 def session_expire_typing.merge(+kept: List<&2, Cl.PendSend>, +dropped: List<&2, Cl.PendSend>, pair: Session & Bool, +draft: String) -> Session & Bool:
   match pair:
     case (+st2, tchanged):
-      (session_set_pends(session_set_draft(st2, pend_draft(draft, pend_restore_text(dropped))), kept), tchanged || pend_reaped.any(dropped))
+      session_expire_typing.restored(pend_reaped.any(dropped), pend_restore_apply(session_cl(st2), draft, dropped), st2, kept, tchanged)
 
 def session_expire_typing.reaped(reaped: List<&2, Cl.PendSend> & List<&2, Cl.PendSend>, pair: Session & Bool, +draft: String) -> Session & Bool:
   match reaped:
@@ -2906,10 +2996,25 @@ def pend_now(+cl: Cl.Client) -> String:
   match cl:
     case Cl.Client{_, _, _, _, +now, _, _, _, _}: now
 
+def pend_record_cont.applied(got: Cl.Client & String, +st: Session, +pends: List<&2, Cl.PendSend>) -> Session:
+  match got:
+    case (+cl, +draft):
+      session_set_pends(session_set_draft(session_put_client(st, cl), draft), pends)
+
+def pend_record_cont.choose(hit: Bool, +pends: List<&2, Cl.PendSend>, +evicted: List<&2, Cl.PendSend>, +st: Session) -> Session:
+  match hit:
+    case False{}: session_set_pends(st, pends)
+    case True{}: pend_record_cont.applied(pend_restore_apply(session_cl(st), session_draft(st), evicted), st, pends)
+
+def pend_record_cont.recorded(got: List<&2, Cl.PendSend> & List<&2, Cl.PendSend>, +st: Session) -> Session:
+  match got:
+    case (+pends, +evicted):
+      pend_record_cont.choose(pend_reaped.any(evicted), pends, evicted, st)
+
 def pend_record_cont(+st: Session, +outs: List<&2, String>, echo_ok: Bool) -> Session:
   match echo_ok:
     case False{}: st
-    case True{}: session_set_pends(st, pend_record_outs(session_pends(st), session_cl(st), Isupport.as_iso(session_iso(st)), outs, pend_now(session_cl(st)), Cl.nick_of(session_cl(st))))
+    case True{}: pend_record_cont.recorded(pend_record_outs(session_pends(st), session_cl(st), Isupport.as_iso(session_iso(st)), outs, pend_now(session_cl(st)), Cl.nick_of(session_cl(st))), st)
 
 def pend_record_cmd(+st: Session, +cmd: NetCmd) -> Session:
   match cmd:
