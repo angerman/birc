@@ -263,7 +263,7 @@ def same_endpoint(+current_ep: String, +snapshot_ep: String) -> Bool:
 # This defense also rejects a changed endpoint (host or port) or a newly
 # disabled history setting. Never cap current rows or evict current targets to
 # make room for an archive. Startup-before-005 still imports with the default
-# RFC1459 map; negotiated live imports use History.apply_history_iso.
+# RFC1459 map. Live merges go through install_startup and that same map.
 def install(+current: Cl.Client, +snapshot: Cl.Client, +current_ep: String, +snapshot_ep: String) -> Cl.Client:
   +settings = Cl.get_settings(current)
   install.allowed(same_endpoint(current_ep, snapshot_ep)

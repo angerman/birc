@@ -477,7 +477,7 @@ unless the item says a dead arm goes with it.
   Say one global cards worker, gated by `ws_cards.spawn_ok`, with
   per-part sidecar state. Leave the lease and the spawn gate alone.
 
-- [ ] **C16. The live-import comment names apply_history_iso.**
+- [x] **C16. The live-import comment names apply_history_iso.**
   `src/bend/history_startup.bend:266` says negotiated live imports use
   `History.apply_history_iso`. `history.merge`
   (`src/bend/live_context.bend:258`) calls `install_startup`.
