@@ -74,6 +74,178 @@ Closed in 95a32e0.
   Add a Bend case that a PING folded through `fold_step.got_at_with`
   appends no outbound line.
 
+- [ ] **D3. A later MODE flag group still logs the channel key.**
+  `mode_has_key` (`src/bend/irc_commands.bend:230`) looks only at
+  parameters 0 and 1. The comment at `:227` says key arguments never
+  enter logs or history. `feed_mode.params` (`src/bend/client.bend:822`)
+  logs `Irc.msg_params(m)` when that check is false.
+  `MODE #room +o alice +k secret` has `+o` in parameter 1, so the key
+  stays in the channel buffer. `input_sensitive.mode_wire`
+  (`src/bend/submit.bend:1720`) uses the same check, so the typed line
+  stays recallable.
+  Rectify: walk every flags parameter with `mode_key_tail`, and treat
+  the line as keyed when any flags word has a following argument. Point
+  the composer check at that walk. Keep the `[channel key hidden]`
+  collapse.
+  Add a case: `:alice!u@h MODE #room +o alice +k opaque-secret` does not
+  store `opaque-secret`, and the same `/mode` line is not recallable.
+  A `+k` in the first flags word stays hidden.
+
+- [ ] **D4. A TLS write that wants a read is followed by SSL_read.**
+  The comment at `src/ffi/tls_ffi.c:407` says `WANT_WRITE` forbids other
+  TLS IO until that write finishes. The loop at `:409` retries only
+  while `writer->want == POLLOUT`. `SSL_write` returning
+  `SSL_ERROR_WANT_READ` sets `want` to `POLLIN`, the loop stops, and
+  `:422` calls `SSL_read_ex` with the write unfinished. Reader and
+  writer share one SSL object.
+  Rectify: while the writer is unfinished, retry `birc_tls_write_step`
+  for both `POLLIN` and `POLLOUT`. Park on the writer's `want` until
+  that write finishes. Call `SSL_read_ex` only after the writer is
+  finished or gone.
+  Add a case: a verified write whose next `SSL_write` returns
+  `SSL_ERROR_WANT_READ` must not call `SSL_read_ex` from the read step.
+  After the write completes, the following plaintext read succeeds.
+
+- [ ] **D5. Echo-message revert keeps one body and drops the rest.**
+  `pend_restore_text` (`src/bend/session.bend:2186`) keeps
+  `pend_restore.one(h)` and ignores the tail. `pend_draft` (`:2194`)
+  writes that string only when the composer is empty. Timeout, failure,
+  and autoreconnect all use this restore. A second unconfirmed body is
+  not in the buffer (`PendSend` is overlay-only) and is not put back.
+  Rectify: restore every reaped body, oldest first. An empty composer
+  receives them. A non-empty composer stays, and the bodies are logged
+  on the server buffer. Cap eviction uses the same restore. Do not add
+  a Session or Buffer field.
+  Add a case: echo-message, enter `one` then `two`, age both to the
+  timeout with an empty composer. Both bodies remain recoverable. Today
+  the draft is `two` and `one` is gone. A non-empty composer still
+  shows the reaped bodies. The 33rd unconfirmed send still shows the
+  evicted oldest body.
+
+- [ ] **D6. An over-cap history retry cannot be admitted again.**
+  `ws_history.on_fail.go` (`src/bend/wsnet.bend:1665`) prepends the
+  failed blob onto the stored pending with no size check. The comment
+  at `:1661` says the next admission retries it.
+  `ws_history.write_chan.send` (`:1416`) answers
+  `Some{"history queue full"}` and returns the same `hot`, so it never
+  sends a pending that is already over the cap. Later saves take that
+  arm, and the blob stays queued.
+  Rectify: when the stored pending is already over cap, send that
+  pending and clear it on accept. Keep the "history queue full" result
+  only when the stored pending still fits and this growth would not.
+  Do not add a field.
+  Add a case: pending of 40000 bytes, then `on_fail` of a 40000-byte
+  retry. The next `write_chan.send` into a channel with room returns
+  no notice and leaves pending empty. Today the notice is
+  `history queue full` and the pending length stays 80000.
+
+- [ ] **D7. A reused high preview slot skips free slots below it.**
+  `src/ffi/timui_ffi.c:528` sets `preview_count = idx + 1` when an
+  existing token is reused. A new token is stored only at
+  `previews[preview_count]` (`:524`). Reusing slot 7 makes
+  `preview_count` 8, so a free slot underneath is never chosen and the
+  new token draws `image_placeholder_` (`:535`).
+  Rectify: on a miss, use a slot whose token is 0. Do not raise
+  `preview_count` past a hole. Keep the match that reuses one slot for
+  a second `OpMedia` of the same token.
+  Add a case: eight filled slots, slots 0–6 pruned, slot 7 still live.
+  Paint slot 7, then one new token. The new token draws its image.
+  Today it is a placeholder.
+
+- [ ] **D8. Workspace card admission ignores live-tail pending rows.**
+  `visible_candidates_cards_iso` (`src/bend/cards.bend:583`) walks
+  history `newest` through `visible_anchored_panes_media_cards_iso`
+  (`:580`). It does not take the pending prefix paint uses at
+  `ScrollAt{0,0}`. `ws_cards.sized` schedules that list, so a pending
+  row can push a history card out of the pane while the card is still
+  fetched. `Cl.Pending` stays ineligible.
+  Rectify: at `{0,0}` only, admit from the same newest-first list paint
+  uses: that buffer's pending lines, then history `newest`. Leave
+  scrolled windows on the history spine. Do not add a field.
+  Add a case: one optimistic pending row in an 8-row live-tail pane
+  pushes a history card URL out of the painted rows.
+  `visible_candidates_cards_iso` still returns that URL. The pending-aware
+  window does not. With an empty pending list, both return it.
+
+- [ ] **D9. apply_history with cap 0 deletes existing chat rows.**
+  `apply_history.capped` (`src/bend/history.bend:529`) and the iso twin
+  at `:537` call `apply_history.cap` when cap is 0.
+  `take_last` (`src/bend/buffer.bend:1184`) drops `length - n` lines, so
+  n = 0 drops every row, and `apply_history.cap` (`history.bend:525`)
+  also replaces `now`. The file loader does the opposite:
+  `read_prepare.mode` (`:710`) returns `cl` unchanged. Its comment at
+  `:707` says cap 0 leaves the client unchanged.
+  Rectify: the cap-0 arm of both `apply_history.capped` and
+  `apply_history_iso.capped` returns `cl`. No trim, no reconnect
+  marker, no `now` change.
+  Add a case: a client with server text `keep`, passed to
+  `apply_history` and `apply_history_iso` with cap 0, still shows
+  `keep`, the same `log_seq`, and the same `now`. Today the buffer is
+  empty and `now` is the restore clock.
+
+- [ ] **D10. An enabled /history search still logs the refusal Error.**
+  `submit_history.search` (`src/bend/history_search.bend:1855`) echoes
+  `live_only()` (`:1835`, "disk history search runs in the live
+  session") when history is on, and returns no wire. The live key path
+  then starts the search anyway: `step_keys.history_search_on`
+  (`src/bend/session.bend:3679`) calls `history_search_begin` on that
+  same session. The comment at `session.bend:579` still says search
+  reports `live_only` until the live loop runs it. The loop runs it,
+  and the Error stays.
+  Rectify: on the history-on arm, do not append that Error. Leave the
+  history-off echo "disk history is disabled".
+  Add a case: default history, Enter `/history search needle`. The
+  result command is `Search`, and the active buffer does not gain that
+  Error. History off still echoes "disk history is disabled" and does
+  not search.
+
+- [ ] **D11. An accepted Search command reseeds the composer.**
+  `step_keys.stayed_enter` (`src/bend/session_drafts.bend:311`) clears
+  the draft for `OpenUrl` and puts the typed line back on every other
+  command (`:312`, `session_upload_draft(st2, typed, 1)`). `Search` is
+  that other command. It is what `:3679` returns for an enabled
+  `/history` search, and the active buffer does not change, so the
+  composer shows the command again.
+  Rectify: treat `Search` like `OpenUrl`: `after_submit_cm`, and do not
+  reseed `typed`. Do not add a field.
+  Add a case: history on, Enter `/history search needle` on an unchanged
+  buffer. The composer and that buffer's draft are empty. History off
+  stays a `Cont` plus the disabled Error and still keeps the typed
+  command.
+
+- [ ] **D12. Upload open of a FIFO blocks before the regular-file check.**
+  `birc_up_open` (`src/ffi/upload_ffi.c:441`) uses
+  `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` and only then rejects a
+  non-regular file (`:444`). A FIFO `open` waits for a writer, so
+  `S_ISREG` never runs and the upload deadline is not consulted. The
+  CA open in this file already uses `O_NONBLOCK`.
+  Rectify: add `O_NONBLOCK` to this open. A FIFO fails at once and the
+  run returns the existing source error. Keep the `fstat` regular-file,
+  size, and stamp checks.
+  Add a case: `mkfifo` a path with no writer and call the upload run.
+  It returns the source error without blocking.
+
+- [ ] **D13. Startup history read follows symlinks and can block in open.**
+  `history_read_kept_call` (`src/ffi/history_ffi.c:979`) opens with
+  `O_RDONLY | O_CLOEXEC` and then only rejects a negative or oversized
+  `st_size` (`:992`). A FIFO blocks inside that `open`. A symlink is
+  followed and its target is restored. `birc_history_append` opens with
+  `O_NOFOLLOW | O_NONBLOCK` (`:75`) and rejects a non-regular file or a
+  file not owned by the euid (`:82`). The search open already does the
+  same (`src/ffi/history_search_ffi.c:129`). An empty startup client
+  takes this reader: `history_snapshot_client.route`
+  (`src/bend/history_io.bend:216`) calls `history_file.load`, and
+  `HistoryLoaded` is sent only after that load returns
+  (`src/bend/history_startup_io.bend:23`). `Begin`, the dial, is sent
+  only from that completion (`src/bend/live_context.bend:266`).
+  Rectify: open with `O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`,
+  then fail the load at stage 2 unless `fstat` shows a regular file
+  owned by the euid. Keep the size check. A missing file stays stage 1.
+  Add a case: `mkfifo` a path with no writer and call the kept reader.
+  It returns stage 2 without blocking. A symlink to a regular history
+  file also returns stage 2 and restores no rows. A regular file owned
+  by the euid still restores.
+
 ## Comments
 
 Rewrite the comment. Leave the arithmetic and the control flow alone
@@ -286,6 +458,64 @@ unless the item says a dead arm goes with it.
   Activity stays reverse video.
   Say the constants are the palette. Delete the two Bend functions with
   Y4. Do not add `OpTabs` fields.
+
+- [ ] **C14. The frame-entry comment says False is the only full wrap.**
+  `src/bend/view.bend:4036` says "True means that walk was cropped;
+  False is the only full wrap." `paint_view_split_rects.rest`
+  (`view.bend:3904`) returns `flag_or(r1ok, r2ok)`. `flag_or`
+  (`:2543`) is true when either pane cropped. The other pane can take
+  the full painter while the returned Bool stays true.
+  Say True means at least one pane cropped its walk, and False means
+  every pane took the full painter. Leave `flag_or` and the painters
+  alone.
+
+- [ ] **C15. The cards comment says one worker per part.**
+  `src/bend/wsnet.bend:959` says scheduling runs "with one worker per
+  live part." `ws_cards.spawn_ok` (`:1227`) also requires
+  `ws_clease.free(lease)`. The comment at `:1224` says a taken lease
+  blocks every part until that worker is done.
+  Say one global cards worker, gated by `ws_cards.spawn_ok`, with
+  per-part sidecar state. Leave the lease and the spawn gate alone.
+
+- [ ] **C16. The live-import comment names apply_history_iso.**
+  `src/bend/history_startup.bend:266` says negotiated live imports use
+  `History.apply_history_iso`. `history.merge`
+  (`src/bend/live_context.bend:258`) calls `install_startup`.
+  Say live merges go through `install_startup` and the default RFC1459
+  map. Leave that call on `install_startup`.
+
+- [ ] **C17. The OpTabs comment still waits for colour fields.**
+  `src/ffi/timui_ffi.c:1154` says mention colours belong in `f[8]` and
+  `f[9]` once `OpTabs` grows. The next call (`:1157`) paints
+  `BIRC_TAB_MENTION_BG` and `BIRC_TAB_MENTION_FG`. C13 already fixed
+  the palette sentence at `:123`. This sentence is still the old story.
+  Say the constants are the palette and `OpTabs` stays eight fields.
+  Do not add colour words.
+
+- [ ] **C18. The casemap comment says the shared modules are untouched.**
+  `src/bend/isupport.bend:53` says full `cm_eq` adoption in
+  Client/Buffer lookup, roster compare, draft identity, and View
+  completion still needs Client-carried state, and that those modules
+  are intentionally untouched. Those paths already take a
+  caller-supplied mapping.
+  Say the caller supplies the mapping and Client does not store one.
+  Do not add a Client field.
+
+- [ ] **C19. The notify header still calls N9.3 a merge point.**
+  `src/bend/notify.bend:28` says threading `Notify.State` through the
+  live loop and default helper provisioning stay parent merge points.
+  `ws_notify.done` (`src/bend/wsnet.bend:953`) already loads
+  `T.Sys.notify_default()` and `NIO.program_or_default`.
+  Say `ws_notify.fire` and `ws_notify.done` provision the platform
+  helper and thread per-part notify state. Leave that wiring alone.
+
+- [ ] **C20. The search header says net.bend stores the import seed.**
+  `src/bend/history_search.bend:17` says `net.bend` captures the
+  Session import seed as the history checkpoint before live dispatch.
+  `on_search.rest` (`src/bend/net.bend:1370`) matches
+  `(_, +imported)` and drops that `Nat`.
+  Say the completion loop discards the returned `log_seq` because a
+  `*search*` import does not mint event ids. Leave the match alone.
 
 ## Dead code
 
