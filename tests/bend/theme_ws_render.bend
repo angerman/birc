@@ -310,7 +310,7 @@ def main() -> IO(Unit):
         && String.contains(fg_list(loaded_ops(mono_res())), U32.show(V.nick_color_themed(Theme.Mono{}, "alice"))))
     # Positive: exact rendered visible bytes; color digits and bg consumed.
     # lines_text keeps every OpLine. The composer prefix (nine-space timestamp
-    # indent plus <nick>) is one of those lines, from composer_ops.
+    # indent plus <nick>) is one of those lines, from paint_composer.
     Unit <- E.must_eq("ws2 framed rendered bytes exact",
       lines_text(direct_framed()), "-> me joined #t<alice> b red bg bold it code https://x.test/a end         <me> ")
     Unit <- E.must("ws2 color digits and bg consumed",

@@ -4,8 +4,7 @@
 # ADAPTER BOUNDARY (branch c8/session-adapter, from parent HEAD 910f622):
 # threads one bounded Cards queue plus one fullscreen overlay through
 # Session dispatch. Parent owns merges; this file is new and disjoint by
-# construction. FROZEN at parent HEAD (public signatures never edited
-# here): cards.bend, cards.py. Session is consumed, never modified: every
+# construction. Session is consumed, never modified: every
 # Session effect below delegates to Sess.step_keys / Sess.step_enter /
 # Sess.step_on_chunk_ms, so control/query/server scoping, reconnect
 # dividers, global IDs, unread/alerts, scroll anchors, the 512-byte wire
@@ -32,11 +31,9 @@
 #   state (so the one unsupported-terminal log line stays Session-owned),
 #   and never normalizes URLs: exact chat text flows end to end.
 #
-# Out of scope (flagged for the integrator, not widened here): the
-# 3-line loop wiring in net.bend (cards_net.cards_stage after each event,
-# CardsNet.on_card on Sess.CardFetched, overlay append at paint); the
-# explicit fullscreen open/close key or click binding (open_full and
-# close_full are pure and ready); native/PTY qualification.
+# The fullscreen open/close key binding is not wired from the live key
+# path (open_full and close_full). Native/PTY qualification stays out of
+# scope.
 #
 # Layout is bottom-up: Bend forbids same-module forward references, so
 # every helper precedes its callers and recursion recurs in the match arm.

@@ -93,7 +93,9 @@ def post(+evt: Chan(Sess.UiMsg), +gen: U32, e: Sess.NetEvt) -> IO(Unit):
 # The reader shadows the UI framer over the same verbatim bytes and owns the
 # single live wire PONG: it answers completed PINGs ahead of UI paints (and
 # ahead of its own Chunk post, so a full evt queue cannot delay the reply).
-# The UI still frames, feeds, and paints every line, but never answers PING.
+# The chunk still reaches the UI framer. The client feed skips the PING
+# (fold_step.ping_at returns the client unchanged), so it is not painted.
+# The reader answers it.
 # Each reply carries its read generation; the writer drops a Pong whose gen
 # mismatches Writer.gen, exactly like a stale Pump.
 def pong_cons.on(+pong: String, +acc: List<&2, String>, empty: Bool) -> List<&2, String>:

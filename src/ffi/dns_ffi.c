@@ -235,7 +235,10 @@ Term tcp_connect_for_run(Env e, Term *f, IoWork *w) {
       fd = birc_socket(AF_INET, SOCK_STREAM, 0);
       err = fd < 0 ? errno : 0;
     } else if (inet_pton(AF_INET6, host, &v6->sin6_addr) == 1) {
-      /* Inner literals only; callers strip parse_any brackets first. */
+      /* Unbracketed text only. dial_dual passes AAAA answer text or a
+       * valid_inner literal; tests pass "::1". Endpoint.parse rejects
+       * bracketed IRC endpoints before connect. This path does not
+       * strip brackets. */
       v6->sin6_family = AF_INET6;
       v6->sin6_port = htons((uint16_t)(u32)f[1]);
       dstlen = (socklen_t)sizeof *v6;

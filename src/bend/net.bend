@@ -32,21 +32,8 @@ import ./live_context.bend as PrefLive
 import ./preferences_worker.bend as PrefWorker
 import ./startup_headless.bend as Headless
 import ./preferences_live.bend as LoadedPrefs
-import ./notify.bend as N
 import ./notify_io.bend as NIO
 import ./endpoint.bend as Ep
-
-def net_notify_init(+st: Sess.Session) -> Sess.NotifyLive:
-  Sess.notify_live_init_ep(N.on(), Cl.log_seq_of(Sess.session_cl(st)), Sess.notify_scope_of(st))
-
-def net_notify_observe(+nl: Sess.NotifyLive, +st: Sess.Session, deliver: Bool, +claimed: List<&2, Nat>) -> Sess.NotifyLive & List<&2, N.Req>:
-  Sess.notify_live_observe(nl, st, deliver, claimed)
-
-def net_notify_complete(+nl: Sess.NotifyLive, +ticket: Nat, +endpoint: String) -> Sess.NotifyLive & List<&2, N.Req> & Bool:
-  Sess.notify_live_complete(nl, ticket, endpoint)
-
-def net_notify_seed_postrestore(+nl: Sess.NotifyLive, +st: Sess.Session) -> Sess.NotifyLive:
-  Sess.notify_live_seed_postrestore(nl, st)
 
 def endpoint(+host: String, +port: U32) -> String:
   Ep.endpoint(host, port)
@@ -236,37 +223,6 @@ def paint_go.hint(
         ui : T.Ui <- T.Timui.view_begin(ui)
         paint_finish(ui, base, rows, cols, Sess.panel_lines(comp, draft, hint, typers), draft, Cu.ghost_at(draft, Sess.pick_idx(comp)), cx, th, Bool.not(String.is_empty(hint)), seed, cx)
 
-def paint_go.hot_base.warm(+hold: List<&2, V.ScrollHold>, +frame: List<&2, V.DrawOp>, +full: C.Fullscreen, +media: M.State, +cl: Cl.Client, +rows: U32, +cols: U32, +draft: String) -> V.ViewModel:
-  match hold:
-    case Nil{}: paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
-    case Con{_, _}: paint_overlay(V.ViewModel{frame, V.view_input(draft)}, full, media, cl, rows, cols)
-
-# True: paint-ready overlay on cached body ops. False: body only (caller overlays
-# for paint; hot_fresh stores these ops, never overlay ops).
-def paint_go.hot_base(
-  use: Bool,
-  +frame: List<&2, V.DrawOp>,
-  +cl: Cl.Client,
-  +draft: String,
-  +net: Sess.NetState,
-  size: Sess.Size,
-  split: Sp.State,
-  +typers: List<&2, String>,
-  +media: M.State,
-  +cards: C.State,
-  +full: C.Fullscreen,
-  +isc: Cl.Iso,
-  +th: Theme.Id,
-  +pends: List<&2, Cl.PendSend>,
-  +hold: List<&2, V.ScrollHold>
-) -> V.ViewModel:
-  match use:
-    case True{}:
-      match size:
-        case Sess.Size{+rows, +cols}:
-          paint_go.hot_base.warm(hold, frame, full, media, cl, rows, cols, draft)
-    case False{}: paint_base.body(cl, draft, net, size, split, typers, media, cards, isc, th, pends, hold)
-
 def paint_go.hot_kept(+frame: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
   match got:
     case (ui, keys): (ui, keys, frame, True{})
@@ -275,11 +231,6 @@ def paint_go.hot_kept(+frame: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui 
 def paint_go.hot_fresh(+body: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
   match got:
     case (ui, keys): (ui, keys, body, True{})
-
-def paint_go.hot_out(use: Bool, +frame: List<&2, V.DrawOp>, +body: List<&2, V.DrawOp>, got: T.Ui & T.UiKeys) -> T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool:
-  match use:
-    case True{}: paint_go.hot_kept(frame, got)
-    case False{}: paint_go.hot_fresh(body, got)
 
 def paint_go.hot_use.warm(
   +frame: List<&2, V.DrawOp>,
@@ -388,9 +339,6 @@ def paint_go.hot(
 ) -> IO(T.Ui & T.UiKeys & List<&2, V.DrawOp> & Bool):
   paint_go.hot_use(Bool.and(warm, Bool.not(List.is_empty(&2, V.DrawOp, frame))), frame, ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, hint, th, pends, comp, hold)
 
-def paint_go(ui: T.Ui, +cl: Cl.Client, +draft: String, +net: Sess.NetState, +seed: U32, size: Sess.Size, split: Sp.State, +typers: List<&2, String>, +media: M.State, +cards: C.State, +full: C.Fullscreen, +isc: Cl.Iso, +th: Theme.Id) -> IO(T.Ui & T.UiKeys):
-  paint_go.hint(ui, cl, draft, net, seed, size, split, typers, media, cards, full, isc, "", th, Nil{}, Sess.comp0(), Nil{})
-
 def paint_session.hint(ui: T.Ui, +st: Sess.Session, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, +cf, _, +theme, +labelsbox, _}:
@@ -401,18 +349,14 @@ def paint_session(ui: T.Ui, +st: Sess.Session) -> IO(T.Ui & T.UiKeys):
   paint_session.hint(ui, st, Sess.session_upload_hint(st))
 
 # Cards paint (wsnet sidecar): inline rows from the sidecar worker state
-# plus the revalidated fullscreen overlay, over the same _cm row set the
-# scheduler uses. Mirrors paint_session but takes the loop sidecar instead
-# of the Session cf cell.
+# plus the revalidated fullscreen overlay. Paint and the scheduler both
+# use the iso panes. Mirrors paint_session but takes the loop sidecar
+# instead of the Session cf cell.
 def paint_session_cards.hint(ui: T.Ui, +st: Sess.Session, +cards: C.State, +full: C.Fullscreen, hint: String) -> IO(T.Ui & T.UiKeys):
   match st:
     case Sess.Session{+cl, _, _, +draft, _, _, +net, _, size, seed, _, split, +typing, _, media, _, _, _, _, _, _, +theme, +labelsbox, _}:
       +isc = Isupport.as_iso(Sess.session_iso(st))
       paint_go.hint(ui, cl, draft, net, seed, size, split, Ty.names_cm(Cl.iso_cm(isc), typing, Cl.active_buf_name(cl)), Sess.unbox_media(media), cards, full, isc, hint, theme, Sess.session_pends(st), Sess.session_comp(st), Sess.label_hold(labelsbox))
-
-def paint_session_cards(ui: T.Ui, +st: Sess.Session, found: C.State & C.Fullscreen) -> IO(T.Ui & T.UiKeys):
-  match found:
-    case (+cs, +fl): paint_session_cards.hint(ui, st, cs, fl, Sess.session_upload_hint(st))
 
 # `warm` reuses the last body ops. The composer, ghost, menu, and fullscreen
 # overlay are still built for this frame.

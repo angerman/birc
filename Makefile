@@ -1183,6 +1183,12 @@ test-scroll: $(BLDDIR)/scroll_demo ## Wrapped-row navigation and stable arrival/
 test-scroll-reuse: $(BLDDIR)/scroll_reuse ## Page scroll reuses wrapped rows; a one-notch scroll paints the full viewport.
 	$(NIXRUN) sh scripts/check-golden.sh scroll_reuse=ok ./$(BLDDIR)/scroll_reuse
 
+test-pend-admit: $(BLDDIR)/pend_admit ## Live-tail admission drops the history URL a pending row pushes out.
+	$(NIXRUN) sh scripts/check-golden.sh pend_admit=ok ./$(BLDDIR)/pend_admit
+
+test-ping-fold: $(BLDDIR)/ping_fold ## Negotiated and live PING folds emit no client PONG.
+	$(NIXRUN) sh scripts/check-golden.sh ping_fold=ok ./$(BLDDIR)/ping_fold
+
 test-actor: $(BLDDIR)/actor_demo ## Outbound batch boundaries, finite budgets, and FIFO queue behavior.
 	$(NIXRUN) sh scripts/check-golden.sh actor_demo=ok ./$(BLDDIR)/actor_demo
 
@@ -1440,7 +1446,7 @@ test-pty-typing: build-ui ## Pty: IRCv3 typing lifecycle, timeout, pause, and mu
 
 .PHONY: test-review-pure
 
-.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-day-bar test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-scroll-reuse test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
+.PHONY: test-review-pure test-golden-runner test-build-config test-auth test-commands test-state test-day-bar test-history test-history-io test-history-search test-links test-link-commands test-wrap test-columns-width test-scroll test-scroll-reuse test-pend-admit test-ping-fold test-dns-tcp test-socket-deadline test-pty-output-stall test-pty-send-stall test-pty-wrapped-spans test-pty-reconnect-nick proof-kernel
 .PHONY: test-pty-scroll-wrap
 .PHONY: test-pty-frame-links test-pty-launchers
 .PHONY: test-pty-startup-connect test-pty-history-endpoints test-scroll-edits test-history-errors

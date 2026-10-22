@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Multiserver workspace partitions (pure).
 #
-# ADAPTER BOUNDARY (branch adapter/session-workspace-drafts-multiserver, from
-# parent HEAD ca30774): per-server partitions over Session + the shared
+# Live partition module: per-server partitions over Session + the shared
 # server-scoped Drafts store, with explicit ServerId + generation routing.
-# Parent owns merges; this file is new and disjoint by construction. FROZEN
-# at parent HEAD (signatures never edited here): Drafts, server_key,
-# server_id, ipv6. Session/server_id/drafts/session_drafts are consumed,
+# Session/server_id/drafts/session_drafts are consumed,
 # never modified, so each partition keeps today's single-server bounds
 # (16 buffers, bounded plans, 512-byte wire cap) and semantics (reconnect
 # dividers, global IDs, unread/alerts, scroll anchors).
@@ -24,7 +21,9 @@
 #   the workspace owns per-part generations starting at 0; a produced Dial
 #   bumps and carries the new generation, Pump/Begin are rewritten to the
 #   current one, and the dialed host/port refresh the part scope (host
-#   spelling preserved; v6 refines at dial-plan time by the integrator).
+#   spelling preserved). actor.bend dial_begin calls Dns.dial_dual.
+#   Bracketed endpoints still fail in Endpoint.parse. IPv6 literals stay
+#   unsupported on the IRC endpoint.
 # - Admission mirrors the actor guards exactly: cmd_admitted is
 #   Sid.cmd_current (server + generation for Dial/Pump/Begin), msg_admitted
 #   is Sid.evt_current, writer_done_acked is Sid.writer_done_current. Cross-
@@ -44,9 +43,8 @@
 # - Reconnect intent is generation- plus exact-endpoint-scoped via
 #   Sid.reconnect_ok; dial_intent snapshots the current part epoch.
 #
-# Out of scope (flagged for the integrator, not widened here): Net/Actor IO
-# threading and per-server channels; native Af/inet6 sockets, DNS, and TLS
-# (see the ipv6-transport-adapter lane); native/PTY qualification.
+# This file does not own Net/Actor IO, threading, or per-server channels.
+# Native/PTY qualification stays out of scope.
 #
 # Layout is bottom-up: Bend forbids same-module forward references, so every
 # helper precedes its callers and recursion recurs in the match arm.
@@ -553,8 +551,9 @@ def step_keys(+ws: Workspace, +keys: Sess.Keys) -> Workspace & Sid.RoutedCmd & B
       step_keys.got(parts, cur, ds, rt, keys, find_part.go(parts, cur))
 
 # ---- admission ----------------------------------------------------------
-# Pure demux checks for the (future, IO-side) actor fan-out. Each mirrors
-# the single-server guard exactly, with the part supplying server+gen.
+# These demux checks are what wsnet applies: live_step_keys, live_on_msg,
+# and writer_done_acked. Each mirrors the single-server guard exactly,
+# with the part supplying server+gen.
 
 def cmd_admitted.part(+rc: Sid.RoutedCmd, +p: Part) -> Bool:
   match p:

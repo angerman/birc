@@ -67,8 +67,9 @@ def is_ipv4_xs(+xs: List<&2, String>) -> Bool:
 def is_ipv4(+host: String) -> Bool:
   is_ipv4_xs(String.split(host, Chr{46}))
 
-# IPv4-only resolver. A colon means an IPv6 literal (or garbage); reject
-# it rather than sending a DNS query for the string.
+# A colon means an IPv6 literal (or garbage); reject it rather than
+# sending a DNS query for the string. Names take AAAA in dns.bend before
+# A. The first nameserver read stays an IPv4 address.
 def is_ipv6(s: String) -> Bool:
   match s:
     case SNil{}:

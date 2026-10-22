@@ -236,8 +236,11 @@ type WsNotify is Data:
 # owner, up the per-part upload spawn records, notify the global
 # desktop-notification bundle (per-part NotifyLive entries + one worker
 # lease), cards the cards bundle (per-part sidecars plus the one global
-# cards lease with its spawn envelope), and begun tracks the deferred
-# first-input Begin barrier (direct starts it).
+# cards lease with its spawn envelope). ws_start.live sends one Begin
+# per part after load, then starts the loop already begun, so the frame
+# path must not send another. The first paint and its keys still run
+# before settings, archive load, and Begin (ws_start.keyed halts before
+# boot). That order stays.
 type WsLoop is Data:
   WsLoop{ws: W.Workspace, bell: U32, scheduled: Bool, ctx: PrefLive.Context, media: Maybe<&2, WsMedia>, prefs: Maybe<&2, WsLease>, up: List<&2, WsLease>, notify: WsNotify, cards: WsCardsAll, begun: Bool}
 
@@ -1255,9 +1258,10 @@ def ws_replace(+ws: W.Workspace, +id: Key.ServerId, +st: Sess.Session) -> W.Work
 # ---- history save -----------------------------------------------------------
 # Mirrors Net.live_step.next/save/reload per affected part: append new rows
 # for the part endpoint, surface failures as non-persisted diagnostics,
-# and reload on endpoint change. The save baseline is the pre-step
-# workspace client, exactly like the single-server loop. The shared
-# settings context gates every save (G4 settings-before-history).
+# and reload on endpoint change. The extract client is the pre-step
+# client raised to this part's queued hold, and a channel accept moves
+# that floor immediately. The shared settings context gates every save
+# (G4 settings-before-history).
 # Imported archive rows (the drain's claimed IDs) become the next baseline
 # instead of being appended again, matching the single-server checkpoint.
 def ws_history.notice(+st: Sess.Session, notice: Maybe<&2, String>) -> Sess.Session & Bool:
@@ -1399,7 +1403,8 @@ def ws_history.write_held(accepted: Bool, +hot: WsHot, +pend: WsPend) -> WsHot:
 
 # Third component is durable: True only when this call's bytes are already
 # in the file (Append Ok). A channel accept is not durable — the worker still
-# has to append, and the extract baseline stays at `ckpt` until WsHistAck.
+# has to append. The extract client is the pre-step client raised to this
+# part's queued hold, and a channel accept moves that floor immediately.
 # Skip must not count as durable success.
 def ws_history.notice_ok(notice: Maybe<&2, String>) -> Bool:
   match notice:
@@ -2372,9 +2377,11 @@ def ws_cmd.at(+cmds: WsCmds, +n: Nat) -> Chan(Sess.NetCmd):
   match cmds:
     case WsCmds{+c0, +c1, +c2, +c3}: ws_cmd.pick(c0, c1, c2, c3, n)
 
-# G4: one generation-scoped Begin per live part, sent exactly once from
-# the first paint. Deferred actors stay silent until this release; the
-# direct policy never arms the barrier (begun starts true).
+# G4: one generation-scoped Begin per live part. ws_start.live sends
+# one Begin per part after load, then starts the loop already begun, so
+# the frame path must not send another. The first paint and its keys
+# still run before settings, archive load, and Begin (ws_start.keyed
+# halts before boot). That order stays.
 def ws_begin_all.go(+xs: List<&2, W.Part>, +cmds: WsCmds) -> IO(Unit):
   match xs:
     case Nil{}: IO.pure(Unit, Unit{})
@@ -2388,21 +2395,16 @@ def ws_begin_all.go(+xs: List<&2, W.Part>, +cmds: WsCmds) -> IO(Unit):
 def ws_begin_all(+cmds: WsCmds, +ws: W.Workspace) -> IO(Unit):
   ws_begin_all.go(W.ws_parts(ws), cmds)
 
-# G4: the deferred Begin fires only after the frame's keys are applied,
-# never before ws_act. First-frame quit therefore halts before any actor
-# release, and history-affecting input lands before registration starts.
-# The Begin scopes to the post-keys parts; the loop then continues begun.
-def ws_frame.begun_after(acc: T.Ui & WsLoop & Bool, +cmds: WsCmds, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
+# ws_start.live sends one Begin per part after load, then starts the
+# loop already begun, so the frame path must not send another. The
+# first paint and its keys still run before settings, archive load,
+# and Begin (ws_start.keyed halts before boot). That order stays.
+def ws_frame.begun_after(acc: T.Ui & WsLoop & Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match acc:
     case (ui, +loop, halt):
       match loop:
-        case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, +begun}:
-          match begun:
-            case True{}: k((ui, WsLoop{ws, bell, scheduled, ctx, media, owner, ups, notify, cards, True{}}, halt))
-            case False{}:
-              do IO<Unit>:
-                Unit <- ws_begin_all(cmds, ws)
-                k((ui, WsLoop{ws, bell, scheduled, ctx, media, owner, ups, notify, cards, True{}}, halt))
+        case WsLoop{+ws, +bell, +scheduled, +ctx, +media, +owner, +ups, +notify, +cards, _}:
+          k((ui, WsLoop{ws, bell, scheduled, ctx, media, owner, ups, notify, cards, True{}}, halt))
 
 def ws_frame.keys(+loop: WsLoop, ui: T.Ui, keys: T.UiKeys, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
@@ -2412,7 +2414,7 @@ def ws_frame.keys(+loop: WsLoop, ui: T.Ui, keys: T.UiKeys, +is_key: Bool, +main:
           do IO<Unit>:
             Unit <- Net.open_clicked(Some{ws_evt.id(evts, W.ws_current(ws))}, url)
             Unit <- Net.frame_clipboard(clipboard, Some{ws_evt.id(evts, W.ws_current(ws))})
-            ws_act(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, T.flag_on(enter), rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), is_key, main, cmds, evts, pevts, ack, consumed, acc => ws_frame.begun_after(acc, cmds, k))
+            ws_act(ws_mkloop(ws, bell, scheduled, ctx, media, owner, ups, notify, cards, begun), ui, typed, T.flag_on(enter), rows, cols, click, key, mods, codepoint, wheel, T.flag_on(more), is_key, main, cmds, evts, pevts, ack, consumed, acc => ws_frame.begun_after(acc, k))
 
 def ws_frame(+loop: WsLoop, got: T.Ui & T.UiKeys, +is_key: Bool, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +consumed: Bool, k: (T.Ui & WsLoop & Bool) -> IO(Unit)) -> IO(Unit):
   match loop:
@@ -3485,8 +3487,8 @@ def ws_policy(+options: PrefWorker.Options) -> Bool:
 
 # G4: per-part settings prepare plus history import. One preference read
 # resolves before each part history snapshot, exactly like the headless
-# policy; the shared queue keeps the first prepared context and the
-# fail-closed conjunction of every part decision.
+# policy. The slot-order join keeps the lowest slot's prepared context,
+# and the fail-closed conjunction of every part decision stays.
 def ws_load.keep(+lp: LoadedPrefs.Context, +acc: Maybe<&2, LoadedPrefs.Context>) -> Maybe<&2, LoadedPrefs.Context>:
   match acc:
     case Some{+kept}: Some{kept}
@@ -3557,33 +3559,6 @@ def ws_begin(+frames: U32, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds
     cap : U32 <- Hist.resolve_history_cap()
     jobs : Chan(HistJob) <- Chan.new(HistJob, 8)
     ws_begin.armed(frames, ui, ws, main, cmds, evts, pevts, ack, ctx, begun, on, cap, jobs)
-
-def ws_watch.win(wr: Result<&1, &1, U32 & String, T.Winch>, tty: T.Tty, ui: T.Ui, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +begun: Bool) -> IO(Unit):
-  match wr:
-    case Fail{e}: Net.watch_die_tty(e, tty, ui)
-    case Done{w}:
-      do IO<Unit>:
-        Unit <- IO.spawn(Unit, Net.tty_watch(tty, ui_evt, ack))
-        Unit <- IO.spawn(Unit, Net.winch_watch(w, ui_evt))
-        Unit <- IO.spawn(Unit, ui_fwd(ui_evt, main))
-        Unit <- IO.spawn(Unit, prefs_fwd(pevts, main))
-        Unit <- IO.spawn(Unit, ws_typing_watch(main))
-        ws_begin(frames, ui, ws, main, cmds, evts, pevts, ack, ctx, begun)
-
-def ws_open.tty(pair: T.Ui & Result<&1, &1, U32 & String, T.Tty>, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +begun: Bool, wr: Result<&1, &1, U32 & String, T.Winch>) -> IO(Unit):
-  match pair:
-    case (ui, tr):
-      match tr:
-        case Fail{e}: Net.watch_die_win(wr, e, ui)
-        case Done{tty}: ws_watch.win(wr, tty, ui, ws, main, cmds, evts, pevts, ack, frames, ui_evt, ctx, begun)
-
-def ws_supported(support: T.Ui & U32, +ws: W.Workspace, +main: Chan(WsMsg), +cmds: WsCmds, +evts: WsEvts, +pevts: Chan(Sess.UiMsg), +ack: Chan(Unit), +frames: U32, +ui_evt: Chan(Sess.UiMsg), +ctx: PrefLive.Context, +begun: Bool) -> IO(Unit):
-  match support:
-    case (ui, flag):
-      do IO<Unit>:
-        wr : Result<&1, &1, U32 & String, T.Winch> <- T.Winch.open()
-        pair : T.Ui & Result<&1, &1, U32 & String, T.Tty> <- T.Timui.tty(ui)
-        ws_open.tty(pair, W.set_media_supported(ws, T.flag_on(flag)), main, cmds, evts, pevts, ack, frames, ui_evt, ctx, begun, wr)
 
 # G4: the startup first frame runs before any settings/history load. The
 # frame paints the bare epoch workspace and applies its input keys bare

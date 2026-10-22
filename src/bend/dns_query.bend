@@ -3,10 +3,9 @@
 # the JS backend pins this admission without sockets, while dns.bend owns
 # UDP/TCP, timeouts, and resends. AAAA text/walk/parse stay in ipv6.bend.
 # Dual-stack dial policy (v6-first ordering, fallback predicate) is also
-# pure here; dns.bend owns the deadline-owned TCP attempts. Integrator:
-# actor dial_begin should call the dual dial (v6 then v4, same host for
-# TLS) instead of single resolve+connect; only TCP-connect failure falls
-# back, never TLS-verification failure or plaintext downgrade.
+# pure here; dns.bend owns the deadline-owned TCP attempts. Only
+# TCP-connect failure falls back, never TLS-verification failure or
+# plaintext downgrade.
 import Base
 import ./dns_wire.bend as Wire
 import ./ipv6.bend as V6

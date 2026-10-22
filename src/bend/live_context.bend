@@ -253,7 +253,6 @@ def history.flush(on: Bool, +path: String, +ep: String, +cl: Cl.Client) -> IO(Cl
         return history.flush_got(got, cl)
 
 # Pure merge seam: current_ep from Session; snapshot_ep is the archive claim.
-# Callers must not pass the same string twice for both arguments.
 def history.merge(+local: Cl.Client, +st: S.Session, +snapshot: Cl.Client, +snapshot_ep: String) -> Cl.Client:
   +current_ep = Ep.endpoint(Cl.server_of(S.session_cl(st)), S.session_port(st))
   H.install_startup(H.report_diagnostics(local, snapshot, current_ep, snapshot_ep), snapshot, current_ep, snapshot_ep)

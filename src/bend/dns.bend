@@ -3,14 +3,15 @@
 # Names try AAAA before A (V6.query_order); each attempt keeps the existing
 # per-query bounds, timeouts, resends, and TCP fallback. Valid inner IPv6
 # literals resolve directly; colon garbage still fails with "ipv6".
-# Brackets stay at parse_any: resolve takes inner text or DNS names only.
+# Bracketed IRC endpoints are rejected by Endpoint.parse before connect.
+# ipv6.parse_any still accepts [::1]:port for the non-IRC parser tests.
+# resolve takes inner text or DNS names only, not brackets.
 # Resolver is the first IPv4 nameserver in /etc/resolv.conf, else fails closed.
 # Transaction ids are 16-bit.
 # Owned fixtures use explicit nameserver ports via the _at entry points
 # (same wait/TCP chains, same bounds; production passes DNS_PORT 53 and
 # still requires exact ns+port peer equality). Dual dial (v6 then v4) is
-# TCP-connect fallback only, preserving the original hostname for TLS;
-# integrator wires actor dial_begin to it (see dns_query.bend header).
+# TCP-connect fallback only, preserving the original hostname for TLS.
 import Base
 import ./dns_wire.bend as Wire
 import ./dns_query.bend as Dq
@@ -630,9 +631,8 @@ def resolve(+host: String) -> IO(Result<&1, &1, U32 & String, String>):
 # Dual TCP dial: try first, fall back to second only when the first
 # connect fails. No TLS here; callers upgrade with the original hostname
 # (never the winning IP) and never downgrade or accept failed verification.
-# Integrator (actor dial_begin): replace single resolve+connect with
-# resolve AAAA, dial v6, on TCP failure resolve A and dial v4, threading
-# the Dial generation so a stale fallback cannot win after a newer Dial.
+# dial_begin already calls dial_dual (AAAA then A, original hostname kept
+# for TLS).
 def dial_second_done(
   cr2: Result<&1, &1, U32 & String, Socket>,
   +second_ip: String

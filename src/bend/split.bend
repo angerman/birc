@@ -65,7 +65,9 @@ def inner_extent.on(+n: U32, large: Bool) -> Nat:
 def inner_extent(+n: U32) -> Nat:
   inner_extent.on(n, U32.is_ge(n, 3))
 
-# The full body box is rows-2 on normal terminals (tabs plus the box border).
+# body_box_h is the history rect before the border, and it is the height
+# page_height feeds to inner_extent. For rows>=4 that is rows-2: the tab
+# and the composer are gone, and the border is still inside.
 # TimUI FLEX(1),FLEX(1) gives the rounding remainder to the second constraint
 # after rounding the first.
 def body_box_h.on(+rows: U32, normal: Bool) -> U32:

@@ -145,9 +145,10 @@ def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: Str
   +port = Auth.binding_port(cl)
   fold_step.got.at(cl, pongs, now_ms, h, port)
 
-# Negotiated fold chain (I2 dynamic): identical ping/SASL/auth/credential/lag
-# handling, but the feed leaves fold under the Session ISUPPORT parameters
-# (CASEMAPPING/CHANTYPES/STATUSMSG/PREFIX/strip) instead of fixed defaults.
+# Negotiated fold chain (I2 dynamic): both ping arms skip the feed and emit
+# no PONG, and the reader owns the wire reply. The feed leaves fold under
+# the Session ISUPPORT parameters (CASEMAPPING/CHANTYPES/STATUSMSG/PREFIX/strip)
+# instead of fixed defaults.
 def fold_step.normal_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
   +cl2 = Feed.feed_at_with(cl, isc, h, stamp)
   FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs), now_ms}
@@ -190,7 +191,7 @@ def fold_step.sasl_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>
 def fold_step.ping_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, ping: Bool, +stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
   match ping:
     case True{}:
-      FoldAcc{cl, Irc.pong_for(h) <> pongs, now_ms}
+      FoldAcc{cl, pongs, now_ms}
     case False{}:
       fold_step.sasl_at_with(isc, cl, pongs, now_ms, h, stamp, port)
 
@@ -3034,15 +3035,10 @@ def nav_focus.pair(pair: Cl.Client & Sp.State) -> NavStep:
   match pair:
     case (cl2, split2): NavStep{cl2, split2, hold_nil()}
 
-def nav_focus.drop(pair: Cl.Client & Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
-  match hold:
-    case Nil{}: nav_focus.pair(pair)
-    case Con{_, _}: nav_focus.pair(pair)
-
 def nav_focus.go(on: Bool, +cl: Cl.Client, split: Sp.State, +hold: List<&2, View.ScrollHold>) -> NavStep:
   match on:
     case False{}: NavStep{cl, split, hold}
-    case True{}: nav_focus.drop(Sp.toggle(cl, split), hold)
+    case True{}: nav_focus.pair(Sp.toggle(cl, split))
 
 def nav_focus.on(on: Bool, pair: Cl.Client & List<&2, View.ScrollHold>, split: Sp.State) -> NavStep:
   match pair:
@@ -3298,19 +3294,21 @@ def session_set_cards(st: Session, +cards: C.State) -> Session:
 
 # Shared ScrollAt window for media+cards admission. Media observe (runs first
 # on the live stage) also feeds cards when both are enabled so the same
-# anchored rows are not rebuilt for that path.
+# anchored rows are not rebuilt for that path. The live tail (ScrollAt{0,0})
+# includes that buffer's optimistic rows; scrolled windows stay on the history
+# spine.
 def session_observe_visible_share_cards(do_cards: Bool, +st: Session, +kept: C.State, +anchored: List<&2, View.AnchoredRow>) -> Session:
   match do_cards:
     case False{}: st
     case True{}: session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
 
-def session_observe_visible_media.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
+def session_observe_visible_media.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State, +pends: List<&2, Cl.PendSend>) -> Session:
   match open:
     case True{}: st
     case False{}:
       +current = M.maintain(media, cl)
       +kept = C.maintain(cards, cl)
-      +anchored = View.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, current, C.paint_entries(kept))
+      +anchored = View.visible_anchored_panes_media_cards_iso_pends(isc, cl, rows, cols, split, current, C.paint_entries(kept), pends)
       +st1 = session_set_media(st, M.enqueue_candidates(View.visible_media_candidates_from_rows(anchored, current), current))
       session_observe_visible_share_cards(C.enabled(kept), st1, kept, anchored)
 
@@ -3322,7 +3320,7 @@ def session_observe_visible_media.allowed(allowed: Bool, +st: Session) -> Sessio
         case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
           +full_kept = C.maintain_full(unbox_full(cf), unbox_media(media), cl)
           +st1 = session_set_full(st, full_kept)
-          session_observe_visible_media.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
+          session_observe_visible_media.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf), pends)
 
 def session_observe_visible_media(+st: Session) -> Session:
   session_observe_visible_media.allowed(visible_media_net(session_net(st)) && M.enabled(session_media(st)), st)
@@ -3331,7 +3329,7 @@ def session_accept_media_result(+st: Session, +generation: Nat, +ticket: Nat, +u
   match st:
     case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
       M.accept(unbox_media(media), cl, generation, ticket, url)
-        && M.visible_result_allowed(unbox_media(media), View.visible_media_candidates_cards_iso(Isupport.as_iso(unbox_iso(iso)), cl, rows, cols, split, unbox_media(media), C.paint_entries(C.maintain(unbox_cards(cf), cl))))
+        && M.visible_result_allowed(unbox_media(media), View.visible_media_candidates_cards_iso_pends(Isupport.as_iso(unbox_iso(iso)), cl, rows, cols, split, unbox_media(media), C.paint_entries(C.maintain(unbox_cards(cf), cl)), pends))
 
 def media_job_net(net: NetState) -> Bool:
   match net:
@@ -3353,16 +3351,19 @@ def session_observe_media(+st: Session, +after: Nat) -> Session:
   session_observe_media.after(after, st)
 
 # ---- C8 live: Session-retained cards and fullscreen (one canonical path) ----
-# Scheduling consumes bounded visible candidates over the exact painted rows;
-# step paths only settle dead state (never schedule). The physical cards
-# worker stays owned until its exact completion, even across disable/reset.
+# Scheduling consumes bounded visible candidates over the exact painted rows.
+# The live tail (ScrollAt{0,0}) includes that buffer's optimistic rows in the
+# crop, and Cl.Pending stays ineligible so those rows occupy space and their
+# URLs stay unscheduled. Scrolled windows stay on the history spine. Step
+# paths only settle dead state (never schedule). The physical cards worker
+# stays owned until its exact completion, even across disable/reset.
 
-def session_observe_visible_cards.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State) -> Session:
+def session_observe_visible_cards.gated(+isc: Cl.Iso, open: Bool, +st: Session, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: C.State, +pends: List<&2, Cl.PendSend>) -> Session:
   match open:
     case True{}: st
     case False{}:
       +kept = C.maintain(cards, cl)
-      +anchored = View.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, media, C.paint_entries(kept))
+      +anchored = View.visible_anchored_panes_media_cards_iso_pends(isc, cl, rows, cols, split, media, C.paint_entries(kept), pends)
       session_set_cards(st, C.enqueue_candidates(C.visible_candidates_from_rows(anchored), kept))
 
 def session_observe_visible_cards.allowed(allowed: Bool, +st: Session) -> Session:
@@ -3373,7 +3374,7 @@ def session_observe_visible_cards.allowed(allowed: Bool, +st: Session) -> Sessio
         case Session{+cl, _, _, _, _, _, _, _, Size{rows, cols}, _, _, split, _, _, +media, _, _, +iso, _, +cf, _, _, labelsbox, +pends}:
           +full_kept = C.maintain_full(unbox_full(cf), unbox_media(media), cl)
           +st1 = session_set_full(st, full_kept)
-          session_observe_visible_cards.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf))
+          session_observe_visible_cards.gated(Isupport.as_iso(unbox_iso(iso)), C.is_open(full_kept), st1, cl, rows, cols, split, unbox_media(media), unbox_cards(cf), pends)
 
 def session_observe_visible_cards(+st: Session) -> Session:
   session_observe_visible_cards.allowed(visible_media_net(session_net(st)) && C.enabled(session_cards(st)), st)

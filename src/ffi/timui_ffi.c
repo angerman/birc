@@ -120,9 +120,8 @@ enum { BIRC_PREVIEW_CAP = BIRC_MEDIA_CAP };
 /* drafts.bend ENTRY_CAP is 16. Label storage is 64 bytes with a 63-byte
  * cluster clip. The composer array is not TEXT_BYTES (4096). */
 enum { BIRC_TAB_SLOTS = 16, BIRC_TAB_LABEL = 64, BIRC_COMPOSER_CAP = 512 };
-/* Historic dark mention chip (0x1E1E2E / 0xFFD700). Theme.tab_mention_bg/fg
- * own the palette. OpTabs does not carry those words yet, so paint still
- * passes these constants. Activity stays reverse video, not a colour. */
+/* BIRC_TAB_MENTION_BG / BIRC_TAB_MENTION_FG are the mention palette.
+ * Activity stays reverse video. OpTabs does not grow new fields. */
 enum { BIRC_TAB_MENTION_BG = 0x1E1E2Eu, BIRC_TAB_MENTION_FG = 0xFFD700u };
 
 typedef struct {

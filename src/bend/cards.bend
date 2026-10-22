@@ -551,20 +551,22 @@ def visible_rows(rows: List<&2, V.AnchoredRow>) -> List<&2, Candidate>:
     case Con{V.AnchoredRow{_, _, +line}, tail}:
       List.append(&2, Candidate, visible_line(Some{line}), visible_rows(tail))
 
-def visible_crop(+rows: List<&2, V.AnchoredRow>, +height: Nat, scroll: Cl.Scroll) -> List<&2, Candidate>:
-  visible_rows(V.visible_anchored_crop(rows, height, scroll))
-
-# Prefer when the caller already holds V.visible_anchored_panes_media_cards_cm.
+# Prefer when the caller already holds rows from
+# V.visible_anchored_panes_media_cards_iso_pends. Live observe
+# (session_observe_visible_media.gated and
+# session_observe_visible_cards.gated) passes those here.
 def visible_candidates_from_rows(+rows: List<&2, V.AnchoredRow>) -> List<&2, Candidate>:
   newest(visible_rows(rows))
 
-# Negotiated-cm scheduling over the exact painted rows: the same
-# cm-aware anchored owner the live paint path uses
-# (V.visible_anchored_panes_media_cards_cm), so mute filtering agrees with
-# paint and offscreen rows stay unscheduled. Default-RFC wrappers below
-# delegate with Cl.dflt_cm() / Nil{} cards — a separate non-cm walk would
-# mute rows paint retains (e.g. a[b under CASEMAPPING=ascii with muted a{b)
-# and leak hidden URLs into the queue.
+# Live observe admits through
+# V.visible_anchored_panes_media_cards_iso_pends
+# (session_observe_visible_media.gated and
+# session_observe_visible_cards.gated). The live tail includes that
+# buffer's optimistic rows; Cl.Pending stays ineligible. The cm walker remains the
+# default-RFC / law path: visible_candidates, tests, and LAWS.bend
+# still enter visible_candidates_cards_cm with Cl.dflt_cm() and Nil{}
+# cards. A separate non-cm walk would mute rows that walk retains
+# (e.g. a[b under CASEMAPPING=ascii with muted a{b) and leak hidden URLs.
 def visible_buffer_cards_cm(+cm: String, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   visible_rows(V.visible_anchored_buf_media_cards_cm(cm, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
 
@@ -574,22 +576,13 @@ def visible_panes_cards_cm(+cm: String, +cl: Cl.Client, +rows: U32, +cols: U32, 
 def visible_candidates_cards_cm(+cm: String, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   newest(visible_panes_cards_cm(cm, cl, rows, cols, split, media, cards))
 
-def visible_buffer_cards_iso(+isc: Cl.Iso, +b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
-  visible_rows(V.visible_anchored_buf_media_cards_iso(isc, b, height, w, show_ts, mutes, joins, nicks, server, media, cards))
-
 def visible_panes_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   visible_rows(V.visible_anchored_panes_media_cards_iso(isc, cl, rows, cols, split, media, cards))
 
 def visible_candidates_cards_iso(+isc: Cl.Iso, +cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State, +cards: List<&2, V.CardEntry>) -> List<&2, Candidate>:
   newest(visible_panes_cards_iso(isc, cl, rows, cols, split, media, cards))
 
-# Fixed-default APIs: one-line delegates to the cm-aware owner.
-def visible_buffer(+b: Cl.Buffer, +height: Nat, +w: U32, show_ts: Bool, mutes: List<&2, String>, +joins: Bool, +nicks: Bool, server: String, media: M.State) -> List<&2, Candidate>:
-  visible_buffer_cards_cm(Cl.dflt_cm(), b, height, w, show_ts, mutes, joins, nicks, server, media, Nil{})
-
-def visible_panes(+cl: Cl.Client, +rows: U32, +cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
-  visible_panes_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, Nil{})
-
+# Default-RFC / law entry: one-line delegate to the cm walker.
 def visible_candidates(+cl: Cl.Client, rows: U32, cols: U32, split: Sp.State, +media: M.State) -> List<&2, Candidate>:
   visible_candidates_cards_cm(Cl.dflt_cm(), cl, rows, cols, split, media, Nil{})
 
