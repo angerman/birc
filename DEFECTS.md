@@ -74,7 +74,7 @@ Closed in 95a32e0.
   Add a Bend case that a PING folded through `fold_step.got_at_with`
   appends no outbound line.
 
-- [ ] **D3. A later MODE flag group still logs the channel key.**
+- [x] **D3. A later MODE flag group still logs the channel key.**
   `mode_has_key` (`src/bend/irc_commands.bend:230`) looks only at
   parameters 0 and 1. The comment at `:227` says key arguments never
   enter logs or history. `feed_mode.params` (`src/bend/client.bend:822`)
@@ -492,7 +492,7 @@ unless the item says a dead arm goes with it.
   Say the constants are the palette and `OpTabs` stays eight fields.
   Do not add colour words.
 
-- [ ] **C18. The casemap comment says the shared modules are untouched.**
+- [x] **C18. The casemap comment says the shared modules are untouched.**
   `src/bend/isupport.bend:53` says full `cm_eq` adoption in
   Client/Buffer lookup, roster compare, draft identity, and View
   completion still needs Client-carried state, and that those modules

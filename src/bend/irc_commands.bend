@@ -178,9 +178,9 @@ def mode.flag_chars(s: String) -> Bool:
 # Negotiated-only types ($room under CHANTYPES=$) additionally need live
 # 005 state; Isupport ORs its negotiated is_channel into
 # mode_maybe_key_target via the one shared target owner
-# Isupport.sensitive_target. Every key-bearing call site (mode_has_key,
-# Submit.input_sensitive, Submit.input_sensitive_iso, Isupport.suspicious)
-# routes through this pair.
+# Isupport.sensitive_target. mode_has_key and mode_has_key_iso walk every
+# flags word through mode_key_params. Single-tail sites (the Submit raw
+# fallback and Isupport.suspicious) still use this pair.
 def mode_maybe_short(+flags: String) -> Bool:
   Nat.is_le(String.length(flags), 2n)
 
@@ -224,10 +224,20 @@ def mode_maybe_key_target(+target_ok: Bool, +flags: String, has_arg: Bool) -> Bo
 def mode_maybe_key(+target: String, +flags: String, has_arg: Bool) -> Bool:
   mode_maybe_key_target(mode_chan_target(target), flags, has_arg)
 
-# Key arguments never enter logs or history.
+# Parameters after the MODE target. Any flags word with a following
+# argument is keyed, including a later group (`+o alice +k secret`).
+def mode_key_params(ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}: False{}
+    case Con{+flags, +rest}:
+      mode_key_tail(flags, Bool.not(List.is_empty(&2, String, rest))) || mode_key_params(rest)
+
+# Key arguments never enter logs or history. The feed keeps the
+# `[channel key hidden]` collapse when this is true.
 def mode_has_key(+m: Irc.Message) -> Bool:
   Irc.ieq(Irc.msg_command(m), "MODE")
-    && mode_maybe_key(Irc.msg_param(m, 0n), Irc.msg_param(m, 1n), Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n))
+    && mode_chan_target(Irc.msg_param(m, 0n))
+    && mode_key_params(List.drop(&2, String, Irc.msg_params(m), 1n))
 
 def mode_has_key.parsed(m: Maybe<&2, Irc.Message>) -> Bool:
   match m:

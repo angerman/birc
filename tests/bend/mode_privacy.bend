@@ -13,9 +13,14 @@ def private(+wire: String) -> Bool:
   Bool.not(String.contains(CL.buf_texts(cl, 0n) ++ CL.buf_texts(cl, 1n), "opaque-secret"))
     && Bool.not(String.contains(Hist.extract_new_history_for("irc:6697", base(), cl), "opaque-secret"))
 
+def collapsed(+wire: String) -> Bool:
+  private(wire) && String.contains(CL.buf_texts(Feed.feed(base(), wire), 1n), "[channel key hidden]")
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- E.must("channel key mode never enters chat/history", private(":alice!u@h MODE #room +k opaque-secret"))
+    Unit <- E.must("later mode flag group never stores the key", collapsed(":alice!u@h MODE #room +o alice +k opaque-secret"))
+    Unit <- E.must("first flags word key stays hidden", collapsed(":alice!u@h MODE #room +k opaque-secret"))
     Unit <- E.must("channel key unset never enters chat/history", private(":alice!u@h MODE #room -k opaque-secret"))
     Unit <- E.must("combined channel key modes are private", private(":alice!u@h MODE #room +ovk bob carol opaque-secret"))
     Unit <- E.must("numeric channel key reply never enters chat/history", private(":irc 324 me #room +k opaque-secret"))

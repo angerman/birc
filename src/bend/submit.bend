@@ -1714,6 +1714,8 @@ def input_sensitive.join_words(pair: String & String) -> Bool:
   match pair:
     case (_, keys): Bool.not(String.is_empty(keys))
 
+# Same flags walk as Commands.mode_has_key: a later flags word with an
+# argument (`+o alice +k secret`) is not recallable.
 def input_sensitive.mode_wire(wire: Maybe<&2, String>) -> Bool:
   match wire:
     case None{}: False{}
@@ -1767,6 +1769,8 @@ def input_sensitive.mode_raw(+cl: Cl.Client, +args: String) -> Bool:
 def input_sensitive.mode_both(+cl: Cl.Client, +rest: String) -> Bool:
   input_sensitive.mode_wire(mode_command(cl, rest)) || input_sensitive.mode_raw(cl, rest)
 
+# Negotiated twin of mode_wire: same mode_key_params walk, with the
+# negotiated target owner.
 def input_sensitive.mode_wire_iso(+iso: Is.State, wire: Maybe<&2, String>) -> Bool:
   match wire:
     case None{}: False{}

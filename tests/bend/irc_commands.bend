@@ -56,6 +56,8 @@ def main() -> IO(Unit):
     Unit <- E.must_eq("mode unseen plus channel explicit flags", wires(S.submit(cl, "/mode +else +m")), "MODE +else +m")
     Unit <- E.must_eq("mode single unseen plus word stays implicit flags", wires(S.submit(cl, "/mode +else")), "MODE #room +else")
     Unit <- E.must("mode key stays outside composer history", S.input_sensitive(cl, "/mode +k opaque-secret"))
+    Unit <- E.must("later mode flag group stays outside composer history", S.input_sensitive(cl, "/mode #room +o alice +k opaque-secret"))
+    Unit <- E.must("first flags word key stays outside composer history", S.input_sensitive(cl, "/mode #room +k opaque-secret"))
     Unit <- E.must("mode unset key stays outside composer history", S.input_sensitive(cl, "/mode -k old-secret"))
     Unit <- E.must("combined mode key stays outside composer history", S.input_sensitive(cl, "/mode #room +ovk alice bob opaque-secret"))
     Unit <- E.must("ordinary mode stays in composer history", Bool.not(S.input_sensitive(cl, "/mode +o alice")))

@@ -50,9 +50,7 @@
 # wire line to policy only; the session has already logged that line.
 # The fold itself lives in `Irc.fold_casemap` (one shared owner) so the
 # fixed compare and every negotiated compare stay identical by
-# construction. Full `cm_eq` adoption inside Client/Buffer lookup, roster
-# compare, draft identity, and View completion still needs Client-carried
-# casemapping state; those shared modules are intentionally untouched here.
+# construction. The caller supplies the mapping. Client does not store one.
 # `join_admit` reuses `Channels.valid` for every non-head check by swapping an
 # advertised non-fixed head to `#` (one byte, same length); the original name
 # must first pass `Cl.target_wire` and canonical equality, so a swapped check
@@ -62,7 +60,8 @@
 # (`Commands.mode_maybe_key_target` over `Commands.mode_chan_target`, also
 # via the fixed `Commands.mode_maybe_key` and the raw fallback in
 # `Submit.input_sensitive`): signed-or-short tails mentioning 'k' with an
-# argument slot redact; longer unsigned words do not. The live composer
+# argument slot redact; longer unsigned words do not. mode_has_key and
+# mode_has_key_iso apply that tail to every flags word. The live composer
 # entry `Submit.input_sensitive_iso` ORs that fixed check with a negotiated
 # recheck (`mode_has_key_iso` plus a negotiated raw fallback) under the
 # Session iso, so negotiated-only targets resolve through the one shared
@@ -959,7 +958,8 @@ def suspicious(+st: State, +target: String, +flags: String, +args: List<&2, Stri
 
 def mode_has_key_iso(+st: State, +m: Irc.Message) -> Bool:
   Irc.ieq(Irc.msg_command(m), "MODE")
-    && Commands.mode_maybe_key_target(sensitive_target(st, Irc.msg_param(m, 0n)), Irc.msg_param(m, 1n), Nat.is_ge(List.length(&2, String, Irc.msg_params(m)), 3n))
+    && sensitive_target(st, Irc.msg_param(m, 0n))
+    && Commands.mode_key_params(List.drop(&2, String, Irc.msg_params(m), 1n))
 
 def mode_has_key_iso.parsed(+st: State, m: Maybe<&2, Irc.Message>) -> Bool:
   match m:
