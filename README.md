@@ -2,6 +2,10 @@
 
 A terminal IRC client built with **Bend 2** and **timui.h**.
 
+![birc on irc.ergo.chat #ergo](docs/screenshot.png)
+
+Connected as `birc` to irc.ergo.chat `#ergo`. The 04:35 lines are that channel's IRCv3 chat history, fetched after the 11:25 join.
+
 Bend owns the protocol, client state, networking, and frame loop. Pure laws and
 runtime tests check different parts of the application; neither proves the
 whole client correct.
