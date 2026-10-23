@@ -76,7 +76,7 @@ in stdenv.mkDerivation {
 
   meta = {
     description = "Terminal IRC client written in Bend 2 + timui.h";
-    homepage = "https://github.com/angerman/birc";
+    homepage = "https://github.com/zw3rk/birc";
     license = lib.licenses.asl20;
     mainProgram = "birc";
   };

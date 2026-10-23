@@ -45,6 +45,12 @@
         };
       });
 
+      # ci.zw3rk.com schedules hydraJobs only. This job is the installed
+      # client, which includes bin/keychain-birc. The profiled package stays local.
+      hydraJobs = forAllSystems (system: {
+        birc = self.packages.${system}.birc;
+      });
+
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };

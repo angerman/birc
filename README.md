@@ -180,10 +180,10 @@ Run `birc` without cloning:
 
 ```sh
 # Launch offline interactive demo
-nix run github:angerman/birc -- --demo
+nix run github:zw3rk/birc -- --demo
 
 # Connect to a live IRC network with verified TLS
-nix run github:angerman/birc -- --connect irc.libera.chat --tls --channel '#bend'
+nix run github:zw3rk/birc -- --connect irc.libera.chat --tls --channel '#bend'
 ```
 
 ### 1. Build and Test Locally
@@ -229,7 +229,7 @@ Use verified TLS for a live IRC network:
 
 ```sh
 # Run directly without cloning
-nix run github:angerman/birc -- --connect irc.libera.chat --tls --nick mynick --channel '#birc'
+nix run github:zw3rk/birc -- --connect irc.libera.chat --tls --nick mynick --channel '#birc'
 
 # Or via make in a cloned checkout
 make run HOST=irc.libera.chat PORT=6697 NICK=birc_user CHAN='#birc'
