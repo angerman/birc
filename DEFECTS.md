@@ -504,6 +504,178 @@ Closed in 95a32e0.
   Today the title is empty. `&#xD800;` is not written as the bytes
   `ED A0 80`.
 
+- [x] **D34. Multiline enter closes an ascii twin split.**
+  `multiline_quad.empty` (`src/bend/session.bend:3741`) calls
+  `Sp.follow_active(cl2, split)`. The empty-outs arm (`:3740`) and
+  the held arm (`:3729`) do the same. `follow_active` is
+  `follow_active_cm(Cl.dflt_cm(), ...)`, and `dflt_cm()` is
+  `"rfc1459"`, which folds `#x[` onto `#x{`, so `normalize.keep`
+  turns the split off. `step_keys.ordinary_route` (`:3888`) reaches
+  this quad with `session_iso` already in hand. Single-line submit
+  uses `follow_active_cm`.
+  Rectify: pass that `session_cm` into the multiline quad and call
+  `Sp.follow_active_cm`. Leave the two-argument `follow_active`.
+  Add a case: `CASEMAPPING=ascii`, buffers `#x[` and `#x{`, split
+  `On` of those two, active `#x[`. `step_enter` of `hello\nworld`
+  leaves the split `On`. Today it is `Off{}`. The offline held arm
+  does the same.
+
+- [x] **D35. `/split` resolves the other pane with rfc1459.**
+  `split_apply` (`src/bend/session.bend:2746`) takes `+cm`.
+  `SplitOpen` (`:2753`) calls
+  `split_apply.open(cl, split, axis, target)` without it. That
+  calls `Sp.activate`, which resolves the target through
+  `named_idx` and `dflt_cm()` `"rfc1459"`. `SplitFocus` on the
+  same function uses `toggle_cm`.
+  Rectify: pass `cm` through the open arm and resolve with
+  `named_idx_cm`. Leave `named_idx` and `Sp.activate`.
+  Add a case: `CASEMAPPING=ascii`, buffers `#x[` then `#x{`, active
+  `#x[`. `step_enter` of `/split #x{` opens a split whose second
+  pane is `#x{`. Today the command is rejected and the split stays
+  off.
+
+- [x] **D36. NICK refocus clears an ascii twin's unread.**
+  `feed_nick.focused` (`src/bend/client.bend:499`) calls
+  `Cl.set_active(cl, i)`. `feed_nick_with.focus_control` (`:551`)
+  already found `i` with `Cl.buf_find_cm(cl, cm, name)`.
+  `set_active` is `set_active_cm(dflt_cm(), ...)`, and `dflt_cm()`
+  is `"rfc1459"`, so refocusing `#x[` deletes `#x{`'s unread. The
+  index-0 arms (`:498`, `:550`) do not clear unread.
+  Rectify: pass `cm` into `feed_nick.focused` and call
+  `Cl.set_active_cm` on the `Some` branch. Leave the two-argument
+  `set_active`.
+  Add a case: `CASEMAPPING=ascii`, active `#x[`, unread on `#x{`,
+  then `feed_nick_with` of a `NICK`. `#x{` stays unread. Today both
+  are cleared.
+
+- [x] **D37. `/join` focus clears the ascii twin's unread.**
+  `join_staged.got` (`src/bend/submit.bend:377`) calls
+  `Cl.set_active`. `join_staged_iso.go` (`:393`) calls that after
+  `Cl.buf_get_with` with the negotiated iso. `set_active` deletes
+  unread under `dflt_cm()` `"rfc1459"`.
+  Rectify: pass `Is.casemapping(iso)` into `Cl.set_active_cm` on
+  this join step. Leave the two-argument `set_active`.
+  Add a case: `CASEMAPPING=ascii`, unreads on `#x[` and `#x{`, then
+  `submit_join_iso` of `#x[`. Active is `#x[` and `#x{` stays
+  unread. Today both unreads are gone.
+
+- [x] **D38. `/msg` focus clears the ascii twin's unread.**
+  `submit_msg_echo.got` (`src/bend/submit.bend:600`) calls
+  `Cl.set_active`. `submit_msg_with_echo` (`:1898`) calls that
+  after `Cl.buf_get_with`. `set_active` deletes unread under
+  `"rfc1459"`.
+  Rectify: pass `Is.casemapping(iso)` into `Cl.set_active_cm` from
+  `submit_msg_with_echo`. Leave the two-argument wrapper.
+  Add a case: `CASEMAPPING=ascii`, unreads on `#x[` and `#x{`, then
+  `submit_msg_with_echo` of `#x[` with a body. `#x{` stays unread.
+  Today both unreads are gone.
+
+- [x] **D39. `/query` focus clears the ascii twin's unread.**
+  `submit_query_echo.found` (`src/bend/submit.bend:631`) calls
+  `Cl.set_active` before the empty-body check.
+  `submit_query_with_echo` (`:1922`) calls that after
+  `Cl.buf_get_with`. `set_active` deletes unread under `"rfc1459"`.
+  Rectify: pass `Is.casemapping(iso)` into `Cl.set_active_cm` from
+  `submit_query_with_echo`. Leave the two-argument wrapper.
+  Add a case: `CASEMAPPING=ascii`, unreads on `#x[` and `#x{`, then
+  `submit_query_with_echo` of `#x[` with an empty body. Focus is
+  `#x[` and `#x{` stays unread. Today both unreads are gone.
+
+- [x] **D40. `/notice` focus clears the ascii twin's unread.**
+  `submit_notice_echo.got` (`src/bend/submit.bend:753`) calls
+  `Cl.set_active`. `submit_notice_with_echo` (`:1946`) calls that
+  after `Cl.buf_get_with`. `set_active` deletes unread under
+  `"rfc1459"`.
+  Rectify: pass `Is.casemapping(iso)` into `Cl.set_active_cm` from
+  `submit_notice_with_echo`. Leave the two-argument wrapper.
+  Add a case: `CASEMAPPING=ascii`, unreads on `#x[` and `#x{`, then
+  `submit_notice_with_echo` of `#x[` with a body. `#x{` stays
+  unread. Today both unreads are gone.
+
+- [x] **D41. Dropping a buffer clears an ascii twin's unread.**
+  `drop_buf.go` (`src/bend/buffer.bend:2521`) calls
+  `set_active.unread` on the removed buffer, then `set_active` on
+  the next index (`:2523`). Both use `dflt_cm()` `"rfc1459"`.
+  Self-PART (`src/bend/client.bend:366`), self-KICK (`:409`),
+  `/part` (`src/bend/submit.bend:451`), and `/close` (`:528`) find
+  the buffer with the negotiated casemap and then call `drop_buf`.
+  Rectify: pass that casemap into `set_active.unread_cm` and
+  `set_active_cm` from `drop_buf`. Leave the two-argument wrappers.
+  Add a case: `CASEMAPPING=ascii`, unread on `#x{`, then self-PART
+  `#x[` or `/part #x[`. `#x{` stays unread. Today the unread is
+  gone.
+
+- [x] **D42. Chunk-end typing retain still uses rfc1459.**
+  `step_chunk_got` (`src/bend/session.bend:4426`) calls
+  `Ty.retain_client(typing, cl2)` in the same arm that calls
+  `Sp.normalize_cm(Isupport.casemapping(iso), ...)`.
+  `retain_client` keeps a target with `Cl.buf_find` and `dflt_cm()`
+  `"rfc1459"`. `Ty.retain_client_cm` already exists.
+  Rectify: pass `Isupport.casemapping(iso)` into
+  `Ty.retain_client_cm`. Do not add a field.
+  Add a case: `CASEMAPPING=ascii`, open `#x{` only, a typing entry
+  for `#x[`, then the chunk-end retain. The entry is gone. Today
+  `retain_client` keeps it.
+
+- [x] **D43. Non-dynamic live retain ignores the iso it holds.**
+  `live_step.flushed` (`src/bend/session.bend:4099`) takes `+iso`
+  and still calls `Ty.retain_client(typing, cl)`. The non-dynamic
+  arm of `live_split_step.ready_branch` (`:4255`) reaches it while
+  the next line updates the split with `Cl.iso_cm(isc)`.
+  `live_step.flushed_with` (`:4110`) already calls
+  `Ty.retain_client_cm`.
+  Rectify: call `Ty.retain_client_cm(Isupport.casemapping(iso), ...)`
+  from `live_step.flushed`. Do not add a field.
+  Add a case: `CASEMAPPING=ascii`, only `#x{` open, a typing entry
+  for `#x[`, then `live_step.flushed`. The entry is gone. Today it
+  remains.
+
+- [x] **D44. Chathistory collect folds targets with rfc1459.**
+  `batch_target_ok` (`src/bend/history_search.bend:881`) compares a
+  channel batch with `Irc.ieq(p0, target)`. The private arm
+  (`:877`) uses `Irc.ieq` the same way. `Irc.ieq` is rfc1459.
+  `hist_batch_step` (`:1619`) already holds `+isc: Cl.Iso` and
+  calls `hist_collect_step` (`:1622`) without it. Open uses
+  `batch_open_iso`.
+  Rectify: pass `Cl.iso_cm(isc)` through collect and compare with
+  `Cl.buf_eq_cm`. Do not store `cm` on `ChatBatch`.
+  Add a case: iso casemap `"ascii"`, a chathistory batch whose
+  target is `#x[`, then a `PRIVMSG` to `#x{`. The line is not
+  stored. Today `batch_target_ok` accepts it. The same for a
+  private batch `a[` and nick `a{`.
+
+- [x] **D45. A 433 nick retry still folds with rfc1459.**
+  `nick433_retry` (`src/bend/irc.bend:1362`) is
+  `is_433_msg(m) && ieq(msg_param(m, 1n), nick)`. `ieq` (`:188`) is
+  rfc1459, and `is_433_num` (`:1354`) includes 433 and 437.
+  `fold_step.normal_at` (`src/bend/session.bend:86`) and
+  `fold_step.normal_at_with` (`:154`) both append
+  `Irc.nick433_for` even though the with-path already takes `+isc`.
+  `feed_num.n433.cl` (`src/bend/client.bend:687`) uses the same
+  predicate and `feed_num.n433.on` (`:680`) sets the nick to
+  `nick ++ "_"`. A 433 is not a dynamic line, so the live arm is
+  `live_step.registered` while that step still holds the negotiated
+  iso.
+  Rectify: decide that retry with the casemap the live fold already
+  holds, for both the outbound `NICK` and the nick update. Leave
+  the two-argument `nick433_for` on rfc1459.
+  Add a case: after `CASEMAPPING=ascii`, nick `a[`, feed
+  `:s 433 a[ a{ :Nickname is already in use`. The nick stays `a[`
+  and the outs do not contain `NICK`. A 433 for `a[` still retries
+  under ascii. A 433 for `a{` still retries under rfc1459.
+
+- [x] **D46. `/unmute` drops an ascii nick twin.**
+  `del_mute_client_iso` (`src/bend/buffer.bend:888`) holds `+isc`
+  and deletes with `del_mute_list_with(iso_types(isc), ...)`.
+  That hit (`:471`) is `Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick_with(types, m), pat)`.
+  `Irc.ieq` is rfc1459, so the casemap on `isc` is not used.
+  Rectify: match the pattern and the extracted nick with
+  `buf_eq_cm(iso_cm(isc), ...)`. Leave `del_mute_list` and
+  `del_mute_client` on `dflt_cm()`. Do not add a field.
+  Add a case: `CASEMAPPING=ascii`, one mute `a{*@server`, then
+  `/unmute a[`. The `a{` entry remains, and `/unmute a{` removes
+  it. Today `/unmute a[` removes `a{`.
+
 ## Comments
 
 Rewrite the comment. Leave the arithmetic and the control flow alone

@@ -464,12 +464,16 @@ def del_mute_list.rest(tail: List<&2, String>, +m: String, hit: Bool) -> List<&2
     case False{}:
       m <> tail
 
-def del_mute_list_with(+types: String, mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+# /unmute identity follows the negotiated casemap. The two-arg wrapper stays on rfc1459.
+def del_mute_list_with_cm(+cm: String, +types: String, mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   match mutes:
     case Nil{}: Nil{}
     case Con{+m, t}:
-      +hit = Irc.ieq(m, pat) || Irc.ieq(mute_pat_nick_with(types, m), pat)
-      del_mute_list.rest(del_mute_list_with(types, t, pat), m, hit)
+      +hit = buf_eq_cm(cm, m, pat) || buf_eq_cm(cm, mute_pat_nick_with(types, m), pat)
+      del_mute_list.rest(del_mute_list_with_cm(cm, types, t, pat), m, hit)
+
+def del_mute_list_with(+types: String, mutes: List<&2, String>, +pat: String) -> List<&2, String>:
+  del_mute_list_with_cm(dflt_cm(), types, mutes, pat)
 
 def del_mute_list(mutes: List<&2, String>, +pat: String) -> List<&2, String>:
   del_mute_list_with(dflt_types(), mutes, pat)
@@ -885,7 +889,7 @@ def del_mute_client(+cl: Client, +pat: String) -> Client:
 def del_mute_client_iso(+cl: Client, +isc: Iso, +pat: String) -> Client:
   match cl:
     case Client{+nick, +server, bufs, active, now, +stg, +auth, +log_seq, welcomed}:
-      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list_with(iso_types(isc), settings_mutes(stg), pat)), auth, log_seq, welcomed}
+      Client{nick, server, bufs, active, now, set_mutes(stg, del_mute_list_with_cm(iso_cm(isc), iso_types(isc), settings_mutes(stg), pat)), auth, log_seq, welcomed}
 
 # ---- init ---------------------------------------------------------------
 
@@ -2516,33 +2520,49 @@ def drop_buf.act(+active: Nat, +bi: Nat, +nbufs2: Nat, shift: Bool) -> Nat:
     case False{}:
       clamp_active(nbufs2, active)
 
-def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat) -> Client:
+def drop_buf.go_cm(+cm: String, +nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat) -> Client:
   +bufs2 = remove_buf(bufs, bi)
-  +stg2 = set_active.unread(stg, nth_buf(bufs, bi))
+  +stg2 = set_active.unread_cm(cm, stg, nth_buf(bufs, bi))
   +next = drop_buf.act(active, bi, buf_count(bufs2), Nat.is_gt(active, bi))
-  set_active(Client{nick, server, bufs2, next, now, stg2, auth, log_seq, welcomed}, next)
+  set_active_cm(cm, Client{nick, server, bufs2, next, now, stg2, auth, log_seq, welcomed}, next)
 
-def drop_buf.body(+cl: Client, +bi: Nat) -> Client:
+def drop_buf.go(+nick: String, +server: String, +bufs: List<&2, Buffer>, +active: Nat, +now: String, +stg: Settings, +auth: AuthPhase, +log_seq: Nat, welcomed: Bool, +bi: Nat) -> Client:
+  drop_buf.go_cm(dflt_cm(), nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi)
+
+def drop_buf.body_cm(+cm: String, +cl: Client, +bi: Nat) -> Client:
   match cl:
     case Client{+nick, +server, +bufs, +active, +now, +stg, +auth, +log_seq, welcomed}:
-      drop_buf.go(nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi)
+      drop_buf.go_cm(cm, nick, server, bufs, active, now, stg, auth, log_seq, welcomed, bi)
 
-def drop_buf.keep(+cl: Client, +bi: Nat, is_server: Bool) -> Client:
+def drop_buf.body(+cl: Client, +bi: Nat) -> Client:
+  drop_buf.body_cm(dflt_cm(), cl, bi)
+
+def drop_buf.keep_cm(+cm: String, +cl: Client, +bi: Nat, is_server: Bool) -> Client:
   match is_server:
     case True{}:
       cl
     case False{}:
-      drop_buf.body(cl, bi)
+      drop_buf.body_cm(cm, cl, bi)
+
+def drop_buf.keep(+cl: Client, +bi: Nat, is_server: Bool) -> Client:
+  drop_buf.keep_cm(dflt_cm(), cl, bi, is_server)
+
+# Index 0 stays. The two-arg entries stay on rfc1459 for history and laws.
+def drop_buf_cm(+cm: String, +cl: Client, +bi: Nat) -> Client:
+  drop_buf.keep_cm(cm, cl, bi, Nat.is_eq(bi, 0n))
 
 def drop_buf(+cl: Client, +bi: Nat) -> Client:
-  drop_buf.keep(cl, bi, Nat.is_eq(bi, 0n))
+  drop_buf_cm(dflt_cm(), cl, bi)
 
-def drop_buf.at(+cl: Client, found: Maybe<&2, Nat>) -> Client:
+def drop_buf.at_cm(+cm: String, +cl: Client, found: Maybe<&2, Nat>) -> Client:
   match found:
     case None{}:
       cl
     case Some{+bi}:
-      drop_buf(cl, bi)
+      drop_buf_cm(cm, cl, bi)
+
+def drop_buf.at(+cl: Client, found: Maybe<&2, Nat>) -> Client:
+  drop_buf.at_cm(dflt_cm(), cl, found)
 
 
 def nick_of(+cl: Client) -> String:

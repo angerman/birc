@@ -123,6 +123,9 @@ def live_batch_count(+isc: Cl.Iso, +target: String, +line: String) -> Nat:
 def dollar_iso() -> Cl.Iso:
   Cl.Iso{"rfc1459", "$", "@+", "@+", "@+~&%"}
 
+def ascii_iso() -> Cl.Iso:
+  Cl.Iso{"ascii", "#", "@+", "@+", "@+~&%"}
+
 def open_chan_batch() -> Hs.ChatBatch:
   or_idle(Hs.batch_open(":irc.test BATCH +abc chathistory #chan", "irc.test"))
 
@@ -371,6 +374,15 @@ def main() -> IO(Unit):
       "@batch=live;msgid=d2 :charlie!u@h PRIVMSG me :nope"), 0n))
     Unit <- E.must("live default policy does not classify dollar target as channel", Nat.is_eq(live_batch_count(Cl.Iso.defaults(), "$room",
       "@batch=live;msgid=d3 :alice!u@h PRIVMSG $room :nope"), 0n))
+    # ascii keeps `[` off `{`. The kept sibling fails a reject-everything bug.
+    Unit <- E.must("live ascii channel batch drops bracket twin", Nat.is_eq(live_batch_count(ascii_iso(), "#x[",
+      "@batch=live;msgid=a1 :alice!u@h PRIVMSG #x{ :nope"), 0n))
+    Unit <- E.must("live ascii channel batch keeps bracket target", Nat.is_eq(live_batch_count(ascii_iso(), "#x[",
+      "@batch=live;msgid=a2 :alice!u@h PRIVMSG #x[ :yes"), 1n))
+    Unit <- E.must("live ascii private batch drops bracket nick", Nat.is_eq(live_batch_count(ascii_iso(), "a[",
+      "@batch=live;msgid=a3 :a{!u@h PRIVMSG me :nope"), 0n))
+    Unit <- E.must("live ascii private batch keeps bracket nick", Nat.is_eq(live_batch_count(ascii_iso(), "a[",
+      "@batch=live;msgid=a4 :a[!u@h PRIVMSG me :yes"), 1n))
     Unit <- E.must_eq("batch_idle_stable", batch_tag(Hs.batch_line(Hs.ChatIdle{}, "me", batch_msg(1n))), "idle")
     Unit <- E.must("batch_cap_count", Nat.is_eq(batch_count(flood), 100n))
     Unit <- E.must("batch_cap_overflow", Hs.batch_overflow(flood))

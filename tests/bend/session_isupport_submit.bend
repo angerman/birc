@@ -5,6 +5,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/frame.bend as Fr
+import ../../src/bend/irc.bend as Irc
 import ../../src/bend/isupport.bend as Is
 import ../../src/bend/join_plan.bend as P
 import ../../src/bend/media.bend as M
@@ -12,6 +13,7 @@ import ../../src/bend/session.bend as Sess
 import ../../src/bend/split.bend as Sp
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/theme.bend as Theme
+import ../../src/bend/typing.bend as Ty
 import ../../src/bend/view.bend as V
 
 def base() -> Cl.Client:
@@ -330,6 +332,92 @@ def muted_paint_matches_window(+iso: Is.State, +chan: String) -> Bool:
   +rows = V.visible_anchored_panes_media_cards_iso(isc, cl, 24, 80, Sp.Off{}, M.empty(), Nil{})
   Bool.not(view_contains(vm, "<Alice> old")) && Bool.not(anchored_contains(rows, "<Alice> old"))
 
+def x_brackets() -> Cl.Client:
+  Cl.Client{"me", "irc", Cl.server_buf() <> Cl.empty_buf("#x[", True{}) <> Cl.empty_buf("#x{", True{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
+
+def brace_only() -> Cl.Client:
+  Cl.Client{"me", "irc", Cl.server_buf() <> Cl.empty_buf("#x{", True{}) <> Nil{}, 1n, "", Cl.settings0(), Cl.AuthIdle{}, 0n, False{}}
+
+def put_split(+st: Sess.Session, split: Sp.State) -> Sess.Session:
+  Sess.session_put_finish(st, Sess.session_cl(st), Sess.session_draft(st), Sess.session_hist(st), Sess.session_seed(st), Sess.session_comp(st), split)
+
+def twin_split(net: Sess.NetState) -> Sess.Session:
+  put_split(Sess.session_set_net(live(ascii_server(), x_brackets(), "#x["), net), Sp.On{Sp.Stacked{}, "#x[", "#x{", 0})
+
+def split_twins(st: Sp.State) -> Bool:
+  match st:
+    case Sp.Off{}: False{}
+    case Sp.On{_, +first, +second, _}: String.eq(first, "#x[") && String.eq(second, "#x{")
+
+def entered_split(net: Sess.NetState, +line: String) -> Sp.State:
+  Sess.session_split(result_session(Sess.step_enter(twin_split(net), line)))
+
+def ascii_multiline_online_keeps_split() -> Bool:
+  split_twins(entered_split(Sess.Online{}, "hello\nworld"))
+
+def ascii_multiline_held_keeps_split() -> Bool:
+  split_twins(entered_split(Sess.Offline{}, "hello\nworld"))
+
+def ascii_split_opens_brace_pane() -> Bool:
+  split_twins(Sess.session_split(result_session(Sess.step_enter(live(ascii_server(), x_brackets(), "#x["), "/split #x{"))))
+
+def bracket_typing() -> Ty.State:
+  Ty.apply(Ty.empty(), Irc.TypingSet{"bob", "#x[", Irc.TypingActive{}}, 0)
+
+def chunk_typing_count(+st: Sess.Session) -> Nat:
+  Ty.count(Sess.session_typing(chunk_state(receive(st, "PING :xyz"))))
+
+def ascii_chunk_drops_bracket_typing() -> Bool:
+  Nat.is_eq(chunk_typing_count(Sess.session_put_typing(live(ascii_server(), brace_only(), "#x{"), bracket_typing())), 0n)
+
+def live_typing_count(acc: Sess.LiveAcc) -> Nat:
+  match acc:
+    case Sess.LiveAcc{_, +typing, _, _, _, _, _}: Ty.count(typing)
+
+def brace_session() -> Sess.Session:
+  live(ascii_server(), brace_only(), "#x{")
+
+def ascii_flushed_drops_bracket_typing() -> Bool:
+  Nat.is_eq(live_typing_count(Sess.live_step.flushed(
+    Sess.FoldAcc{brace_only(), Nil{}, 0},
+    bracket_typing(),
+    P.Flush{P.initial(""), Nil{}, P.Quiet{}},
+    ascii_server(),
+    Sess.session_hist_live(brace_session()),
+    Sess.session_reg(brace_session()),
+    Nil{})), 0n)
+
+def nick_client() -> Cl.Client:
+  Cl.init("a[", "irc")
+
+def receive_nick.on(pair: Sess.Session & List<&2, String>) -> Cl.Client & String:
+  match pair:
+    case (st, outs): (Sess.session_cl(st), String.join(outs, "|"))
+
+def receive_nick(+iso: Is.State, +line: String) -> Cl.Client & String:
+  receive_nick.on(receive(live(iso, nick_client(), ""), line))
+
+def ascii_433_brace_stays.on(pair: Cl.Client & String) -> Bool:
+  match pair:
+    case (+cl, +wire): String.eq(Cl.nick_of(cl), "a[") && Bool.not(String.contains(wire, "NICK"))
+
+def ascii_433_brace_stays() -> Bool:
+  ascii_433_brace_stays.on(receive_nick(ascii_server(), ":s 433 a[ a{ :Nickname is already in use"))
+
+def ascii_433_same_retries.on(pair: Cl.Client & String) -> Bool:
+  match pair:
+    case (+cl, +wire): String.eq(Cl.nick_of(cl), "a[_") && String.contains(wire, "NICK a[_")
+
+def ascii_433_same_retries() -> Bool:
+  ascii_433_same_retries.on(receive_nick(ascii_server(), ":s 433 a[ a[ :Nickname is already in use"))
+
+def rfc1459_433_brace_retries.on(pair: Cl.Client & String) -> Bool:
+  match pair:
+    case (+cl, +wire): String.eq(Cl.nick_of(cl), "a[_") && String.contains(wire, "NICK a[_")
+
+def rfc1459_433_brace_retries() -> Bool:
+  rfc1459_433_brace_retries.on(receive_nick(rfc1459_hash_server(), ":s 433 a[ a{ :Nickname is already in use"))
+
 def main() -> IO(Unit):
   +iso = dollar_server()
   +cl = base()
@@ -446,4 +534,12 @@ def main() -> IO(Unit):
     Unit <- E.must("STATUSMSG audience rejected when at is also a CHANTYPE", reject_statusmsg_when_at_is_chantype())
     Unit <- E.must("ascii message keys keep stored buffer case", ascii_message_key_keeps_stored_case())
     Unit <- E.must("STATUSMSG strips at most one leading sigil", plus_statusmsg_no_double_strip())
+    Unit <- E.must("ascii multiline enter keeps distinct bracket panes split", ascii_multiline_online_keeps_split())
+    Unit <- E.must("ascii held multiline enter keeps distinct bracket panes split", ascii_multiline_held_keeps_split())
+    Unit <- E.must("ascii /split opens the exact brace pane", ascii_split_opens_brace_pane())
+    Unit <- E.must("ascii chunk drops typing aimed at a closed bracket sibling", ascii_chunk_drops_bracket_typing())
+    Unit <- E.must("ascii flush drops typing aimed at a closed bracket sibling", ascii_flushed_drops_bracket_typing())
+    Unit <- E.must("ascii 433 for the brace sibling does not retry nick a[", ascii_433_brace_stays())
+    Unit <- E.must("ascii 433 for the same nick still retries", ascii_433_same_retries())
+    Unit <- E.must("rfc1459 433 for the brace sibling still retries nick a[", rfc1459_433_brace_retries())
     IO.print("session_isupport_submit=ok")

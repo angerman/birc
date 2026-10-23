@@ -3,6 +3,7 @@ import ./expect.bend as E
 import ../../src/bend/buffer.bend as Cl
 import ../../src/bend/client.bend as Feed
 import ../../src/bend/submit.bend as Sub
+import ../../src/bend/isupport.bend as Is
 
 def client(pair: Cl.Client & List<&2, String>) -> Cl.Client:
   match pair:
@@ -42,6 +43,29 @@ def unmute_scoped(+name: String) -> Bool:
     && Cl.is_muted_client(unmuted, "alicex", name)
     && Nat.is_eq(List.length(&2, String, Cl.settings_mutes(Cl.get_settings(unmuted))), 1n)
 
+def ascii_state() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# CASEMAPPING=ascii :are supported")
+
+def mute_text(xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}: ""
+    case Con{+h, t}: h ++ "|" ++ mute_text(t)
+
+def ascii_mute_base() -> Cl.Client:
+  Cl.add_mute_client(Cl.init("me", "server"), "a{*@server")
+
+def ascii_unmute_bracket() -> Cl.Client:
+  client(Sub.submit_with(ascii_state(), ascii_mute_base(), "/unmute a["))
+
+def ascii_unmute_brace() -> Cl.Client:
+  client(Sub.submit_with(ascii_state(), ascii_unmute_bracket(), "/unmute a{"))
+
+def ascii_unmute_keeps_brace() -> Bool:
+  String.eq(mute_text(Cl.settings_mutes(Cl.get_settings(ascii_unmute_bracket()))), "a{*@server|")
+
+def ascii_unmute_removes_brace() -> Bool:
+  String.eq(mute_text(Cl.settings_mutes(Cl.get_settings(ascii_unmute_brace()))), "")
+
 def unmute_exact() -> Bool:
   +cl = Cl.add_mute_client(muted_channel("&room"), "alice#other@irc.example")
   +unmuted = client(Sub.submit(cl, "/unmute alice&room@irc.example"))
@@ -65,4 +89,6 @@ def main() -> IO(Unit):
     Unit <- E.must("unmute_plus_scope", unmute_scoped("+room"))
     Unit <- E.must("unmute_bang_scope", unmute_scoped("!ABCDEroom"))
     Unit <- E.must("unmute_exact_pattern", unmute_exact())
+    Unit <- E.must("ascii unmute bracket keeps brace pattern", ascii_unmute_keeps_brace())
+    Unit <- E.must("ascii unmute brace removes brace pattern", ascii_unmute_removes_brace())
     IO.print("mute_scope_demo=ok")

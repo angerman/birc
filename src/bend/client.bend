@@ -363,7 +363,7 @@ def feed_part_with.on(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +from: String
 def feed_part_with.pick(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +from: String, self: Bool, found: Maybe<&2, Nat>) -> Cl.Client:
   match self:
     case True{}:
-      Cl.drop_buf.at(cl, found)
+      Cl.drop_buf.at_cm(Cl.iso_cm(isc), cl, found)
     case False{}:
       feed_part_with.on(cl, isc, chan, from, found)
 
@@ -406,7 +406,7 @@ def feed_kick_with.other(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +victim: S
 def feed_kick_with.pick(+cl: Cl.Client, +isc: Cl.Iso, +chan: String, +victim: String, self: Bool, found: Maybe<&2, Nat>) -> Cl.Client:
   match self:
     case True{}:
-      Cl.drop_buf.at(cl, found)
+      Cl.drop_buf.at_cm(Cl.iso_cm(isc), cl, found)
     case False{}:
       feed_kick_with.other(cl, isc, chan, victim, found)
 
@@ -484,8 +484,9 @@ def feed_quit_with(+cl: Cl.Client, +isc: Cl.Iso, +m: Irc.Message) -> Cl.Client:
 
 # NICK rename has one parameterized owner, feed_nick_with below (I2-dynamic3
 # R5): roster, query, focus, unreads, and coalescing compare under the given
-# CASEMAPPING with the given PREFIX strip set. fin/focused stay shared and
-# mapping-free; the fixed feed_nick entries delegate with the defaults.
+# CASEMAPPING with the given PREFIX strip set. fin stays shared and
+# mapping-free. focused takes that casemap so an ascii twin keeps its unread.
+# Index 0 still uses set_active and does not clear unread.
 def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
   match self:
     case True{}:
@@ -493,10 +494,10 @@ def feed_nick.fin(+cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
     case False{}:
       cl
 
-def feed_nick.focused(index: Maybe<&2, Nat>, +cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
+def feed_nick.focused(+cm: String, index: Maybe<&2, Nat>, +cl: Cl.Client, +to: String, self: Bool) -> Cl.Client:
   match index:
     case None{}: feed_nick.fin(Cl.set_active(cl, 0n), to, self)
-    case Some{i}: feed_nick.fin(Cl.set_active(cl, i), to, self)
+    case Some{i}: feed_nick.fin(Cl.set_active_cm(cm, cl, i), to, self)
 
 # Negotiated NICK rename (I2-dynamic2 F3, sole owner since I2-dynamic3 R5):
 # roster, query, focus, unreads, and query coalescing all compare under the
@@ -548,7 +549,7 @@ def feed_nick_with.map(+isc: Cl.Iso, xs: List<&2, Cl.Buffer>, from: String, to: 
 def feed_nick_with.focus_control(+cm: String, control: Bool, +cl: Cl.Client, name: String, +to: String, self: Bool) -> Cl.Client:
   match control:
     case True{}: feed_nick.fin(Cl.set_active(cl, 0n), to, self)
-    case False{}: feed_nick.focused(Cl.buf_find_cm(cl, cm, name), cl, to, self)
+    case False{}: feed_nick.focused(cm, Cl.buf_find_cm(cl, cm, name), cl, to, self)
 
 def feed_nick_with.coalesced(+cm: String, +cl: Cl.Client, +from: String, +to: String, +focus: String, self: Bool, control: Bool) -> Cl.Client:
   +stg = Cl.get_settings(cl)
@@ -681,10 +682,13 @@ def feed_num.n433.on(+cl: Cl.Client, +m: Irc.Message, +num: U32, +nick: String, 
     case False{}:
       feed_num.other(cl, num, Irc.msg_last(m), True{})
 
-def feed_num.n433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
+def feed_num.n433.cl_cm(+cm: String, +cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
   match cl:
     case Cl.Client{+nick, _, _, _, _, _, +auth, +log_seq, _}:
-      feed_num.n433.on(cl, m, num, nick, Irc.nick433_retry(m, nick))
+      feed_num.n433.on(cl, m, num, nick, Irc.nick433_retry_cm(cm, m, nick))
+
+def feed_num.n433.cl(+cl: Cl.Client, +m: Irc.Message, +num: U32) -> Cl.Client:
+  feed_num.n433.cl_cm("rfc1459", cl, m, num)
 
 def is_353_sym(+s: String) -> Bool:
   String.eq(s, "=") || String.eq(s, "*") || String.eq(s, "@")
@@ -786,7 +790,7 @@ def feed_num_with.by(+cl: Cl.Client, +isc: Cl.Iso, +prefix: String, +m: Irc.Mess
     case N366{}:
       cl
     case N433{}:
-      feed_num.n433.cl(cl, m, num)
+      feed_num.n433.cl_cm(Cl.iso_cm(isc), cl, m, num)
     case NOther{}:
       feed_num.other_reply(cl, m, num)
 

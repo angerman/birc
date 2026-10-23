@@ -872,14 +872,15 @@ def batch_open_iso(+isc: Cl.Iso, +line: String, +server: String) -> Maybe<&2, Ch
 
 # Channel batches accept any sender to the channel. Private batches pair one
 # subject with self: requested `bob` accepts bob->me and me->bob only, so a
-# third party writing to me never lands in bob's history.
-def batch_target_ok.private(+p0: String, +target: String, +self: String, +nick: String) -> Bool:
-  (Irc.ieq(nick, target) && Irc.ieq(p0, self)) || (Irc.ieq(nick, self) && Irc.ieq(p0, target))
+# third party writing to me never lands in bob's history. The fold is the
+# caller's casemap: ascii keeps `[` distinct from `{`.
+def batch_target_ok.private(+cm: String, +p0: String, +target: String, +self: String, +nick: String) -> Bool:
+  (Cl.buf_eq_cm(cm, nick, target) && Cl.buf_eq_cm(cm, p0, self)) || (Cl.buf_eq_cm(cm, nick, self) && Cl.buf_eq_cm(cm, p0, target))
 
-def batch_target_ok(channel: Bool, +p0: String, +target: String, +self: String, +nick: String) -> Bool:
+def batch_target_ok(+cm: String, channel: Bool, +p0: String, +target: String, +self: String, +nick: String) -> Bool:
   match channel:
-    case True{}: Irc.ieq(p0, target)
-    case False{}: batch_target_ok.private(p0, target, self, nick)
+    case True{}: Cl.buf_eq_cm(cm, p0, target)
+    case False{}: batch_target_ok.private(cm, p0, target, self, nick)
 
 def batch_body.action(action: Bool, +nick: String, +body: String) -> String:
   match action:
@@ -908,13 +909,13 @@ def batch_collect.decide(ok: Bool, +full: Bool, +ref: String, +target: String, +
     case True{}: batch_collect.full(full, ref, target, channel, messages, overflow, mid, stamp, body, author)
     case False{}: ChatCollect{ref, target, channel, messages, overflow}
 
-def batch_collect.msg(+ref: String, +target: String, +channel: Bool, +messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String, +msg: Irc.Message) -> ChatBatch:
+def batch_collect.msg(+cm: String, +ref: String, +target: String, +channel: Bool, +messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String, +msg: Irc.Message) -> ChatBatch:
   +mid = tag_value(line, "msgid")
   +nick = Feed.msg_nick(msg)
   +raw = Irc.msg_param(msg, 1n)
   batch_collect.decide(
     (Irc.ieq(Irc.msg_command(msg), "PRIVMSG") || Irc.ieq(Irc.msg_command(msg), "NOTICE"))
-      && batch_target_ok(channel, Irc.msg_param(msg, 0n), target, self, nick)
+      && batch_target_ok(cm, channel, Irc.msg_param(msg, 0n), target, self, nick)
       && valid_msgid(mid)
       && Bool.not(String.is_empty(ref))
       && String.eq(tag_value(line, "batch"), ref),
@@ -924,19 +925,23 @@ def batch_collect.msg(+ref: String, +target: String, +channel: Bool, +messages: 
     batch_collect.store(Irc.ieq(Irc.msg_command(msg), "NOTICE"), nick, raw),
     Irc.sanitize_in(nick))
 
-def batch_collect.parsed(+ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String, m: Maybe<&2, Irc.Message>) -> ChatBatch:
+def batch_collect.parsed(+cm: String, +ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String, m: Maybe<&2, Irc.Message>) -> ChatBatch:
   match m:
     case None{}: ChatCollect{ref, target, channel, messages, overflow}
-    case Some{+msg}: batch_collect.msg(ref, target, channel, messages, overflow, self, line, msg)
+    case Some{+msg}: batch_collect.msg(cm, ref, target, channel, messages, overflow, self, line, msg)
 
-def batch_collect(+ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String) -> ChatBatch:
-  batch_collect.parsed(ref, target, channel, messages, overflow, self, line, Irc.parse(line))
+def batch_collect(+cm: String, +ref: String, +target: String, +channel: Bool, messages: List<&2, BatchMsg>, +overflow: Bool, +self: String, +line: String) -> ChatBatch:
+  batch_collect.parsed(cm, ref, target, channel, messages, overflow, self, line, Irc.parse(line))
 
-def batch_line(batch: ChatBatch, +self: String, +line: String) -> ChatBatch:
+# Callers that do not hold a negotiated casemap stay on rfc1459.
+def batch_line_cm(+cm: String, batch: ChatBatch, +self: String, +line: String) -> ChatBatch:
   match batch:
     case ChatCollect{+ref, +target, +channel, +messages, +overflow}:
-      batch_collect(ref, target, channel, messages, overflow, self, line)
+      batch_collect(cm, ref, target, channel, messages, overflow, self, line)
     case _: batch
+
+def batch_line(batch: ChatBatch, +self: String, +line: String) -> ChatBatch:
+  batch_line_cm(Cl.dflt_cm(), batch, self, line)
 
 # Live-loop interception: a framed line whose `batch` tag equals the active
 # collect ref belongs to the chathistory batch and must reach the batch
@@ -1583,19 +1588,19 @@ def hist_collect_step.suppressed(suppress: Bool, +batch: ChatBatch) -> ChatBatch
     case True{}: (batch, True{})
     case False{}: (batch, False{})
 
-def hist_collect_step.claimed(claimed: Bool, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
+def hist_collect_step.claimed(+cm: String, claimed: Bool, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
   match claimed:
-    case True{}: (batch_line(batch, self, line), True{})
+    case True{}: (batch_line_cm(cm, batch, self, line), True{})
     case False{}: hist_collect_step.suppressed(batch_suppressed(line, server), batch)
 
-def hist_collect_step.done(done: Bool, +closed: ChatBatch, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
+def hist_collect_step.done(+cm: String, done: Bool, +closed: ChatBatch, +batch: ChatBatch, +self: String, +line: String, +server: String) -> ChatBatch & Bool:
   match done:
     case True{}: (closed, True{})
-    case False{}: hist_collect_step.claimed(batch_claims(batch, line), batch, self, line, server)
+    case False{}: hist_collect_step.claimed(cm, batch_claims(batch, line), batch, self, line, server)
 
-def hist_collect_step(+batch: ChatBatch, +self: String, +server: String, +line: String) -> ChatBatch & Bool:
+def hist_collect_step(+cm: String, +batch: ChatBatch, +self: String, +server: String, +line: String) -> ChatBatch & Bool:
   +closed = batch_close(batch, line, server)
-  hist_collect_step.done(batch_done(closed), closed, batch, self, line, server)
+  hist_collect_step.done(cm, batch_done(closed), closed, batch, self, line, server)
 
 def hist_idle_step.quiet(pair: ChatBatch & Bool) -> ChatBatch & Bool & Maybe<&2, Nat>:
   match pair:
@@ -1619,7 +1624,7 @@ def hist_batch_step.collected(pair: ChatBatch & Bool) -> ChatBatch & Bool & Mayb
 def hist_batch_step(+isc: Cl.Iso, batch: ChatBatch, +self: String, +server: String, +line: String, +ticket: Nat) -> ChatBatch & Bool & Maybe<&2, Nat>:
   match batch:
     case ChatCollect{+ref, +target, +channel, +messages, +overflow}:
-      hist_batch_step.collected(hist_collect_step(ChatCollect{ref, target, channel, messages, overflow}, self, server, line))
+      hist_batch_step.collected(hist_collect_step(Cl.iso_cm(isc), ChatCollect{ref, target, channel, messages, overflow}, self, server, line))
     case ChatIdle{}: hist_idle_step(isc, ChatIdle{}, server, line, ticket)
     case ChatDone{+ref, +target, +messages, +overflow}:
       hist_idle_step(isc, ChatDone{ref, target, messages, overflow}, server, line, ticket)

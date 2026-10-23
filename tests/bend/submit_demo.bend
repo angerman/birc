@@ -7,6 +7,7 @@ import ../../src/bend/client_laws.bend as CL
 import ../../src/bend/submit.bend as Sub
 import ../../src/bend/session.bend as Sess
 import ../../src/bend/irc.bend as Irc
+import ../../src/bend/isupport.bend as Is
 
 def hash() -> String:
   SCon{Chr{35}, SNil{}}
@@ -281,5 +282,65 @@ def main_on(+cl0: Cl.Client, join_pair: Cl.Client & List<&2, String>) -> IO(Unit
     case (cl1, outs):
       main_on.with(cl0, cl1, outs)
 
+def ascii_state() -> Is.State:
+  Is.apply_line(Is.defaults(), ":s 005 me CHANTYPES=# CASEMAPPING=ascii :are supported")
+
+def ascii_twins() -> Cl.Client:
+  +iso = ascii_state()
+  +left = take_cl(Sub.submit_join_iso(iso, Cl.init("me", "irc"), "#x["))
+  take_cl(Sub.submit_join_iso(iso, left, "#x{"))
+
+def arm_both(+cl: Cl.Client) -> Cl.Client:
+  Cl.set_settings(cl, Cl.set_unreads(Cl.get_settings(cl), Cl.Alert{"#x[", Cl.Activity{}} <> Cl.Alert{"#x{", Cl.Activity{}} <> Nil{}))
+
+def arm_brace(+cl: Cl.Client) -> Cl.Client:
+  Cl.set_settings(cl, Cl.set_unreads(Cl.get_settings(cl), Cl.Alert{"#x{", Cl.Activity{}} <> Nil{}))
+
+def on_server(+cl: Cl.Client) -> Cl.Client:
+  Cl.set_active(cl, 0n)
+
+def unread_ascii(+cl: Cl.Client, +name: String) -> U32:
+  Cl.buf_unread_status_cm("ascii", Cl.settings_unreads(Cl.get_settings(cl)), name)
+
+def has_buf(got: Maybe<&2, Nat>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def has_name(+cl: Cl.Client, +name: String) -> Bool:
+  has_buf(Cl.buf_find_cm(cl, "ascii", name))
+
+def ascii_join_focused() -> Bool:
+  +after = take_cl(Sub.submit_join_iso(ascii_state(), arm_both(ascii_twins()), "#x["))
+  String.eq(Cl.active_buf_name(after), "#x[") && U32.is_eq(unread_ascii(after, "#x{"), 1) && U32.is_eq(unread_ascii(after, "#x["), 0)
+
+def ascii_msg_focused() -> Bool:
+  +after = take_cl(Sub.submit_msg_with_echo(ascii_state(), arm_both(ascii_twins()), "#x[ hi", False{}))
+  String.eq(Cl.active_buf_name(after), "#x[") && U32.is_eq(unread_ascii(after, "#x{"), 1) && U32.is_eq(unread_ascii(after, "#x["), 0)
+
+def ascii_query_focused() -> Bool:
+  +after = take_cl(Sub.submit_query_with_echo(ascii_state(), arm_both(ascii_twins()), "#x[", False{}))
+  String.eq(Cl.active_buf_name(after), "#x[") && U32.is_eq(unread_ascii(after, "#x{"), 1) && U32.is_eq(unread_ascii(after, "#x["), 0)
+
+def ascii_notice_focused() -> Bool:
+  +after = take_cl(Sub.submit_notice_with_echo(ascii_state(), arm_both(ascii_twins()), "#x[ hi", False{}))
+  String.eq(Cl.active_buf_name(after), "#x[") && U32.is_eq(unread_ascii(after, "#x{"), 1) && U32.is_eq(unread_ascii(after, "#x["), 0)
+
+def ascii_part_keeps() -> Bool:
+  +after = take_cl(Sub.submit_part_iso(ascii_state(), arm_brace(on_server(ascii_twins())), "#x["))
+  Bool.not(has_name(after, "#x[")) && has_name(after, "#x{") && U32.is_eq(unread_ascii(after, "#x{"), 1)
+
+def casemap_focus() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- E.must("ascii join focuses bracket and keeps brace unread", ascii_join_focused())
+    Unit <- E.must("ascii msg focuses bracket and keeps brace unread", ascii_msg_focused())
+    Unit <- E.must("ascii empty query focuses bracket and keeps brace unread", ascii_query_focused())
+    Unit <- E.must("ascii notice focuses bracket and keeps brace unread", ascii_notice_focused())
+    Unit <- E.must("ascii part drops bracket and keeps brace unread", ascii_part_keeps())
+    IO.pure(Unit, Unit{})
+
 def main() -> IO(Unit):
-  main_on(Cl.init("me", "irc.birc.dev"), Sub.submit(Cl.init("me", "irc.birc.dev"), join_cmd()))
+  do IO<Unit>:
+    Unit <- casemap_focus()
+    Unit <- main_on(Cl.init("me", "irc.birc.dev"), Sub.submit(Cl.init("me", "irc.birc.dev"), join_cmd()))
+    IO.pure(Unit, Unit{})

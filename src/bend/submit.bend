@@ -371,10 +371,13 @@ def join_channels_iso(targets: List<&2, String>, keys: List<&2, String>, +iso: I
         case Nil{}: Is.join_admit(iso, target, "") && join_channels_iso(target_rest, Nil{}, iso)
         case Con{+key, key_rest}: Is.join_admit(iso, target, key) && join_channels_iso(target_rest, key_rest, iso)
 
-def join_staged.got(pair: Cl.Client & Maybe<&2, Nat>) -> Maybe<&2, Cl.Client>:
+def join_staged.got_cm(+cm: String, pair: Cl.Client & Maybe<&2, Nat>) -> Maybe<&2, Cl.Client>:
   match pair:
     case (_, None{}): None{}
-    case (+cl, Some{+i}): Some{Cl.set_active(Cl.nick_add_idx(cl, i, Cl.nick_of(cl)), i)}
+    case (+cl, Some{+i}): Some{Cl.set_active_cm(cm, Cl.nick_add_idx(cl, i, Cl.nick_of(cl)), i)}
+
+def join_staged.got(pair: Cl.Client & Maybe<&2, Nat>) -> Maybe<&2, Cl.Client>:
+  join_staged.got_cm(Cl.dflt_cm(), pair)
 
 def join_staged.step(acc: Maybe<&2, Cl.Client>, target: String) -> Maybe<&2, Cl.Client>:
   match acc:
@@ -390,7 +393,7 @@ def join_staged_iso.go(targets: List<&2, String>, +iso: Is.State, acc: Maybe<&2,
     case Con{+target, rest}:
       match acc:
         case None{}: None{}
-        case Some{cl}: join_staged_iso.go(rest, iso, join_staged.got(Cl.buf_get_with(cl, Is.as_iso(iso), target, True{}, True{})))
+        case Some{cl}: join_staged_iso.go(rest, iso, join_staged.got_cm(Is.casemapping(iso), Cl.buf_get_with(cl, Is.as_iso(iso), target, True{}, True{})))
 
 def join_staged_iso(+iso: Is.State, targets: List<&2, String>, +cl: Cl.Client) -> Maybe<&2, Cl.Client>:
   join_staged_iso.go(targets, iso, Some{cl})
@@ -463,8 +466,25 @@ def submit_part.on(+cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.C
 def submit_part.with(+cl: Cl.Client, +chan: String) -> Cl.Client & List<&2, String>:
   submit_part.on(cl, chan, Cl.buf_find(cl, chan))
 
+def submit_part.drop_cm.pick(+cm: String, +cl: Cl.Client, +chan: String, +bi: Nat, is_server: Bool) -> Cl.Client & List<&2, String>:
+  match is_server:
+    case True{}:
+      (cl, one_out(Irc.format_part(chan)))
+    case False{}:
+      (Cl.drop_buf_cm(cm, cl, bi), one_out(Irc.format_part(chan)))
+
+def submit_part.drop_cm(+cm: String, +cl: Cl.Client, +chan: String, +bi: Nat) -> Cl.Client & List<&2, String>:
+  submit_part.drop_cm.pick(cm, cl, chan, bi, Nat.is_eq(bi, 0n))
+
+def submit_part.on_cm(+cm: String, +cl: Cl.Client, +chan: String, found: Maybe<&2, Nat>) -> Cl.Client & List<&2, String>:
+  match found:
+    case None{}:
+      (cl, one_out(Irc.format_part(chan)))
+    case Some{+bi}:
+      submit_part.drop_cm(cm, cl, chan, bi)
+
 def submit_part.with_cm(+cl: Cl.Client, +chan: String, +cm: String) -> Cl.Client & List<&2, String>:
-  submit_part.on(cl, chan, Cl.buf_find_cm(cl, cm, chan))
+  submit_part.on_cm(cm, cl, chan, Cl.buf_find_cm(cl, cm, chan))
 
 def submit_part.is_ch(+cl: Cl.Client, +chan: String, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match is_chan:
@@ -527,6 +547,9 @@ def submit_close.out(+tgt: String, is_chan: Bool) -> List<&2, String>:
 def submit_close.fin(+cl: Cl.Client, +tgt: String, +bi: Nat, is_chan: Bool) -> Cl.Client & List<&2, String>:
   (Cl.drop_buf(cl, bi), submit_close.out(tgt, is_chan))
 
+def submit_close.fin_cm(+cm: String, +cl: Cl.Client, +tgt: String, +bi: Nat, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  (Cl.drop_buf_cm(cm, cl, bi), submit_close.out(tgt, is_chan))
+
 def submit_close.drop_as(+cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match is_server:
     case True{}:
@@ -564,20 +587,28 @@ def submit_close.empty(+cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client 
 def submit_close(+cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_close.empty(cl, rest, String.is_empty(rest))
 
-def submit_close_iso.on(+cl: Cl.Client, +tgt: String, found: Maybe<&2, Nat>, is_chan: Bool) -> Cl.Client & List<&2, String>:
+def submit_close.drop_as_cm(+cm: String, +cl: Cl.Client, +tgt: String, +bi: Nat, is_server: Bool, is_chan: Bool) -> Cl.Client & List<&2, String>:
+  match is_server:
+    case True{}:
+      (echo_err(cl, "cannot close server buffer"), empty_out())
+    case False{}:
+      submit_close.fin_cm(cm, cl, tgt, bi, is_chan)
+
+def submit_close_iso.on(+cm: String, +cl: Cl.Client, +tgt: String, found: Maybe<&2, Nat>, is_chan: Bool) -> Cl.Client & List<&2, String>:
   match found:
     case None{}:
       submit_close.miss(cl, tgt, is_chan)
     case Some{+bi}:
-      submit_close.drop_as(cl, tgt, bi, Nat.is_eq(bi, 0n), is_chan)
+      submit_close.drop_as_cm(cm, cl, tgt, bi, Nat.is_eq(bi, 0n), is_chan)
 
 def submit_close_iso.empty(+iso: Is.State, +cl: Cl.Client, +rest: String, empty: Bool) -> Cl.Client & List<&2, String>:
   match empty:
     case True{}:
       +tgt = Cl.active_buf_name(cl)
-      submit_close.drop_as(cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.join_admit(iso, tgt, ""))
+      submit_close.drop_as_cm(Is.casemapping(iso), cl, tgt, Cl.active_of(cl), Nat.is_eq(Cl.active_of(cl), 0n), Is.join_admit(iso, tgt, ""))
     case False{}:
-      submit_close_iso.on(cl, rest, Cl.buf_find_cm(cl, Is.casemapping(iso), rest), Is.join_admit(iso, rest, ""))
+      +cm = Is.casemapping(iso)
+      submit_close_iso.on(cm, cl, rest, Cl.buf_find_cm(cl, cm, rest), Is.join_admit(iso, rest, ""))
 
 def submit_close_iso(+iso: Is.State, +cl: Cl.Client, +rest: String) -> Cl.Client & List<&2, String>:
   submit_close_iso.empty(iso, cl, rest, String.is_empty(rest))
@@ -591,6 +622,13 @@ def take_word.scanned(pair: String & String) -> String & String:
 
 def take_word(s: String) -> String & String:
   take_word.scanned(Irc.take_until_space(s))
+
+def submit_msg_echo.got_cm(+cm: String, pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
+      send_message_gated(Cl.set_active_cm(cm, cl2, bi), bi, who, body, echo_ok)
 
 def submit_msg_echo.got(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
@@ -627,8 +665,18 @@ def submit_query_echo.send(has_text: Bool, +cl: Cl.Client, +bi: Nat, +who: Strin
     case True{}:
       send_message_gated(cl, bi, who, body, echo_ok)
 
+def submit_query_echo.found_cm(+cm: String, +cl2: Cl.Client, +bi: Nat, +who: String, +body: String, has_text: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  submit_query_echo.send(has_text, Cl.set_active_cm(cm, cl2, bi), bi, who, body, echo_ok)
+
 def submit_query_echo.found(+cl2: Cl.Client, +bi: Nat, +who: String, +body: String, has_text: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   submit_query_echo.send(has_text, Cl.set_active(cl2, bi), bi, who, body, echo_ok)
+
+def submit_query_echo.text_cm(+cm: String, pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, has_text: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl2, None{}):
+      (cl2, empty_out())
+    case (cl2, Some{+bi}):
+      submit_query_echo.found_cm(cm, cl2, bi, who, body, has_text, echo_ok)
 
 def submit_query_echo.text(pair: Cl.Client & Maybe<&2, Nat>, +who: String, +body: String, has_text: Bool, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
@@ -746,6 +794,11 @@ def submit_mode(+cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
 
 def submit_mode_iso(+iso: Is.State, +cl: Cl.Client, +args: String) -> Cl.Client & List<&2, String>:
   submit_wire(cl, mode_command_iso(iso, cl, args), "usage: /mode [target] [modes [args]]")
+
+def submit_notice_echo.got_cm(+cm: String, pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
+  match pair:
+    case (cl, None{}): (echo_err(cl, "buffer limit reached"), Nil{})
+    case (cl, Some{+i}): send_text_gated(Cl.set_active_cm(cm, cl, i), i, target, body, True{}, echo_ok)
 
 def submit_notice_echo.got(pair: Cl.Client & Maybe<&2, Nat>, +target: String, body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:
@@ -1895,7 +1948,7 @@ def submit_msg_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Client
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      submit_msg_echo.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, echo_ok)
+      submit_msg_echo.got_cm(Is.casemapping(iso), Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, echo_ok)
 
 def submit_msg_with_echo.bad(+iso: Is.State, +cl: Cl.Client, bad: Bool, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match bad:
@@ -1919,7 +1972,7 @@ def submit_query_with_echo.readonly(+iso: Is.State, internal: Bool, +cl: Cl.Clie
     case False{}:
       +key = Is.chan_target_cl(iso, cl, who)
       +chan = Is.is_channel(iso, who)
-      submit_query_echo.text(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, Bool.not(String.is_empty(body)), echo_ok)
+      submit_query_echo.text_cm(Is.casemapping(iso), Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), who, body, Bool.not(String.is_empty(body)), echo_ok)
 
 def submit_query_with_echo.empty(+iso: Is.State, +cl: Cl.Client, empty: Bool, +who: String, +body: String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match empty:
@@ -1943,7 +1996,7 @@ def submit_notice_with_echo.valid(+iso: Is.State, valid: Bool, +cl: Cl.Client, +
     case True{}:
       +key = Is.chan_target_cl(iso, cl, target)
       +chan = Is.is_channel(iso, target)
-      submit_notice_echo.got(Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), target, body, echo_ok)
+      submit_notice_echo.got_cm(Is.casemapping(iso), Cl.buf_get_with(cl, Is.as_iso(iso), key, chan, True{}), target, body, echo_ok)
 
 def submit_notice_with_echo.words(+iso: Is.State, +cl: Cl.Client, pair: String & String, +echo_ok: Bool) -> Cl.Client & List<&2, String>:
   match pair:

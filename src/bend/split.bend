@@ -187,13 +187,19 @@ def command_idx.got(got: Maybe<&2, Nat>, +target: String) -> Maybe<&2, Nat>:
     case Some{i}: Some{i}
     case None{}: Bool.pick(Maybe<&2, Nat>, Irc.ieq(target, "server"), Some{0n}, None{})
 
-def command_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
-  command_idx.got(named_idx(cl, target), target)
+def command_idx_cm(+cm: String, +cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+  command_idx.got(named_idx_cm(cm, cl, target), target)
 
-def target_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+def command_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+  command_idx_cm(Cl.dflt_cm(), cl, target)
+
+def target_idx_cm(+cm: String, +cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
   match target:
     case SNil{}: default_target(cl)
-    case SCon{_, _}: command_idx(cl, target)
+    case SCon{_, _}: command_idx_cm(cm, cl, target)
+
+def target_idx(+cl: Cl.Client, +target: String) -> Maybe<&2, Nat>:
+  target_idx_cm(Cl.dflt_cm(), cl, target)
 
 def activate.idx(same: Bool, +cl: Cl.Client, axis: Axis, +i: Nat) -> Cl.Client & State & Bool:
   match same:
@@ -208,8 +214,11 @@ def activate.got(+cl: Cl.Client, axis: Axis, got: Maybe<&2, Nat>) -> Cl.Client &
     case None{}: (cl, Off{}, False{})
     case Some{+i}: activate.idx(Nat.is_eq(i, Cl.active_of(cl)), cl, axis, i)
 
+def activate_cm(+cm: String, +cl: Cl.Client, axis: Axis, +target: String) -> Cl.Client & State & Bool:
+  activate.got(cl, axis, target_idx_cm(cm, cl, Irc.drop_spaces(target)))
+
 def activate(+cl: Cl.Client, axis: Axis, +target: String) -> Cl.Client & State & Bool:
-  activate.got(cl, axis, target_idx(cl, Irc.drop_spaces(target)))
+  activate_cm(Cl.dflt_cm(), cl, axis, target)
 
 def found.got(got: Maybe<&2, Nat>) -> Bool:
   match got:

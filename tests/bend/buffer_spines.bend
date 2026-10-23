@@ -82,6 +82,60 @@ def ascii_focus() -> IO(Unit):
     Unit <- E.must_eq("ascii focus drops only the bracket unread", names, "#a{|")
     IO.pure(Unit, Unit{})
 
+# Ascii focus and self-PART must not clear a fold-sibling unread.
+def ascii_isc() -> Cl.Iso:
+  Cl.Iso{"ascii", Cl.dflt_types(), Cl.dflt_status(), Cl.dflt_sigils(), Cl.dflt_strip()}
+
+def pair_cl(pair: Cl.Client & Maybe<&2, Nat>) -> Cl.Client:
+  match pair:
+    case (+cl, _): cl
+
+def open_ascii(+cl: Cl.Client, +name: String) -> Cl.Client:
+  pair_cl(Cl.buf_get_with(cl, ascii_isc(), name, True{}, True{}))
+
+def twin_channels() -> Cl.Client:
+  open_ascii(open_ascii(Cl.init("me", "s"), "#x["), "#x{")
+
+def idx_of(got: Maybe<&2, Nat>) -> Nat:
+  match got:
+    case None{}: 0n
+    case Some{+i}: i
+
+def focus_name(+cl: Cl.Client, +name: String) -> Cl.Client:
+  Cl.set_active(cl, idx_of(Cl.buf_find_cm(cl, "ascii", name)))
+
+def with_unread(+cl: Cl.Client, +name: String) -> Cl.Client:
+  Cl.set_settings(cl, Cl.set_unreads(Cl.get_settings(cl), Cl.Alert{name, Cl.Activity{}} <> Nil{}))
+
+def unread_ascii(+cl: Cl.Client, +name: String) -> U32:
+  Cl.buf_unread_status_cm("ascii", Cl.settings_unreads(Cl.get_settings(cl)), name)
+
+def has_buf(got: Maybe<&2, Nat>) -> Bool:
+  match got:
+    case None{}: False{}
+    case Some{_}: True{}
+
+def nick_focus_after() -> Cl.Client:
+  Feed.feed_with(with_unread(focus_name(twin_channels(), "#x["), "#x{"), ascii_isc(), ":bob!u@h NICK carol")
+
+def ascii_nick_focus() -> IO(Unit):
+  +after = nick_focus_after()
+  do IO<Unit>:
+    Unit <- E.must_eq("ascii nick focus stays on bracket", Cl.active_buf_name(after), "#x[")
+    Unit <- E.must("ascii nick focus keeps brace unread", U32.is_eq(unread_ascii(after, "#x{"), 1))
+    IO.pure(Unit, Unit{})
+
+def part_feed_after() -> Cl.Client:
+  Feed.feed_with(with_unread(twin_channels(), "#x{"), ascii_isc(), ":me!u@h PART #x[")
+
+def ascii_part_feed() -> IO(Unit):
+  +after = part_feed_after()
+  do IO<Unit>:
+    Unit <- E.must("ascii self-part drops bracket", Bool.not(has_buf(Cl.buf_find_cm(after, "ascii", "#x["))))
+    Unit <- E.must("ascii self-part keeps brace", has_buf(Cl.buf_find_cm(after, "ascii", "#x{")))
+    Unit <- E.must("ascii self-part keeps brace unread", U32.is_eq(unread_ascii(after, "#x{"), 1))
+    IO.pure(Unit, Unit{})
+
 def view_structure() -> IO(Unit):
   +base = Feed.feed(Feed.feed(Cl.init("me", "s"), ":a!u@h PRIVMSG me :hi"), ":b!u@h PRIVMSG me :hi")
   +closed = Cl.drop_buf(base, 2n)
@@ -97,5 +151,7 @@ def main() -> IO(Unit):
     Unit <- nick_roster()
     Unit <- caller_channel_bit()
     Unit <- ascii_focus()
+    Unit <- ascii_nick_focus()
+    Unit <- ascii_part_feed()
     Unit <- view_structure()
     IO.print("buffer_spines=ok")

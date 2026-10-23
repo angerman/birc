@@ -151,7 +151,7 @@ def fold_step.got(+cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: Str
 # instead of fixed defaults.
 def fold_step.normal_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +stamp: Maybe<&2, String>) -> FoldAcc:
   +cl2 = Feed.feed_at_with(cl, isc, h, stamp)
-  FoldAcc{cl2, List.append(&2, String, Irc.nick433_for(h, Cl.nick_of(cl)), pongs), now_ms}
+  FoldAcc{cl2, List.append(&2, String, Irc.nick433_for_cm(Cl.iso_cm(isc), h, Cl.nick_of(cl)), pongs), now_ms}
 
 def fold_step.lag_rtt.on_at_with(+isc: Cl.Iso, +cl: Cl.Client, pongs: List<&2, String>, +now_ms: U32, +h: String, +sent: U32, ok: Bool, +stamp: Maybe<&2, String>) -> FoldAcc:
   match ok:
@@ -2725,8 +2725,8 @@ def split_apply.open.got(
         case False{}:
           (Sub.echo_err(cl2, "split target must name another open buffer: " ++ target), "", Cont{Nil{}}, previous)
 
-def split_apply.open(+cl: Cl.Client, previous: Sp.State, +axis: Sp.Axis, +target: String) -> Cl.Client & String & NetCmd & Sp.State:
-  split_apply.open.got(Sp.activate(cl, axis, target), previous, axis, target)
+def split_apply.open(+cm: String, +cl: Cl.Client, previous: Sp.State, +axis: Sp.Axis, +target: String) -> Cl.Client & String & NetCmd & Sp.State:
+  split_apply.open.got(Sp.activate_cm(cm, cl, axis, target), previous, axis, target)
 
 def split_apply.focus.got(pair: Cl.Client & Sp.State) -> Cl.Client & String & NetCmd & Sp.State:
   match pair:
@@ -2750,7 +2750,7 @@ def split_apply(+cm: String, +cl: Cl.Client, split: Sp.State, cmd: Sp.Command) -
     case Sp.BadSplit{}:
       (Sub.echo_err(cl, "usage: /split [horizontal|vertical] [buffer]"), "", Cont{Nil{}}, split)
     case Sp.SplitOpen{axis, +target}:
-      split_apply.open(cl, split, axis, target)
+      split_apply.open(cm, cl, split, axis, target)
     case Sp.SplitClose{}:
       (Sub.echo_info(cl, "split view closed"), "", Cont{Nil{}}, Sp.Off{})
     case Sp.SplitFocus{}:
@@ -3724,47 +3724,47 @@ def multiline_sensitive.go(+iso: Isupport.State, +lines: List<&2, String>, +cl: 
 def hist_after_typed(+hist: Hist, +cl: Cl.Client, +target: String, +typed: String, +iso: Isupport.State) -> Hist:
   hist_after_enter(hist, typed, Bool.not(multiline_sensitive.go(iso, Drafts.nonempty(Drafts.split_lines(typed)), cl, target) || Sub.input_sensitive_iso(iso, cl, typed)))
 
-def multiline_held.triple.r1(rest: String & NetCmd, +cl_err: Cl.Client, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_held.triple.r1(+cm: String, rest: String & NetCmd, +cl_err: Cl.Client, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
   match rest:
-    case (_, _): (cl_err, typed, Cont{Nil{}}, Sp.follow_active(cl_err, split))
+    case (_, _): (cl_err, typed, Cont{Nil{}}, Sp.follow_active_cm(cm, cl_err, split))
 
-def multiline_held.triple(triple: Cl.Client & String & NetCmd, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_held.triple(+cm: String, triple: Cl.Client & String & NetCmd, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
   match triple:
-    case (+cl_err, rest): multiline_held.triple.r1(rest, cl_err, split, typed)
+    case (+cl_err, rest): multiline_held.triple.r1(cm, rest, cl_err, split, typed)
 
-def multiline_held(+cl: Cl.Client, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
-  multiline_held.triple(hold_offline(cl), split, typed)
+def multiline_held(+cm: String, +cl: Cl.Client, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
+  multiline_held.triple(cm, hold_offline(cl), split, typed)
 
-def multiline_quad.empty(+cl2: Cl.Client, +outs: List<&2, String>, split: Sp.State, +typed: String, empty: Bool) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_quad.empty(+cm: String, +cl2: Cl.Client, +outs: List<&2, String>, split: Sp.State, +typed: String, empty: Bool) -> Cl.Client & String & NetCmd & Sp.State:
   match empty:
-    case True{}: (cl2, typed, Cont{outs}, Sp.follow_active(cl2, split))
-    case False{}: (cl2, "", Cont{outs}, Sp.follow_active(cl2, split))
+    case True{}: (cl2, typed, Cont{outs}, Sp.follow_active_cm(cm, cl2, split))
+    case False{}: (cl2, "", Cont{outs}, Sp.follow_active_cm(cm, cl2, split))
 
-def multiline_quad.outs(+cl2: Cl.Client, +outs: List<&2, String>, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_quad.outs(+cm: String, +cl2: Cl.Client, +outs: List<&2, String>, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
   +empty = List.is_empty(&2, String, outs)
-  multiline_quad.empty(cl2, outs, split, typed, empty)
+  multiline_quad.empty(cm, cl2, outs, split, typed, empty)
 
-def multiline_quad.pair(pair: Cl.Client & List<&2, String>, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_quad.pair(+cm: String, pair: Cl.Client & List<&2, String>, split: Sp.State, +typed: String) -> Cl.Client & String & NetCmd & Sp.State:
   match pair:
     case (cl2, outs):
-      multiline_quad.outs(cl2, outs, split, typed)
+      multiline_quad.outs(cm, cl2, outs, split, typed)
 
-def multiline_quad_echo.gated(+cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, admits: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
+def multiline_quad_echo.gated(+cm: String, +cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, admits: Bool, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
   match admits:
     case True{}:
       +bi = Cl.active_of(cl)
-      multiline_quad.pair(Drafts.submit_lines_echo(cl, bi, Sp.name_at(cl, bi), typed, False{}, echo_ok), split, typed)
+      multiline_quad.pair(cm, Drafts.submit_lines_echo(cl, bi, Sp.name_at(cl, bi), typed, False{}, echo_ok), split, typed)
     case False{}:
-      multiline_held(cl, split, typed)
+      multiline_held(cm, cl, split, typed)
 
-def multiline_quad.gated(+cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, admits: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  multiline_quad_echo.gated(cl, split, typed, net, admits, False{})
+def multiline_quad.gated(+cm: String, +cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, admits: Bool) -> Cl.Client & String & NetCmd & Sp.State:
+  multiline_quad_echo.gated(cm, cl, split, typed, net, admits, False{})
 
-def multiline_quad_echo(+cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
-  multiline_quad_echo.gated(cl, split, typed, net, can_send(net), echo_ok)
+def multiline_quad_echo(+cm: String, +cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState, +echo_ok: Bool) -> Cl.Client & String & NetCmd & Sp.State:
+  multiline_quad_echo.gated(cm, cl, split, typed, net, can_send(net), echo_ok)
 
-def multiline_quad(+cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState) -> Cl.Client & String & NetCmd & Sp.State:
-  multiline_quad_echo(cl, split, typed, net, False{})
+def multiline_quad(+cm: String, +cl: Cl.Client, split: Sp.State, +typed: String, +net: NetState) -> Cl.Client & String & NetCmd & Sp.State:
+  multiline_quad_echo(cm, cl, split, typed, net, False{})
 
 # Shared completion for explicitly supplied history + submit quads.
 # Separate frame finishing from command hooks so multiline production can
@@ -3885,7 +3885,7 @@ def step_keys.ordinary_route(route: Drafts.Route, +st: Session, +keys: Keys, +ty
       +cl = session_cl(st)
       +bi = Cl.active_of(cl)
       +hist2 = hist_after_typed(session_hist(st), cl, Sp.name_at(cl, bi), typed, session_iso(st))
-      trip = step_keys.supplied_finish(st, keys, hist2, multiline_quad_echo(cl, session_split(st), typed, session_net(st), session_echo_ok(st)))
+      trip = step_keys.supplied_finish(st, keys, hist2, multiline_quad_echo(session_cm(st), cl, session_split(st), typed, session_net(st), session_echo_ok(st)))
       step_keys.supplied_hooks(st, keys_without_enter(keys), step_keys.multiline_done(trip))
     case _: step_keys.normal(st, keys, input)
 
@@ -4096,7 +4096,7 @@ def live_step.flushed(fed: FoldAcc, typing: Ty.State, flushed: JoinPlan.Flush, +
     case FoldAcc{+cl, reversed, now_ms}:
       match flushed:
         case JoinPlan.Flush{plan, outs, notice}:
-          LiveAcc{FoldAcc{join_notice(cl, notice), List.append(&2, String, List.reverse(&2, String, outs), reversed), now_ms}, Ty.retain_client(typing, cl), plan, iso, hl, reg, renames}
+          LiveAcc{FoldAcc{join_notice(cl, notice), List.append(&2, String, List.reverse(&2, String, outs), reversed), now_ms}, Ty.retain_client_cm(Isupport.casemapping(iso), typing, cl), plan, iso, hl, reg, renames}
 
 def live_step.fed(+fed: FoldAcc, typing: Ty.State, plan: JoinPlan.State, +iso: Isupport.State, +hl: Hs.HistLive, +reg: CapNotify.Reg, +renames: List<&2, Drafts.NickRename>) -> LiveAcc:
   match fed:
@@ -4113,6 +4113,13 @@ def live_step.fed_with(+cm: String, +fed: FoldAcc, typing: Ty.State, plan: JoinP
   match fed:
     case FoldAcc{+cl, _, _}: live_step.flushed_with(cm, fed, typing, JoinPlan.flush_iso(plan, cl, iso), iso, hl, reg, renames)
 
+# 433/437 is not dynamic. Only that numeric takes the negotiated fold here;
+# every other line on this arm stays on the fixed fold.
+def live_step.registered.fold(is433: Bool, +isc: Cl.Iso, +cl: Cl.Client, reversed: List<&2, String>, +now_ms: U32, +line: String, stamp: Maybe<&2, String>, +port: U32) -> FoldAcc:
+  match is433:
+    case True{}: fold_step.got_at_with(isc, cl, reversed, now_ms, line, stamp, port)
+    case False{}: fold_step.got_at(cl, reversed, now_ms, line, stamp, port)
+
 # Keep the original wire text for protocol/authentication/membership policy.
 # A local timestamp override affects only the display/history feed.
 # Admitted live lines rename split panes in the fold, exactly once and in
@@ -4124,7 +4131,7 @@ def live_step.registered(registered: Maybe<&2, Cl.Client>, acc: LiveAcc, +line: 
     case Some{+cl}:
       match acc:
         case LiveAcc{FoldAcc{_, reversed, +now_ms}, typing, plan, +iso, +hl, +reg, +renames}:
-          live_step.fed(fold_step.got_at(cl, reversed, now_ms, line, stamp, port),
+          live_step.fed(live_step.registered.fold(Irc.line_is_433(line), Isupport.as_iso(iso), cl, reversed, now_ms, line, stamp, port),
             Ty.apply_line_for(typing, cl, line, now_ms), JoinPlan.received(plan, cl, line), iso, hl,
             CapNotify.reg_on_line(reg, Cl.server_of(cl), Cl.nick_of(cl), line, welcomed), renames)
 
@@ -4423,7 +4430,7 @@ def step_chunk_got(
 ) -> Session & List<&2, String> & List<&2, Drafts.NickRename>:
   match got:
     case LiveAcc{FoldAcc{+cl2, reversed, _}, typing, +plan, +iso, +hl, +reg, +renames}:
-      +typing2 = Ty.retain_client(typing, cl2)
+      +typing2 = Ty.retain_client_cm(Isupport.casemapping(iso), typing, cl2)
       (Session{cl2, drop, rem, draft, JoinPlan.sent(plan), chan, net, hist, size, seed, comp, Sp.normalize_cm(Isupport.casemapping(iso), cl2, split), typing2, port, [media], plan, edits, [iso], [hl], [C.Retained{cards, full}], [reg], theme, labelsbox, pends}, List.reverse(&2, String, reversed), List.reverse(&2, Drafts.NickRename, renames))
 
 def step_chunk_got.folded(

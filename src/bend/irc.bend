@@ -1358,8 +1358,11 @@ def is_433_msg(+m: Message) -> Bool:
     case Message{_, _, _, +num, _}:
       is_433_num(num)
 
+def nick433_retry_cm(+cm: String, +m: Message, +nick: String) -> Bool:
+  is_433_msg(m) && String.eq(fold_casemap(cm, msg_param(m, 1n)), fold_casemap(cm, nick))
+
 def nick433_retry(+m: Message, +nick: String) -> Bool:
-  is_433_msg(m) && ieq(msg_param(m, 1n), nick)
+  nick433_retry_cm("rfc1459", m, nick)
 
 def nick433_for.hit(+nick: String, hit: Bool) -> List<&2, String>:
   match hit:
@@ -1368,15 +1371,24 @@ def nick433_for.hit(+nick: String, hit: Bool) -> List<&2, String>:
     case True{}:
       format_nick(nick ++ "_") <> Nil{}
 
-def nick433_for.got(m: Maybe<&2, Message>, +nick: String) -> List<&2, String>:
+def nick433_for.got_cm(+cm: String, m: Maybe<&2, Message>, +nick: String) -> List<&2, String>:
   match m:
-    case None{}:
-      Nil{}
-    case Some{+msg}:
-      nick433_for.hit(nick, nick433_retry(msg, nick))
+    case None{}: Nil{}
+    case Some{+msg}: nick433_for.hit(nick, nick433_retry_cm(cm, msg, nick))
+
+def nick433_for_cm(+cm: String, +line: String, +nick: String) -> List<&2, String>:
+  nick433_for.got_cm(cm, parse(line), nick)
 
 def nick433_for(+line: String, +nick: String) -> List<&2, String>:
-  nick433_for.got(parse(line), nick)
+  nick433_for_cm("rfc1459", line, nick)
+
+def line_is_433.got(m: Maybe<&2, Message>) -> Bool:
+  match m:
+    case None{}: False{}
+    case Some{+msg}: is_433_msg(msg)
+
+def line_is_433(+line: String) -> Bool:
+  line_is_433.got(parse(line))
 
 def format_cap_req(+caps: String) -> String:
   "CAP REQ :" ++ caps
