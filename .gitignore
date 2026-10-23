@@ -9,5 +9,6 @@ __pycache__/
 .muse/
 /.muse/worktrees/
 scratch/
+handover-recovery/
 *.orig
 *.rej

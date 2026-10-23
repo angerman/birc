@@ -232,10 +232,9 @@
 
 ## Resolved
 
-Recorded here so the open items above stay the work list. These cleanups
-were not performed.
+Recorded here so the open items above stay the work list.
 
-- Do not delete `handover-recovery/`. It is tracked (220 files), so a
-  gitignore line would not hide it. Deletion is the author's call.
+- `handover-recovery/` and `docs/handoff/` were removed from history.
+  The recovery scratch directory is gitignored.
 - Do not prune `.muse/` worktrees. That is the author's call. `.muse/`
   is now ignored for untracked files.
